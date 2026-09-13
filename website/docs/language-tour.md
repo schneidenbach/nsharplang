@@ -1466,7 +1466,7 @@ inside the block, and releases it when the block ends. Add an annotation when th
 not the one you want — `using reader: TextReader = new StreamReader(path) { … }` — following the
 ordinary variable rule: `:=` infers the type, `=` names it. (`using reader: TextReader := …` is
 accepted too, and `nlc format` rewrites it to `=`.) A redundant `let` is accepted —
-`using let reader := …` — and means the same thing.
+`using let reader := …` — and means the same thing (`nlc format` drops it).
 
 **Bind to the rest of the enclosing block.** Leave the block off and the resource is released at the
 end of the **enclosing** block, in reverse declaration order. It is the shape that keeps deeply

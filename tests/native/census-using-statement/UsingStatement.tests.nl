@@ -141,6 +141,21 @@ test "await using releases through IAsyncDisposable" {
     assert log[0] == "async"
 }
 
+test "break and continue out of a using both leave through the handler" {
+    breakLog := new List<string>()
+    assert BreaksOutOfUsing(breakLog) == 1
+    assert breakLog.Count == 2
+    assert breakLog[0] == "0"
+    assert breakLog[1] == "1"
+
+    continueLog := new List<string>()
+    assert ContinuesOutOfUsing(continueLog) == 2
+    assert continueLog.Count == 3
+    assert continueLog[0] == "c0"
+    assert continueLog[1] == "c1"
+    assert continueLog[2] == "c2"
+}
+
 test "writing THROUGH the resource stays legal — only rebinding the name is refused" {
     log := new List<string>()
     assert WritesThroughTheResource(log) == 3

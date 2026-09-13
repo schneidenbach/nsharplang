@@ -81,7 +81,7 @@ func InferredBinding(log: List<string>): string {
 }
 
 func AnnotatedBinding(log: List<string>): string {
-    using resource: LoggedResource := new LoggedResource(log, "annotated") {
+    using resource: LoggedResource = new LoggedResource(log, "annotated") {
         return resource.Name
     }
 }
@@ -244,6 +244,39 @@ async func AsyncUsingResource(log: List<string>): Task<int> {
     }
 
     return result
+}
+
+// ---- leaving the region sideways ----
+
+// `break` and `continue` cross the region boundary, so both leave through the handler: the release
+// runs on every one of the three ways out of a `using` inside a loop.
+func BreaksOutOfUsing(log: List<string>): int {
+    total := 0
+    for i := 0; i < 3; i++ {
+        using resource := new LoggedResource(log, i.ToString()) {
+            total = total + i
+            if i == 1 {
+                break
+            }
+        }
+    }
+
+    return total
+}
+
+func ContinuesOutOfUsing(log: List<string>): int {
+    total := 0
+    for i := 0; i < 3; i++ {
+        using resource := new LoggedResource(log, "c" + i.ToString()) {
+            if i == 1 {
+                continue
+            }
+
+            total = total + i
+        }
+    }
+
+    return total
 }
 
 // ---- the resource is read-only, and that is checked at the front door, not here ----
