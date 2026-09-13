@@ -833,3 +833,78 @@ test "a metadata-context CLOSE hands the arm a null well-known bag without rebui
 
     assert replacement.GetBindingAt(harness.Sink.CurrentFilePath, 4, 2) != null
 }
+
+// ---- one nullable surface, whatever the element is -----------------------------------------------
+
+func MemberSampleStruct(name: string): StructTypeInfo {
+    return new StructTypeInfo(name, 2, 1, new TypeReference[](0), new TypeParameter[](0), new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0))
+}
+
+test "whether `T?` has `Nullable<T>`'s surface is decided by whether T is a VALUE type" {
+    harness := MemberArmOf()
+
+    // The CLR answers for a type it has a handle for.
+    assert harness.Arm.IsLiftedValueReceiver(BuiltInTypes.Int)
+    assert !harness.Arm.IsLiftedValueReceiver(BuiltInTypes.String)
+
+    // A type THIS COMPILATION declares has no handle yet, so the declaration answers. A class is
+    // not a value, and `unknown` is not one either — reading it as one would give a surface to a
+    // receiver whose type nobody knows.
+    assert harness.Arm.IsLiftedValueReceiver(MemberSampleStruct("Money"))
+    assert !harness.Arm.IsLiftedValueReceiver(MemberSampleClass("Markup"))
+    assert !harness.Arm.IsLiftedValueReceiver(BuiltInTypes.Unknown)
+}
+
+test "`Nullable<T>`'s own members are read off the DEFINITION when T has no CLR handle" {
+    harness := MemberArmOf()
+    money := MemberSampleStruct("Money")
+
+    // `GetValueOrDefault` is `Nullable<T>`'s, not `Money`'s, and `Money` is a type this compilation
+    // is emitting — so there is no closed `Nullable<Money>` to read it off. Before the definition
+    // arm, the name fell through to the UNWRAPPED receiver and reported NL303 "Member
+    // 'GetValueOrDefault' not found on type 'Money'".
+    resolved: TypeInfo = BuiltInTypes.Unknown
+    assert harness.Arm.TryResolveOpenNullableDefinitionMember(money, "GetValueOrDefault", out resolved)
+
+    group := resolved as NSharpMethodGroupInfo
+    assert group != null
+    functions := NSharpMethodGroupInfoFactory.GetFunctions(group)
+
+    // BOTH overloads come back, because the definition declares both — no name list decided that.
+    assert functions.Count == 2
+    zeroArity := 0
+    oneArity := 0
+    index := 0
+    while index < functions.Count {
+        signature := functions[index]
+        index = index + 1
+        parameterTypes := signature.ParameterTypes
+        assert parameterTypes != null
+
+        // EVERY POSITION IS SUBSTITUTED: the return is a `Money`, and so is the one-argument
+        // overload's fallback.
+        assert MemberTypeName(signature.ReturnType) == "<other>"
+        returnStruct := signature.ReturnType as StructTypeInfo
+        assert returnStruct != null && returnStruct.Name == "Money"
+
+        if parameterTypes.Count == 0 {
+            zeroArity = zeroArity + 1
+        } else {
+            oneArity = oneArity + 1
+            fallbackStruct := parameterTypes[0] as StructTypeInfo
+            assert fallbackStruct != null && fallbackStruct.Name == "Money"
+        }
+    }
+
+    assert zeroArity == 1
+    assert oneArity == 1
+
+    // A PROPERTY THE DEFINITION DECLARES ANSWERS TOO, and a name it does not declare answers not
+    // at all rather than guessing.
+    hasValue: TypeInfo = BuiltInTypes.Unknown
+    assert harness.Arm.TryResolveOpenNullableDefinitionMember(money, "HasValue", out hasValue)
+    assert MemberTypeName(hasValue) == "simple:bool"
+
+    missing: TypeInfo = BuiltInTypes.Unknown
+    assert !harness.Arm.TryResolveOpenNullableDefinitionMember(money, "Nonesuch", out missing)
+}
