@@ -705,6 +705,17 @@ whatever type parameter stands in the delegate's return position:
 words.Select(word => word.Length)
 ```
 
+A lambda's result fixes the type parameter through whatever the result's type actually **is** — its
+interfaces and its base chain included, and whether the type was declared in your project or read out
+of a referenced assembly. A `List<TextEdit>` reaches a `Func<T, IEnumerable<TResult>>` because a
+`List<T>` is an `IEnumerable<T>`:
+
+```n#
+// `Edits` may be a `List<TextEdit>`, an `IReadOnlyList<TextEdit>` or a referenced assembly's own
+// collection; `TResult` is `TextEdit` either way.
+allEdits := actions.SelectMany(action => action.Edits).ToList()
+```
+
 The two phases repeat until nothing changes, so one lambda may fix a type parameter that a later
 lambda's parameters depend on. Each lambda folds into **its own** position — two lambdas fix two
 different type parameters:
@@ -768,6 +779,22 @@ When the name has **several overloads**, the delegate the position wants picks o
 applicable method converts, and two is an ambiguity rather than a choice. A group whose parameter
 admits more than the delegate's does still converts — a `func Format(name: string?)` is a
 `Func<string, string?>`, because a parameter that admits null admits everything a non-null one does.
+
+This works even when the delegate's **return** position is one of the things still being inferred.
+The group's overloads are filtered by the delegate's input types — which the earlier arguments and
+the receiver have already fixed — and the one survivor's return type is what the type parameter
+takes:
+
+```n#
+class Widen {
+    static func Of(value: int): long => value * 10
+    static func Of(value: string): long => value.Length
+
+    // `TSource` is `int` from the receiver, so `Of(int)` is the overload; its `long` return
+    // is what makes the call a `long[]`.
+    static func Longs(values: int[]): long[] => values.Select(Of).ToArray()
+}
+```
 
 ### When two arguments disagree only about `?`
 

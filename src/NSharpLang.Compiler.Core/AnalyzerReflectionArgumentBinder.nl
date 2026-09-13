@@ -1073,17 +1073,51 @@ class AnalyzerReflectionArgumentBinder {
         PopulateTypeInfoBindingsFromType(effectiveOpenType, sourceType, typeInfoBindings)
 
         sourceGeneric := sourceType as GenericTypeInfo
-        if sourceGeneric == null {
+        if sourceGeneric != null {
+            openName := StripGenericArity(effectiveOpenType.get_Name())
+            openArguments := effectiveOpenType.GetGenericArguments()
+            if AnalyzerOverloadFacts.GenericNamesMatch(openName, sourceGeneric.Name) && openArguments.Length == sourceGeneric.TypeArguments.Count {
+                index := 0
+                while index < openArguments.Length {
+                    PopulateReflectionBindingsFromTypeInfo(openArguments[index], sourceGeneric.TypeArguments[index], bindings, typeInfoBindings)
+                    index = index + 1
+                }
+
+                return
+            }
+        }
+
+        // THE CLR SHAPE ANSWERS WHERE THE N# SPELLING CANNOT.
+        //
+        // The walk above descends into the source type's N# TYPE ARGUMENTS, which only a
+        // `GenericTypeInfo` carries. A member read off a REFLECTED type does not have one — it is a
+        // `ReflectionTypeInfo` wrapping the CLR type whole — so `safeActions.SelectMany(f => f.Edits)`
+        // over a reflected `List<TextEdit>` member fixed NOTHING for `TResult` and reported NL402,
+        // while the identical member declared in source fixed it. The same hole swallowed every
+        // source spelling whose generic NAME differs from the parameter's (`List<T>` met by
+        // `IEnumerable<T>`), which is the ordinary way a sequence reaches a sequence parameter.
+        //
+        // The reflected type is a complete shape in its own right, and the parameter-match walk is
+        // exactly the reading that traces it through its interfaces and base chain. It runs on a
+        // TRIAL copy for the same reason the params-tail decision does: a walk that fails part way
+        // through must leave no inference behind.
+        sourceClrType := clrTypeConversion.TryConvertTypeInfoToClrType(sourceType)
+        if sourceClrType == null {
+            sourceClrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(sourceType)
+        }
+
+        if sourceClrType == null {
             return
         }
 
-        openName := StripGenericArity(effectiveOpenType.get_Name())
-        openArguments := effectiveOpenType.GetGenericArguments()
-        if AnalyzerOverloadFacts.GenericNamesMatch(openName, sourceGeneric.Name) && openArguments.Length == sourceGeneric.TypeArguments.Count {
-            index := 0
-            while index < openArguments.Length {
-                PopulateReflectionBindingsFromTypeInfo(openArguments[index], sourceGeneric.TypeArguments[index], bindings, typeInfoBindings)
-                index = index + 1
+        trialBindings := CopyBindings(bindings)
+        if !AnalyzerOverloadFacts.TryMatchReflectionParameter(effectiveOpenType, sourceClrType, trialBindings) {
+            return
+        }
+
+        for inferred in trialBindings {
+            if !bindings.ContainsKey(inferred.Key) {
+                bindings[inferred.Key] = inferred.Value
             }
         }
     }

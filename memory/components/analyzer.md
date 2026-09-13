@@ -1577,6 +1577,29 @@ delegate's RETURN position, repeating while anything moves.
 - `unknown` contributes NO binding (`PopulateReflectionBindingsFromTypeInfo` returns immediately).
   It is the analyzer's answer for an expression it could not type, and recording it closed the method
   over a type the program never wrote.
+- A LAMBDA'S RESULT IS READ THROUGH ITS CLR SHAPE WHEN THE N# SPELLING CANNOT ANSWER (census wave 7,
+  LAMBDA3 item 2). `PopulateReflectionBindingsFromTypeInfo` descended only into a `GenericTypeInfo`'s
+  own type arguments, and only when its NAME matched the parameter's definition. A member read off a
+  REFLECTED type carries a `ReflectionTypeInfo` wrapping the CLR type whole, so
+  `safeActions.SelectMany(f => f.Edits)` over a reflected `List<TextEdit>` member fixed nothing for
+  `TResult` (NL402 at nine converted sites) while the identical member declared in source fixed it.
+  The walk now falls through to `AnalyzerOverloadFacts.TryMatchReflectionParameter` over the source
+  type's CLR form, on a TRIAL copy of the bindings merged only on success — the same reading every
+  non-lambda argument already gets, which is what traces `List<T>` to `IEnumerable<T>` through its
+  interface list.
+- AN OVERLOADED METHOD GROUP AT A POSITION WHOSE OUTPUT TYPE PARAMETER IS STILL OPEN IS A PHASE-TWO
+  ARGUMENT, NOT A PHASE-ONE ONE (census wave 7, LAMBDA3 item 4). A name with several overloads
+  carries no single signature, and `ColumnarIlEmitter.TryRunContextualInference` marked the position
+  SETTLED anyway, so the delegate's return position stayed open and the whole call declined
+  (`emit.call.instance-member-unmodeled`): one `Widen` emitted and two declined. Phase one now leaves
+  such a position for phase two, and phase two's new first arm is C#'s output type inference FROM a
+  method group (§12.6.3.6) — `TryGetMethodGroupSignatureForInputs` filters the candidates by the
+  now-fixed INPUT types alone (`ParameterTypesMatchDelegate`, the return-free half of
+  `SignatureMatchesDelegate`) and folds the unique survivor's return type in. Two survivors and none
+  both decline. STILL OPEN: a group with two ARITIES (`Of(int)` and `Of(int, int)`) makes BOTH
+  `Enumerable.Select` overloads close, so the emitter declines where C# reports CS0121 — the analyzer
+  silently picks one, so the two disagree and the user sees NL103 rather than an ambiguity
+  diagnostic.
 - A TYPE CLOSED OVER A TYPE THE COMPILATION IS WRITING cannot be asked about itself, and three
   separate readings had to learn that. `List<Query>` for a source class `Query` is a
   `TypeBuilderInstantiation` whose `GetInterfaces` throws; `Query[]` is an array over a `TypeBuilder`

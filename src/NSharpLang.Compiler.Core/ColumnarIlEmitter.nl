@@ -19697,6 +19697,16 @@ sealed class ColumnarIlEmitter {
                 resolved[a] = true
                 continue
             }
+
+            // AN OVERLOADED METHOD GROUP HAS NO SINGLE SIGNATURE TO FOLD, so it is left to phase two
+            // exactly as a lambda is — its overload is chosen by the delegate's INPUT types, which
+            // phase one is still fixing. It must not be marked resolved here: it has contributed
+            // nothing, and calling it settled left the delegate's return position open forever, which
+            // is why `values.Select(Widen)` with two `Widen` overloads declined while one emitted.
+            let overloadedCandidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+            if (ColumnarContextualExtensionInference.IsDelegatePosition(binding, a) && TryGetEnclosingMethodGroupCandidates(argNode, out overloadedCandidates)) {
+                continue
+            }
             let argType: System.Type? = null
             if (TryGetPreflightExpressionType(argNode, out argType) && !ColumnarContextualExtensionInference.TryUnifyArgument(binding, a, argType)) {
                 return false
@@ -19716,6 +19726,21 @@ sealed class ColumnarIlEmitter {
                 if (!ColumnarContextualExtensionInference.TryGetLambdaInputTypes(binding, a, out inputTypes)) {
                     continue
                 }
+
+                // AN OVERLOADED METHOD GROUP RESOLVES HERE, not in phase one: the inputs that pick
+                // its overload are exactly what phase one has just finished fixing, and the overload's
+                // return is then an ordinary output inference.
+                let selectedGroupParameterTypes: System.Type[]? = null
+                let selectedGroupReturnType: System.Type? = null
+                if (TryGetMethodGroupSignatureForInputs(argNode, inputTypes, out selectedGroupParameterTypes, out selectedGroupReturnType)) {
+                    if (!ColumnarContextualExtensionInference.TryUnifyMethodGroup(binding, a, selectedGroupParameterTypes, selectedGroupReturnType)) {
+                        return false
+                    }
+                    resolved[a] = true
+                    progress = true
+                    continue
+                }
+
                 if (_nodes.ChildCount(argNode) - 1 != inputTypes.Length) {
                     return false
                 }
@@ -19823,13 +19848,7 @@ sealed class ColumnarIlEmitter {
     // resolution owns everything else, so the contextual walk never runs when it has nothing to add.
     private func HasContextualDelegateArgument(callIdx: int, argCount: int): bool {
         for a := 0; a < argCount; a++ {
-            argNode := UnwrapParenthesizedNode(Child(callIdx, 1 + a))
-            if (_nodes.Kind(argNode) == 39) {
-                return true
-            }
-            let groupParameterTypes: System.Type[]? = null
-            let groupReturnType: System.Type? = null
-            if (TryGetMethodGroupSignature(argNode, out groupParameterTypes, out groupReturnType)) {
+            if (IsContextualDelegateValueNode(Child(callIdx, 1 + a))) {
                 return true
             }
         }
@@ -21923,7 +21942,14 @@ sealed class ColumnarIlEmitter {
     }
 
     private static func SignatureMatchesDelegate(parameterTypes: Type[], returnType: Type, delegateReturnType: Type, delegateParamTypes: Type[]): bool {
-        if (!TypesEquivalent(returnType, delegateReturnType) || parameterTypes.Length != delegateParamTypes.Length) {
+        return TypesEquivalent(returnType, delegateReturnType) && ParameterTypesMatchDelegate(parameterTypes, delegateParamTypes)
+    }
+
+    // A CANDIDATE'S PARAMETER LIST AGAINST A DELEGATE'S, WITHOUT ASKING ABOUT THE RETURN. An output
+    // type inference made FROM a method group has not decided the return position yet — that is what
+    // it is deciding — so the inputs are the whole question at that moment.
+    private static func ParameterTypesMatchDelegate(parameterTypes: Type[], delegateParamTypes: Type[]): bool {
+        if (parameterTypes.Length != delegateParamTypes.Length) {
             return false
         }
         for p := 0; p < delegateParamTypes.Length; p++ {
@@ -21931,6 +21957,40 @@ sealed class ColumnarIlEmitter {
                 return false
             }
         }
+        return true
+    }
+
+    // THE OVERLOAD AN OUTPUT INFERENCE SELECTS, ONCE THE DELEGATE'S INPUTS ARE FIXED.
+    //
+    // A name with several overloads carries no single signature, so phase one cannot fold it — and
+    // until now that left the whole call unresolved: `values.Select(Widen)` with two `Widen`
+    // overloads declined at emit while one `Widen` emitted. C# makes an OUTPUT type inference from a
+    // method group at exactly this point (ECMA-334 §12.6.3.6): the group's candidates are filtered by
+    // the now-fixed input types alone, and the unique survivor's RETURN type is what folds into the
+    // delegate's return position. Two survivors is an ambiguity and none is not a conversion; both
+    // decline rather than choose.
+    private func TryGetMethodGroupSignatureForInputs(argNode: int, inputTypes: Type[], out parameterTypes: Type[], out returnType: Type): bool {
+        parameterTypes = Type.EmptyTypes
+        returnType = null
+        let candidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+        if (!TryGetEnclosingMethodGroupCandidates(argNode, out candidates)) {
+            return false
+        }
+        let selected: NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate? = null
+        for candidate in candidates {
+            if (!ParameterTypesMatchDelegate(candidate.ParamTypes, inputTypes)) {
+                continue
+            }
+            if (selected != null) {
+                return false
+            }
+            selected = candidate
+        }
+        if (selected == null) {
+            return false
+        }
+        parameterTypes = selected.ParamTypes
+        returnType = selected.ReturnType
         return true
     }
 
