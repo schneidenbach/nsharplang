@@ -122,9 +122,11 @@ test "the four buffer heads are admitted at byte and at no other element" {
     assert ColumnarTypeOfPlanner.IsSupportedType(arrayPoolInt)
 }
 
-// `Nullable<T>` is admissible exactly when T is LIFTABLE, and the liftable set is not the same as the
-// supported set: DateTime and Guid are supported values that cannot be lifted, while enums and
-// ValueTuple can.
+// `Nullable<T>` is admissible exactly when T is LIFTABLE, and liftable is now the CLR's own rule for
+// what a `Nullable<T>`'s argument may be: a non-nullable, non-by-ref-like value type. The assertions
+// below read `!IsLiftableNullableElement(DateTime)` and the same for `Guid` until that list became a
+// rule — `DateTime?` and `Guid?` declined at every declared position while `TimeSpan?` beside them
+// emitted, which is not a distinction any reader could hold.
 test "nullable admissibility is exactly the liftable element set" {
     assert ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(int))
     assert ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(uint))
@@ -142,19 +144,24 @@ test "nullable admissibility is exactly the liftable element set" {
     assert ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(TimeSpan))
     assert ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(ColumnarTypeOfProbeEnum))
 
-    // Supported as VALUES, not liftable — and the wrapper follows the element.
+    // EVERY OTHER EXTERNAL STRUCT LIFTS TOO, and the wrapper follows the element.
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.DateTime"))
-    assert !ColumnarTypeOfPlanner.IsLiftableNullableElement(AdmissibilityRuntimeType("System.DateTime"))
-    assert !ColumnarTypeOfPlanner.IsLiftableNullableElement(AdmissibilityRuntimeType("System.Guid"))
+    assert ColumnarTypeOfPlanner.IsLiftableNullableElement(AdmissibilityRuntimeType("System.DateTime"))
+    assert ColumnarTypeOfPlanner.IsLiftableNullableElement(AdmissibilityRuntimeType("System.Guid"))
     assert ColumnarTypeOfPlanner.IsLiftableNullableElement(AdmissibilityRuntimeType("System.DayOfWeek"))
+
+    // A REFERENCE TYPE IS NOT A VALUE, a `Nullable<T>` may not wrap another one, and an OPEN
+    // definition names no argument at all.
     assert !ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(string))
+    assert !ColumnarTypeOfPlanner.IsLiftableNullableElement(AdmissibilityClosed1("System.Nullable`1", typeof(int)))
+    assert !ColumnarTypeOfPlanner.IsLiftableNullableElement(AdmissibilityRuntimeType("System.Nullable`1"))
 
     assert ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", typeof(int)))
     assert ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", typeof(decimal)))
     assert ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", typeof(TimeSpan)))
     assert ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", typeof(ColumnarTypeOfProbeEnum)))
-    assert !ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.DateTime")))
-    assert !ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.Guid")))
+    assert ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.DateTime")))
+    assert ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.Guid")))
     assert ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.DayOfWeek")))
 
     // A tuple element lifts, which is the one recursive arm of the liftable set.
@@ -167,7 +174,7 @@ test "nullable admissibility is exactly the liftable element set" {
     assert !ColumnarTypeOfPlanner.IsSupportedNullable(typeof(int))
     assert !ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityRuntimeType("System.Nullable`1"))
     assert ColumnarTypeOfPlanner.IsSupportedElementType(AdmissibilityClosed1("System.Nullable`1", typeof(int)))
-    assert !ColumnarTypeOfPlanner.IsSupportedElementType(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.DateTime")))
+    assert ColumnarTypeOfPlanner.IsSupportedElementType(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.DateTime")))
 }
 
 // The span element set is NARROWER than the array element set: no string, no object, no handles, no

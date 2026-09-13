@@ -236,8 +236,10 @@ class ColumnarNullableArgumentLowering {
         plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
     }
 
+    // ONE OWNER ANSWERS WHAT A `Nullable<T>`'s ARGUMENT MAY BE. This was a third copy of the same
+    // list, and three copies of a list are three chances to disagree about a type.
     static func IsLiftableNullableElement(valueType: Type): bool {
-        return ColumnarTypeOfPlanner.IsSourceStructNullableElement(valueType) || valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || ColumnarTypeOfPlanner.IsEnumType(valueType) || ColumnarRuntimeInstanceMemberResolver.IsSupportedValueTupleReceiver(valueType)
+        return ColumnarTypeOfPlanner.IsLiftableNullableElement(valueType)
     }
 
     static func ExactTypeShapeMatches(left: Type, right: Type): bool {

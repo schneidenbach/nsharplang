@@ -103,7 +103,11 @@ test "nullable argument lowering classifies only supported target flows" {
     assert ColumnarNullableArgumentLowering.CanAdoptNull(nullableInt)
     assert ColumnarNullableArgumentLowering.CanAdoptNull(nullableEnum)
     assert !ColumnarNullableArgumentLowering.CanAdoptNull(typeof(int))
-    assert !ColumnarNullableArgumentLowering.CanAdoptNull(nullableDateTime)
+
+    // `DateTime?` ADOPTS A NULL LIKE EVERY OTHER LIFTED VALUE. This read `!CanAdoptNull` while the
+    // liftable element set was a list without a `DateTime` row — a distinction `TimeSpan?` beside it
+    // did not share and no reader could hold.
+    assert ColumnarNullableArgumentLowering.CanAdoptNull(nullableDateTime)
     assert ColumnarNullableArgumentLowering.CanAdoptNull(nullableTuple)
     assert ColumnarNullableArgumentLowering.TryGetSupportedNullableElement(nullableInt, out element)
 
@@ -119,6 +123,7 @@ test "nullable argument lowering classifies only supported target flows" {
 
     assert !ColumnarNullableArgumentLowering.CanLiftValue(typeof(string), nullableInt)
     assert ColumnarNullableArgumentLowering.CanLiftValue(tupleType, nullableTuple)
+    assert ColumnarNullableArgumentLowering.CanLiftValue(typeof(DateTime), nullableDateTime)
 }
 
 test "reference null uses one exact schema v3 row and executes as null" {

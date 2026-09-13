@@ -1351,34 +1351,46 @@ class ColumnarTypeOfPlanner {
         return !valueType.get_IsValueType() && IsSupportedCatalogType(valueType)
     }
 
-    // AN ENUM IS LIFTABLE FOR THE SAME REASON ITS UNDERLYING SCALAR IS. `Nullable<T>` is one struct
-    // with one layout whatever T is, and the lifting lowerings — the constructor, `HasValue`, `Value`,
-    // `GetValueOrDefault` — are reflection over the CLOSED construction, not a per-element opcode
-    // table. `SymbolKind?` is what a C#-compiled member spells for an optional enum, and it is the
-    // shape a converted call site passes.
+    // A `Nullable<T>` NEEDS A NON-NULLABLE VALUE `T`, AND THAT IS THE WHOLE QUESTION.
+    //
+    // This used to be a LIST — the integral and floating scalars, `bool`, `char`, `decimal`,
+    // `TimeSpan`, a tuple, an enum, and a struct this compilation declares — each row added when
+    // something needed it. A list is not a rule, and the rows it did not have were the census:
+    // `DateTime?` and `Guid?` declined at every declared position with NL103 while `TimeSpan?` beside
+    // them emitted, and the analyzer's own nullable surface followed the same set, so
+    // `GetValueOrDefault()` on anything off the list reported NL303.
+    //
+    // Nothing in the lowering ever depended on WHICH `T` it was. `Nullable<T>` is one struct with one
+    // layout, and the constructor, `HasValue`, `Value` and `GetValueOrDefault` handles are reflection
+    // over the CLOSED construction — `TypeBuilder.GetMethod` for a construction over a type this
+    // compilation is emitting, `MethodBase.GetMethodFromHandle` for an external one — neither of
+    // which is a per-element opcode table.
+    //
+    // What a `Nullable<T>`'s argument may NOT be is what the CLR says: a by-ref-like struct (it may
+    // not be a field of anything, so it may not be a `Nullable`'s either), an open generic
+    // definition, and another `Nullable<T>` — C# has no `int??` and neither does the CLR. A
+    // reference type is not a value at all, and a pointer is not a value TYPE. `IsValueType` is read
+    // through a guard because a builder-bound type answers it by throwing rather than by declining.
     static func IsLiftableNullableElement(valueType: Type): bool {
-        return IsSourceStructNullableElement(valueType) || valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || IsSupportedValueTuple(valueType) || IsEnumType(valueType)
-    }
-
-    // A `Nullable<T>` NEEDS A NON-NULLABLE VALUE `T`, AND A STRUCT THIS COMPILATION DECLARES IS ONE.
-    //
-    // The liftable set above is a list of complete external identities plus the two source families
-    // that were added when they were needed — an enum of this compilation, and a tuple. A plain
-    // source STRUCT is the third, and its absence is why `e: Extent? = null` declined at
-    // `emit.typed-local.unsupported-type` while the same annotation over an `int`, an enum or a tuple
-    // emitted. Nothing about the lowering is different for it: `Nullable<Extent>` is a
-    // `TypeBuilderInstantiation` exactly as `Nullable<SourceEnum>` already is, and every `HasValue`,
-    // `GetValueOrDefault` and constructor handle it needs is rebound through the one closed-generic
-    // member owner the enum case already goes through.
-    //
-    // A by-ref-like struct may not be a field of anything, so it may not be a `Nullable<T>`'s either;
-    // an ENUM builder is answered by `IsEnumType` above and is not re-answered here.
-    static func IsSourceStructNullableElement(valueType: Type): bool {
-        if valueType == null || !(valueType is TypeBuilder) || IsEnumBuilder(valueType) || valueType.get_IsGenericTypeDefinition() {
+        if valueType == null || IsExactNullableConstruction(valueType) {
             return false
         }
 
-        return valueType.get_IsValueType() && !IsByRefLike(valueType)
+        if valueType.get_IsGenericParameter() || valueType.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        return IsValueTypeSafely(valueType) && !IsByRefLike(valueType)
+    }
+
+    static func IsValueTypeSafely(valueType: Type): bool {
+        try {
+            return valueType.get_IsValueType()
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
     }
 
     static func IsExactNullableConstruction(valueType: Type): bool {
