@@ -81,12 +81,12 @@ test "a written type argument names a SOURCE type the same compilation is emitti
 // `options` to reach `Deserialize<TValue>(string, JsonSerializerOptions?)`.
 test "a written type argument reaches a method whose trailing optional is filled from its default" {
     // `Deserialize<TValue>` returns `TValue?`: the written argument is non-nullable, but the method
-    // ANNOTATES the position, so the result is maybe-null whatever the argument is and has to be
-    // unwrapped before it is read.
-    parsed := JsonSerializer.Deserialize<Dictionary<string, int>>(AgesJson())
+    // ANNOTATES the position, so the result is maybe-null whatever the argument is. The `assert`
+    // narrows it — an assert that fails throws, so everything after it is the condition's true
+    // branch — which is why the reads below need no unwrap of their own.
+    ages := JsonSerializer.Deserialize<Dictionary<string, int>>(AgesJson())
 
-    assert parsed != null
-    ages := must parsed
+    assert ages != null
     assert ages.Count == 2
     assert ages["Ada"] == 36
     assert ages["Grace"] == 45

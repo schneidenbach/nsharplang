@@ -2677,3 +2677,29 @@ referenced assembly) likewise resolve by ordinary reflection: `ColumnarConstruct
 member arm assigns a writable instance FIELD as well as a settable property, the three-type
 `IsApprovedRuntimeObjectInitializerType` allowlist is gone, and `ColumnarIlEmitter`'s member-write
 chain has a reflected-owner arm beside its source-definition one.
+
+### `assert` narrows the surviving flow, and `[MaybeNullWhen]` is not part of a type
+
+Two rules that only showed up once the substituted-parameter nullability rule and FLOW3's
+postcondition owner were in the same tree:
+
+- `[MaybeNullWhen(false)]` IS A POSTCONDITION, NOT A TYPE ANNOTATION, so
+  `NullabilityGenericSubstitution.IsAnnotatedNullable` deliberately does not read it.
+  `Dictionary<K, V>.TryGetValue` declares `out TValue value`, so with a `Dictionary<string, Entry>`
+  receiver the parameter's TYPE is `Entry` and the false branch's maybe-null is the fact
+  `AnalyzerNullabilityPostconditions` files against the call. Folding the attribute into the type
+  makes BOTH branches maybe-null, because `AddFallbackBranchFact` gives the branch the attribute did
+  NOT name the declared state — so `if map.TryGetValue(k, out found) { found.Label }` reported NL905
+  in the branch the call had just proved. The reader answers the TYPE; the postcondition owner
+  answers what the call LEAVES BEHIND, and `[MaybeNull]`, `[NotNull]` and `[NotNullWhen(b)]` are read
+  the same way for the same reason.
+- `assert cond` NARROWS EVERYTHING AFTER IT. An assert that fails throws, so the surviving flow is
+  the condition's true branch — the guard clause `if !cond { throw }` written the other way round.
+  `AnalyzerExpressionStatements`'s assert walk gained phase 16 and request kind 9 ("narrow by this
+  condition having been true"), and `Analyzer.NarrowSurvivingFlow` installs
+  `AnalyzerFlowNarrowing.ExtractFlowNarrowings(condition).Then` into the ENCLOSING scope. The
+  extraction is the one every `if` uses, so `x != null`, `x is T y`, `&&` chains, parentheses, `!`
+  and a call's own `[NotNullWhen]`/`[MaybeNullWhen]` postconditions all reach it without a second
+  vocabulary, and the walk does not decide whether a condition is worth narrowing by.
+  IT IS THE LAST PHASE, AFTER THE MESSAGE: the message is the expression evaluated when the assert
+  FAILS, so narrowing before it would hand the failure path a fact only the success path has.

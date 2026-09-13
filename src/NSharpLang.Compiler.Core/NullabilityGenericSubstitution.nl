@@ -240,36 +240,22 @@ class NullabilityGenericSubstitution {
     // argument's own `ArgumentType` is a projected `System.Byte` that is not `typeof(byte)` while
     // `Value` is still a live boxed CLR byte — the same insight the `[NotNullWhen(...)]` reader is
     // written around.
+    // `[MaybeNullWhen(...)]` IS DELIBERATELY NOT READ HERE, AND THAT IS THE WHOLE SPLIT. A TYPE says
+    // what a value IS; `[MaybeNullWhen(false)]` says what it BECOMES on one branch. `Dictionary<K,
+    // V>.TryGetValue` declares `out TValue value`, so with a `Dictionary<string, Entry>` receiver the
+    // parameter's type is `Entry` — non-null — and the false branch's maybe-null is a POSTCONDITION
+    // that `AnalyzerNullabilityPostconditions` files against the call. Folding the attribute into the
+    // TYPE here makes both branches maybe-null, because the branch the attribute did not name falls
+    // back to the declared state: `if map.TryGetValue(k, out found) { found.Label }` then reports
+    // NL905 in the branch the call just proved. The same goes for `[MaybeNull]`, `[NotNull]` and
+    // `[NotNullWhen(b)]`, which the flow-attribute pass and the postcondition owner read.
     static func IsAnnotatedNullable(attributes: IList<CustomAttributeData>, member: MemberInfo?): bool {
-        // `[MaybeNullWhen(...)]` ANNOTATES THE POSITION TOO, conditionally. `Dictionary<K, V>`'s
-        // `TryGetValue` declares `out V value` with `[MaybeNullWhen(false)]`, and N# does not model
-        // the condition — so the honest reading of an unconditional use is the nullable one, which
-        // is also exactly what the reader answered before the substitution rule existed.
-        if HasAttribute(attributes, "System.Diagnostics.CodeAnalysis.MaybeNullWhenAttribute") {
-            return true
-        }
-
         direct := ReadFlag(attributes, "System.Runtime.CompilerServices.NullableAttribute")
         if direct >= 0 {
             return direct == 2
         }
 
         return ContextFlag(member) == 2
-    }
-
-    static func HasAttribute(attributes: IList<CustomAttributeData>, attributeFullName: string): bool {
-        count := NullabilityMetadataReflection.SequenceCount(attributes)
-        index := 0
-        while index < count {
-            attributeType := attributes.get_Item(index).get_AttributeType()
-            if string.Equals(attributeType.FullName ?? "", attributeFullName, StringComparison.Ordinal) {
-                return true
-            }
-
-            index = index + 1
-        }
-
-        return false
     }
 
     // The nearest `NullableContextAttribute` at or above this member, or -1 when there is none.
