@@ -774,6 +774,162 @@ test ".. IS System.Range AND ^n IS System.Index" {
     assert harness.Errors.Count == 0
 }
 
+// ── the lifted operators ───────────────────────────────────────────
+
+test "AN ARITHMETIC OPERATOR OVER A T? IS LIFTED TO R?" {
+    harness := OperatorDefault()
+    nullableInt: TypeInfo = new NullableTypeInfo(BuiltInTypes.Int)
+
+    both := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.Add))
+    OperatorRun(harness, both, OperatorAnswers(nullableInt, nullableInt))
+
+    assert OperatorTypeText(harness.Operators.Result(both)) == "int?"
+    assert harness.Errors.Count == 0
+
+    // ONE SIDE LIFTED IS ENOUGH: the plain operand converts to `T?` before the operator applies.
+    mixed := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.Add))
+    OperatorRun(harness, mixed, OperatorAnswers(nullableInt, BuiltInTypes.Int))
+
+    assert OperatorTypeText(harness.Operators.Result(mixed)) == "int?"
+    assert harness.Errors.Count == 0
+}
+
+test "A LIFTED PAIR PROMOTES EXACTLY AS THE UNLIFTED ONE DOES" {
+    harness := OperatorDefault()
+
+    // `byte? + byte?` is an `int?`, for the same reason `byte + byte` is an `int`.
+    bytes := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.Add))
+    OperatorRun(harness, bytes, OperatorAnswers(new NullableTypeInfo(BuiltInTypes.Byte), new NullableTypeInfo(BuiltInTypes.Byte)))
+
+    assert OperatorTypeText(harness.Operators.Result(bytes)) == "int?"
+
+    // A SHIFT IS STILL ONE-SIDED under the lift: the count does not reach the result.
+    shifted := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.LeftShift))
+    OperatorRun(harness, shifted, OperatorAnswers(new NullableTypeInfo(BuiltInTypes.Byte), new NullableTypeInfo(BuiltInTypes.Long)))
+
+    assert OperatorTypeText(harness.Operators.Result(shifted)) == "int?"
+    assert harness.Errors.Count == 0
+}
+
+test "A LIFTED COMPARISON IS A PLAIN bool, NOT A bool?" {
+    harness := OperatorDefault()
+    nullableInt: TypeInfo = new NullableTypeInfo(BuiltInTypes.Int)
+
+    // C# §12.4.8 lifts the ORDERING operators to `bool`: an absent operand makes the answer FALSE
+    // rather than absent, so the comparison is always decided and nothing may narrow out of it.
+    state := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.Less))
+    OperatorRun(harness, state, OperatorAnswers(nullableInt, nullableInt))
+
+    assert OperatorTypeText(harness.Operators.Result(state)) == "bool"
+    assert harness.Errors.Count == 0
+}
+
+test "A LIFTED UNARY IS ABSENT IN, ABSENT OUT" {
+    harness := OperatorDefault()
+
+    negated := harness.Operators.Begin(OperatorSimpleUnary(UnaryOperator.Negate))
+    OperatorRun(harness, negated, OperatorOne(new NullableTypeInfo(BuiltInTypes.Int)))
+
+    assert OperatorTypeText(harness.Operators.Result(negated)) == "int?"
+
+    complemented := harness.Operators.Begin(OperatorSimpleUnary(UnaryOperator.BitwiseNot))
+    OperatorRun(harness, complemented, OperatorOne(new NullableTypeInfo(BuiltInTypes.Long)))
+
+    assert OperatorTypeText(harness.Operators.Result(complemented)) == "long?"
+
+    notted := harness.Operators.Begin(OperatorSimpleUnary(UnaryOperator.Not))
+    OperatorRun(harness, notted, OperatorOne(new NullableTypeInfo(BuiltInTypes.Bool)))
+
+    assert OperatorTypeText(harness.Operators.Result(notted)) == "bool?"
+    assert harness.Errors.Count == 0
+}
+
+test "THE LIFT CAN NEVER ADMIT A PAIR THE UNLIFTED RULE REFUSES" {
+    harness := OperatorDefault()
+
+    // `int? + bool` has no unlifted form, so the lift declines and the ORDINARY report fires — and
+    // it names the types the programmer WROTE, not the unwrapped ones.
+    state := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.Add))
+    OperatorRun(harness, state, OperatorAnswers(new NullableTypeInfo(BuiltInTypes.Int), BuiltInTypes.Bool))
+
+    assert OperatorTypeText(harness.Operators.Result(state)) == "unknown"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "The '+' operator doesn't work with 'int?' and 'bool' — both sides need numeric values, but I found 'int?' and 'bool'"
+}
+
+test "A BARE null OPERAND IS NOT A LIFT, AND IS STILL REFUSED" {
+    harness := OperatorDefault()
+
+    // `null + 1` has no lifted form in C# either: the lift needs a `T?` TYPE, and the null literal
+    // has no type at all. N# folds no constant here and reports the pair, which is the whole
+    // constant-folding contract for the lifted family.
+    state := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.Add))
+    OperatorRun(harness, state, OperatorAnswers(BuiltInTypes.Null, BuiltInTypes.Int))
+
+    assert OperatorTypeText(harness.Operators.Result(state)) == "unknown"
+    assert harness.Errors.Count == 1
+}
+
+test "A REFERENCE ANNOTATION IS NOT A LIFT EITHER" {
+    harness := OperatorDefault()
+
+    // `string?` is ONE CLR type with an annotation on it, not a `Nullable<T>`, so unwrapping it
+    // would hand `string` to the primitive arm and let `string? == int` through. It does not
+    // unwrap, and the pair is refused exactly as `string == int` is.
+    state := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.Equal))
+    OperatorRun(harness, state, OperatorAnswers(new NullableTypeInfo(BuiltInTypes.String), BuiltInTypes.Int))
+
+    assert OperatorTypeText(harness.Operators.Result(state)) == "unknown"
+    assert harness.Errors.Count == 1
+}
+
+test "&& AND || OVER A bool? ARE REFUSED, WITH THE == true FIX IN THE SUGGESTION" {
+    harness := OperatorDefault()
+    nullableBool: TypeInfo = new NullableTypeInfo(BuiltInTypes.Bool)
+
+    // C# refuses the conditional forms over `bool?` too (§12.14 defines only `&` and `|`): a
+    // short-circuiting operator decides whether to evaluate its right side from the LEFT side
+    // alone, and an absent left side cannot answer that.
+    state := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.And))
+    OperatorRun(harness, state, OperatorAnswers(nullableBool, nullableBool))
+
+    assert OperatorTypeText(harness.Operators.Result(state)) == "bool"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "Both sides of '&&' must be booleans, but I found 'bool?' and 'bool?' — a 'bool?' can be absent, and '&&' has to decide whether to evaluate its right side before it knows"
+    assert harness.Errors[0].Suggestion == "Say what an absent value means first: 'x == true' is true only when the value is present and true, 'x != false' also accepts an absent one, and 'x ?? false' supplies a default. The non-short-circuiting '&' does work on 'bool?' and answers the three-valued result."
+}
+
+test "A LIFTED COMPARISON PROVES NOTHING, SO ITS RIGHT-HAND SIDE TAKES THE PLAIN WALK" {
+    harness := OperatorDefault()
+
+    // `x < 5` on an `int?` is TRUE only when `x` is present -- and the analyzer still narrows
+    // NOTHING out of it. A comparison whose answer is decided for an absent operand is not a
+    // presence test, and reading one as a narrowing would make `x >= 5`'s FALSE branch prove the
+    // mirror of a fact it never established.
+    comparison := OperatorBinary(OperatorIdentifier("x", 2, 5), BinaryOperator.Less, new IntLiteralExpression("5", 2, 9))
+    state := harness.Operators.Begin(OperatorBinary(comparison, BinaryOperator.And, OperatorIdentifier("b", 2, 15)))
+    steps := OperatorRun(harness, state, OperatorAnswers(BuiltInTypes.Bool, BuiltInTypes.Bool))
+
+    assert steps[1].Kind == 1
+    assert steps[1].Narrowings == -1
+}
+
+test "THE NON-SHORT-CIRCUITING & AND | DO WORK OVER A bool?" {
+    harness := OperatorDefault()
+    nullableBool: TypeInfo = new NullableTypeInfo(BuiltInTypes.Bool)
+
+    conjunction := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.BitwiseAnd))
+    OperatorRun(harness, conjunction, OperatorAnswers(nullableBool, nullableBool))
+
+    assert OperatorTypeText(harness.Operators.Result(conjunction)) == "bool?"
+
+    disjunction := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.BitwiseOr))
+    OperatorRun(harness, disjunction, OperatorAnswers(nullableBool, BuiltInTypes.Bool))
+
+    assert OperatorTypeText(harness.Operators.Result(disjunction)) == "bool?"
+    assert harness.Errors.Count == 0
+}
+
 // ── the escape reports ──────────────────────────────────────────────────
 
 test "ALL FOUR OF A BINARY'S ESCAPE REPORTS RUN AND NONE STOPS ANOTHER" {

@@ -1629,6 +1629,13 @@ Two rules the compiler enforces about the type-argument list itself:
   lambda's body) but does not EMIT yet. A generic FREE function with a delegate parameter is
   unaffected, and so is every generic method on an external type; write the type argument out
   (`Match<string>(...)`) or move the call into a free function.
+- A **nullable over a value type outside the modelled set** does not resolve at any declared
+  position. `T?` works for the integral and floating scalars, `bool`, `char`, `decimal`, `TimeSpan`,
+  an enum and a tuple; `DateTime?`, `Guid?` and a `T?` over **your own struct** report
+  [NL103](./errors/NL103.md) on the parameter, return or local that spells them. The lifted operators
+  above follow that set — the rule itself is general (it lifts any user-defined operator on a
+  non-nullable value type), so those types gain it as soon as the nullable itself resolves. Use the
+  non-nullable type with a separate presence flag, or a reference wrapper, until then.
 - **Null-conditional INDEXING** (`items?[0]`) is not compiled yet; `?.` on a member or a method is
   unaffected, and an explicit null check reads the element.
 - An argument that must be **boxed into an `object` parameter of a GENERIC function**
@@ -1763,8 +1770,78 @@ spellings swap the branches. When the operand crosses a `?.`, only the branch th
 non-null **and** the call answered true, so that branch narrows both `map` and `value`, while its
 other branch is a disjunction and proves neither.
 
-No other operator is lifted: `age + 1` on an `int?` is an error, and `must age + 1` or `(age ?? 0) + 1`
-is how it is written.
+### Lifted Operators
+
+The arithmetic (`+ - * / %`), bitwise (`& | ^`), shift (`<< >>`), comparison (`< > <= >=`) and unary
+(`- ~ !`, `++`, `--`) operators are all **lifted** over a nullable value type, following C# §12.4.8.
+Wherever the operator exists for `T`, it exists for `T?`, and one side may be the plain `T`.
+
+```n#
+age: int? = LoadAge()
+
+next := age + 1            // int?  — absent when `age` is absent
+doubled := age * 2         // int?
+mask := flags & 0xFF       // int?  — the bitwise family lifts too
+inverted := -age           // int?  — absent in, absent out
+```
+
+Two result shapes, because C# has two:
+
+- **Arithmetic, bitwise, shift and unary** answer the **lifted** type. `int? + int` is an `int?`, and
+  it is absent exactly when an operand was absent.
+- **An ordering comparison answers a plain `bool`.** `a < b` is **false** when either side is
+  absent — not absent — so the comparison is always decided. That also means `!(a < b)` is *not*
+  `a >= b` once either side can be absent: with an absent operand **both** are false.
+
+Only the *presence test* is lifted, never the arithmetic. Both operands are always evaluated, left
+before right — a lifted operator does not short-circuit — division by a **present** zero still throws
+`DivideByZeroException`, and a lifted `+` inside `checked(...)` still throws `OverflowException` on a
+present overflow. An absent operand answers before the arithmetic runs, so neither throws then.
+
+`++`, `--` and the compound forms read and write back the same `T?` storage: stepping an absent
+`int?` leaves it absent rather than making it `1`.
+
+```n#
+count: int? = LoadCount()
+count++                    // still absent if it was absent
+count += 5                 // int? — absent stays absent
+```
+
+User-defined operators lift the same way. `decimal?`, `TimeSpan?` and any other value type that
+declares `op_Addition`, `op_LessThan` or `op_Equality` gets the lifted form of each; a nullable enum
+lifts its bitwise operators through the underlying type and keeps the enum as the result.
+
+```n#
+elapsed: TimeSpan? = Measure()
+total := elapsed + TimeSpan.FromSeconds(1)   // TimeSpan?
+access: Access? = LoadAccess()
+combined := access | Access.Write            // Access?
+```
+
+#### Three-valued `bool?` logic
+
+`&` and `|` over `bool?` follow C# §12.14's three-valued table rather than the ordinary lift: an
+absent operand does **not** make the answer absent when the other operand already decides it.
+
+| `a` | `b` | `a & b` | `a \| b` |
+| --- | --- | --- | --- |
+| `true` | `true` | `true` | `true` |
+| `true` | `false` | `false` | `true` |
+| `true` | `null` | `null` | `true` |
+| `false` | `null` | `false` | `null` |
+| `null` | `null` | `null` | `null` |
+
+`^` has no such shortcut — an exclusive-or needs both values — so it is the ordinary lift.
+
+`&&` and `||` are **not** lifted, and C# refuses them over `bool?` for the same reason: a
+short-circuiting operator has to decide whether to evaluate its right side from the left side alone,
+and an absent left side cannot answer that. Say what an absent value means first — `ready == true`,
+`ready != false` or `ready ?? false` — or use the non-short-circuiting `&` and `|`, which evaluate
+both sides and answer from the table above.
+
+A bare `null` operand is **not** a lift: `null + 1` needs a `T?` *type*, and the null literal has
+none, so it stays an error. Nothing in the lifted family is constant-folded — `(age ?? 0) + 1`
+remains the way to say "treat absent as zero".
 
 ### Null-conditional Operator
 

@@ -595,9 +595,10 @@ already admits, and the result is `bool` rather than `bool?`: two absent values 
 absent one differs from every present one, so the comparison is always decided (C# §12.12.7). It
 recurses at most once, because an unwrapped operand is not a nullable.
 
-`==` and `!=` are the ONLY operators N# lifts. `int? + 1` is still NL202, and that is a deliberate
-line rather than an oversight: `== true` is the spelling a lifted boolean is tested with and the one
-the census corpus needs, while lifted arithmetic has `must` and `??` as its spellings.
+That line was later CLOSED: every operator family lifts now — see "Lifted operators over a nullable
+value type" below — and `CanCompareLiftedEquality` remains the primitive/enum/record-struct half of
+equality's lift, with the USER-DEFINED half (`decimal? == decimal`, `TimeSpan? == TimeSpan`) answered
+by `TryLiftedBinaryResult`'s equality arm ahead of it.
 
 EMIT MIRRORS IT IN `ColumnarIlEmitter.TryEmitLiftedNullableEquality`:
 `a.GetValueOrDefault() == b.GetValueOrDefault() & a.HasValue == b.HasValue` when both sides are
@@ -610,6 +611,60 @@ chain root the preflight could not answer for — the other operand's known `ceq
 that safe — and then reads the real types off what it emitted. `TryGetPreflightExpressionType` now
 answers for a `?.` chain (`TryGetPreflightNullConditionalChainType` applies the chain's lift, and the
 guard node itself is transparent to the type), which it previously could not do at all.
+
+### Lifted operators over a nullable value type (census 2026-09-13, §LIFT)
+
+C# §12.4.8, and ONE rule rather than one per operator family.
+`AnalyzerOperatorExpressions.TryLiftedBinaryResult` runs AHEAD of every `*Result` arm in
+`PlainOperatorResult`: it unwraps whichever operands are a `T?` over a non-nullable VALUE type
+(`UnwrapLiftedValueOperand`, plus `AnalyzerConversionFacts.IsDefinitelyNonNullableValueType` on what
+is left, which is C#'s own requirement), asks the UNLIFTED question of the elements, and wraps the
+answer back up. `TryLiftedUnaryResult` is the same rule for `-`, `~`, `!`, `++` and `--`.
+
+The unlifted question is asked by `UnliftedBinaryResultOrNull` / `UnliftedUnaryResultOrNull` --
+PURE readers that REPORT NOTHING and are each the deciding half of the matching `*Result` rule with
+its diagnostics removed. That is what makes the lift unable to admit a pair the unlifted rule
+refuses, and what makes a refusal fall through to the ordinary arm, which states the problem in the
+types the programmer WROTE (`int? + bool` still says `'int?' and 'bool'`).
+
+TWO RESULT SHAPES. Arithmetic, bitwise and shift answer `R?`; an ORDERING comparison answers a plain
+`bool`, FALSE when either operand is absent -- so the comparison is always decided and nothing may
+narrow out of it. `++`/`--` answer the OPERAND'S OWN type, because the value is written back into the
+storage it came from.
+
+`&&` and `||` are NOT lifted (C# §12.14 defines only `&` and `|` over `bool?`): a short-circuiting
+operator decides whether to evaluate its right side from the LEFT side alone, and an absent left
+side cannot answer that. `LogicalOperatorResult` says exactly that, and its suggestion names
+`== true`, `!= false`, `?? false` and the non-short-circuiting counterpart.
+
+A bare `null` operand is NOT a lift (the lift needs a `T?` TYPE and the literal has none), a
+REFERENCE annotation is not a lift (unwrapping `string?` would hand `string` to the primitive arm),
+and nothing in the family is constant-folded.
+
+EMIT IS `ColumnarIlEmitter.TryEmitLiftedNullableBinary` / `TryEmitLiftedNullableUnary` /
+`TryEmitLiftedCompoundOperation`, plus the `Nullable<T>` arm of `EmitPostfixStep`. Both operands are
+evaluated in source order into locals (a lifted operator does NOT short-circuit), every lifted side's
+`HasValue` is tested, and the unlifted operation runs on the values; the absent path answers
+`default(R?)` for a value result and `ldc.i4.0` for a comparison. There is NO per-operator table: the
+operation is whatever `TrySelectLiftedElementBinary` selects, which is the SAME source-declared
+`op_*` lookup, runtime `op_*` lookup and predefined promotion the unlifted arm performs, asked of the
+element types. Only the PRESENCE test is lifted, so `checked` still throws and a present divide by
+zero still throws.
+
+`LiftedOperandArrivalType` is what keeps the lift out of a NARROWED read: a bare name flow has proved
+present is read as its element type, so `if x != null { x + 1 }` is an ordinary `int + int` and is
+not lifted a second time.
+
+`bool? & bool?` and `bool? | bool?` are C# §12.14's THREE-VALUED table, not an ordinary lift --
+`false & null` is FALSE and `true | null` is TRUE. `TryEmitThreeValuedBooleanLogical` writes it
+branch-free as the two facts the table states: `value = a.v op b.v`, and
+`present = (a.h & b.h) | (a.h & <a decides>) | (b.h & <b decides>)` where "decides" is `!a.v` under
+`&` and `a.v` under `|`. A plain `bool` operand is wrapped into a `bool?` first, so one lowering
+serves all three operand shapes. `^` has no such shortcut and is the ordinary lift.
+
+Equality's USER-DEFINED half rides the same selection: `EmitLiftedEqualityElementComparison` uses
+`ceq` for the elements the instruction answers for and the element's own `op_Equality` for the rest,
+which is what makes `decimal? == decimal` and `TimeSpan? == TimeSpan` compile.
 
 A `null` TERNARY ARM TAKES THE OTHER ARM'S TYPE. `flag ? name : null` used to decline with
 "unsupported expression (node kind 5)" because a bare `null` has no self-type; the residual ternary
