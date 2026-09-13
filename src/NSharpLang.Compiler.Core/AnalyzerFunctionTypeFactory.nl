@@ -575,6 +575,70 @@ class AnalyzerFunctionTypeFactory {
         return true
     }
 
+    // A METHOD GROUP A REFERENCED ASSEMBLY DECLARES, AS A SIGNATURE.
+    //
+    // `Directory.Exists` is a method group exactly as a `func` this project declares is one, and the
+    // relation that converts a group to a delegate does not care where the group came from — it
+    // compares two signatures. This is the reading that gives a REFLECTED group one, so a single
+    // conversion path serves both. `SourceName` is the method-group-versus-lambda discriminator and
+    // a reflected group is a method group, so it carries one; it records no DECLARATION SITE, which
+    // is why every site read is guarded on a positive line.
+    //
+    // A GENERIC METHOD DEFINITION IS NOT A SIGNATURE YET — its own type arguments would have to be
+    // inferred from the delegate — and a `ref`/`out` position is not part of a delegate's shape
+    // here, so both decline rather than produce a signature nothing could take the address of. The
+    // positions are read through the nullability tables, so a `string?` parameter is a `string?`.
+    static func CreateFromReflectionMethodGroup(method: MethodInfo): FunctionTypeInfo? {
+        if method.get_IsGenericMethodDefinition() {
+            return null
+        }
+
+        parameters: ParameterInfo[]? = null
+        returnType: TypeInfo? = null
+        try {
+            parameters = method.GetParameters()
+            returnType = NullabilityMetadataReflection.ConvertReturn(method)
+        } catch {
+            return null
+        }
+
+        if parameters == null || returnType == null {
+            return null
+        }
+
+        parameterTypes := new List<TypeInfo>()
+        parameterModifiers := new List<Ast.ParameterModifier>()
+        index := 0
+        while index < parameters.Length {
+            if GetReflectionParameterModifier(parameters[index]) != Ast.ParameterModifier.None {
+                return null
+            }
+
+            converted: TypeInfo? = null
+            try {
+                converted = NullabilityMetadataReflection.ConvertParameter(parameters[index])
+            } catch {
+                return null
+            }
+
+            if converted == null {
+                return null
+            }
+
+            parameterTypes.Add(converted)
+            parameterModifiers.Add(Ast.ParameterModifier.None)
+            index = index + 1
+        }
+
+        signature := new FunctionTypeInfo()
+        signature.SyntheticName = method.get_Name()
+        signature.SourceName = method.get_Name()
+        signature.ParameterTypes = parameterTypes
+        signature.ParameterModifiers = parameterModifiers
+        signature.ReturnType = returnType
+        return signature
+    }
+
     // A by-ref reflection parameter carries its direction; everything else has none.
     static func GetReflectionParameterModifier(parameter: ParameterInfo): Ast.ParameterModifier {
         parameterType := parameter.get_ParameterType()

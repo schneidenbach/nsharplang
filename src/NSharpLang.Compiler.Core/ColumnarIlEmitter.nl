@@ -6610,7 +6610,7 @@ sealed class ColumnarIlEmitter {
             // `return local` / `return Sibling` on a delegate-returning function: a method group has no
             // type of its own, so the DECLARED return type is what turns it into a delegate — the same
             // conversion an argument position and a typed local perform, over the same receiver.
-            if (ColumnarTypeOfPlanner.IsSupportedDelegateType(_returnType) && (TryEmitLocalFunctionMethodGroupAsDelegate(retNode, _returnType) || TryEmitSiblingMethodGroupAsDelegate(retNode, _returnType))) {
+            if (ColumnarTypeOfPlanner.IsSupportedDelegateType(_returnType) && (TryEmitLocalFunctionMethodGroupAsDelegate(retNode, _returnType) || TryEmitSiblingMethodGroupAsDelegate(retNode, _returnType) || TryEmitEnclosingMethodGroupAsDelegate(retNode, _returnType) || TryEmitExternalStaticMethodGroupAsDelegate(retNode, _returnType))) {
                 retType = _returnType
             } else if (IsAdoptableUnionConstruction(retNode, _returnType)) {
                 if (!EmitAdoptedUnionConstruction(retNode, _returnType, out retType)) {
@@ -6769,7 +6769,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitDeclaredCallArgument(declaredInit, declaredType, true)) {
                     return Decline("emit.typed-local.delegate-initializer", "typed local delegate initializer could not be built for '" + declaredName + "'", declaredInit)
                 }
-            } else if (ColumnarTypeOfPlanner.IsSupportedDelegateType(declaredType) && (TryEmitLocalFunctionMethodGroupAsDelegate(declaredInit, declaredType) || TryEmitSiblingMethodGroupAsDelegate(declaredInit, declaredType))) {
+            } else if (ColumnarTypeOfPlanner.IsSupportedDelegateType(declaredType) && (TryEmitLocalFunctionMethodGroupAsDelegate(declaredInit, declaredType) || TryEmitSiblingMethodGroupAsDelegate(declaredInit, declaredType) || TryEmitEnclosingMethodGroupAsDelegate(declaredInit, declaredType) || TryEmitExternalStaticMethodGroupAsDelegate(declaredInit, declaredType))) {
             } else {
                 // `let f: Func<int, int> = local` — the declared delegate type converts the method group.
 
@@ -19704,7 +19704,7 @@ sealed class ColumnarIlEmitter {
             // nothing, and calling it settled left the delegate's return position open forever, which
             // is why `values.Select(Widen)` with two `Widen` overloads declined while one emitted.
             let overloadedCandidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
-            if (ColumnarContextualExtensionInference.IsDelegatePosition(binding, a) && TryGetEnclosingMethodGroupCandidates(argNode, out overloadedCandidates)) {
+            if (ColumnarContextualExtensionInference.IsDelegatePosition(binding, a) && (TryGetEnclosingMethodGroupCandidates(argNode, out overloadedCandidates) || TryGetExternalStaticMethodGroupCandidates(argNode, out overloadedCandidates))) {
                 continue
             }
             let argType: System.Type? = null
@@ -19841,7 +19841,7 @@ sealed class ColumnarIlEmitter {
         // inference — but it is still a method group, and the delegate the position wants is exactly
         // what selects among its candidates.
         let overloadedCandidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
-        return TryGetEnclosingMethodGroupCandidates(node, out overloadedCandidates)
+        return TryGetEnclosingMethodGroupCandidates(node, out overloadedCandidates) || TryGetExternalStaticMethodGroupCandidates(node, out overloadedCandidates)
     }
 
     // Does this call carry an argument whose type only a delegate context can supply? Ordinary
@@ -21632,7 +21632,7 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && _nodes.Kind(argNode) == 39) {
             return IsSupportedContextualDelegateType(expectedParamType)
         }
-        if (allowLambdaLiteral && (CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType))) {
+        if (allowLambdaLiteral && (CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitExternalStaticMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
         }
         if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
@@ -21686,7 +21686,7 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && _nodes.Kind(argNode) == 39) {
             return TryEmitLambdaLiteral(argNode, expectedParamType)
         }
-        if (allowLambdaLiteral && (TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType))) {
+        if (allowLambdaLiteral && (TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitExternalStaticMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
         }
         let ignoredTargetTypedNewType: System.Type? = null
@@ -21752,6 +21752,145 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // A SOURCE TYPE'S STATIC METHODS OF ONE NAME, WALKING ITS BASE CHAIN. Two tiers ask this: the
+    // enclosing-type tier, where a bare name may mean one of the type's own statics, and the
+    // qualified tier, where `Widen.Of` names them from anywhere. Only a NON-GENERIC candidate with
+    // ordinary parameters qualifies — a generic definition has no fixed handle to take the address
+    // of, and a `ref`/`out` parameter is not part of a delegate's own signature shape.
+    private static func AppendSourceStaticMethodGroupCandidates(owner: ColumnarStructDef?, name: string, candidates: List<ColumnarEnclosingMethodGroupCandidate>) {
+        staticOwner := owner
+        while (staticOwner != null) {
+            let staticOverloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+            if (staticOwner.StaticMethods.TryGetValue(name, out staticOverloads) && staticOverloads != null) {
+                for staticMethod in staticOverloads {
+                    if (staticMethod.Generics == null && !HasModifiedParameter(staticMethod.ParamModifierKinds)) {
+                        candidates.Add(new ColumnarEnclosingMethodGroupCandidate(staticMethod.Builder, staticMethod.ParamTypes, staticMethod.ReturnType))
+                    }
+                }
+            }
+            staticOwner = staticOwner.BaseDef
+        }
+    }
+
+    // A STATIC METHOD GROUP NAMED THROUGH ITS TYPE — `Directory.Exists`, `char.IsDigit`, `Widen.Of`.
+    //
+    // `roots.Where(Directory.Exists)` reported NL402 and every `local: Func<string, bool> =
+    // Directory.Exists` reported NL202, because a method group was only ever a name the project
+    // itself declared: a group read out of a REFERENCED assembly converted to no delegate anywhere.
+    // The census hit it in a chain, where the damage is larger than one argument — a method group in
+    // the FIRST link left the sequence's element type unknown, so every later lambda in the chain was
+    // reported as uninferable (NL203) as well.
+    //
+    // The receiver here is a TYPE, not a value, so nothing is loaded and the delegate closes over a
+    // null target. A receiver that IS a value names an instance group bound to that value, which is a
+    // different delegate and is not this tier's question.
+    private func TryGetExternalStaticMethodGroupOwner(argNode: int, out ownerType: Type, out memberName: string): bool {
+        ownerType = null
+        memberName = null
+        if (_nodes.Kind(argNode) != 8 || _nodes.ChildCount(argNode) != 1) {
+            return false
+        }
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
+        if (member.Length == 0) {
+            return false
+        }
+        let receiverName: string? = null
+        let rootName: string? = null
+        if (!TryGetDottedMemberAccessName(Child(argNode, 0), out receiverName, out rootName)) {
+            return false
+        }
+        if (ColumnarClosureBindingPlanner.IsVisibleBindingName(rootName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames) || _siblings.ContainsKey(rootName) || IsCurrentInstanceMemberName(rootName)) {
+            return false
+        }
+        let resolvedOwner: System.Type? = null
+        let resolvedClaimed: bool = false
+        if (!_typeResolutionStructs.Resolver.TryResolve(receiverName, out resolvedOwner, out resolvedClaimed) || resolvedOwner == null) {
+            return false
+        }
+        ownerType = resolvedOwner
+        memberName = member
+        return true
+    }
+
+    // The candidates that owner has under that name. A SOURCE owner answers from the definition
+    // table, because its methods are builders this compilation is still writing; a REFERENCED owner
+    // answers from its own metadata. Neither list is written down here, and nothing consults a
+    // member name.
+    private func TryGetExternalStaticMethodGroupCandidates(argNode: int, out candidates: List<ColumnarEnclosingMethodGroupCandidate>): bool {
+        candidates = new List<ColumnarEnclosingMethodGroupCandidate>()
+        let ownerType: System.Type? = null
+        let memberName: string? = null
+        if (!TryGetExternalStaticMethodGroupOwner(argNode, out ownerType, out memberName)) {
+            return false
+        }
+        let sourceOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (ColumnarSourceDefinitionResolver.TryResolveStruct(ownerType, _structRegistry.get_Values(), out sourceOwner)) {
+            AppendSourceStaticMethodGroupCandidates(sourceOwner, memberName, candidates)
+            return candidates.Count > 0
+        }
+        let declared: System.Reflection.MethodInfo[]? = null
+        try {
+            declared = ownerType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+        } catch {
+            return false
+        }
+        if (declared == null) {
+            return false
+        }
+        for candidate in declared {
+            if (candidate.get_Name() != memberName || candidate.get_IsGenericMethodDefinition()) {
+                continue
+            }
+            parameters := ColumnarExtensionMethodResolver.ParametersOrNull(candidate)
+            if (parameters == null) {
+                continue
+            }
+            parameterTypes := ColumnarExtensionMethodResolver.ParameterTypesOrNull(parameters)
+            returnType := ColumnarExtensionMethodResolver.ReturnTypeOrNull(candidate)
+            if (parameterTypes == null || returnType == null || !IsSupportedMethodGroupSignature(parameterTypes, returnType)) {
+                continue
+            }
+            candidates.Add(new ColumnarEnclosingMethodGroupCandidate(candidate, parameterTypes, returnType))
+        }
+        return candidates.Count > 0
+    }
+
+    // Every position of a candidate signature must be a type this backend can name, and none of them
+    // may be by-ref or a pointer: a delegate's signature has no `ref` spelling here, and an address
+    // is not a value this emitter puts on the stack.
+    private static func IsSupportedMethodGroupSignature(parameterTypes: Type[], returnType: Type): bool {
+        for parameterType in parameterTypes {
+            if (ColumnarTypeEquivalenceFacts.IsByRefType(parameterType) || parameterType.get_IsPointer() || !ColumnarTypeOfPlanner.IsSupportedType(parameterType)) {
+                return false
+            }
+        }
+        return returnType == ColumnarTypeOfPlanner.RequiredVoidType() || (!returnType.get_IsPointer() && ColumnarTypeOfPlanner.IsSupportedType(returnType))
+    }
+
+    private func CanEmitExternalStaticMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
+        let candidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+        let delegateReturnType: System.Type? = null
+        let delegateParamTypes: System.Type[]? = null
+        let ignoredDelegateConstructor: System.Reflection.ConstructorInfo? = null
+        let selected: NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate? = null
+        return TryGetExternalStaticMethodGroupCandidates(argNode, out candidates) && TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out ignoredDelegateConstructor) && TrySelectMethodGroupOverload(candidates, delegateReturnType, delegateParamTypes, out selected)
+    }
+
+    private func TryEmitExternalStaticMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
+        let candidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+        let delegateReturnType: System.Type? = null
+        let delegateParamTypes: System.Type[]? = null
+        let delegateCtor: System.Reflection.ConstructorInfo? = null
+        let selected: NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate? = null
+        if (!TryGetExternalStaticMethodGroupCandidates(argNode, out candidates) || !TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out delegateCtor) || !TrySelectMethodGroupOverload(candidates, delegateReturnType, delegateParamTypes, out selected)) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldnull)
+        _il.Emit(OpCodes.Ldftn, selected.Method)
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
+    }
+
     // THE ENCLOSING TYPE'S OWN METHODS, AS METHOD-GROUP CANDIDATES. A bare name written inside a type
     // body may name one of that type's methods, and naming one where a delegate is expected makes it
     // a method group exactly as a top-level `func` is one. Before this, only `_localFuncs` (functions
@@ -21766,18 +21905,7 @@ sealed class ColumnarIlEmitter {
     // is a question about the delegate being built, and only the caller holds that.
     private func CollectEnclosingMethodGroupCandidates(name: string): List<ColumnarEnclosingMethodGroupCandidate> {
         candidates := new List<ColumnarEnclosingMethodGroupCandidate>()
-        staticOwner := _enclosingType
-        while (staticOwner != null) {
-            let staticOverloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
-            if (staticOwner.StaticMethods.TryGetValue(name, out staticOverloads) && staticOverloads != null) {
-                for staticMethod in staticOverloads {
-                    if (staticMethod.Generics == null && !HasModifiedParameter(staticMethod.ParamModifierKinds)) {
-                        candidates.Add(new ColumnarEnclosingMethodGroupCandidate(staticMethod.Builder, staticMethod.ParamTypes, staticMethod.ReturnType))
-                    }
-                }
-            }
-            staticOwner = staticOwner.BaseDef
-        }
+        AppendSourceStaticMethodGroupCandidates(_enclosingType, name, candidates)
 
         if (!HasEmittableEnclosingThis()) {
             return candidates
@@ -21916,6 +22044,12 @@ sealed class ColumnarIlEmitter {
             returnType = enclosingCandidates[0].ReturnType
             return true
         }
+        let qualifiedCandidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+        if (TryGetExternalStaticMethodGroupCandidates(argNode, out qualifiedCandidates) && qualifiedCandidates.Count == 1) {
+            parameterTypes = qualifiedCandidates[0].ParamTypes
+            returnType = qualifiedCandidates[0].ReturnType
+            return true
+        }
         return false
     }
 
@@ -21973,7 +22107,7 @@ sealed class ColumnarIlEmitter {
         parameterTypes = Type.EmptyTypes
         returnType = null
         let candidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
-        if (!TryGetEnclosingMethodGroupCandidates(argNode, out candidates)) {
+        if (!TryGetEnclosingMethodGroupCandidates(argNode, out candidates) && !TryGetExternalStaticMethodGroupCandidates(argNode, out candidates)) {
             return false
         }
         let selected: NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate? = null
