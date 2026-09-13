@@ -659,7 +659,7 @@ class AnalyzerProjectTypeDiscovery {
                 declarations := unit.Declarations
                 declarationIndex := 0
                 while declarationIndex < declarations.Count {
-                    if IsExportedFunctionNamed(declarations[declarationIndex], name) {
+                    if IsFunctionNamed(declarations[declarationIndex], name, true) {
                         return true
                     }
                     declarationIndex = declarationIndex + 1
