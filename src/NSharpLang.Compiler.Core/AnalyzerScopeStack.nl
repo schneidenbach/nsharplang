@@ -579,6 +579,24 @@ class AnalyzerScopeStack {
         return NullState.Unknown
     }
 
+    // WHETHER A NAME IS BOUND BY A SCOPE OTHER THAN THE INNERMOST ONE. The conditional join asks it
+    // of a branch scope's own symbol table: a name that scope binds and nothing outside it binds is a
+    // BRANCH-LOCAL and dies at the closing brace, while a name it binds that an enclosing scope also
+    // binds is an outer binding the branch merely NARROWED, and a fact about that one outlives the
+    // branch.
+    func IsNameBoundOutsideTop(name: string): bool {
+        index := scopes.Count - 2
+        while index >= 0 {
+            if scopes[index].Symbols.ContainsKey(name) {
+                return true
+            }
+
+            index = index - 1
+        }
+
+        return false
+    }
+
     func SetNullStateInCurrentScope(path: string, state: NullState) {
         if scopes.Count == 0 || string.IsNullOrWhiteSpace(path) {
             return

@@ -843,6 +843,7 @@ class LoopDriverStep {
     Kind: int
     Node: Expression?
     Body: Statement?
+    Statements: List<Statement>?
     Name: string?
     CarriedType: string
     Line: int
@@ -850,10 +851,11 @@ class LoopDriverStep {
     InLoop: bool
     ErrorsBefore: int
 
-    constructor(kind: int, node: Expression?, body: Statement?, name: string?, carriedType: string, line: int, column: int, inLoop: bool, errorsBefore: int) {
+    constructor(kind: int, node: Expression?, body: Statement?, statements: List<Statement>?, name: string?, carriedType: string, line: int, column: int, inLoop: bool, errorsBefore: int) {
         Kind = kind
         Node = node
         Body = body
+        Statements = statements
         Name = name
         CarriedType = carriedType
         Line = line
@@ -869,7 +871,7 @@ func LoopRun(harness: LoopHarness, state: LoopStatementState, answer: TypeInfo?)
     steps := new List<LoopDriverStep>()
     step := harness.Sequence.NextLoopStep(state)
     while step != null {
-        steps.Add(new LoopDriverStep(step.Kind, step.Node, step.Body, step.Name, LoopTypeText(step.CarriedType), step.Line, step.Column, harness.Ambient.InLoop, harness.Errors.Count))
+        steps.Add(new LoopDriverStep(step.Kind, step.Node, step.Body, step.Statements, step.Name, LoopTypeText(step.CarriedType), step.Line, step.Column, harness.Ambient.InLoop, harness.Errors.Count))
 
         harness.Sequence.SupplyLoop(state, answer)
         step = harness.Sequence.NextLoopStep(state)
@@ -1476,7 +1478,7 @@ func LoopRunIf(harness: LoopHarness, state: LoopStatementState, answer: TypeInfo
     step := harness.Sequence.NextLoopStep(state)
     while step != null {
         trace.Add(LoopNullFact(harness))
-        steps.Add(new LoopDriverStep(step.Kind, step.Node, step.Body, step.Name, LoopTypeText(step.CarriedType), step.Line, step.Column, harness.Ambient.InLoop, harness.Errors.Count))
+        steps.Add(new LoopDriverStep(step.Kind, step.Node, step.Body, step.Statements, step.Name, LoopTypeText(step.CarriedType), step.Line, step.Column, harness.Ambient.InLoop, harness.Errors.Count))
 
         if step.Kind == 2 {
             harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), step.Line, step.Column)
@@ -1510,16 +1512,20 @@ func LoopTraceText(trace: List<string>): string {
     return rendered
 }
 
-test "AN if WITH NO ELSE AND A CONDITION THAT PROVES NOTHING ASKS FOR TWO STEPS" {
+test "AN if WITH NO ELSE AND A CONDITION THAT PROVES NOTHING STILL OWNS ITS BRANCH SCOPE" {
     harness := LoopDefault()
     body := LoopForeachBody()
     state := harness.Sequence.BeginIf(LoopIfOver(LoopPlainCondition(), body, null), harness.Narrowing)
 
     steps := LoopRunIf(harness, state, BuiltInTypes.Bool, new List<string>())
 
-    // The condition, then the branch. No scope, because there is nothing to put in one.
-    assert LoopStepKinds(steps) == "1,5"
-    assert Object.ReferenceEquals(steps[1].Body, body)
+    // The condition, the branch's scope, the branch's STATEMENT LIST, and the close. The scope is
+    // opened whether or not there are facts to install, because the branch's exit state is what the
+    // join reads and a branch's exit state is a scope's fact table.
+    assert LoopStepKinds(steps) == "1,2,8,6"
+    // The block runs as a LIST inside that scope rather than as a statement that pushes its own.
+    assert steps[2].Body == null
+    assert steps[2].Statements != null
     assert harness.Errors.Count == 0
 }
 
@@ -1539,7 +1545,7 @@ test "AN if NEVER OPENS AN AMBIENT LOOP — break AND continue ARE NO MORE LEGAL
     assert !harness.Ambient.InLoop
 }
 
-test "EACH BRANCH GETS ITS OWN SCOPE, AT ITS OWN POSITION, ONLY WHEN ITS OWN LIST IS NON-EMPTY" {
+test "EACH BRANCH GETS ITS OWN SCOPES, AT ITS OWN POSITION" {
     harness := LoopDefault()
     LoopDeclareNullable(harness)
     thenBody := LoopForeachBody()
@@ -1548,29 +1554,34 @@ test "EACH BRANCH GETS ITS OWN SCOPE, AT ITS OWN POSITION, ONLY WHEN ITS OWN LIS
 
     steps := LoopRunIf(harness, state, BuiltInTypes.Bool, new List<string>())
 
-    // Condition, then-scope, then-branch, close, else-scope, else-branch, close.
-    assert LoopStepKinds(steps) == "1,2,5,6,2,5,6"
-    // The then scope opens at the THEN branch's position and the else scope at the ELSE branch's —
-    // neither opens at the `if` keyword.
+    // Condition; the then-branch's NARROWING scope, its own scope, its statements and the two closes;
+    // then the same four for the else branch. The narrowing scope is opened only when that branch's
+    // own list is non-empty, and the branch scope always — one is where the condition's proved facts
+    // live, the other is where the branch's own declarations and assignments do.
+    assert LoopStepKinds(steps) == "1,2,2,8,6,6,2,2,8,6,6"
+    // Both of a branch's scopes open at that BRANCH's position — neither opens at the `if` keyword,
+    // and the else branch's open at the else branch's own.
     assert steps[1].Line == 7
     assert steps[1].Column == 9
-    assert steps[4].Line == 9
-    assert steps[4].Column == 9
-    assert Object.ReferenceEquals(steps[2].Body, thenBody)
-    assert Object.ReferenceEquals(steps[5].Body, elseBody)
+    assert steps[2].Line == 7
+    assert steps[2].Column == 9
+    assert steps[6].Line == 9
+    assert steps[6].Column == 9
 }
 
-test "A BRANCH WHOSE OWN LIST IS EMPTY GETS NO SCOPE, EVEN WHEN THE OTHER BRANCH HAS ONE" {
+test "A BRANCH WHOSE OWN LIST IS EMPTY IS SCOPED ALL THE SAME — ITS EXIT STATE IS STILL AN INPUT" {
     harness := LoopDefault()
     LoopDeclareNullable(harness)
-    // `x is string s` proves something when TRUE and nothing when FALSE, so the then-branch is
-    // scoped and the else-branch is not.
+    // `x is string s` proves something when TRUE and nothing when FALSE. The else-branch still gets
+    // a scope: what it ENDS with is half of the join, and a branch with no proved facts can still
+    // assign one.
     condition: Expression = new IsExpression(new IdentifierExpression("x", 6, 8), new SimpleTypeReference("string", 6, 13), "s", 6, 8)
     state := harness.Sequence.BeginIf(LoopIfOver(condition, LoopForeachBody(), LoopElseBody()), harness.Narrowing)
 
     steps := LoopRunIf(harness, state, BuiltInTypes.Bool, new List<string>())
 
-    assert LoopStepKinds(steps) == "1,2,5,6,5"
+    // The then-branch gets a narrowing scope AND its own; the else branch gets only its own.
+    assert LoopStepKinds(steps) == "1,2,2,8,6,6,2,8,6"
 }
 
 test "A BRANCH'S FACTS ARE VISIBLE FOR THAT BRANCH ALONE AND DIE WITH ITS SCOPE" {
@@ -1582,9 +1593,10 @@ test "A BRANCH'S FACTS ARE VISIBLE FOR THAT BRANCH ALONE AND DIE WITH ITS SCOPE"
     LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
 
     // Before the condition and before each scope opens: nothing is known. Inside the then-branch:
-    // not-null. Inside the else-branch: null. After the statement: nothing again — NEITHER branch's
-    // facts survive an `if` whose branches both fall through.
-    assert LoopTraceText(trace) == "unknown,unknown,not-null,not-null,unknown,null,null,unknown"
+    // not-null. Inside the else-branch: null. And after the statement the two branches are JOINED:
+    // one path proved `x` not-null and the other proved it null, so what reaches the next statement
+    // is the meet of the two rather than either of them and rather than nothing at all.
+    assert LoopTraceText(trace) == "unknown,unknown,not-null,not-null,not-null,not-null,unknown,null,null,null,null,maybe-null"
 }
 
 test "A GUARD CLAUSE HANDS THE SURVIVING FLOW THE FACTS OF THE BRANCH IT DID NOT TAKE" {
@@ -1596,10 +1608,9 @@ test "A GUARD CLAUSE HANDS THE SURVIVING FLOW THE FACTS OF THE BRANCH IT DID NOT
 
     steps := LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
 
-    // The then-branch is scoped because `x == null` proves NULL when true.
-    assert LoopStepKinds(steps) == "1,2,5,6"
+    assert LoopStepKinds(steps) == "1,2,2,8,6,6"
     // And the fact that survives is the OPPOSITE one, installed with no scope of its own.
-    assert LoopTraceText(trace) == "unknown,unknown,null,null,not-null"
+    assert LoopTraceText(trace) == "unknown,unknown,null,null,null,null,not-null"
     // A null-check narrowing carries a NULL STATE and no narrowed TYPE, so the declared type of the
     // guarded name is left exactly as it was — the surviving flow learns that `x` is not null, not
     // that it stopped being `string?`.
@@ -1616,7 +1627,7 @@ test "THE MIRROR GUARD CLAUSE INSTALLS THE THEN FACTS WHEN THE ELSE BRANCH LEAVE
 
     LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
 
-    assert LoopTraceText(trace) == "unknown,unknown,not-null,not-null,unknown,null,null,not-null"
+    assert LoopTraceText(trace) == "unknown,unknown,not-null,not-null,not-null,not-null,unknown,null,null,null,null,not-null"
 }
 
 test "WHEN BOTH BRANCHES LEAVE THE SECOND ARM WINS — THE TWO GUARD ARMS ARE NOT SYMMETRIC" {
@@ -1644,8 +1655,164 @@ test "A BRANCH THAT LEAVES INSTALLS NOTHING WHEN THE OTHER BRANCH PROVED NOTHING
 
     steps := LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
 
-    assert LoopStepKinds(steps) == "1,5"
-    assert LoopTraceText(trace) == "unknown,unknown,unknown"
+    assert LoopStepKinds(steps) == "1,2,8,6"
+    assert LoopTraceText(trace) == "unknown,unknown,unknown,unknown,unknown"
+}
+
+// The `if` driver again, with ONE addition: the named branch step simulates an ASSIGNMENT to `x` —
+// the two operations `UpdateNullStateAfterAssignment` performs, in its order — so a contract can pin
+// what the JOIN does with a branch that wrote the value rather than only with one the condition
+// narrowed. `writeOnKind8Index` counts kind-8 steps from zero, which is how the then-branch and the
+// else-branch are told apart without the driver knowing which is which.
+func LoopRunIfAssigning(harness: LoopHarness, state: LoopStatementState, writeOnBranch: int, written: NullState, trace: List<string>): List<LoopDriverStep> {
+    steps := new List<LoopDriverStep>()
+    branchIndex := 0
+    step := harness.Sequence.NextLoopStep(state)
+    while step != null {
+        trace.Add(LoopNullFact(harness))
+        steps.Add(new LoopDriverStep(step.Kind, step.Node, step.Body, step.Statements, step.Name, LoopTypeText(step.CarriedType), step.Line, step.Column, harness.Ambient.InLoop, harness.Errors.Count))
+
+        if step.Kind == 2 {
+            harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), step.Line, step.Column)
+        }
+
+        if step.Kind == 8 {
+            if branchIndex == writeOnBranch {
+                harness.Scopes.InvalidateNullFactsForAssignment("x")
+                harness.Scopes.SetNullStateInCurrentScope("x", written)
+            }
+
+            branchIndex = branchIndex + 1
+        }
+
+        if step.Kind == 6 {
+            harness.Scopes.NoteLine(99)
+            harness.Scopes.Pop(harness.Model)
+        }
+
+        harness.Sequence.SupplyLoop(state, BuiltInTypes.Bool)
+        step = harness.Sequence.NextLoopStep(state)
+    }
+
+    trace.Add(LoopNullFact(harness))
+    return steps
+}
+
+func LoopLastFact(trace: List<string>): string {
+    return trace[trace.Count - 1]
+}
+
+test "THE CENSUS IDIOM: A BRANCH THAT CREATED THE VALUE JOINS THE CONDITION'S FALSE FACTS" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    // `if x == null { x = … }` — the then-branch ends not-null because it just assigned, and the
+    // implicit else path is the path on which `x == null` was FALSE. Both reach the next statement
+    // holding a non-null `x`, so the join is not-null and the line below no longer squiggles.
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullGuardCondition(), LoopForeachBody(), null), harness.Narrowing)
+
+    LoopRunIfAssigning(harness, state, 0, NullState.NotNull, trace)
+
+    assert LoopLastFact(trace) == "not-null"
+}
+
+test "A BRANCH THAT ASSIGNED A MAYBE-NULL VALUE KEEPS THE JOIN MAYBE-NULL" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullGuardCondition(), LoopForeachBody(), null), harness.Narrowing)
+
+    LoopRunIfAssigning(harness, state, 0, NullState.MaybeNull, trace)
+
+    // The condition proved `x` not-null on the implicit else path, and the branch left it maybe-null.
+    // The meet is the uncertainty, which is what keeps NL905 on the dereference below.
+    assert LoopLastFact(trace) == "maybe-null"
+}
+
+test "A CONDITION THAT PROVED NOTHING ON THE FALSE SIDE LEAVES A ONE-BRANCH ASSIGNMENT ALONE" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    // `if flag { x = … }` — the implicit else path proves NOTHING about `x`, so there is no second
+    // side to join with and the assignment's own invalidation is the whole answer.
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopPlainCondition(), LoopForeachBody(), null), harness.Narrowing)
+
+    LoopRunIfAssigning(harness, state, 0, NullState.NotNull, trace)
+
+    assert LoopLastFact(trace) == "unknown"
+}
+
+test "BOTH BRANCHES ASSIGNING THE SAME ANSWER JOIN TO IT" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopPlainCondition(), LoopForeachBody(), LoopElseBody()), harness.Narrowing)
+
+    // The else-branch alone assigns; the then-branch leaves `x` as the condition found it.
+    LoopRunIfAssigning(harness, state, 1, NullState.NotNull, trace)
+
+    // One path assigned and the other did not, so the surviving flow is told nothing rather than
+    // being told what only one of the two paths established.
+    assert LoopLastFact(trace) == "unknown"
+}
+
+test "A REDUNDANT RE-CHECK AFTER A GUARD CLAUSE DOES NOT TAKE THE GUARD'S PROOF BACK" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    harness.Scopes.SetNullStateInCurrentScope("x", NullState.NotNull)
+    trace := new List<string>()
+    // The redundant re-check written after a guard clause. `x != null` proves NULL on the false side,
+    // and meeting that with the then-branch's not-null would hand the code below a maybe-null `x`
+    // that the guard above had already ruled out.
+    state := harness.Sequence.BeginIf(LoopIfOver(LoopNullCheckCondition(), LoopForeachBody(), null), harness.Narrowing)
+
+    LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    assert LoopLastFact(trace) == "not-null"
+}
+
+test "A while THAT FELL OUT OF THE BOTTOM PROVES ITS CONDITION WAS FALSE" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    whileStatement := new WhileStatement(LoopNullGuardCondition(), LoopForeachBody(), 6, 5)
+    state := harness.Sequence.BeginWhile(whileStatement, harness.Narrowing)
+
+    LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    // `while x == null { … }` is left only when `x` stopped being null.
+    assert LoopLastFact(trace) == "not-null"
+}
+
+test "A while WHOSE BODY CAN break PROVES NOTHING ON ITS WAY OUT" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    statements := new List<Statement>()
+    breakStatement: Statement = new BreakStatement(7, 9)
+    statements.Add(breakStatement)
+    body: Statement = new BlockStatement(statements, 7, 9)
+    state := harness.Sequence.BeginWhile(new WhileStatement(LoopNullGuardCondition(), body, 6, 5), harness.Narrowing)
+
+    LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    // A `break` leaves with the condition untested, so the exit carries whatever was true at the
+    // `break` rather than what the condition would have proved.
+    assert LoopLastFact(trace) == "unknown"
+}
+
+test "A for EXIT CARRIES THE SAME FACT A while EXIT DOES, AND CARRIES IT OUTSIDE THE for's OWN SCOPE" {
+    harness := LoopDefault()
+    LoopDeclareNullable(harness)
+    trace := new List<string>()
+    forStatement := new ForStatement(null, LoopNullGuardCondition(), null, LoopForeachBody(), 6, 5)
+    state := harness.Sequence.BeginFor(forStatement, harness.Narrowing)
+
+    LoopRunIf(harness, state, BuiltInTypes.Bool, trace)
+
+    // The fact is installed AFTER the `for`'s outer scope closed — the scope that would have held a
+    // variable the initializer declared is not the scope the surviving flow reads from.
+    assert LoopLastFact(trace) == "not-null"
 }
 
 test "A NON-BOOLEAN if CONDITION EARNS THE RICH REPORT, NOT THE while's PLAIN WORDING" {
@@ -1695,7 +1862,10 @@ test "AN else if NEEDS NO SHAPE OF ITS OWN — IT IS AN if IN THE ELSE SLOT" {
     steps := LoopRunIf(harness, state, BuiltInTypes.Bool, new List<string>())
 
     // The chain is not flattened: the outer walk hands the inner `if` back as ONE branch statement,
-    // and the statement dispatch is what re-enters this walk for it.
-    assert LoopStepKinds(steps) == "1,2,5,6,2,5,6"
-    assert Object.ReferenceEquals(steps[5].Body, inner)
+    // and the statement dispatch is what re-enters this walk for it. It is handed back as a
+    // STATEMENT (kind 5) rather than as a list, because a statement that scopes itself must keep
+    // doing so — inside the else branch's own scope, so what the inner join installs is the else
+    // branch's exit state rather than a fact that escapes the outer `if` altogether.
+    assert LoopStepKinds(steps) == "1,2,2,8,6,6,2,2,5,6,6"
+    assert Object.ReferenceEquals(steps[8].Body, inner)
 }

@@ -655,6 +655,62 @@ tuple deconstruction declares rather than writes. The walk is typed rather than 
 expression node needs an arm there, and its absence is a SILENT missing NL905 rather than a red test,
 which is why `AnalyzerLoopCarriedNullFacts.tests.nl` pins every container shape.
 
+### The join after a conditional (census 2026-09-13, §FLOW7)
+
+`AnalyzerConditionalJoin` owns what is true AFTER an `if`, and `AnalyzerLoopSequence`'s `if` walk
+phases 31–37 are its caller. The guard-clause rule was the only half that existed: a branch that
+always leaves deletes one path, so the surviving flow inherits the other. An `if` whose branch FALLS
+THROUGH has two live paths, and the analyzer used to answer by forgetting both — the branch's facts
+died with the branch's scope and the condition's FALSE facts were installed nowhere — so the
+TryGetValue-or-create idiom (`if !d.TryGetValue(k, out v) { v = new … }` then read `v`) reported
+NL905 on a value both paths had just proved non-null.
+
+THE RULE: after `if c { S }` the state is `join(exit(S), falseFacts(c))`; after `if c { S } else { T }`
+it is `join(exit(S), exit(T))`; a branch that always leaves contributes nothing. `Meet` is the
+ordinary lattice — agreement survives, disagreement is `MaybeNull`, `Unknown` swallows and `Oblivious`
+yields — and it is the same rule `NullableWalker.VisitIfStatement` states.
+
+A BRANCH'S EXIT STATE IS A SCOPE'S FACT TABLE, which is why the `if` walk now OWNS the scope each
+branch runs in. A BLOCK branch is handed back as its STATEMENT LIST (request kind 8, driven through
+`StatementSequence.BeginList`) so the block does not push a scope of its own; the walk's own scope
+opens at the block's position, so the scope COUNT and POSITIONS are unchanged. The `if` band grew to
+30..43 for it: 31 opens the narrowing scope (still only when that branch's list is non-empty), 38
+installs those facts, 32 opens the branch scope, 39 runs the body, 33 reads the branch's facts and
+closes it, 40 reads the narrowing scope's and closes it — `OverlayFacts` lays the branch's over the
+condition's — and 41/35/42/36/43 are the else branch's five. Keeping the narrowing scope SEPARATE is
+load-bearing: a type narrowing writes the narrowed type into its scope's symbol table, so collapsing
+the two turned `if v is string { v := 5 }` from an NL020 shadow into a false NL306 redeclaration. An
+`else if` is a statement that scopes itself and still goes through kind 5 — inside the else branch's
+scope, so what its own join installs is the else branch's exit state rather than a fact escaping the
+outer `if`.
+
+TWO GUARDS KEEP THE JOIN HONEST. Only a path BOTH sides speak for is joined: a path one side never
+mentioned is one that side left to the enclosing flow. And a joined answer that is WEAKER than a
+definite fact the enclosing flow still holds is refused — an assignment invalidates its path in every
+open scope, so a path the enclosing flow can still answer for is a path neither branch assigned, and
+without the veto a redundant `if x != null { … }` below a guard clause took `x` back to maybe-null.
+A branch-local is filtered out by `ExitFacts`: a name the branch scope binds that NO enclosing scope
+binds (`AnalyzerScopeStack.IsNameBoundOutsideTop`) dies at the closing brace, while a name it binds
+that an outer scope also binds is an outer binding the branch merely NARROWED.
+
+A `switch`'s ARMS JOIN THE SAME WAY. `AnalyzerPatternAnalysis`'s switch form already opened a scope
+per arm (phase 72) and closed it at phase 75, so an arm's exit state was already a scope's fact
+table; `RecordArmExit` reads it before the close and `InstallSwitchJoin` folds `MeetFacts` over the
+arms at phase 72's exit. An arm that ALWAYS LEAVES contributes nothing; a `break` anywhere in an arm
+sets `ArmsJoinable = false` and declines the whole join, because control then reaches the code below
+from the middle of an arm; and a switch with no `default` arm
+(`AnalyzerStatementTermination.HasDefaultCase`) is reached from one more place than it has arms, so
+the meet also takes in `SurvivingFacts` — the state the enclosing flow still holds, which a path an
+arm assigned no longer has. The owner now holds the scope stack and takes the flow-narrowing writer
+at `BeginSwitch`. Columnar declines `switch` statements, so this rule's coverage is the estate rather
+than a running native project.
+
+A LOOP EXIT IS THE SAME RULE. `while` (phase 14) and `for` (phase 29, after its outer scope closed)
+install the condition's FALSE narrowings into the surviving flow, because a loop is left through the
+bottom only when its condition failed — unless `AnalyzerConditionalJoin.ContainsLoopBreak` finds a
+`break` bound to this loop, which leaves with the condition untested. The walk stops at nested loops
+(their `break` is theirs) and does not descend into lambdas or local functions.
+
 ### Lifted equality on a nullable value type (census 2026-09-13, §FLOW5)
 
 `AnalyzerOperatorExpressions.CanCompareLiftedEquality` is the whole analyzer half: both operands are

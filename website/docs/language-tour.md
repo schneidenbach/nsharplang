@@ -1758,7 +1758,8 @@ func main() {
 A null check narrows what the code it guards knows. The rule is the same one C# uses: a condition
 yields two sets of facts — what it proves when it is **true** and what it proves when it is
 **false** — and each branch gets its own set. A guard clause whose branch always leaves (`return`,
-`throw`, `break`, `continue`) hands the *opposite* set to the code after the `if`.
+`throw`, `break`, `continue`) hands the *opposite* set to the code after the `if`; when neither
+branch leaves, the code after the `if` gets the [join](#the-two-paths-after-an-if-join) of the two.
 
 ```n#
 func describe(value: string?): int {
@@ -1861,6 +1862,76 @@ The join covers every write the body can make — an assignment, an `++`/`--`, a
 and anything a lambda or local function declared in the body writes — and, for a `for`, its update
 clause as well. A `for`'s **initializer** runs once, ahead of the first test, so the facts it
 establishes survive. A loop that writes nothing keeps whatever it was given.
+
+#### The two paths after an `if` join
+
+A guard clause deletes one of the two paths, so the code after it simply inherits the other one. When
+**neither** branch leaves, both paths are live and what follows the `if` is their **join** — the
+state each path reaches the closing brace in, met together:
+
+| Written | State after the statement |
+|---|---|
+| `if c { S }` | `join(exit(S), what c proves when false)` |
+| `if c { S } else { T }` | `join(exit(S), exit(T))` |
+| `if c { S }` where `S` always leaves | what `c` proves when **false** |
+| `if c { S } else { T }` where `T` always leaves | `exit(S)` |
+
+Meeting two paths is the ordinary lattice: two paths that agree keep their answer, and two that
+disagree produce **maybe-null**. That is what makes the create-if-missing idiom read the way it is
+written — the then-branch reaches the brace holding the list it just made, and the implicit else path
+is the path on which `TryGetValue` returned `true`, which `[MaybeNullWhen(false)]` says leaves the
+`out` target non-null:
+
+```n#
+func addLine(locations: Dictionary<string, List<int>>, name: string, line: int) {
+    list: List<int>? = default
+    if !locations.TryGetValue(name, out list) {
+        list = new List<int>()
+        locations[name] = list
+    }
+
+    list.Add(line)                       // both paths reach here holding a list
+}
+```
+
+The same rule is what keeps the compiler honest in the other direction. A branch that assigns a
+value that *may* be null leaves the join maybe-null, and a branch that assigns on only one of the two
+paths tells the code below nothing — the other path never ran it:
+
+```n#
+func count(input: List<int>?, c: bool): int {
+    values: List<int>? = default
+    if c {
+        values = new List<int>()
+    }
+
+    return values.Count                  // NL905 — the `c == false` path never assigned
+}
+```
+
+A join also never takes back a fact the surrounding flow already proved. A redundant `if x != null`
+written below a guard clause leaves `x` non-null, because a path the surrounding flow can still
+answer for is a path neither branch wrote to.
+
+A `switch` is the same rule with more than two branches: what follows it is the meet of every arm
+that falls out of the bottom, provided those arms are the whole of the live paths — which is what a
+`default` arm makes true. An arm that always leaves contributes nothing, and a `break` inside an arm
+takes the join away, because control then reaches the code below from the middle of the arm.
+
+A `while` or `for` is left through the bottom only when its condition failed, so the condition's
+**false** facts hold after the loop — unless the body contains a `break`, which leaves without
+testing the condition at all:
+
+```n#
+func fill(source: List<int>?, fallback: List<int>): int {
+    values := source
+    while values == null {
+        values = fallback
+    }
+
+    return values.Count                  // the loop was left because `values` stopped being null
+}
+```
 
 ### Nullable value types keep their own members
 

@@ -138,6 +138,13 @@ class YieldStatementState {
 //      than as a bare expression statement are all this walk's decisions. What the driver adds is
 //      only the two things N# cannot do for itself — construct that family's state and run its
 //      loop — and it performs them with the expression it is handed and nothing else.
+//   8  analyse a BRANCH BLOCK'S STATEMENT LIST directly, in the scope this walk already opened, so
+//      the block does NOT open one of its own. That is what makes the branch's exit state readable:
+//      the facts a branch ends with live in a scope, and a join after the `if` can only read them if
+//      the scope they live in is the one this walk owns. The list walk is the same one a block runs —
+//      the same local-function hoist, the same unreachable rule — minus the scope it would have
+//      pushed. A branch that is NOT a block (the `if` in an `else if`) still goes through kind 5,
+//      because a statement that scopes itself must keep doing so.
 //
 // The numbering is this walk's own protocol with its own driver and starts at 1 with no gaps; the
 // other walks' numbers mean different operations, and none of them is a shared vocabulary.
@@ -145,6 +152,7 @@ class LoopStatementRequest {
     Kind: int
     Node: Expression?
     Body: Statement?
+    Statements: List<Statement>?
     Name: string?
     CarriedType: TypeInfo
     Line: int
@@ -154,6 +162,7 @@ class LoopStatementRequest {
         Kind = kind
         Node = null
         Body = null
+        Statements = null
         Name = null
         CarriedType = carriedType
         Line = 0
@@ -235,6 +244,22 @@ class LoopStatementState {
     ElseNarrowings: List<FlowNarrowing>?
     LoopFrame: AmbientContextFrame?
 
+    // THE TWO BRANCHES' EXIT STATES, READ WHILE THEIR SCOPES WERE STILL OPEN. A branch's exit state is
+    // the fact table it ended with, and the join that decides what the code below the `if` knows runs
+    // after both branches are over — so each branch's facts are read at the moment it ends and carried
+    // here. A narrowed branch ends with TWO open scopes, its narrowing scope and the block scope
+    // inside it, so the tables are overlaid in that order: what the branch ASSIGNED wins over what the
+    // condition PROVED. `ElseExitFacts` is null when there is no else branch, and the implicit else
+    // path's facts are read off the condition instead.
+    ThenExitFacts: Dictionary<string, NullState>?
+    ElseExitFacts: Dictionary<string, NullState>?
+
+    // Whether this walk opened a NARROWING scope for each branch, which it does only when that
+    // branch's own list is non-empty — exactly as it always has, so a variable declared directly in a
+    // narrowed branch is a SHADOW of the narrowed binding rather than a redeclaration of it.
+    ThenNarrowingScopeOpened: bool
+    ElseNarrowingScopeOpened: bool
+
     constructor(form: int, variableName: string?, collection: Expression?, condition: Expression?, initializer: Statement?, iterator: Expression?, body: Statement, elseBody: Statement?, line: int, column: int, isAsync: bool, narrowing: AnalyzerFlowNarrowing?, variableType: TypeReference? = null, assignability: AnalyzerAssignability? = null) {
         variableTypeValue = variableType
         assignabilityValue = assignability
@@ -270,6 +295,10 @@ class LoopStatementState {
         BodyNarrowings = null
         ElseNarrowings = null
         LoopFrame = null
+        ThenExitFacts = null
+        ElseExitFacts = null
+        ThenNarrowingScopeOpened = false
+        ElseNarrowingScopeOpened = false
     }
 }
 
@@ -1316,7 +1345,9 @@ class AnalyzerLoopSequence {
 
         narrowing := state.Narrowing
         if narrowing != null {
-            state.BodyNarrowings = narrowing.ExtractFlowNarrowings(condition).Then
+            split := narrowing.ExtractFlowNarrowings(condition)
+            state.BodyNarrowings = split.Then
+            state.ElseNarrowings = split.Else
         }
 
         conditionsValue.ReportConditionTypeMismatchIfNeeded(condition, "a 'while' loop", "used as a 'while' condition", state.ConditionType)
@@ -1350,10 +1381,13 @@ class AnalyzerLoopSequence {
     }
 
     // PHASE 14 — the loop closes. Both paths reach it, which is what makes the frame balanced whether
-    // or not the condition proved anything.
+    // or not the condition proved anything. And the code BELOW the loop takes what the condition
+    // proved when it was FALSE: a loop is left through the bottom only when its condition failed, so
+    // `while x == null { x = Make() }` leaves `x` not-null for everything after it.
     func AdvanceWhileClose(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 99
         ExitLoopFrame(state)
+        ApplyLoopExitNarrowings(state)
         return null
     }
 
@@ -1491,7 +1525,9 @@ class AnalyzerLoopSequence {
         condition := state.Condition
         narrowing := state.Narrowing
         if condition != null && narrowing != null {
-            state.BodyNarrowings = narrowing.ExtractFlowNarrowings(condition).Then
+            split := narrowing.ExtractFlowNarrowings(condition)
+            state.BodyNarrowings = split.Then
+            state.ElseNarrowings = split.Else
         }
 
         if NarrowingCount(state) > 0 {
@@ -1528,9 +1564,13 @@ class AnalyzerLoopSequence {
         return new LoopStatementRequest(6, BuiltInTypes.Unknown)
     }
 
-    // PHASE 29 — done.
+    // PHASE 29 — done, and the code below the loop takes what the condition proved when it was FALSE,
+    // for the same reason a `while` exit does. It is installed HERE rather than at phase 28 because
+    // the outer scope — the one that holds a variable the initializer declared — closes at phase 28,
+    // and a fact about the surviving flow belongs to the scope that survives.
     func AdvanceForOuterClose(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 99
+        ApplyLoopExitNarrowings(state)
         return null
     }
 
@@ -1545,22 +1585,23 @@ class AnalyzerLoopSequence {
     // outside one, so no ambient frame is entered and none is restored; the branch simply runs in
     // whatever frame the `if` was written in.
     //
-    // SECOND, IT HAS TWO BRANCHES AND EACH GETS ITS OWN FACTS. `ExtractFlowNarrowings` yields both
-    // lists at once — what the condition proves when TRUE and what it proves when FALSE — and each
-    // branch is walked inside its own scope only when its own list is non-empty. An `if` whose
-    // condition proves nothing opens NO scope at all, which is why a variable declared directly in an
-    // un-narrowed branch behaves differently from one declared in a narrowed branch; that is the
-    // behaviour `Analyzer.cs` had and it is preserved rather than regularised.
+    // SECOND, IT HAS TWO BRANCHES AND EACH GETS ITS OWN SCOPE AND ITS OWN FACTS.
+    // `ExtractFlowNarrowings` yields both lists at once — what the condition proves when TRUE and what
+    // it proves when FALSE — and each branch runs inside a scope THIS WALK opens, at the branch's own
+    // position. A BLOCK branch then runs its statements directly in that scope (kind 8) rather than
+    // pushing a second one at the same brace, which is what makes its EXIT STATE readable: the facts a
+    // branch ends with are the entries of a scope, and the join below needs to read them after the
+    // branch is over.
     //
-    // THIRD, AND ONLY HERE IN THE WHOLE FAMILY, A BRANCH THAT ALWAYS LEAVES CHANGES THE FLOW AFTER
-    // THE STATEMENT. `if x == null { return }` is a GUARD CLAUSE: the reader experiences its facts
-    // AFTER the `if` rather than inside it, so when the then-branch always leaves and the else-branch
-    // does not, the ELSE facts are installed into the surviving flow — into the ENCLOSING scope, with
-    // no scope of their own, because there is no branch left to scope them to. The mirror case
-    // installs the THEN facts when the else-branch always leaves. The two are NOT symmetric: the
-    // first arm additionally requires that the else-branch does NOT always leave, so an `if` whose
-    // BOTH branches leave installs nothing — there is no surviving flow to inform. That asymmetry is
-    // `Analyzer.cs`'s, character for character.
+    // THIRD, AND ONLY HERE IN THE WHOLE FAMILY, WHAT SURVIVES THE STATEMENT IS DECIDED BY A JOIN.
+    // `if x == null { return }` is a GUARD CLAUSE: one of the two paths is deleted, so the surviving
+    // flow INHERITS the other branch outright — its exit state, or, when this walk did not own its
+    // scope, the facts the condition proved for it. When BOTH branches leave there is no surviving
+    // flow to inform, and when NEITHER does both paths are live and the answer is their MEET:
+    // `join(exit(S), exit(T))`, or `join(exit(S), falseFacts(c))` when there is no else branch,
+    // because the implicit else path is exactly the path on which the condition was false. That is
+    // `NullableWalker.VisitIfStatement`'s rule, and it is what lets the TryGetValue-or-create idiom
+    // read its variable on the line below without a squiggle.
     //
     // THE TERMINATION QUESTION IS ASKED LAST, AFTER BOTH BRANCHES HAVE BEEN WALKED, because that is
     // where `Analyzer.cs` asked it. It is a PURE question about the AST — `AnalyzerStatementTermination`
@@ -1569,8 +1610,10 @@ class AnalyzerLoopSequence {
     //
     // AN `else if` IS NOT A SHAPE THIS WALK KNOWS. The parser puts an `IfStatement` in the else slot,
     // so the else branch step hands it to the statement dispatch and this walk is entered again for
-    // it, one level down, with its own condition, its own two narrowing lists and its own guard-clause
-    // rule. A chain of any length therefore needs nothing here at all.
+    // it, one level down, with its own condition, its own two narrowing lists and its own join. A
+    // chain of any length therefore needs nothing here at all — and it still runs inside the scope
+    // this walk opened for the else branch, so what the NESTED join installs is the else branch's
+    // exit state, joined here rather than escaping the outer statement as an unconditional fact.
     func AdvanceIf(state: LoopStatementState): LoopStatementRequest? {
         phase := state.Phase
         if phase == 30 {
@@ -1581,28 +1624,52 @@ class AnalyzerLoopSequence {
             return AdvanceIfGate(state)
         }
 
+        if phase == 38 {
+            return AdvanceIfThenNarrowings(state)
+        }
+
         if phase == 32 {
-            return AdvanceIfThenNarrowedBody(state)
+            return AdvanceIfThenBranchScope(state)
+        }
+
+        if phase == 39 {
+            return AdvanceIfThenBody(state)
         }
 
         if phase == 33 {
-            return AdvanceIfThenNarrowedClose(state)
+            return AdvanceIfThenClose(state)
+        }
+
+        if phase == 40 {
+            return AdvanceIfThenNarrowingClose(state)
         }
 
         if phase == 34 {
             return AdvanceIfElse(state)
         }
 
+        if phase == 41 {
+            return AdvanceIfElseNarrowings(state)
+        }
+
         if phase == 35 {
-            return AdvanceIfElseNarrowedBody(state)
+            return AdvanceIfElseBranchScope(state)
+        }
+
+        if phase == 42 {
+            return AdvanceIfElseBody(state)
         }
 
         if phase == 36 {
-            return AdvanceIfElseNarrowedClose(state)
+            return AdvanceIfElseClose(state)
+        }
+
+        if phase == 43 {
+            return AdvanceIfElseNarrowingClose(state)
         }
 
         if phase == 37 {
-            return AdvanceIfGuardClause(state)
+            return AdvanceIfJoin(state)
         }
 
         state.Phase = 99
@@ -1629,7 +1696,18 @@ class AnalyzerLoopSequence {
     // `Analyzer.cs` wrote and is preserved rather than tidied: the extractor consults the scope stack,
     // and a report that changed it would change what a later extraction saw. The gate is the RICH `if`
     // report — the only one of the five conditions that earns the underline and the conversion hint.
-    // Then the then-branch runs, inside its proved facts when it has any.
+    // Then the then-branch's scope opens.
+    //
+    // A BRANCH NOW HAS TWO SCOPES WHEN THE CONDITION PROVED SOMETHING AND ONE WHEN IT DID NOT, and
+    // that is the SAME count, at the same positions, that the walk has always produced — what changed
+    // is only WHO opens the inner one. The NARROWING scope is still opened here and only for a branch
+    // whose own list is non-empty; the branch's own scope is opened by this walk at phase 32 rather
+    // than by the block inside it, and the block then runs its statements IN it (kind 8). Keeping the
+    // two apart is not tidiness: a narrowing writes the narrowed TYPE into its scope's symbol table,
+    // so a branch that DECLARES a name the condition narrowed must still be a SHADOW of that binding
+    // and not a redeclaration in the same scope. What the split buys is the branch's EXIT STATE: the
+    // facts it ends with are the entries of scopes this walk reads before it closes them, which is the
+    // whole input to the join at phase 37.
     func AdvanceIfGate(state: LoopStatementState): LoopStatementRequest? {
         condition := state.Condition
         if condition == null {
@@ -1646,35 +1724,69 @@ class AnalyzerLoopSequence {
 
         conditionsValue.ReportIfConditionTypeMismatchIfNeeded(condition, state.ConditionType)
 
-        if NarrowingCount(state) > 0 {
-            state.Phase = 32
-            request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
-            request.Line = state.Body.Line
-            request.Column = state.Body.Column
-            return request
+        state.Phase = 32
+        if NarrowingCount(state) == 0 {
+            return null
         }
 
-        state.Phase = 34
-        return NewBodyRequest(state)
+        state.ThenNarrowingScopeOpened = true
+        state.Phase = 38
+        request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
+        request.Line = state.Body.Line
+        request.Column = state.Body.Column
+        return request
     }
 
-    // PHASE 32 — the true-branch facts are installed in the scope phase 31 just opened, and then the
-    // then-branch runs inside them.
-    func AdvanceIfThenNarrowedBody(state: LoopStatementState): LoopStatementRequest? {
+    // PHASE 38 — the true-branch facts are installed in the narrowing scope phase 31 opened.
+    func AdvanceIfThenNarrowings(state: LoopStatementState): LoopStatementRequest? {
         ApplyBodyNarrowings(state)
-        state.Phase = 33
-        return NewBodyRequest(state)
+        state.Phase = 32
+        return null
     }
 
-    // PHASE 33 — the then-branch's narrowing scope closes, and the facts it carried die with it.
-    func AdvanceIfThenNarrowedClose(state: LoopStatementState): LoopStatementRequest? {
+    // PHASE 32 — THE BRANCH'S OWN SCOPE, opened by this walk rather than by the block inside it, and
+    // at the block's own position so nothing about where it starts changes. It is what the branch's
+    // statements run in (phase 39) and what its EXIT STATE is read from (phase 33).
+    func AdvanceIfThenBranchScope(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 39
+        request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
+        request.Line = state.Body.Line
+        request.Column = state.Body.Column
+        return request
+    }
+
+    // PHASE 39 — the then-branch runs, inside the scope phase 32 opened and inside whatever facts
+    // phase 38 installed above it.
+    func AdvanceIfThenBody(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 33
+        return NewBranchRequest(state.Body)
+    }
+
+    // PHASE 33 — THE THEN-BRANCH'S EXIT STATE IS READ, AND ONLY THEN DOES ITS SCOPE CLOSE. The order
+    // is the whole point: the facts are the scope's, and after the pop the stack no longer walks
+    // through it.
+    func AdvanceIfThenClose(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 40
+        state.ThenExitFacts = AnalyzerConditionalJoin.ExitFacts(scopesValue, scopesValue.Peek())
+        return new LoopStatementRequest(6, BuiltInTypes.Unknown)
+    }
+
+    // PHASE 40 — the narrowing scope closes, and what it still held is read first and laid UNDER the
+    // branch's own facts: a path the branch assigned has already overwritten what the condition
+    // proved, and a path it did not keeps the proof.
+    func AdvanceIfThenNarrowingClose(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 34
+        if !state.ThenNarrowingScopeOpened {
+            return null
+        }
+
+        state.ThenExitFacts = AnalyzerConditionalJoin.OverlayFacts(AnalyzerConditionalJoin.ExitFacts(scopesValue, scopesValue.Peek()), state.ThenExitFacts)
         return new LoopStatementRequest(6, BuiltInTypes.Unknown)
     }
 
     // PHASE 34 — the else branch, which is the family's only optional body. No else branch skips
-    // straight to the guard-clause rule; an else branch with proved facts opens its own scope at ITS
-    // OWN position rather than at the then-branch's.
+    // straight to the join; an else branch opens its own scope at ITS OWN position rather than at the
+    // then-branch's.
     func AdvanceIfElse(state: LoopStatementState): LoopStatementRequest? {
         elseBody := state.ElseBody
         if elseBody == null {
@@ -1682,64 +1794,157 @@ class AnalyzerLoopSequence {
             return null
         }
 
-        if ElseNarrowingCount(state) > 0 {
-            state.Phase = 35
-            request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
-            request.Line = elseBody.Line
-            request.Column = elseBody.Column
-            return request
+        state.Phase = 35
+        if ElseNarrowingCount(state) == 0 {
+            return null
         }
 
-        state.Phase = 37
-        return NewElseBodyRequest(elseBody)
+        state.ElseNarrowingScopeOpened = true
+        state.Phase = 41
+        request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
+        request.Line = elseBody.Line
+        request.Column = elseBody.Column
+        return request
     }
 
-    // PHASE 35 — the false-branch facts are installed in the scope phase 34 just opened, and then the
-    // else branch runs inside them.
-    func AdvanceIfElseNarrowedBody(state: LoopStatementState): LoopStatementRequest? {
+    // PHASE 41 — the false-branch facts are installed in the narrowing scope phase 34 opened.
+    func AdvanceIfElseNarrowings(state: LoopStatementState): LoopStatementRequest? {
         ApplyElseNarrowings(state)
+        state.Phase = 35
+        return null
+    }
+
+    // PHASE 35 — the else branch's own scope, at ITS OWN position rather than at the then-branch's.
+    func AdvanceIfElseBranchScope(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 42
+        elseBody := state.ElseBody
+        if elseBody == null {
+            return null
+        }
+
+        request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
+        request.Line = elseBody.Line
+        request.Column = elseBody.Column
+        return request
+    }
+
+    // PHASE 42 — the else branch runs.
+    func AdvanceIfElseBody(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 36
         elseBody := state.ElseBody
         if elseBody == null {
             return null
         }
 
-        return NewElseBodyRequest(elseBody)
+        return NewBranchRequest(elseBody)
     }
 
-    // PHASE 36 — the else branch's narrowing scope closes.
-    func AdvanceIfElseNarrowedClose(state: LoopStatementState): LoopStatementRequest? {
-        state.Phase = 37
+    // PHASE 36 — the else branch's exit state is read, and only then does its scope close.
+    func AdvanceIfElseClose(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 43
+        elseBody := state.ElseBody
+        if elseBody == null {
+            return null
+        }
+
+        state.ElseExitFacts = AnalyzerConditionalJoin.ExitFacts(scopesValue, scopesValue.Peek())
         return new LoopStatementRequest(6, BuiltInTypes.Unknown)
     }
 
-    // PHASE 37 — THE GUARD-CLAUSE RULE, and the one place in this family where facts outlive the
-    // statement that proved them. Both branches have already been walked; what is decided here is
-    // what the code AFTER the `if` knows. The termination questions are asked in the then/else order
-    // `Analyzer.cs` asked them, and the else question is not asked at all when there is no else
-    // branch — which is the same answer, and is preserved as the same shape.
+    // PHASE 43 — the else branch's narrowing scope closes, laid under its own facts.
+    func AdvanceIfElseNarrowingClose(state: LoopStatementState): LoopStatementRequest? {
+        state.Phase = 37
+        if !state.ElseNarrowingScopeOpened {
+            return null
+        }
+
+        state.ElseExitFacts = AnalyzerConditionalJoin.OverlayFacts(AnalyzerConditionalJoin.ExitFacts(scopesValue, scopesValue.Peek()), state.ElseExitFacts)
+        return new LoopStatementRequest(6, BuiltInTypes.Unknown)
+    }
+
+    // PHASE 37 — WHAT THE CODE AFTER THE `if` KNOWS. Both branches have already been walked and both
+    // scopes are closed; what is decided here is the state the next statement starts from.
+    //
+    // A BRANCH THAT ALWAYS LEAVES IS NOT A JOIN. `if x == null { return }` deletes one of the two
+    // paths, so the surviving flow INHERITS the other one outright — its exit state when this walk
+    // owned its scope, and otherwise the facts the condition proved for it, which is what this rule
+    // has always installed. The termination questions are asked in the then/else order `Analyzer.cs`
+    // asked them, and the else question is not asked at all when there is no else branch.
     //
     // THE QUESTION IS `AlwaysLeaves`, NOT `AlwaysReturns`, and the difference is the whole rule. What
     // the surviving flow knows depends on whether the BRANCH is gone, not on whether the FUNCTION is
     // over: `if x == null { break }` and `if x == null { continue }` remove the branch exactly as
     // `return` and `throw` do, and the code after them is reached only when the condition was false.
     // The missing-return rule cannot use this answer and does not ask for it.
-    func AdvanceIfGuardClause(state: LoopStatementState): LoopStatementRequest? {
+    //
+    // WHEN NEITHER BRANCH LEAVES, BOTH PATHS ARE LIVE AND THE ANSWER IS THEIR MEET —
+    // `join(exit(S), exit(T))` for a two-branch `if`, and `join(exit(S), falseFacts(c))` when there
+    // is no else branch, because the implicit else path is exactly the path on which the condition
+    // was false. That is the rule Roslyn's `NullableWalker.VisitIfStatement` states and the one N#
+    // was missing.
+    func AdvanceIfJoin(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 99
         thenAlwaysLeaves := AnalyzerStatementTermination.AlwaysLeaves(state.Body, terminatingCallsValue)
         elseBody := state.ElseBody
         elseAlwaysLeaves := elseBody != null && AnalyzerStatementTermination.AlwaysLeaves(elseBody, terminatingCallsValue)
 
-        if thenAlwaysLeaves && !elseAlwaysLeaves && ElseNarrowingCount(state) > 0 {
-            ApplyElseNarrowings(state)
+        if thenAlwaysLeaves && !elseAlwaysLeaves {
+            InstallInheritedFacts(state, state.ElseExitFacts, state.ElseNarrowings, ElseNarrowingCount(state))
             return null
         }
 
-        if elseAlwaysLeaves && NarrowingCount(state) > 0 {
-            ApplyBodyNarrowings(state)
+        if elseAlwaysLeaves {
+            InstallInheritedFacts(state, state.ThenExitFacts, state.BodyNarrowings, NarrowingCount(state))
+            return null
         }
 
+        InstallJoinedFacts(state)
         return null
+    }
+
+    // THE SURVIVING FLOW INHERITS A BRANCH THAT IS THE ONLY PATH LEFT. Its exit state when this walk
+    // observed one, and otherwise the facts the condition proved for it — which is the case when
+    // there is no else branch at all.
+    func InstallInheritedFacts(state: LoopStatementState, exitFacts: Dictionary<string, NullState>?, narrowings: List<FlowNarrowing>?, narrowingCount: int) {
+        narrowing := state.Narrowing
+        if narrowing == null {
+            return
+        }
+
+        if exitFacts != null {
+            inherited := AnalyzerConditionalJoin.InheritedFacts(exitFacts)
+            if inherited.Count > 0 {
+                narrowing.ApplyNarrowingsToScope(inherited)
+            }
+
+            return
+        }
+
+        if narrowings != null && narrowingCount > 0 {
+            narrowing.ApplyNarrowingsToScope(narrowings)
+        }
+    }
+
+    // THE MEET OF TWO LIVE PATHS. The then-branch's exit state joins either the else-branch's exit
+    // state or — with no else branch — what the condition proved when it was FALSE, which is the
+    // whole of what the implicit else path knows.
+    func InstallJoinedFacts(state: LoopStatementState) {
+        narrowing := state.Narrowing
+        thenExit := state.ThenExitFacts
+        if narrowing == null || thenExit == null {
+            return
+        }
+
+        elseFacts := AnalyzerConditionalJoin.NarrowingFacts(state.ElseNarrowings)
+        elseExit := state.ElseExitFacts
+        if elseExit != null {
+            elseFacts = elseExit
+        }
+
+        joined := AnalyzerConditionalJoin.JoinFacts(scopesValue, thenExit, elseFacts)
+        if joined.Count > 0 {
+            narrowing.ApplyNarrowingsToScope(joined)
+        }
     }
 
     // ── WHAT THE CONDITION FORMS SHARE ─────────────────────────────────────────────────────────
@@ -1788,6 +1993,24 @@ class AnalyzerLoopSequence {
         }
     }
 
+    // WHAT A LOOP PROVES ON ITS WAY OUT. A `while` or `for` that fell out of the bottom tested its
+    // condition one last time and it was FALSE, so the condition's false facts hold below the loop
+    // exactly as an `if`'s do below a guard clause. A `break` is the one thing that takes it away: it
+    // leaves with the condition untested, so a loop that contains one proves nothing on its way out.
+    func ApplyLoopExitNarrowings(state: LoopStatementState) {
+        narrowings := state.ElseNarrowings
+        narrowing := state.Narrowing
+        if narrowings == null || narrowing == null || narrowings.Count == 0 {
+            return
+        }
+
+        if AnalyzerConditionalJoin.ContainsLoopBreak(state.Body) {
+            return
+        }
+
+        narrowing.ApplyNarrowingsToScope(narrowings)
+    }
+
     // THE BODY STEP, which is the same request for every walk: a loop body, a `for` initializer, or
     // an `if`'s then-branch.
     func NewBodyRequest(state: LoopStatementState): LoopStatementRequest {
@@ -1796,11 +2019,24 @@ class AnalyzerLoopSequence {
         return request
     }
 
-    // THE ELSE-BRANCH STEP. It is the same kind as the body step and differs only in which statement
-    // it carries, which is why it takes the statement rather than reading it back off the state.
-    func NewElseBodyRequest(elseBody: Statement): LoopStatementRequest {
+    // AN `if` BRANCH'S STEP. A BLOCK branch is handed out as its STATEMENT LIST (kind 8), so the
+    // block runs inside the scope this walk opened instead of pushing a second one at the same brace,
+    // and the facts it ends with stay where the join at phase 37 can read them. An `else if` is a
+    // statement that scopes itself and takes the ordinary one-statement step — inside this walk's
+    // scope all the same, so what its own join installs into the surviving flow is the else branch's
+    // exit state and is joined rather than escaping to the level above.
+    static func NewBranchRequest(branch: Statement): LoopStatementRequest {
+        block := branch as BlockStatement
+        if block != null {
+            request := new LoopStatementRequest(8, BuiltInTypes.Unknown)
+            request.Statements = block.Statements
+            request.Line = block.Line
+            request.Column = block.Column
+            return request
+        }
+
         request := new LoopStatementRequest(5, BuiltInTypes.Unknown)
-        request.Body = elseBody
+        request.Body = branch
         return request
     }
 
