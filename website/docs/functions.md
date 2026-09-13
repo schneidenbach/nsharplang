@@ -420,6 +420,51 @@ longOnes := words.Where(IsLong)
 counted := words.Count(IsLong)
 ```
 
+A method group may name a **method of the type you are writing in** — a static one from any of that
+type's bodies, an instance one wherever `this` exists — and not only a top-level `func`:
+
+```n#
+class Symbols {
+    static func Format(name: string): string => "<" + name + ">"
+
+    static func FormatAll(names: List<string>): List<string> {
+        return names.Select(Format).ToList()
+    }
+}
+```
+
+When the name has **several overloads**, the delegate the position wants picks one: exactly one
+applicable method converts, and two is an ambiguity rather than a choice. A group whose parameter
+admits more than the delegate's does still converts — a `func Format(name: string?)` is a
+`Func<string, string?>`, because a parameter that admits null admits everything a non-null one does.
+
+### Any delegate type, not only `Func` and `Action`
+
+A lambda converts to **whatever delegate type the position names**, and its `Invoke` is where that
+signature is read from — the delegate's name is no part of the rule. Event-handler delegates,
+`Predicate<T>`, `Comparison<T>`, `Converter<T, R>`, `EventHandler<T>` and a delegate a referenced
+assembly declares all work the same way, in a declared local, at a delegate-typed parameter, and as a
+constructor argument:
+
+```n#
+import System
+
+cancelHandler: ConsoleCancelEventHandler = (sender, eventArgs) => {
+    eventArgs.Cancel = true
+}
+
+ordering: Comparison<int> = (left, right) => right - left
+Array.Sort(values, ordering)
+Array.Sort(values, (left, right) => right - left)
+
+longEnough: Predicate<string> = value => value.Length > 2
+first := words.Find(longEnough)
+```
+
+A method group converts at exactly the same positions, by the same rule. N# has no `delegate`
+declaration of its own: write `Func<...>` / `Action<...>` for a signature you name yourself, and use a
+referenced assembly's delegate types where they are part of an API you are calling.
+
 **A member that cannot be called does not hide a method of the same name.** `List<T>.Count` is an
 `int` property and `Enumerable.Count<TSource>` is an extension method; only the second is
 invocable, so both spellings mean what they say:
@@ -834,8 +879,18 @@ func CountOf<T>(items: T): int where T: IEnumerable<string> {
 ```
 
 A member the CONSTRAINT itself declares wins over an extension of the same name, which is the same
-precedence an ordinary receiver keeps. A lambda argument at such a call site is not typed yet — write
-the call on a concrete receiver, or take `IEnumerable<string>` directly, when you need one.
+precedence an ordinary receiver keeps. The constraint types a **lambda argument** at such a call too,
+because the receiver it fixes is what the call's own type parameters are inferred from:
+
+```n#
+func WidestOf<T>(items: T): int where T: IEnumerable<string> {
+    return items.Max(item => item.Length)     // `item` is a `string`
+}
+```
+
+**One** constraint answers. A type parameter with two of them keeps its own member surface, because
+choosing between the two would be a guess; write the call on a concrete receiver, or take
+`IEnumerable<string>` directly, when you need one.
 
 ## Best Practices
 

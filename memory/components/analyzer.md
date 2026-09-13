@@ -299,7 +299,33 @@ THE DISPATCH ORDER IS THE SPECIFICATION. Moving one arm past another changes the
   correctly.
 - The CALLABLE-REFERENCE arms come before `object`. A bare method group is not a value, so it is NOT
   assignable to `object` — that single exception is what forces the whole ordering, and it composes:
-  a union with a method-group arm is not assignable to `object` either.
+  a union with a method-group arm is not assignable to `object` either. A method group WITH A
+  DELEGATE TARGET is a different question and is answered there: `IsMethodGroupAssignableToDelegate`
+  applies C#'s rule — exactly one of the group's candidates applicable to the delegate's signature —
+  reading that signature through `DelegateSignatureOfExpectedType`, which is the one place a
+  delegate-shaped expected type is reduced to a `FunctionTypeInfo` however it is spelled (a function
+  type, a reflected delegate, `Func`/`Action`, any other constructed generic delegate's `Invoke`,
+  through the transparent nullable and oblivious shells). The two REFLECTION group shapes stay
+  refused here; their candidates are `MethodInfo`s the call binder selects among.
+- A LAMBDA REACHES ANY DELEGATE TYPE. There used to be one hand-placed bridge comparing the target's
+  identity with `ThreadStart`, so every other non-`Func`/`Action` delegate was refused. The rule is
+  the delegate's `Invoke`, wherever it is carried: a reflected target answers through
+  `AnalyzerCallableReferenceFacts.IsInvocableMemberType` (runtime identity OR the metadata base-chain
+  names, so the relation does not depend on which side of the `MetadataLoadContext` boundary the
+  reference set is on), and a constructed GENERIC delegate answers through
+  `GenericDelegateInvokeSignature` — the CLOSED type when the reference set can spell it, and
+  otherwise the DEFINITION's `Invoke` with this instantiation's arguments substituted
+  (`AnalyzerFunctionTypeFactory.CreateFromDelegateDefinition`), which is how a delegate closed over a
+  type the compilation is still writing answers. `Func` and `Action` keep their positional reading,
+  because those two are also built WITHOUT a reflected definition behind them.
+- THE DELEGATE-SIGNATURE SCORER TREATS A NULLABLE POSITION AS TRANSPARENT-INWARDS: a position that
+  admits null admits whatever its inner type admits. Read in the two directions the scorer is called
+  in, that is the whole nullability rule for a delegate signature — a method whose PARAMETER is
+  `string?` accepts everything a `string` parameter accepts (contravariance), and a delegate whose
+  RETURN is `string?` accepts a method returning `string` (covariance). The reference-conversion gate
+  below it refuses a nullable shell outright, which is why `names.Select(formatTypeRef)` on a
+  `List<string>` reported NL402 for a `formatTypeRef(typeRef: TypeReference?)` that the same delegate
+  written out accepted.
 - FUNCTION-TYPE structural comparison comes before the identity fallback, because every
   `FunctionTypeInfo` renders identically.
 - ARRAY COVARIANCE (ECMA-335) sits with the other array arms, after `object` and the span view. `S[]`
@@ -825,6 +851,16 @@ Three rules are behaviour rather than bookkeeping, and are why the stack has to 
   dead at the first type-level or global scope: a member or a global of the same name is not
   shadowing. Underscore-prefixed names, `this`, `value`, function declarations and names the scope
   also binds as a type are all not value bindings, so they neither shadow nor are shadowed.
+- **A type parameter's `where` clause lives on the scope that declared it.** A type parameter is a
+  `SimpleTypeInfo` of its own name and carries nothing else, so `DeclareTypeParameterConstraints`
+  records the resolved constraint types beside it and they leave scope with the declaration.
+  `ConstrainedReceiverType` is the substitution both member lookup and the reflection call bind make
+  before they ask anything about a receiver: ONE constraint IS the receiver's member surface, two is a
+  merge-and-ambiguity question this owner does not resolve, and anything else answers with itself.
+  BOTH call sites must substitute — `AnalyzerMemberAccess` before `ResolveMember` and
+  `AnalyzerCallAnalysis` before the receiver is converted for `PreBindReflectionMethod` — because the
+  surface the member was found on and the receiver an extension's own slot is matched against have to
+  be the same type; substituting in only one of them makes `items.Count()` stop binding.
 - **The lexical scope stack and the semantic-scope-id stack move in lockstep.** `Push` opens a
   semantic scope parented to the id currently on top (−1 when there is none); `Pop` closes it at the
   analyzer's current line and column `int.MaxValue`. The id stack is popped only when non-empty while
