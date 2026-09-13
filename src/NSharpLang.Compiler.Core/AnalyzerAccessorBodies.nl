@@ -685,16 +685,4 @@ class AnalyzerAccessorBodies {
 
         return indexer.Parameters
     }
-
-    // A resolved type's own display form, read through an `object`-typed local because `ToString` is
-    // declared by the BASE of the TypeInfo hierarchy rather than by the hierarchy itself.
-    static func TypeText(typeInfo: TypeInfo): string {
-        boxed := typeInfo as object
-        rendered := boxed.ToString()
-        if rendered != null {
-            return rendered
-        }
-
-        return ""
-    }
 }
