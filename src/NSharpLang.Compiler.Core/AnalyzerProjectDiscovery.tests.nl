@@ -1147,3 +1147,97 @@ test "a global-namespace declaration is the outermost lexical step, ahead of an 
     second := ""
     assert !discovery.TryFindAmbiguousImportedType("Version", "App.Models", out first, out second)
 }
+
+// THE FUNCTION CHANNEL TIES EXACTLY WHERE THE TYPE CHANNEL DOES (census 2026-09-13, §EMIT3). A free
+// function reaches a file from a sibling namespace through an `import` and nothing else, so two
+// imports supplying one spelling is the same NL209 tie — and the same three exclusions apply.
+test "two imports that supply one free function are ambiguous, and a nearer declaration is not" {
+    provider := ProjectProviderOf(
+        ["/p/left.nl", "/p/right.nl", "/p/own.nl"],
+        [
+            ProjectSourceOf("Left", "func Render(): string {\n    return \"left\"\n}\n"),
+            ProjectSourceOf("Right", "func Render(): string {\n    return \"right\"\n}\n"),
+            ProjectSourceOf("Mine", "func Describe(): string {\n    return \"mine\"\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, ["Left", "Right"])
+
+    first := ""
+    second := ""
+    assert discovery.TryFindAmbiguousImportedFunction("Render", "Mine", out first, out second)
+    assert first == "Left.Render"
+    assert second == "Right.Render"
+
+    // A name only ONE import supplies is not a tie.
+    assert !discovery.TryFindAmbiguousImportedFunction("Describe", "Mine", out first, out second)
+
+    // A name NO import supplies is not a tie either.
+    assert !discovery.TryFindAmbiguousImportedFunction("Missing", "Mine", out first, out second)
+}
+
+test "a free function in the file's own or an enclosing namespace outranks both imports" {
+    ownProvider := ProjectProviderOf(
+        ["/p/left.nl", "/p/right.nl", "/p/own.nl"],
+        [
+            ProjectSourceOf("Left", "func Render(): string {\n    return \"left\"\n}\n"),
+            ProjectSourceOf("Right", "func Render(): string {\n    return \"right\"\n}\n"),
+            ProjectSourceOf("Mine", "func Render(): string {\n    return \"mine\"\n}\n")
+        ]
+    )
+    ownDiscovery := ProjectDiscoveryOf(ownProvider, ["Left", "Right"])
+    first := ""
+    second := ""
+    assert !ownDiscovery.TryFindAmbiguousImportedFunction("Render", "Mine", out first, out second)
+
+    // An ENCLOSING namespace is nearer than any import too, with nothing to report.
+    enclosingProvider := ProjectProviderOf(
+        ["/p/left.nl", "/p/right.nl", "/p/outer.nl"],
+        [
+            ProjectSourceOf("Left", "func Render(): string {\n    return \"left\"\n}\n"),
+            ProjectSourceOf("Right", "func Render(): string {\n    return \"right\"\n}\n"),
+            ProjectSourceOf("Mine", "func Render(): string {\n    return \"outer\"\n}\n")
+        ]
+    )
+    enclosingDiscovery := ProjectDiscoveryOf(enclosingProvider, ["Left", "Right"])
+    assert !enclosingDiscovery.TryFindAmbiguousImportedFunction("Render", "Mine.Inner", out first, out second)
+}
+
+test "a non-exported free function is not one of the candidates a tie is decided between" {
+    provider := ProjectProviderOf(
+        ["/p/left.nl", "/p/right.nl"],
+        [
+            ProjectSourceOf("Left", "func render(): string {\n    return \"left\"\n}\n"),
+            ProjectSourceOf("Right", "func Render(): string {\n    return \"right\"\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, ["Left", "Right"])
+    first := ""
+    second := ""
+
+    // camelCase is file-private, so only one import supplies `Render` and only one supplies
+    // `render` — neither spelling ties.
+    assert !discovery.TryFindAmbiguousImportedFunction("Render", "Mine", out first, out second)
+    assert !discovery.TryFindAmbiguousImportedFunction("render", "Mine", out first, out second)
+}
+
+// `Program` IS THE FREE-FUNCTION HOLDER'S NAME, so the question "does this namespace declare a
+// top-level function at all?" decides whether a source type may take it (NL306).
+test "a namespace declares top-level functions only when one of its files does" {
+    provider := ProjectProviderOf(
+        ["/p/functions.nl", "/p/typesonly.nl", "/p/global.nl"],
+        [
+            ProjectSourceOf("Has", "func helper(): string {\n    return \"x\"\n}\n"),
+            ProjectSourceOf("None", "class Widget {\n}\n"),
+            ProjectSourceOf(null, "func Root(): string {\n    return \"root\"\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    // Casing is irrelevant: a file-private function still needs a holder to live on.
+    assert discovery.NamespaceDeclaresTopLevelFunction("Has")
+    assert !discovery.NamespaceDeclaresTopLevelFunction("None")
+    assert !discovery.NamespaceDeclaresTopLevelFunction("Absent")
+
+    // The GLOBAL namespace is a real answer, not an absence.
+    assert discovery.NamespaceDeclaresTopLevelFunction(null)
+}

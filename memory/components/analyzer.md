@@ -882,6 +882,41 @@ A resolved declaration's LINE is the declaration's own and its COLUMN is where t
 that line (`CodeIntelligenceTextUtilities.FindIdentifierNameColumn`), which is what a
 go-to-definition span has to point at.
 
+**A FREE FUNCTION IS (NAMESPACE, NAME) EVERYWHERE, INCLUDING IN THE EMITTER** (census 2026-09-13,
+§EMIT3). The analyzer always resolved a bare call through `SimpleNamePrecedence`; the emitter kept
+ONE project-wide sibling map keyed by `fn.Name`, so a second `Helper` declared in another namespace
+was shadowed by the first in every caller — `check` and `build` were clean and the program printed
+the other namespace's answer. `ColumnarFreeFunctionScope.nl` is now the emitter's half of the same
+rule: it holds every declared free function as a (namespace, name, exported, source file) row and
+hands each body the sibling map ITS file sees, ranked caller's-file-first, then the lexical chain
+outward, then the imports. `ColumnarFreeFunctionHolders` gives each namespace its own `Program`
+holder type, created on demand, so the two `Helper`s are two methods on two types
+(`X.Program.Helper`, `Y.Program.Helper`) instead of two identical rows on one.
+
+Two consequences the analyzer owns:
+
+- **NL209 reaches the function channel.** `TryFindAmbiguousImportedFunction` mirrors
+  `TryFindAmbiguousImportedType` for top-level functions, reported from the same 3a ambiguity gate in
+  `AnalyzerIdentifierResolution`. It is asked only when the type half said no. The SUGGESTION differs:
+  a free function has no namespace-qualified call spelling, so the fix is to drop an import.
+- **`Program` is reserved in any namespace that declares free functions.**
+  `AnalyzerDeclarationPolicy.CheckFreeFunctionHolderCollision` is asked once per file over its
+  top-level declarations and reports NL306 for a source type of that name, naming the holder the
+  reader cannot see. Before this the assembly quietly got two type rows of one name — the pre-existing
+  global-namespace case included.
+
+**WHERE EXPORTEDNESS COMES FROM, AND WHY IT NEEDED A NEW COLUMN.** The declaration scan collects
+modifier words for structs only, so a free function's `public`/`internal` word never reached the
+columnar input and casing alone would have called `public func buildExplicit()` file-private and
+`internal func Render()` exported — both the opposite of the analyzer's answer.
+`ColumnarFunctionInput.VisibilityModifierFlags` now carries that word, filled from the same
+`ColumnarStructDeclarationMetadataModifierFlagsAt` scan the struct column uses, and
+`VisibilityConventions.IsExportedIdentifierWithFlags` is the one rule both sides read. It is a
+SEPARATE column from `ModifierFlags` on purpose: folding the word in there would change the CLR
+method attributes the declaration planner composes for every existing program, which is a different
+decision. (Which is also why `public func` still emits a non-public method — a standing gap, not this
+rule's.)
+
 ### The scope stack
 
 `TypeArityNames.nl` is the N# owner of TYPE IDENTITY BY (NAME, GENERIC ARITY). A type's identity is

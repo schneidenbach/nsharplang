@@ -559,6 +559,106 @@ class AnalyzerProjectTypeDiscovery {
         return false
     }
 
+    // NL209 FOR THE FUNCTION CHANNEL. The same tie the type half reports, asked of top-level `func`
+    // declarations: two IMPORTED namespaces each export this spelling, so `SimpleNamePrecedence`
+    // rule 3 has two winners and the file has to settle it.
+    //
+    // WHAT IS NOT AMBIGUOUS, and it is rule 1 and rule 2 again: a function this FILE declares, or an
+    // exported one in the file's own or any enclosing namespace, is lexically nearer than every
+    // import and wins outright — so a lexical match answers `false` before any import is asked. An
+    // `import` naming an enclosing namespace is redundant rather than a rival and is skipped.
+    //
+    // The candidates come back FULLY QUALIFIED, in import order.
+    func TryFindAmbiguousImportedFunction(name: string, currentNamespace: string?, out firstCandidate: string, out secondCandidate: string): bool {
+        firstCandidate = ""
+        secondCandidate = ""
+
+        lexical := SimpleNamePrecedence.LexicalNamespaces(currentNamespace)
+        lexicalIndex := 0
+        while lexicalIndex < lexical.Count {
+            if HasExportedFunctionInNamespace(name, lexical[lexicalIndex]) {
+                return false
+            }
+            lexicalIndex = lexicalIndex + 1
+        }
+
+        matched := false
+        index := 0
+        while index < usingNamespaces.Count {
+            candidateNamespace := usingNamespaces[index]
+            index = index + 1
+            if SimpleNamePrecedence.IsLexicalNamespace(currentNamespace, candidateNamespace) {
+                continue
+            }
+
+            if !HasExportedFunctionInNamespace(name, candidateNamespace) {
+                continue
+            }
+
+            if !matched {
+                matched = true
+                firstCandidate = candidateNamespace + "." + name
+                continue
+            }
+
+            secondCandidate = candidateNamespace + "." + name
+            return true
+        }
+
+        return false
+    }
+
+    // "DOES THIS NAMESPACE DECLARE ANY TOP-LEVEL FUNCTION AT ALL?" — the question the free-function
+    // HOLDER depends on. Every namespace that declares one gets a compiler-declared `Program` type to
+    // hold it, so a source type of that name in that namespace is a second declaration of one name.
+    // Casing is irrelevant here: a file-private camelCase function still needs a holder.
+    func NamespaceDeclaresTopLevelFunction(namespaceName: string?): bool {
+        paths := sources.SourceFilePaths()
+        fileIndex := 0
+        while fileIndex < paths.Count {
+            candidatePath := paths[fileIndex]
+            unit := sources.GetProjectCompilationUnit(candidatePath)
+            if unit != null && string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit), namespaceName, StringComparison.Ordinal) {
+                declarations := unit.Declarations
+                declarationIndex := 0
+                while declarationIndex < declarations.Count {
+                    if declarations[declarationIndex] as FunctionDeclaration != null {
+                        return true
+                    }
+                    declarationIndex = declarationIndex + 1
+                }
+            }
+
+            fileIndex = fileIndex + 1
+        }
+
+        return false
+    }
+
+    // One namespace's answer to "does an exported top-level function of this name live here?".
+    func HasExportedFunctionInNamespace(name: string, namespaceName: string?): bool {
+        paths := sources.SourceFilePaths()
+        fileIndex := 0
+        while fileIndex < paths.Count {
+            candidatePath := paths[fileIndex]
+            unit := sources.GetProjectCompilationUnit(candidatePath)
+            if unit != null && string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit), namespaceName, StringComparison.Ordinal) {
+                declarations := unit.Declarations
+                declarationIndex := 0
+                while declarationIndex < declarations.Count {
+                    if IsExportedFunctionNamed(declarations[declarationIndex], name) {
+                        return true
+                    }
+                    declarationIndex = declarationIndex + 1
+                }
+            }
+
+            fileIndex = fileIndex + 1
+        }
+
+        return false
+    }
+
     // The inaccessible-FUNCTION decision, for the identifier path. Types take the same decision
     // inside `ResolveVisibleProjectType`, where its position in the sequence matters.
     func TryFindInaccessibleVisibleFunction(name: string, currentNamespace: string?, out filePath: string?): bool {
