@@ -5044,7 +5044,10 @@ class ColumnarParserRecovery {
         column := Current().Column
         Advance()
         // consume 'return'
-        if !Check(TokenType.RightBrace) && !IsAtEnd() && ParserTokenFacts.CanStartExpression(Current().Type) {
+        // `async` IS NOT AN EXPRESSION START IN GENERAL — it is a declaration modifier, and `return`
+        // followed by `async func inner()` on the next line is a value-less return before a local
+        // function. It starts one only when a LAMBDA follows it, which is the question asked here.
+        if !Check(TokenType.RightBrace) && !IsAtEnd() && (ParserTokenFacts.CanStartExpression(Current().Type) || StartsAsyncLambda()) {
             value := ParseExprValue().Node
             if value == null {
                 return null
@@ -6350,6 +6353,16 @@ class ColumnarParserRecovery {
             return ParseOnSubscription()
         }
 
+        // `async` IN FRONT OF A LAMBDA. The keyword is only a lambda prefix when a lambda actually
+        // follows it — `async` is otherwise a declaration modifier — so the scan looks one token ahead
+        // and leaves the cursor alone when it does not. Consuming it here re-anchors the lambda on the
+        // `async` keyword, which is where a reader expects a diagnostic about an async lambda to land.
+        isAsyncLambda := false
+        if Check(TokenType.Async) && IsLambdaStartAt(Position + 1) {
+            isAsyncLambda = true
+            Advance()
+        }
+
         // Single-parameter lambda `x => expr` (Parser.cs :3652). A LambdaExpression is anchored on this start
         // position, so its DiagnosticSpanFromExpression falls to the (line, column, 1) default (:5960).
         if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Arrow {
@@ -6375,11 +6388,11 @@ class ColumnarParserRecovery {
             // `new LambdaExpression(parameters, null, blockBody, line, column)` (Parser.cs :3665).
             if hasBlockBody {
                 if lambdaBlockBody != null {
-                    lambdaResult.Node = new LambdaExpression(SingleImplicitLambdaParameter(paramToken.Value, paramToken.Line, paramToken.Column), null, lambdaBlockBody, line, column)
+                    lambdaResult.Node = new LambdaExpression(SingleImplicitLambdaParameter(paramToken.Value, paramToken.Line, paramToken.Column), null, lambdaBlockBody, line, column, isAsyncLambda)
                 }
             } else {
                 if lambdaBody != null {
-                    lambdaResult.Node = new LambdaExpression(SingleImplicitLambdaParameter(paramToken.Value, paramToken.Line, paramToken.Column), lambdaBody, null, line, column)
+                    lambdaResult.Node = new LambdaExpression(SingleImplicitLambdaParameter(paramToken.Value, paramToken.Line, paramToken.Column), lambdaBody, null, line, column, isAsyncLambda)
                 }
             }
             return lambdaResult
@@ -6387,7 +6400,7 @@ class ColumnarParserRecovery {
 
         // Multi-parameter lambda `(x, y) => expr` (Parser.cs :3681), gated by the IsLambdaExpression lookahead.
         if Check(TokenType.LeftParen) && IsLambdaExpression() {
-            return ParseMultiParameterLambda()
+            return ParseMultiParameterLambda(isAsyncLambda, line, column)
         }
 
         left := ParseTernary()
@@ -6458,8 +6471,36 @@ class ColumnarParserRecovery {
     // parameter list, ParseMultiParameterLambda's ConsumeIdentifier / Consume(RightParen) / Consume(Arrow)
     // sites never report — the reachable error is only the missing lambda body.
     func IsLambdaExpression(): bool {
-        pos := Position + 1
-        // skip the '(' at Current
+        return IsLambdaExpressionAt(Position)
+    }
+
+    // Whether the CURRENT token opens an `async` lambda. The two-token question, asked wherever a
+    // statement decides whether an expression follows a keyword.
+    func StartsAsyncLambda(): bool {
+        return Check(TokenType.Async) && IsLambdaStartAt(Position + 1)
+    }
+
+    // Does a LAMBDA begin at this token index? Both spellings: a bare identifier directly followed by
+    // `=>`, and a parenthesized parameter list that `IsLambdaExpressionAt` accepts.
+    func IsLambdaStartAt(start: int): bool {
+        if start >= Tokens.Count {
+            return false
+        }
+        if Tokens[start].Type == TokenType.Identifier {
+            return start + 1 < Tokens.Count && Tokens[start + 1].Type == TokenType.Arrow
+        }
+        if Tokens[start].Type == TokenType.LeftParen {
+            return IsLambdaExpressionAt(start)
+        }
+
+        return false
+    }
+
+    // The same scan from an arbitrary `(` index, so the `async` prefix can ask the question one token
+    // ahead of the cursor without moving it.
+    func IsLambdaExpressionAt(start: int): bool {
+        pos := start + 1
+        // skip the '(' at `start`
         // Empty lambda `() =>` (Parser.cs :5543).
         if pos < Tokens.Count && Tokens[pos].Type == TokenType.RightParen {
             return pos + 1 < Tokens.Count && Tokens[pos + 1].Type == TokenType.Arrow
@@ -6485,9 +6526,9 @@ class ColumnarParserRecovery {
     // so the parameter list is always well-formed and only the missing-body error (via ParseRequiredExpressionAfter,
     // span DiagnosticSpanFromTokenRange(leftParen, arrow)) is reachable. A LambdaExpression is anchored on the
     // opening `(`, so its DiagnosticSpanFromExpression falls to the (line, column, 1) default (:5960).
-    func ParseMultiParameterLambda(): ExprResult {
-        line := Current().Line
-        column := Current().Column
+    func ParseMultiParameterLambda(isAsync: bool, anchorLine: int, anchorColumn: int): ExprResult {
+        line := anchorLine
+        column := anchorColumn
         leftParenToken := ConsumeToken(TokenType.LeftParen, "Expected '('", "(")
 
         hasFirstParam := false
@@ -6540,11 +6581,11 @@ class ColumnarParserRecovery {
         // `new LambdaExpression(parameters, null, body, line, column)` (:5533).
         if hasMultiBlockBody {
             if multiLambdaBlockBody != null {
-                multiLambdaResult.Node = new LambdaExpression(lambdaParameters, null, multiLambdaBlockBody, line, column)
+                multiLambdaResult.Node = new LambdaExpression(lambdaParameters, null, multiLambdaBlockBody, line, column, isAsync)
             }
         } else {
             if multiLambdaBody != null {
-                multiLambdaResult.Node = new LambdaExpression(lambdaParameters, multiLambdaBody, null, line, column)
+                multiLambdaResult.Node = new LambdaExpression(lambdaParameters, multiLambdaBody, null, line, column, isAsync)
             }
         }
         return multiLambdaResult

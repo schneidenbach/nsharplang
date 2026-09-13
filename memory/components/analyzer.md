@@ -3177,6 +3177,46 @@ The three placements a suspension cannot resume from are **NL332**
 `catch` handler, or inside a `finally` handler. `ColumnarIteratorPlanner.WalkTryStatement` refuses the
 same three with the same sentences, so no shape can reach lowering without a diagnostic.
 
+### An `async` lambda moves the boundary between the body and the delegate
+
+`async x => …` is the ordinary lambda with one thing changed: the body produces the RESULT the
+target delegate's task carries, and the lambda's own type is a task of it. Everything else — the
+parameter list, the contextual typing, the display class — is unchanged.
+
+- **Two node kinds, one shape.** The parser emits **kind 78** for an `async` lambda and kind 39 for a
+  plain one, with identical children and spans; the `async` token is consumed in
+  `ParseLambdaOrAssignmentExpressionNode` only when a lambda actually follows it, so `async func` (a
+  local function) is untouched. Every reader that only asks "is this a lambda" goes through
+  `ColumnarLambdaNodeFacts.IsLambda`, so no dispatch table could be left behind; only the body's
+  expected type and the method it is emitted into ask `IsAsyncLambda`. The AST twin is
+  `LambdaExpression.IsAsync`, set by `ColumnarParserRecovery` (which re-anchors the node on the
+  `async` keyword) and written back by `FormatterWalk`.
+- **`return` now parses a lambda.** Both parsers take the LAMBDA level after `return`, so
+  `return async () => …` (and `return x => …`) is a delegate-returning function's ordinary body; the
+  emitter's return arm gives a returned lambda its shape from the DECLARED return type, exactly as the
+  method-group arm beside it does.
+- **The analyzer unwraps, then re-wraps.** `AnalyzerLambdaAnalysis.AsyncBodyReturnType` turns the
+  target's `Task<T>`/`ValueTask<T>` into `T` and its `Task`/`ValueTask` into `void` for the body's
+  expected type, and `FinishLambda` puts the body's answer back into the target's task family
+  (`AsyncWrappedReturnType`). Both halves are load-bearing: without the first the body is measured
+  against the task, and without the second `Task.Run(async () => await F())` cannot fix `TResult`,
+  because folding `Task<TResult>` against `Task<TResult>` fixes nothing.
+- **There is NO `async void`, deliberately.** N#'s `await` is sync-lowered, so an async body with no
+  task to carry its result or fault IS its own body — the keyword would mean nothing, and the C#
+  meaning (the exception posted to a synchronization context) is not on offer. **NL334** reports a
+  non-task-like target and a target-less lambda. Refusing it is also what keeps overload selection
+  honest: `AnalyzerReflectionArgumentBinder` drops a non-task candidate for an `async` lambda outright
+  and scores the value-keeping task position higher, so `Task.Run(async () => …)` cannot bind to
+  `Task.Run(Action)` and silently discard what the body awaited. The emitter agrees through
+  `IsContextualLambdaTarget`, and its `Task.Run` arm picks `Action` or `Func<Task>` by the argument's
+  own shape rather than by a fixed table row.
+- **Emission is the async function's shape, in a lambda's method.** `TryEmitLambdaLiteral` keeps the
+  DELEGATE's signature on the synthesized method and hands the sub-emitter the unwrapped type plus
+  `asyncReturnType`, so `EmitBody`'s async fault guard runs for a block body and
+  `EmitAsyncLambdaExpressionBody` writes the same guard around a single expression. That guard is the
+  observable contract: an exception raised in the body becomes a FAULTED TASK rather than reaching the
+  caller.
+
 ### A bare `throw` is the rethrow, and its placement is an ambient question
 
 `throw` with no expression re-raises the exception the enclosing `catch` handler is running for, as IL

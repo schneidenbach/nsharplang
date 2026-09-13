@@ -1109,8 +1109,8 @@ class ColumnarMethodBodyPlanner {
         }
         // The kinds the parser produces in value position that have no named accessor on the ledger
         // class. They are spelled here exactly as `ColumnarIlEmitter.EmitExpressionCore` spells them.
-        // 17 Tuple, 18 Match, 39 Lambda, 42 BareNew, 44 PostfixUnary, 45 Must.
-        if kind == 17 || kind == 18 || kind == 39 || kind == 42 || kind == 44 || kind == 45 {
+        // 17 Tuple, 18 Match, 39 Lambda (78 its `async` spelling), 42 BareNew, 44 PostfixUnary, 45 Must.
+        if kind == 17 || kind == 18 || ColumnarLambdaNodeFacts.IsLambda(kind) || kind == 42 || kind == 44 || kind == 45 {
             return true
         }
         // 46 Is, 47 As, 52 With, 53 Await, 59 AnonymousObjectInitializer, 64 SpreadArgument.

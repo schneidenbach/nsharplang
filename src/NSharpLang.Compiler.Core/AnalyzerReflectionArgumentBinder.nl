@@ -379,6 +379,16 @@ class AnalyzerReflectionArgumentBinder {
                 return false
             }
 
+            // AN `async` LAMBDA IS NOT A CANDIDATE FOR A DELEGATE THAT RETURNS NO TASK. `Task.Run`
+            // declares `Action` beside `Func<Task>` and `Func<TResult>` beside `Func<Task<TResult>>`,
+            // and by arity alone an `async () => …` fits all four; without this the `Action` overload
+            // wins on declaration order and the awaited result is silently thrown away. N# has no
+            // `async void` (see `AnalyzerLambdaAnalysis.AsyncBodyReturnType`), so the non-task
+            // positions are not merely worse here — they are not conversions at all.
+            if lambda.IsAsync && !AnalyzerLambdaAnalysis.IsAsyncLambdaTarget(expectedSignature.ReturnType) {
+                return false
+            }
+
             score = 2 + expectedParameterTypes.Count
 
             // A LAMBDA WHOSE BODY IS AN EXPRESSION HAS A VALUE TO GIVE, and a delegate that would
@@ -387,7 +397,15 @@ class AnalyzerReflectionArgumentBinder {
             // a plain `Task`; C# prefers the conversion that keeps the result, so the position that
             // returns something scores one higher.
             if lambda.ExpressionBody != null {
-                if !BuiltInTypes.Is(expectedSignature.ReturnType, BuiltInTypes.Void) {
+                // FOR AN `async` LAMBDA THE VALUE IS INSIDE THE TASK, so the question is asked of the
+                // task's RESULT: `Task.Run(Func<Task>)` and `Task.Run(Func<Task<TResult>>)` BOTH
+                // return something, and only the second keeps what the body computed.
+                kept := expectedSignature.ReturnType
+                if lambda.IsAsync {
+                    kept = AnalyzerLambdaAnalysis.AsyncBodyReturnType(kept)
+                }
+
+                if kept != null && !BuiltInTypes.Is(kept, BuiltInTypes.Void) {
                     score = score + 1
                 }
             }

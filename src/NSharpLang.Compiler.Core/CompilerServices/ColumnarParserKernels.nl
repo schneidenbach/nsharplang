@@ -343,6 +343,11 @@ class TypeReferenceTupleNameTable {
 //                                         lookahead, which differs from kind 38's only in requiring a `.` close
 //                                         instead of a `(`. Only ever appears as child[0] of a MemberAccess;
 //                                         the planners resolve it as a TYPE, never as a value. )
+//   AsyncLambda             -> kind 78  ( `async x => …` / `async () => …` / `async (x, y) => …` --
+//                                         the kind-39 shape with the `async` keyword in front. The
+//                                         distinct kind marks the body as one whose value the target
+//                                         delegate's task-like return WRAPS, exactly as an `async
+//                                         func`'s declared return is wrapped. )
 //   Lambda                  -> kind 39  ( `x => expr` / `() => expr` / `(x, y) => expr` -- the level ABOVE
 //                                         assignment (ParseLambdaOrAssignmentExpression, Parser.cs:3660). The
 //                                         `=>` token in the value span; children = [param Identifiers (kind 6,
@@ -6098,6 +6103,17 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int,
         return -1
     }
 
+    // `async` (68) BEFORE a lambda makes it an ASYNC lambda — the same three parameter shapes, a
+    // different node kind (78), and a body whose value the delegate's task-like return wraps. The
+    // keyword is consumed here and the lambda scan below runs from the token after it, so an `async`
+    // that is NOT followed by a lambda falls through to the assignment level unchanged.
+    lambdaStart := st.Pos
+    isAsync := false
+    if st.Pos < count && tokens.Kinds[st.Pos] == 68 {
+        isAsync = true
+        st.Pos = st.Pos + 1
+    }
+
     pos := st.Pos
     isLambda := false
     if pos + 1 < count && tokens.Kinds[pos] == 0 && tokens.Kinds[pos + 1] == 120 {
@@ -6134,10 +6150,11 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int,
     }
 
     if !isLambda {
+        st.Pos = lambdaStart
         return ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth)
     }
 
-    spanStart := tokens.Starts[st.Pos]
+    spanStart := tokens.Starts[lambdaStart]
     argBase := st.ArgStackTop
     if tokens.Kinds[st.Pos] == 0 {
         paramNode := EmitExpressionNode(st, nodes, 6, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos], -1, 0, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos])
@@ -6192,7 +6209,12 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int,
     childCount := st.ArgStackTop - argBase
     st.ArgStackTop = argBase
     bodySpanEnd := nodes.SpanStarts[body] + nodes.SpanLengths[body]
-    return EmitExpressionNode(st, nodes, 39, arrowStart, arrowLength, childRunStart, childCount, spanStart, bodySpanEnd - spanStart)
+    lambdaKind := 39
+    if isAsync {
+        lambdaKind = 78
+    }
+
+    return EmitExpressionNode(st, nodes, lambdaKind, arrowStart, arrowLength, childRunStart, childCount, spanStart, bodySpanEnd - spanStart)
 }
 
 func ParseBlockStatementNodeCore(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
@@ -6853,7 +6875,10 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         st.Pos = start + 1
 
         if st.Pos < count && tokens.Kinds[st.Pos] != 130 && tokens.Kinds[st.Pos] != 135 && tokens.Kinds[st.Pos] != 136 {
-            valueRoot := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+            // THE LAMBDA LEVEL, not the assignment one: `return x => …` and `return async () => …`
+            // are a delegate-returning function's ordinary body, and the lambda level falls through to
+            // assignment for everything that is not one.
+            valueRoot := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
             if valueRoot < 0 {
                 return -1
             }

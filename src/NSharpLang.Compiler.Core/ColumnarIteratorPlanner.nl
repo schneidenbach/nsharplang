@@ -1079,7 +1079,7 @@ class ColumnarIteratorPlanner {
             WalkPostfixStep(nodes, source, node, state)
             return
         }
-        if kind == 39 {
+        if ColumnarLambdaNodeFacts.IsLambda(kind) {
             WalkLambda(nodes, source, node, state)
             return
         }
@@ -2354,7 +2354,7 @@ class ColumnarIteratorBodyPlanner {
         if emit.Context.Declined {
             return false
         }
-        if emit.Context.Nodes.Kind(node) == 39 {
+        if ColumnarLambdaNodeFacts.IsLambda(emit.Context.Nodes.Kind(node)) {
             return AppendLambda(emit, node, storageType)
         }
         // The iterator-owned value forms take the ordinary value path plus the storage conversion; only
@@ -2462,6 +2462,14 @@ class ColumnarIteratorBodyPlanner {
     static func AppendLambda(emit: ColumnarMoveNextEmit, node: int, delegateType: Type): bool {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
+        if ColumnarLambdaNodeFacts.IsAsyncLambda(nodes.Kind(node)) {
+            // An `async` lambda's body needs the wrap-and-fault-guard shape the ordinary emitter
+            // gives it, and this path plans a bare expression body plus a `ret` into a method on the
+            // state machine. Declining by shape beats emitting a body whose value is the task's
+            // RESULT where the delegate expects the task.
+            emit.Context.Decline("emit.iterator.lambda-async", "an `async` lambda inside a generator body is not yet lowered: its body needs the async wrap and fault guard")
+            return false
+        }
         invoke := DelegateInvokeOrNull(delegateType)
         if invoke == null {
             emit.Context.Decline("emit.iterator.lambda-unsupported", "a lambda in an iterator body needs a delegate type to convert to, not '" + delegateType.Name + "'")

@@ -102,6 +102,10 @@ class LambdaAnalysisState {
     // lambda is the report the user needs.
     ReportedInferenceFailure: bool
 
+    // NL334 is reported once per lambda for the same reason: `async` is written once, and its target
+    // is one fact about the whole lambda.
+    ReportedAsyncTarget: bool
+
     ParameterIndex: int
     ParameterType: TypeInfo
 
@@ -123,6 +127,7 @@ class LambdaAnalysisState {
         TargetsExpressionTree = false
         ReportInferenceFailure = reportInferenceFailure
         ReportedInferenceFailure = false
+        ReportedAsyncTarget = false
         ParameterIndex = 0
         ParameterType = BuiltInTypes.Unknown
         Phase = 0
@@ -417,6 +422,7 @@ class AnalyzerLambdaAnalysis {
     // before it is told anything about its contents. NEITHER body answers `unknown`.
     func EnterLambdaBody(state: LambdaAnalysisState): LambdaAnalysisRequest? {
         lambda := state.Lambda
+        ReportAsyncTargetIfNeeded(state)
         expressionBody := lambda.ExpressionBody
         if expressionBody != null {
             state.ErrorsBeforeBody = diagnostics.ErrorCount
@@ -491,22 +497,78 @@ class AnalyzerLambdaAnalysis {
         return new LambdaAnalysisRequest(6, BuiltInTypes.Unknown)
     }
 
+    // AN `async` LAMBDA'S OWN TYPE IS A TASK OF WHAT ITS BODY ANSWERED. The body produced the task's
+    // RESULT — `42`, not `Task<int>` — and what the lambda converts to is the task, so the two are
+    // put back together here: the TARGET names the task family (`Task` or `ValueTask`), the BODY
+    // names the result, and the lambda's type is the one built from both. Taking the target's return
+    // verbatim instead would be enough to pass the conversion and NOT enough to infer through it:
+    // `Task.Run(async () => await F())` has to fix `TResult` from the body, and folding
+    // `Task<TResult>` against `Task<TResult>` fixes nothing.
     func FinishLambda(state: LambdaAnalysisState): LambdaAnalysisRequest? {
         result := new FunctionTypeInfo()
         result.ParameterTypes = state.ParameterTypes
         result.ReturnType = state.ReturnType
+        signature := state.ExpectedSignature
+        if state.Lambda.IsAsync && signature != null {
+            signatureReturn := signature.ReturnType
+            if signatureReturn != null {
+                result.ReturnType = AsyncWrappedReturnType(signatureReturn, state.ReturnType)
+            }
+        }
+
         state.Result = result
         state.Phase = 99
         return null
     }
 
+    // THE TASK THE BODY'S VALUE TRAVELS IN: the target's own task family over the body's result type.
+    // A unit task carries no result and is returned unchanged; so is a target whose result the body
+    // could not name (a block body infers nothing, which is the pre-existing lambda rule), and so is
+    // any shape whose CLR type cannot be constructed — in each case the target's own return is the
+    // truthful answer and the conversion is judged on it.
+    func AsyncWrappedReturnType(signatureReturn: TypeInfo, bodyResult: TypeInfo): TypeInfo {
+        reflection := signatureReturn as ReflectionTypeInfo
+        if reflection == null {
+            return signatureReturn
+        }
+
+        reflectedTask := reflection.Type
+        if !reflectedTask.get_IsGenericType() {
+            return signatureReturn
+        }
+
+        if BuiltInTypes.IsUnknown(bodyResult) || BuiltInTypes.Is(bodyResult, BuiltInTypes.Void) {
+            return signatureReturn
+        }
+
+        bodyClrType := clrTypeConversion.TryConvertTypeInfoToClrType(bodyResult)
+        if bodyClrType == null {
+            return signatureReturn
+        }
+
+        taskArguments := new Type[](1)
+        taskArguments[0] = bodyClrType
+        constructedTask := reflectedTask.GetGenericTypeDefinition().MakeGenericType(taskArguments)
+        return AnalyzerReflectionTypeConversion.ConvertReflectionType(constructedTask)
+    }
+
     // THE SIGNATURE'S RETURN TYPE AS AN EXPECTED TYPE — null when nothing names a signature, which is
     // NOT the same as `unknown`: an absent expected type leaves the ambient slot alone, and a body
     // analysed with no expectation is a different analysis from one expected to answer `unknown`.
+    //
+    // AN `async` LAMBDA'S BODY IS MEASURED AGAINST THE TASK'S RESULT, not against the task. The
+    // delegate says `Func<Task<int>>`; the body says `42`. That is the same relation an `async func`
+    // has with its own declaration — an N# `async func f(): int` writes the INNER type and the
+    // signature wraps it — read in the other direction, because here the wrapped type is the one
+    // that was written.
     func SignatureReturnType(state: LambdaAnalysisState): TypeInfo? {
         signature := state.ExpectedSignature
         if signature == null {
             return null
+        }
+
+        if state.Lambda.IsAsync {
+            return AsyncBodyReturnType(signature.ReturnType)
         }
 
         return signature.ReturnType
@@ -525,7 +587,92 @@ class AnalyzerLambdaAnalysis {
             return BuiltInTypes.Unknown
         }
 
+        if state.Lambda.IsAsync {
+            unwrapped := AsyncBodyReturnType(returnType)
+            if unwrapped == null {
+                return BuiltInTypes.Unknown
+            }
+
+            return unwrapped
+        }
+
         return returnType
+    }
+
+    // A TYPE AS THE READER WROTE IT, for a message. `TypeInfo.ToString` is the one rendering every
+    // other analyzer report uses.
+    static func LambdaTypeText(typeInfo: TypeInfo?): string {
+        if typeInfo == null {
+            return "void"
+        }
+
+        boxed := typeInfo as object
+        rendered := boxed.ToString()
+        if rendered != null {
+            return rendered
+        }
+
+        return ""
+    }
+
+    // WHAT AN `async` LAMBDA'S BODY MUST PRODUCE, given the delegate's return type: `Task<T>` and
+    // `ValueTask<T>` unwrap to `T`; `Task` and `ValueTask` carry no value, so the body is a `void` one.
+    //
+    // A `void`-RETURNING DELEGATE IS NOT A TARGET, and that is a DELIBERATE DEPARTURE FROM C#, which
+    // accepts `async void` lambdas. N#'s `await` is lowered synchronously (there is no state machine
+    // in either pipeline), so an async body with nowhere to put its task is EXACTLY its own body: the
+    // keyword would change nothing, and an exception would reach the caller rather than the task, so
+    // the C# meaning is not on offer. Refusing it also keeps overload resolution honest — `Task.Run`
+    // declares both `Action` and `Func<Task>`, and an `async` lambda that could be an `Action` would
+    // silently bind to the fire-and-forget overload. The caller reports NL334 with the fix.
+    static func AsyncBodyReturnType(signatureReturn: TypeInfo?): TypeInfo? {
+        if signatureReturn == null {
+            return null
+        }
+
+        taskResult: TypeInfo = BuiltInTypes.Unknown
+        if AnalyzerFunctionTypeFactory.TryGetTaskLikeResultTypeInfo(signatureReturn, out taskResult) {
+            return taskResult
+        }
+
+        // The REFLECTED spelling counts: a delegate's `Invoke` return arrives as a
+        // `ReflectionTypeInfo`, which the source-shape tables do not name, and `Func<Task>` is exactly
+        // that. `IsUnitTaskLikeTypeInfo` is the reading that answers both.
+        if AnalyzerFunctionTypeFactory.IsUnitTaskLikeTypeInfo(signatureReturn) {
+            return BuiltInTypes.Void
+        }
+
+        return null
+    }
+
+    // Whether a delegate's return type can take an `async` lambda at all — the question NL334 asks,
+    // and the one the overload scorer needs so a `void` candidate is not silently preferred.
+    static func IsAsyncLambdaTarget(signatureReturn: TypeInfo?): bool {
+        return AsyncBodyReturnType(signatureReturn) != null
+    }
+
+    // NL334, ONCE PER LAMBDA, AT THE `async` KEYWORD. An `async` lambda produces a task, so a target
+    // that is not a task-like delegate cannot take one — and a lambda with NO target at all has
+    // nothing to produce a task of. Both are reported with the fix that applies, and only on the
+    // reporting pass: an overload candidate being measured must not speak.
+    func ReportAsyncTargetIfNeeded(state: LambdaAnalysisState) {
+        lambda := state.Lambda
+        if !lambda.IsAsync || state.ReportedAsyncTarget || !state.ReportInferenceFailure {
+            return
+        }
+
+        state.ReportedAsyncTarget = true
+        signature := state.ExpectedSignature
+        if signature == null {
+            diagnostics.Report(ErrorCode.AsyncLambdaTargetNotTaskLike, "An 'async' lambda produces a task, and nothing here names the delegate type it should produce one of", lambda.Line, lambda.Column, "Give the lambda a typed home (e.g., 'let run: Func<Task<int>> = async () => ...') or pass it directly where a delegate returning `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>` is expected.", 5)
+            return
+        }
+
+        if AsyncBodyReturnType(signature.ReturnType) != null {
+            return
+        }
+
+        diagnostics.Report(ErrorCode.AsyncLambdaTargetNotTaskLike, "An 'async' lambda produces a task, but this delegate returns '" + LambdaTypeText(signature.ReturnType) + "'", lambda.Line, lambda.Column, "An `async` body's value is wrapped in the task the delegate returns. Change the target to return `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>`, or drop the `async` keyword and return the value directly.", 5)
     }
 
     // THE DELEGATE DOOR: WHAT SIGNATURE, IF ANY, AN EXPECTED TYPE NAMES FOR A LAMBDA.

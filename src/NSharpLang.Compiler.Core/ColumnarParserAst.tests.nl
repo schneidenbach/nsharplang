@@ -411,7 +411,7 @@ class AstEq {
         // non-Pattern element with Name/Pattern/BindingName/Line/Column. InterpolatedStringPart splits into
         // Text (a literal run) and Hole (an Expression + optional format clause).
         if typeName == "LambdaExpression" {
-            return Names("Parameters ExpressionBody BlockBody Line Column")
+            return Names("Parameters ExpressionBody BlockBody IsAsync Line Column")
         }
         if typeName == "MatchExpression" {
             return Names("Value Cases IsExhaustive Line Column")
@@ -1227,6 +1227,12 @@ class Golden {
     // statement-body tranche).
     static func Lambda(parameters: List<Parameter>, body: Expression, line: int, column: int): Expression {
         return new LambdaExpression(parameters, body, null, line, column)
+    }
+
+    // `async x => …` — the same node with the keyword recorded, and ANCHORED ON THE KEYWORD: `async`
+    // is part of the lambda, so the expression starts where the keyword does.
+    static func AsyncLambda(parameters: List<Parameter>, body: Expression, line: int, column: int): Expression {
+        return new LambdaExpression(parameters, body, null, line, column, true)
     }
 
     static func NoCases(): List<MatchCase> {
@@ -4338,6 +4344,45 @@ test "016 N+1c tranche 9c: an empty-parameter lambda (() => 1) materializes an e
     actual := RunAst("enum E {\n    A = () => 1\n}\n")
     members := new List<EnumMember>()
     Golden.AddEMemV(members, "A", Golden.Lambda(Golden.NoParams(), Golden.IntLit("1", 2, 15), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// ---- `async` LAMBDAS ----
+// The keyword is a LAMBDA prefix, and the node it produces is the ordinary lambda node with
+// `IsAsync` set and its position moved to the keyword. All three parameter spellings take it.
+
+test "an async single-parameter lambda materializes IsAsync and anchors on the `async` keyword" {
+    actual := RunAst("enum E {\n    A = async x => 1\n}\n")
+    parameters := Golden.NoParams()
+    Golden.AddLambdaParam(parameters, "x", 2, 15)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.AsyncLambda(parameters, Golden.IntLit("1", 2, 20), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "an async empty-parameter lambda materializes IsAsync" {
+    actual := RunAst("enum E {\n    A = async () => 1\n}\n")
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.AsyncLambda(Golden.NoParams(), Golden.IntLit("1", 2, 21), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "an async multi-parameter lambda materializes IsAsync and both parameters" {
+    actual := RunAst("enum E {\n    A = async (x, y) => 1\n}\n")
+    parameters := Golden.NoParams()
+    Golden.AddLambdaParam(parameters, "x", 2, 16)
+    Golden.AddLambdaParam(parameters, "y", 2, 19)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.AsyncLambda(parameters, Golden.IntLit("1", 2, 25), 2, 9), 2, 5)
     decls := new List<Declaration>()
     Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)

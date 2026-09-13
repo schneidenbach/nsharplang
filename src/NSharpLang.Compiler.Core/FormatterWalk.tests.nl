@@ -79,6 +79,14 @@ func FwkOneStatementBlock(): BlockStatement {
     return FwkBlock(statements)
 }
 
+// One implicitly typed lambda parameter, as the parser writes it: the `var` placeholder that means
+// "take this position's type from the delegate".
+func FwkOneInferredParameter(name: string): List<Parameter> {
+    parameters := new List<Parameter>()
+    parameters.Add(FwkParameter(name, "var"))
+    return parameters
+}
+
 func FwkParameter(name: string, typeName: string): Parameter {
     return new Parameter(name, FwkType(typeName), null, false, ParameterModifier.None, null, 0, 0, false, null)
 }
@@ -1047,6 +1055,26 @@ test "only the shapes this walk ALWAYS writes across lines swallow the lines aft
 }
 
 // ---- the bare `throw` ------------------------------------------------------------------------
+
+test "an async lambda writes its keyword first, and an ordinary one writes none" {
+    // The keyword is part of the LAMBDA: a round trip that dropped it would change what the body
+    // means, so it is written before the parameter list in every spelling.
+    state := FwkState()
+    state.Push()
+    walk := FwkWalk(state)
+
+    single := new StringBuilder()
+    walk.FormatExpression(new LambdaExpression(FwkOneInferredParameter("x"), new IdentifierExpression("x", 1, 1), null, 1, 1, true), single)
+    assert FwkShow(single) == "async x => x"
+
+    plain := new StringBuilder()
+    walk.FormatExpression(new LambdaExpression(FwkOneInferredParameter("x"), new IdentifierExpression("x", 1, 1), null, 1, 1), plain)
+    assert FwkShow(plain) == "x => x"
+
+    empty := new StringBuilder()
+    walk.FormatExpression(new LambdaExpression(new List<Parameter>(), new IdentifierExpression("x", 1, 1), null, 1, 1, true), empty)
+    assert FwkShow(empty) == "async () => x"
+}
 
 test "a throw with an operand writes 'throw <expr>' and a bare one writes the keyword alone" {
     // `throw ` with nothing after it would not parse, so the two arms cannot share one spelling.

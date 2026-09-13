@@ -3487,6 +3487,27 @@ test "016 lambda: a well-formed block-body lambda reports no parser diagnostic" 
     assert errors.Count == 0
 }
 
+// `async` IS A LAMBDA PREFIX ONLY WHEN A LAMBDA FOLLOWS IT. All three spellings take it, a `return`
+// carries one, and an `async` that is NOT followed by a lambda is untouched — it is still the
+// declaration modifier a local function wears.
+test "016 lambda: the three async lambda spellings report no parser diagnostic" {
+    assert RunPreamble("func f() {\n    g: Func<Task<int>> = async () => 1\n}\n").Count == 0
+    assert RunPreamble("func f() {\n    g: Func<int, Task<int>> = async x => x\n}\n").Count == 0
+    assert RunPreamble("func f() {\n    g: Func<int, int, Task<int>> = async (x, y) => x\n}\n").Count == 0
+    assert RunPreamble("func f() {\n    g: Func<Task<int>> = async () => { }\n}\n").Count == 0
+}
+
+test "016 lambda: a `return` carries an async lambda, and the value-less `return` boundary is intact" {
+    assert RunPreamble("func f(): Func<Task<int>> {\n    return async () => 1\n}\n").Count == 0
+    // `async func` on the line after a bare `return` is a LOCAL FUNCTION, not a returned lambda.
+    assert RunPreamble("func f() {\n    return\n}\n").Count == 0
+}
+
+test "016 lambda: an async LOCAL FUNCTION still parses as a declaration, not as a lambda" {
+    errors := RunPreamble("func f() {\n    async func inner(): int {\n        return 1\n    }\n}\n")
+    assert errors.Count == 0
+}
+
 test "016 lambda: a single-parameter lambda missing its body reports NL102 spanning the parameter through '=>'" {
     errors := RunPreamble("func f() {\n    g := x =>\n}\n")
     assert errors.Count == 1

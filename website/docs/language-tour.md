@@ -710,6 +710,50 @@ async func main() {
 }
 ```
 
+### Async Lambdas
+
+Write `async` in front of a lambda to make its body asynchronous. The body produces the **result**
+the target delegate's task carries — not the task itself — exactly as an `async func` declares its
+inner type and the signature wraps it:
+
+```n#
+import System
+import System.Threading.Tasks
+
+func makeLoader(): Func<string, Task<int>> {
+    return async path => {
+        contents := await readAllTextAsync(path)
+        return contents.Length
+    }
+}
+```
+
+All three parameter spellings take the keyword — `async () => …`, `async x => …`,
+`async (a, b) => …` — with either an expression body or a block body, and the target may be any
+delegate returning `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>`. Which family the value travels
+in is the target's decision, not the body's: the same body serves `Func<Task<int>>` and
+`Func<ValueTask<int>>`.
+
+An async lambda captures like any other lambda — enclosing locals, `this`, and a fresh copy of each
+loop iteration's own locals.
+
+**An exception raised inside the body lands on the returned task**, not on the caller that invoked
+the delegate:
+
+```n#
+failing: Func<Task<int>> = async () => {
+    await Task.Delay(1)
+    throw new InvalidOperationException("nope")
+}
+
+task := failing()        // returns normally; the task is faulted
+print task.IsFaulted     // True
+```
+
+There is **no `async void`**: a lambda whose target returns `void` (an `Action`) has nowhere to put
+its task, so N# reports [`NL334`](./errors/NL334.md) and asks you to drop the keyword or give the
+target a task-like return. That page explains why N# departs from C# here, and what it buys.
+
 ### Async Streams
 
 Use `async func*` for async iterators and `await foreach` to consume them.

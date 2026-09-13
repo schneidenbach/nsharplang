@@ -51,6 +51,7 @@ enum ErrorCode {
     ByRefParameterCapturedByLocalFunction = 331,
     YieldInProtectedRegion = 332,
     RethrowOutsideCatch = 333,
+    AsyncLambdaTargetNotTaskLike = 334,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,

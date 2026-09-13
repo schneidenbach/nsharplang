@@ -155,6 +155,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.ByRefParameterCapturedByLocalFunction)
         AddCompiler(descriptors, ErrorCode.YieldInProtectedRegion)
         AddCompiler(descriptors, ErrorCode.RethrowOutsideCatch)
+        AddCompiler(descriptors, ErrorCode.AsyncLambdaTargetNotTaskLike)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)

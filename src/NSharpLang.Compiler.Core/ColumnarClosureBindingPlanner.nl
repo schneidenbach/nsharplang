@@ -109,7 +109,7 @@ class ColumnarClosureBindingPlanner {
         if kind == 38 || kind == 42 || kind == 55 {
             return false
         }
-        if kind == 39 {
+        if ColumnarLambdaNodeFacts.IsLambda(kind) {
             nestedBound := new HashSet<string>(bound, StringComparer.Ordinal)
             nestedBound.UnionWith(BoundParamsOf(nodes, source, node))
             return BodyReferencesEnclosingChain(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), nestedBound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
@@ -168,7 +168,7 @@ class ColumnarClosureBindingPlanner {
         if kind == 38 || kind == 42 || kind == 55 {
             return false
         }
-        if kind == 39 {
+        if ColumnarLambdaNodeFacts.IsLambda(kind) {
             nestedBound := new HashSet<string>(bound, StringComparer.Ordinal)
             nestedBound.UnionWith(BoundParamsOf(nodes, source, node))
             return BodyReferencesEnclosingInstanceMethodChain(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), nestedBound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
@@ -291,7 +291,7 @@ class ColumnarClosureBindingPlanner {
         if kind == 38 || kind == 42 || kind == 55 {
             return
         }
-        if kind == 39 {
+        if ColumnarLambdaNodeFacts.IsLambda(kind) {
             CollectUnboundNames(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), BoundParamsOf(nodes, source, node), names)
             return
         }
@@ -325,7 +325,7 @@ class ColumnarClosureBindingPlanner {
         if kind == 38 || kind == 42 || kind == 55 {
             return
         }
-        if kind == 39 {
+        if ColumnarLambdaNodeFacts.IsLambda(kind) {
             nestedBound := new HashSet<string>(bound, StringComparer.Ordinal)
             nestedBound.UnionWith(BoundParamsOf(nodes, source, node))
             CollectUnboundNames(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), nestedBound, names)
@@ -350,7 +350,7 @@ class ColumnarClosureBindingPlanner {
     }
 
     static func IsNameBareAssigned(nodes: ColumnarNodeTable, source: string, node: int, names: SortedSet<string>): bool {
-        if nodes.Kind(node) == 39 {
+        if ColumnarLambdaNodeFacts.IsLambda(nodes.Kind(node)) {
             bound := BoundParamsOf(nodes, source, node)
             remaining := new SortedSet<string>(names, StringComparer.Ordinal)
             remaining.ExceptWith(bound)

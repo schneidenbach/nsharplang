@@ -149,7 +149,7 @@ class ColumnarLambdaPlacementPlanner {
     // The recursive capture walk. TYPE-kernel subtrees never contribute a value name: a generic callee
     // (kind 38 — its name lives in the value span), a bare-new (kind 42), and a typeof (kind 55) are
     // skipped outright; the type child of a new-expression (kind 15) / cast (kind 16) and the type child of
-    // `is`/`as` (kind 46/47) are stepped over. A nested lambda (kind 39) binds its own parameter names
+    // `is`/`as` (kind 46/47) are stepped over. A nested lambda (kind 39, or the `async` spelling 78) binds its own parameter names
     // before its body is walked, so those names shadow the enclosing scope inside it. A kind-6 identifier
     // with a real value span is captured when it is unbound here and lives in the enclosing capturable set;
     // a value-less identifier is a masquerading TYPE node and is never a name read.
@@ -159,7 +159,7 @@ class ColumnarLambdaPlacementPlanner {
             return
         }
 
-        if kind == 39 {
+        if ColumnarLambdaNodeFacts.IsLambda(kind) {
             nestedBound := new HashSet<string>(StringComparer.Ordinal)
             for existing in bound {
                 nestedBound.Add(existing)
