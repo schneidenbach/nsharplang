@@ -115,10 +115,8 @@ test "the N# columnar IL emitter owns its complete public and private metadata s
     owner := ColumnarIlEmitterType()
     assert owner.get_IsPublic(), "the N# emitter must retain its public cross-assembly surface"
     assert owner.get_IsSealed(), "the N# emitter must retain sealed metadata"
-    assert Object.ReferenceEquals(owner.get_Assembly(), ColumnarInputBuilderType().get_Assembly()),
-        "the emitter and input builder must share the compiler-core assembly owner"
-    assert Type.GetType("NSharpLang.Compiler.Columnar.ColumnarIlEmitter, Compiler") == null,
-        "the deleted Compiler-assembly emitter must not remain as a second owner"
+    assert Object.ReferenceEquals(owner.get_Assembly(), ColumnarInputBuilderType().get_Assembly()), "the emitter and input builder must share the compiler-core assembly owner"
+    assert Type.GetType("NSharpLang.Compiler.Columnar.ColumnarIlEmitter, Compiler") == null, "the deleted Compiler-assembly emitter must not remain as a second owner"
 
     publicConstructors := owner.GetConstructors(
         BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly
@@ -213,8 +211,7 @@ test "the columnar IL emitter initializes the assembly output before an empty-pr
         throw new InvalidOperationException("The empty-program decline did not initialize its out slot")
     }
     assert !Object.ReferenceEquals(image, sentinelObject), "the false return must overwrite the caller sentinel"
-    assert Object.ReferenceEquals(image, EntryPointRealizationBclEmptyByteArray()),
-        "the false return must expose the shared Array.Empty<byte>() instance"
+    assert Object.ReferenceEquals(image, EntryPointRealizationBclEmptyByteArray()), "the false return must expose the shared Array.Empty<byte>() instance"
     assert snapshot.Count == 1, "the empty program must record exactly one decline"
     traceRecord := ColumnarInputBuilderRequiredItem(snapshot, 0)
     assert ColumnarInputBuilderText(traceRecord, "SiteId") == "emit.program.empty", ColumnarInputBuilderText(traceRecord, "SiteId")
@@ -253,17 +250,14 @@ test "reflection keeps the caller out sentinel when a null program throws from t
         throw new InvalidOperationException("The null program did not fail the emitter entry point")
     }
     captured: Exception = failure
-    assert ColumnarIlEmitterExceptionTypeName(captured) == "System.Reflection.TargetInvocationException",
-        ColumnarIlEmitterExceptionTypeName(captured)
+    assert ColumnarIlEmitterExceptionTypeName(captured) == "System.Reflection.TargetInvocationException", ColumnarIlEmitterExceptionTypeName(captured)
     innerBox: object? = captured.get_InnerException()
     inner := innerBox as Exception
     if inner == null {
         throw new InvalidOperationException("The emitter exception had no target exception")
     }
-    assert ColumnarIlEmitterExceptionTypeName(inner) == "System.NullReferenceException",
-        ColumnarIlEmitterExceptionTypeName(inner)
-    assert Object.ReferenceEquals(arguments[4], sentinelObject),
-        "MethodInfo.Invoke must not report a target out write when the target throws"
+    assert ColumnarIlEmitterExceptionTypeName(inner) == "System.NullReferenceException", ColumnarIlEmitterExceptionTypeName(inner)
+    assert Object.ReferenceEquals(arguments[4], sentinelObject), "MethodInfo.Invoke must not report a target out write when the target throws"
     assert snapshot.Count == 0, "a null-program exception must not record an ordinary decline"
 }
 
@@ -354,8 +348,7 @@ func ColumnarIlEmitterEnumDefinition(enumType: Type, stringBacked: bool): object
     ColumnarIlEmitterPut(arguments, 1, new Dictionary<string, int>())
     if stringBacked {
         ColumnarIlEmitterPut(arguments, 2, new Dictionary<string, string>())
-    }
-    else {
+    } else {
         ColumnarIlEmitterPut(arguments, 2, null)
     }
     ColumnarIlEmitterPut(arguments, 3, "")

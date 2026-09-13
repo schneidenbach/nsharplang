@@ -7,7 +7,6 @@ import System.IO
 // MultiFileCompiler facts in CompilationBackendTests.cs. Every fixture still enters through the
 // public MultiFileCompiler API, writes its runtime config with the N# owner, executes the emitted
 // assembly through the N# DotnetRunner, and cleans its project directory in a finally block.
-
 test "MultiFileCompiler_CanCompileExecutableProjectToIlAndRun" {
     fileNames := new string[](2)
     contents := new string[](2)

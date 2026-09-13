@@ -446,10 +446,7 @@ func EmitterCanonicalHasError(
     index := 0
     while index < compilation.Errors.Count {
         error := compilation.Errors[index]
-        if error != null
-            && EmitterCanonicalErrorText(error, "Code") == code
-            && EmitterCanonicalErrorText(error, "ExpectedType") == expectedType
-            && EmitterCanonicalErrorText(error, "ActualType") == actualType {
+        if error != null && EmitterCanonicalErrorText(error, "Code") == code && EmitterCanonicalErrorText(error, "ExpectedType") == expectedType && EmitterCanonicalErrorText(error, "ActualType") == actualType {
             return true
         }
         index = index + 1
@@ -530,8 +527,7 @@ func EmitterCanonicalAssertProgramNormalized(
         assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
         run := EmitterCanonicalRun(compilation)
         assert run.ExitCode == 0, run.Stderr
-        assert EmitterCanonicalNormalizedOutput(run.Stdout) == expectedOutput,
-            EmitterCanonicalNormalizedOutput(run.Stdout)
+        assert EmitterCanonicalNormalizedOutput(run.Stdout) == expectedOutput, EmitterCanonicalNormalizedOutput(run.Stdout)
     } finally {
         EmitterCanonicalCleanup(compilation)
     }
@@ -586,8 +582,7 @@ func EmitterCanonicalAssertProgramFiles(
         assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
         run := EmitterCanonicalRun(compilation)
         assert run.ExitCode == 0, run.Stderr
-        assert EmitterCanonicalNormalizedOutput(run.Stdout) == expectedOutput,
-            EmitterCanonicalNormalizedOutput(run.Stdout)
+        assert EmitterCanonicalNormalizedOutput(run.Stdout) == expectedOutput, EmitterCanonicalNormalizedOutput(run.Stdout)
     } finally {
         EmitterCanonicalCleanup(compilation)
     }
