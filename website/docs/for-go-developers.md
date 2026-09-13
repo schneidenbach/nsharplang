@@ -18,7 +18,7 @@ N# shares Go's ethos — simplicity, clean syntax, fast tooling — so if you wr
 | `go fmt` | `nlc format` | One canonical style |
 | `go test` | `nlc test` | Tests near code |
 | No semicolons | No semicolons | Clean syntax |
-| PascalCase = exported | PascalCase = exported/public, camelCase = unexported/private-by-convention | Convention-based visibility; no ordinary `public`/`private` noise |
+| PascalCase = exported | PascalCase = exported/public, camelCase = namespace-private | Convention-based visibility; no ordinary `public`/`private` noise |
 
 ## Variables
 
@@ -435,7 +435,7 @@ One canonical style, enforced by tooling. Same philosophy as Go.
 
 ## What Go Developers Will Love
 
-- **Convention-based visibility** — PascalCase is exported/public and camelCase is unexported/private-by-convention, just like Go's exported names. Explicit `public`/`private` modifiers are unnecessary in ordinary N#; the formatter drops redundant ones but preserves semantic escape hatches like `public legacyCamel` and `private SecretPascal` when they intentionally override casing.
+- **Convention-based visibility** — PascalCase is exported/public and camelCase is private to the declaring **namespace**, just like Go's exported names are package-scoped rather than file-scoped: every file of the namespace sees them, nothing outside does. Explicit `public`/`private` modifiers are unnecessary in ordinary N#; the formatter drops redundant ones but preserves semantic escape hatches like `public legacyCamel` and `private SecretPascal` when they intentionally override casing.
 - **Tight syntax** — No semicolons, no noise
 - **`:=` everywhere** — Same declaration shorthand
 - **`duck interface`** — Structural typing, Go's best feature

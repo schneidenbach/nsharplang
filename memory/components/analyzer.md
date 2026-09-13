@@ -874,9 +874,24 @@ name inside one namespace REFUSES to resolve (`AnalyzerDeclarationContext` requi
 while the function channel and the inaccessible probe take the FIRST match. That is why the
 enumeration order is decisive for the latter two and irrelevant for the first.
 
-`TryResolveVisibleProjectFunction` returns the matched `FunctionDeclaration`, its file and its symbol
-declaration; the shell then asks `AnalyzerFunctionTypeFactory.CreateFromDeclarationInFile` for the
-`FunctionTypeInfo`. Nothing in this family is C# any more.
+`TryResolveVisibleProjectFunction` takes the SAME export decision as step 1 of the type channel —
+export is required from every visible namespace EXCEPT the file's own — and returns the matched
+`FunctionDeclaration`, its file and its symbol declaration; the shell then asks
+`AnalyzerFunctionTypeFactory.CreateFromDeclarationInFile` for the `FunctionTypeInfo`. Nothing in
+this family is C# any more.
+
+**THE UNIT OF PRIVACY IS THE NAMESPACE, NOT THE FILE** (ruling 2026-09-02), and both channels say
+so. Until 2026-09-13 the function channel required export unconditionally, so `A.nl`'s
+`func formatTypeRef` was invisible to `B.nl` of the same namespace — NL412 at a direct call, NL402
+at `names.Select(formatTypeRef)` — while a camelCase CLASS in those same two files already resolved.
+N# has no file-private tier; splitting one namespace across files is the ordinary way to write it.
+The cross-namespace answer is unchanged and is NL308 from `TryFindInaccessibleVisibleFunction`,
+naming the declaring namespace and suggesting the PascalCase export. In CLR metadata a camelCase
+free function is emitted `assembly` (`ColumnarDeclarationPlan.MethodVisibilityAttributes`) and a
+PascalCase one `public`; the ruling changed the LANGUAGE rule, not one metadata bit. Contracts:
+`AnalyzerProjectDiscovery.tests.nl` (both channels, from inside and outside the namespace) and
+`tests/native/census-visibility` (runtime, CLR metadata, `FindDefinition`/`FindReferences`,
+completion and the NL308 negative, over files on disk).
 
 A resolved declaration's LINE is the declaration's own and its COLUMN is where the NAME starts on
 that line (`CodeIntelligenceTextUtilities.FindIdentifierNameColumn`), which is what a
