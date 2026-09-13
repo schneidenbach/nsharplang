@@ -37,6 +37,7 @@ class Analyzer: IDisposable {
     private SyntheticCallWalk: AnalyzerSyntheticCallWalk
     private SyntheticCallValidator: AnalyzerSyntheticCallValidator
     private readonly ConstantExpressionFacts: AnalyzerConstantExpressionFacts
+    private readonly ImportUsageCredit: AnalyzerImportUsageCredit
     private readonly TypeResolver: AnalyzerTypeResolver
     private readonly TypeSubstitution: AnalyzerTypeSubstitution
     private readonly StructuralAssignability: AnalyzerStructuralAssignability
@@ -159,6 +160,7 @@ class Analyzer: IDisposable {
         Diagnostics = new AnalyzerDiagnosticSink(Errors, ProjectSources)
         Spans = new AnalyzerDiagnosticSpans(Diagnostics)
         SyntheticCallReporter = new AnalyzerSyntheticCallReporter(Diagnostics, Spans)
+        ImportUsageCredit = new AnalyzerImportUsageCredit(DeclarationContext, UsingAliases)
         TypeResolver = new AnalyzerTypeResolver(
             Scopes,
             DeclarationContext,
@@ -408,6 +410,13 @@ class Analyzer: IDisposable {
         ReferenceLoadReport = new AnalyzerReferenceLoadReport(Diagnostics, ReferenceLoadFailures)
         MetadataLoadSurface = new AnalyzerMetadataLoadSurface(MlcAssemblies, ReferenceLoadFailures)
         ReferenceLoadOrchestration = new AnalyzerReferenceLoadOrchestration(MetadataLoadSurface, ReferencedPackageNames)
+
+        // The three name-resolution owners are built once and never rebuilt, so the import-usage
+        // ledger is handed to them here. `ExtensionMethodResolution` IS rebuilt, and takes it in its
+        // factory instead.
+        TypeResolver.SetImportUsageCredit(ImportUsageCredit)
+        IdentifierResolution.SetImportUsageCredit(ImportUsageCredit)
+        MemberAccess.SetImportUsageCredit(ImportUsageCredit)
     }
 
     private func CreateAttributeValidator(): AnalyzerAttributeValidator {
@@ -665,8 +674,11 @@ class Analyzer: IDisposable {
         )
     }
 
+    // REBUILT WHENEVER THE METADATA LOAD CONTEXT OPENS OR CLOSES, so the import-usage ledger is
+    // handed to the NEW instance here rather than at the two rebuild sites: a rebuild that forgot it
+    // would silently stop crediting `import System.Linq`, and NL010 would report a live import dead.
     private func CreateExtensionMethodResolution(): AnalyzerExtensionMethodResolution {
-        return new AnalyzerExtensionMethodResolution(
+        created := new AnalyzerExtensionMethodResolution(
             TypeResolver,
             Assignability,
             DeclarationContext,
@@ -676,6 +688,8 @@ class Analyzer: IDisposable {
             UsingNamespaces,
             MlcAssemblies
         )
+        created.SetImportUsageCredit(ImportUsageCredit)
+        return created
     }
 
     private func CreateMemberResolution(): AnalyzerMemberResolution {
@@ -751,6 +765,7 @@ class Analyzer: IDisposable {
         }
         DeclarationPolicy.SetDeclarationContextFilePath(DeclarationContextFilePath)
         DeclarationContext.Reset(effectiveRoot, MlcAssemblies)
+        DeclarationContext.SetImportUsageCredit(ImportUsageCredit, DeclarationContextFilePath)
         DeclarationContext.AddCompilationUnit(DeclarationContextFilePath, unit)
         ProjectSources.AddProjectUnitsTo(DeclarationContext)
     }
@@ -781,6 +796,13 @@ class Analyzer: IDisposable {
         DeclarationPolicy.BeginAnalysis(SemanticModel, BindingMap, currentFilePath, unit)
         ExpressionTail.BeginAnalysis(SemanticModel)
         TypeDeclarationFiles.Clear()
+
+        // A FRESH LEDGER PER ANALYSIS, STAMPED ON THE UNIT. The linter's two import rules read it
+        // from the unit they are handed, which is the only thing they and this analysis have in
+        // common; a re-analysis replaces it rather than adding to it, so a file edited to drop its
+        // last use of an import reports that import dead on the very next pass.
+        unit.ImportUsage = new ImportUsageFacts()
+        ImportUsageCredit.BeginAnalysis(unit)
 
         InitializeDeclarationContext(unit, currentFilePath, projectRoot)
 
@@ -885,6 +907,14 @@ class Analyzer: IDisposable {
 
         PopScope()
         ReferenceLoadReport.Report(MetadataLoadSurface.ResolverFailures)
+
+        // THE GATE NL010 ASKS BEFORE IT SPEAKS. Reaching here means every declaration in the file was
+        // walked, so the ledger is complete; a walk that threw part-way leaves it false, and an
+        // import whose use was never looked for is not an import that has been proven dead.
+        analysedUsage := unit.ImportUsage
+        if analysedUsage != null {
+            analysedUsage.Analyzed = true
+        }
 
         return new AnalysisResult(Errors, SemanticModel, BindingMap)
     }
@@ -2070,8 +2100,11 @@ class Analyzer: IDisposable {
         SoaDirectColumnCalls = CreateSoaDirectColumnCalls()
         OperatorExpressions = CreateOperatorExpressions()
         TypeResolver.SetWellKnownTypes(WellKnownTypes)
+        TypeResolver.SetImportUsageCredit(ImportUsageCredit)
         IdentifierResolution.SetMetadataCollaborators(MemberResolution, WellKnownTypes)
+        IdentifierResolution.SetImportUsageCredit(ImportUsageCredit)
         MemberAccess.SetMetadataCollaborators(MemberResolution, ClrTypeConversion, ExtensionMethodResolution, WellKnownTypes)
+        MemberAccess.SetImportUsageCredit(ImportUsageCredit)
         Construction = CreateConstruction()
         Assignment = CreateAssignment()
         RangeExpression = CreateRangeExpression()

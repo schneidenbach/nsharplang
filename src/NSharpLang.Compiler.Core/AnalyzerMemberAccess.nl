@@ -140,6 +140,7 @@ class AnalyzerMemberAccess {
     clrTypeConversionValue: AnalyzerClrTypeConversion
     extensionMethodResolutionValue: AnalyzerExtensionMethodResolution
     wellKnownTypesValue: AnalyzerWellKnownTypes?
+    importUsageCreditValue: AnalyzerImportUsageCredit?
 
     compilationUnitValue: CompilationUnit?
     bindingsValue: BindingMap
@@ -181,6 +182,7 @@ class AnalyzerMemberAccess {
         clrTypeConversionValue = clrTypeConversion
         extensionMethodResolutionValue = extensionMethodResolution
         wellKnownTypesValue = null
+        importUsageCreditValue = null
         compilationUnitValue = null
         bindingsValue = bindings
 
@@ -221,6 +223,13 @@ class AnalyzerMemberAccess {
         extensionMethodResolutionValue = extensionMethodResolution
         wellKnownTypesValue = wellKnownTypes
     }
+
+    // The import-usage ledger, told about rather than constructed, and optional: a harness that only
+    // asks what a name resolves to is not answering NL010.
+    func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
+        importUsageCreditValue = credit
+    }
+
 
     // THE ENTRY, AND IT DECIDES NOTHING. Every gate this arm owns needs the receiver's answer, so
     // `Begin` names the node and stops. A node that is not a member access finishes immediately.
@@ -664,6 +673,12 @@ class AnalyzerMemberAccess {
             externalType := externalTypeProbeValue.ResolveExternalType(identifier.Name)
             if externalType != null {
                 resolvedType = externalType
+                // The import that supplied a TYPE-VALUED receiver is used by this file, and this is
+                // the only channel that sees it: `Encoding.UTF8` writes no annotation.
+                credit := importUsageCreditValue
+                if credit != null {
+                    credit.CreditResolvedType(identifier.Name, externalType, identifier.Line, identifier.Column)
+                }
             } else {
                 resolvedType = BuiltInTypes.Unknown
             }

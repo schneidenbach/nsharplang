@@ -17,12 +17,23 @@ class CompilationUnit: AstNode {
     Package: PackageDeclaration?
     Declarations: List<Declaration>
 
+    // WHAT THIS FILE'S IMPORTS ACTUALLY SUPPLIED, written here by the analyzer when the file is
+    // analysed and read by the linter's two import rules.
+    //
+    // It is stamped on the unit rather than returned beside it because the two owners that need to
+    // agree — the analyzer that resolves the names and the linter that judges the imports — are
+    // handed the SAME unit and nothing else in common. A parse-only caller leaves it null, which is
+    // the honest answer NL010 needs: an import's use is a binding fact, and a file that was never
+    // bound has none.
+    ImportUsage: ImportUsageFacts?
+
     constructor(Namespace: NamespaceDeclaration?, Imports: List<ImportDirective>, FileImports: List<Statement>, Package: PackageDeclaration?, Declarations: List<Declaration>, Line: int, Column: int): base(Line, Column) {
         this.Namespace = Namespace
         this.Imports = Imports
         this.FileImports = FileImports
         this.Package = Package
         this.Declarations = Declarations
+        this.ImportUsage = null
     }
 }
 

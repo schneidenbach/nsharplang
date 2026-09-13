@@ -62,7 +62,11 @@ class LinterDeclarationWalk {
         state.CheckUnusedVariables()
         state.PopScope()
 
+        // THE TWO IMPORT RULES ARE ONE MEASUREMENT READ FROM TWO SIDES, so they run together, after
+        // the walk, over the same facts: an import that supplied a name is USED (NL010 quiet), and a
+        // name whose supplying namespace is not imported is MISSING one (NL002 speaks).
         state.CheckUnusedImports()
+        state.CheckMissingImports()
     }
 
     // EVERY ATTRIBUTE ON A DECLARATION NAMES A TYPE, AND EVERY ARGUMENT IS AN EXPRESSION. Neither was

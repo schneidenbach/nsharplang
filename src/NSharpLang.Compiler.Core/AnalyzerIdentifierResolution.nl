@@ -61,6 +61,7 @@ class AnalyzerIdentifierResolution {
     extensionMethodsValue: List<FunctionDeclaration>
     memberResolutionValue: AnalyzerMemberResolution
     wellKnownTypesValue: AnalyzerWellKnownTypes?
+    importUsageCreditValue: AnalyzerImportUsageCredit?
     semanticModelValue: SemanticModel
     bindingsValue: BindingMap
     compilationUnitValue: CompilationUnit?
@@ -85,6 +86,7 @@ class AnalyzerIdentifierResolution {
         extensionMethodsValue = extensionMethods
         memberResolutionValue = memberResolution
         wellKnownTypesValue = null
+        importUsageCreditValue = null
         semanticModelValue = semanticModel
         bindingsValue = bindings
         compilationUnitValue = null
@@ -110,6 +112,13 @@ class AnalyzerIdentifierResolution {
         memberResolutionValue = memberResolution
         wellKnownTypesValue = wellKnownTypes
     }
+
+    // The import-usage ledger, told about rather than constructed, and optional: a harness that only
+    // asks what a name resolves to is not answering NL010.
+    func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
+        importUsageCreditValue = credit
+    }
+
 
     func SetSuppressErrorTupleResultUse(value: bool) {
         suppressErrorTupleResultUseValue = value
@@ -295,9 +304,19 @@ class AnalyzerIdentifierResolution {
 
         // 6. An external type (static class access like `Console`). Deliberately after the
         // enclosing-type member lookup so instance members win over imported type names.
+        //
+        // NL010 AND NL002 ARE BOTH ANSWERED FROM THIS CHANNEL. `Console.WriteLine(...)` writes no
+        // type ANNOTATION anywhere, so the type-position walk never sees `Console`; the import that
+        // supplies it is used here or nowhere, and a file whose only mention of `System` was a static
+        // receiver had its import reported dead until this credit existed.
         externalType := externalTypeProbeValue.ResolveExternalType(name)
         if externalType != null {
             resolvedType = externalType
+            credit := importUsageCreditValue
+            if credit != null {
+                credit.CreditResolvedType(name, externalType, line, column)
+            }
+
             return true
         }
 

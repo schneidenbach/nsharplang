@@ -35,8 +35,10 @@ class AnalyzerExtensionMethodResolution {
     extensionMethods: List<FunctionDeclaration>
     usingNamespaces: List<string>
     assemblies: List<Assembly>
+    importUsageCredit: AnalyzerImportUsageCredit?
 
     constructor(types: AnalyzerTypeResolver, assignabilityOwner: AnalyzerAssignability, declarations: AnalyzerDeclarationContext, functionTypes: AnalyzerFunctionTypeFactory, clrConversion: AnalyzerClrTypeConversion, declaredExtensions: List<FunctionDeclaration>, importedNamespaces: List<string>, referenceAssemblies: List<Assembly>) {
+        importUsageCredit = null
         typeResolver = types
         assignability = assignabilityOwner
         declarationContext = declarations
@@ -141,21 +143,47 @@ class AnalyzerExtensionMethodResolution {
         return false
     }
 
+    // Told about, not constructed here, and optional: a harness that asks what `.Select()` resolves
+    // to is not answering NL010.
+    func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
+        importUsageCredit = credit
+    }
+
     // The external answer, in the shape the member surface expects: one method is a method INFO,
     // several are a method GROUP, none is `unknown`.
+    //
+    // THIS IS THE IMPORT THAT `import System.Linq` IS FOR, AND IT IS THE ONLY CHANNEL THAT SEES IT.
+    // A file whose whole use of a namespace is `.Where(...).Select(...)` writes none of that
+    // namespace's type names anywhere, so the type-position walk credits nothing and the import would
+    // read as dead. What is credited is the DECLARING type's namespace — `Enumerable`'s, not the
+    // receiver's — because that is the namespace the extension had to be imported from.
     func ExternalExtensionMethodType(targetType: TypeInfo, methodName: string): TypeInfo {
         externalExtensions := FindExternalExtensionMethods(targetType, methodName)
         if externalExtensions.Count == 1 {
             winner := externalExtensions[0]
+            CreditExtensionNamespace(winner)
             return new ReflectionMethodInfo(winner, winner.get_Name() + "(...)")
         }
 
         if externalExtensions.Count > 1 {
             first := externalExtensions[0]
+            candidateIndex := 0
+            while candidateIndex < externalExtensions.Count {
+                CreditExtensionNamespace(externalExtensions[candidateIndex])
+                candidateIndex = candidateIndex + 1
+            }
+
             return new ReflectionMethodGroupInfo(externalExtensions.ToArray(), first.get_Name() + "(...)")
         }
 
         return BuiltInTypes.Unknown
+    }
+
+    func CreditExtensionNamespace(method: MethodInfo) {
+        credit := importUsageCredit
+        if credit != null {
+            credit.CreditDeclaringNamespace(method.get_DeclaringType())
+        }
     }
 
     // Every `[Extension]` static under an IMPORTED namespace whose receiver parameter accepts the

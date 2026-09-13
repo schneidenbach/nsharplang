@@ -126,6 +126,11 @@ class LinterWalkState {
     allMemberAccessNames: HashSet<string>
     typeMemberNameScopes: Stack<HashSet<string>>
 
+    // WHAT THE ANALYZER PROVED THIS FILE'S IMPORTS SUPPLIED. Null when the unit was never analysed,
+    // which is exactly what NL010 and the namespace half of NL002 need to hear: an import's use is a
+    // binding fact, and a file that was never bound has none.
+    importUsage: ImportUsageFacts?
+
     hasAwaitInFunction: bool
     inAsyncFunction: bool
     currentFunctionParams: List<(string, int, int, bool)>
@@ -151,6 +156,7 @@ class LinterWalkState {
         allCodeIdentifiers = new HashSet<string>()
         allMemberAccessNames = new HashSet<string>()
         typeMemberNameScopes = new Stack<HashSet<string>>()
+        importUsage = null
 
         hasAwaitInFunction = false
         inAsyncFunction = false
@@ -230,6 +236,7 @@ class LinterWalkState {
     // resolved against its source line because the directive's own column points at the keyword rather
     // than at the namespace; a file import already carries its diagnostic span.
     func RegisterImports(unit: CompilationUnit) {
+        importUsage = unit.ImportUsage
         currentNamespace := AnalyzerDeclarationFileFacts.GetUnitNamespace(unit)
         if currentNamespace != null {
             importedNamespaces.Add(currentNamespace)
@@ -253,15 +260,25 @@ class LinterWalkState {
         }
     }
 
-    // NL010, once per file after the whole walk. A file import resolves to a file's exported symbols;
-    // a namespace import resolves to its alias and to the known-namespace table TOGETHER, because an
-    // N# alias does not replace the plain import the way C#'s `using X = N;` does — it adds a name to
-    // it. Both arms are N#.
+    // NL010, once per file after the whole walk.
+    //
+    // A FILE import resolves against the exported symbols of the file it names, which is a syntactic
+    // question this walk can answer on its own. A NAMESPACE import is answered by what the analyzer
+    // BOUND: the namespace that supplied each name the file wrote is recorded while the name is being
+    // resolved, so an import is used when it appears among those and dead when it does not. There is
+    // no table of BCL names any more — `LinterNamespaceImportUsage` says why the table could not be
+    // made correct — and no arity, alias or extension-method special case, because all three are the
+    // same recorded fact.
+    //
+    // A FILE THAT WAS NEVER ANALYSED REPORTS NO NAMESPACE IMPORT. NL010 is an ERROR whose `nlc fix`
+    // DELETES the line it names, so a guess here deletes working code; the file arm still answers,
+    // because it needs no binding.
     func CheckUnusedImports() {
         if !config.RuleSeverities.ContainsKey("NL010") {
             return
         }
 
+        namespacesAnswerable := LinterNamespaceImportUsage.HasFacts(importUsage)
         for imported in allImports {
             used := false
             label := "import " + imported.Namespace
@@ -269,7 +286,11 @@ class LinterWalkState {
                 used = LinterFileImportUsage.IsUsed(imported.Namespace, imported.FilePath, filePath, allCodeIdentifiers)
                 label = "import \"" + (imported.FilePath ?? imported.Namespace) + "\""
             } else {
-                used = LinterNamespaceImportUsage.IsImportUsed(imported.Namespace, imported.Alias, allCodeIdentifiers, allMemberAccessNames)
+                if !namespacesAnswerable {
+                    continue
+                }
+
+                used = LinterNamespaceImportUsage.IsImportUsed(imported.Namespace, importUsage)
             }
 
             if !used {
@@ -278,115 +299,65 @@ class LinterWalkState {
         }
     }
 
-    // NL002 for a bare identifier. The whole decision — which namespace the name needs, and whether
-    // anything already supplies it — belongs to `LinterMissingImport`; what is here is the report.
+    // NL002, once per file after the whole walk — the other reading of the fact NL010 is answered
+    // from.
     //
-    // THE SPAN IS THE IDENTIFIER'S OWN LENGTH, NOT AN INFERRED TOKEN. Passing 0 asks
-    // `DiagnosticSpanResolver` to work the extent out from the source line, and it deliberately runs
-    // a dotted chain together — `foo.bar.baz` is one span, which is right for a diagnostic ABOUT the
-    // chain and wrong for this one. `StringBuilder.ToString()` gave NL002 a 22-column span reading
-    // `StringBuilder.ToString` while the message names `StringBuilder`, so the fix was offered on
-    // `.ToString` as well. The resolver is not changed — its chain rule has other callers and its own
-    // contracts — it is simply not asked, because this rule already knows the answer.
-    func CheckMissingImport(ident: IdentifierExpression) {
-        requiredNamespace := LinterMissingImport.MissingNamespaceForIdentifier(ident.Name, typeMemberNameScopes, importedFileSymbols, importedNamespaces)
-        if requiredNamespace == null {
+    // WHEN A SIMPLE NAME RESOLVES, THE NAMESPACE THAT SUPPLIED IT IS KNOWN EXACTLY. If the file
+    // imports that namespace, the import is used and NL010 stays quiet; if it does not, the name was
+    // written WITHOUT the import that provides it, and that is this rule. One measurement, two
+    // readings — so the two rules cannot disagree about what an import supplies, which is exactly
+    // what they used to do: NL010 answered from a 112-name table of `System` spellings and NL002
+    // from a 25-name one, and `OperatingSystem` was in neither.
+    //
+    // THE SQUIGGLE GOES ON THE NAME THE MESSAGE NAMES, because the analyzer recorded the columns of
+    // the spelling that asked. Deriving them here from the source line ran a dotted chain together —
+    // `StringBuilder.ToString()` gave a 22-column span reading `StringBuilder.ToString` while the
+    // message named `StringBuilder` — so the fix was offered on `.ToString` as well.
+    //
+    // THREE THINGS STILL SILENCE IT. A name brought in by a FILE import is already resolved; a
+    // namespace the file already imports needs no second import; and the file's OWN namespace is not
+    // something a file imports. A project's OTHER namespaces are not in that list and do not need to
+    // be: a source type in another namespace of the same project resolves with no import at all, so
+    // the analyzer never records it as needing one.
+    func CheckMissingImports() {
+        if !config.RuleSeverities.ContainsKey("NL002") {
             return
         }
 
-        AddDiagnostic("NL002", LinterMissingImport.Message(ident.Name), ident.Line, ident.Column, config.GetSeverity("NL002"), LinterMissingImport.Suggestion(requiredNamespace), ident.Name.Length)
-    }
-
-    // NL002 for a written type reference, with an enclosing position to fall back to.
-    //
-    // EVERY NAME THE TYPE WRITES IS ASKED, not only the one it is CALLED. The comment this rule
-    // carried for two tasks said "a generic argument or an array element is reached by the walk in
-    // its own right", and that was never true: the walk descends EXPRESSIONS, and a type argument is
-    // a `TypeReference`, so `new Dictionary<string, StringBuilder>()` asked about `Dictionary` and
-    // stopped. It asks about both now, and reports each at its own columns.
-    //
-    // THE SQUIGGLE GOES ON THE NAME THE MESSAGE NAMES. Each reference answers its own `NameSpan` —
-    // `List` in `new List<int>()`, not the `new` keyword the caller's position points at, and not
-    // `List<int>` either. The caller's `line`/`column` are the FALLBACK, and they are offered to the
-    // BASE name only: the enclosing syntax is a reasonable place to put a diagnostic about the type
-    // as a whole and a nonsensical place to put one about its second type argument. A nested name
-    // the parser never stamped is therefore skipped rather than piled onto the keyword.
-    func CheckMissingImportForType(typeReference: TypeReference, line: int, column: int) {
-        hasBaseName := LinterTypeReferenceName.Base(typeReference) != null
-        CheckMissingImportsAcross(typeReference, hasBaseName, line, column)
-    }
-
-    // The same rule at a written type with no enclosing syntax worth naming — a declared field,
-    // parameter, return or annotation type. Every position is the reference's own.
-    func CheckMissingImportsInType(typeReference: TypeReference?) {
-        if typeReference == null {
+        usage := importUsage
+        if usage == null {
             return
         }
 
-        CheckMissingImportsAcross(typeReference, false, 0, 0)
-    }
+        facts := usage ?? new ImportUsageFacts()
+        if !facts.Analyzed {
+            return
+        }
 
-    // `CollectNamedReferences` yields the base name first, which is what makes "the fallback belongs
-    // to the base name and to nothing else" expressible as an index test rather than a second walk.
-    func CheckMissingImportsAcross(typeReference: TypeReference, baseTakesFallback: bool, fallbackLine: int, fallbackColumn: int) {
-        references := LinterTypeReferenceName.NamedReferences(typeReference)
+        references := facts.References
         index := 0
         while index < references.Count {
-            takesFallback := baseTakesFallback && index == 0
-            ReportMissingImportForReference(references[index], takesFallback, fallbackLine, fallbackColumn)
+            reference := references[index]
             index = index + 1
-        }
-    }
+            if !LinterMissingImport.NeedsImport(reference.Name, reference.NamespaceName, importedFileSymbols, importedNamespaces) {
+                continue
+            }
 
-    func ReportMissingImportForReference(reference: TypeReference, takesFallback: bool, fallbackLine: int, fallbackColumn: int) {
-        typeName := LinterTypeReferenceName.Base(reference)
-        if typeName == null {
-            return
+            AddDiagnostic("NL002", LinterMissingImport.Message(reference.Name), reference.Line, reference.Column, config.GetSeverity("NL002"), LinterMissingImport.Suggestion(reference.NamespaceName), reference.Length)
         }
-
-        requiredNamespace := LinterMissingImport.MissingNamespaceForTypeName(typeName, importedFileSymbols, importedNamespaces)
-        if requiredNamespace == null {
-            return
-        }
-
-        reportLine := 0
-        reportColumn := 0
-        reportLength := 0
-        nameSpan := LinterTypeReferenceName.BaseNameSpan(reference)
-        if nameSpan.IsValid {
-            reportLine = nameSpan.StartLine
-            reportColumn = nameSpan.StartColumn
-            reportLength = nameSpan.Length
-        } else if takesFallback {
-            reportLine = fallbackLine
-            reportColumn = fallbackColumn
-        }
-
-        // No position, no diagnostic. A report at 0:0 is not a finding a user can act on, and the
-        // editor would draw it on the first character of the file.
-        if reportLine <= 0 || reportColumn <= 0 {
-            return
-        }
-
-        AddDiagnostic("NL002", LinterMissingImport.Message(typeName), reportLine, reportColumn, config.GetSeverity("NL002"), LinterMissingImport.Suggestion(requiredNamespace), reportLength)
     }
 
     // ---- the file's identifier ledgers ----------------------------------------------------------
 
-    // A WRITTEN TYPE, AND BOTH IMPORT RULES ASK ABOUT IT. NL010: every name it mentions counts as a
-    // use of whatever import supplies it. NL002: every name it mentions needs an import to supply it.
-    // They are the two directions of one question and they are asked at one place, because the way
-    // NL002 came to cover a single syntactic position — a `new` expression, and nothing else a type
-    // can be written in — was by being asked somewhere NL010 was not.
+    // A WRITTEN TYPE: every name it mentions counts as a use of whatever FILE import supplies it.
+    // The namespace half of NL010 and the whole of NL002 are answered after the walk, from what the
+    // analyzer bound, so neither is asked here any more.
     func TrackTypeReference(typeReference: TypeReference?) {
         LinterTypeReferenceName.CollectMentionedNames(typeReference, allCodeIdentifiers)
-        CheckMissingImportsInType(typeReference)
     }
 
-    // THE NL010 HALF ALONE, for the one position that already asks NL002 its own question. A `new`
-    // expression reports a missing import at the enclosing `new` keyword when the reference carries no
-    // position of its own, so it calls `CheckMissingImportForType` directly; asking through
-    // `TrackTypeReference` as well would report the same name twice at two different columns.
+    // The same collection under the name the expression walk calls it by. The two were once a pair —
+    // one asked NL002 and the other deliberately did not — and both now do the same single thing.
     func NoteTypeReferenceNames(typeReference: TypeReference?) {
         LinterTypeReferenceName.CollectMentionedNames(typeReference, allCodeIdentifiers)
     }
