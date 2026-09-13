@@ -20141,6 +20141,18 @@ sealed class ColumnarIlEmitter {
             if (!targetType.get_IsGenericParameter() && !targetType.get_IsValueType() && (ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(sourceType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(sourceType, targetType, _structRegistry, _il))) {
                 return true
             }
+            // A REFERENCE DOWNCAST IS THE UPCAST ASKED BACKWARDS. Every explicit reference conversion
+            // is the reverse of an implicit one (C# §10.3.5), so the question is put to the SAME
+            // owner the arm above consults, with the two types swapped — `Shape` to `Square` is
+            // admitted exactly when `Square` to `Shape` would be — and the opcode is `castclass`,
+            // which is what makes the conversion checked. The `object` source has its own arms above
+            // and reaches them first; this is every other pair, including a source-defined base and
+            // an interface a class implements, which declined here and made a written `(Square)shape`
+            // an NL103 at the initializer.
+            if (!targetType.get_IsGenericParameter() && !targetType.get_IsValueType() && !sourceType.get_IsValueType() && !sourceType.get_IsGenericParameter() && ColumnarReferenceConversionFacts.TryEmitReferenceConversion(targetType, sourceType)) {
+                _il.Emit(OpCodes.Castclass, targetType)
+                return true
+            }
             return false
         }
         // UNBOXING TO A SCALAR is the mirror of the boxing conversion above, and it has the same

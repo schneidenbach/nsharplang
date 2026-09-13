@@ -116,6 +116,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL327`](./NL327.md) | `this` or `base` where there is no current instance. |
 | [`NL328`](./NL328.md) | A field initializer that reaches the instance being built. |
 | [`NL329`](./NL329.md) | A struct field initializer with no constructor to run in. |
+| [`NL330`](./NL330.md) | A loop variable annotated with a type its elements cannot become. |
 
 ## Calls — `NL4xx`
 
