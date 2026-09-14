@@ -619,7 +619,13 @@ class MultiFileCompiler {
         return state.Emitted
     }
 
+    // THE EMISSION THREAD'S IDENTITY. Which `internal` members of a referenced assembly this
+    // emission may reach depends on the name the assembly being emitted carries, and the back end's
+    // accessibility filters are static functions with no compilation in hand — so the friend grants
+    // are opened as a thread-local scope here, on the very thread the whole emit walk runs on, and
+    // closed when it ends. `InternalsVisibleToEmissionScope` explains why the scope is thread-local.
     private func RunColumnarEmissionOnCurrentThread(state: MultiFileCompilerEmissionThreadState, assemblyName: string, outputPath: string): void {
+        InternalsVisibleToEmissionScope.Begin(assemblyName)
         try {
             state.Emitted = TryEmitWithColumnarBackend(assemblyName, outputPath)
             if !state.Emitted {
@@ -627,6 +633,8 @@ class MultiFileCompiler {
             }
         } catch ex: Exception {
             state.Captured = ExceptionDispatchInfo.Capture(ex)
+        } finally {
+            InternalsVisibleToEmissionScope.End()
         }
     }
 

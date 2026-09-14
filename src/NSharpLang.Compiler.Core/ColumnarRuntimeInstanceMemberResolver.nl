@@ -474,12 +474,12 @@ class ColumnarRuntimeInstanceMemberResolver {
         // probe has no such rebind here, so it is skipped rather than asked.
         field: FieldInfo? = null
         if !ContainsBuilderBoundType(receiverType) {
-            field = receiverType.GetField(member, OrdinaryMemberFlags(allowInheritedProtected))
+            field = receiverType.GetField(member, OrdinaryMemberFlags(allowInheritedProtected, receiverType))
         }
         if field != null {
             declaringType := field.get_DeclaringType()
             fieldType := field.get_FieldType()
-            if IsReachableInheritedLevel(MemberAccessibility.LevelOfField(field), allowInheritedProtected) && !field.get_IsStatic() && !field.get_IsLiteral() && declaringType != null && ReceiverMatchesDeclaringType(receiverType, declaringType) && IsOrdinaryReadableResultType(fieldType) {
+            if IsReachableInheritedLevel(MemberAccessibility.LevelOfField(field), allowInheritedProtected, declaringType) && !field.get_IsStatic() && !field.get_IsLiteral() && declaringType != null && ReceiverMatchesDeclaringType(receiverType, declaringType) && IsOrdinaryReadableResultType(fieldType) {
                 selectedField := new ColumnarRuntimeInstanceMemberSelection(true, declaringType, fieldType, field, null, !receiverType.get_IsValueType())
                 selectedField.PreserveDirectValueStorage = true
                 selection = selectedField
@@ -618,16 +618,35 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     // WHICH LEVELS AN INHERITED-BASE READ MAY REACH, and the binding flags that find them. `family`
-    // and its two combinations, never `private` and never `assembly`: the base is in a REFERENCED
-    // assembly, so the assembly half of every level is unsatisfiable and N# models no
-    // `InternalsVisibleTo`. `MemberAccessibility` answers, so the emitter and the analyzer read the
-    // same relation.
+    // and its two combinations always; `private` never; and the three ASSEMBLY-bound levels only when
+    // the referenced assembly that declares the member named the assembly being emitted in an
+    // `InternalsVisibleTo` — the CLR's own friend rule, which it re-checks at load, so a reached
+    // member emits the ordinary instruction and nothing else changes. `MemberAccessibility` answers,
+    // so the emitter and the analyzer read the same relation.
     static func IsReachableInheritedLevel(level: int, allowInheritedProtected: bool): bool {
-        return MemberAccessibility.IsAccessible(level, false, allowInheritedProtected, allowInheritedProtected, false)
+        return IsReachableInheritedLevel(level, allowInheritedProtected, null)
     }
 
+    static func IsReachableInheritedLevel(level: int, allowInheritedProtected: bool, declaringType: Type?): bool {
+        return MemberAccessibility.IsAccessible(level, false, allowInheritedProtected, allowInheritedProtected, InternalsVisibleToEmissionScope.GrantsAccessToDeclarer(declaringType))
+    }
+
+    // A FRIEND'S INTERNALS ARE ONLY FINDABLE IF METADATA IS ASKED FOR THEM. `NonPublic` is otherwise
+    // an opt-in for the inherited-`protected` case alone, and the level filter beside it is what
+    // decides whether anything it returns is actually reachable.
     static func OrdinaryMemberFlags(allowInheritedProtected: bool): BindingFlags {
-        if allowInheritedProtected {
+        return OrdinaryMemberFlags(allowInheritedProtected, null)
+    }
+
+    // `GetGetMethod(nonPublic)` and `GetSetMethod(nonPublic)` take the same opt-in the binding flags
+    // do, and for the same two reasons: an inherited `protected` accessor, and a friend's `internal`
+    // one.
+    static func NonPublicAccessorsAreVisible(allowInheritedProtected: bool, lookupType: Type?): bool {
+        return allowInheritedProtected || InternalsVisibleToEmissionScope.GrantsAccessToDeclarer(lookupType)
+    }
+
+    static func OrdinaryMemberFlags(allowInheritedProtected: bool, lookupType: Type?): BindingFlags {
+        if allowInheritedProtected || InternalsVisibleToEmissionScope.GrantsAccessToDeclarer(lookupType) {
             return BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         }
 
@@ -650,12 +669,12 @@ class ColumnarRuntimeInstanceMemberResolver {
                 return false
             }
 
-            property := definition.GetProperty(member, OrdinaryMemberFlags(allowInheritedProtected))
+            property := definition.GetProperty(member, OrdinaryMemberFlags(allowInheritedProtected, definition))
             if property == null {
                 return false
             }
 
-            signatureGetter = property.GetGetMethod(allowInheritedProtected)
+            signatureGetter = property.GetGetMethod(NonPublicAccessorsAreVisible(allowInheritedProtected, definition))
             if signatureGetter == null || !ValidatePublicGetterSignature(signatureGetter, allowInheritedProtected) {
                 return false
             }
@@ -668,12 +687,12 @@ class ColumnarRuntimeInstanceMemberResolver {
             getter = (MethodInfo)rebound
             resultType = SubstituteClosedTypeArguments(property.get_PropertyType(), lookupType.GetGenericArguments())
         } else {
-            property := lookupType.GetProperty(member, OrdinaryMemberFlags(allowInheritedProtected))
+            property := lookupType.GetProperty(member, OrdinaryMemberFlags(allowInheritedProtected, lookupType))
             if property == null {
                 return false
             }
 
-            signatureGetter = property.GetGetMethod(allowInheritedProtected)
+            signatureGetter = property.GetGetMethod(NonPublicAccessorsAreVisible(allowInheritedProtected, lookupType))
             if signatureGetter == null || !ValidatePublicGetterSignature(signatureGetter, allowInheritedProtected) {
                 return false
             }
@@ -683,7 +702,7 @@ class ColumnarRuntimeInstanceMemberResolver {
         }
 
         exactGetter := getter
-        if exactGetter == null || !IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(exactGetter), allowInheritedProtected) || exactGetter.get_IsStatic() {
+        if exactGetter == null || !IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(exactGetter), allowInheritedProtected, exactGetter.get_DeclaringType()) || exactGetter.get_IsStatic() {
             getter = null
             return false
         }
@@ -714,7 +733,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func ValidatePublicGetterSignature(getter: MethodInfo, allowInheritedProtected: bool): bool {
-        if getter == null || !IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(getter), allowInheritedProtected) || getter.get_IsStatic() || getter.get_IsGenericMethodDefinition() || getter.get_ReturnType().get_IsByRef() {
+        if getter == null || !IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(getter), allowInheritedProtected, getter.get_DeclaringType()) || getter.get_IsStatic() || getter.get_IsGenericMethodDefinition() || getter.get_ReturnType().get_IsByRef() {
             return false
         }
 

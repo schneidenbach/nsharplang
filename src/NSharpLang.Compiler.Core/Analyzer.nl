@@ -28,6 +28,12 @@ class Analyzer: IDisposable {
     private readonly ReferenceLoadFailures: Dictionary<string, string>
     private readonly ReferencedPackageNames: HashSet<string>
     private readonly ExternalTypeProbe: AnalyzerExternalTypeProbe
+
+    // THE FRIEND GRANTS THIS COMPILATION HOLDS. Built empty (a bare `new Analyzer()` with no project
+    // behind it is granted nothing) and named by `LoadFromProjectConfig`, which is where the project's
+    // assembly name is first known. Every owner that asks "may this compilation see that internal?"
+    // shares this one instance.
+    private readonly FriendGrants: InternalsVisibleToGrants
     private readonly TypeDeclarationFiles: Dictionary<string, string>
     private readonly ProjectSources: AnalyzerProjectSourceProvider
     private readonly ProjectDiscovery: AnalyzerProjectTypeDiscovery
@@ -147,7 +153,8 @@ class Analyzer: IDisposable {
         BindingMap = new BindingMap()
         CallableReferenceReportLog = new AnalyzerCallableReferenceReportLog()
 
-        ExternalTypeProbe = new AnalyzerExternalTypeProbe(MlcAssemblies, UsingNamespaces)
+        FriendGrants = new InternalsVisibleToGrants()
+        ExternalTypeProbe = new AnalyzerExternalTypeProbe(MlcAssemblies, UsingNamespaces, FriendGrants)
         ProjectDiscovery = new AnalyzerProjectTypeDiscovery(
             ProjectSources,
             DeclarationContext,
@@ -2167,8 +2174,18 @@ class Analyzer: IDisposable {
         }
     }
 
+    // THE PROJECT'S OWN IDENTITY IS PART OF ITS REFERENCE SET. Which internals of a referenced
+    // assembly this compilation may name depends on the name it is being compiled under, so the
+    // friend grants are named here — the one point where the project config and the assembly list
+    // meet — rather than being rediscovered by each owner that asks.
     func LoadFromProjectConfig(config: ProjectConfig, projectDirectory: string? = null) {
-        ReferenceLoadOrchestration.Load(config, projectDirectory ?? Environment.CurrentDirectory)
+        directory := projectDirectory ?? Environment.CurrentDirectory
+        FriendGrants.SetCompilingAssemblyName(CompilationReferenceResolverKernels.GetProjectAssemblyName(directory, config.Name))
+        ReferenceLoadOrchestration.Load(config, directory)
+    }
+
+    func GetFriendGrants(): InternalsVisibleToGrants {
+        return FriendGrants
     }
 
     func CreateEditorTypeCatalog(): EditorTypeCatalog {

@@ -414,10 +414,20 @@ class ColumnarExternalStaticMemberPlanner {
             return false
         }
 
+        // A FRIEND'S `internal` STATIC IS AN ORDINARY STATIC. It is not findable without asking
+        // metadata for non-public members, and it is not reachable unless the assembly that declares
+        // it named this one in an `InternalsVisibleTo`; the flags widen only in that case and
+        // `ReachesLevel` decides what the widened set actually admits.
+        nonPublicIsReachable := InternalsVisibleToEmissionScope.GrantsAccessToDeclarer(ownerType)
+        memberFlags := BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance
+        if nonPublicIsReachable {
+            memberFlags = memberFlags | BindingFlags.NonPublic
+        }
+
         checkpoint := plan.CreateCheckpoint()
         try {
-            field := ownerType.GetField(memberName)
-            if field != null && field.get_IsPublic() && field.get_IsStatic() && field.get_DeclaringType() == ownerType {
+            field := ownerType.GetField(memberName, memberFlags)
+            if field != null && InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.LevelOfField(field), field.get_DeclaringType()) && field.get_IsStatic() && field.get_DeclaringType() == ownerType {
                 fieldType := field.get_FieldType()
                 if field.get_IsLiteral() {
                     if !TryAppendExternalConstantField(plan, field, fieldType) {
@@ -435,10 +445,10 @@ class ColumnarExternalStaticMemberPlanner {
                 return true
             }
 
-            property := ownerType.GetProperty(memberName)
+            property := ownerType.GetProperty(memberName, memberFlags)
             if property != null {
-                getter := property.GetGetMethod()
-                if getter != null && getter.get_IsPublic() && getter.get_IsStatic() && getter.get_DeclaringType() == ownerType && getter.GetParameters().Length == 0 {
+                getter := property.GetGetMethod(nonPublicIsReachable)
+                if getter != null && InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.LevelOfMethod(getter), getter.get_DeclaringType()) && getter.get_IsStatic() && getter.get_DeclaringType() == ownerType && getter.GetParameters().Length == 0 {
                     methodIndex := plan.AddMethod(getter)
                     plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
                     resultType = getter.get_ReturnType()
