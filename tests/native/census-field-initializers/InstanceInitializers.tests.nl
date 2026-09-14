@@ -40,3 +40,30 @@ test "instance field initializers run before the base constructor call and befor
     // The base constructor already saw the derived initializer's effect when it ran.
     assert derived.Trace == "derived-init;base-ctor;"
 }
+
+test "an implicitly-defaulted nullable field beside a written initializer compiles and defaults to null" {
+    value := new NullableBesideWritten()
+    assert value.Absent == null
+    assert value.AbsentNumber == null
+    assert value.Present == 2
+    assert value.PresentText == "set"
+}
+
+test "an implicitly-defaulted nullable field reads the same as an explicit null initializer" {
+    value := new NullableAfterWritten()
+    assert value.Present == 3
+    assert value.Absent == null
+    assert value.Explicit == null
+    assert value.Absent == value.Explicit
+}
+
+test "an implicitly-defaulted nullable field is an ordinary instance field in metadata" {
+    absentField := typeof(NullableBesideWritten).GetField("Absent", BindingFlags.Public | BindingFlags.Instance)
+    presentField := typeof(NullableBesideWritten).GetField("Present", BindingFlags.Public | BindingFlags.Instance)
+    assert absentField != null, "the nullable field Absent must be present"
+    assert presentField != null, "the written-initializer field Present must be present"
+    if absentField != null {
+        assert !absentField.get_IsInitOnly(), "a mutable nullable field must not be emitted initonly"
+        assert absentField.get_FieldType() == typeof(string), "Absent must keep its declared reference type"
+    }
+}

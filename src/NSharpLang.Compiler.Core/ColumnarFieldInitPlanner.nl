@@ -71,12 +71,24 @@ class ColumnarFieldInitPlanner {
     // a simple `=` assignment (kind 14, operator text `=`, two children) with an identifier target (kind 6
     // carrying a value span). Returns the target identifier text, or null when the statement is not that
     // shape, in which case the statement is still emitted inline but seeds no assigned-field name.
+    //
+    // A SYNTHESIZED STORE HAS NO OPERATOR TEXT TO READ, AND READING IT ANYWAY CRASHED THE COMPILER.
+    // An implicitly-defaulted nullable field (`Other: string?`, no `= null` written) contributes a
+    // `Other = null` store to the initializer body whose operator span is -1, because the source has
+    // no `=` token for it. `class C { Other: string?  Count: int = 2 }` — six lines, both members
+    // ordinary — therefore threw ArgumentOutOfRangeException out of `Substring` before any diagnostic
+    // could be produced, for `nlc check`, `build`, `run` and the MSBuild task alike. The operator
+    // text is read only where there IS one; a span-less assignment is the plain `=` the synthesizer
+    // emits, so the field it stores into is seeded like any written initializer's.
     static func TopLevelFieldAssignmentTarget(nodes: ColumnarNodeTable, source: string, stmt: int): string? {
         if nodes.Kind(stmt) != 23 || nodes.ChildCount(stmt) != 1 {
             return null
         }
         expr := nodes.Child(stmt, 0)
-        if nodes.Kind(expr) != 14 || nodes.Text(source, expr) != "=" || nodes.ChildCount(expr) != 2 {
+        if nodes.Kind(expr) != 14 || nodes.ChildCount(expr) != 2 {
+            return null
+        }
+        if nodes.ValueStart(expr) >= 0 && nodes.Text(source, expr) != "=" {
             return null
         }
         target := nodes.Child(expr, 0)
