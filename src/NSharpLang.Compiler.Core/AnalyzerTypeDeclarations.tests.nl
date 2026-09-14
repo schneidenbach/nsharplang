@@ -2146,6 +2146,176 @@ test "AN `override` PROPERTY WITH NO SLOT TO TAKE IS `NL311`, WITH THE METHOD RU
     assert silentHarness.Errors.Count == 0
 }
 
+// ---------------------------------------------------------------------------------------------
+// `abstract` ON A MEMBER THAT HAS NOWHERE TO BE ABSTRACT
+//
+// Two failures hid behind one word before this rule. `class Widget { abstract func Touch() }` reached
+// `TypeBuilder.CreateType` and the whole check printed `Type must be declared abstract if any of its
+// methods are abstract.` — no file, no line, no column. And an `abstract` member WITH a body inside an
+// abstract class was accepted in silence and emitted as a slot, so the body never ran. Both are
+// `NL311`, and the fourth verdict here is SILENCE: every legal spelling stays quiet.
+// ---------------------------------------------------------------------------------------------
+
+func TypeDeclAbstractFunction(name: string): FunctionDeclaration {
+    return new FunctionDeclaration(name, TypeDeclParameters(), TypeDeclInt(), null, null, null, null, Modifiers.Abstract, TypeDeclNoAttributes(), false, null, false, false, 8, 5)
+}
+
+test "AN `abstract` MEMBER IN A CLASS THAT IS NOT ABSTRACT IS `NL311`, NAMING THE CLASS" {
+    harness := TypeDeclDefault()
+    members := new List<Declaration>()
+    members.Add(TypeDeclAbstractFunction("Touch"))
+    TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClass("Widget", members, null, null, Modifiers.None), harness.Assignability), null)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.InvalidModifier
+    assert harness.Errors[0].Message == "'Touch' is declared 'abstract', but 'Widget' is not an abstract class"
+    assert harness.Errors[0].Suggestion == "Write 'abstract class Widget' so the slot has somewhere to live, or give 'Touch' a body and drop 'abstract'."
+    assert harness.Errors[0].Length == 5
+
+    // THE SAME WORD IN AN ABSTRACT CLASS IS SILENT — the shape this rule must never refuse.
+    abstractHarness := TypeDeclDefault()
+    abstractMembers := new List<Declaration>()
+    abstractMembers.Add(TypeDeclAbstractFunction("Touch"))
+    TypeDeclRun(abstractHarness, abstractHarness.Declarations.BeginClass(TypeDeclClass("Widget", abstractMembers, null, null, Modifiers.Abstract), abstractHarness.Assignability), null)
+    assert abstractHarness.Errors.Count == 0
+}
+
+test "AN `abstract` MEMBER IN A SEALED CLASS IS `NL311`, AND SAYS THE CLASS IS SEALED" {
+    harness := TypeDeclDefault()
+    members := new List<Declaration>()
+    members.Add(TypeDeclAbstractFunction("Touch"))
+    TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClass("Widget", members, null, null, Modifiers.Sealed), harness.Assignability), null)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "'Touch' is declared 'abstract', but 'Widget' is sealed"
+    assert harness.Errors[0].Suggestion == "A sealed class has no derived type to fill the slot. Drop 'sealed' from the class and mark it 'abstract', or drop 'abstract' from 'Touch'."
+}
+
+test "AN `abstract` MEMBER WITH A BODY IS `NL311` — the body it wrote was being dropped in silence" {
+    harness := TypeDeclDefault()
+    members := new List<Declaration>()
+    members.Add(TypeDeclFunction("Touch", Modifiers.Abstract))
+    TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClass("Widget", members, null, null, Modifiers.Abstract), harness.Assignability), null)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.InvalidModifier
+    assert harness.Errors[0].Message == "'Touch' is declared 'abstract', but an abstract func supplies no body"
+    assert harness.Errors[0].Suggestion == "Remove the body so 'Touch' is a slot a derived type fills, or drop 'abstract' and keep the implementation. An abstract member's body is never emitted."
+
+    // A PROPERTY IS ALWAYS A BODY IN N#, so the same fault reads differently: there is no body-less
+    // accessor to fall back to, and the suggestion names the two spellings that DO give a slot.
+    propertyHarness := TypeDeclDefault()
+    propertyMembers := new List<Declaration>()
+    propertyMembers.Add(TypeDeclProperty("Name", Modifiers.Abstract))
+    TypeDeclRun(propertyHarness, propertyHarness.Declarations.BeginClass(TypeDeclClass("Widget", propertyMembers, null, null, Modifiers.Abstract), propertyHarness.Assignability), null)
+    assert propertyHarness.Errors.Count == 1
+    assert propertyHarness.Errors[0].Message == "'Name' is declared 'abstract', but an abstract property supplies no body"
+    assert propertyHarness.Errors[0].Suggestion == "N# has no body-less accessor, so a property cannot be a slot. Declare the slot as an 'abstract func Name(): <type>', or move 'Name' onto an interface the type implements — an interface's value member is a get-only slot. Otherwise drop 'abstract'."
+}
+
+test "`static abstract`, AN INTERFACE MEMBER AND A STRUCT MEMBER EACH GET THEIR OWN SENTENCE" {
+    staticHarness := TypeDeclDefault()
+    staticMembers := new List<Declaration>()
+    staticMembers.Add(new FunctionDeclaration("Touch", TypeDeclParameters(), TypeDeclInt(), null, null, null, null, Modifiers.Abstract | Modifiers.Static, TypeDeclNoAttributes(), false, null, false, false, 8, 5))
+    TypeDeclRun(staticHarness, staticHarness.Declarations.BeginClass(TypeDeclClass("Widget", staticMembers, null, null, Modifiers.Abstract), staticHarness.Assignability), null)
+    assert staticHarness.Errors.Count == 1
+    assert staticHarness.Errors[0].Message == "'Touch' is declared 'abstract', but a static func has no slot to dispatch through"
+
+    interfaceHarness := TypeDeclDefault()
+    interfaceMembers := new List<Declaration>()
+    interfaceMembers.Add(TypeDeclAbstractFunction("Touch"))
+    TypeDeclRun(interfaceHarness, interfaceHarness.Declarations.BeginInterface(TypeDeclInterface("IWidget", interfaceMembers, Modifiers.None), interfaceHarness.Assignability), null)
+    assert interfaceHarness.Errors.Count == 1
+    assert interfaceHarness.Errors[0].Message == "'Touch' is declared 'abstract', but an interface's func is already a slot"
+    assert interfaceHarness.Errors[0].Suggestion == "Drop 'abstract'. Every member an interface declares without a body is a slot each implementing type fills."
+
+    // A STRUCT IS SEALED BY THE CLR, so the way out is a different owner rather than a different word
+    // on the same one.
+    structHarness := TypeDeclDefault()
+    structMembers := new List<Declaration>()
+    structMembers.Add(TypeDeclAbstractFunction("Touch"))
+    TypeDeclRun(structHarness, structHarness.Declarations.BeginStruct(TypeDeclStruct("Point", structMembers, null, null, Modifiers.None), structHarness.Assignability), null)
+    assert structHarness.Errors.Count == 1
+    assert structHarness.Errors[0].Message == "'Touch' is declared 'abstract', but 'Point' is not an abstract class"
+    assert structHarness.Errors[0].Suggestion == "Move 'Touch' to an abstract class or an interface, or give it a body and drop 'abstract'. The CLR seals a struct, so it can hold no slot."
+}
+
+// ---------------------------------------------------------------------------------------------
+// AN `override` THAT NARROWS THE SLOT'S ACCESSIBILITY
+//
+// `class Base { public virtual func Speak(): string { … } }` with `protected override func Speak()`
+// beneath it compiled, verified and then threw at the first call —
+// `System.TypeLoadException: … cannot reduce access.` — with no diagnostic anywhere. Only NARROWING is
+// reported: widening loads and runs, so the CLR is the arbiter here rather than C#'s stricter rule.
+// ---------------------------------------------------------------------------------------------
+
+test "AN `override` THAT NARROWS ITS SLOT'S ACCESSIBILITY IS `NL311`, NAMING THE SLOT'S WORD" {
+    harness := TypeDeclDefault()
+    publicBase := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", TypeDeclVirtualBits() | Convert.ToInt32(Modifiers.Public))))
+    assert AnalyzerTypeDeclarations.DeclaredSlotAccessibility(TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", TypeDeclVirtualBits() | Convert.ToInt32(Modifiers.Protected))), "Speak", 0) == 4
+    assert AnalyzerTypeDeclarations.DeclaredSlotAccessibility(TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", 0)), "Other", 0) == 0
+    assert harness.Declarations.OverrideSlotAccessibility(publicBase, "Speak", 0, 0) == 6
+
+    // The property half answers from the property members, and a name no link declares answers
+    // "cannot tell" rather than guessing.
+    propertyBase := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Label", TypeDeclVirtualBits() | Convert.ToInt32(Modifiers.Public))))
+    assert harness.Declarations.OverrideSlotAccessibility(propertyBase, "Label", 1, 0) == 6
+    assert harness.Declarations.OverrideSlotAccessibility(propertyBase, "Missing", 1, 0) == -1
+    assert harness.Declarations.OverrideSlotAccessibility(BuiltInTypes.Unknown, "Label", 1, 0) == -1
+    assert harness.Declarations.OverrideSlotAccessibility(publicBase, "Speak", 0, 25) == -1
+}
+
+test "THE NARROWING REPORT RUNS END TO END OVER `object`'s OWN PUBLIC SLOT" {
+    harness := TypeDeclDefault()
+    members := new List<Declaration>()
+    members.Add(TypeDeclFunction("ToString", Modifiers.Override | Modifiers.Protected))
+    TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClass("Dog", members, null, null, Modifiers.None), harness.Assignability), null)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.InvalidModifier
+    assert harness.Errors[0].Message == "'ToString' is declared 'protected override', but the slot it takes is 'public' — an override cannot narrow the accessibility it inherits"
+    assert harness.Errors[0].Suggestion == "Declare 'ToString' 'public' to match the slot, or leave the base member 'protected'. The CLR refuses to load a type whose override reduces access."
+    assert harness.Errors[0].Length == 8
+
+    // WIDENING LOADS AND RUNS, so it is not reported: `public override` over the same public slot is
+    // the estate's own commonest spelling and stays silent, as does the bare word.
+    wideHarness := TypeDeclDefault()
+    wideMembers := new List<Declaration>()
+    wideMembers.Add(TypeDeclFunction("ToString", Modifiers.Override | Modifiers.Public))
+    TypeDeclRun(wideHarness, wideHarness.Declarations.BeginClass(TypeDeclClass("Dog", wideMembers, null, null, Modifiers.None), wideHarness.Assignability), null)
+    assert wideHarness.Errors.Count == 0
+}
+
+test "THE ACCESSIBILITY LADDER IS THE CLR'S, AND AN UNANNOTATED MEMBER IS READ FROM ITS CASING" {
+    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Public)) == 6
+    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Protected) | Convert.ToInt32(Modifiers.Internal)) == 5
+    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Protected)) == 4
+    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Internal)) == 3
+    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.File)) == 3
+    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Protected) | Convert.ToInt32(Modifiers.Private)) == 2
+    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Private)) == 1
+
+    // NO WORD AT ALL IS THE COMMON CASE, and the casing convention is what the emitter plans with —
+    // reading only the words would call every unannotated member private and report correct programs.
+    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", 0) == 6
+    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("speak", 0) == 3
+    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("", 0) == 3
+
+    assert AnalyzerTypeDeclarations.AccessibilityWord(6) == "public"
+    assert AnalyzerTypeDeclarations.AccessibilityWord(5) == "protected internal"
+    assert AnalyzerTypeDeclarations.AccessibilityWord(4) == "protected"
+    assert AnalyzerTypeDeclarations.AccessibilityWord(3) == "internal"
+    assert AnalyzerTypeDeclarations.AccessibilityWord(2) == "private protected"
+    assert AnalyzerTypeDeclarations.AccessibilityWord(1) == "private"
+
+    // METADATA ANSWERS THE SAME LADDER. `object.ToString` is public and `object.MemberwiseClone` is
+    // protected, so both ends of the walk are pinned against the runtime itself.
+    assert AnalyzerTypeDeclarations.ReflectionSlotAccessibility(typeof(object), "ToString", 0) == 6
+    assert AnalyzerTypeDeclarations.ReflectionSlotAccessibility(typeof(object), "NotThere", 0) == -1
+    assert AnalyzerTypeDeclarations.ReflectionSlotAccessibility(typeof(Exception), "Message", 1) == 6
+    assert AnalyzerTypeDeclarations.ReflectionSlotAccessibility(typeof(Exception), "NotThere", 1) == -1
+}
+
 test "A FIELD DECLARED `override`, `virtual` OR `abstract` IS `NL311` — it can be none of them" {
     overrideHarness := TypeDeclDefault()
     overrideMembers := new List<Declaration>()
