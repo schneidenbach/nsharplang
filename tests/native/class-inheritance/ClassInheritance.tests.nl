@@ -448,3 +448,28 @@ test "an override that WIDENS its slot's accessibility loads too — only reduci
     // answered "guarded", and `GetBaseDefinition` would answer itself.
     assert label.GetBaseDefinition() == DeclaredNonPublicMethod(typeof(Guarded), "Label")
 }
+
+// ── the inherited `object` surface, with and without a written base ───────────────
+//
+// `MemberwiseClone` is `object`'s, protected, and reachable from inside any type that inherits it.
+// These rows run the copy rather than only type-checking it: a shallow copy is a DIFFERENT object
+// with the same field values, and the second row proves the answer is the same when a base IS
+// written, which is the shape that already worked.
+
+test "`MemberwiseClone` copies a type that writes no base" {
+    original := new Cloned(7)
+    copy := original.ShallowCopy()
+
+    assert copy.Tag == 7
+    assert !object.ReferenceEquals(original, copy)
+    assert copy.GetType() == typeof(Cloned)
+}
+
+test "`MemberwiseClone` copies a type that writes an external base" {
+    original := new ClonedWithBase(11)
+    copy := original.ShallowCopy()
+
+    assert copy.Tag == 11
+    assert !object.ReferenceEquals(original, copy)
+    assert copy.GetType() == typeof(ClonedWithBase)
+}

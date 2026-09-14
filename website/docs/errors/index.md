@@ -127,6 +127,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL338`](./NL338.md) | An event declared over a type that is not a delegate. |
 | [`NL339`](./NL339.md) | One type name declared in two files of one namespace. |
 | [`NL340`](./NL340.md) | A `throw` written as a value where nothing can say what the expression is worth. |
+| [`NL341`](./NL341.md) | A direct call to the runtime's finalizer slot. |
 | [`NL342`](./NL342.md) | A write to an interface's value member, which is a read slot. |
 
 ## Calls — `NL4xx`

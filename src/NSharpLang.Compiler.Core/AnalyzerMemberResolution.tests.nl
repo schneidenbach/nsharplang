@@ -663,3 +663,43 @@ test "AN OVERRIDE'S ANNOTATION IS WHAT THE RECEIVER'S TYPE ANSWERS, AND A TYPE W
     assert noOverride.Count == 1
     assert noOverride[0] == "Function 'Format' should return string but returns string?"
 }
+
+// ── object's protected surface, and the one member of it that is not callable ───────────────
+//
+// A source type's implicit base is `object`, exactly as a written external base is a base: the two
+// had DIFFERENT answers for the same two names. `class Holder: Exception` reached `MemberwiseClone`
+// through the reflected base walk (which opens the protected surface), and `class Holder` with no
+// written base reported NL303 — the implicit base was resolved with `BindingFlags.Public` only. One
+// of the two answers had to be wrong, and it was the public-only one. The WRITTEN-base half of both
+// contracts runs where reference assemblies exist — `tests/native/class-inheritance` for the copy,
+// and the CLI probe for the refusal — because this harness analyses one file with no reference set
+// and cannot name `System.Exception` at all.
+//
+// `Finalize` is then refused at the CALL because it is the slot the garbage collector owns (C#
+// CS0245). The refusal is about the SLOT, not the name: the test is whether the method is a virtual,
+// non-`newslot` parameterless `void Finalize()`, which is what an override of `object.Finalize` is in
+// metadata. Reading the name is not the mistake — invoking it is — so the report lives in the member
+// arm's invocation position rather than in resolution.
+
+test "`MemberwiseClone` is reachable from inside a type that writes no base" {
+    implicitBase := MemberResolutionSourceErrors("namespace P\n\nclass Holder {\n    Tag: int\n\n    public func Copy(): bool {\n        clone := this.MemberwiseClone()\n        return clone != null\n    }\n}\n")
+    assert implicitBase.Count == 0
+}
+
+test "calling `Finalize` is NL341" {
+    called := MemberResolutionSourceErrors("namespace P\n\nclass Holder {\n    Tag: int\n\n    public func Close(): int {\n        this.Finalize()\n        return 1\n    }\n}\n")
+    assert called.Count == 1
+    assert called[0] == "`Finalize` is the runtime's finalizer and cannot be called from source — the garbage collector calls it, on its own schedule"
+
+    // AND ONLY `Finalize`. The same receiver's other inherited protected member is an ordinary call,
+    // so the refusal is not "the protected object surface is closed again" by another name.
+    sibling := MemberResolutionSourceErrors("namespace P\n\nclass Holder {\n    Tag: int\n\n    public func Close(): bool {\n        return this.MemberwiseClone() != null\n    }\n}\n")
+    assert sibling.Count == 0
+}
+
+test "a parameterless `Finalize` on an UNRELATED slot is an ordinary method" {
+    // The source type declares its own `Finalize`; it overrides nothing, so it is not the runtime's
+    // slot and the call is ordinary. This is the boundary that keeps NL341 off a name match.
+    ownSlot := MemberResolutionSourceErrors("namespace P\n\nclass Sweeper {\n    Swept: int\n\n    public func Finalize(): void {\n        Swept = Swept + 1\n    }\n\n    public func Run(): int {\n        this.Finalize()\n        return Swept\n    }\n}\n")
+    assert ownSlot.Count == 0
+}

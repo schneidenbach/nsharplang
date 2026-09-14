@@ -1405,6 +1405,27 @@ public-only flags. `System.Object`'s own `protected` methods (`MemberwiseClone`,
 listed on such a receiver, which is honest — they ARE reachable — and is what a name-based filter
 would have to be invented to suppress. A VS Code visual pass over this list is OWED.
 
+**`object`'S PROTECTED SURFACE IS THE SAME BASE WHETHER OR NOT ONE IS WRITTEN, AND `Finalize` IS
+REFUSED AT THE CALL** (2026-09-14, stream CAPTURE3). `class Holder: Exception` reached
+`MemberwiseClone` and `Finalize` through the reflected base walk above; `class Holder` with no written
+base reported NL303 for both, because `AnalyzerMemberResolution.TryResolveInheritedRuntimeMember` —
+the arm `TryResolveSourceObjectMember` uses for the IMPLICIT `object` base — asked for
+`BindingFlags.Public` only. It now takes `inheritedProtectedAccess` (the same flag `ResolveMember`
+already threads) and opens `NonPublic` on its METHOD arm alone, holding every candidate to
+`IsReachableReflectedMethod`; `object` declares no non-public property or field, so the other two arms
+stay public-only. The enum surface (`System.Enum`) keeps the public-only flags: it is asked of a
+VALUE, never from inside a declaring type.
+
+`Finalize` is then refused at the invocation position of `AnalyzerMemberAccess`
+(`ReportFinalizerCall`, **NL341**) — the garbage collector owns that slot and calling it runs the
+cleanup twice (C# CS0245). The test is the SLOT, not the name:
+`AnalyzerMemberResolution.IsRuntimeFinalizerMethod` asks for a non-static, virtual, parameterless
+`void Finalize()` that is either declared by `System.Object` or is not `newslot` — which is what an
+override of `object.Finalize` is in metadata. `MethodInfo.GetBaseDefinition()` would say this
+directly and THROWS on every assembly loaded through a `MetadataLoadContext`, so the metadata bits are
+read instead (`MethodAttributes.NewSlot`, 0x0100), and the return type is compared by full name
+because an MLC type is never reference-equal to the running `typeof(void)`.
+
 **THE FORMATTER STOPPED WIDENING MEMBERS** (2026-09-13, stream INHERIT2, LSP-VISIBLE — format on
 save). `FormatterSyntaxText.ShouldPreserveExplicitCasingVisibility` dropped a written `public`/
 `private` whenever the PACKAGE-export answer was unchanged, which is only half of what a word means:

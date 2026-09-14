@@ -430,7 +430,7 @@ class AnalyzerMemberResolution {
 
             if !includeStaticMembers && sourceShape.SupportsObjectMembers {
                 shapeObjectMember: TypeInfo = BuiltInTypes.Unknown
-                if TryResolveSourceObjectMember(memberName, out shapeObjectMember) {
+                if TryResolveSourceObjectMember(memberName, inheritedProtectedAccess, out shapeObjectMember) {
                     return shapeObjectMember
                 }
             }
@@ -842,7 +842,69 @@ class AnalyzerMemberResolution {
     // `GetHashCode`, `GetType` — are resolved against the runtime type directly rather than through
     // any declared shape. Instance members only: a static `object` member is not inherited.
     static func TryResolveSourceObjectMember(memberName: string, out memberType: TypeInfo): bool {
-        return TryResolveInheritedRuntimeMember(typeof(object), memberName, out memberType)
+        return TryResolveSourceObjectMember(memberName, false, out memberType)
+    }
+
+    // A SOURCE TYPE'S OWN CODE REACHES `object`'S PROTECTED SURFACE, exactly as a source type
+    // deriving from an EXTERNAL base already reached that base's protected members through the
+    // reflection walk. Without the flag `this.MemberwiseClone()` resolved on `class Holder: Exception`
+    // and reported NL303 on the same `class Holder` with no written base — the implicit `object` base
+    // is the same base, and one of the two answers had to be wrong.
+    static func TryResolveSourceObjectMember(memberName: string, inheritedProtectedAccess: bool, out memberType: TypeInfo): bool {
+        return TryResolveInheritedRuntimeMember(typeof(object), memberName, inheritedProtectedAccess, out memberType)
+    }
+
+    // WHETHER A RESOLVED MEMBER IS THE RUNTIME'S FINALIZER SLOT. The CLR calls `Finalize` itself on a
+    // schedule no source line can name, so a direct call is refused (C# CS0245). The test is the
+    // OVERRIDE CHAIN, not the name: `GetBaseDefinition()` of any override of `object.Finalize` is
+    // `object.Finalize`, and a parameterless method that merely happens to be called `Finalize` on an
+    // unrelated slot is an ordinary method.
+    static func IsRuntimeFinalizer(memberType: TypeInfo): bool {
+        singleMethod := memberType as ReflectionMethodInfo
+        if singleMethod != null {
+            return IsRuntimeFinalizerMethod(singleMethod.Method)
+        }
+
+        methodGroup := memberType as ReflectionMethodGroupInfo
+        if methodGroup != null {
+            index := 0
+            while index < methodGroup.Methods.Length {
+                if IsRuntimeFinalizerMethod(methodGroup.Methods[index]) {
+                    return true
+                }
+
+                index = index + 1
+            }
+        }
+
+        return false
+    }
+
+    // THE SLOT, NOT THE NAME. `MethodInfo.GetBaseDefinition()` would say this directly, but it throws
+    // on every assembly the analyzer loads through a `MetadataLoadContext`, so the slot is read off
+    // the metadata bits instead: `object.Finalize` is `protected virtual void Finalize()`, and an
+    // override of it is the same signature, still virtual, and NOT `newslot` — a `newslot` virtual of
+    // that signature is a slot of its own and an ordinary method.
+    static func IsRuntimeFinalizerMethod(method: MethodInfo): bool {
+        if method.get_Name() != "Finalize" || method.get_IsStatic() || !method.get_IsVirtual() {
+            return false
+        }
+
+        // The return type is compared BY NAME: a type read through a `MetadataLoadContext` is never
+        // reference-equal to the running `typeof(void)`.
+        returnType := method.get_ReturnType()
+        if method.GetParameters().Length != 0 || returnType == null || returnType.get_FullName() != "System.Void" {
+            return false
+        }
+
+        declaringType := method.get_DeclaringType()
+        if declaringType != null && declaringType.get_FullName() == "System.Object" {
+            return true
+        }
+
+        // ECMA-335 MethodAttributes.NewSlot is the stable 0x0100 metadata bit.
+        newSlotFlag := 0x0100
+        return ((int)method.get_Attributes() & newSlotFlag) == 0
     }
 
     // A SOURCE ENUM'S INSTANCE SURFACE IS `System.Enum`, NOT `object`. The CLR gives every enum
@@ -853,13 +915,13 @@ class AnalyzerMemberResolution {
     // even though both are ordinary inherited members. This is the same ordinary reflection walk the
     // `object` surface uses, asked of the base type the runtime actually gives an enum.
     static func TryResolveSourceEnumMember(memberName: string, out memberType: TypeInfo): bool {
-        return TryResolveInheritedRuntimeMember(typeof(Enum), memberName, out memberType)
+        return TryResolveInheritedRuntimeMember(typeof(Enum), memberName, false, out memberType)
     }
 
     // THE PROBE ORDER IS PROPERTY, THEN FIELD, THEN METHOD, and the method arm distinguishes a
     // single method from a group because `Equals` is overloaded on `object` and `ToString` is not.
     // Accessor methods are excluded by the property arm answering first, not by a name test.
-    static func TryResolveInheritedRuntimeMember(objectType: Type, memberName: string, out memberType: TypeInfo): bool {
+    static func TryResolveInheritedRuntimeMember(objectType: Type, memberName: string, inheritedProtectedAccess: bool, out memberType: TypeInfo): bool {
         memberType = BuiltInTypes.Unknown
         flags := BindingFlags.Public | BindingFlags.Instance
 
@@ -875,12 +937,21 @@ class AnalyzerMemberResolution {
             return true
         }
 
-        methods := objectType.GetMethods(flags)
+        // THE NON-PUBLIC OPT-IN IS THE METHOD ARM'S ALONE, and every candidate it adds is then held
+        // to `IsReachableReflectedMethod`: the inherited surface a derived type reaches is the
+        // PROTECTED one, never the private one. `object` declares no non-public property or field,
+        // so opening the two arms above would only widen the question without answering anything.
+        methodFlags := flags
+        if inheritedProtectedAccess {
+            methodFlags = methodFlags | BindingFlags.NonPublic
+        }
+
+        methods := objectType.GetMethods(methodFlags)
         matching := new List<MethodInfo>()
         index := 0
         while index < methods.Length {
             method := methods[index]
-            if method.get_Name() == memberName && !method.get_IsSpecialName() {
+            if method.get_Name() == memberName && !method.get_IsSpecialName() && IsReachableReflectedMethod(method, inheritedProtectedAccess) {
                 matching.Add(method)
             }
             index = index + 1
