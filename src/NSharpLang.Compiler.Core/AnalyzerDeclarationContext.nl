@@ -1944,7 +1944,7 @@ class AnalyzerDeclarationContext {
             while memberIndex < shape.DeclaredMembers.Length {
                 member := shape.DeclaredMembers[memberIndex]
                 if member.Name == name {
-                    selection = new AnalyzerMemberSelection(shape.Owner, member, GetDeclarationFile(shape.Owner), member.Line, member.Column, member.KindName, member.IsExported)
+                    selection = new AnalyzerMemberSelection(shape.Owner, member, GetDeclarationFile(shape.Owner), member.Line, member.Column, DeclarationFacts.MemberKindName(shape.Owner, member.KindName, member.IsStatic), member.IsExported)
                     return true
                 }
                 memberIndex = memberIndex + 1

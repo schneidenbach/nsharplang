@@ -82,6 +82,32 @@ class DeclarationFacts {
         return TypeArityNames.Key(name, GetDeclarationArity(declaration))
     }
 
+    // THE VOCABULARY A MEMBER IS REPORTED UNDER, which is NOT always the word its declaration node
+    // is named after.
+    //
+    // An interface has no instance fields — the CLR forbids them — so a value member written
+    // `Area: double` inside an `interface` IS a property, whatever the parser called the node. Every
+    // other reader of the project already said so: `nlc query outline` and `nlc query symbols` both
+    // report it as a property, and the completion list offers it in the `properties` bucket. Only the
+    // analyzer's member lookup still answered "field", so `nlc query inspect` printed BOTH words for
+    // one member in ONE document — `symbol.kind: "field"` beside `completions.properties[0].kind:
+    // "property"` — and `nlc query def` printed the losing half on its own.
+    //
+    // A STATIC value member of an interface is a real field (C# 11 allows one and so does the CLR),
+    // so the rule is narrowed to the instance case rather than applied to the word "interface".
+    static func MemberKindName(owner: TypeInfo?, kindName: string, isStatic: bool): string {
+        if isStatic || kindName != "field" {
+            return kindName
+        }
+
+        interfaceOwner := owner as InterfaceTypeInfo
+        if interfaceOwner == null {
+            return kindName
+        }
+
+        return "property"
+    }
+
     static func GetDeclarationKind(declaration: object): string {
         typeName := declaration.GetType().Name
 

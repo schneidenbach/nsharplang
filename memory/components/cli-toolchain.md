@@ -296,7 +296,7 @@ Compiler diagnostics also include error `NL905` for possible null dereference/in
 | NL001 | Remove unused variable declaration line | `ReviewNeeded` | Uses string matching (may match inside comments/strings) |
 | NL002 | Add missing `import` statement | `Safe` | |
 | NL003 | Remove unnecessary `== null` / `!= null` clause | `Safe` | |
-| NL010 | Remove unused import line | `ReviewNeeded` | Answered from binding facts, so `nlc fix` loads and analyses the project before it lints |
+| NL010 | Remove unused import line | `ReviewNeeded` | Answered from binding facts, so `nlc fix` AND `nlc lint` both load and analyse the project before they lint |
 | NL011 | Insert `// TODO: handle exception` in empty catch | `Safe` | |
 | NL905 | Use null-conditional member/index access | `ReviewNeeded` | Changes result nullability; guard/fallback/assertion alternatives are exposed as suggestion-only actions. |
 
@@ -915,6 +915,17 @@ All `nlc check`, `nlc fix`, `nlc lint`, and `nlc tree --json` commands output JS
 - `ok`
 - `results`
 - `summary`
+
+**`nlc lint` analyses the project before it lints** (`src/NSharpLang.Compiler/LintCommand.nl`, N#-owned
+since the C# `LintCommand.cs` was deleted). NL010 and NL002 are answered from BINDING facts, so a lint
+run that only parsed reported neither: `nlc check` printed two NL010 rows for a file with two dead
+imports while `nlc lint` on the same file said "no issues". Lint now loads the project through
+`CodeIntelligenceService.LoadProjectIncludingTests` exactly as `nlc fix` does and hands the ANALYSED
+unit to the linter, falling back to the parsed unit for a source the project does not list. The parse
+gate stays in front: a file the parser refuses is a `PARSE` row and is never linted, and that answer
+does not depend on whether the snapshot loaded (analysis is best-effort and a project that fails to
+load simply leaves every file on its parsed unit). No schema version change: rule rows now carry the
+`docsUrl` the catalog already gave `nlc check`'s copy of the same row.
 
 `tree` envelope (`schemaVersion: 2`):
 - `command`
