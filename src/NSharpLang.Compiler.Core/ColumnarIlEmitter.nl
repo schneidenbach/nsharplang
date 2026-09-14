@@ -3956,6 +3956,7 @@ sealed class ColumnarIlEmitter {
         sourceAttributeQueue := new ColumnarSourceAttributeQueue()
         program.PrepareExternalTypeBindings(referenceAssemblyPaths)
         enumRegistry := new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal)
+        deferredEnumBuilders := new List<TypeBuilder>()
         for e := 0; e < declarationPlan.EnumCount; e++ {
             exactEnumName := declarationPlan.EnumExactNames[e]
             memberNames := declarationPlan.EnumMemberNames[e]
@@ -3985,15 +3986,25 @@ sealed class ColumnarIlEmitter {
                 continue
             }
 
-            eb := module.DefineEnum(exactEnumName, enumAttributes, typeof(int))
+            enumTb := module.DefineType(exactEnumName, enumAttributes | TypeAttributes.Sealed, typeof(Enum))
+            _ = enumTb.DefineField(
+                "value__",
+                typeof(int),
+                FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName
+            )
             constants := new Dictionary<string, int>(StringComparer.Ordinal)
             for m := 0; m < memberNames.Length; m++ {
-                eb.DefineLiteral(memberNames[m], declarationPlan.EnumMemberValues[e][m])
+                literal := enumTb.DefineField(
+                    memberNames[m],
+                    enumTb,
+                    FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault
+                )
+                literal.SetConstant(declarationPlan.EnumMemberValues[e][m])
                 constants[memberNames[m]] = declarationPlan.EnumMemberValues[e][m]
             }
-            enumType := eb.CreateType()
+            deferredEnumBuilders.Add(enumTb)
             enumDef := new ColumnarEnumDef(
-                enumType,
+                enumTb,
                 constants,
                 null,
                 exactEnumName
@@ -6442,6 +6453,9 @@ sealed class ColumnarIlEmitter {
         // Every builder the written attributes can name now exists. Bind and attach them before the
         // first CreateType bakes a type whose CustomAttribute rows would then be closed.
         sourceAttributeQueue.Flush()
+        for deferredEnumBuilder in deferredEnumBuilders {
+            deferredEnumBuilder.CreateType()
+        }
         ColumnarInterfaceRealization.FinalizeInterfaces(interfaces, interfaceDefsInOrder, interfaceDepths)
         // Struct/class types bake BASE-BEFORE-DERIVED (depth ascending): CreateType on a derived TypeBuilder
         // requires its parent to be created first. Depth 0 (no base) covers every value-type struct and standalone
