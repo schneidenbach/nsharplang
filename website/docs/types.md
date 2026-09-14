@@ -512,6 +512,12 @@ and an `internal` type of an assembly that granted nobody (or granted a differen
 N# does not yet EMIT an `InternalsVisibleTo` of its own: an N# library cannot currently make another
 assembly its friend, so this rule is about consuming grants written by assemblies compiled elsewhere.
 
+One gap remains on the refusing side. A **fully qualified** spelling of an internal type
+(`My.Library.Internals.InternalCounter`, rather than the bare name under an `import`) is not
+reported by the analyzer today — unresolved dotted names are deliberately lenient — so without a
+grant it reaches emission instead of `NL301`. Write the bare name under an `import` to get the
+diagnostic.
+
 Those `protected virtual` members are extension points, so you may **override** them, and the same
 three levels are the ones you may take the slot of:
 

@@ -2767,7 +2767,10 @@ merely resembles the granted one (`MyLibrary.Tests.Unit`, `MyLibrary.Test`) is n
 a grant those names stay [NL301](errors/NL301.md) / [NL201](errors/NL201.md).
 
 N# cannot yet WRITE such a declaration — an N# library has no way to make another assembly its
-friend — so this rule is about consuming grants from assemblies compiled elsewhere.
+friend — so this rule is about consuming grants from assemblies compiled elsewhere. One gap remains
+on the refusing side: a **fully qualified** spelling of an internal type is not reported by the
+analyzer today (unresolved dotted names are deliberately lenient), so without a grant it reaches
+emission rather than `NL301`. Write the bare name under an `import` to get the diagnostic.
 
 ## Next Steps
 
