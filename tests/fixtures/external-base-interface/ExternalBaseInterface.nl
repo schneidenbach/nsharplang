@@ -1,8 +1,10 @@
 // Product-route fixture for external base and interface resolution. Each declaration is admitted
 // only if ColumnarBaseTypePlanner classified the base/interface and emitted the exact TypeBuilder
 // metadata; the gate builds this project with `nlc build` and verifies the emitted IL with ILVerify.
+import System
 
 // External runtime base class with a public parameterless constructor.
+
 class DocumentError: Exception {
     func Tag(): int {
         return 7
