@@ -5,6 +5,10 @@ import System.Collections.Generic
 
 // `T?[]` AND `T[]?` IN EVERY TYPE POSITION, NOT ONLY IN A SIGNATURE.
 //
+// `tests/native/census-emit-shapes/NullableElementArrayLocal` pins the LOCAL position the census
+// caught; these are the positions beside it — a field, a generic argument, the doubly-annotated
+// `T?[]?`, and the element types all four reach on the CLR.
+//
 // The two spellings mean different things and both have to parse everywhere a type may be written.
 // `string?[]` is an array whose ELEMENTS may be absent — the array itself is always there — and
 // `string[]?` is an array reference that may be absent while its elements are not. The census caught

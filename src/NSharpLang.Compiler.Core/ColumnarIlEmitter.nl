@@ -19282,11 +19282,6 @@ sealed class ColumnarIlEmitter {
     // A THROWING ARM EMITS NO BRANCH TO THE MERGE. The exception ends that path, so a `br` after it
     // would be unreachable IL over an empty stack — the merge label is reached only from the arm that
     // produces a value, which is the same shape the unification arm writes for a throwing arm.
-    private func IsTypelessConditionalArm(node: int): bool {
-        kind := _nodes.Kind(node)
-        return kind == 5 || kind == ColumnarExpressionNodeKind.DefaultExpression() || IsThrowExpressionNode(node)
-    }
-
     private func TryEmitConditionalAsType(node: int, target: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
         if (target == null || _nodes.Kind(node) != 13 || _nodes.ChildCount(node) != 3) {
@@ -19331,6 +19326,12 @@ sealed class ColumnarIlEmitter {
         _il.MarkLabel(endLabel)
         resolvedClrType = target
         return true
+    }
+
+    // An arm with no type of its own: the two keyword literals and a `throw`.
+    private func IsTypelessConditionalArm(node: int): bool {
+        kind := _nodes.Kind(node)
+        return kind == 5 || kind == ColumnarExpressionNodeKind.DefaultExpression() || IsThrowExpressionNode(node)
     }
 
     // ONE ARM AS THE TARGET TYPE, through the same three doors the return and typed-local ladders use
@@ -23810,8 +23811,15 @@ sealed class ColumnarIlEmitter {
             // type — IndexOf(char, int) vs IndexOf(string, StringComparison) — so emit arg1, read its type, then
             // bind the matching overload + arg2.
             if (argCount == 1) {
-                method1 := typeof(string).GetMethod(nameof(string.IndexOf), [typeof(char)])
-                if (method1 == null || !EmitArg(callIdx, 1, typeof(char))) {
+                // THE ARGUMENT CHOOSES, exactly as it does at arity 2 below. This arm used to assume
+                // `char` and refuse every `IndexOf("bc")` that reached it — the two-argument arm one
+                // rung down had always read its first argument's type, and reading it here is the same
+                // question asked one argument earlier. The preflight emits nothing, so a refusal costs
+                // no stack.
+                let singleArgumentType: System.Type? = null
+                singleParameterType := TryGetPreflightExpressionType(Child(callIdx, 1), out singleArgumentType) && singleArgumentType == typeof(string) ? typeof(string) : typeof(char)
+                method1 := typeof(string).GetMethod(nameof(string.IndexOf), [singleParameterType])
+                if (method1 == null || !EmitArg(callIdx, 1, singleParameterType)) {
                     return false
                 }
                 _il.Emit(OpCodes.Callvirt, method1)
@@ -24118,11 +24126,61 @@ sealed class ColumnarIlEmitter {
             }
             return false
         }
+        // ORDINARY CLR OVERLOAD RESOLUTION, ASKED WITH THE ARGUMENT TYPES THE PREFLIGHT CAN ANSWER FOR.
+        //
+        // The tier above resolves a member that is UNIQUE at its arity, because it asks before any
+        // argument has a type. That is every member with one signature and NO member with two:
+        // `Int32.CompareTo` declares `CompareTo(int)` and `CompareTo(object)`, so a narrowed `count`
+        // or a parenthesised `(x + 1)` receiver — the two shapes the direct-call planner does not
+        // claim — reached the bottom of this ladder and declined as "not modeled". A per-API arm for
+        // `CompareTo` would be the wrong fix; the right one is to ASK THE ARGUMENTS what they are and
+        // then run the SAME scoped resolution the planned door runs.
+        //
+        // LAST, AND DELIBERATELY. Everything above this line already answers, so nothing that emits
+        // today changes shape; what reaches here would otherwise be a decline.
+        if (TryEmitPreflightedRuntimeInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
         return Decline(
             "emit.call.instance-member-unmodeled",
             "instance call '" + receiverType.Name + "." + member + "' with " + argCount.ToString() + " argument(s) is not modeled",
             callIdx
         )
+    }
+
+    // The overloaded half of `TryEmitOrdinaryRuntimeInstanceCall`: the same resolver, the same
+    // value-type receiver spill and the same argument emission, given argument types rather than an
+    // arity. An argument the preflight cannot type (a lambda, a chain it does not model) leaves the
+    // call to the decline, exactly as it does one tier up — nothing is emitted before the selection
+    // is complete, so a refusal here costs nothing.
+    private func TryEmitPreflightedRuntimeInstanceCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (argCount < 1 || _nodes.ChildCount(callIdx) - 1 != argCount) {
+            return false
+        }
+        argumentTypes := new Type[](argCount)
+        for a := 0; a < argCount; a++ {
+            let argumentType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(callIdx, a + 1), out argumentType) || argumentType == null) {
+                return false
+            }
+            argumentTypes[a] = argumentType
+        }
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, member, argumentTypes, false)
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+            return false
+        }
+        if (receiverType.get_IsValueType()) {
+            // A method the value type INHERITS would need a box or a `constrained.` prefix, which is a
+            // different dispatch; only the type's own declarations bind here.
+            if (!ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(selection.DeclaringType, receiverType)) {
+                return false
+            }
+            spilledReceiver := _il.DeclareLocal(receiverType)
+            _il.Emit(OpCodes.Stloc, spilledReceiver)
+            _il.Emit(OpCodes.Ldloca, spilledReceiver)
+        }
+        return EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx, selection, out columnarResolvedType)
     }
 
     // THE MEMBER OF THIS RECEIVER THAT HOLDS A DELEGATE, or a decline. A member of one of this
