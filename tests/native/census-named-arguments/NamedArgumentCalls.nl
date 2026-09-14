@@ -43,6 +43,11 @@ func Divide(numerator: int, denominator: int): int {
     return numerator / denominator
 }
 
+func GenericFirst<T>(first: T, second: T): T {
+    _ = second
+    return first
+}
+
 // Two parameters of the SAME type, which is the case a name is actually load-bearing for: nothing
 // but the name distinguishes `Between(low: 1, high: 9)` from its reverse.
 func Between(value: int, low: int, high: int): bool {

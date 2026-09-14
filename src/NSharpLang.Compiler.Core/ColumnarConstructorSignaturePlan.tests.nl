@@ -4,6 +4,11 @@ import System
 import System.Reflection
 import System.Reflection.Emit
 
+class ConstructorSignatureRefMetadataProbe {
+    constructor(ref value: int) {
+    }
+}
+
 func ConstructorSignatureOneType(valueType: Type): Type[] {
     result := new Type[](1)
     result[0] = valueType
@@ -273,6 +278,30 @@ test "constructor signature validation rejects corrupt persisted facts" {
     wrongParameter.ConstructorParameterTypes[0][0] = typeof(string)
     assert throws InvalidOperationException {
         ColumnarCodePlanExecutor.Validate(wrongParameter)
+    }
+
+    valueMarkedOut := ConstructorSignatureNullablePlan()
+    valueMarkedOut.ConstructorParameterOutFlags[0][0] = true
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(valueMarkedOut)
+    }
+
+    refOwner := typeof(ConstructorSignatureRefMetadataProbe)
+    refType := typeof(int).MakeByRefType()
+    refConstructor := ConstructorSignatureRequired(refOwner, refType)
+    refMarkedOut := new ColumnarCodePlan()
+    refMarkedOut.PrepareV3()
+    refRoot := refMarkedOut.BeginFragment(-1, 1326, 0)
+    refLocal := refMarkedOut.DeclarePlanLocal(refMarkedOut.AddType(typeof(int)))
+    refMarkedOut.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    refMarkedOut.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), refLocal)
+    refMarkedOut.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), refLocal)
+    refConstructorIndex := refMarkedOut.AddConstructorWithSignature(refConstructor, refOwner, ConstructorSignatureOneType(refType), [true])
+    refMarkedOut.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), refConstructorIndex)
+    refMarkedOut.CompleteFragment(refRoot, refOwner)
+    refMarkedOut.CompleteV3(refOwner)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(refMarkedOut)
     }
 
     wrongHandle := ConstructorSignatureNullablePlan()
