@@ -145,6 +145,7 @@ class AnalyzerPassThroughOperands {
     declarationContextValue: AnalyzerDeclarationContext
     loopSequenceValue: AnalyzerLoopSequence
     constantFactsValue: AnalyzerConstantExpressionFacts
+    mustVerdictsValue: Dictionary<object, bool>
 
     constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape, typeResolver: AnalyzerTypeResolver, ambient: AnalyzerAmbientContext, declarationContext: AnalyzerDeclarationContext, loopSequence: AnalyzerLoopSequence, constantFacts: AnalyzerConstantExpressionFacts) {
         diagnosticsValue = diagnostics
@@ -155,6 +156,7 @@ class AnalyzerPassThroughOperands {
         declarationContextValue = declarationContext
         loopSequenceValue = loopSequence
         constantFactsValue = constantFacts
+        mustVerdictsValue = new Dictionary<object, bool>()
     }
 
     // THE ENTRY, AND IT DECIDES NOTHING. Unlike the compile-time constants, no form in this family
@@ -479,6 +481,7 @@ class AnalyzerPassThroughOperands {
 
         nullable := state.OperandType as NullableTypeInfo
         if nullable != null {
+            _ = RecordMustVerdict(mustNode, false, "")
             state.ResultType = nullable.InnerType
             return
         }
@@ -494,8 +497,37 @@ class AnalyzerPassThroughOperands {
         // FROM THE DECLARATION, and it is not something a mechanical translation can know at all: a
         // converted `must` and a human tightening a guard above an existing one both land here, and
         // neither is a reason to refuse to build. `nlc fix` removes the keyword.
-        diagnosticsValue.Warn(ErrorCode.NullabilityWarning, "This 'must' unwrap is redundant — the expression is already known to be '" + TypeText(state.OperandType) + "'", mustNode.Line, mustNode.Column, "Remove the 'must' keyword, or keep the original nullable value until the point where you need to unwrap it.", 4)
+        warningMessage := "This 'must' unwrap is redundant — the expression is already known to be '" + TypeText(state.OperandType) + "'"
+        if !RecordMustVerdict(mustNode, true, warningMessage) {
+            state.ResultType = state.OperandType
+            return
+        }
+
+        diagnosticsValue.Warn(ErrorCode.NullabilityWarning, warningMessage, mustNode.Line, mustNode.Column, "Remove the 'must' keyword, or keep the original nullable value until the point where you need to unwrap it.", 4)
         state.ResultType = state.OperandType
+    }
+
+    // THE VERDICT BELONGS TO THE NODE, AND IT IS DECIDED THE FIRST TIME THE NODE IS WALKED.
+    //
+    // A `must` NARROWS ITS OWN OPERAND: after `must v`, `v` is known non-null. A reflected call binds
+    // by walking each argument TWICE — once untargeted, to learn what the argument produces, and again
+    // against the parameter the chosen overload declares — so the second walk of `must v` read the
+    // non-null state THIS VERY KEYWORD had just established and called the keyword redundant.
+    // `System.Math.Abs(must count)` on an `int?` was warned about and, with the keyword removed as the
+    // warning advised, became NL402: the advice broke the program it was given about.
+    //
+    // Nothing here is about calls. One `must` in the source is one decision about one keyword, so the
+    // first walk's answer is the node's answer and every later walk repeats it. A cached redundant
+    // verdict suppresses only a warning that is still in the diagnostic sink. If speculative
+    // overload analysis rolled that report back, the selected candidate must restore it.
+    func RecordMustVerdict(mustNode: MustExpression, redundant: bool, warningMessage: string): bool {
+        decided := false
+        if mustVerdictsValue.TryGetValue(mustNode, out decided) {
+            return decided && !diagnosticsValue.HasReported(ErrorCode.NullabilityWarning, warningMessage, mustNode.Line, mustNode.Column)
+        }
+
+        mustVerdictsValue[mustNode] = redundant
+        return redundant
     }
 
     // A `stackalloc` IS A `Span<T>` OF ITS WRITTEN ELEMENT TYPE, WHATEVER ITS LENGTH TURNED OUT TO

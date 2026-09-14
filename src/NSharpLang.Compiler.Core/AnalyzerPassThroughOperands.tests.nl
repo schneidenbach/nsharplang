@@ -71,8 +71,9 @@ class OperandHarness {
     Escape: AnalyzerSoaEscape
     Model: SemanticModel
     Errors: List<CompilerError>
+    Diagnostics: AnalyzerDiagnosticSink
 
-    constructor(operands: AnalyzerPassThroughOperands, ambient: AnalyzerAmbientContext, context: AnalyzerDeclarationContext, reachability: AnalyzerPatternReachability, escape: AnalyzerSoaEscape, model: SemanticModel, errors: List<CompilerError>) {
+    constructor(operands: AnalyzerPassThroughOperands, ambient: AnalyzerAmbientContext, context: AnalyzerDeclarationContext, reachability: AnalyzerPatternReachability, escape: AnalyzerSoaEscape, model: SemanticModel, errors: List<CompilerError>, diagnostics: AnalyzerDiagnosticSink) {
         Operands = operands
         Ambient = ambient
         Context = context
@@ -80,6 +81,7 @@ class OperandHarness {
         Escape = escape
         Model = model
         Errors = errors
+        Diagnostics = diagnostics
     }
 }
 
@@ -117,7 +119,7 @@ func OperandHarnessWith(sourceText: string?): OperandHarness {
     constantFacts := new AnalyzerConstantExpressionFacts(scopes, context)
     reachability := new AnalyzerPatternReachability(diagnostics, spans, context, assignability)
     operands := new AnalyzerPassThroughOperands(diagnostics, spans, escape, resolver, ambient, context, sequence, constantFacts)
-    return new OperandHarness(operands, ambient, context, reachability, escape, model, errors)
+    return new OperandHarness(operands, ambient, context, reachability, escape, model, errors, diagnostics)
 }
 
 func OperandDefault(): OperandHarness {
@@ -598,6 +600,80 @@ test "A REDUNDANT must REPORTS AND STILL ANSWERS THE OPERAND TYPE" {
     assert harness.Errors.Count == 1
     assert OperandErrorText(harness, 0) == "This 'must' unwrap is redundant — the expression is already known to be 'string'|7:16:4"
     assert OperandTypeText(harness.Operands.Result(state)) == "string"
+}
+
+// THE VERDICT BELONGS TO THE NODE. A `must` narrows its own operand, and a reflected call binds by
+// walking each argument twice — once untargeted, once against the chosen overload's parameter — so
+// the second walk of the same node saw the non-null state the FIRST walk had just established and
+// called the keyword redundant. `System.Math.Abs(must count)` on an `int?` was warned about, and
+// removing the keyword as the warning advised turned the call into NL402. One `must` in the source
+// is one decision: the first walk decides, and every later walk of the SAME node repeats it.
+test "A must ALREADY DECIDED IS NOT RE-JUDGED WHEN ITS OWN NODE IS WALKED AGAIN" {
+    harness := OperandDefault()
+    mustNode := new MustExpression(OperandIdentifier("v", 7, 20), 7, 16)
+
+    firstWalk := harness.Operands.Begin(mustNode, harness.Reachability)
+    OperandRun(harness, firstWalk, OperandOne(OperandNullable(BuiltInTypes.String)))
+    assert OperandTypeText(harness.Operands.Result(firstWalk)) == "string"
+    assert harness.Errors.Count == 0
+
+    // The SAME node again, now over the narrowed operand the first walk produced.
+    secondWalk := harness.Operands.Begin(mustNode, harness.Reachability)
+    OperandRun(harness, secondWalk, OperandOne(BuiltInTypes.String))
+
+    assert harness.Errors.Count == 0
+    assert OperandTypeText(harness.Operands.Result(secondWalk)) == "string"
+}
+
+// A node whose FIRST walk found it redundant reports once, and a repeat of that node does not add a
+// second copy of the same sentence.
+test "A REDUNDANT must REPORTS ONCE PER NODE, NOT ONCE PER WALK" {
+    harness := OperandDefault()
+    mustNode := new MustExpression(OperandIdentifier("v", 7, 20), 7, 16)
+
+    firstWalk := harness.Operands.Begin(mustNode, harness.Reachability)
+    OperandRun(harness, firstWalk, OperandOne(BuiltInTypes.String))
+    assert harness.Errors.Count == 1
+
+    secondWalk := harness.Operands.Begin(mustNode, harness.Reachability)
+    OperandRun(harness, secondWalk, OperandOne(BuiltInTypes.String))
+
+    assert harness.Errors.Count == 1
+    assert OperandTypeText(harness.Operands.Result(secondWalk)) == "string"
+}
+
+test "A REDUNDANT must RESTORES ITS WARNING AFTER SPECULATIVE DIAGNOSTIC ROLLBACK" {
+    harness := OperandDefault()
+    mustNode := new MustExpression(OperandIdentifier("v", 7, 20), 7, 16)
+
+    speculativeWalk := harness.Operands.Begin(mustNode, harness.Reachability)
+    OperandRun(harness, speculativeWalk, OperandOne(BuiltInTypes.String))
+    assert harness.Errors.Count == 1
+
+    harness.Diagnostics.RollbackErrorsTo(0)
+    assert harness.Errors.Count == 0
+
+    selectedWalk := harness.Operands.Begin(mustNode, harness.Reachability)
+    OperandRun(harness, selectedWalk, OperandOne(BuiltInTypes.String))
+
+    assert harness.Errors.Count == 1
+    assert OperandErrorText(harness, 0) == "This 'must' unwrap is redundant — the expression is already known to be 'string'|7:16:4"
+}
+
+// Two DIFFERENT `must` keywords over the same name are two decisions: the second one really is
+// redundant, because the first one narrowed the value, and it is told so.
+test "TWO must NODES OVER THE SAME NAME ARE TWO DECISIONS" {
+    harness := OperandDefault()
+
+    firstWalk := harness.Operands.Begin(new MustExpression(OperandIdentifier("v", 7, 20), 7, 16), harness.Reachability)
+    OperandRun(harness, firstWalk, OperandOne(OperandNullable(BuiltInTypes.String)))
+    assert harness.Errors.Count == 0
+
+    secondWalk := harness.Operands.Begin(new MustExpression(OperandIdentifier("v", 8, 20), 8, 16), harness.Reachability)
+    OperandRun(harness, secondWalk, OperandOne(BuiltInTypes.String))
+
+    assert harness.Errors.Count == 1
+    assert OperandErrorText(harness, 0) == "This 'must' unwrap is redundant — the expression is already known to be 'string'|8:16:4"
 }
 
 test "A ROW VIEW UNWRAPPED WITH must IS REFUSED BEFORE THE REDUNDANCY RULE" {

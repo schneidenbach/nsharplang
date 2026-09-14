@@ -1159,6 +1159,16 @@ vetoes — a local, a local type, a file-import alias, a project type of the ROO
 enclosing-type member and a project function — all still fire first, and they are ordered cheap-first
 because this owner is now asked twice per node.
 
+**THE EMITTER NOW CLASSIFIES THE SAME RECEIVER THE SAME WAY.** `ColumnarIlEmitter.TryEmitBclMethodCall`
+read only a BARE identifier as a possible type name, so a call the analyzer had already resolved through
+`TryResolveQualifiedTypeName` reached the INSTANCE arm at emit, tried to put a namespace on the stack,
+and declined at `emit.call.receiver` — the analyze/emit disagreement this section warns about.
+`TryClassifyDottedTypeNameReceiver` asks the ordinary type-name question (root not bound to any visible
+value; the whole dotted name resolved by `ColumnarSemanticTypeRegistry.TryResolve`) and routes a chain
+that answers with a type into the same static arm the bare spelling uses. Its argument twin is the
+PREFLIGHT type of `must` (node kind 45): the unwrap produces its operand's type, `Nullable<T>` yielding
+`T`, which is what lets overload scoring see a `must` argument at all.
+
 #### The ten report sites
 
 All of them live in the resolver, and all of them go through `AnalyzerDiagnosticSink`:

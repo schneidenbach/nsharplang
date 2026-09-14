@@ -238,6 +238,31 @@ test "columnar decline reason carries its site span member and file id" {
     assert identified.HasSourceFileId
 }
 
+// ---- the subject of a call decline ---------------------------------------------------------------
+
+// A FLUENT CHAIN IS A LOCATION, NOT A NAME. The callee of a call written with explicit type
+// arguments carries the whole dotted spelling of everything in front of the member, so a decline
+// that printed that text put the entire receiver where a reader looks for the member's name — the
+// 27-link `WithHandler` chain the language-server conversion writes produced a roughly
+// 1,400-character "member name". The rule below is the whole contract: the member is what follows
+// the last `.`, and a spelling with no `.` is already a member name.
+test "the subject of a call decline is the member, not the chain that reaches it" {
+    assert ColumnarDeclineReasonFacts.CalledMemberName("Cast") == "Cast"
+    assert ColumnarDeclineReasonFacts.CalledMemberName("d.Values.OfType") == "OfType"
+    assert ColumnarDeclineReasonFacts.CalledMemberName("System.Linq.Enumerable.Empty") == "Empty"
+    assert ColumnarDeclineReasonFacts.CalledMemberName("b.WithHandlerAlpha().WithHandlerBeta().Names.Cast") == "Cast"
+}
+
+// The degenerate spellings answer rather than throw: an absent callee is the empty subject, and a
+// spelling that ENDS in a dot names no member, so the text stands as written instead of being cut
+// to nothing.
+test "a call decline subject survives an empty, absent or trailing-dot spelling" {
+    assert ColumnarDeclineReasonFacts.CalledMemberName(null) == ""
+    assert ColumnarDeclineReasonFacts.CalledMemberName("") == ""
+    assert ColumnarDeclineReasonFacts.CalledMemberName("options.") == "options."
+    assert ColumnarDeclineReasonFacts.CalledMemberName(".Cast") == "Cast"
+}
+
 // ---- the emission-error factories ----------------------------------------------------------------
 
 // Successor to EmissionDiagnosticFactories_PreserveFirstSentenceAndAttachLocation — all six of its

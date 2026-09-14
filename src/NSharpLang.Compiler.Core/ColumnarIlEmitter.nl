@@ -13267,7 +13267,7 @@ sealed class ColumnarIlEmitter {
                 // The callee resolves exactly like a bare identifier: locals/params shadow-decline; only a
                 // GENERIC top-level sibling binds (explicit type args on a non-generic are pipeline-rejected).
                 if (_locals.ContainsKey(gName) || _paramOrdinals.ContainsKey(gName)) {
-                    return Decline("emit.call.generic-shadowed", "generic call '" + gName + "' is shadowed by a value binding", idx)
+                    return Decline("emit.call.generic-shadowed", "generic call '" + ColumnarDeclineReasonFacts.CalledMemberName(gName) + "' is shadowed by a value binding", idx)
                 }
                 // A LOCAL FUNCTION SHADOWS A SAME-NAMED SIBLING, which is why it is asked first here
                 // exactly as it is at the bare-name arm.
@@ -13293,7 +13293,7 @@ sealed class ColumnarIlEmitter {
                 }
                 let gTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
                 if (!_siblings.TryGetValue(gName, out gTarget) || gTarget.TypeParams.Length == 0) {
-                    return Decline("emit.call.generic-unresolved", "generic call '" + gName + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
+                    return Decline("emit.call.generic-unresolved", "generic call '" + ColumnarDeclineReasonFacts.CalledMemberName(gName) + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
                 }
                 if (_nodes.ChildCount(callee) != gTarget.TypeParams.Length) {
                     return false
@@ -16835,6 +16835,17 @@ sealed class ColumnarIlEmitter {
                 }
                 return TryEmitStaticCall(callIdx, receiverName, memberName, argCount, legacyWholeSubtreePlanning, out resolvedClrType)
             }
+        }
+
+        // A RECEIVER THAT NAMES A TYPE IS A STATIC RECEIVER WHATEVER ITS SPELLING. Only the BARE
+        // identifier above was read that way, so the same call written with the type's namespace in
+        // front of it — `System.IO.Directory.CreateDirectory(...)`, a nested type's `Outer.Inner.Make()`
+        // — fell through to the instance arm, could not put a namespace on the stack, and declined at
+        // `emit.call.receiver` as if the RECEIVER were the problem. The chain is asked the ordinary
+        // type-name question once, and a chain that answers with a type goes to the same static arm.
+        let staticReceiverTypeName: string? = null
+        if (TryClassifyDottedTypeNameReceiver(receiver, out staticReceiverTypeName)) {
+            return TryEmitStaticCall(callIdx, staticReceiverTypeName, memberName, argCount, legacyWholeSubtreePlanning, out resolvedClrType)
         }
 
         // A CONSTRUCTED GENERIC TYPE receiver in static position — `Box<int>.Of(4)`. The receiver is a
@@ -22342,6 +22353,22 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             columnarResolvedType = elementType
+            return true
+        } else if columnarSwitchValue11 == 45 {
+            // `must x` PRODUCES THE UNWRAPPED TYPE — exactly what the emission arm writes: a
+            // `Nullable<T>` operand yields `T`, and every other operand keeps its own type (the unwrap
+            // is a null assert, not a conversion). Preflight had no arm for it at all, so an argument
+            // written `must p` was UNTYPED: overload resolution could not see it, and every call with
+            // one fell past the scoring tier to the residual arms.
+            let mustOperandType: System.Type? = null
+            if (_nodes.ChildCount(node) != 1 || !TryGetPreflightExpressionType(Child(node, 0), out mustOperandType) || mustOperandType == null) {
+                return false
+            }
+            if (ColumnarTypeOfPlanner.IsSupportedNullable(mustOperandType)) {
+                columnarResolvedType = mustOperandType.GetGenericArguments()[0]
+                return true
+            }
+            columnarResolvedType = mustOperandType
             return true
         } else if columnarSwitchValue11 == 57 {
             return _nodes.ChildCount(node) == 1 && TryGetPreflightExpressionType(Child(node, 0), out columnarResolvedType)
@@ -28445,6 +28472,25 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        // A HOP IS AN ORDINARY MEMBER READ, AND THE ORDINARY RESOLVER ANSWERS IT. The rows above are
+        // the residue of a hand-written table of BCL properties, so a chain that stepped through any
+        // OTHER member a referenced assembly declares had no answer at all: `d.Values.OfType<string>()`
+        // declined at `emit.call.generic-unresolved` while `values := d.Values` followed by
+        // `values.OfType<string>()` — the same two reads, one of them stored — emitted. The selection
+        // below is the same one every instance member access already uses, so a hop reaches exactly
+        // what a direct read of the same member reaches, inherited interface members included.
+        let ordinaryMember: NSharpLang.Compiler.Columnar.ColumnarRuntimeInstanceMemberSelection? = null
+        if (ColumnarRuntimeInstanceMemberResolver.TrySelect(current, member, out ordinaryMember)) {
+            if (ordinaryMember.Field != null) {
+                hop = new ColumnarInterpolationMemberPlan(ordinaryMember.Field, null, ordinaryMember.ResultType)
+                return true
+            }
+            if (ordinaryMember.Getter != null) {
+                hop = new ColumnarInterpolationMemberPlan(null, ordinaryMember.Getter, ordinaryMember.ResultType)
+                return true
+            }
+        }
+
         return false
     }
 
@@ -29000,6 +29046,37 @@ sealed class ColumnarIlEmitter {
         name = null
         rootName = null
         return false
+    }
+
+    // ONE CLASSIFICATION OF A DOTTED RECEIVER: namespace path -> type, or not a type at all.
+    //
+    // `System.IO.Directory`, `Outer.Inner` and `Ns.Outer.Inner` are type NAMES spelled with dots, and a
+    // call through one is a static call — the same call the bare spelling makes. The chain is a type
+    // name only when nothing in scope binds its ROOT to a value (a local, a captured local, a
+    // parameter, a top-level sibling, or a member of the type being emitted all shadow it, which is
+    // what keeps `holder.Pairs.First()` an instance chain) AND the whole dotted name resolves through
+    // the ordinary type-name resolver every other owner lookup already uses. Nothing about the member
+    // is consulted here: the receiver question is answered before the member question is asked.
+    private func TryClassifyDottedTypeNameReceiver(receiver: int, out typeName: string): bool {
+        typeName = null
+        if (_nodes.Kind(receiver) != 8) {
+            return false
+        }
+        let receiverName: string? = null
+        let rootName: string? = null
+        if (!TryGetDottedMemberAccessName(receiver, out receiverName, out rootName)) {
+            return false
+        }
+        if (ColumnarClosureBindingPlanner.IsVisibleBindingName(rootName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames) || _siblings.ContainsKey(rootName) || IsCurrentInstanceMemberName(rootName) || IsCurrentStaticMemberName(rootName)) {
+            return false
+        }
+        let resolvedOwner: System.Type? = null
+        let resolvedClaimed: bool = false
+        if (!_typeResolutionStructs.Resolver.TryResolve(receiverName, out resolvedOwner, out resolvedClaimed) || resolvedOwner == null) {
+            return false
+        }
+        typeName = receiverName
+        return true
     }
 
     private func TryEmitUnionCasePositionalConstruction(caseDef: ColumnarUnionCaseDef, typeArgs: Type[], newIdx: int, argCount: int, out columnarResolvedType: Type): bool {

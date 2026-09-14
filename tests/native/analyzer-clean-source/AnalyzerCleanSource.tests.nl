@@ -22709,3 +22709,16 @@ test "`Nullable<T>`'s own surface answers for a struct and an enum this compilat
     assert AcHasErrors(analysis) == "False"
     assert AcErrorCount(analysis) == 0
 }
+
+test "a redundant must warning survives reflected overload rollback and selected-candidate reanalysis" {
+    source := "namespace MustRollbackAudit\nfunc Direct(value: string): string { return must value }\nfunc InArray(value: string): string { return string.Concat([must value, \"suffix\"]) }\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+
+    analysis := AcAnalyze(source)
+
+    assert AcCensus(analysis) == "NL907:NullabilityWarning@2:45+4;NL907:NullabilityWarning@3:61+4;"
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 2
+    assert AcCodeCount(analysis, "NullabilityWarning") == 2
+}
