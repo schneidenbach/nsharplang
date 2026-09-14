@@ -1326,6 +1326,12 @@ class AnalyzerDeclarationContext {
         namespaceImport := FindNamespaceAlias(facts, root)
         if namespaceImport != null {
             expanded := namespaceImport.Namespace + "." + tail
+            // NL010: AN ALIAS-QUALIFIED SPELLING IS A USE OF THE IMPORT IT IS AN ALIAS OF, and this
+            // is the channel that knows which namespace the alias names. The credit-side arithmetic
+            // works on the resolved identity, and a SOURCE type carries only its own name — so
+            // `new RightNamespace.Widget(5)` over a project namespace was credited by nothing and
+            // the import read as dead.
+            CreditAliasNamespace(facts, namespaceImport.Namespace)
             projectType := BuiltInTypes.Unknown as TypeInfo
             projectClaimed := false
             if TryResolveQualifiedProjectType(expanded, facts.NamespaceName, activeAliases, out projectType, out projectClaimed) {
@@ -1480,6 +1486,16 @@ class AnalyzerDeclarationContext {
         return true
     }
 
+    // The namespace an alias names, credited to the file being analysed and to no other. This owner
+    // resolves names on behalf of EVERY file in the project, and another file's alias is not this
+    // file's evidence.
+    func CreditAliasNamespace(facts: AnalyzerDeclarationFileFacts, namespaceName: string) {
+        credit := importUsageCredit
+        if credit != null && string.Equals(facts.FilePath, importUsageFilePath, StringComparison.OrdinalIgnoreCase) {
+            credit.CreditNamespaceSupplier(namespaceName)
+        }
+    }
+
     func TryResolveImportedProjectType(facts: AnalyzerDeclarationFileFacts, name: string, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
         matchedType: TypeInfo? = null
         sawClaim := false
@@ -1491,6 +1507,8 @@ class AnalyzerDeclarationContext {
                 candidate := BuiltInTypes.Unknown as TypeInfo
                 unitClaimed := false
                 if TryResolveDeclarationInNamespace(name, importFacts.Namespace, !string.Equals(importFacts.Namespace, facts.NamespaceName, StringComparison.Ordinal), activeAliases, out candidate, out unitClaimed) {
+                    // NL010: this import supplied the name, whatever the tie below decides.
+                    CreditAliasNamespace(facts, importFacts.Namespace)
                     if matchedType != null {
                         typeInfo = BuiltInTypes.Unknown
                         claimed = true

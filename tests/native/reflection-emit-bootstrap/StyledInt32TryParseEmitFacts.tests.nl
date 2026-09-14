@@ -1,6 +1,7 @@
 namespace NSharpLang.ReflectionEmitBootstrap.Tests
 
 import System.Globalization
+import System
 
 
 // Parameter-default ownership needs this exact BCL overload: explicit NumberStyles.Integer,

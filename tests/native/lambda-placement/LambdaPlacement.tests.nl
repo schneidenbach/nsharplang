@@ -4,7 +4,6 @@ import System
 import System.Collections
 import System.Collections.Generic
 import System.IO
-import System.Reflection
 
 // --- Functional placement + persisted execution -----------------------------------------------------
 test "no-capture lambda runs as a program-static method ldftn'd cross-type from an instance method" {

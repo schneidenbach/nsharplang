@@ -72,7 +72,17 @@ class AnalyzerImportUsageCredit {
     // every position a type can be written in.
     func CreditResolvedType(writtenName: string, resolved: TypeInfo?) {
         ledger := facts
-        if ledger == null || resolved == null || writtenName.Length == 0 {
+        if ledger == null || writtenName.Length == 0 {
+            return
+        }
+
+        // AN ALIAS-QUALIFIED SPELLING IS A USE OF ITS IMPORT BEFORE ANYTHING RESOLVES. `RightNamespace.Widget`
+        // only means something because `import Probe.Right as RightNamespace` is there, so the import
+        // is used whatever the rest of the name turns out to be — and that matters, because a SOURCE
+        // type carries only its own name and the arithmetic below has nothing to cut.
+        CreditWrittenAliasRoot(writtenName)
+
+        if resolved == null {
             return
         }
 
@@ -186,6 +196,24 @@ class AnalyzerImportUsageCredit {
         }
 
         return null
+    }
+
+    // The namespace an alias-qualified spelling's ROOT names, credited on the spelling alone.
+    func CreditWrittenAliasRoot(writtenName: string) {
+        ledger := facts
+        if ledger == null {
+            return
+        }
+
+        separator := writtenName.IndexOf('.')
+        if separator <= 0 {
+            return
+        }
+
+        aliasedNamespace := ""
+        if usingAliases.TryGetValue(writtenName.Substring(0, separator), out aliasedNamespace) {
+            ledger.CreditNamespace(aliasedNamespace)
+        }
     }
 
     // AN ALIAS-QUALIFIED SPELLING CREDITS THE IMPORT IT IS AN ALIAS OF. `import System.Text as Txt`
@@ -397,5 +425,4 @@ class AnalyzerImportUsageCredit {
 
         return null
     }
-
 }

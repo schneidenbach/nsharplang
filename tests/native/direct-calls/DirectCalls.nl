@@ -1,4 +1,6 @@
 namespace NSharpLang.DirectCalls.Tests
+import System
+
 
 // `Func<...>` is parser-owned function-type syntax even when a source generic collides.
 class Func<T, R> {

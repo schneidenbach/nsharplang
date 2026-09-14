@@ -3,7 +3,6 @@ namespace NSharpLang.RecordWith.Tests
 import System
 import System.Collections
 import System.IO
-import System.Reflection
 
 // --- Reference-record control ---------------------------------------------------------------------
 test "a reference-record with clones and replaces the named member, leaving the source unchanged" {

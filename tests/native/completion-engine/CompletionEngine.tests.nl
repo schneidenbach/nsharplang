@@ -3,7 +3,6 @@ namespace NSharpLang.CompletionEngine.Tests
 import System
 import System.Collections
 import System.IO
-import NSharpLang.Compiler
 
 
 // THE PRODUCTION COMPLETION ENGINE, ASKED THE TWELVE QUESTIONS `tests/CompletionEngineTests.cs`

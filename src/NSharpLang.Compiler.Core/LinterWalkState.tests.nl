@@ -180,11 +180,6 @@ func LwsIncompleteUnit(namespaceImports: string[]): CompilationUnit {
     return unit
 }
 
-    facts.Analyzed = true
-    unit.ImportUsage = facts
-    return unit
-}
-
 // The shape a function walk opens: a fresh scope, the parameters declared into it and marked as
 // binding sites, and the scope recorded against the frame.
 func LwsOpenFunction(state: LinterWalkState, names: string[]): LinterFunctionFrame {

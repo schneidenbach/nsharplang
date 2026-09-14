@@ -1,4 +1,6 @@
 namespace NSharpLang.ReflectionEmitBootstrap.Tests
+import System
+
 
 test "ThreadStart captures execute on the exact wide-stack Thread overload" {
     owner := new ThreadStartCaptureEmitFacts()

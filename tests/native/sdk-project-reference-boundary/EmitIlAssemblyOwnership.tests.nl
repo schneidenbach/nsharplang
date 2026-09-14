@@ -1,7 +1,6 @@
 namespace NSharpLang.SdkProjectReferenceBoundary.Tests
 
 import System
-import System.Collections
 import System.Reflection
 
 test "the SDK emit task has one N# production owner and its exact MSBuild surface" {

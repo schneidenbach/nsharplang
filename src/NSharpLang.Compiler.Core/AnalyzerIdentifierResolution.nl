@@ -119,7 +119,6 @@ class AnalyzerIdentifierResolution {
         importUsageCreditValue = credit
     }
 
-
     func SetSuppressErrorTupleResultUse(value: bool) {
         suppressErrorTupleResultUseValue = value
     }

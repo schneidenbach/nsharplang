@@ -1,6 +1,7 @@
 namespace NSharpLang.ReflectionEmitBootstrap.Tests
 
 import System.Reflection
+import System
 
 test "a private source record struct is a value-equality Dictionary key including a null component" {
     siteType := typeof(SourceRecordDictionaryKeyEmitFacts).GetNestedType(

@@ -1,6 +1,7 @@
 namespace NSharpLang.ReadOnlyDictionaryWidening.Tests
 
 import System.Collections.Generic
+import System
 
 // THE EXECUTABLE HALF OF THE `IReadOnlyDictionary<K, V>` WIDENING ROW (task 020 slice 10, stage 1).
 //

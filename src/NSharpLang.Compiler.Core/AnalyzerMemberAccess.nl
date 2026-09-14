@@ -230,7 +230,6 @@ class AnalyzerMemberAccess {
         importUsageCreditValue = credit
     }
 
-
     // THE ENTRY, AND IT DECIDES NOTHING. Every gate this arm owns needs the receiver's answer, so
     // `Begin` names the node and stops. A node that is not a member access finishes immediately.
     func Begin(expression: Expression): MemberAccessState {

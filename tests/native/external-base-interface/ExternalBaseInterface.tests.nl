@@ -3,8 +3,6 @@ namespace NSharpLang.ExternalBaseInterface.Tests
 import System
 import System.Collections
 import System.IO
-import System.Reflection
-import NSharpLang.Compiler
 
 // End-to-end product-route coverage for external base/interface resolution. Each fixture is written
 // to a temporary project that references the core framework exactly as `nlc build` does, then driven

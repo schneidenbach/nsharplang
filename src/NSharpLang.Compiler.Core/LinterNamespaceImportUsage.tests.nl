@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import System.Linq
 import System.Net.Http
 import System.Reflection
 import System.Text
@@ -10,7 +11,6 @@ import System.Text.Json
 import System.Text.RegularExpressions
 import System.Threading
 import System.Threading.Tasks
-import System.Linq
 import NSharpLang.Compiler.Ast
 
 // THE IMPORTS ABOVE ARE PART OF THE FIXTURE. `LnieDeclares` resolves against the assemblies this test
@@ -19,7 +19,6 @@ import NSharpLang.Compiler.Ast
 func LnieLoadedNamespaceAnchors(): int {
     return typeof(StringBuilder).Name.Length + typeof(Regex).Name.Length + typeof(HttpClient).Name.Length + typeof(JsonSerializer).Name.Length + typeof(CancellationToken).Name.Length + typeof(Task).Name.Length + typeof(File).Name.Length
 }
-
 
 // CONTRACTS FOR WHAT MAKES A NAMESPACE IMPORT USED.
 //
