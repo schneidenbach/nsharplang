@@ -6308,6 +6308,20 @@ test "340 throw-as-value: the permission is spent on the way in and does not rea
     assert errors[0].Line == 2
 }
 
+test "340 throw-as-value: a MISSING exception reports only the operand's own complaint" {
+    // `x := throw` is both misplaced and missing its exception. The nearer mistake reports and the
+    // position does not pile on — one sentence per broken line, the discipline panic mode enforces
+    // everywhere else in this parser. The SAME source with an exception reports NL340 instead.
+    missing := ThrowPlacementErrors("func test() {\n    x := throw\n}\n")
+    assert missing.Count == 1
+    assert missing[0].Code == ErrorCode.ExpectedToken
+    assert missing[0].Message == "Expected an exception expression to throw after 'throw'"
+
+    present := ThrowPlacementErrors("func test() {\n    x := throw new System.Exception(\"x\")\n}\n")
+    assert present.Count == 1
+    assert present[0].Code == ErrorCode.ThrowExpressionNotAllowedHere
+}
+
 test "340 throw-as-value: a statement `throw` is untouched, in either shape" {
     assert ThrowPlacementErrors("func f() {\n    throw new System.Exception(\"x\")\n}\n").Count == 0
     assert ThrowPlacementErrors("func f() {\n    try {\n        f()\n    } catch e: System.Exception {\n        throw\n    }\n}\n").Count == 0

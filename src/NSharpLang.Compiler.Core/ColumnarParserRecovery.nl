@@ -7306,10 +7306,14 @@ class ColumnarParserRecovery {
             throwAdmitted := ThrowExpressionValuePosition == Position
             ThrowExpressionValuePosition = -1
             throwToken := Advance()
-            if !throwAdmitted {
+            operandNode := ParseUnaryOperandOrMissing(throwToken, "an exception expression to throw", "This throw expression")
+            // THE OPERAND'S OWN COMPLAINT COMES FIRST AND ALONE. `x := throw` is BOTH misplaced and
+            // missing its exception, and the missing one is the nearer, more urgent mistake — the
+            // same "one sentence per broken line" discipline panic mode enforces everywhere else in
+            // this parser. Fix the operand and the position is reported on the next run.
+            if !throwAdmitted && operandNode != null {
                 ReportThrowExpressionMisplaced(throwToken)
             }
-            operandNode := ParseUnaryOperandOrMissing(throwToken, "an exception expression to throw", "This throw expression")
             throwResult := new ExprResult(new RecoverySpan(throwToken.Line, throwToken.Column, 5), false)
             // Stage N+1c tranche 9a: `new ThrowExpression(expr, throwToken.Line, throwToken.Column)` (Parser.cs :4410).
             if operandNode != null {
