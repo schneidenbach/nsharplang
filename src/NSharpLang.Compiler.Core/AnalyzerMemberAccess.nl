@@ -1270,7 +1270,11 @@ class AnalyzerMemberAccess {
     //   * `object` never reports — every name might be there through a cast.
     //   * a built-in primitive reports when its CLR type is reachable, and otherwise only for a name
     //     the built-in tables say it does NOT have.
-    //   * a generic reports when it has a SOURCE definition or a reachable CLR type.
+    //   * a generic reports when it has a SOURCE definition or a reachable CLR type, and otherwise
+    //     when its REFLECTED definition has a reliable member set that does not contain the name —
+    //     which is the case a BCL generic closed over a source type (`List<PriceArgs>`) or over an
+    //     enclosing type parameter (`List<T>`) is in: its closed CLR type cannot be constructed, and
+    //     a type argument never adds a member to the definition.
     //   * a reflected type reports only from assemblies whose member set is reliable.
     //   * every SOURCE-declared shape reports, because its member list is complete by construction.
     //   * a nullable and an oblivious ask about their inner type.
@@ -1341,7 +1345,31 @@ class AnalyzerMemberAccess {
                 return true
             }
 
-            return clrTypeConversionValue.TryConvertTypeInfoToClrType(resolved) != null
+            if clrTypeConversionValue.TryConvertTypeInfoToClrType(resolved) != null {
+                return true
+            }
+
+            // A REFLECTED DEFINITION CLOSED OVER A TYPE THAT HAS NO CLR HANDLE — `List<PriceArgs>`,
+            // where `PriceArgs` is declared in this program and is not emitted yet, or `List<T>` inside
+            // a generic function. The CLOSED type cannot be constructed, so the question above answers
+            // nothing, and the miss used to surface only as an emitter decline naming a backend rather
+            // than the typo.
+            //
+            // THE DEFINITION IS ASKED INSTEAD, AND IT IS ASKED ABOUT THE NAME. A type argument never
+            // adds a member, so a name the DEFINITION does not have is absent from every instantiation
+            // of it and the report is certain. A name the definition DOES have is the other case
+            // entirely — the member is real and the resolution failed for want of a closed type — and
+            // reporting there would accuse the reader of the analyzer's own gap.
+            reflectedDefinition := genericDefinition as ReflectionTypeInfo
+            if reflectedDefinition != null {
+                if !HasReliableReflectionMemberSet(reflectedDefinition.Type) {
+                    return false
+                }
+
+                return !GetReflectionMemberNames(reflectedDefinition.Type, includeStaticMembers).Contains(memberName)
+            }
+
+            return false
         }
 
         reflection := resolved as ReflectionTypeInfo

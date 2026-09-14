@@ -229,6 +229,14 @@ func MemberSampleClass(name: string): ClassTypeInfo {
     return new ClassTypeInfo(name, 2, 1, false, null, new TypeReference[](0), new TypeParameter[](0), new ParameterDeclarationInfo[](0), new DeclaredMemberInfo[](0), new NestedTypeInfo[](0), true)
 }
 
+// `List<argument>` as the analyzer builds it: a REFLECTED definition with whatever the program wrote
+// in its type-argument position — including a type that has no CLR handle at all.
+func MemberClosedListOf(argument: TypeInfo): GenericTypeInfo {
+    typeArguments := new List<TypeInfo>()
+    typeArguments.Add(argument)
+    return new GenericTypeInfo("List", typeArguments, new ReflectionTypeInfo(typeof(List<int>).GetGenericTypeDefinition()))
+}
+
 // ---- the walk protocol ---------------------------------------------------------------------------
 
 test "a node that is not a member access finishes at Begin and asks for nothing" {
@@ -642,6 +650,30 @@ test "a core-library reflected type has a reliable member set and DOES report" {
     harness := MemberArmOf()
 
     assert harness.Arm.ShouldReportUndefinedMember(new ReflectionTypeInfo(typeof(Version)), "Nonesuch", false)
+}
+
+// A BCL GENERIC CLOSED OVER A TYPE WITH NO CLR HANDLE reported NOTHING AT ALL: `List<PriceArgs>`
+// cannot be constructed as a CLR type while `PriceArgs` is still a declaration, so the "reachable
+// CLR type" question answered no and the miss first surfaced as an emitter decline naming a backend.
+// The DEFINITION answers instead, and it is asked about the NAME — a type argument never adds a
+// member, and a name the definition DOES have is the analyzer's own resolution gap rather than the
+// reader's typo.
+test "a BCL generic closed over a SOURCE type reports a name its DEFINITION does not have" {
+    harness := MemberArmOf()
+    overSource := MemberClosedListOf(MemberSampleClass("PriceArgs"))
+
+    assert harness.Arm.ShouldReportUndefinedMember(overSource, "Nope", false)
+    assert harness.Arm.ShouldReportUndefinedMember(overSource, "Nope", true)
+
+    // A name the definition HAS is not reported, whether or not this analyzer could resolve it here.
+    assert !harness.Arm.ShouldReportUndefinedMember(overSource, "Count", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(overSource, "Add", false)
+
+    // And the same is true of a definition closed over an enclosing signature's type parameter, which
+    // is the spelling every generic function writes.
+    overTypeParameter := MemberClosedListOf(new SimpleTypeInfo("T"))
+    assert harness.Arm.ShouldReportUndefinedMember(overTypeParameter, "Nope", false)
+    assert !harness.Arm.ShouldReportUndefinedMember(overTypeParameter, "Add", false)
 }
 
 test "a primitive whose CLR type IS reachable reports, and the tables are not consulted at all" {
