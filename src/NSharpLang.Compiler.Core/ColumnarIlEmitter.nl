@@ -3910,7 +3910,7 @@ sealed class ColumnarIlEmitter {
             initTypeResolution.Structs,
             initTypeResolution.Unions
         )
-        ColumnarDeclineTrace.SetSourceFileId(initCtor.Body.SourceFileId)
+        ColumnarDeclineTrace.SetSourceFileId(initCtor.Body.SourceFileId, def.DeclaredTypeName)
         inlineResult := false
         try {
             inlineResult = inlineEmitter.EmitSelectedInitializerStatements(initCtor.Body.BodyRoot, inlinePlan.InlineOrdinals)
@@ -5779,7 +5779,7 @@ sealed class ColumnarIlEmitter {
             // planner owns every structural decision (shape facts + schema-4 member body plans) and this host
             // realizes them mechanically (sub-slice 3b-ii). Unsupported shapes decline at the planner's site.
             if ((fn.ModifierFlags & 4096) != 0) {
-                ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId)
+                ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId, fn.Name)
                 try {
                     generatorFacts := ColumnarIteratorBodyFacts.FromEmissionFacts(
                         enumRegistry,
@@ -5908,7 +5908,7 @@ sealed class ColumnarIlEmitter {
                 typeResolution.Unions,
                 localFunctionDisplay
             )
-            ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId)
+            ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId, fn.Name)
             try {
                 if (!emitter.EmitBody(fn.BodyRoot, bodyReturnType == ColumnarTypeOfPlanner.RequiredVoidType())) {
                     return DeclineStatic("emit.body", "function body emission declined", fn.Name, -1, 0)
@@ -5986,7 +5986,7 @@ sealed class ColumnarIlEmitter {
                 bodyTypeResolution.Structs,
                 bodyTypeResolution.Unions
             )
-            ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId)
+            ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId, job.Item2.Name)
             try {
                 if (!emitter.EmitBody(job.Item2.BodyRoot, job.Item4 == ColumnarTypeOfPlanner.RequiredVoidType())) {
                     interfaceDeclineInterface := job.Item1
@@ -6018,7 +6018,7 @@ sealed class ColumnarIlEmitter {
             // the factory. Unsupported shapes decline at the planner's site.
             if (ColumnarIteratorPlanner.ContainsYield(job.Item2.BodyNodes, job.Item2.BodyRoot)) {
                 bodyTypeResolution2 := typeResolutionCatalog.For(job.Item2.SourceFileId, null, null)
-                ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId)
+                ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId, job.Item2.Name)
                 try {
                     if (!TryEmitMemberIterator(
                         module,
@@ -6166,7 +6166,7 @@ sealed class ColumnarIlEmitter {
             )
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
             // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
-            ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId)
+            ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId, job.Item2.Name)
             try {
                 if (!emitter.EmitBody(job.Item2.BodyRoot, job.Item5 == ColumnarTypeOfPlanner.RequiredVoidType())) {
                     memberDeclineStruct := job.Item1
@@ -6258,7 +6258,7 @@ sealed class ColumnarIlEmitter {
                 staticInitializerTypeResolution.Structs,
                 staticInitializerTypeResolution.Unions
             )
-            ColumnarDeclineTrace.SetSourceFileId(staticInitializer.SourceFileId)
+            ColumnarDeclineTrace.SetSourceFileId(staticInitializer.SourceFileId, staticInitializer.Name)
             try {
                 if (!staticInitializerEmitter.EmitBody(staticInitializer.BodyRoot, true)) {
                     return DeclineStatic(
@@ -6339,7 +6339,7 @@ sealed class ColumnarIlEmitter {
                 bodyTypeResolution.Structs,
                 bodyTypeResolution.Unions
             )
-            ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId)
+            ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId, job.Struct.DeclaredTypeName)
             try {
                 if (job.Ctor.ChainInitKind != 0) {
                     // A `: this(...)` (kind 1) or `: base(...)` (kind 2) CHAINING constructor delegates field assignment
@@ -6557,7 +6557,7 @@ sealed class ColumnarIlEmitter {
                     testTypeResolution.Structs,
                     testTypeResolution.Unions
                 )
-                ColumnarDeclineTrace.SetSourceFileId(testBody.SourceFileId)
+                ColumnarDeclineTrace.SetSourceFileId(testBody.SourceFileId, "test " + testInput.Description)
                 try {
                     if (!testEmitter.EmitBody(testBody.BodyRoot, true)) {
                         return DeclineStatic("emit.tests.body", "test body emission declined", "test " + testInput.Description, -1, 0)
@@ -6875,7 +6875,7 @@ sealed class ColumnarIlEmitter {
                 typeResolution.Unions.ForSynthesizedMethod(synthesizedMethodOwner),
                 localClosureView
             )
-            ColumnarDeclineTrace.SetSourceFileId(localFn.SourceFileId)
+            ColumnarDeclineTrace.SetSourceFileId(localFn.SourceFileId, fn.Name + "." + localFn.Name)
             try {
                 if (!localEmitter.EmitBody(localFn.BodyRoot, localBodyReturn == ColumnarTypeOfPlanner.RequiredVoidType())) {
                     return DeclineStatic("emit.body", "local function body emission declined", fn.Name + "." + localFn.Name, -1, 0)
@@ -7012,7 +7012,27 @@ sealed class ColumnarIlEmitter {
     // always-return: emit the body, then a trailing `ret` IFF control can fall through to the method end (when
     // the body already always-returns via value-less `return`s, no trailing `ret` is emitted, so there is no
     // unreachable code).
+    // THE BODY FRONT DOOR'S FAULT BOUNDARY. A crash inside code generation is a DECLINE that names the
+    // member, never a stack trace thrown at a developer — and it is caught HERE, at the one frame every
+    // body goes through, because this is the last place the member is still known. The emission driver's
+    // own per-member scope is cleared by its `finally` while the exception is still unwinding, so a
+    // record written from the driver can only say that something failed somewhere; the emitter crash
+    // this boundary was written for reported exactly that, and the `foreach` that caused it could not be
+    // found in 412K lines of compiler source until the member appeared in the message.
     private func EmitBody(bodyRoot: int, isVoid: bool): bool {
+        try {
+            return EmitBodyCore(bodyRoot, isVoid)
+        } catch ex: Exception {
+            return DeclineMember(
+                "emit.internal-error",
+                "the code generator failed on this member: " + ex.Message,
+                bodyRoot,
+                ColumnarDeclineTrace.CurrentMemberName()
+            )
+        }
+    }
+
+    private func EmitBodyCore(bodyRoot: int, isVoid: bool): bool {
         // BODY FRONT DOOR (015-B3, widened in B4, B5, B6 and B7): the ORDINARY USER bodies the plan-row
         // IR claims end to end — the void arity, and a run of `:=` declarations ending in a return of a
         // literal, a bool, an identifier, a unary over a literal, a `nameof`, or a CALL. Offered ahead of
