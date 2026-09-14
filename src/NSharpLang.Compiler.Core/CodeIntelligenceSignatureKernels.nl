@@ -4,6 +4,7 @@ import System
 import System.Reflection
 import System.Text
 import NSharpLang.Compiler
+import NSharpLang.Compiler.Ast
 
 
 // THE ONE LINE A HOVER PRINTS, AND THE TWO WAYS IT IS BUILT.
@@ -32,6 +33,115 @@ class CodeIntelligenceSignatureKernels {
         }
 
         return kind + " " + name
+    }
+
+    // A source member's binding says WHICH declaration the caret denotes. The parsed declaration then
+    // supplies the words the generic type result cannot carry — `required`, `init`, accessibility and
+    // the other member modifiers. This is not a name search: the binding's owning file, line and exact
+    // identifier span must all agree before a signature is projected, so a same-spelled member in another
+    // type — even on the same line — cannot donate its modifiers to this hover.
+    static func GetSourceMemberSignature(snapshot: ProjectSnapshot, declaration: SymbolDeclaration?, resolvedType: string?): SourceMemberSignature? {
+        if declaration == null {
+            return null
+        }
+
+        declarationFile := declaration.File
+        if declarationFile == null {
+            return null
+        }
+
+        unitMatch := CodeIntelligenceNavigation.FindCompilationUnit(snapshot, declarationFile ?? "")
+        unit := unitMatch.Unit
+        if unit == null {
+            return null
+        }
+
+        sourceText := CodeIntelligenceSourceDoor.SourceText(snapshot.SourceTexts, unitMatch.FilePath)
+        declarations := unit.Declarations
+        index := 0
+        while index < declarations.Count {
+            signature := SourceMemberSignatureInDeclaration(declarations[index], declaration, resolvedType, false, sourceText)
+            if signature != null {
+                return signature
+            }
+
+            index = index + 1
+        }
+
+        return null
+    }
+
+    static func SourceMemberSignatureInDeclaration(candidate: Declaration, declaration: SymbolDeclaration, resolvedType: string?, ownerIsInterface: bool, sourceText: string?): SourceMemberSignature? {
+        field := candidate as FieldDeclaration
+        if field != null && SourceMemberMatches(field.Name, field.Line, field.Column, declaration, sourceText) {
+            kind := "field"
+            if ownerIsInterface && !CodeIntelligenceDisplayText.HasModifier(CodeIntelligenceDisplayText.ModifierMask(field.Modifiers), 16) {
+                kind = "property"
+            }
+
+            return new SourceMemberSignature(kind, FormatSourceMemberLine(kind, field.Name, field.Modifiers, resolvedType ?? TypeReferenceFacts.GetDisplayNameOrVoid(field.Type)))
+        }
+
+        property := candidate as PropertyDeclaration
+        if property != null && SourceMemberMatches(property.Name, property.Line, property.Column, declaration, sourceText) {
+            return new SourceMemberSignature("property", FormatSourceMemberLine("property", property.Name, property.Modifiers, resolvedType ?? TypeReferenceFacts.GetDisplayNameOrVoid(property.Type)))
+        }
+
+        members := DeclarationFacts.GetDeclarationMembers(candidate)
+        if members == null {
+            return null
+        }
+
+        candidateIsInterface := candidate as InterfaceDeclaration
+        childOwnerIsInterface := candidateIsInterface != null
+        memberIndex := 0
+        while memberIndex < members.Count {
+            member := members[memberIndex] as Declaration
+            if member != null {
+                signature := SourceMemberSignatureInDeclaration(member, declaration, resolvedType, childOwnerIsInterface, sourceText)
+                if signature != null {
+                    return signature
+                }
+            }
+
+            memberIndex = memberIndex + 1
+        }
+
+        return null
+    }
+
+    static func SourceMemberMatches(name: string, line: int, candidateColumn: int, declaration: SymbolDeclaration, sourceText: string?): bool {
+        if name != declaration.Name || line != declaration.Line {
+            return false
+        }
+
+        // The AST's member column is the declaration start, which may be the `required` word rather
+        // than the name. The binding instead records the canonical name span. Deriving that same span
+        // from this AST candidate's start is what separates `class A { required init Name: string }
+        // class B { Name: string }` on one line, including the same shape under nested owners.
+        nameColumn := AnalyzerDiagnosticSpanFacts.FindIdentifierNameColumn(sourceText, name, line, candidateColumn)
+        return nameColumn == declaration.Column
+    }
+
+    static func FormatSourceMemberLine(kind: string, name: string, modifiers: Modifiers, typeName: string): string {
+        builder := new StringBuilder()
+        builder.Append(kind)
+        builder.Append(" ")
+
+        modifierWords := CodeIntelligenceDisplayText.FormatModifiers(modifiers)
+        if modifierWords != null {
+            index := 0
+            while index < modifierWords.Length {
+                builder.Append(modifierWords[index])
+                builder.Append(" ")
+                index = index + 1
+            }
+        }
+
+        builder.Append(name)
+        builder.Append(": ")
+        builder.Append(typeName)
+        return builder.ToString()
     }
 
     // The whole line for a reflected member, or null to decline to the fallback above.
@@ -154,5 +264,22 @@ class CodeIntelligenceSignatureKernels {
         }
 
         return modifiers + NullabilityMetadataReflection.FormatTypeInfo(NullabilityMetadataReflection.ConvertFieldWithOverride(field, typeOverride))
+    }
+}
+
+// The source hover needs to replace both the fallback line and its kind: a field declaration is
+// recorded as a lexical `variable` at its own name, while its reader-facing member surface is a
+// field (or an interface property). Keeping the two values together prevents a corrected line from
+// being paired with the old variable kind in the JSON and LSP projections.
+class SourceMemberSignature {
+    kindValue: string
+    lineTextValue: string
+
+    Kind: string => kindValue
+    LineText: string => lineTextValue
+
+    constructor(kind: string, lineText: string) {
+        kindValue = kind
+        lineTextValue = lineText
     }
 }

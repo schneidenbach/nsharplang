@@ -156,7 +156,11 @@ class CodeIntelligenceQueries {
         }
 
         typeResult := CodeIntelligenceNavigation.TypeAtPosition(snapshot, queryFile, line, col)
-        definition := Definition(snapshot, queryFile, line, col)
+        definitionSymbol := CodeIntelligenceNavigation.DefinitionSymbolAtPosition(snapshot, queryFile, line, col)
+        definition: DefinitionResult? = null
+        if definitionSymbol != null {
+            definition = CodeIntelligenceReferenceResults.ToDefinition(snapshot.ProjectRoot, definitionSymbol)
+        }
         if typeResult == null && definition == null {
             return null
         }
@@ -189,6 +193,11 @@ class CodeIntelligenceQueries {
         name := nameCandidate ?? "unknown"
 
         signature := CodeIntelligenceSignatureKernels.GetFallbackSignatureText(kind, name, resolvedType)
+        sourceMember := CodeIntelligenceSignatureKernels.GetSourceMemberSignature(snapshot, definitionSymbol, resolvedType)
+        if sourceMember != null {
+            signature = sourceMember.LineText
+            kind = sourceMember.Kind
+        }
 
         documentation: string? = null
         if definedIn != null && definitionLine > 1 {

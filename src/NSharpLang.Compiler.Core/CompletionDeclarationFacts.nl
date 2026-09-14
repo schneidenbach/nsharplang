@@ -37,7 +37,7 @@ class CompletionDeclarationFacts {
 
         if typeName == "FieldDeclaration" || typeName == "PropertyDeclaration" {
             memberType := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Type") as TypeReference
-            return new CompletionItem(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), "property", TypeReferenceFacts.GetDisplayNameOrVoid(memberType), null, null, false)
+            return new CompletionItem(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), "property", FormatMemberDetailType(TypeReferenceFacts.GetDisplayNameOrVoid(memberType), DeclarationFacts.GetDeclarationModifiers(declaration)), null, null, false)
         }
 
         // AN EVENT IS ITS OWN OFFER. It is the one member a completion must NOT call a property:
@@ -132,7 +132,7 @@ class CompletionDeclarationFacts {
         // A field and a property are the same offer to whoever is typing: a named value with a
         // type. The completion says `"property"` for both.
         if kind == DeclaredMemberKind.Field || kind == DeclaredMemberKind.Property {
-            return new CompletionItem(member.Name, "property", TypeReferenceFacts.GetDisplayNameOrVoid(member.Type), null, null, member.IsStatic)
+            return new CompletionItem(member.Name, "property", FormatMemberDetailType(TypeReferenceFacts.GetDisplayNameOrVoid(member.Type), member.DeclaredModifiers), null, null, member.IsStatic)
         }
 
         // An event is NOT that same offer: `on`/`off` is all a caller may write against it.
@@ -189,7 +189,7 @@ class CompletionDeclarationFacts {
         }
 
         if kind == DeclaredMemberKind.Field || kind == DeclaredMemberKind.Property {
-            return new CompletionItem(member.Name, "property", FormatSubstitutedMemberType(member.Type, semanticModels, declarationOwner, effectiveSubstitution), null, null, member.IsStatic)
+            return new CompletionItem(member.Name, "property", FormatMemberDetailType(FormatSubstitutedMemberType(member.Type, semanticModels, declarationOwner, effectiveSubstitution), member.DeclaredModifiers), null, null, member.IsStatic)
         }
 
         if kind == DeclaredMemberKind.Event {
@@ -203,6 +203,36 @@ class CompletionDeclarationFacts {
     // reach through, not a value to read.
     static func DeclaredMemberTypeItem(member: DeclaredMemberInfo, kind: string): CompletionItem {
         return new CompletionItem(member.Name, kind, null, null, null, false)
+    }
+
+    // Completion's detail column is the source member's signature fragment. `CompletionItem.Name`
+    // already carries the member name and its icon carries the kind, so the remaining facts are the
+    // ordered modifier words followed by the effective type. The raw modifier bits travel on
+    // `DeclaredMemberInfo` for inherited and constructed receivers; parsed declarations use the same
+    // formatter at file scope, which keeps the two completion paths in lockstep.
+    static func FormatMemberDetailType(typeText: string, modifiers: object): string {
+        modifierWords := CodeIntelligenceDisplayText.FormatModifiers(modifiers)
+        if modifierWords == null {
+            return typeText
+        }
+
+        builder := new StringBuilder()
+        index := 0
+        while index < modifierWords.Length {
+            if index > 0 {
+                builder.Append(" ")
+            }
+
+            builder.Append(modifierWords[index])
+            index = index + 1
+        }
+
+        if builder.Length > 0 {
+            builder.Append(" ")
+        }
+
+        builder.Append(typeText)
+        return builder.ToString()
     }
 
     // The parameter list a declared member shows. A parameter past the required count carries
