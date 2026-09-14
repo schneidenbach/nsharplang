@@ -35,6 +35,10 @@ func Indent(text: string, width: int = 2): string {
     return new string(' ', width) + text
 }
 
+func OptionalSlots(first: int = 1, middle: int = 2, last: int = 3): int {
+    return first * 100 + middle * 10 + last
+}
+
 // THE EVALUATION-ORDER PROBE. Each call records the name it was given before answering, so a test
 // can read back the order the arguments actually ran in -- which is the order they were WRITTEN,
 // whatever order the signature keeps them in.

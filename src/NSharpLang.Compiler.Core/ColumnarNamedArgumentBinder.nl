@@ -182,6 +182,42 @@ class ColumnarNamedArgumentBinder {
         return true
     }
 
+    // Place written arguments without requiring them to form a leading prefix. The caller owns
+    // validation and emission of every unclaimed optional slot.
+    static func TryPlaceSparse(nodes: ColumnarNodeTable, source: string, callNode: int, firstArgumentOrdinal: int, argumentCount: int, parameterNames: string[], out slotForWrittenArgument: int[], out claimedSlots: bool[]): bool {
+        slotForWrittenArgument = new int[](0)
+        claimedSlots = new bool[](0)
+        if nodes == null || source == null || parameterNames == null || argumentCount <= 0 || argumentCount > parameterNames.Length {
+            return false
+        }
+        placements := new int[](argumentCount)
+        claimed := new bool[](parameterNames.Length)
+        nextPositional := 0
+        written := 0
+        while written < argumentCount {
+            name := ArgumentName(nodes, source, nodes.Child(callNode, firstArgumentOrdinal + written))
+            slot := -1
+            if name != null {
+                slot = ParameterIndexOf(parameterNames, name)
+            } else {
+                while nextPositional < claimed.Length && claimed[nextPositional] {
+                    nextPositional += 1
+                }
+                slot = nextPositional
+                nextPositional += 1
+            }
+            if slot < 0 || slot >= claimed.Length || claimed[slot] {
+                return false
+            }
+            claimed[slot] = true
+            placements[written] = slot
+            written += 1
+        }
+        slotForWrittenArgument = placements
+        claimedSlots = claimed
+        return true
+    }
+
     // Move the already-computed argument rows into the slots `slotForWrittenArgument` assigned, in
     // place. Every column moves together, so a planner that reads `argumentTypes[slot]` and
     // `facts.ArgumentNodes[slot]` afterwards sees the SIGNATURE's order with no further arithmetic.

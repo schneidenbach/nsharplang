@@ -226,8 +226,10 @@ class ColumnarSiblingCallFacts {
     // ColumnarSiblingMethodDefinition.ParamNames. A named argument at a bare sibling call binds by
     // this list; an empty list simply means no call on this sibling can name a parameter.
     ParameterNames: string[]
+    ParameterDefaultKinds: int[]
+    ParameterDefaultTexts: string[]
 
-    constructor(method: MethodInfo, parameterTypes: Type[], parameterModifierKinds: int[], returnType: Type, typeParameterCount: int, parameterNames: string[]? = null) {
+    constructor(method: MethodInfo, parameterTypes: Type[], parameterModifierKinds: int[], returnType: Type, typeParameterCount: int, parameterNames: string[]? = null, parameterDefaultKinds: int[]? = null, parameterDefaultTexts: string[]? = null) {
         if method == null || parameterTypes == null || parameterModifierKinds == null || returnType == null {
             throw new InvalidOperationException("Sibling call definition facts cannot be null.")
         }
@@ -238,6 +240,8 @@ class ColumnarSiblingCallFacts {
         ReturnType = returnType
         TypeParameterCount = typeParameterCount
         ParameterNames = parameterNames ?? new string[](0)
+        ParameterDefaultKinds = parameterDefaultKinds ?? new int[](0)
+        ParameterDefaultTexts = parameterDefaultTexts ?? new string[](0)
     }
 }
 

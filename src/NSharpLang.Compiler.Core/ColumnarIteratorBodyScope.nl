@@ -80,7 +80,9 @@ class ColumnarIteratorBodyFacts {
                 sibling.ParamModifierKinds,
                 sibling.ReturnType,
                 sibling.TypeParams.Length,
-                sibling.ParamNames
+                sibling.ParamNames,
+                sibling.ParamDefaultKinds,
+                sibling.ParamDefaultTexts
             )
             names.Add(entry.Key)
         }

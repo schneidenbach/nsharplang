@@ -247,6 +247,11 @@ class ColumnarDirectCallPlanner {
 
         namedPlacement := new int[](0)
         if ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentTypes.Length) && !TryPlaceNamedCallArguments(nodes, source, node, callee, calleeKind, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out namedPlacement) {
+            sparseCheckpoint := plan.CreateCheckpoint()
+            if TryAppendSparseNamedSiblingCall(nodes, source, node, callee, calleeKind, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
+                return true
+            }
+            plan.Rollback(sparseCheckpoint)
             legacyWholeSubtreePlanning = true
             return false
         }
@@ -275,6 +280,84 @@ class ColumnarDirectCallPlanner {
             plan.Rollback(checkpoint)
             throw ex
         }
+    }
+
+    static func TryAppendSparseNamedSiblingCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out resultType: Type): bool {
+        resultType = typeof(int)
+        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression() {
+            return false
+        }
+        name := nodes.Text(source, callee)
+        facts: ColumnarSiblingCallFacts? = null
+        if !bindings.SiblingCallables.TryGetValue(name, out facts) || facts == null || facts.TypeParameterCount != 0 || facts.ParameterTypes.Length <= argumentTypes.Length || facts.ParameterNames.Length != facts.ParameterTypes.Length || facts.ParameterDefaultKinds.Length != facts.ParameterTypes.Length || facts.ParameterDefaultTexts.Length != facts.ParameterTypes.Length {
+            return false
+        }
+
+        placement := new int[](0)
+        claimed := new bool[](0)
+        if !ColumnarNamedArgumentBinder.TryPlaceSparse(nodes, source, callNode, 1, argumentTypes.Length, facts.ParameterNames, out placement, out claimed) {
+            return false
+        }
+        slot := 0
+        while slot < claimed.Length {
+            if !claimed[slot] && facts.ParameterDefaultKinds[slot] < 0 {
+                return false
+            }
+            slot += 1
+        }
+
+        locals := new int[](facts.ParameterTypes.Length)
+        Array.Fill(locals, -1)
+        written := 0
+        while written < argumentTypes.Length {
+            parameterSlot := placement[written]
+            singleTypes := new Type[](1)
+            singleTypes[0] = argumentTypes[written]
+            singleParameters := new Type[](1)
+            singleParameters[0] = facts.ParameterTypes[parameterSlot]
+            singleFacts := CopyArgumentFact(argumentFacts, written)
+            if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(singleParameters, singleTypes, singleFacts) < 0 || singleFacts.IsByRefArgument[0] || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), singleTypes, singleParameters, singleFacts, 0) {
+                return false
+            }
+            local := plan.DeclarePlanLocal(plan.AddType(singleParameters[0]))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), local)
+            locals[parameterSlot] = local
+            written += 1
+        }
+
+        slot = 0
+        while slot < facts.ParameterTypes.Length {
+            if locals[slot] >= 0 {
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), locals[slot])
+            } else if !ColumnarConstructionPlanner.TryAppendConstructorDefault(nodes, plan, facts.ParameterTypes[slot], facts.ParameterDefaultKinds[slot], facts.ParameterDefaultTexts[slot], bindings) {
+                return false
+            }
+            slot += 1
+        }
+
+        declaringType := facts.Method.get_DeclaringType()
+        if declaringType == null {
+            return false
+        }
+        methodIndex := plan.AddMethodWithSignature(facts.Method, declaringType, facts.ParameterTypes, facts.ReturnType, true, false)
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+        resultType = facts.ReturnType
+        return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
+    }
+
+    static func CopyArgumentFact(sourceFacts: ColumnarDirectCallArgumentFacts, index: int): ColumnarDirectCallArgumentFacts {
+        copy := ColumnarDirectCallArgumentFacts.Empty(1)
+        copy.SourceTypeDefinitions = sourceFacts.SourceTypeDefinitions
+        copy.ArgumentNodes[0] = sourceFacts.ArgumentNodes[index]
+        copy.IsUnsuffixedIntegerLiteral[0] = sourceFacts.IsUnsuffixedIntegerLiteral[index]
+        copy.IsNegativeIntegerLiteral[0] = sourceFacts.IsNegativeIntegerLiteral[index]
+        copy.IntegerLiteralValues[0] = sourceFacts.IntegerLiteralValues[index]
+        copy.IsNullLiteral[0] = sourceFacts.IsNullLiteral[index]
+        copy.IsByRefArgument[0] = sourceFacts.IsByRefArgument[index]
+        copy.IsIntegerConstantArrayLiteral[0] = sourceFacts.IsIntegerConstantArrayLiteral[index]
+        copy.ArrayLiteralMinimumValues[0] = sourceFacts.ArrayLiteralMinimumValues[index]
+        copy.ArrayLiteralMaximumValues[0] = sourceFacts.ArrayLiteralMaximumValues[index]
+        return copy
     }
 
     static func TryFlattenAgreedInPositionNames(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, methodBodySchema: bool, arity: int, out placement: int[]): bool {

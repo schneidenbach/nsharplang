@@ -5794,6 +5794,8 @@ sealed class ColumnarIlEmitter {
                 fnInterfaceConstraints
             )
             siblingDefinition.ParamNames = fn.ParamNames
+            siblingDefinition.ParamDefaultKinds = fn.ParamDefaultKinds
+            siblingDefinition.ParamDefaultTexts = fn.ParamDefaultTexts
             siblingDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(fn.SourceAttributes)
             siblingDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(fn.ParameterSourceAttributes)
             siblingDefinitionsByFunc[f] = siblingDefinition
@@ -11692,7 +11694,9 @@ sealed class ColumnarIlEmitter {
                 sibling.ParamModifierKinds,
                 sibling.ReturnType,
                 sibling.TypeParams.Length,
-                sibling.ParamNames
+                sibling.ParamNames,
+                sibling.ParamDefaultKinds,
+                sibling.ParamDefaultTexts
             )
         }
         _siblingCallFacts = facts

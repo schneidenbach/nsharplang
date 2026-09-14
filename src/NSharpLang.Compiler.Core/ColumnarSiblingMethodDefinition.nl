@@ -26,6 +26,8 @@ class ColumnarSiblingMethodDefinition {
     // reflected. Empty when the registration site had no names to carry, which simply means no call
     // on this sibling can name a parameter.
     ParamNames: string[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
 
     constructor(
         method: MethodInfo,
@@ -40,6 +42,8 @@ class ColumnarSiblingMethodDefinition {
         DoesNotReturn = false
         ParameterDoesNotReturnIf = new int[](0)
         ParamNames = new string[](0)
+        ParamDefaultKinds = new int[](0)
+        ParamDefaultTexts = new string[](0)
         Method = method
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds

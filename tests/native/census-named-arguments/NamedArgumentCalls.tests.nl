@@ -27,6 +27,11 @@ test "a named argument reaches a parameter that also declares a default" {
     assert Indent(width: 1, text: "x") == " x"
 }
 
+test "named arguments may omit optional parameters between supplied slots" {
+    assert OptionalSlots(last: 9) == 129
+    assert OptionalSlots(first: 4, last: 9) == 429
+}
+
 test "out-of-order named arguments evaluate in the order they were written" {
     recorder := new CallRecorder()
     quotient := Divide(denominator: recorder.Note("denominator", 2), numerator: recorder.Note("numerator", 10))
