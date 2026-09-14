@@ -37,7 +37,28 @@ Facade and MSBuild task lanes are running from `06186dc6d`; CLI/LSP/Playground/R
 Visual Studio is deferred; compiler completion and rename evidence below remain accepted.
 Shared compiler prerequisites, seeds and integration gates remain root-owned.
 
-**Census wave 10 integrating, 2026-09-14** (systems-language `836aac8af` → this push): six streams merged in landing order
+**Census wave 11 integrating, 2026-09-14** (systems-language `5e547f458` → this push): eight streams merged in landing order
+onto `census/merge` — ITER3, ATTR3, TOOL4 (`nlc lint` moved to N#, `LintCommand.cs` deleted), NULLABLE4, EMIT5, IFACE2,
+CAPTURE2, ITER4 (launched mid-wave for the slice ITER3 did not take: awaits in handler positions) — rows in
+tasks/TOOLCHAIN-NATIVE.md "Census wave 3"; corpus pin 120 (CAPTURE2's census-closures), 92 native projects, catalog unchanged at 105 codes / 95 compiler rows (no new error code this wave; no new node kind). The census
+that seeded the wave (converter 9b38b64 against a FRESH build — the main checkout's bin was stale and reported three
+false NL301 rows): runtime 0, cli 37 (35 warnings), tests 31 (29 warnings), languageserver 41 (16 warnings) — the 22 NL311
+rows were one compiler bug (an override of a cross-assembly `protected internal` slot must be `protected`, C# CS0507;
+IFACE2), the rest true positives or converter residue. Root fixes at the merges: EMIT5's deletion of the hand-written
+`string.IndexOf` emitter arm taken over NULLABLE4's arity-1 tweak; types.md "Current limits" reconciled (collection
+expressions against source overloads and the null-arm conditional both lifted). Language widening accepted in this
+wave: `==`/`!=` over two operands of the same OPEN type parameter (`EqualityComparer<T>.Default`; C# CS0019), and a
+cross-assembly `protected internal override` stays accepted because the CLR loads it (measured; CS0507 divergence in
+NL311.md). Converter 1ed0e9c imports the namespace of a type it spells for a `var` local (tests 31 → 30).
+Root verification at `a6d6c69a2` (ITER4's sentinel move: the three C# strings in tests/CompilationBackendTests.cs now hold `yield async () => 42` in a `func*`, ratchet fingerprint + head repinned): native sweep 91 projects 0 bad (3911/3912; the Build.Tasks/Playground/LanguageServer csprojs must be rebuilt first — TOOL4's PlaygroundCompiler change made 30 stale failures otherwise), sdk-project-reference-boundary 20/20 alone, estate 9175, unit 335, ilverify 101.
+Fresh gates at `a6d6c69a2`: `VSCODE_TESTS=skip` 18m44s and VS Code-enabled 19m35s (smoke 36 passing), both ALL TESTS PASSED; pushed as systems-language `a6d6c69a2`+docs → this commit.
+Owed: the visual VS Code pass (now also IFACE2 base-interface completions, TOOL4 internals/other-namespace completions);
+the LSP identifier completion path is C#-owned (`CompletionHandler.AddSemanticCompletionItems`) so cross-namespace
+auto-import reaches the CLI only; enum-MEMBER attributes need an emitter type-model slice (token ordering);
+overloaded FREE functions remain a documented limit (language decision); the stage-0 seed republish (IVT emit,
+>12-param ctors, static field runtime writes) is scheduled for the gap between waves.
+
+**Census wave 10 integrated, 2026-09-14** (systems-language `836aac8af` → `5e547f458`): six streams merged in landing order
 onto `census/merge` — THROWEXPR (kind 83, NL340), NULLABLE3, LAMBDA5, IFACE (NL342), IVT, LOCALFN3 (a HIGH silent-codegen
 bug THROWEXPR's probe found: an expression-bodied function returning an async lambda left `async` pending in the
 declaration scan and the NEXT top-level function wore it — its `throw` became a faulted task nobody awaited, and `check`,
