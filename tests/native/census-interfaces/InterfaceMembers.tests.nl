@@ -241,3 +241,39 @@ test "an inherited interface member is declared once, on the interface that open
     assert names.Contains("IAudited")
     assert names.Contains("IIdentified")
 }
+
+// A CLASS THAT CLOSES A GENERIC SOURCE INTERFACE — the type LOADS, and the slot dispatches.
+test "a class closing a generic source interface loads and dispatches through the closed slot" {
+    box: IBox<int> = new IntBox(5)
+    assert ReadIntBox(box) == "int:5/5"
+    assert box.Describe() == "int:5"
+    assert box.Value == 5
+}
+
+test "a generic class closing the same interface with its OWN parameter loads and dispatches" {
+    box: IBox<string> = new GenBox<string>("hi")
+    assert ReadStringBox(box) == "gen/hi"
+    assert box.Value == "hi"
+}
+
+// THE INTERFACE MAP, which is the half a runtime assertion cannot see: ONE implementation per slot,
+// bound to the CLOSED interface.
+test "the closed generic interface is the one in the implementer's interface map" {
+    boxInterfaces := typeof(IntBox).GetInterfaces()
+    closed := new List<string>()
+    for candidate in boxInterfaces {
+        closed.Add(candidate.ToString())
+    }
+    assert closed.Count == 1
+    assert closed[0].Contains("IBox")
+    assert closed[0].Contains("Int32")
+
+    map := typeof(IntBox).GetInterfaceMap(boxInterfaces[0])
+    assert map.InterfaceMethods.Length == map.TargetMethods.Length
+    targets := new List<string>()
+    for target in map.TargetMethods {
+        targets.Add(target.Name)
+    }
+    assert targets.Contains("Describe")
+    assert targets.Contains("get_Value")
+}

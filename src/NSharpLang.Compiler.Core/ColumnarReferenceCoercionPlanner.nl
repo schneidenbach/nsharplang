@@ -17,7 +17,7 @@ class ColumnarReferenceCoercionPlanner {
     ): bool {
         targetBuilder := targetType as TypeBuilder
         if targetBuilder == null {
-            return false
+            return CanUseClosedSourceInterfaceUpcast(valueType, targetType, structRegistry)
         }
         targetDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
             structRegistry.get_Values(),
@@ -44,6 +44,91 @@ class ColumnarReferenceCoercionPlanner {
         )
     }
 
+    // A CLOSED SOURCE INTERFACE IS NOT A `TypeBuilder`, AND THAT IS THE WHOLE DIFFERENCE.
+    //
+    // `class IntBox: IBox<int>` records `IBox<int>` — a `TypeBuilderInstantiation`, not the
+    // `IBox`1` builder — so the cast above answered null and the upcast declined:
+    // `b: IBox<int> = new IntBox(5)` was `emit.typed-local.type-mismatch`. The edge is still one the
+    // SOURCE declared, so it is read off the declaration rather than from reflection (which refuses
+    // the question over an unbaked instantiation): the implementer's own `ImplementedInterfaceTypes`
+    // are compared structurally against the target, and the base chain is walked because a base
+    // class's interfaces are the derived type's too.
+    static func CanUseClosedSourceInterfaceUpcast(
+        valueType: Type,
+        targetType: Type,
+        structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>
+    ): bool {
+        if !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        targetDefinitionBuilder := targetType.GetGenericTypeDefinition() as TypeBuilder
+        if targetDefinitionBuilder == null {
+            return false
+        }
+
+        targetDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
+            structRegistry.get_Values(),
+            targetDefinitionBuilder
+        )
+        if targetDefinition == null || !targetDefinition.IsInterface {
+            return false
+        }
+
+        // THE IMPLEMENTER IS EITHER BARE OR CLOSED. `class IntBox: IBox<int>` is the builder itself
+        // and writes its interface out already closed; `class GenBox<T>: IBox<T>` records the edge in
+        // ITS OWN parameters, and a `GenBox<string>` value supplies them by position — that
+        // substitution is the whole of what makes `IBox<string>` the right target.
+        valueBuilder := valueType as TypeBuilder
+        valueArguments := System.Array.Empty<Type>()
+        if valueBuilder == null {
+            if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+                return false
+            }
+
+            valueBuilder = valueType.GetGenericTypeDefinition() as TypeBuilder
+            if valueBuilder == null {
+                return false
+            }
+
+            valueArguments = valueType.GetGenericArguments()
+        }
+
+        current := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
+            structRegistry.get_Values(),
+            valueBuilder
+        )
+        depth := 0
+        while current != null && depth < 64 {
+            index := 0
+            while index < current.ImplementedInterfaceTypes.Count {
+                candidate := current.ImplementedInterfaceTypes[index]
+                if valueArguments.Length > 0 {
+                    candidate = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(candidate, valueArguments)
+                }
+
+                if ColumnarReferenceConversionFacts.ExactTypeShapeMatches(candidate, targetType) {
+                    return true
+                }
+
+                index += 1
+            }
+
+            // ONLY THE DECLARATION THAT WROTE THE EDGE. A base class's interface list is spelled in
+            // the BASE's parameters, so mapping this instantiation's arguments onto it by position
+            // would be a guess across a different parameter list; the bare case keeps the walk, and a
+            // constructed one stops here rather than guessing.
+            if valueArguments.Length > 0 {
+                return false
+            }
+
+            current = current.BaseDef
+            depth += 1
+        }
+
+        return false
+    }
+
     static func TryEmitInterfaceUpcast(
         valueType: Type,
         targetType: Type,
@@ -54,19 +139,31 @@ class ColumnarReferenceCoercionPlanner {
             return false
         }
 
+        // A CONSTRUCTED SOURCE IMPLEMENTER — `GenBox<string>` into `IBox<string>` — is not a
+        // `TypeBuilder`, so the shape question is asked of its DEFINITION while the `box` (which a
+        // value implementer still needs) names the constructed handle the value actually has.
         valueBuilder := valueType as TypeBuilder
-        if valueBuilder == null {
-            return false
+        definitionBuilder := valueBuilder
+        if definitionBuilder == null {
+            if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+                return false
+            }
+
+            definitionBuilder = valueType.GetGenericTypeDefinition() as TypeBuilder
+            if definitionBuilder == null {
+                return false
+            }
         }
+
         valueDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
             structRegistry.get_Values(),
-            valueBuilder
+            definitionBuilder
         )
         if valueDefinition == null {
             return false
         }
         if !valueDefinition.IsReference {
-            il.Emit(OpCodes.Box, valueBuilder)
+            il.Emit(OpCodes.Box, valueType)
         }
         return true
     }

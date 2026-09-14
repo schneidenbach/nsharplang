@@ -171,15 +171,56 @@ func WatchChannel(channel: IChannel): string {
 }
 
 // A GENERIC INTERFACE'S VALUE MEMBER IS TYPED BY ITS OWN PARAMETER, and closing the interface closes
-// the slot with it. No implementer is written here: a CLASS closing a generic SOURCE interface
-// load-fails today for reasons that have nothing to do with value members — `class IntBox: IBox<int>`
-// with only a `func Describe(): string` in the interface already throws
-// `tried to override method 'Describe' but does not implement or inherit that method` — so this
-// declaration pins the SLOT's metadata and leaves that gap to its own slice.
+// the slot with it.
+//
+// A CLASS CLOSING A GENERIC SOURCE INTERFACE used to load-fail: `class IntBox: IBox<int>` threw
+// `TypeLoadException: … tried to override method 'Describe' but does not implement or inherit that
+// method`. Two MethodImpl rows were written for one implementation — one against the CLOSED
+// `IBox<int>` slot (correct) and one against the OPEN `IBox`1::Describe` (a method `IntBox` neither
+// implements nor inherits), because the override walk asked both the implemented-interface
+// DEFINITIONS and the implemented-interface TYPES. A generic interface is only ever implemented
+// closed, so the definitions loop now skips a generic definition and leaves that target to the
+// closed one.
 interface IBox<T> {
     Value: T
 
     func Describe(): string
+}
+
+// THE IMPLEMENTER CLOSES THE INTERFACE WITH A CONCRETE ARGUMENT…
+class IntBox: IBox<int> {
+    Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+
+    func Describe(): string {
+        return "int:" + Value.ToString()
+    }
+}
+
+// …OR WITH ITS OWN. `GenBox<T>` writes the edge in its own parameter, and a `GenBox<string>` value
+// supplies it by position — which is the substitution that makes `IBox<string>` the right target for
+// the upcast below.
+class GenBox<T>: IBox<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    func Describe(): string {
+        return "gen"
+    }
+}
+
+func ReadIntBox(box: IBox<int>): string {
+    return box.Describe() + "/" + box.Value.ToString()
+}
+
+func ReadStringBox(box: IBox<string>): string {
+    return box.Describe() + "/" + box.Value
 }
 
 // A DUCK INTERFACE'S VALUE MEMBER IS A SLOT LIKE ANY OTHER. Structural matching used to count only

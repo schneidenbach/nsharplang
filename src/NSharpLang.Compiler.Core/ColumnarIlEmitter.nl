@@ -4516,7 +4516,18 @@ sealed class ColumnarIlEmitter {
                 // Resolution remains at the declaration phase because source builders and closed handles
                 // do not exist when the initial rows are planned. N# owns target deduplication, final
                 // attributes, base-target resolution and application order.
+                // A GENERIC SOURCE INTERFACE IS ONLY EVER IMPLEMENTED CLOSED, and its slot belongs to
+                // the CLOSED handle. `class IntBox: IBox<int>` implements `IBox<int>`, not
+                // `IBox<T>` — so a MethodImpl row pointing at the open `IBox`1::Describe` names a
+                // method this type neither implements nor inherits, and the CLR said exactly that:
+                // `TypeLoadException: … tried to override method 'Describe' but does not implement
+                // or inherit that method.` The closed loop below is the owner of that target, and it
+                // produces the right one through `TypeBuilder.GetMethod(closed, open)`.
                 for implementedInterface in def.ImplementedInterfaces {
+                    implementedInterfaceBuilder: Type = implementedInterface.Builder
+                    if (implementedInterfaceBuilder.get_IsGenericTypeDefinition()) {
+                        continue
+                    }
                     methodOverride.TryAddSourceInterfaceTarget(
                         implementedInterface,
                         m.Name,
