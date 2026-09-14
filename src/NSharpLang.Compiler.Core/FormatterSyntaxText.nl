@@ -265,6 +265,20 @@ class FormatterSyntaxText {
             parts.Add("file")
         }
 
+        // `required` AND `init` COME LAST BECAUSE THAT IS WHERE THEY PARSE. The member scan reads the
+        // declaration words first and stops at the first word it does not know; `required`, `init` and
+        // `readonly` are then read by the field/property scan behind it. Printing either of these two
+        // anywhere but after every word in the first group would produce a member the parser could no
+        // longer read back — and a formatter that cannot round-trip its own output is worse than one
+        // that reorders nothing.
+        if HasModifier(bits, 8192) {
+            parts.Add("required")
+        }
+
+        if HasModifier(bits, 16384) {
+            parts.Add("init")
+        }
+
         return string.Join(" ", parts)
     }
 
