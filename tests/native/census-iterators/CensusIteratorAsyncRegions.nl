@@ -112,3 +112,70 @@ class CensusRecordingResource: IDisposable {
         Trace.Add("release " + Name)
     }
 }
+
+// AN `await` INSIDE A `finally`. The handler cannot run inside the region it guards — a suspension
+// leaves the method with an empty stack and comes back through the state dispatch, and a dispatch
+// cannot branch INTO a protected region — so the handler body is HOISTED to the ordinary code just
+// past the region, a catch-all parks the exception in flight, and a branch out of the statement
+// records where it was going. This is Roslyn's lowering, and these are its observable contracts.
+async func* AwaitingFinally(trace: CensusTrace): IAsyncEnumerable<int> {
+    try {
+        await Task.Delay(1)
+        yield 1
+        yield 2
+    } finally {
+        await Task.Delay(1)
+        trace.Add("released")
+    }
+    trace.Add("after")
+}
+
+// The body RAISES: the parked exception is re-raised after the awaiting handler ran, through
+// `ExceptionDispatchInfo` so the original stack trace survives the hoist.
+async func* AwaitingFinallyOverRaise(trace: CensusTrace): IAsyncEnumerable<int> {
+    try {
+        yield 1
+        await Task.Delay(1)
+        throw new InvalidOperationException("raised")
+    } finally {
+        await Task.Delay(1)
+        trace.Add("released")
+    }
+}
+
+// A `yield break` OUT of the region: the recorded branch is what makes the handler run before the
+// sequence ends, instead of the exit jumping straight past it.
+async func* AwaitingFinallyOverBreak(trace: CensusTrace, stopAt: int): IAsyncEnumerable<int> {
+    try {
+        i := 0
+        while i < 4 {
+            if i == stopAt {
+                yield break
+            }
+            yield i
+            await Task.Delay(1)
+            i = i + 1
+        }
+    } finally {
+        await Task.Delay(1)
+        trace.Add("released")
+    }
+    trace.Add("after")
+}
+
+// NESTED awaiting handlers: the inner branch has to hop through the outer one rather than jumping
+// to the body's end label, so both handlers run and in the right order.
+async func* NestedAwaitingFinally(trace: CensusTrace): IAsyncEnumerable<int> {
+    try {
+        try {
+            yield 1
+            yield break
+        } finally {
+            await Task.Delay(1)
+            trace.Add("inner")
+        }
+    } finally {
+        await Task.Delay(1)
+        trace.Add("outer")
+    }
+}

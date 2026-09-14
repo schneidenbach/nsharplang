@@ -108,3 +108,69 @@ test "a suspension numbered after an await still knows which region it stands in
     assert seen == 2
     assert abandonTrace.Joined() == "finally"
 }
+
+// EXECUTED PROOFS FOR AN `await` IN A HANDLER POSITION.
+test "an awaiting finally runs once after the sequence ends" {
+    trace := new CensusTrace()
+    collected := new List<int>()
+    await foreach v in AwaitingFinally(trace) {
+        collected.Add(v)
+    }
+    assert collected.Count == 2
+    assert collected[0] == 1
+    assert collected[1] == 2
+    assert trace.Joined() == "released,after"
+}
+
+test "an awaiting finally runs when the consumer abandons the sequence" {
+    trace := new CensusTrace()
+    seen := 0
+    await foreach v in AwaitingFinally(trace) {
+        seen = seen + 1
+        break
+    }
+    assert seen == 1
+    assert trace.Joined() == "released"
+}
+
+test "an exception passes through an awaiting finally and reaches the consumer after it ran" {
+    trace := new CensusTrace()
+    collected := new List<int>()
+    raised := false
+    try {
+        await foreach v in AwaitingFinallyOverRaise(trace) {
+            collected.Add(v)
+        }
+    } catch ex: InvalidOperationException {
+        raised = true
+        assert ex.Message == "raised"
+        assert ex.StackTrace != null
+    }
+    assert raised
+    assert collected.Count == 1
+    assert trace.Joined() == "released"
+}
+
+test "a yield break out of a region runs its awaiting finally first" {
+    trace := new CensusTrace()
+    collected := new List<int>()
+    await foreach v in AwaitingFinallyOverBreak(trace, 2) {
+        collected.Add(v)
+    }
+    assert collected.Count == 2
+    assert collected[0] == 0
+    assert collected[1] == 1
+    // "after" is NOT in the trace: `yield break` ends the sequence, so the recorded branch carries
+    // past the handler to the body's end label rather than falling through to the next statement.
+    assert trace.Joined() == "released"
+}
+
+test "nested awaiting finallys both run, innermost first" {
+    trace := new CensusTrace()
+    collected := new List<int>()
+    await foreach v in NestedAwaitingFinally(trace) {
+        collected.Add(v)
+    }
+    assert collected.Count == 1
+    assert trace.Joined() == "inner,outer"
+}

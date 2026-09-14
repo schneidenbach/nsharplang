@@ -1078,6 +1078,38 @@ class ColumnarIteratorPlanner {
         return "<>__using" + ordinal.ToString()
     }
 
+    // THE TWO FIELDS A HOISTED HANDLER NEEDS, and why a handler that awaits needs any at all.
+    //
+    // A suspension has to leave the method with an EMPTY evaluation stack and come back through the
+    // state dispatch — and a dispatch cannot branch INTO a protected region. So an `await` written
+    // inside a `finally` can never run inside the region it guards: the handler body is HOISTED out,
+    // to the ordinary code just past the region's end, which is exactly what Roslyn's
+    // `AsyncMethodToStateMachineRewriter.VisitTryStatement` does.
+    //
+    // Hoisting costs the two things a real `finally` gave for free. The exception in flight no longer
+    // survives the region on its own, so a catch-all parks it in `<>__pending{k}` (an
+    // `ExceptionDispatchInfo`, so the original stack trace is preserved when it is re-raised AFTER the
+    // handler has run). And a branch OUT of the statement — a `yield break`, or the unwind of an
+    // abandoned machine — can no longer jump straight to the body's end label, because that would
+    // skip the hoisted handler entirely; it records where it was going in `<>__branch{k}` and leaves
+    // to the region end instead, and the rows after the handler take the branch.
+    //
+    // Both live on the state machine because the handler itself may suspend: a plan local would not
+    // survive the drive that resumes inside it.
+    static func PendingExceptionFieldName(region: int): string {
+        return "<>__pending" + region.ToString()
+    }
+
+    static func PendingBranchFieldName(region: int): string {
+        return "<>__branch" + region.ToString()
+    }
+
+    static func DeclareHoistedHandlerFields(region: int, state: ColumnarIteratorWalkState): bool {
+        state.AddLocal(PendingExceptionFieldName(region), UnresolvedCanonical())
+        state.AddLocal(PendingBranchFieldName(region), "int")
+        return !state.Declined
+    }
+
     static func WalkTryStatement(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState): bool {
         childCount := nodes.ChildCount(node)
         if childCount < 1 || nodes.Kind(nodes.Child(node, 0)) != 25 {
@@ -1112,8 +1144,16 @@ class ColumnarIteratorPlanner {
             state.Decline("emit.iterator.unsupported-shape", YieldInHandlerMessage("finally"))
             return false
         }
-        if finallyNode >= 0 && ContainsAwait(nodes, finallyNode) {
+        hoistedFinally := finallyNode >= 0 && ContainsAwait(nodes, finallyNode)
+        if hoistedFinally && !state.IsAsync {
             state.Decline("emit.iterator.async-await-unsupported", AwaitInHandlerMessage("finally"))
+            return false
+        }
+        if hoistedFinally && catchCount > 0 {
+            // The hoisted form replaces the statement's own handlers with ONE catch-all that parks the
+            // exception, so a `catch` clause beside an awaiting `finally` would have to be re-matched
+            // by hand against the parked exception. That is a separate shape from this slice's.
+            state.Decline("emit.iterator.async-await-unsupported", "an `await` inside a `finally` is not yet lowered when the same `try` also declares a `catch`")
             return false
         }
         if catchCount == 0 && finallyNode < 0 {
@@ -1124,6 +1164,9 @@ class ColumnarIteratorPlanner {
         region := state.TryRegionCount
         state.TryRegionParents[region] = state.CurrentRegion
         state.TryRegionCount = state.TryRegionCount + 1
+        if hoistedFinally && !DeclareHoistedHandlerFields(region, state) {
+            return false
+        }
         enclosing := state.CurrentRegion
         state.CurrentRegion = region
         tryFalls := WalkStatement(nodes, source, tryBlock, state)
@@ -1809,6 +1852,14 @@ class ColumnarMoveNextEmit {
     FaultGuarded: bool
     RegionDepth: int
     RegionEntryLabels: int[]
+    // THE HOISTED-HANDLER STACK. A region whose handler awaits does not close with a real `finally`:
+    // the handler body stands just past the region end, in ordinary code, so every branch OUT of the
+    // statement has to stop there on the way. `HoistedRegionEnds[d]` is the region end such a branch
+    // leaves to and `HoistedBranchFields[d]` is the field it records its destination in; depth 0 means
+    // no hoisted region is open and a branch to the body's end label is the plain one.
+    HoistedRegionEnds: int[]
+    HoistedBranchFields: string[]
+    HoistedDepth: int
     NextTryRegion: int
     NextUsingResource: int
     // Async mode: yields and awaits share ONE resume-state counter (walk order), awaits number their
@@ -1844,6 +1895,9 @@ class ColumnarMoveNextEmit {
         FaultGuarded = faultGuarded
         RegionDepth = 0
         RegionEntryLabels = regionEntryLabels ?? new int[](0)
+        HoistedRegionEnds = new int[](RegionEntryLabels.Length)
+        HoistedBranchFields = new string[](RegionEntryLabels.Length)
+        HoistedDepth = 0
         NextTryRegion = 0
         NextUsingResource = 0
         CatchHandlerDepth = 0
@@ -2550,6 +2604,20 @@ class ColumnarIteratorBodyPlanner {
     // `try` the body wrote, so it is a `leave` exactly when one of those is open; the outer fault
     // wrapper, when there is one, encloses the end label too and is not crossed.
     static func AppendBodyExit(emit: ColumnarMoveNextEmit, label: int) {
+        // A BRANCH TO THE BODY'S END CANNOT SKIP A HOISTED HANDLER. Inside a region whose handler was
+        // hoisted out, the end label is no longer reachable in one hop: the exit records itself in the
+        // region's branch field and leaves to that region's end, where the handler runs and the rows
+        // after it re-issue the branch — in the ENCLOSING context, so a nested hoisted region repeats
+        // the same hop one level out. Every other target (a plain region's own end) is unaffected.
+        if label == emit.EndLabel && emit.HoistedDepth > 0 {
+            depth := emit.HoistedDepth - 1
+            LoadThis(emit)
+            EmitInt(emit, 1)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, emit.HoistedBranchFields[depth]))
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), emit.HoistedRegionEnds[depth])
+            return
+        }
+
         emit.Plan.AppendLabelInstruction(emit.RegionDepth > 0 ? ColumnarCodePlanContract.Leave() : ColumnarCodePlanContract.Br(), label)
     }
 
@@ -3747,6 +3815,10 @@ class ColumnarIteratorBodyPlanner {
             handlerEnd = childCount - 1
         }
 
+        if finallyNode >= 0 && ColumnarIteratorPlanner.ContainsAwait(nodes, finallyNode) {
+            return EmitHoistedHandlerRegion(emit, node, finallyNode)
+        }
+
         region := emit.NextTryRegion
         emit.NextTryRegion = emit.NextTryRegion + 1
         emit.Plan.AppendMarkLabel(emit.RegionEntryLabels[region])
@@ -3797,6 +3869,105 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendEndExceptionBlock()
         emit.RegionDepth = emit.RegionDepth - 1
         return tryFalls || handlersFall
+    }
+
+    // A REGION WHOSE HANDLER SUSPENDS. The handler cannot run inside the region — a suspension leaves
+    // the method with an empty stack and comes back through the state dispatch, and a dispatch cannot
+    // branch INTO a protected region — so the body keeps the region and the handler is emitted just
+    // PAST it, in ordinary code where an `await` is an ordinary suspension:
+    //
+    //     entry_k:  this.<>__pending{k} = null; this.<>__branch{k} = 0
+    //               try   { <dispatch for k> <body> leave end_k }
+    //               catch (Exception e) { this.<>__pending{k} = ExceptionDispatchInfo.Capture(e) }
+    //     end_k:    <handler body — awaits freely>
+    //               if (this.<>__pending{k} != null) this.<>__pending{k}.Throw()
+    //               if (this.<>__branch{k} != 0) <re-issue the exit, one level out>
+    //
+    // The parked exception is re-raised AFTER the handler ran, through `ExceptionDispatchInfo` so the
+    // original stack trace survives — which is the observable difference between this and a plain
+    // `throw e`. A suspension inside the BODY leaves to the METHOD's region end rather than this
+    // region's, so it never touches the handler, exactly as a `yield` inside a real `finally`-guarded
+    // region is skipped by that handler's state guard.
+    //
+    // This is Roslyn's `AsyncMethodToStateMachineRewriter.VisitTryStatement` lowering, and it carries
+    // Roslyn's semantics with it: a handler that itself raises replaces the parked exception, which is
+    // what C# does for an exception thrown from a `finally` as well.
+    static func EmitHoistedHandlerRegion(emit: ColumnarMoveNextEmit, node: int, finallyNode: int): bool {
+        nodes := emit.Context.Nodes
+        region := emit.NextTryRegion
+        emit.NextTryRegion = emit.NextTryRegion + 1
+        pendingName := ColumnarIteratorPlanner.PendingExceptionFieldName(region)
+        branchName := ColumnarIteratorPlanner.PendingBranchFieldName(region)
+        pendingField: FieldInfo? = null
+        if !emit.Context.TryEnsureHoistedField(pendingName, ExceptionDispatchInfoRuntimeType(), out pendingField) {
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "the pending-exception slot of an awaiting handler could not be hoisted")
+            return false
+        }
+
+        emit.Plan.AppendMarkLabel(emit.RegionEntryLabels[region])
+        LoadThis(emit)
+        emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, pendingName))
+        LoadThis(emit)
+        EmitInt(emit, 0)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, branchName))
+
+        regionEnd := emit.Plan.DefineLabel()
+        emit.Plan.AppendBeginExceptionBlock(regionEnd)
+        emit.RegionDepth = emit.RegionDepth + 1
+        emit.HoistedRegionEnds[emit.HoistedDepth] = regionEnd
+        emit.HoistedBranchFields[emit.HoistedDepth] = branchName
+        emit.HoistedDepth = emit.HoistedDepth + 1
+        AppendStateDispatch(emit, TotalResumeCount(emit.Context), region)
+
+        bodyFalls := EmitStatement(emit, nodes.Child(node, 0))
+        if emit.Context.Declined {
+            return false
+        }
+        if bodyFalls {
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), regionEnd)
+        }
+
+        exTypeIdx := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(ExceptionRuntimeType()), emit.Context.StructuralTypeReferences)
+        emit.Plan.AppendBeginCatchBlock(exTypeIdx)
+        caught := emit.Plan.DeclarePlanLocal(exTypeIdx)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), caught)
+        LoadThis(emit)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), caught)
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(ExceptionDispatchInfoCaptureMethod()))
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, pendingName))
+        emit.Plan.AppendEndExceptionBlock()
+        emit.RegionDepth = emit.RegionDepth - 1
+        emit.HoistedDepth = emit.HoistedDepth - 1
+
+        EmitStatement(emit, finallyNode)
+        if emit.Context.Declined {
+            return false
+        }
+
+        AppendHoistedHandlerTail(emit, pendingName, branchName)
+        return !emit.Context.Declined
+    }
+
+    // The rows after a hoisted handler: re-raise what the region parked, then take the exit it
+    // recorded. Both tests are field reads because both fields had to survive a suspension inside the
+    // handler itself.
+    static func AppendHoistedHandlerTail(emit: ColumnarMoveNextEmit, pendingName: string, branchName: string) {
+        noPending := emit.Plan.DefineLabel()
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, pendingName))
+        emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), noPending)
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, pendingName))
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), emit.Plan.AddMethod(ExceptionDispatchInfoThrowMethod()))
+        emit.Plan.AppendMarkLabel(noPending)
+
+        noBranch := emit.Plan.DefineLabel()
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, branchName))
+        emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), noBranch)
+        AppendBodyExit(emit, emit.EndLabel)
+        emit.Plan.AppendMarkLabel(noBranch)
     }
 
     // One `catch` handler. The runtime hands the exception on the stack; a state machine's bindings
@@ -4312,6 +4483,29 @@ class ColumnarIteratorBodyPlanner {
         typeArgs := new Type[](1)
         typeArgs[0] = typeof(bool)
         return RequiredRuntimeType(definitionName).MakeGenericType(typeArgs)
+    }
+
+    static func ExceptionDispatchInfoRuntimeType(): Type {
+        return RequiredRuntimeType("System.Runtime.ExceptionServices.ExceptionDispatchInfo")
+    }
+
+    static func ExceptionDispatchInfoCaptureMethod(): MethodInfo {
+        captureTypes := new Type[](1)
+        captureTypes[0] = ExceptionRuntimeType()
+        method := ExceptionDispatchInfoRuntimeType().GetMethod("Capture", captureTypes)
+        if method == null {
+            throw new InvalidOperationException("ExceptionDispatchInfo.Capture(Exception) was not found.")
+        }
+        return method
+    }
+
+    static func ExceptionDispatchInfoThrowMethod(): MethodInfo {
+        noTypes := new Type[](0)
+        method := ExceptionDispatchInfoRuntimeType().GetMethod("Throw", noTypes)
+        if method == null {
+            throw new InvalidOperationException("ExceptionDispatchInfo.Throw() was not found.")
+        }
+        return method
     }
 
     static func ExceptionRuntimeType(): Type {
