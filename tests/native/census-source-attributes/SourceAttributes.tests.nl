@@ -133,43 +133,40 @@ test "an external attribute with only a named argument is emitted" {
     assert found.DiagnosticId == "NL9999"
 }
 
-// `Name: value` IS A NAMED ARGUMENT, AND THE ROW HAS TO BE THERE AT ALL. The emitter's reader knew
-// only `Name = value`, so every attribute below decoded as one unreadable positional argument and
-// was dropped from the metadata entirely — no row, no diagnostic, nothing to see until a framework
-// that reads the attribute behaved differently. Each of these asserts the row exists AND carries the
-// value the named argument set.
-test "a colon-spelled named argument sets an exported field" {
-    named := MarkOn("ColonNamedField")
-    assert named != null, "the attribute row must be emitted for a colon-spelled named argument"
-    assert named.Tag == "colon named"
+// Assert that member assignments preserve both the attribute row and its payload.
+// A successful compilation alone cannot detect an attribute silently omitted from metadata.
+test "an attribute member assignment sets an exported field" {
+    named := MarkOn("MemberAssignedField")
+    assert named != null, "the attribute row must be emitted for an attribute member assignment"
+    assert named.Tag == "member named"
     assert named.Count == 43
 }
 
-test "a colon-spelled named argument sets a property through its setter" {
-    found := RequiredMethod("ColonNamedProperty").GetCustomAttribute(typeof(NotedAttribute), false) as NotedAttribute
-    assert found != null, "the attribute row must be emitted for a colon-spelled named argument"
-    assert found.Note == "through a setter, colon"
+test "an attribute member assignment sets a property through its setter" {
+    found := RequiredMethod("MemberAssignedProperty").GetCustomAttribute(typeof(NotedAttribute), false) as NotedAttribute
+    assert found != null, "the attribute row must be emitted for an attribute member assignment"
+    assert found.Note == "through a setter, member assignment"
 }
 
-test "a colon-spelled named argument binds an inherited member" {
-    found := RequiredMethod("ColonDerived").GetCustomAttribute(typeof(DerivedMarkAttribute), false) as DerivedMarkAttribute
-    assert found != null, "the attribute row must be emitted for a colon-spelled named argument"
-    assert found.Tag == "colon derived"
+test "an attribute member assignment binds an inherited member" {
+    found := RequiredMethod("MemberAssignedInherited").GetCustomAttribute(typeof(DerivedMarkAttribute), false) as DerivedMarkAttribute
+    assert found != null, "the attribute row must be emitted for an attribute member assignment"
+    assert found.Tag == "member derived"
     assert found.Count == 4
-    assert found.Extra == "colon own"
+    assert found.Extra == "member own"
 }
 
-test "a colon-spelled named argument binds on an external attribute" {
-    found := RequiredMethod("ColonExternalNamedOnly").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
-    assert found != null, "the attribute row must be emitted for a colon-spelled named argument"
+test "an attribute member assignment binds on an external attribute" {
+    found := RequiredMethod("MemberAssignedExternal").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
+    assert found != null, "the attribute row must be emitted for an attribute member assignment"
     assert found.DiagnosticId == "NL9998"
 }
 
 // THE READER MUST NOT TURN AN ORDINARY ARGUMENT INTO A NAMED ONE. A positional enum member is a
 // dotted name, and a `|` of two of them is a binary expression; neither is `Identifier` followed by
 // a separator, so both stay positional and land in the constructor's own parameters.
-test "positional arguments stay positional beside the colon spelling" {
-    found := RequiredMethod("ColonPositionalStillPositional").GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute
+test "positional enum arguments preserve their constructor payload" {
+    found := RequiredMethod("EnumPositionalArguments").GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute
     assert found != null, "the attribute row must be emitted"
     assert found.Level == Level.High
     expectedTargets := AttributeTargets.Method | AttributeTargets.Class

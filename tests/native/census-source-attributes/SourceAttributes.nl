@@ -203,30 +203,26 @@ class Target {
     func ExternalNamedOnly() {
     }
 
-    // THE OTHER SPELLING OF A NAMED ARGUMENT. `Name: value` is what N# writes a named argument with
-    // everywhere else — a call, an object initializer — and the analyzer validates it in an
-    // attribute exactly like `Name = value` (an unknown member is NL303, a mismatched value NL202).
-    // The emitter's argument reader knew only `=`, so each of these read its name and its value as
-    // ONE positional argument, failed to decode it, and the WHOLE attribute was dropped from the
-    // emitted metadata with no diagnostic: `GetCustomAttributesData()` simply had no row.
-    [Mark("colon named", Count: 43)]
-    func ColonNamedField() {
+    // CLR attribute fields and properties use `Name = value`; `name: value` selects a
+    // constructor parameter. Keep explicit metadata-row checks for these member assignments.
+    [Mark("member named", Count = 43)]
+    func MemberAssignedField() {
     }
 
-    [Noted(Note: "through a setter, colon")]
-    func ColonNamedProperty() {
+    [Noted(Note = "through a setter, member assignment")]
+    func MemberAssignedProperty() {
     }
 
-    [DerivedMark("colon derived", Count: 4, Extra: "colon own")]
-    func ColonDerived() {
+    [DerivedMark("member derived", Count = 4, Extra = "member own")]
+    func MemberAssignedInherited() {
     }
 
-    [Obsolete(DiagnosticId: "NL9998")]
-    func ColonExternalNamedOnly() {
+    [Obsolete(DiagnosticId = "NL9998")]
+    func MemberAssignedExternal() {
     }
 
     [Levelled(Level.High, AttributeTargets.Method | AttributeTargets.Class, 19)]
-    func ColonPositionalStillPositional() {
+    func EnumPositionalArguments() {
     }
 }
 
