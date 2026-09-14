@@ -173,10 +173,10 @@ test "the analyzer pre-loads exactly the table the columnar scan pre-loads — o
     assert JoinNames(AnalyzerMetadataLoadPolicy.CommonAssemblyNames()) == JoinNames(ExternalAssemblyScan.CommonAssemblyNames())
 }
 
-test "the table is the 28 names the drift used to be measured against, and it still opens with the core assembly" {
+test "the table is the 31 names the drift used to be measured against, and it still opens with the core assembly" {
     names := AnalyzerMetadataLoadPolicy.CommonAssemblyNames()
 
-    assert names.Length == 28
+    assert names.Length == 31
     assert names[0] == AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName()
     assert names[0] == "System.Runtime"
 
@@ -208,6 +208,37 @@ test "the name the analyzer's own copy was missing is IN the table — LINQ-to-X
     }
 
     assert found
+}
+
+// THE TWO BCL SURFACES A `nlc`-SHAPED PROGRAM REACHES FOR. A watch loop needs `FileSystemWatcher`
+// and a `pack` needs the zip writer; neither assembly was in the table, so both reported NL201/NL704
+// with no import a user could add to fix it.
+test "the file-system watcher and the zip writer are in the table" {
+    names := AnalyzerMetadataLoadPolicy.CommonAssemblyNames()
+
+    watcher := false
+    compression := false
+    zipFile := false
+    index := 0
+    while index < names.Length {
+        if names[index] == "System.IO.FileSystem.Watcher" {
+            watcher = true
+        }
+
+        if names[index] == "System.IO.Compression" {
+            compression = true
+        }
+
+        if names[index] == "System.IO.Compression.ZipFile" {
+            zipFile = true
+        }
+
+        index = index + 1
+    }
+
+    assert watcher
+    assert compression
+    assert zipFile
 }
 
 // ── THE ASP.NET TABLE AND WHAT SELECTS IT ────────────────────────────────────────────────────────

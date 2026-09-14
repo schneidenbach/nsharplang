@@ -1234,7 +1234,7 @@ class ExternalAssemblyScan {
     }
 
     static func CommonAssemblyNames(): string[] {
-        names := new string[](28)
+        names := new string[](31)
         names[0] = "System.Runtime"
         names[1] = "System.Console"
         names[2] = "System.Collections"
@@ -1276,6 +1276,18 @@ class ExternalAssemblyScan {
         // (`System.Reflection.Metadata.Ecma335.MetadataTokens.X` answers "Variable 'System' not
         // found"), which is what makes this entry load-bearing rather than a convenience.
         names[27] = "System.Reflection.Metadata"
+        // THE FILE-SYSTEM WATCHER AND THE ZIP WRITER, which are the two BCL surfaces a `nlc`-shaped
+        // program reaches for and neither of which lives in an assembly already named above.
+        // `FileSystemWatcher` (with `NotifyFilters`, `FileSystemEventArgs`, `RenamedEventArgs`) is
+        // the whole of `System.IO.FileSystem.Watcher`; without it a watch loop reports NL201 "Type
+        // 'FileSystemWatcher' not found" with no import that could fix it. `ZipArchive` /
+        // `ZipArchiveMode` live in `System.IO.Compression` and the `ZipFile` /
+        // `ZipArchive.CreateEntryFromFile` pair in `System.IO.Compression.ZipFile`, so writing a
+        // NuGet package — a zip — needed both entries: `import System.IO.Compression` itself
+        // reported NL704 "namespace not found" because nothing in the loaded set declared it.
+        names[28] = "System.IO.FileSystem.Watcher"
+        names[29] = "System.IO.Compression"
+        names[30] = "System.IO.Compression.ZipFile"
         return names
     }
 }
