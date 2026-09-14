@@ -174,3 +174,80 @@ test "nested awaiting finallys both run, innermost first" {
     assert collected.Count == 1
     assert trace.Joined() == "inner,outer"
 }
+
+// EXECUTED PROOFS FOR `await using` INSIDE AN ASYNC GENERATOR.
+test "an await using resource is released asynchronously once at the end" {
+    trace := new CensusTrace()
+    collected := new List<int>()
+    await foreach v in AsyncScoped(trace) {
+        collected.Add(v)
+    }
+    assert collected.Count == 2
+    assert trace.Joined() == "acquire r,release r,after"
+}
+
+test "an await using resource is released when the consumer stops early" {
+    trace := new CensusTrace()
+    await foreach v in AsyncScoped(trace) {
+        assert v == 1
+        break
+    }
+    assert trace.Joined() == "acquire r,release r"
+}
+
+test "an await using resource is released before an exception reaches the consumer" {
+    trace := new CensusTrace()
+    raised := false
+    try {
+        await foreach v in AsyncScopedRaising(trace) {
+            assert v == 1
+        }
+    } catch ex: InvalidOperationException {
+        raised = true
+        assert ex.Message == "raised"
+    }
+    assert raised
+    assert trace.Joined() == "acquire r,release r"
+}
+
+// EXECUTED PROOFS FOR `await foreach` INSIDE AN ASYNC GENERATOR.
+test "an async generator relays an await foreach to its own consumer" {
+    trace := new CensusTrace()
+    collected := new List<int>()
+    await foreach v in Relayed(trace, RecordedAsyncSource(trace, 3)) {
+        collected.Add(v)
+    }
+    assert collected.Count == 3
+    assert collected[0] == 0
+    assert collected[1] == 2
+    assert collected[2] == 4
+    assert trace.Joined() == "source released,after"
+}
+
+test "abandoning the outer sequence releases the inner await foreach enumerator" {
+    trace := new CensusTrace()
+    seen := 0
+    await foreach v in Relayed(trace, RecordedAsyncSource(trace, 5)) {
+        seen = seen + 1
+        break
+    }
+    assert seen == 1
+    assert trace.Joined() == "source released"
+}
+
+test "an exception inside an await foreach body releases the inner enumerator first" {
+    trace := new CensusTrace()
+    collected := new List<int>()
+    raised := false
+    try {
+        await foreach v in RelayedRaising(RecordedAsyncSource(trace, 4)) {
+            collected.Add(v)
+        }
+    } catch ex: InvalidOperationException {
+        raised = true
+        assert ex.Message == "relay"
+    }
+    assert raised
+    assert collected.Count == 2
+    assert trace.Joined() == "source released"
+}

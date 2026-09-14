@@ -179,3 +179,72 @@ async func* NestedAwaitingFinally(trace: CensusTrace): IAsyncEnumerable<int> {
         trace.Add("outer")
     }
 }
+
+// `await using` INSIDE AN ASYNC GENERATOR. The resource is acquired before the region entry — a
+// resume branches straight to that label, so it never acquires a second one — the body keeps the
+// region, and `DisposeAsync()` is awaited in the hoisted handler just past it.
+class CensusAsyncRecordingResource: IAsyncDisposable {
+    Trace: CensusTrace
+    Name: string
+
+    constructor(trace: CensusTrace, name: string) {
+        Trace = trace
+        Name = name
+        trace.Add("acquire " + name)
+    }
+
+    async func DisposeAsync(): ValueTask {
+        await Task.Delay(1)
+        Trace.Add("release " + Name)
+    }
+}
+
+async func* AsyncScoped(trace: CensusTrace): IAsyncEnumerable<int> {
+    await using r := new CensusAsyncRecordingResource(trace, "r") {
+        await Task.Delay(1)
+        yield 1
+        yield 2
+    }
+    trace.Add("after")
+}
+
+async func* AsyncScopedRaising(trace: CensusTrace): IAsyncEnumerable<int> {
+    await using r := new CensusAsyncRecordingResource(trace, "r") {
+        yield 1
+        throw new InvalidOperationException("raised")
+    }
+}
+
+// `await foreach` INSIDE AN `async func*` — two machines composed. The inner enumerator is acquired
+// before the region entry and released by the hoisted handler on all three paths: the loop's normal
+// exit, an exception passing through the body, and a consumer that abandons the OUTER enumeration.
+async func* Relayed(trace: CensusTrace, source: IAsyncEnumerable<int>): IAsyncEnumerable<int> {
+    await foreach v in source {
+        yield v * 2
+    }
+    trace.Add("after")
+}
+
+async func* RelayedRaising(source: IAsyncEnumerable<int>): IAsyncEnumerable<int> {
+    await foreach v in source {
+        if v > 1 {
+            throw new InvalidOperationException("relay")
+        }
+        yield v
+    }
+}
+
+// A RECORDING ASYNC SEQUENCE, so the inner enumerator's own `DisposeAsync()` is observable from the
+// test: this is what proves an abandoned outer consumer releases the inner enumeration.
+async func* RecordedAsyncSource(trace: CensusTrace, count: int): IAsyncEnumerable<int> {
+    try {
+        i := 0
+        while i < count {
+            await Task.Delay(1)
+            yield i
+            i = i + 1
+        }
+    } finally {
+        trace.Add("source released")
+    }
+}
