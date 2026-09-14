@@ -7983,7 +7983,7 @@ sealed class ColumnarIlEmitter {
             // unlocks `let f: Func<int, int> = x => x + 1`); any other initializer must emit exactly
             // the declared type (a mismatch is pipeline-rejected NL202 — decline). `let` locals are
             // MUTABLE in N# (probe-pinned: `let n: int = 5  n = 6` runs), so a plain local suffices.
-            if (_nodes.ChildCount(idx) != 2 || _nodes.Kind(Child(idx, 0)) != 6) {
+            if ((_nodes.ChildCount(idx) != 1 && _nodes.ChildCount(idx) != 2) || _nodes.Kind(Child(idx, 0)) != 6) {
                 return Decline("emit.typed-local.shape", "typed local declaration has an unsupported shape", idx)
             }
             declaredName := ColumnarNodeTextFacts.Text(_nodes, _source, Child(idx, 0))
@@ -8001,6 +8001,11 @@ sealed class ColumnarIlEmitter {
             let declaredType: System.Type? = null
             if (!TryResolveBodyType(typeCanonical, out declaredType) || !ColumnarTypeOfPlanner.IsSupportedType(declaredType)) {
                 return Decline("emit.typed-local.unsupported-type", "typed local declaration type is not supported for '" + declaredName + "': " + typeCanonical, idx)
+            }
+            if (_nodes.ChildCount(idx) == 1) {
+                uninitializedLocal := _il.DeclareLocal(declaredType)
+                _locals[declaredName] = uninitializedLocal
+                return true
             }
             declaredInit := Child(idx, 1)
             // A LAMBDA *OR A METHOD GROUP* IS SHAPED BY THE STORAGE IT IS WRITTEN AT, and a typed

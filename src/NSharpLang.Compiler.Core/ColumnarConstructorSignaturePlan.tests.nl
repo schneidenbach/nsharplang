@@ -99,6 +99,32 @@ func ConstructorSignatureBuilderPlan(): ColumnarCodePlan {
     return plan
 }
 
+func ConstructorSignatureByRefBuilder(out ownerType: Type): ConstructorInfo {
+    builder := TypeOfCreateBuilder("ColumnarDeclaredOutConstructorProbe", "ColumnarDeclaredOutConstructorProbe", 0)
+    parameters := ConstructorSignatureOneType(typeof(int).MakeByRefType())
+    constructor := builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, parameters)
+    ownerType = builder
+    return constructor
+}
+
+func ConstructorSignatureUnassignedAddressPlan(isOut: bool): ColumnarCodePlan {
+    ownerType: Type = typeof(object)
+    constructor := ConstructorSignatureByRefBuilder(out ownerType)
+    parameterTypes := ConstructorSignatureOneType(typeof(int).MakeByRefType())
+    outFlags: bool[] = [isOut]
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1325, 0)
+    local := plan.DeclarePlanLocal(plan.AddType(typeof(int)))
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), local)
+    constructorIndex := plan.AddConstructorWithSignature(constructor, ownerType, parameterTypes, outFlags)
+    plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+    plan.CompleteFragment(root, ownerType)
+    plan.CompleteV3(ownerType)
+    return plan
+}
+
 test "constructor signature facts are copied persisted and executable" {
     nullableInt := NullableArgumentType(typeof(int))
     plan := ConstructorSignatureNullablePlan()
@@ -126,6 +152,13 @@ test "constructor signature validation admits an unbaked rebound generic handle"
     assert plan.ConstructorParameterTypes[0][0] == typeof(int)
 }
 
+test "declared source out constructor facts initialize an unassigned pointee and ref facts reject it" {
+    ColumnarCodePlanExecutor.Validate(ConstructorSignatureUnassignedAddressPlan(true))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(ConstructorSignatureUnassignedAddressPlan(false))
+    }
+}
+
 test "constructor signature API copies caller-owned parameter arrays" {
     nullableInt := NullableArgumentType(typeof(int))
     constructorInfo := ConstructorSignatureRequired(nullableInt, typeof(int))
@@ -145,6 +178,22 @@ test "constructor signature API copies caller-owned parameter arrays" {
 
     assert plan.ConstructorParameterTypes[0][0] == typeof(int)
     ColumnarCodePlanExecutor.Validate(plan)
+}
+
+test "constructor signature API preserves and copies source out facts" {
+    nullableInt := NullableArgumentType(typeof(int))
+    constructorInfo := ConstructorSignatureRequired(nullableInt, typeof(int))
+    parameters := ConstructorSignatureOneType(typeof(int).MakeByRefType())
+    outFlags: bool[] = [true]
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    added := plan.AddConstructorWithSignature(constructorInfo, nullableInt, parameters, outFlags)
+
+    parameters[0] = typeof(string)
+    outFlags[0] = false
+    assert plan.ConstructorParameterTypes[added][0] == typeof(int).MakeByRefType()
+    assert plan.ConstructorParameterOutFlags[added][0]
 }
 
 test "constructor signature checkpoint rollback restores every logical pool count" {
@@ -195,6 +244,7 @@ test "constructor signature columns grow without losing declared facts" {
     assert plan.ConstructorUsesDeclaredSignature.Length >= 19
     assert plan.ConstructorDeclaringTypes.Length >= 19
     assert plan.ConstructorParameterTypes.Length >= 19
+    assert plan.ConstructorParameterOutFlags.Length >= 19
     assert plan.ConstructorUsesDeclaredSignature[18]
     assert plan.ConstructorDeclaringTypes[18] == nullableInt
     assert plan.ConstructorParameterTypes[18][0] == typeof(int)
@@ -205,6 +255,12 @@ test "constructor signature validation rejects corrupt persisted facts" {
     missingColumns.ConstructorParameterTypes = null
     assert throws InvalidOperationException {
         ColumnarCodePlanExecutor.Validate(missingColumns)
+    }
+
+    missingOutFacts := ConstructorSignatureNullablePlan()
+    missingOutFacts.ConstructorParameterOutFlags = null
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(missingOutFacts)
     }
 
     wrongOwner := ConstructorSignatureNullablePlan()

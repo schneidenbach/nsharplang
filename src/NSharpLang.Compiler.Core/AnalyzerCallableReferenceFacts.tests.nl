@@ -372,6 +372,12 @@ test "only Func and Action reify; every other generic name declines" {
     assert AnalyzerCallableReferenceFacts.CreateFunctionTypeInfoFromGenericDelegate(
         new GenericTypeInfo("action", CallableTypeArguments(1))
     ) == null
+
+    // Resolution identity wins over the spelling: a source-defined nominal Func is not the CLR
+    // delegate merely because it has the same simple name.
+    assert AnalyzerCallableReferenceFacts.CreateFunctionTypeInfoFromGenericDelegate(
+        new GenericTypeInfo("Func", CallableTypeArguments(2), BuiltInTypes.Int)
+    ) == null
 }
 
 // ── must-be-invocable-if-member ───────────────────────────────────────────────────────────────
@@ -423,4 +429,26 @@ test "IsMetadataDelegateType: the base chain decides, and the two abstract roots
     assert !AnalyzerCallableReferenceFacts.IsMetadataDelegateType(typeof(Delegate))
     assert !AnalyzerCallableReferenceFacts.IsMetadataDelegateType(typeof(MulticastDelegate))
     assert !AnalyzerCallableReferenceFacts.IsMetadataDelegateType(typeof(string))
+}
+
+test "generic delegate parameter names come from the framework Invoke metadata" {
+    funcNames := AnalyzerCallableReferenceFacts.FrameworkDelegateParameterNames(true, 1)
+    assert funcNames != null
+    assert funcNames.Count == 1
+    assert funcNames[0] == "arg"
+
+    actionNames := AnalyzerCallableReferenceFacts.FrameworkDelegateParameterNames(false, 1)
+    assert actionNames != null
+    assert actionNames.Count == 1
+    assert actionNames[0] == "obj"
+
+    pairNames := AnalyzerCallableReferenceFacts.FrameworkDelegateParameterNames(true, 2)
+    assert pairNames != null
+    assert pairNames[0] == "arg1"
+    assert pairNames[1] == "arg2"
+    wideNames := AnalyzerCallableReferenceFacts.FrameworkDelegateParameterNames(true, 6)
+    assert wideNames != null
+    assert wideNames.Count == 6
+    assert wideNames[0] == "arg1"
+    assert wideNames[5] == "arg6"
 }

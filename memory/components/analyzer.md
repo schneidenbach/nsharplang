@@ -4962,3 +4962,11 @@ Attribute syntax keeps the CLR's two concepts distinct: `name: value` names a co
 while `Name = value` assigns a public mutable field or settable property in the custom-attribute row.
 The analyzer and emitter carry the separator fact separately, so neither form silently falls through
 to the other when a constructor parameter and member share a spelling.
+
+Delegate invocation uses the parameter names declared by the selected delegate's real `Invoke`
+metadata, including the framework `Func`/`Action` families at every CLR-supported arity and custom
+delegates such as `Comparison<T>`. The framework fast path first proves the resolved generic
+definition's CLR identity, so a source type that happens to be named `Func` or `Action` never acquires
+those metadata names. Constructors carry source `ref`/`out` modifier facts beside their unbaked
+builder identity; this lets a reordered sparse `out` initialize an unassigned local while the same
+address passed to `ref` still obeys definite assignment.

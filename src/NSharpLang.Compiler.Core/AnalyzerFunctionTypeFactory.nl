@@ -62,6 +62,7 @@ class AnalyzerFunctionTypeFactory {
                 action := new FunctionTypeInfo()
                 action.ParameterTypes = typeArguments
                 action.ParameterModifiers = RepeatNoModifier(typeArguments.Count)
+                action.ParameterNames = AnalyzerCallableReferenceFacts.FrameworkDelegateParameterNames(false, typeArguments.Count)
                 action.ReturnType = BuiltInTypes.Void
                 return action
             }
@@ -83,6 +84,7 @@ class AnalyzerFunctionTypeFactory {
                 function := new FunctionTypeInfo()
                 function.ParameterTypes = parameterTypes
                 function.ParameterModifiers = RepeatNoModifier(modifierCount)
+                function.ParameterNames = AnalyzerCallableReferenceFacts.FrameworkDelegateParameterNames(true, parameterCount)
                 function.ReturnType = typeArguments[typeArguments.Count - 1]
                 return function
             }
@@ -108,6 +110,7 @@ class AnalyzerFunctionTypeFactory {
         invokeParameters := invokeMethod.GetParameters()
         parameterTypeList := new List<TypeInfo>()
         parameterModifierList := new List<Ast.ParameterModifier>()
+        parameterNameList := new List<string>()
         invokeIndex := 0
         while invokeIndex < invokeParameters.Length {
             parameter := invokeParameters[invokeIndex]
@@ -118,12 +121,14 @@ class AnalyzerFunctionTypeFactory {
             }
 
             parameterModifierList.Add(GetReflectionParameterModifier(parameter))
+            parameterNameList.Add(parameter.get_Name() ?? "")
             invokeIndex = invokeIndex + 1
         }
 
         signature := new FunctionTypeInfo()
         signature.ParameterTypes = parameterTypeList
         signature.ParameterModifiers = parameterModifierList
+        signature.ParameterNames = parameterNameList
         if openInvokeReturnType != null && openInvokeReturnType.get_IsGenericParameter() {
             signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReflectionType(invokeMethod.get_ReturnType())
         } else {
@@ -867,8 +872,7 @@ class AnalyzerFunctionTypeFactory {
         if definitionName == null {
             return false
         }
-
-        return definitionName == "System.Action`1" || definitionName == "System.Action`2" || definitionName == "System.Action`3" || definitionName == "System.Action`4"
+        return definitionName.StartsWith("System.Action`", StringComparison.Ordinal)
     }
 
     static func IsFuncDefinitionName(definitionName: string?): bool {
@@ -876,7 +880,7 @@ class AnalyzerFunctionTypeFactory {
             return false
         }
 
-        return definitionName == "System.Func`1" || definitionName == "System.Func`2" || definitionName == "System.Func`3" || definitionName == "System.Func`4" || definitionName == "System.Func`5"
+        return definitionName.StartsWith("System.Func`", StringComparison.Ordinal)
     }
 
     static func ToStringList(values: string[]): List<string> {

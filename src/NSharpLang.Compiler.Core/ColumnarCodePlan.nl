@@ -641,6 +641,7 @@ class ColumnarCodePlan {
     ConstructorUsesDeclaredSignature: bool[]
     ConstructorDeclaringTypes: Type[]
     ConstructorParameterTypes: Type[][]
+    ConstructorParameterOutFlags: bool[][]
     FieldCount: int
     Fields: FieldInfo[]
     FieldUsesDeclaredSignature: bool[]
@@ -730,6 +731,7 @@ class ColumnarCodePlan {
         ConstructorUsesDeclaredSignature = new bool[](0)
         ConstructorDeclaringTypes = new Type[](0)
         ConstructorParameterTypes = new Type[][](0)
+        ConstructorParameterOutFlags = new bool[][](0)
         FieldCount = 0
         Fields = new FieldInfo[](0)
         FieldUsesDeclaredSignature = new bool[](0)
@@ -1097,6 +1099,7 @@ class ColumnarCodePlan {
         index := ConstructorCount
         Constructors[index] = value
         ConstructorUsesDeclaredSignature[index] = false
+        ConstructorParameterOutFlags[index] = new bool[](0)
         ConstructorCount = ConstructorCount + 1
         return index
     }
@@ -1105,6 +1108,10 @@ class ColumnarCodePlan {
     // until its generic owner is baked. Preserve the selected constructed signature next to the
     // exact handle, just as declared method and field facts do.
     func AddConstructorWithSignature(value: ConstructorInfo, declaringType: Type, parameterTypes: Type[]): int {
+        return AddConstructorWithSignature(value, declaringType, parameterTypes, parameterTypes == null ? new bool[](0) : new bool[](parameterTypes.Length))
+    }
+
+    func AddConstructorWithSignature(value: ConstructorInfo, declaringType: Type, parameterTypes: Type[], parameterOutFlags: bool[]): int {
         EnsureV2Building()
         if value == null {
             throw new ArgumentNullException("value")
@@ -1115,13 +1122,18 @@ class ColumnarCodePlan {
         if parameterTypes == null {
             throw new ArgumentNullException("parameterTypes")
         }
+        if parameterOutFlags == null || parameterOutFlags.Length != parameterTypes.Length {
+            throw new ArgumentException("Constructor out flags must match the parameter count.", "parameterOutFlags")
+        }
         exactParameterTypes := new Type[](parameterTypes.Length)
+        exactParameterOutFlags := new bool[](parameterTypes.Length)
         parameterIndex := 0
         while parameterIndex < parameterTypes.Length {
             if parameterTypes[parameterIndex] == null {
                 throw new ArgumentNullException("parameterTypes")
             }
             exactParameterTypes[parameterIndex] = parameterTypes[parameterIndex]
+            exactParameterOutFlags[parameterIndex] = parameterOutFlags[parameterIndex]
             parameterIndex += 1
         }
         EnsureConstructorCapacity(ConstructorCount + 1)
@@ -1130,6 +1142,7 @@ class ColumnarCodePlan {
         ConstructorUsesDeclaredSignature[index] = true
         ConstructorDeclaringTypes[index] = declaringType
         ConstructorParameterTypes[index] = exactParameterTypes
+        ConstructorParameterOutFlags[index] = exactParameterOutFlags
         ConstructorCount = ConstructorCount + 1
         return index
     }
@@ -1838,7 +1851,7 @@ class ColumnarCodePlan {
     }
 
     func HasValidV2ColumnsAndPools(): bool {
-        if OperationCount <= 0 || TypeCount < 0 || Int32Count < 0 || ArgumentCount < 0 || AmbientLocalCount < 0 || MethodCount < 0 || ConstructorCount < 0 || FieldCount < 0 || PlanLocalCount < 0 || LabelCount < 0 || FragmentCount <= 0 || OperationKinds == null || OpCodeValues == null || OperandKinds == null || OperandIndices == null || OperationOwnerFragmentIndices == null || OperationKinds.Length < OperationCount || OpCodeValues.Length < OperationCount || OperandKinds.Length < OperationCount || OperandIndices.Length < OperationCount || OperationOwnerFragmentIndices.Length < OperationCount || Types == null || Types.Length < TypeCount || TypeStructuralReferences == null || TypeStructuralReferences.Length < TypeCount || TypeUsesStructuralReference == null || TypeUsesStructuralReference.Length < TypeCount || Int32Values == null || Int32Values.Length < Int32Count || ArgumentOrdinals == null || ArgumentTypeIndices == null || ArgumentIsAddress == null || ArgumentOrdinals.Length < ArgumentCount || ArgumentTypeIndices.Length < ArgumentCount || ArgumentIsAddress.Length < ArgumentCount || AmbientLocals == null || AmbientLocals.Length < AmbientLocalCount || Methods == null || Methods.Length < MethodCount || MethodUsesDeclaredSignature == null || MethodUsesDeclaredSignature.Length < MethodCount || MethodDeclaringTypes == null || MethodDeclaringTypes.Length < MethodCount || MethodReturnTypes == null || MethodReturnTypes.Length < MethodCount || MethodParameterTypes == null || MethodParameterTypes.Length < MethodCount || MethodIsStatic == null || MethodIsStatic.Length < MethodCount || MethodIsAbstract == null || MethodIsAbstract.Length < MethodCount || Constructors == null || Constructors.Length < ConstructorCount || ConstructorUsesDeclaredSignature == null || ConstructorUsesDeclaredSignature.Length < ConstructorCount || ConstructorDeclaringTypes == null || ConstructorDeclaringTypes.Length < ConstructorCount || ConstructorParameterTypes == null || ConstructorParameterTypes.Length < ConstructorCount || Fields == null || Fields.Length < FieldCount || FieldUsesDeclaredSignature == null || FieldUsesDeclaredSignature.Length < FieldCount || FieldDeclaringTypes == null || FieldDeclaringTypes.Length < FieldCount || FieldValueTypes == null || FieldValueTypes.Length < FieldCount || FieldIsStatic == null || FieldIsStatic.Length < FieldCount || PlanLocalTypeIndices == null || PlanLocalTypeIndices.Length < PlanLocalCount || PlanLocalIsMirror == null || PlanLocalIsMirror.Length < PlanLocalCount {
+        if OperationCount <= 0 || TypeCount < 0 || Int32Count < 0 || ArgumentCount < 0 || AmbientLocalCount < 0 || MethodCount < 0 || ConstructorCount < 0 || FieldCount < 0 || PlanLocalCount < 0 || LabelCount < 0 || FragmentCount <= 0 || OperationKinds == null || OpCodeValues == null || OperandKinds == null || OperandIndices == null || OperationOwnerFragmentIndices == null || OperationKinds.Length < OperationCount || OpCodeValues.Length < OperationCount || OperandKinds.Length < OperationCount || OperandIndices.Length < OperationCount || OperationOwnerFragmentIndices.Length < OperationCount || Types == null || Types.Length < TypeCount || TypeStructuralReferences == null || TypeStructuralReferences.Length < TypeCount || TypeUsesStructuralReference == null || TypeUsesStructuralReference.Length < TypeCount || Int32Values == null || Int32Values.Length < Int32Count || ArgumentOrdinals == null || ArgumentTypeIndices == null || ArgumentIsAddress == null || ArgumentOrdinals.Length < ArgumentCount || ArgumentTypeIndices.Length < ArgumentCount || ArgumentIsAddress.Length < ArgumentCount || AmbientLocals == null || AmbientLocals.Length < AmbientLocalCount || Methods == null || Methods.Length < MethodCount || MethodUsesDeclaredSignature == null || MethodUsesDeclaredSignature.Length < MethodCount || MethodDeclaringTypes == null || MethodDeclaringTypes.Length < MethodCount || MethodReturnTypes == null || MethodReturnTypes.Length < MethodCount || MethodParameterTypes == null || MethodParameterTypes.Length < MethodCount || MethodIsStatic == null || MethodIsStatic.Length < MethodCount || MethodIsAbstract == null || MethodIsAbstract.Length < MethodCount || Constructors == null || Constructors.Length < ConstructorCount || ConstructorUsesDeclaredSignature == null || ConstructorUsesDeclaredSignature.Length < ConstructorCount || ConstructorDeclaringTypes == null || ConstructorDeclaringTypes.Length < ConstructorCount || ConstructorParameterTypes == null || ConstructorParameterTypes.Length < ConstructorCount || ConstructorParameterOutFlags == null || ConstructorParameterOutFlags.Length < ConstructorCount || Fields == null || Fields.Length < FieldCount || FieldUsesDeclaredSignature == null || FieldUsesDeclaredSignature.Length < FieldCount || FieldDeclaringTypes == null || FieldDeclaringTypes.Length < FieldCount || FieldValueTypes == null || FieldValueTypes.Length < FieldCount || FieldIsStatic == null || FieldIsStatic.Length < FieldCount || PlanLocalTypeIndices == null || PlanLocalTypeIndices.Length < PlanLocalCount || PlanLocalIsMirror == null || PlanLocalIsMirror.Length < PlanLocalCount {
             return false
         }
 
@@ -1888,7 +1901,7 @@ class ColumnarCodePlan {
                 return false
             }
             if ConstructorUsesDeclaredSignature[i] {
-                if ConstructorDeclaringTypes[i] == null || ConstructorParameterTypes[i] == null {
+                if ConstructorDeclaringTypes[i] == null || ConstructorParameterTypes[i] == null || ConstructorParameterOutFlags[i] == null || ConstructorParameterOutFlags[i].Length != ConstructorParameterTypes[i].Length {
                     return false
                 }
                 parameterIndex := 0
@@ -2160,12 +2173,13 @@ class ColumnarCodePlan {
     }
 
     func EnsureConstructorCapacity(minimum: int) {
-        if Constructors == null || Constructors.Length < minimum || ConstructorUsesDeclaredSignature == null || ConstructorUsesDeclaredSignature.Length < minimum || ConstructorDeclaringTypes == null || ConstructorDeclaringTypes.Length < minimum || ConstructorParameterTypes == null || ConstructorParameterTypes.Length < minimum {
+        if Constructors == null || Constructors.Length < minimum || ConstructorUsesDeclaredSignature == null || ConstructorUsesDeclaredSignature.Length < minimum || ConstructorDeclaringTypes == null || ConstructorDeclaringTypes.Length < minimum || ConstructorParameterTypes == null || ConstructorParameterTypes.Length < minimum || ConstructorParameterOutFlags == null || ConstructorParameterOutFlags.Length < minimum {
             capacity := NextCapacity(Constructors == null ? 0 : Constructors.Length, minimum)
             Constructors = GrowConstructorArray(Constructors, capacity)
             ConstructorUsesDeclaredSignature = GrowBoolArray(ConstructorUsesDeclaredSignature, capacity)
             ConstructorDeclaringTypes = GrowTypeArray(ConstructorDeclaringTypes, capacity)
             ConstructorParameterTypes = GrowTypeArrayArray(ConstructorParameterTypes, capacity)
+            ConstructorParameterOutFlags = GrowBoolArrayArray(ConstructorParameterOutFlags, capacity)
         }
     }
 
@@ -2352,6 +2366,19 @@ class ColumnarCodePlan {
 
     static func GrowTypeArrayArray(values: Type[][], capacity: int): Type[][] {
         result := new Type[][](capacity)
+        if values != null {
+            count := values.Length < capacity ? values.Length : capacity
+            i := 0
+            while i < count {
+                result[i] = values[i]
+                i += 1
+            }
+        }
+        return result
+    }
+
+    static func GrowBoolArrayArray(values: bool[][], capacity: int): bool[][] {
+        result := new bool[][](capacity)
         if values != null {
             count := values.Length < capacity ? values.Length : capacity
             i := 0

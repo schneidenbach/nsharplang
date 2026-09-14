@@ -1252,7 +1252,7 @@ class ColumnarCodePlanExecutor {
             declaredParameters := plan.MethodParameterTypes[methodIndex]
             declaredIndex := 0
             while declaredIndex < declaredParameters.Length {
-                ValidateParameterType(declaredParameters[declaredIndex], schemaName)
+                ValidateParameterType(declaredParameters[declaredIndex], "method argument", schemaName)
                 declaredIndex += 1
             }
             ValidateDeclaredMethodSignatureIfAvailable(plan, methodIndex, method, schemaName)
@@ -1268,7 +1268,7 @@ class ColumnarCodePlanExecutor {
         i := 0
         while i < parameters.Length {
             parameterType := ResolveMemberSignatureType(parameters[i].get_ParameterType(), declaringArguments, genericArguments, schemaName)
-            ValidateParameterType(parameterType, schemaName)
+            ValidateParameterType(parameterType, "method argument", schemaName)
             i += 1
         }
     }
@@ -1292,7 +1292,7 @@ class ColumnarCodePlanExecutor {
             declaredParameters := plan.ConstructorParameterTypes[constructorIndex]
             parameterIndex := 0
             while parameterIndex < declaredParameters.Length {
-                ValidateStorableType(declaredParameters[parameterIndex], "constructor argument", schemaName)
+                ValidateParameterType(declaredParameters[parameterIndex], "constructor argument", schemaName)
                 parameterIndex += 1
             }
             ValidateDeclaredConstructorSignatureIfAvailable(constructorInfo, declaredType, declaredParameters, schemaName)
@@ -1303,7 +1303,7 @@ class ColumnarCodePlanExecutor {
         parameters := constructorInfo.GetParameters()
         i := 0
         while i < parameters.Length {
-            ValidateStorableType(parameters[i].get_ParameterType(), "constructor argument", schemaName)
+            ValidateParameterType(parameters[i].get_ParameterType(), "constructor argument", schemaName)
             i += 1
         }
     }
@@ -1401,22 +1401,22 @@ class ColumnarCodePlanExecutor {
 
     // A PARAMETER may be `ref`/`out` — it names the caller's storage rather than a value — and what it
     // may be a reference TO is exactly what any other slot may hold. Every other role stays storable.
-    static func ValidateParameterType(parameterType: Type, schemaName: string) {
+    static func ValidateParameterType(parameterType: Type, role: string, schemaName: string) {
         if parameterType == null {
-            throw new InvalidOperationException(schemaName + " method argument types cannot be null.")
+            throw new InvalidOperationException(schemaName + " " + role + " types cannot be null.")
         }
 
         if !parameterType.get_IsByRef() {
-            ValidateStorableType(parameterType, "method argument", schemaName)
+            ValidateStorableType(parameterType, role, schemaName)
             return
         }
 
         elementType := parameterType.GetElementType()
         if elementType == null || elementType.get_IsByRef() {
-            throw new InvalidOperationException(schemaName + " by-reference method arguments must reference a storable type.")
+            throw new InvalidOperationException(schemaName + " by-reference " + role + "s must reference a storable type.")
         }
 
-        ValidateStorableType(elementType, "method argument", schemaName)
+        ValidateStorableType(elementType, role, schemaName)
     }
 
     // A spill local may hold a managed pointer while preserving written argument evaluation order.
@@ -2470,9 +2470,8 @@ class ColumnarCodePlanExecutor {
         while parameterIndex >= 0 {
             value := state.Pop()
             parameterType := parameterTypes[parameterIndex]
-            if value.IsAddress || !IsStackCompatible(parameterType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
-                throw new InvalidOperationException(schemaName + " constructor argument does not match its exact parameter type.")
-            }
+            isOut := usesDeclaredSignature ? plan.ConstructorParameterOutFlags[constructorIndex][parameterIndex] : ConstructorParameterIsOut(constructorInfo, parameterIndex)
+            ValidateCallArgument(parameterType, value, parameterIndex, ".ctor", isOut, state, schemaName)
             parameterIndex -= 1
         }
         declaringType := usesDeclaredSignature ? plan.ConstructorDeclaringTypes[constructorIndex] : constructorInfo.get_DeclaringType()
@@ -2480,6 +2479,17 @@ class ColumnarCodePlanExecutor {
             throw new InvalidOperationException(schemaName + " constructor has no declaring type.")
         }
         state.Push(declaringType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
+    }
+
+    static func ConstructorParameterIsOut(constructorInfo: ConstructorInfo, parameterIndex: int): bool {
+        try {
+            parameters := constructorInfo.GetParameters()
+            return parameterIndex >= 0 && parameterIndex < parameters.Length && parameters[parameterIndex].get_IsOut()
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
     }
 
     static func ConstructorParameterTypes(constructorInfo: ConstructorInfo): Type[] {

@@ -253,6 +253,14 @@ class AnalyzerCallableReferenceFacts {
             parameterCount = arguments.Count - 1
         }
 
+        // A resolved source type named Func/Action is its own nominal type. Only the framework
+        // definitions have the structural delegate reading below; null is retained for hand-built
+        // analyzer facts that deliberately carry no resolution identity.
+        resolvedDefinition := delegateType.GenericDefinition
+        if resolvedDefinition != null && !IsFrameworkDelegateDefinition(resolvedDefinition, isFunc, parameterCount) {
+            return null
+        }
+
         parameterTypes := new List<TypeInfo>()
         parameterModifiers := new List<ParameterModifier>()
         index := 0
@@ -265,6 +273,7 @@ class AnalyzerCallableReferenceFacts {
         signature := new FunctionTypeInfo()
         signature.ParameterTypes = parameterTypes
         signature.ParameterModifiers = parameterModifiers
+        signature.ParameterNames = FrameworkDelegateParameterNames(isFunc, parameterCount)
         if isFunc {
             signature.ReturnType = arguments[arguments.Count - 1]
         } else {
@@ -272,5 +281,54 @@ class AnalyzerCallableReferenceFacts {
         }
 
         return signature
+    }
+
+    // The names declared by the framework's generic delegate Invoke methods, read from the open
+    // definition selected by arity. This keeps optimized analyzer paths on metadata's identity.
+    static func IsFrameworkDelegateDefinition(candidate: TypeInfo, isFunc: bool, parameterCount: int): bool {
+        reflected := candidate as ReflectionTypeInfo
+        if reflected == null {
+            return false
+        }
+        expected := FrameworkDelegateDefinition(isFunc, parameterCount)
+        return expected != null && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(reflected.Type, expected)
+    }
+
+    static func FrameworkDelegateDefinition(isFunc: bool, parameterCount: int): Type? {
+        if parameterCount < 0 {
+            return null
+        }
+
+        fullName := ""
+        if isFunc {
+            fullName = "System.Func`" + (parameterCount + 1).ToString()
+        } else if parameterCount == 0 {
+            fullName = "System.Action"
+        } else {
+            fullName = "System.Action`" + parameterCount.ToString()
+        }
+        return typeof(Action).Assembly.GetType(fullName)
+    }
+
+    static func FrameworkDelegateParameterNames(isFunc: bool, parameterCount: int): List<string>? {
+        representative := FrameworkDelegateDefinition(isFunc, parameterCount)
+        if representative == null {
+            return null
+        }
+        invoke := representative.GetMethod("Invoke")
+        if invoke == null {
+            return null
+        }
+        parameters := invoke.GetParameters()
+        if parameters.Length != parameterCount {
+            return null
+        }
+        names := new List<string>()
+        index := 0
+        while index < parameters.Length {
+            names.Add(parameters[index].get_Name() ?? "")
+            index += 1
+        }
+        return names
     }
 }

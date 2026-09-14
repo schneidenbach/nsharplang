@@ -109,6 +109,18 @@ test "a lambda argument can be named" {
     assert ApplyTwice(value: 1, mapper: x => x + 3) == 7
 }
 
+test "a delegate invoke argument binds by its reflected parameter name" {
+    assert InvokeNamed(value: 4, mapper: x => x + 5) == 9
+    recorder := new DelegateArgumentRecorder()
+    InvokeActionNamed(value: 6, action: recorder.Record)
+    assert recorder.Value == 6
+    assert InvokeComparisonNamed(left: 2, right: 7, comparison: (x, y) => x - y) == -5
+}
+
+test "a params parameter accepts a named direct array" {
+    assert ReadParams(values: [4, 2]) == 42
+}
+
 test "a named out argument still passes storage" {
     half := 0
     assert TryHalve(value: 8, out half)
@@ -198,6 +210,25 @@ test "named arguments fill optional holes from referenced metadata" {
     assert value.Value == 129
     assert value.Read(last: 8) == 128
     assert ReflectedOptionalSlots.ReadStatic(last: 7) == 127
+}
+
+test "a sparse reflected constructor keeps ordinary overload specificity" {
+    value := new ReflectedSparseConstructorChoice(value: "text")
+    assert value.Kind == "comparable"
+}
+
+test "a sparse reflected constructor preserves a named ref address across later evaluation" {
+    recorder := new SparseConstructorOrderRecorder()
+    value := recorder.Build()
+    assert value.Seen == 927
+    assert recorder.Value == 927
+}
+
+test "a sparse source constructor carries out metadata through reordered arguments" {
+    let result: int
+    value := new SourceSparseOutConstructor(target: out result, last: 7)
+    assert result == 27
+    assert value.Value == 27
 }
 
 test "a derived sparse metadata method hides its base method" {
