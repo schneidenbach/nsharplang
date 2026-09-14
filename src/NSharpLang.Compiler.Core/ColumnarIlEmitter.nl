@@ -12492,11 +12492,11 @@ sealed class ColumnarIlEmitter {
                 // The callee resolves exactly like a bare identifier: locals/params shadow-decline; only a
                 // GENERIC top-level sibling binds (explicit type args on a non-generic are pipeline-rejected).
                 if (_locals.ContainsKey(gName) || _paramOrdinals.ContainsKey(gName)) {
-                    return Decline("emit.call.generic-shadowed", "generic call '" + gName + "' is shadowed by a value binding", idx)
+                    return Decline("emit.call.generic-shadowed", "generic call '" + ColumnarDeclineReasonFacts.CalledMemberName(gName) + "' is shadowed by a value binding", idx)
                 }
                 let gTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
                 if (!_siblings.TryGetValue(gName, out gTarget) || gTarget.TypeParams.Length == 0) {
-                    return Decline("emit.call.generic-unresolved", "generic call '" + gName + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
+                    return Decline("emit.call.generic-unresolved", "generic call '" + ColumnarDeclineReasonFacts.CalledMemberName(gName) + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
                 }
                 if (_nodes.ChildCount(callee) != gTarget.TypeParams.Length) {
                     return false

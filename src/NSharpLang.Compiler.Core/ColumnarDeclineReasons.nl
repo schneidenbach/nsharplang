@@ -29,6 +29,26 @@ class ColumnarDeclineReason {
 }
 
 class ColumnarDeclineReasonFacts {
+    // THE SUBJECT OF A CALL DECLINE IS THE MEMBER BEING CALLED, NOT THE EXPRESSION THAT REACHES IT.
+    //
+    // A callee written with an explicit type argument list carries its WHOLE dotted spelling as its
+    // text, so a fluent chain put its entire receiver — about 1,400 characters of it for a 27-link
+    // `WithHandler` chain — where the reader expected a name, and the one fact the message was meant
+    // to carry was buried in it. The chain is already the LOCATION the decline points at, so the
+    // message names only the member: everything up to and including the last `.` is the receiver.
+    static func CalledMemberName(calleeName: string?): string {
+        if calleeName == null {
+            return ""
+        }
+
+        lastDot := calleeName.LastIndexOf('.')
+        if lastDot < 0 || lastDot == calleeName.Length - 1 {
+            return calleeName
+        }
+
+        return calleeName.Substring(lastDot + 1)
+    }
+
     static func ResolveFileIndex(fileLengths: int[], separatorLength: int, offset: int, sourceFileId: int, hasSourceFileId: bool): int {
         if hasSourceFileId && sourceFileId >= 0 && sourceFileId < fileLengths.Length {
             return sourceFileId
