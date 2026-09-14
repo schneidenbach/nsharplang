@@ -1261,13 +1261,14 @@ class ColumnarCodePlanExecutor {
         ValidateStorableType(declaringType, "method receiver", schemaName)
         signatureMethod := GetMethodSignatureDefinition(method, schemaName)
         declaringArguments := DeclaringTypeArguments(declaringType)
+        methodParameterDefinitions := signatureMethod.GetGenericArguments()
         genericArguments := method.GetGenericArguments()
-        returnType := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, genericArguments, schemaName)
+        returnType := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
         ValidateMethodReturnType(returnType, schemaName, allowVoidReturn)
         parameters := signatureMethod.GetParameters()
         i := 0
         while i < parameters.Length {
-            parameterType := ResolveMemberSignatureType(parameters[i].get_ParameterType(), declaringArguments, genericArguments, schemaName)
+            parameterType := ResolveMemberSignatureType(parameters[i].get_ParameterType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
             ValidateParameterType(parameterType, "method argument", schemaName)
             i += 1
         }
@@ -1290,12 +1291,16 @@ class ColumnarCodePlanExecutor {
             }
             ValidateStorableType(declaredType, "constructor result", schemaName)
             declaredParameters := plan.ConstructorParameterTypes[constructorIndex]
+            declaredOutFlags := plan.ConstructorParameterOutFlags[constructorIndex]
             parameterIndex := 0
             while parameterIndex < declaredParameters.Length {
                 ValidateParameterType(declaredParameters[parameterIndex], "constructor argument", schemaName)
+                if declaredOutFlags[parameterIndex] && !declaredParameters[parameterIndex].get_IsByRef() {
+                    throw new InvalidOperationException(schemaName + " declared constructor out fact requires a byref parameter.")
+                }
                 parameterIndex += 1
             }
-            ValidateDeclaredConstructorSignatureIfAvailable(constructorInfo, declaredType, declaredParameters, schemaName)
+            ValidateDeclaredConstructorSignatureIfAvailable(constructorInfo, declaredType, declaredParameters, declaredOutFlags, schemaName)
             return
         }
 
@@ -1308,7 +1313,7 @@ class ColumnarCodePlanExecutor {
         }
     }
 
-    static func ValidateDeclaredConstructorSignatureIfAvailable(constructorInfo: ConstructorInfo, declaringType: Type, declaredParameters: Type[], schemaName: string) {
+    static func ValidateDeclaredConstructorSignatureIfAvailable(constructorInfo: ConstructorInfo, declaringType: Type, declaredParameters: Type[], declaredOutFlags: bool[], schemaName: string) {
         try {
             actualParameters := constructorInfo.GetParameters()
             if actualParameters.Length != declaredParameters.Length {
@@ -1318,9 +1323,12 @@ class ColumnarCodePlanExecutor {
             noMethodArguments := new Type[](0)
             i := 0
             while i < actualParameters.Length {
-                actualParameter := ResolveMemberSignatureType(actualParameters[i].get_ParameterType(), declaringArguments, noMethodArguments, schemaName)
+                actualParameter := ResolveMemberSignatureType(actualParameters[i].get_ParameterType(), declaringArguments, noMethodArguments, noMethodArguments, schemaName)
                 if !ExactTypeShapeMatches(actualParameter, declaredParameters[i]) {
                     throw new InvalidOperationException(schemaName + " declared constructor parameter does not match its inspectable handle.")
+                }
+                if actualParameters[i].get_IsOut() != declaredOutFlags[i] {
+                    throw new InvalidOperationException(schemaName + " declared constructor out fact does not match its inspectable handle.")
                 }
                 i += 1
             }
@@ -1343,8 +1351,9 @@ class ColumnarCodePlanExecutor {
             throw new InvalidOperationException(schemaName + " declared method has no declaring type.")
         }
         declaringArguments := DeclaringTypeArguments(declaringType)
+        methodParameterDefinitions := signatureMethod.GetGenericArguments()
         genericArguments := method.GetGenericArguments()
-        actualReturn := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, genericArguments, schemaName)
+        actualReturn := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
         if !ExactTypeShapeMatches(actualReturn, plan.MethodReturnTypes[methodIndex]) {
             throw new InvalidOperationException(schemaName + " declared method return does not match its inspectable handle.")
         }
@@ -1356,7 +1365,7 @@ class ColumnarCodePlanExecutor {
             }
             i := 0
             while i < actualParameters.Length {
-                actualParameter := ResolveMemberSignatureType(actualParameters[i].get_ParameterType(), declaringArguments, genericArguments, schemaName)
+                actualParameter := ResolveMemberSignatureType(actualParameters[i].get_ParameterType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
                 if !ExactTypeShapeMatches(actualParameter, declaredParameters[i]) {
                     throw new InvalidOperationException(schemaName + " declared method parameter does not match its inspectable handle.")
                 }
@@ -1389,7 +1398,8 @@ class ColumnarCodePlanExecutor {
             }
             ValidateStorableType(declaredType, "field receiver", schemaName)
             ValidateStorableType(declaredValueType, "field result", schemaName)
-            actualValueType := ResolveMemberSignatureType(field.get_FieldType(), DeclaringTypeArguments(declaredType), new Type[](0), schemaName)
+            noMethodArguments := new Type[](0)
+            actualValueType := ResolveMemberSignatureType(field.get_FieldType(), DeclaringTypeArguments(declaredType), noMethodArguments, noMethodArguments, schemaName)
             if !ExactTypeShapeMatches(actualValueType, declaredValueType) {
                 throw new InvalidOperationException(schemaName + " declared field result does not match its inspectable handle.")
             }
@@ -2277,12 +2287,13 @@ class ColumnarCodePlanExecutor {
 
         signatureMethod := GetMethodSignatureDefinition(method, schemaName)
         declaringArguments := DeclaringTypeArguments(declaringType)
+        methodParameterDefinitions := signatureMethod.GetGenericArguments()
         genericArguments := method.GetGenericArguments()
         parameters := signatureMethod.GetParameters()
         parameterIndex := parameters.Length - 1
         while parameterIndex >= 0 {
             value := state.Pop()
-            parameterType := ResolveMemberSignatureType(parameters[parameterIndex].get_ParameterType(), declaringArguments, genericArguments, schemaName)
+            parameterType := ResolveMemberSignatureType(parameters[parameterIndex].get_ParameterType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
             ValidateCallArgument(parameterType, value, parameterIndex, method.get_Name(), parameters[parameterIndex].get_IsOut(), state, schemaName)
             parameterIndex -= 1
         }
@@ -2292,7 +2303,7 @@ class ColumnarCodePlanExecutor {
             receiver = selectedReceiver
             ValidateReceiver(declaringType, selectedReceiver.ValueType, selectedReceiver.IsAddress, selectedReceiver.ValueKind, method.get_Name(), schemaName)
         }
-        returnType := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, genericArguments, schemaName)
+        returnType := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
         ApplyMethodReturn(plan, operationIndex, returnType, isStatic, method.get_Name(), parameters.Length, method.get_IsSpecialName(), receiver, state, schemaName)
     }
 
@@ -2385,7 +2396,7 @@ class ColumnarCodePlanExecutor {
     // one of its arguments is a generic parameter this member's argument sets cover. `TypeBuilder`
     // definitions never are: inside `G<T>`'s own body the open builder IS the current instantiation,
     // which is how Reflection.Emit spells it, so substituting there would rewrite a correct token.
-    static func IsSubstitutableOpenDefinition(signatureType: Type, declaringArguments: Type[], methodArguments: Type[]): bool {
+    static func IsSubstitutableOpenDefinition(signatureType: Type, declaringArguments: Type[], methodParameterDefinitions: Type[], methodArguments: Type[]): bool {
         if signatureType is TypeBuilder {
             return false
         }
@@ -2396,7 +2407,8 @@ class ColumnarCodePlanExecutor {
             if !argument.get_IsGenericParameter() {
                 return false
             }
-            available := argument.get_DeclaringMethod() != null ? methodArguments : declaringArguments
+            isMethodParameter := GenericParameterIdentityIndex(methodParameterDefinitions, argument) >= 0 || argument.get_DeclaringMethod() != null
+            available := isMethodParameter ? methodArguments : declaringArguments
             position := argument.get_GenericParameterPosition()
             if position < 0 || position >= available.Length {
                 return false
@@ -2406,10 +2418,27 @@ class ColumnarCodePlanExecutor {
         return arguments.Length > 0
     }
 
-    static func ResolveMemberSignatureType(signatureType: Type, declaringArguments: Type[], methodArguments: Type[], schemaName: string): Type {
+    static func GenericParameterIdentityIndex(definitions: Type[], candidate: Type): int {
+        index := 0
+        while index < definitions.Length {
+            if Object.ReferenceEquals(definitions[index], candidate) {
+                return index
+            }
+            index += 1
+        }
+        return -1
+    }
+
+    static func ResolveMemberSignatureType(signatureType: Type, declaringArguments: Type[], methodParameterDefinitions: Type[], methodArguments: Type[], schemaName: string): Type {
         if signatureType.get_IsGenericParameter() {
             position := signatureType.get_GenericParameterPosition()
-            if signatureType.get_DeclaringMethod() != null {
+            methodIdentityPosition := GenericParameterIdentityIndex(methodParameterDefinitions, signatureType)
+            // GenericParameterBuilder can report no DeclaringMethod before its owner is baked, so
+            // its exact definition identity is the authoritative MVAR/VAR distinction.
+            if methodIdentityPosition >= 0 || signatureType.get_DeclaringMethod() != null {
+                if methodIdentityPosition >= 0 {
+                    position = methodIdentityPosition
+                }
                 if position < 0 || position >= methodArguments.Length {
                     throw new InvalidOperationException(schemaName + " method generic parameter position is invalid.")
                 }
@@ -2425,20 +2454,20 @@ class ColumnarCodePlanExecutor {
             if elementType == null {
                 throw new InvalidOperationException(schemaName + " method array signature has no element type.")
             }
-            return ResolveMemberSignatureType(elementType, declaringArguments, methodArguments, schemaName).MakeArrayType()
+            return ResolveMemberSignatureType(elementType, declaringArguments, methodParameterDefinitions, methodArguments, schemaName).MakeArrayType()
         }
         // A GENERIC TYPE DEFINITION in an open signature is substituted like any other generic
         // shape: `EqualityComparer<T>.Default` is typed `EqualityComparer<T>`, which the CLR spells
         // as the definition itself, and the selected signature for a closed instantiation is
         // `EqualityComparer<int>`. Skipping definitions compared a closed declaration against an
         // open handle and reported a mismatch.
-        if signatureType.get_IsGenericType() && (!signatureType.get_IsGenericTypeDefinition() || IsSubstitutableOpenDefinition(signatureType, declaringArguments, methodArguments)) {
+        if signatureType.get_IsGenericType() && (!signatureType.get_IsGenericTypeDefinition() || IsSubstitutableOpenDefinition(signatureType, declaringArguments, methodParameterDefinitions, methodArguments)) {
             definition := signatureType.get_IsGenericTypeDefinition() ? signatureType : signatureType.GetGenericTypeDefinition()
             signatureArguments := signatureType.GetGenericArguments()
             resolvedArguments := new Type[](signatureArguments.Length)
             i := 0
             while i < signatureArguments.Length {
-                resolvedArguments[i] = ResolveMemberSignatureType(signatureArguments[i], declaringArguments, methodArguments, schemaName)
+                resolvedArguments[i] = ResolveMemberSignatureType(signatureArguments[i], declaringArguments, methodParameterDefinitions, methodArguments, schemaName)
                 i += 1
             }
             return definition.MakeGenericType(resolvedArguments)
@@ -2454,14 +2483,14 @@ class ColumnarCodePlanExecutor {
                 throw new InvalidOperationException(schemaName + " by-reference method signature has no element type.")
             }
 
-            return ResolveMemberSignatureType(byRefElement, declaringArguments, methodArguments, schemaName).MakeByRefType()
+            return ResolveMemberSignatureType(byRefElement, declaringArguments, methodParameterDefinitions, methodArguments, schemaName).MakeByRefType()
         }
         if signatureType.get_HasElementType() {
             compoundElement := signatureType.GetElementType()
             if compoundElement == null {
                 throw new InvalidOperationException(schemaName + " compound method signature has no element type.")
             }
-            resolvedElement := ResolveMemberSignatureType(compoundElement, declaringArguments, methodArguments, schemaName)
+            resolvedElement := ResolveMemberSignatureType(compoundElement, declaringArguments, methodParameterDefinitions, methodArguments, schemaName)
             if signatureType.get_IsByRef() {
                 return resolvedElement.MakeByRefType()
             }

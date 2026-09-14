@@ -1799,6 +1799,35 @@ test "schema v3 executor rejects init-only field stores" {
     assert plan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
 }
 
+test "declared generic method validation distinguishes enclosing and method parameter builders" {
+    owner := TypeOfCreateBuilder("ExecutorGenericOwner`1", "ExecutorGenericOwner", 1)
+    ownerParameters := owner.GetGenericArguments()
+    method := owner.DefineMethod("Choose", MethodAttributes.Public | MethodAttributes.Static)
+    methodParameters := method.DefineGenericParameters(["U"])
+    signatureParameters: Type[] = [ownerParameters[0], methodParameters[0]]
+    method.SetParameters(signatureParameters)
+    method.SetReturnType(methodParameters[0])
+
+    ownerType: Type = owner
+    closedOwner := ownerType.MakeGenericType([typeof(string)])
+    reboundDefinition := TypeBuilder.GetMethod(closedOwner, method)
+    closedMethod := reboundDefinition.MakeGenericMethod([typeof(int)])
+    declaredParameters: Type[] = [typeof(string), typeof(int)]
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1091, 0)
+    textIndex := plan.AddString("value")
+    plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), textIndex)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    methodIndex := plan.AddMethodWithSignature(closedMethod, closedOwner, declaredParameters, typeof(int), true, false)
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV3(typeof(int))
+
+    ColumnarCodePlanExecutor.Validate(plan)
+}
+
 test "schema v3 initobj accepts plan locals and rejects argument addresses" {
     assigned := new ColumnarCodePlan()
     assigned.PrepareV3()

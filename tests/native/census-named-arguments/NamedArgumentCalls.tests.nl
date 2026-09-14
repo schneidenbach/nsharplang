@@ -179,6 +179,10 @@ test "a named argument on a static method of a source type binds by name" {
     assert Divide2Holder.Divide(denominator: 4, numerator: 20) == 5
 }
 
+test "explicit generic calls place reordered named arguments before emission" {
+    assert GenericFirst<int>(second: 2, first: 40) == 40
+}
+
 test "attribute constructor arguments bind by name" {
     found := typeof(NamedAttributeTarget).GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
     assert found != null

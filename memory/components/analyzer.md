@@ -5021,3 +5021,14 @@ definition's CLR identity, so a source type that happens to be named `Func` or `
 those metadata names. Constructors carry source `ref`/`out` modifier facts beside their unbaked
 builder identity; this lets a reordered sparse `out` initialize an unassigned local while the same
 address passed to `ref` still obeys definite assignment.
+
+An explicit generic sibling call applies its written type arguments before scoring the placed
+arguments. `First<int>(second: 2, first: 40)` therefore uses the same spill-and-reload permutation
+as its non-generic form, then emits the exact constructed method identity.
+
+Signature help uses the same written names when it selects the highlighted parameter. Its N#
+syntax owner lexes the document through the cursor, finds the innermost unmatched call, and counts
+only top-level argument separators using the parser's generic-call lookahead. A completed nested
+call, a multiline argument list, a comparison expression, a block lambda, or punctuation inside a
+comment or string therefore cannot redirect the request or move the highlight. The language-server
+handler only resolves the resulting call and renders the selected signature.

@@ -42,39 +42,32 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
 
         try
         {
-            var lines = doc.Text.Split('\n');
-            if (request.Position.Line >= lines.Length)
-            {
-                return Task.FromResult<SignatureHelp?>(null);
-            }
-
-            var lineText = lines[request.Position.Line];
-            var beforeCursor = lineText.Substring(0, Math.Min(request.Position.Character, lineText.Length));
-
-            _logger.LogDebug("Signature help for: {Text}", beforeCursor);
-
-            var callInfo = ExtractMethodCall(beforeCursor);
+            var callInfo = SignatureHelpArgumentFacts.ActiveCallAtPosition(
+                doc.Text,
+                request.Position.Line,
+                request.Position.Character);
             if (callInfo == null)
             {
                 return Task.FromResult<SignatureHelp?>(null);
             }
 
-            var argumentText = beforeCursor.Substring(beforeCursor.LastIndexOf('(') + 1);
-            var activeParameter = CountCommas(argumentText);
-            var argumentCount = GetArgumentCount(argumentText);
+            _logger.LogDebug("Signature help for: {Method}", callInfo.MethodName);
+
+            var argumentText = callInfo.ArgumentText;
+            var argumentCount = SignatureHelpArgumentFacts.ArgumentCount(argumentText);
 
             // Constructor call (new TypeName(...)) — look up constructors for the type
-            if (callInfo.Value.IsConstructor)
+            if (callInfo.IsConstructor)
             {
-                var ctorSignatures = BuildNSharpConstructorSignatures(doc, callInfo.Value.MethodName);
+                var ctorSignatures = BuildNSharpConstructorSignatures(doc, callInfo.MethodName);
                 if (ctorSignatures.Count > 0)
                 {
                     _logger.LogDebug("Found N# constructor for {Type} with {Count} signature(s)",
-                        callInfo.Value.MethodName, ctorSignatures.Count);
+                        callInfo.MethodName, ctorSignatures.Count);
 
                     return Task.FromResult<SignatureHelp?>(CreateSignatureHelp(
                         ctorSignatures,
-                        activeParameter,
+                        argumentText,
                         argumentCount));
                 }
 
@@ -82,17 +75,17 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
             }
 
             // Bare function call (no dot) — try N# function lookup first
-            if (callInfo.Value.TypeName == null)
+            if (callInfo.ReceiverName == null)
             {
-                var nsharpSignatures = BuildNSharpFunctionSignatures(doc, callInfo.Value.MethodName);
+                var nsharpSignatures = BuildNSharpFunctionSignatures(doc, callInfo.MethodName);
                 if (nsharpSignatures.Count > 0)
                 {
                     _logger.LogDebug("Found N# function: {Name} with {Count} signature(s)",
-                        callInfo.Value.MethodName, nsharpSignatures.Count);
+                        callInfo.MethodName, nsharpSignatures.Count);
 
                     return Task.FromResult<SignatureHelp?>(CreateSignatureHelp(
                         nsharpSignatures,
-                        activeParameter,
+                        argumentText,
                         argumentCount));
                 }
 
@@ -100,8 +93,8 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
             }
 
             // Dot-qualified call — resolve the receiver as a value first, then as a type.
-            var typeName = callInfo.Value.TypeName;
-            var methodName = callInfo.Value.MethodName;
+            var typeName = callInfo.ReceiverName;
+            var methodName = callInfo.MethodName;
 
             _logger.LogDebug("Method call: {Type}.{Method}", typeName, methodName);
 
@@ -118,7 +111,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
 
             return Task.FromResult<SignatureHelp?>(CreateSignatureHelp(
                 signatures,
-                activeParameter,
+                argumentText,
                 argumentCount));
         }
         catch (Exception ex)
@@ -310,14 +303,18 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
 
     private SignatureHelp CreateSignatureHelp(
         List<SignatureInformation> signatures,
-        int activeParameter,
+        string argumentText,
         int argumentCount)
     {
+        var activeSignature = SelectActiveSignature(signatures, argumentCount);
+        var parameterLabels = signatures[activeSignature].Parameters?
+            .Select(parameter => parameter.Label.ToString())
+            .ToArray() ?? Array.Empty<string>();
         return new SignatureHelp
         {
             Signatures = new Container<SignatureInformation>(signatures),
-            ActiveSignature = SelectActiveSignature(signatures, argumentCount),
-            ActiveParameter = activeParameter
+            ActiveSignature = activeSignature,
+            ActiveParameter = SignatureHelpArgumentFacts.ActiveParameterIndex(argumentText, parameterLabels)
         };
     }
 
@@ -380,143 +377,6 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                 Kind = MarkupKind.Markdown,
                 Value = documentation
             };
-    }
-
-    /// <summary>
-    /// Extract method call information from text before cursor.
-    /// Returns (null, functionName) for bare function calls, or (typeName, methodName) for dot-qualified calls.
-    /// </summary>
-    private (string? TypeName, string MethodName, bool IsConstructor)? ExtractMethodCall(string text)
-    {
-        // Find the opening parenthesis
-        var openParenIndex = text.LastIndexOf('(');
-        if (openParenIndex < 0)
-        {
-            return null;
-        }
-
-        var beforeParen = text.Substring(0, openParenIndex).TrimEnd();
-
-        // Extract identifier (method name)
-        var parts = beforeParen.Split(new[] { ' ', '\t', '(', ')', '[', ']', '{', '}', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0)
-        {
-            return null;
-        }
-
-        var lastPart = parts[parts.Length - 1];
-
-        // Check if it's a constructor call: "new TypeName("
-        if (parts.Length >= 2 && parts[parts.Length - 2] == "new" && IdentifierText.IsValid(lastPart))
-        {
-            return (null, lastPart, IsConstructor: true);
-        }
-
-        // Check if it's a member call (Type.Method)
-        if (lastPart.Contains('.'))
-        {
-            var dotIndex = lastPart.LastIndexOf('.');
-            var typeName = lastPart.Substring(0, dotIndex);
-            var methodName = lastPart.Substring(dotIndex + 1);
-            return (typeName, methodName, IsConstructor: false);
-        }
-
-        // Bare function call — return with null TypeName
-        if (IdentifierText.IsValid(lastPart))
-        {
-            return (null, lastPart, IsConstructor: false);
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Count commas in parameter list to determine active parameter.
-    /// </summary>
-    private int CountCommas(string text)
-    {
-        var count = 0;
-        var depth = 0;
-        var inString = false;
-        var inChar = false;
-        var escaped = false;
-
-        foreach (var ch in text)
-        {
-            if (inString)
-            {
-                if (escaped)
-                {
-                    escaped = false;
-                }
-                else if (ch == '\\')
-                {
-                    escaped = true;
-                }
-                else if (ch == '"')
-                {
-                    inString = false;
-                }
-
-                continue;
-            }
-
-            if (inChar)
-            {
-                if (escaped)
-                {
-                    escaped = false;
-                }
-                else if (ch == '\\')
-                {
-                    escaped = true;
-                }
-                else if (ch == '\'')
-                {
-                    inChar = false;
-                }
-
-                continue;
-            }
-
-            switch (ch)
-            {
-                case '"':
-                    inString = true;
-                    break;
-                case '\'':
-                    inChar = true;
-                    break;
-                case '(':
-                case '[':
-                case '<':
-                    depth++;
-                    break;
-                case ')':
-                case ']':
-                case '>':
-                    if (depth > 0) depth--;
-                    break;
-                case ',':
-                    if (depth == 0)
-                    {
-                        count++;
-                    }
-                    break;
-            }
-        }
-
-        return count;
-    }
-
-    private int GetArgumentCount(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return 0;
-        }
-
-        return CountCommas(text) + 1;
     }
 
 }
