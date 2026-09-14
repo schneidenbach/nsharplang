@@ -2999,6 +2999,19 @@ Analyzer coverage is split deliberately across:
   implementer gets NO second `PropertyInfo` row of that name — its `Name` stays the field its source
   says it is. The slot is get-only on purpose: a read slot is one every implementer can fill, and N#
   has no body-less accessor with which to spell a settable one.
+  DUCK MATCHING HAD TO LEARN THE SAME SHAPE: `RequiredDuckInterfaceSatisfied` counted only the
+  interface's `Methods`, so an interface declaring no `func` at all matched EVERY type in the program
+  and the CLR then refused to load each one; value members and events are slots too, and both are now
+  asked for. The fill walk reads the RESOLVED interface set (`ImplementedInterfaces` +
+  `ExternalInterfaces`) beside the written base names, because a duck interface is never written in a
+  base list. A generic interface closed over a type still being emitted is a `TypeBuilderInstantiation`
+  whose every member query throws, so both walks guard with `ContainsBuilderBoundType` —
+  `readonly struct Box<T>: IEquatable<Box<T>>` crashed the whole check without it.
+  A write THROUGH the interface to a value member is `NL342`
+  (`AnalyzerWriteTargets.TryFindInterfaceValueMemberWriteTarget`, beside the read-only-property rule
+  it shares a report function with): the slot has no setter, and the reader cannot see why, because in
+  a CLASS body the same line is a mutable field. Only a SOURCE interface answers — an external one's
+  property carries its own accessors in metadata.
   The two modifier holes: `ReportAbstractMemberFault` replaced a raw `TypeBuilder` throw
   (`Type must be declared abstract if any of its methods are abstract.`, no file/line/column) and a
   SILENTLY DROPPED body on an `abstract` member with one; `ValidateOverrideAccessibility` replaced a
