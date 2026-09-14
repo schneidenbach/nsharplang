@@ -504,12 +504,12 @@ class CompletionReflectionFacts {
     static func BuildReflectionMemberItems(clrType: Type, flags: BindingFlags, inheritedProtected: bool, friendAdmits: bool, friendGrants: InternalsVisibleToGrants?): List<CompletionItem> {
         items := new List<CompletionItem>()
         seen := new List<Type>()
-        AppendReflectionInterfaceClosure(clrType, flags, inheritedProtected, friendAdmits, friendGrants, items, seen, 0)
+        AppendReflectionInterfaceClosure(clrType, flags, inheritedProtected, friendAdmits, friendGrants, items, seen)
         return items
     }
 
-    static func AppendReflectionInterfaceClosure(clrType: Type, flags: BindingFlags, inheritedProtected: bool, friendAdmits: bool, friendGrants: InternalsVisibleToGrants?, items: List<CompletionItem>, seen: List<Type>, depth: int) {
-        if depth >= 64 || ContainsExactReflectionType(seen, clrType) {
+    static func AppendReflectionInterfaceClosure(clrType: Type, flags: BindingFlags, inheritedProtected: bool, friendAdmits: bool, friendGrants: InternalsVisibleToGrants?, items: List<CompletionItem>, seen: List<Type>) {
+        if ContainsExactReflectionType(seen, clrType) {
             return
         }
 
@@ -530,7 +530,7 @@ class CompletionReflectionFacts {
             }
 
             baseFlags := GetReflectionBindingFlags(filter, inheritedProtected, baseFriendAdmits)
-            AppendReflectionInterfaceClosure(baseInterface, baseFlags, inheritedProtected, baseFriendAdmits, friendGrants, items, seen, depth + 1)
+            AppendReflectionInterfaceClosure(baseInterface, baseFlags, inheritedProtected, baseFriendAdmits, friendGrants, items, seen)
             index = index + 1
         }
     }

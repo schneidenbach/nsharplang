@@ -72,9 +72,11 @@ class CompletionInheritanceFacts {
         return new TypeParameter[](0)
     }
 
-    // The analyzer recorded the resolved `TypeInfo` at each written type reference. Prefer the model
-    // that owns the declaration before considering a hand-built or incomplete model: spans are file
-    // local, so a same-line reference in another source file is not evidence about this declaration.
+    // The analyzer recorded the resolved `TypeInfo` at each written type reference. A declaration
+    // owner makes this a file-local lookup: if that model has no usable record, a same-position
+    // record from another file is not evidence and cannot answer. The ownerless overload has no
+    // file identity, so it accepts a record only when every usable same-position record agrees on
+    // its exact semantic type.
     static func RecordedTypeReferenceType(typeReference: TypeReference, semanticModels: IEnumerable<SemanticModel>, declarationOwner: TypeInfo?): TypeInfo? {
         span := TypeReferenceFacts.GetStartSpan(typeReference)
         if !span.IsValid {
@@ -89,25 +91,96 @@ class CompletionInheritanceFacts {
                     if semanticModel.TypeReferenceTypes.TryGetValue(key, out recorded) && recorded != null && !BuiltInTypes.IsUnknown(recorded) {
                         return recorded
                     }
+
+                    return null
                 }
             }
+
+            return null
         }
 
+        candidate: TypeInfo? = null
         for semanticModel in semanticModels {
             recorded: TypeInfo? = null
             if semanticModel.TypeReferenceTypes.TryGetValue(key, out recorded) && recorded != null && !BuiltInTypes.IsUnknown(recorded) {
-                return recorded
+                if candidate != null && !TypeInfoIdentityFacts.AreEqual(candidate, recorded) {
+                    return null
+                }
+
+                candidate = recorded
             }
         }
 
-        return null
+        return candidate
     }
 
     static func SemanticModelOwnsDeclaration(semanticModel: SemanticModel, declarationOwner: TypeInfo): bool {
+        seen := new List<TypeInfo>()
         for entry in semanticModel.Types {
-            if Object.ReferenceEquals(entry.Value, declarationOwner) {
+            if TypeTreeContainsDeclaration(entry.Value, declarationOwner, seen) {
                 return true
             }
+        }
+
+        // `Types` is keyed by written name, so a non-generic sibling owns the shared bare-name
+        // slot. Its generic sibling remains reachable only through the identity table, which must
+        // participate in the same nested-declaration ownership walk.
+        for entry in semanticModel.TypesByIdentity {
+            if TypeTreeContainsDeclaration(entry.Value, declarationOwner, seen) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    // A file model records its outer declarations. Nested declarations remain below those roots in
+    // `NestedTypeInfo`, so reference identity must walk that source-declaration tree before saying
+    // a model does not own a nested type.
+    static func TypeTreeContainsDeclaration(candidate: TypeInfo, declarationOwner: TypeInfo, seen: List<TypeInfo>): bool {
+        if Object.ReferenceEquals(candidate, declarationOwner) {
+            return true
+        }
+
+        index := 0
+        while index < seen.Count {
+            if Object.ReferenceEquals(seen[index], candidate) {
+                return false
+            }
+
+            index = index + 1
+        }
+        seen.Add(candidate)
+
+        nestedTypes: NestedTypeInfo[]? = null
+        classType := candidate as ClassTypeInfo
+        if classType != null {
+            nestedTypes = classType.NestedTypes
+        }
+        structType := candidate as StructTypeInfo
+        if structType != null {
+            nestedTypes = structType.NestedTypes
+        }
+        recordType := candidate as RecordTypeInfo
+        if recordType != null {
+            nestedTypes = recordType.NestedTypes
+        }
+        interfaceType := candidate as InterfaceTypeInfo
+        if interfaceType != null {
+            nestedTypes = interfaceType.NestedTypes
+        }
+
+        if nestedTypes == null {
+            return false
+        }
+
+        nestedIndex := 0
+        while nestedIndex < nestedTypes.Length {
+            if TypeTreeContainsDeclaration(nestedTypes[nestedIndex].Type, declarationOwner, seen) {
+                return true
+            }
+
+            nestedIndex = nestedIndex + 1
         }
 
         return false
@@ -161,6 +234,41 @@ class CompletionInheritanceFacts {
         byRef := typeInfo as ByRefTypeInfo
         if byRef != null {
             return new ByRefTypeInfo(ApplySubstitution(byRef.InnerType, substitution), byRef.IsOutArgument)
+        }
+
+        tuple := typeInfo as TupleTypeInfo
+        if tuple != null {
+            elements := new List<TupleTypeElementInfo>()
+            elementIndex := 0
+            while elementIndex < tuple.Elements.Count {
+                element := tuple.Elements[elementIndex]
+                elements.Add(new TupleTypeElementInfo(element.Name, ApplySubstitution(element.Type, substitution)))
+                elementIndex = elementIndex + 1
+            }
+
+            return new TupleTypeInfo(elements)
+        }
+
+        function := typeInfo as FunctionTypeInfo
+        if function != null {
+            parameterTypes := function.ParameterTypes
+            substitutedParameters: List<TypeInfo>? = null
+            if parameterTypes != null {
+                substitutedParameters = new List<TypeInfo>()
+                parameterIndex := 0
+                while parameterIndex < parameterTypes.Count {
+                    substitutedParameters.Add(ApplySubstitution(parameterTypes[parameterIndex], substitution))
+                    parameterIndex = parameterIndex + 1
+                }
+            }
+
+            returnType := function.ReturnType
+            substitutedReturn: TypeInfo? = null
+            if returnType != null {
+                substitutedReturn = ApplySubstitution(returnType, substitution)
+            }
+
+            return function.WithSignatureTypes(substitutedParameters, substitutedReturn)
         }
 
         return typeInfo

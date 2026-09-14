@@ -418,8 +418,9 @@ class CompletionReceiverFacts {
     //
     // A NAME THE RECEIVER ALREADY OFFERS IS NOT OFFERED TWICE. The first list wins, which is the
     // language's hiding order: receiver declarations, nearest class declarations, then reachable
-    // interfaces. A visited exact-type list makes malformed cycles finite and a diamond's shared base
-    // contribute once.
+    // interfaces. A visited exact-type list makes a diamond's shared base contribute once, while a
+    // declaration path rejects a malformed generic cycle without imposing an arbitrary depth cap on
+    // a valid inheritance chain.
     static func AppendInheritedMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, items: List<CompletionItem>) {
         AppendInheritedMemberItems(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, null, false, null, items)
     }
@@ -434,14 +435,17 @@ class CompletionReceiverFacts {
     static func AppendInheritedMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, canReachProtected: bool, friendGrants: InternalsVisibleToGrants?, items: List<CompletionItem>) {
         seen := new List<TypeInfo>()
         seen.Add(typeInfo)
-        AppendInheritanceEdges(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, accessingTypeName, canReachProtected, friendGrants, items, seen, 0)
-    }
-
-    static func AppendInheritanceEdges(current: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, canReachProtected: bool, friendGrants: InternalsVisibleToGrants?, items: List<CompletionItem>, seen: List<TypeInfo>, depth: int) {
-        if depth >= 64 {
-            return
+        declarationPath := new List<TypeInfo>()
+        declaration: TypeInfo? = null
+        substitution: Dictionary<string, TypeInfo>? = null
+        if CompletionInheritanceFacts.TryGetSourceDeclaration(typeInfo, out declaration, out substitution) && declaration != null {
+            declarationPath.Add(declaration)
         }
 
+        AppendInheritanceEdges(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, accessingTypeName, canReachProtected, friendGrants, items, seen, declarationPath)
+    }
+
+    static func AppendInheritanceEdges(current: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, canReachProtected: bool, friendGrants: InternalsVisibleToGrants?, items: List<CompletionItem>, seen: List<TypeInfo>, declarationPath: List<TypeInfo>) {
         declaration: TypeInfo? = null
         substitution: Dictionary<string, TypeInfo>? = null
         if !CompletionInheritanceFacts.TryGetSourceDeclaration(current, out declaration, out substitution) || declaration == null {
@@ -463,7 +467,7 @@ class CompletionReceiverFacts {
                     friendGrants,
                     items,
                     seen,
-                    depth + 1
+                    declarationPath
                 )
             }
         }
@@ -484,7 +488,7 @@ class CompletionReceiverFacts {
                     friendGrants,
                     items,
                     seen,
-                    depth + 1
+                    declarationPath
                 )
             }
 
@@ -492,24 +496,37 @@ class CompletionReceiverFacts {
         }
     }
 
-    static func AppendInheritedType(candidate: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, canReachProtected: bool, friendGrants: InternalsVisibleToGrants?, items: List<CompletionItem>, seen: List<TypeInfo>, depth: int) {
-        if depth >= 64 || CompletionInheritanceFacts.ContainsExactType(seen, candidate) {
+    static func AppendInheritedType(candidate: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, canReachProtected: bool, friendGrants: InternalsVisibleToGrants?, items: List<CompletionItem>, seen: List<TypeInfo>, declarationPath: List<TypeInfo>) {
+        if CompletionInheritanceFacts.ContainsExactType(seen, candidate) {
             return
         }
 
-        seen.Add(candidate)
         declaration: TypeInfo? = null
         substitution: Dictionary<string, TypeInfo>? = null
         if CompletionInheritanceFacts.TryGetSourceDeclaration(candidate, out declaration, out substitution) && declaration != null {
+            if CompletionInheritanceFacts.ContainsExactType(declarationPath, declaration) {
+                return
+            }
+
+            nextDeclarationPath := new List<TypeInfo>()
+            pathIndex := 0
+            while pathIndex < declarationPath.Count {
+                nextDeclarationPath.Add(declarationPath[pathIndex])
+                pathIndex = pathIndex + 1
+            }
+            nextDeclarationPath.Add(declaration)
+
+            seen.Add(candidate)
             declarationName := CompletionTypeTextFacts.FormatTypeText(declaration)
             declaringNamespace := CompletionVisibilityFacts.DeclaringNamespaceOfReceiverType(declaration, declarationName, compilationUnits)
             insideDeclaration := accessingTypeName != null && CompletionVisibilityFacts.SimpleTypeName(declarationName) == CompletionVisibilityFacts.SimpleTypeName(accessingTypeName)
             candidates := CompletionDeclarationFacts.GetTypeMemberItems(declaration, semanticModels, declaringNamespace, requestingNamespace, canReachProtected, insideDeclaration, filter, substitution)
             AppendNewMemberItems(items, candidates)
-            AppendInheritanceEdges(candidate, semanticModels, filter, compilationUnits, requestingNamespace, accessingTypeName, canReachProtected, friendGrants, items, seen, depth)
+            AppendInheritanceEdges(candidate, semanticModels, filter, compilationUnits, requestingNamespace, accessingTypeName, canReachProtected, friendGrants, items, seen, nextDeclarationPath)
             return
         }
 
+        seen.Add(candidate)
         clrType := CompletionReflectionFacts.ResolveCompletionReflectionType(candidate)
         if clrType == null {
             return

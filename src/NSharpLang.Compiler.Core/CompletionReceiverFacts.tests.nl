@@ -472,6 +472,7 @@ test "a receiver offers what its external base declares, and its own members win
     unit := CrfUnitWithExpression(access, 3, 5)
 
     model := new SemanticModel()
+    model.Types["Names"] = declared
     model.Variables["names"] = declared
     model.RecordTypeReference(7, 13, CrfListOfStringType())
 
@@ -509,6 +510,8 @@ test "a base two source links up still contributes the external base's members" 
     unit := CrfUnitWithExpression(access, 3, 5)
 
     model := new SemanticModel()
+    model.Types["Names"] = names
+    model.Types["Deeper"] = deeper
     model.Variables["deeper"] = deeper
     model.RecordTypeReference(11, 15, names)
     model.RecordTypeReference(7, 13, CrfListOfStringType())
