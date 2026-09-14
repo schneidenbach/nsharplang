@@ -3001,6 +3001,22 @@ guards — before the IL paths that box, convert, `typeof` and instantiate gener
 is a restructure of the emitter's type model, not a change to the attribute owner, and it belongs to
 a slice that can gate the whole emitter rather than to an attribute slice.
 
+MEASURED BY EXECUTION, not only by grep. The deferral was actually built (collect each `EnumBuilder`
+in pass 0, register `ColumnarEnumDef` with the BUILDER, `CreateType` them immediately after the first
+`sourceAttributeQueue.Flush()`) and run against the native corpus on tip
+`0.1.0+57584946c`. It builds, and most of the corpus stays green — `erased-enum-identity` 2/2,
+`census-pattern-foreach` 30/30, `census-source-attributes` 48/48 — but
+`columnar-emit-facts/MultiFileCompiler_EmitsNestedEnumMembersOnClasses` emits an assembly the CLR
+refuses to load:
+
+    System.BadImageFormatException: A valid typedef or typeref token is expected to follow a
+    ELEMENT_TYPE_CLASS or ELEMENT_TYPE_VALUETYPE
+
+A NESTED enum's signatures are written before its typedef exists, so the failure is in the persisted
+metadata writer's token ordering rather than in anything the attribute owner can reach. Closing the
+enum-member position means owning that ordering — the enum must still be materialized before any
+signature that names it, while its literal `FieldBuilder`s stay open until the attribute flush.
+
 Not supported, and stated as such in `website/docs/basics.md`: `[assembly: ...]`, `[return: ...]`, an
 attribute on an enum member, and generic attributes.
 
