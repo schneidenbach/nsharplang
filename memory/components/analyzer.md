@@ -1405,6 +1405,17 @@ public-only flags. `System.Object`'s own `protected` methods (`MemberwiseClone`,
 listed on such a receiver, which is honest — they ARE reachable — and is what a name-based filter
 would have to be invented to suppress. A VS Code visual pass over this list is OWED.
 
+**THE CONTEXTUAL-TIER GATE ASKS ALL THREE METHOD-GROUP SHAPES** (2026-09-14, stream CAPTURE3).
+`ColumnarIlEmitter.IsContextualDelegateValueNode` — the predicate `HasContextualDelegateArgument`
+uses to decide whether the contextual walk runs at all — recognised an OVERLOADED group written as a
+bare name or on a TYPE, and not one written on a VALUE, even though the inference loop's own
+phase-one test already reads all three (`TryGetReceiverInstanceMethodGroup` is its third arm). The
+EXTENSION tier has no such gate by design, so `words.Select(greeter.Describe)` ran while
+`words.ConvertAll(greeter.Describe)` — the same question asked of an INSTANCE method, which goes
+through `TryResolveContextualDirectCandidate` — declined at `emit.call.instance-member`. A genuine
+ambiguity (a group whose overloads make TWO `Select` overloads applicable) is still NL414, matching
+C# CS0121.
+
 **A PREFLIGHTED BLOCK LAMBDA'S OWN LOCALS ARE PART OF ITS FRAME** (2026-09-14, stream CAPTURE3).
 `ColumnarIlEmitter.CollectBlockReturnTypes` typed each `return` in a frame carrying the lambda's
 parameters and the enclosing scope and nothing the BLOCK declared, so

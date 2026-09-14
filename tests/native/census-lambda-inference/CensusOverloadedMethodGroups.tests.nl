@@ -65,3 +65,27 @@ test "an overloaded group on an instance receiver binds that receiver's overload
     // The overload the position did not select is still callable by its own name.
     assert DescribeCountDirectly(new Greeter("n:"), 7) == "n:7"
 }
+
+// ── an overloaded group read off a RECEIVER, at an INSTANCE method's inferring position ───────
+test "an overloaded receiver group binds the output type parameter of an instance method too" {
+    words := new List<string>()
+    words.Add("ann")
+    words.Add("bo")
+    greeter := new Greeter("hi ")
+
+    described := DescribeAllByConvert(greeter, words)
+    assert described.GetType() == typeof(List<string>)
+    assert described.Count == 2
+    assert described[0] == "hi ann"
+    assert described[1] == "hi bo"
+
+    lengths := DescribedLengths(greeter, words)
+    assert lengths[0] == 6
+    assert lengths[1] == 5
+}
+
+test "the storage's declared delegate selects among a receiver group's overloads" {
+    // `Func<int, string>` picks `Describe(count: int)`, which no `List<string>` position could.
+    shape := DescribeCountAsDelegate(new Greeter("n"))
+    assert shape(7) == "n7"
+}

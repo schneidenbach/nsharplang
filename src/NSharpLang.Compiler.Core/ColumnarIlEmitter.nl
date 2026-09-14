@@ -23378,8 +23378,17 @@ sealed class ColumnarIlEmitter {
         // A NAME WITH SEVERAL OVERLOADS CARRIES NO SINGLE SIGNATURE, so it contributes nothing to
         // inference — but it is still a method group, and the delegate the position wants is exactly
         // what selects among its candidates.
+        //
+        // ALL THREE GROUP SHAPES ARE ASKED, and the receiver-instance one was missing: the inference
+        // loop below already reads it (`TryGetReceiverInstanceMethodGroup` is the third arm of its
+        // phase-one test), but this gate is what decides whether that loop runs at all. Without it
+        // `names.ConvertAll(greeter.Greet)` with TWO `Greet` overloads never reached the contextual
+        // tier — the call looked like one with no delegate argument — and declined at
+        // `emit.call.instance-member`, while the same call on a NON-overloaded name emitted.
         let overloadedCandidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
-        return TryGetEnclosingMethodGroupCandidates(node, out overloadedCandidates) || TryGetExternalStaticMethodGroupCandidates(node, out overloadedCandidates)
+        let overloadedReceiverNode: int = -1
+        let overloadedReceiverType: System.Type? = null
+        return TryGetEnclosingMethodGroupCandidates(node, out overloadedCandidates) || TryGetExternalStaticMethodGroupCandidates(node, out overloadedCandidates) || TryGetReceiverInstanceMethodGroup(node, out overloadedReceiverNode, out overloadedReceiverType, out overloadedCandidates)
     }
 
     // Does this call carry an argument whose type only a delegate context can supply? Ordinary
