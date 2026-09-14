@@ -675,6 +675,19 @@ func IteratorOne(a: string): string[] {
     return values
 }
 
+// Does the classified field layout carry a slot under this name? A synthesized slot's NAME is the
+// whole of the contract between classification and emission, so it is what the estate asserts.
+func IteratorShapeHasField(shape: ColumnarIteratorShape, name: string): bool {
+    i := 0
+    while i < shape.FieldNames.Length {
+        if shape.FieldNames[i] == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
 test "iterator planner numbers zero yields with two fields and no resume states" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Zero(): IEnumerable<int> { }",
@@ -1253,7 +1266,12 @@ test "iterator planner declines a yield inside a finally handler" {
     assert probe.Shape.DeclineMessage == "a `yield` cannot appear inside a `finally` handler"
 }
 
-test "iterator planner declines a try statement inside an async iterator body" {
+// A `try` inside an `async func*` is a REGION like any other now: it takes a region ordinal, its
+// suspension records the region it stands in, and the machine gains the dispose flag that lets an
+// abandoned consumer walk back and leave the region properly. (This test replaces the one that
+// asserted the old blanket decline, "a `try` statement inside an `async func*` body is a later
+// slice".)
+test "iterator planner lowers a try statement inside an async iterator body" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Guarded(): IAsyncEnumerable<int> { try { yield 1 } finally { } }",
         "IAsyncEnumerable<int>",
@@ -1264,9 +1282,104 @@ test "iterator planner declines a try statement inside an async iterator body" {
         true
     )
 
+    assert probe.Shape.Supported
+    assert probe.Shape.IsAsync
+    assert probe.Shape.TryRegionCount == 1
+    assert probe.Shape.TryRegionParents[0] == 0 - 1
+    assert probe.Shape.ResumeRegionOf(1) == 0
+    assert IteratorShapeHasField(probe.Shape, "<>__disposing")
+}
+
+// THE SHARED SUSPENSION COUNTER. An async machine numbers `yield` and `await` with ONE counter in
+// walk order, so the await below is resume state 1 and the yield is state 2 — and it is state 2,
+// not state 1, whose home is the region.
+test "iterator planner keys async resume regions by the shared suspension counter" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Guarded(): IAsyncEnumerable<int> { await Task.Delay(1)\n try { yield 1 } finally { } }",
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.AwaitResumeCount == 1
+    assert probe.Shape.YieldReturnCount == 1
+    assert probe.Shape.ResumeRegionOf(1) == 0 - 1
+    assert probe.Shape.ResumeRegionOf(2) == 0
+}
+
+// A `using` statement is the same region, written with a different keyword.
+test "iterator planner lowers a using statement inside an async iterator body" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Scoped(r: IDisposable): IAsyncEnumerable<int> { using r { yield 1 } }",
+        "IAsyncEnumerable<int>",
+        IteratorOne("r"),
+        IteratorOne("IDisposable"),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.TryRegionCount == 1
+}
+
+// AN AWAITING `finally` TAKES THE HOISTED FORM, and the two fields that form needs are declared by
+// classification: the parked exception and the recorded exit.
+test "iterator planner hoists an awaiting finally handler and declares its pending fields" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Guarded(): IAsyncEnumerable<int> { try { yield 1 } finally { await Task.Delay(1) } }",
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.TryRegionCount == 1
+    assert IteratorShapeHasField(probe.Shape, "<>__pending0")
+    assert IteratorShapeHasField(probe.Shape, "<>__branch0")
+}
+
+// An `await` inside a `catch` is a DOCUMENTED LIMIT, not a silent decline: the hoisted form replaces
+// the statement's own handlers with one catch-all, so a `catch` clause would have to be re-matched
+// against the parked exception by hand.
+test "iterator planner declines an await inside a catch handler" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Guarded(): IAsyncEnumerable<int> { try { await Task.Delay(1) } catch ex: Exception { await Task.Delay(1) }\n yield 1 }",
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+
     assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.async-unsupported"
-    assert probe.Shape.DeclineMessage == "a `try` statement inside an `async func*` body is a later slice"
+    assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+    assert probe.Shape.DeclineMessage == "an `await` inside a `catch` handler is not yet lowered: a suspension there has no resume point to return to"
+}
+
+// A synchronous generator cannot suspend at all, so an awaiting handler there is the ordinary
+// "await outside an async body" answer rather than the hoisted form.
+test "iterator planner declines an awaiting finally in a synchronous generator" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Guarded(): IEnumerable<int> { try { yield 1 } finally { await Task.Delay(1) } }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+    assert probe.Shape.DeclineMessage == "an `await` inside a `finally` handler is not yet lowered: a suspension there has no resume point to return to"
 }
 
 test "iterator planner declines a lock statement in an iterator body" {
@@ -2718,7 +2831,12 @@ test "async iterator planner hoists an enumerator for a sequence source" {
 // `IAsyncEnumerator<T>` is released by awaiting its `DisposeAsync()`, and two of the three paths that
 // must release it — an exception passing through the body, and a consumer abandoning the outer
 // enumeration — are handler positions where a suspension has no resume label to return to.
-test "async iterator planner declines await foreach inside a generator body" {
+// `await foreach` IS A LOOP THAT IS ALSO A REGION, and its release is that region's hoisted handler.
+// (This test replaces the one that asserted the old decline, "`await foreach` inside a generator body
+// is not yet lowered: releasing the inner enumerator needs an `await` inside a handler".) The shape
+// carries one region, one enumerator slot, and TWO suspensions the body never wrote: the loop's own
+// `await MoveNextAsync()` inside the region, and the release outside it.
+test "async iterator planner lowers await foreach inside a generator body" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Bad(xs: IAsyncEnumerable<int>): IAsyncEnumerable<int> { await foreach x in xs { yield x } }",
         "IAsyncEnumerable<int>",
@@ -2729,9 +2847,33 @@ test "async iterator planner declines await foreach inside a generator body" {
         true
     )
 
+    assert probe.Shape.Supported
+    assert probe.Shape.TryRegionCount == 1
+    assert probe.Shape.AwaitResumeCount == 2
+    assert probe.Shape.YieldReturnCount == 1
+    // State 1 is the loop's `MoveNextAsync`, inside the region; state 2 is the body's `yield`, also
+    // inside it; state 3 is the release, which stands OUTSIDE the region it releases.
+    assert probe.Shape.ResumeRegionOf(1) == 0
+    assert probe.Shape.ResumeRegionOf(2) == 0
+    assert probe.Shape.ResumeRegionOf(3) == 0 - 1
+    assert IteratorShapeHasField(probe.Shape, "<>__aenum0")
+    assert IteratorShapeHasField(probe.Shape, "<>__pending0")
+}
+
+// `await foreach` is only a suspension where suspensions exist.
+test "iterator planner declines await foreach in a synchronous generator" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Bad(xs: IAsyncEnumerable<int>): IEnumerable<int> { await foreach x in xs { yield x } }",
+        "IEnumerable<int>",
+        IteratorOne("xs"),
+        IteratorOne("IAsyncEnumerable<int>"),
+        IteratorNoStrings(),
+        false
+    )
+
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
-    assert probe.Shape.DeclineMessage == "`await foreach` inside a generator body is not yet lowered: releasing the inner enumerator needs an `await` inside a handler"
+    assert probe.Shape.DeclineMessage == "`await foreach` is only valid inside an `async func*` body"
 }
 
 // ---- async state-machine executed proofs (plans realized onto a reflective probe host) ----

@@ -469,6 +469,7 @@ test "primitive binary admission does not broaden ordinary direct calls" {
     tree := DirectCallParsedTree("Accept(20 + 22)")
     assert !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(
         tree.Nodes,
+        tree.Source,
         tree.Root,
         0
     )

@@ -1490,16 +1490,16 @@ func* ticks(log: List<string>): IEnumerable<int> {
   re-entered that way.
 - a `return` anywhere but the END of a block-bodied lambda's body, and an assignment inside one whose
   target is neither a captured binding nor a member.
-- `await using` — releasing asynchronously needs an `await` inside a handler, where a suspension has
-  no resume point to come back to. This is the same wall `await foreach` meets in a generator body.
 - a lambda that captures a variable declared INSIDE a loop — a generator holds one field per local,
   so every iteration would share it rather than getting the fresh binding the language promises.
+- an `async` lambda inside a generator body — the lambda's own body needs an async wrap and a fault
+  guard the generator's lambda lowering does not write.
 - `await` outside an `async func*`, and — inside one — an `await` NESTED in a larger expression;
   bind it first (`value := await ...`).
-- a `try` statement inside an `async func*` body, and `lock` inside any generator body.
-- `await foreach` INSIDE a generator body: releasing the inner enumerator needs an `await` in a
-  handler. Consume the sequence outside the generator, or enumerate a synchronous sequence with
-  `for..in` inside it.
+- an `await` inside a `catch` handler, and an awaiting `finally` on a `try` that also declares a
+  `catch` — the hoisted form below replaces the statement's own handlers with one catch-all, so a
+  `catch` clause would have to be re-matched against the parked exception by hand.
+- `lock` inside any generator body.
 - a COMPOUND assignment (`+=`, `-=`, …) whose target is an indexer or a member; write the plain form
   (`table[key] = table[key] + 1`).
 
@@ -1543,6 +1543,54 @@ async func* doubledAsync(count: int): IAsyncEnumerable<int> {
     }
 }
 ```
+
+#### Protected regions, `await using` and `await foreach` inside an async generator
+
+`try`/`catch`/`finally`, `using`, `await using` and `await foreach` may all be written inside an
+`async func*`. A handler runs on the same three paths a synchronous generator's does — the body
+completes, an exception passes through, or a consumer abandons the `await foreach` part-way — and
+the abandonment path is asynchronous too: `DisposeAsync()` drives the machine back to where it stood
+and lets it leave every region, awaiting whatever those handlers await on the way out.
+
+```n#
+import System
+import System.Collections.Generic
+import System.Threading.Tasks
+
+async func* relay(source: IAsyncEnumerable<int>, gate: IAsyncDisposable): IAsyncEnumerable<int> {
+    await using gate {
+        await foreach v in source {
+            yield v * 2
+        }
+    }
+}
+```
+
+An `await` inside a `finally` is lowered by **hoisting the handler out of the region it guards**. A
+suspension has to leave the method with an empty stack and come back through the state machine's
+dispatch, and a dispatch cannot branch *into* a protected region — so the body keeps the region, a
+catch-all parks the exception in flight, and the handler runs just past the region end where an
+`await` is an ordinary suspension. The parked exception is re-raised **after** the handler has run,
+through `ExceptionDispatchInfo`, so its original stack trace survives; and a `yield break` out of the
+region records itself so the handler still runs before the sequence ends.
+
+```n#
+import System.Collections.Generic
+import System.Threading.Tasks
+
+async func* guarded(source: IAsyncDisposable): IAsyncEnumerable<int> {
+    try {
+        yield 1
+        yield 2
+    } finally {
+        await source.DisposeAsync()
+    }
+}
+```
+
+The two shapes this does **not** cover are an `await` inside a `catch`, and an awaiting `finally` on
+a `try` that also declares a `catch`: the hoisted form replaces the statement's own handlers with one
+catch-all, so a `catch` clause would have to be re-matched against the parked exception by hand.
 
 ## Generic Functions
 

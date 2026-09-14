@@ -47,6 +47,57 @@ class ColumnarConditionalPlanner {
         return node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.BinaryExpression() && nodes.ChildCount(node) == 2 && HasExactOperatorText(nodes, source, node, "??")
     }
 
+    // IS THIS NODE ONE OF THE THREE BRANCH-MERGE VALUE FORMS? The ternary, `&&`/`||` and `??` are
+    // one family: each evaluates part of itself on only one of two paths and joins at a merge label.
+    // `MayPlanRoot` deliberately answers a NARROWER question (it is the emitter front door's gate and
+    // must not claim a `??` root, whose schema-v3 fragment the legacy arm still serves); this is the
+    // VALUE-POSITION question, which the nested dispatcher has answered for all three since this
+    // owner landed.
+    static func IsBranchMergeValue(nodes: ColumnarNodeTable, source: string, node: int): bool {
+        if nodes == null || source == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 {
+            return false
+        }
+
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.TernaryExpression() {
+            return nodes.ChildCount(candidate) == 3
+        }
+
+        return IsShortCircuitBinary(nodes, source, candidate) || IsNullCoalesceBinary(nodes, source, candidate)
+    }
+
+    // THE TYPE OF A BRANCH-MERGE VALUE, DISCOVERED BY PLANNING IT — into a METHOD-BODY scratch, which
+    // is the whole point of this seam existing beside `ColumnarDirectCallPlanner.TryGetPlannableValueType`
+    // rather than inside it. That owner's scratch is a schema-v3 expression plan, and the reference
+    // arm of `??` lowers to `dup; brtrue; pop; <fallback>` — `pop` is a METHOD-BODY opcode, so a v3
+    // scratch does not decline it, it THROWS ("The opcode does not use an operand-free row"). Typing a
+    // `??` argument through a v4 scratch runs the identical rows the real append will run, so the type
+    // side and the append side cannot disagree, and no shape reaches the plan only to crash it.
+    //
+    // The scratch is discarded rather than sealed: a method body is sealed only when it terminates on
+    // every path, and a bare value expression never does. Validation of the rows that matter happens
+    // when the SAME planner appends them into the real body.
+    static func TryGetBranchMergeValueType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, methodBodySchema: bool, out resultType: Type): bool {
+        resultType = typeof(int)
+        if nodes == null || source == null || bindings == null || handles == null {
+            return false
+        }
+
+        scratch := new ColumnarCodePlan()
+        scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
+        scratch.EnableNestedValueFrame()
+        if methodBodySchema {
+            scratch.PrepareMethodBody()
+        } else {
+            scratch.PrepareV3()
+        }
+        return TryAppendRoot(nodes, source, node, bindings, handles, scratch, out resultType) && resultType != null
+    }
+
     // Root ownership seam consumed by the emitter front door. A planned root claims the whole node;
     // any decline is a NotOwned whole-subtree exit (never terminal) so the legacy arm serves the
     // mixed-type ternary and coalesce forms outside this slice.
@@ -285,6 +336,17 @@ class ColumnarConditionalPlanner {
     static func TryPlanReferenceCoalesce(nodes: ColumnarNodeTable, source: string, fallback: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, leftType: Type, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         resultType = leftType
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
+        // `pop` IS A METHOD-BODY OPCODE, and a schema-v3 expression plan does not decline it — it
+        // THROWS ("The opcode does not use an operand-free row"). This arm is the only one of the
+        // three that needs it, so it is the only one that asks; the nullable and generic-parameter
+        // arms park the left in a plan local and use nothing a v3 fragment refuses. A v3 position
+        // therefore DECLINES here and the legacy emitter arm serves that `??`, exactly as it did
+        // before this owner existed — the same contract `ColumnarThrowExpressionPlanner` states for
+        // a `throw` arm, and for the same reason.
+        if !plan.IsMethodBodySchema() {
+            return false
+        }
+
         endLabel := plan.DefineLabel()
         plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
         plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), endLabel)

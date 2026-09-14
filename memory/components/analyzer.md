@@ -4300,9 +4300,78 @@ has not been widened, because that is a question about the whole value surface.
 
 Not yet lowered inside a generator body, each with its own decline: `return <value>`
 (`emit.iterator.unsupported-shape`), a loop-scoped capture by a lambda
-(`emit.iterator.lambda-unsupported`), a `try` inside an `async func*`
-(`emit.iterator.async-unsupported`), `lock`, an `await` nested in a larger expression, and
-`await foreach`.
+(`emit.iterator.lambda-unsupported`), an `async` lambda (`emit.iterator.lambda-async`), `lock`, an
+`await` nested in a larger expression, an `await` inside a `catch` handler and an awaiting `finally`
+beside a `catch` on the same `try` (both `emit.iterator.async-await-unsupported`).
+
+### Protected regions and awaits in handler positions (census ITER4)
+
+A `try`/`catch`/`finally`, a `using`, an `await using` and an `await foreach` may all be written
+inside an `async func*`. Three facts make that work, and they are worth stating separately because
+each one was a bug before it was a feature.
+
+**One suspension counter.** An async machine interleaves `yield` and `await` under ONE resume
+numbering (`ColumnarMoveNextEmit.NextResume`), but classification keyed the region table by the YIELD
+count (`ResumeRegions[state.YieldReturnCount]`). Every suspension after the first `await` therefore
+recorded the wrong region, which is invisible until a region exists at all.
+`ColumnarIteratorWalkState.ResumeCount` is the shared counter both kinds now increment, and
+`TotalResumeCount` is the emission side of the same question — a dispatch that asked only about the
+yields would never route a resume that suspended at an `await` inside a region.
+
+**The async shape carries the region facts.** `BuildSupportedAsyncShape` copies
+`TryRegionCount`/`TryRegionParents`/`ResumeRegions` exactly as the synchronous one does, and the
+dispose flag is decided for BOTH machines before either counts its fields. `BuildAsyncMoveNextCorePlan`
+defines the region-entry labels the dispatch hops through.
+
+**`DisposeAsync` drives the unwind and then asks the promise.** The synchronous twin drives
+`MoveNext` once and throws the answer away; an async machine cannot, because a handler it is standing
+in may itself suspend. `AppendAsyncDisposeUnwind` sets the dispose flag, clears the promise, drives
+the step core, and returns `new ValueTask(promise.Task)` when a suspension left one — otherwise the
+core already reached its end label, marked the machine done and released its enumerators (which is
+why that release moved INTO the core's end path, not `DisposeAsync`'s).
+
+#### The hoisted handler
+
+An `await` inside a `finally` can never run inside the region it guards: a suspension leaves the
+method with an empty evaluation stack and comes back through the state dispatch, and a dispatch
+cannot branch INTO a protected region. `EmitHoistedHandlerRegion` implements Roslyn's
+`AsyncMethodToStateMachineRewriter.VisitTryStatement` lowering —
+
+    entry_k:  this.<>__pending{k} = null; this.<>__branch{k} = 0
+              try   { <dispatch for k> <body> leave end_k }
+              catch (Exception e) { this.<>__pending{k} = ExceptionDispatchInfo.Capture(e) }
+    end_k:    <handler body — awaits freely, in ordinary code>
+              if (this.<>__pending{k} != null) this.<>__pending{k}.Throw()
+              if (this.<>__branch{k} != 0) <re-issue the exit, one level out>
+
+— and pays for the hoist with two FIELDS (a plan local would not survive a suspension inside the
+handler). `<>__pending{k}` is an `ExceptionDispatchInfo` so the ORIGINAL stack trace survives the
+re-raise; `<>__branch{k}` records an exit that would otherwise jump straight to the body's end label
+and skip the handler. `AppendBodyExit` is the ONE place that knows this, and it re-issues the branch
+in the ENCLOSING context so nested hoisted regions hop out one level at a time. There is no
+`state < 0` guard and none is needed: a suspension inside the body leaves to the METHOD's region end,
+never to this region's.
+
+`BeginHoistedHandlerRegion`/`EndHoistedHandlerRegion` are shared by all three owners — a written
+awaiting `finally`, `await using` (whose handler awaits `DisposeAsync()` in the same four release
+shapes the synchronous `using` has) and `await foreach` (whose handler releases the inner
+`IAsyncEnumerator<T>`). The `await foreach` enumerator is deliberately NOT a `<>__enum{k}` slot:
+those are released by the machine's blanket SYNCHRONOUS disposal, which is the wrong release for an
+`IAsyncDisposable`. `AppendAwait` is split at `AppendAwaitOfStackValue` so a synthesized suspension
+runs the identical rows a written `await` does.
+
+Two shapes remain declined, and the reason is one sentence: the hoisted form replaces the statement's
+own handlers with ONE catch-all, so a `catch` clause would have to be re-matched by hand against the
+parked exception. An `await` inside a `catch`, and an awaiting `finally` on a `try` that also declares
+a `catch`, therefore decline with their own messages.
+
+⚠ THE REPO'S "DECLINING SHAPE" SENTINEL MOVED. `await foreach` inside a generator was it in four N#
+fixtures (`CompilationReferenceResolverTestFixture.tests.nl`,
+`tests/native/reference-resolution/ReferenceResolutionFixture.nl`,
+`columnar-emit-facts/MultiFileCompilerOwnership.tests.nl`,
+`cli-command-contracts/CliCommandContracts.tests.nl`) and three C# strings in
+`tests/CompilationBackendTests.cs`. It is now an `async` LAMBDA inside a generator body
+(`emit.iterator.lambda-async`).
 
 ### The branch-merge value forms on the plan side (census ITER3)
 
@@ -4329,6 +4398,15 @@ only lowering, so an iterator body — which plans every value — declined `yie
   which reaches `TryAppendRoot` directly. The emitter's `??` arm therefore REMAINS, serving the
   bodies the plan door still declines; collapsing the two owners waits on the plan door claiming
   every body.
+
+⚠ ITER4 ASKED WHETHER THE EMITTER'S `??` ARM CAN GO NOW, AND MEASURED THAT IT CANNOT. The REFERENCE
+arm's lowering is `dup; brtrue; pop; <fallback>`, and `pop` is a METHOD-BODY opcode: a schema-v3
+expression plan does not decline it, it THROWS ("The opcode does not use an operand-free row"). That
+was a LATENT CRASH — reachable the moment a wider gate let a reference `??` reach a v3 fragment,
+which is exactly what admitting `??` as a call argument did (two native projects died with that
+message, not a decline). `TryPlanReferenceCoalesce` now asks `plan.IsMethodBodySchema()` and declines
+in a v3 position, the same contract `ColumnarThrowExpressionPlanner` states for a `throw` arm. The
+emitter's `??` arm stays, and stays until every body reaches the plan door.
 
 ### A source type's statics on the plan side (census ITER3)
 
@@ -4362,6 +4440,29 @@ the same address; neither shape takes a null guard, because a struct is never nu
 source struct looked non-disposable. It now resolves the definition through
 `ColumnarSourceDefinitionResolver.TryResolveStruct`, which is what the plain-body `using` has always
 done.
+
+### Branch-merge values as call arguments and receivers (census ITER4)
+
+`ColumnarRangeIndexPlanner`'s value dispatcher has owned the ternary, `&&`/`||` and `??` in every
+value position since the conditional planner landed, but the call owner's SYNTAX PREFLIGHT —
+`ColumnarDirectCallPlanner.IsAdmittedValueSyntax`, the gate that types an argument or a receiver
+before the call is claimed — took no `source`. Three of the four forms are kind-12 binaries separated
+from arithmetic only by their operator TEXT, which lives in the source span, so the gate could not
+see them and refused kind 13 outright. In an ordinary body that refusal was invisible (the call fell
+back to the legacy emitter arm); inside a `func*` there is no legacy arm, so `list.Add(flag ? "a" :
+"b")` declined the whole generator.
+
+- The gate takes `source` now (threaded through `ColumnarConstructionPlanner`'s shape-only twin and
+  `ColumnarPrimitiveBinaryPlanner.IsAdmittedOperandSyntax`) and asks one predicate,
+  `ColumnarConditionalPlanner.IsBranchMergeValue` — deliberately WIDER than `MayPlanRoot`, which must
+  keep refusing a `??` root.
+- An OPERAND of a branch-merge is admitted through the wider CONSTRUCTION-value question, because
+  that is the surface `TryPlanTernary`/`TryPlanShortCircuit`/`TryPlanNullCoalesce` actually append
+  their operands through. Asking the narrow question refused `flag && count > 0 ? a : b` at the
+  preflight while the append step would have planned it.
+- A branch-merge argument types through `ColumnarConditionalPlanner.TryGetBranchMergeValueType`, a
+  METHOD-BODY scratch, rather than `TryGetPlannableValueType`'s schema-v3 one — for the `pop` reason
+  above. The type side runs the identical rows the append side will run.
 
 ### A yielded value parses at the LAMBDA level
 

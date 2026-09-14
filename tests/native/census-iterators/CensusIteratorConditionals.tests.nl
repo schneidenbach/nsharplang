@@ -247,3 +247,126 @@ test "the fallback of a coalesce runs only when the left is absent and only when
     assert absent[0] == "(computed)"
     assert absentTrace.Joined() == "start,fallback,end"
 }
+
+// EXECUTED PROOFS FOR A BRANCH-MERGE IN CALL-ARGUMENT AND RECEIVER POSITIONS INSIDE A GENERATOR.
+test "a ternary argument reaches the call inside a generator" {
+    flags := new bool[](3)
+    flags[0] = true
+    flags[1] = false
+    flags[2] = true
+    sink := new List<string>()
+    counts := new List<int>()
+    for v in TernaryArgument(flags, sink) {
+        counts.Add(v)
+    }
+    assert counts.Count == 3
+    assert sink.Count == 3
+    assert sink[0] == "yes"
+    assert sink[1] == "no"
+    assert sink[2] == "yes"
+}
+
+test "a short-circuit condition inside a ternary argument is admitted" {
+    values := new int[](3)
+    values[0] = 5
+    values[1] = -1
+    values[2] = 50
+    sink := new List<string>()
+    for v in CompoundConditionArgument(values, sink) {
+        assert v > 0
+    }
+    assert sink.Count == 3
+    assert sink[0] == "small"
+    assert sink[1] == "other"
+    assert sink[2] == "other"
+}
+
+test "a reference coalesce argument reaches the call inside a generator" {
+    names := new string?[](3)
+    names[0] = "a"
+    names[1] = null
+    names[2] = "c"
+    sink := new List<string>()
+    for v in CoalescedArgument(names, sink) {
+        assert v > 0
+    }
+    assert sink.Count == 3
+    assert sink[0] == "a"
+    assert sink[1] == "(none)"
+    assert sink[2] == "c"
+}
+
+test "a nullable coalesce argument arrives as the element type" {
+    counts := new int?[](2)
+    counts[0] = 7
+    counts[1] = null
+    sink := new List<int>()
+    for v in CoalescedNullableArgument(counts, sink) {
+        assert v > 0
+    }
+    assert sink.Count == 2
+    assert sink[0] == 7
+    assert sink[1] == -1
+}
+
+test "short-circuit operators are admitted as call arguments inside a generator" {
+    left := new bool[](2)
+    left[0] = true
+    left[1] = false
+    right := new bool[](2)
+    right[0] = false
+    right[1] = false
+    sink := new List<bool>()
+    for v in ShortCircuitArgument(left, right, sink) {
+        assert v > 0
+    }
+    assert sink.Count == 4
+    assert !sink[0]
+    assert sink[1]
+    assert !sink[2]
+    assert !sink[3]
+}
+
+test "a ternary receiver types through the same seam inside a generator" {
+    flags := new bool[](2)
+    flags[0] = true
+    flags[1] = false
+    collected := new List<string>()
+    for v in TernaryReceiver(flags) {
+        collected.Add(v)
+    }
+    assert collected.Count == 2
+    assert collected[0] == "ALPHA"
+    assert collected[1] == "BETA"
+}
+
+test "a nested branch-merge argument reaches the inner call" {
+    values := new int[](2)
+    values[0] = 1
+    values[1] = -1
+    sink := new List<string>()
+    for v in NestedBranchArgument(values, sink) {
+        assert v > 0
+    }
+    assert sink.Count == 2
+    assert sink[0] == "[p]"
+    assert sink[1] == "[n]"
+}
+
+test "a short-circuit argument still short-circuits inside a generator" {
+    shortTrace := new CensusTrace()
+    shortSink := new List<bool>()
+    for v in TracedShortCircuitArgument(shortTrace, false, shortSink) {
+        assert v == 1
+    }
+    assert !shortSink[0]
+    assert shortTrace.Count() == 0
+
+    fullTrace := new CensusTrace()
+    fullSink := new List<bool>()
+    for v in TracedShortCircuitArgument(fullTrace, true, fullSink) {
+        assert v == 1
+    }
+    assert fullSink[0]
+    assert fullTrace.Joined() == "right"
+}

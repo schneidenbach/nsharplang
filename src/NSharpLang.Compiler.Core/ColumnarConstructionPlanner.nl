@@ -36,7 +36,7 @@ class ColumnarConstructionPlanner {
 
     // DirectCall's syntax preflight may use this without walking NewExpression's type child as a
     // value. Exact type-shape and semantic rejection remain this planner's responsibility.
-    static func IsAdmittedValueSyntax(nodes: ColumnarNodeTable, node: int, depth: int): bool {
+    static func IsAdmittedValueSyntax(nodes: ColumnarNodeTable, source: string, node: int, depth: int): bool {
         if nodes == null || depth > 200 {
             return false
         }
@@ -59,7 +59,7 @@ class ColumnarConstructionPlanner {
             }
             typeKind := nodes.Kind(typeNode)
             if typeKind == ColumnarExpressionNodeKind.NewExpression() {
-                if !IsAdmittedValueSyntax(nodes, typeNode, depth + 1) {
+                if !IsAdmittedValueSyntax(nodes, source, typeNode, depth + 1) {
                     return false
                 }
             } else if typeKind != 0 && typeKind != 1 {
@@ -69,7 +69,7 @@ class ColumnarConstructionPlanner {
             while index < childCount {
                 nameNode := nodes.Child(candidate, index)
                 valueNode := nodes.Child(candidate, index + 1)
-                if nameNode < 0 || nameNode >= nodes.Kinds.Length || nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression() || !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, valueNode, depth + 1) {
+                if nameNode < 0 || nameNode >= nodes.Kinds.Length || nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression() || !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, source, valueNode, depth + 1) {
                     return false
                 }
                 index += 2
@@ -97,10 +97,10 @@ class ColumnarConstructionPlanner {
         while index < nodes.ChildCount(candidate) {
             child := nodes.Child(candidate, index)
             if ColumnarConstructionPlanner.MayPlanRoot(nodes, child) {
-                if !IsAdmittedValueSyntax(nodes, child, depth + 1) {
+                if !IsAdmittedValueSyntax(nodes, source, child, depth + 1) {
                     return false
                 }
-            } else if !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, child, depth + 1) {
+            } else if !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, source, child, depth + 1) {
                 return false
             }
             index += 1
@@ -406,7 +406,7 @@ class ColumnarConstructionPlanner {
         }
         lengthType := typeof(int)
         nestedOwnership := ColumnarDirectCallOwnership.NotOwned
-        if !ColumnarDirectCallPlanner.TryGetPlannableValueType(nodes, source, lengthNode, bindings, handles, depth + 1, true, out lengthType, out nestedOwnership) {
+        if !ColumnarDirectCallPlanner.TryGetPlannableValueType(nodes, source, lengthNode, bindings, handles, depth + 1, true, plan.IsMethodBodySchema(), out lengthType, out nestedOwnership) {
             if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                 ownership = nestedOwnership
             }
@@ -462,7 +462,7 @@ class ColumnarConstructionPlanner {
 
             currentType := typeof(int)
             nestedOwnership := ColumnarDirectCallOwnership.NotOwned
-            if !ColumnarDirectCallPlanner.TryGetPlannableValueType(nodes, source, elementNode, bindings, handles, depth + 1, true, out currentType, out nestedOwnership) {
+            if !ColumnarDirectCallPlanner.TryGetPlannableValueType(nodes, source, elementNode, bindings, handles, depth + 1, true, plan.IsMethodBodySchema(), out currentType, out nestedOwnership) {
                 if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                     ownership = nestedOwnership
                 }
@@ -1340,7 +1340,7 @@ class ColumnarConstructionPlanner {
         argumentTypes := new Type[](argumentCount)
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
-        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
 
@@ -1387,7 +1387,7 @@ class ColumnarConstructionPlanner {
         argumentTypes := new Type[](argumentCount)
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
-        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
 
@@ -1442,7 +1442,7 @@ class ColumnarConstructionPlanner {
         argumentTypes := new Type[](argumentCount)
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
-        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
 
@@ -1544,7 +1544,7 @@ class ColumnarConstructionPlanner {
         argumentTypes := new Type[](argumentCount)
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
-        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
 
@@ -1700,7 +1700,7 @@ class ColumnarConstructionPlanner {
         return false
     }
 
-    static func TryGetConstructorArguments(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+    static func TryGetConstructorArguments(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, methodBodySchema: bool, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
         ownership = ColumnarDirectCallOwnership.OwnedRejected
         legacyWholeSubtreePlanning = false
         index := 1
@@ -1714,7 +1714,7 @@ class ColumnarConstructionPlanner {
         }
 
         nestedOwnership := ColumnarDirectCallOwnership.NotOwned
-        if !ColumnarDirectCallPlanner.TryGetArgumentTypes(nodes, source, node, bindings, handles, depth, true, argumentTypes, argumentFacts, out nestedOwnership) {
+        if !ColumnarDirectCallPlanner.TryGetArgumentTypes(nodes, source, node, bindings, handles, depth, true, methodBodySchema, argumentTypes, argumentFacts, out nestedOwnership) {
             if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                 ownership = nestedOwnership
             }
@@ -2563,7 +2563,7 @@ class ColumnarConstructionPlanner {
         } else if MayPlanRoot(nodes, node) {
             syntaxAdmitted = IsAdmittedConstructionValueSyntax(nodes, source, node, bindings, handles, depth)
         } else {
-            syntaxAdmitted = ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, node, depth)
+            syntaxAdmitted = ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, source, node, depth)
         }
         if !syntaxAdmitted {
             return false

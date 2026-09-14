@@ -193,14 +193,15 @@ func ResolverWriteAotProjectFixture(projectRoot: string, rootOutputType: string)
     // fixture exists to produce is the AOT path's "requires successful N# columnar emission". It used
     // to be assigning to a struct's own field from its own method, which emits since the call site
     // loads an addressable receiver by address, and then a bare STATIC FIELD as a call receiver,
-    // which emits since a static member of the enclosing type is a value binding; an `await foreach`
-    // INSIDE a generator body is the shape that declines today, because releasing the inner
-    // enumerator on the exception and abandon paths needs an `await` in a handler position that the
-    // async rewriter does not lower yet. When that one lands, replace it with another declining shape
-    // rather than deleting this fixture.
+    // which emits since a static member of the enclosing type is a value binding, and then an
+    // `await foreach` INSIDE a generator body, which emits now that an awaiting handler is hoisted
+    // out of its protected region; an `async` LAMBDA inside a generator body is the shape that
+    // declines today, because the lambda's own body needs an async wrap and a fault guard the
+    // generator's lambda lowering does not write. When that one lands, replace it with another
+    // declining shape rather than deleting this fixture.
     ResolverWrite(
         Path.Combine(sharedDir, "Shared.nl"),
-        "import System.Collections.Generic\n\nasync func* Relay(source: IAsyncEnumerable<string>): IAsyncEnumerable<string> {\n    await foreach name in source {\n        yield name\n    }\n}"
+        "import System\nimport System.Collections.Generic\nimport System.Threading.Tasks\n\nfunc* Relay(): IEnumerable<Func<Task<int>>> {\n    yield async () => 42\n}"
     )
     ResolverWrite(
         Path.Combine(projectRoot, "project.yml"),
