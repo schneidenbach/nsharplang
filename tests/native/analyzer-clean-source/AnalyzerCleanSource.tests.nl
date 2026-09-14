@@ -17254,16 +17254,17 @@ test "020 s34 analyzer clean source: `AspNetCore_MinimalApi_MapPost_InfersReques
     assert AcParseSuccess(source) == "True"
     assert AcUnitShape(source) == "imports=3;FunctionDeclaration:Main;"
     analysis := AcAnalyzeWithConfig(source, "Microsoft.NET.Sdk.Web", "net10.0")
-    assert AcCensus(analysis) == ""
+    assert AcCensus(analysis) == "", "Configured census: " + AcCensus(analysis) + " first: " + AcRow(analysis, 0)
     assert AcHasErrors(analysis) == "False"
     assert AcErrorCount(analysis) == 0
     assert AcRow(analysis, 0) == "<no-such-error>"
     rich := AcAnalyzeWithSourceAndConfig(source, "Microsoft.NET.Sdk.Web", "net10.0")
-    assert AcCensus(rich) == ""
+    assert AcCensus(rich) == "", "Configured source census: " + AcCensus(rich) + " first: " + AcRow(rich, 0)
     assert AcHasErrors(rich) == "False"
     assert AcErrorCount(rich) == 0
     assert AcRow(rich, 0) == "<no-such-error>"
-    assert AcCensus(AcAnalyze(source)) == "NL203:CannotInferType@10:44+7;"
+    unconfigured := AcAnalyze(source)
+    assert AcCensus(unconfigured) == "NL203:CannotInferType@10:44+7;", "Unconfigured census: " + AcCensus(unconfigured) + " first: " + AcRow(unconfigured, 0)
 }
 
 test "020 s34 analyzer clean source: `AspNetCore_MinimalApi_MapPost_InfersRequestDelegateBlockLambdaInsideInstanceMethod` is analysed THROUGH `LoadFromProjectConfig` with `Sdk = Microsoft.NET.Sdk.Web` — it parses to 1 class behind 3 imports, BOTH routes report an EMPTY census, and the config is LOAD-BEARING here: without it the same source reports `NL203:CannotInferType@14:48+7;` (was AnalyzerTests.AspNetCore_MinimalApi_MapPost_InfersRequestDelegateBlockLambdaInsideInstanceMethod)" {

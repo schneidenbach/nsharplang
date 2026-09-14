@@ -1254,6 +1254,20 @@ test "OVERLOADS are checked as a set: a call fits if it fits ANY of them" {
     assert one.Errors[0].Suggestion == "'Point' declares 2 constructors: `constructor()`, `constructor(x: int, y: int)`. Match one of them, or add a constructor taking 1 argument."
 }
 
+test "an unknown constructor argument does not invent an ambiguous overload diagnostic" {
+    constructors := new List<DeclaredMemberInfo>()
+    constructors.Add(ConstructionConstructorMember("Reader", ConstructionParameterNames("stream"), ConstructionParameterTypes("int"), 1, false))
+    constructors.Add(ConstructionConstructorMember("Reader", ConstructionParameterNames("stream"), ConstructionParameterTypes("string"), 1, false))
+
+    harness := ConstructionArm()
+    harness.Scopes.DeclareNestedTypeIfAbsent("Reader", ConstructionClassWithConstructors("Reader", constructors))
+    state := harness.Arm.Begin(ConstructionNewOf("Reader", ConstructionArgumentsOf(1), null))
+    trace := ConstructionDrive(harness, state, ConstructionAnswers(BuiltInTypes.Unknown))
+
+    assert trace.Codes == ""
+    assert state.SelectedSourceConstructor == null
+}
+
 // A DEFAULTED PARAMETER IS A RANGE, NOT A COUNT, and `params` has no upper bound at all. Both are
 // read off the model the declaration factory already fills, so neither needs a second walk.
 test "the accepted range runs from REQUIRED to WRITTEN, and `params` removes the ceiling" {
