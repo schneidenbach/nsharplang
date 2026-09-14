@@ -365,6 +365,8 @@ class ColumnarCodePlanExecutor {
                 il.Emit(OpCodes.Isinst, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.UnboxAny() {
                 il.Emit(OpCodes.Unbox_Any, operandType)
+            } else if opCodeValue == ColumnarCodePlanContract.Constrained() {
+                il.Emit(OpCodes.Constrained, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Initobj() {
                 il.Emit(OpCodes.Initobj, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Newarr() {

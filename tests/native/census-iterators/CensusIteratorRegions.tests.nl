@@ -171,3 +171,60 @@ test "a machine with no protected region carries no dispose flag" {
     machine := plain.GetType()
     assert machine.GetField("<>__disposing", BindingFlags.Public | BindingFlags.Instance) == null
 }
+
+// EXECUTED PROOFS FOR A VALUE-TYPED `using` RESOURCE INSIDE A GENERATOR. Every assertion is over the
+// recorder the struct itself writes to, so a release that ran on a boxed copy would show up as a
+// MISSING entry rather than as a passing test.
+test "a value-typed using resource is released when a generator completes" {
+    log := new List<string>()
+    collected := new List<int>()
+    for v in ScopedValues(log) {
+        collected.Add(v)
+    }
+    assert collected.Count == 2
+    assert collected[0] == 1
+    assert collected[1] == 2
+    assert String.Join(",", log) == "between,disposed:a,after"
+}
+
+test "a value-typed using resource is released when the consumer stops early" {
+    log := new List<string>()
+    collected := new List<int>()
+    for v in ScopedValues(log) {
+        collected.Add(v)
+        break
+    }
+    assert collected.Count == 1
+    assert String.Join(",", log) == "disposed:a"
+}
+
+test "a value-typed using resource is not released at a suspension" {
+    log := new List<string>()
+    enumerator := ScopedValues(log).GetEnumerator()
+    assert enumerator.MoveNext()
+    assert log.Count == 0
+    assert enumerator.MoveNext()
+    assert String.Join(",", log) == "between"
+    enumerator.Dispose()
+    assert String.Join(",", log) == "between,disposed:a"
+}
+
+test "a value type that declares Dispose without the interface is released by a direct call" {
+    log := new List<string>()
+    collected := new List<int>()
+    for v in ScopedPattern(log) {
+        collected.Add(v)
+    }
+    assert collected.Count == 2
+    assert String.Join(",", log) == "pattern-disposed"
+}
+
+test "nested value-typed using resources unwind innermost first" {
+    log := new List<string>()
+    collected := new List<int>()
+    for v in NestedScopes(log) {
+        collected.Add(v)
+    }
+    assert collected.Count == 2
+    assert String.Join(",", log) == "disposed:inner,disposed:outer"
+}

@@ -109,3 +109,63 @@ func* CaughtInsideBody(): IEnumerable<int> {
     }
     yield total
 }
+
+// A VALUE-TYPED `using` RESOURCE INSIDE A GENERATOR.
+//
+// The resource lives in one of the machine's own fields, so releasing it means reaching THROUGH that
+// field: `ldflda` for the address, `constrained.` so the `Dispose` call runs on that storage rather
+// than on a box of it. A box would release a COPY and the recorder below would never see the entry,
+// which is exactly what these generators are enumerated to prove.
+struct RecordingScope: IDisposable {
+    Log: List<string>
+    Tag: string
+
+    constructor(log: List<string>, tag: string) {
+        Log = log
+        Tag = tag
+    }
+
+    func Dispose() {
+        Log.Add("disposed:" + Tag)
+    }
+}
+
+// A value type that declares `Dispose` WITHOUT naming the interface: the pattern shape, released by
+// a direct call over the same address and with no slot to constrain to.
+struct PatternScope {
+    Log: List<string>
+
+    constructor(log: List<string>) {
+        Log = log
+    }
+
+    func Dispose() {
+        Log.Add("pattern-disposed")
+    }
+}
+
+func* ScopedValues(log: List<string>): IEnumerable<int> {
+    using scope := new RecordingScope(log, "a") {
+        yield 1
+        log.Add("between")
+        yield 2
+    }
+    log.Add("after")
+}
+
+func* ScopedPattern(log: List<string>): IEnumerable<int> {
+    using scope := new PatternScope(log) {
+        yield 1
+        yield 2
+    }
+}
+
+// Two value-typed resources nested, so the unwind order is observable.
+func* NestedScopes(log: List<string>): IEnumerable<int> {
+    using outer := new RecordingScope(log, "outer") {
+        using inner := new RecordingScope(log, "inner") {
+            yield 1
+        }
+        yield 2
+    }
+}

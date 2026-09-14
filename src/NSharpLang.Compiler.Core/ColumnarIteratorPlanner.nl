@@ -3501,13 +3501,16 @@ class ColumnarIteratorBodyPlanner {
     // DECLARATION, whose region is the rest of its block.
     static func EmitUsingRegion(emit: ColumnarMoveNextEmit, node: int, resourceName: string, bodyNode: int, blockNode: int, restFrom: int): bool {
         field := emit.Context.FieldForName(resourceName)
-        disposal := ColumnarUsingResourcePlanner.Plan(field.get_FieldType(), false, null)
-        if disposal == null || disposal.Kind == 1 || disposal.Kind == 4 {
-            // A VALUE-typed resource would have to be released through its own address
-            // (`ldflda` + `constrained.`), and the generator's instruction plan has no `constrained.`
-            // row — releasing a boxed copy would run `Dispose` on something nobody can observe, so the
-            // shape is refused rather than lowered wrongly.
-            emit.Context.Decline("emit.iterator.unsupported-shape", "a value-type `using` resource is not yet lowered in a generator body; hold the resource in a class, or use the `using` outside the generator")
+        // AN EMITTED RESOURCE TYPE ANSWERS FROM ITS DEFINITION, NOT FROM REFLECTION — its builder has
+        // not been baked while this body is planned, so `Type.GetInterfaces()` on it can answer empty
+        // and a disposable source struct would look non-disposable. This is the same definition the
+        // plain-body `using` consults (`ColumnarIlEmitter.PlanUsingDisposal`), reached through the
+        // body scope's own live view.
+        resourceDefinition: ColumnarStructDef? = null
+        ColumnarSourceDefinitionResolver.TryResolveStruct(field.get_FieldType(), emit.Context.RequiredScope().Facts.StructDefinitions, out resourceDefinition)
+        disposal := ColumnarUsingResourcePlanner.Plan(field.get_FieldType(), false, resourceDefinition)
+        if disposal == null {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "the resource of a `using` statement has no release shape in an iterator body")
             return false
         }
 
@@ -3550,11 +3553,32 @@ class ColumnarIteratorBodyPlanner {
 
     // The release itself, over a FIELD rather than a local: a null check then the interface call for a
     // resource whose type names the interface, a run-time test for one whose static type does not, and
-    // a direct call for a declared member. All three are reference-typed by construction — the value
-    // shapes were refused above.
+    // a direct call for a declared member.
+    //
+    // A VALUE-TYPED RESOURCE RELEASES THROUGH ITS OWN ADDRESS, which over a hoisted field is `ldflda`
+    // rather than the `ldloca` a plain body writes — the resource lives on the state machine, and the
+    // machine's `this` is argument 0 of `MoveNext`. `constrained.` is what makes the following
+    // `callvirt` run `Dispose` on THAT storage instead of on a box of it, which is the difference
+    // between a struct observing one disposal and observing none. A value type that declares
+    // `Dispose` WITHOUT the interface (kind 4) has no slot to constrain to, so the address alone is
+    // the receiver of a direct call. Neither shape takes a null guard: a struct is never null.
     static func AppendUsingRelease(emit: ColumnarMoveNextEmit, disposal: ColumnarUsingDisposalPlan, resourceName: string) {
         fieldPool := FieldPool(emit, resourceName)
         methodPool := emit.Plan.AddMethod(disposal.Method)
+        if disposal.Kind == 1 {
+            resourceTypeIdx := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(disposal.ResourceType), emit.Context.StructuralTypeReferences)
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), fieldPool)
+            emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Constrained(), resourceTypeIdx)
+            emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodPool)
+            return
+        }
+        if disposal.Kind == 4 {
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), fieldPool)
+            emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodPool)
+            return
+        }
         if disposal.Kind == 3 {
             interfaceTypeIdx := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(disposal.InterfaceType), emit.Context.StructuralTypeReferences)
             testedLocal := emit.Plan.DeclarePlanLocal(interfaceTypeIdx)
