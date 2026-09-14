@@ -137,11 +137,11 @@ func main(): int {
         {
             var sourcePath = Path.Combine(tempDir, "Program.nl");
             File.WriteAllText(sourcePath, """
+import System
 import System.Collections.Generic
-async func* Relay(source: IAsyncEnumerable<string>): IAsyncEnumerable<string> {
-    await foreach name in source {
-        yield name
-    }
+import System.Threading.Tasks
+func* Relay(): IEnumerable<Func<Task<int>>> {
+    yield async () => 42
 }
 
 
@@ -387,11 +387,11 @@ func main() {
         {
             var sourcePath = Path.Combine(tempDir, "Program.nl");
             File.WriteAllText(sourcePath, """
+import System
 import System.Collections.Generic
-async func* Relay(source: IAsyncEnumerable<string>): IAsyncEnumerable<string> {
-    await foreach name in source {
-        yield name
-    }
+import System.Threading.Tasks
+func* Relay(): IEnumerable<Func<Task<int>>> {
+    yield async () => 42
 }
 
 
@@ -589,11 +589,11 @@ outputType: library
 targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(sharedDir, "Shared.nl"), """
+import System
 import System.Collections.Generic
-async func* Relay(source: IAsyncEnumerable<string>): IAsyncEnumerable<string> {
-    await foreach name in source {
-        yield name
-    }
+import System.Threading.Tasks
+func* Relay(): IEnumerable<Func<Task<int>>> {
+    yield async () => 42
 }
 
 """);
