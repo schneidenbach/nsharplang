@@ -37,7 +37,26 @@ Facade and MSBuild task lanes are running from `06186dc6d`; CLI/LSP/Playground/R
 Visual Studio is deferred; compiler completion and rename evidence below remain accepted.
 Shared compiler prerequisites, seeds and integration gates remain root-owned.
 
-**Census wave 9 integrating, 2026-09-13** (systems-language `8daf279f7` → this push): eight streams merged in landing order
+**Census wave 10 integrating, 2026-09-14** (systems-language `836aac8af` → this push): six streams merged in landing order
+onto `census/merge` — THROWEXPR (kind 83, NL340), NULLABLE3, LAMBDA5, IFACE (NL342), IVT, LOCALFN3 (a HIGH silent-codegen
+bug THROWEXPR's probe found: an expression-bodied function returning an async lambda left `async` pending in the
+declaration scan and the NEXT top-level function wore it — its `throw` became a faulted task nobody awaited, and `check`,
+`build` and the analyzer were all clean; arrow-bodied local functions). Two root fixes at the merge: LOCALFN3's preamble
+measure read `=> items[0]`'s `]` as an attribute close (the GenericMethods example stopped building — caught by ilverify's
+example build, which agents' sweeps never cover) and its `void`-arrow expression-statement lowering declined THROWEXPR's
+`func F() => throw e` (a throw body keeps the return lowering) — rows in tasks/TOOLCHAIN-NATIVE.md "Census wave 3";
+corpus pin 119, 91 native projects, catalog 105 codes / 95 compiler rows. Root C# slice: `nlc test --json` keeps stdout
+for the document alone (`Program.Testing.cs` redirects `Console.Out` for the run; ratchet repinned). Root sweep over
+`90c86840f`: 90 projects (boundary run alone, 20/20) 0 bad; estate 9128, unit 335, ilverify 101. Converter at 9b38b64: record
+parameter attributes marked `Unmapped` instead of dropped, protected test-base members written `public`, `Tests` project
+name for InternalsVisibleTo; census against `4efe494c3`: runtime 0, cli 38 (35 warnings), tests 49 (24 rows closed by IVT
+once reconverted), languageserver 19 (16 warnings).
+Fresh gates at `90c86840f`: `VSCODE_TESTS=skip` 18m32s and VS Code-enabled 19m16s (smoke 36 passing), both ALL TESTS PASSED; pushed as systems-language `90c86840f`+docs → this commit.
+Owed: the visual VS Code pass (now also IFACE, NULLABLE3, IVT member-level completion); ITER3 (`??`/ternary in
+iterator plan-IR), ATTR3 (record-parameter attributes), interface base-member reach through a derived interface, a
+seed republish for the stage-0 walls.
+
+**Census wave 9 integrated, 2026-09-13** (systems-language `8daf279f7` → `836aac8af`): eight streams merged in landing order
 onto `census/merge` — CONV3, FLOW6, NULLABLE2, INHERIT2, LAMBDA4, EVENTS3, FLOW7 (a root-found if-join gap, launched
 mid-wave), TOOL3 — rows in tasks/TOOLCHAIN-NATIVE.md "Census wave 3"; corpus pin 117, 90 native projects, catalog 103
 codes / 93 compiler rows (NL339 duplicate type declarations); node kinds unchanged. TOOL3's binding-based NL002 caught
