@@ -97,3 +97,28 @@ func DescribeAll(greeter: Greeter, words: List<string>): List<string> {
 func DescribeCountDirectly(greeter: Greeter, count: int): string {
     return greeter.Describe(count)
 }
+
+// THE SAME GROUP AT AN EXTERNAL GENERIC **INSTANCE** METHOD'S INFERRING POSITION.
+//
+// `Select` is an EXTENSION, and the extension tier deliberately has no delegate-argument gate — so
+// the rows above ran while `names.ConvertAll(greeter.Describe)`, the identical question asked of an
+// INSTANCE method, declined at `emit.call.instance-member`. The direct tier's gate asked only the
+// enclosing and external-static group shapes, so a call whose only delegate argument is an
+// overloaded RECEIVER-INSTANCE group looked like a call with no delegate argument at all and the
+// contextual walk never ran. The same call on a non-overloaded name emitted.
+func DescribeAllByConvert(greeter: Greeter, words: List<string>): List<string> {
+    return words.ConvertAll(greeter.Describe)
+}
+
+// The converted result feeds an extension position in the same expression, so the two tiers agree
+// about what the group was worth.
+func DescribedLengths(greeter: Greeter, words: List<string>): List<int> {
+    return words.ConvertAll(greeter.Describe).Select(described => described.Length).ToList()
+}
+
+// And the DELEGATE'S OWN SHAPE selects among the overloads when the storage names it: `int` picks
+// the count overload, which no `List<string>.ConvertAll` position could have picked.
+func DescribeCountAsDelegate(greeter: Greeter): System.Func<int, string> {
+    let shape: System.Func<int, string> = greeter.Describe
+    return shape
+}

@@ -324,6 +324,12 @@ class ColumnarLocalFunctionDisplay {
 // the same way, which is what keeps "local function" one lowering rather than two.
 class ColumnarLocalFunctionLowering {
     LocalFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>
+    // A GENERIC local function is not in the map above, because that map's entries are handles a call
+    // site dispatches DIRECTLY and an open generic method is not one: it has to be closed first. It
+    // carries the same facts a generic top-level `func` carries — the open handle, the declared
+    // parameter and return types, the type parameters and their constraints — so the call site reaches
+    // it through the SAME inference and instantiation the generic sibling arm performs.
+    GenericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>
     DeclaredNodes: Dictionary<int, string>
     VisibleNames: List<string>
     Closure: ColumnarLocalFunctionDisplay?
@@ -331,12 +337,14 @@ class ColumnarLocalFunctionLowering {
 
     constructor(
         localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>,
+        genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>,
         declaredNodes: Dictionary<int, string>,
         visibleNames: List<string>,
         closure: ColumnarLocalFunctionDisplay?,
         declaringScopeBindings: HashSet<string>
     ) {
         LocalFuncs = localFuncs
+        GenericLocalFuncs = genericLocalFuncs
         DeclaredNodes = declaredNodes
         VisibleNames = visibleNames
         Closure = closure

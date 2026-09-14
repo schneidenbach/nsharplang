@@ -77,3 +77,31 @@ func BuildAsyncAdders(count: int): List<Func<Task<int>>> {
 
     return adders
 }
+
+// AN ARGUMENT LIST AFTER ANYTHING THAT PRODUCES A DELEGATE IS AN INVOCATION OF THAT DELEGATE, and
+// that includes a CALL — `three(1)(2)(3)` is three invocations, each one's callee the previous one's
+// result. The emitter's delegate-invoke door asks the preflight what its callee is worth, and the
+// preflight had no case for a call node (nor for a delegate-typed binding's own name), so the second
+// link declined with `emit.call.callee-kind` naming a node kind.
+func Curry(): Func<int, Func<int, Func<int, int>>> {
+    return a => b => c => a + b + c
+}
+
+func ChainedThroughALocal(): int {
+    three := Curry()
+    return three(1)(2)(3)
+}
+
+func ChainedFromACallResult(): int {
+    return Curry()(1)(2)(3)
+}
+
+func ChainedThroughAParameter(three: Func<int, Func<int, Func<int, int>>>): int {
+    return three(4)(5)(6)
+}
+
+// The links CAPTURE, so each one's answer depends on the one before it rather than on a constant.
+func ChainedOverACapture(seed: int): int {
+    let scale: Func<int, Func<int, int>> = factor => bump => seed * factor + bump
+    return scale(3)(1)
+}

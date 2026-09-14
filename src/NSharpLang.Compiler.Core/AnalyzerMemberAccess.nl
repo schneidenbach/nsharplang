@@ -433,6 +433,16 @@ class AnalyzerMemberAccess {
             return
         }
 
+        // THE FINALIZER SLOT IS THE RUNTIME'S TO CALL. It resolves like any other inherited
+        // protected method, so the refusal lives at the CALL rather than in resolution: reading the
+        // name is not the mistake, invoking it is. The resolved type is kept so the call is still
+        // typed and nothing cascades behind the one sentence.
+        if invocationPosition && AnalyzerMemberResolution.IsRuntimeFinalizer(memberType) {
+            ReportFinalizerCall(member.MemberName, member.Line, spansValue.GetMemberNameColumn(member))
+            state.ResultType = memberType
+            return
+        }
+
         if BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member.MemberName, includeStaticMembers) {
             // The report is RENDERED HERE. It used to be a step the driver performed, because building
             // the did-you-mean list reads `PropertyInfo.Name` and `FieldInfo.Name` off the receiver's
@@ -1374,6 +1384,13 @@ class AnalyzerMemberAccess {
 
         diagnosticsValue.Report(ErrorCode.MemberNotCallable, "`" + member.MemberName + "` is a value of type `" + NullabilityMetadataReflection.FormatTypeInfo(valueMemberType) + "`, not something you can call", member.Line, spansValue.GetMemberNameColumn(member), "Drop the parentheses to read `" + member.MemberName + "`, or call a method or extension of that name — only a delegate value can be called.", Math.Max(1, member.MemberName.Length))
         return true
+    }
+
+    // NL341, THE RENDERING. The sentence names what the runtime does instead, and the suggestion
+    // points at the release mechanism a program CAN call — `Dispose`, through `using` — because that
+    // is what source reaching for `Finalize` almost always wants.
+    func ReportFinalizerCall(memberName: string, line: int, column: int) {
+        diagnosticsValue.Report(ErrorCode.FinalizerNotCallable, "`" + memberName + "` is the runtime's finalizer and cannot be called from source — the garbage collector calls it, on its own schedule", line, column, "Release resources deterministically instead: implement `IDisposable` and call `Dispose()`, or wrap the value in a `using` statement.", Math.Max(1, memberName.Length))
     }
 
     func ShouldReportUndefinedMember(receiverType: TypeInfo, memberName: string, includeStaticMembers: bool): bool {

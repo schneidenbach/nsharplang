@@ -162,6 +162,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.EventRequiresDelegateType)
         AddCompiler(descriptors, ErrorCode.TypeDeclaredInAnotherFile)
         AddCompiler(descriptors, ErrorCode.ThrowExpressionNotAllowedHere)
+        AddCompiler(descriptors, ErrorCode.FinalizerNotCallable)
         AddCompiler(descriptors, ErrorCode.InterfaceValueMemberWrite)
         AddCompiler(descriptors, ErrorCode.InitOnlyMemberWrite)
         AddCompiler(descriptors, ErrorCode.RequiredMemberNotSet)

@@ -134,6 +134,10 @@ sealed class ColumnarIlEmitter {
     private _liftedCandidates: HashSet<string>?
     private readonly _liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>
     private readonly _localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>?
+    // The GENERIC local functions this body can see. They are kept apart from the map above because an
+    // open generic method has no handle a call site dispatches directly: it carries the same record a
+    // generic top-level `func` carries, and the call site closes it by the same inference.
+    private readonly _genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>?
     private readonly _declaredLocalFuncNodes: Dictionary<int, string>?
     private readonly _visibleLocalFuncs: HashSet<string>
     private readonly _boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?
@@ -512,7 +516,7 @@ sealed class ColumnarIlEmitter {
     // generated assignments are `Field = parameter`; when the field and parameter share a name, the left side
     // must bind to the field even though ordinary explicit-constructor assignments keep parameter shadowing.
 
-    private constructor(nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>, unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, programType: TypeBuilder? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, siblingReturnLabeledCanonicals: IReadOnlyDictionary<string, string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>? = null, typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>? = null, typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null) {
+    private constructor(nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>, unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, programType: TypeBuilder? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, siblingReturnLabeledCanonicals: IReadOnlyDictionary<string, string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>? = null, typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>? = null, typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null, genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null) {
         // CLR object storage starts zeroed before instance field initializers run. Spell the non-nullable
         // fields explicitly so N# constructor validation sees the same initial state on every path.
         _protectedDone = new Label()
@@ -615,6 +619,7 @@ sealed class ColumnarIlEmitter {
         _displayClasses = displayClasses
         _boxedCaptures = boxedCaptures
         _localFuncs = localFuncs
+        _genericLocalFuncs = genericLocalFuncs
         _localFunctionDisplay = localFunctionDisplay
         _declaredLocalFuncNodes = declaredLocalFuncNodes
         if (visibleLocalFuncs != null) {
@@ -1585,6 +1590,190 @@ sealed class ColumnarIlEmitter {
         // nested chains decline (block-bodied sub-emitters set it via EmitBody). The capture scan reads
         // kind-6 nodes positionally, so kinds whose children are NOT ordinary expressions (match arms,
         // object initializers) decline the capturing branch outright.
+        let displayBuild: ColumnarLambdaDisplayBuild? = null
+        if (!TryBuildLambdaDisplay(bodyNode, ordinals, captures, out displayBuild)) {
+            return false
+        }
+        display := displayBuild.Display
+        if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(delegateReturnType, signatureTypes, display)) {
+            return false
+        }
+        // The lambda becomes an INSTANCE method on the display class: arg 0 is the closure, so parameter
+        // ordinals shift +1; snapshot names fall through the sub-emitter's locals/params to the
+        // `_currentStruct` field chain, boxed names resolve through _boxedCaptures.
+        shiftedOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+        for pair in ordinals {
+            shiftedOrdinals[pair.Key] = pair.Value + 1
+        }
+        closureMethod := display.DefineMethod(
+            "<Lambda>",
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            delegateReturnType,
+            signatureTypes
+        )
+        closureIl := closureMethod.GetILGenerator()
+        closureBoxedCaptures := displayBuild.BoxedCapturesOrNull()
+        let closureEnclosingType: ColumnarStructDef? = null
+        if displayBuild.CapturesEnclosingThis {
+            closureEnclosingType = _currentStruct
+        }
+        closureEmitter := new ColumnarIlEmitter(
+            _nodes,
+            _source,
+            shiftedOrdinals,
+            paramTypeMap,
+            bodyReturnType,
+            closureIl,
+            _siblings,
+            _enumRegistry,
+            _structRegistry,
+            _unionRegistry,
+            _unionCaseRegistry,
+            displayBuild.DisplayDef,
+            closureEnclosingType,
+            false,
+            false,
+            _programType,
+            _lambdaCounter,
+            _displayClasses,
+            closureBoxedCaptures,
+            null,
+            null,
+            null,
+            null,
+            null,
+            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
+            asyncReturnType,
+            false,
+            _referenceAssemblyPaths,
+            _genericInterfaceConstraints,
+            null,
+            _typeResolutionEnums.ForSynthesizedMethod(display),
+            _typeResolutionStructs.ForSynthesizedMethod(display),
+            _typeResolutionUnions.ForSynthesizedMethod(display)
+        )
+        if (!closureEmitter.EmitLambdaBody(closureIl, bodyNode, bodyReturnType)) {
+            return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda")
+        }
+        _displayClasses.Add(display)
+        if (!TryEmitLambdaDisplayConstruction(displayBuild)) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldftn, closureMethod)
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
+    }
+
+    // A CAPTURING ZERO-PARAMETER LAMBDA AT AN INFERRING POSITION (`zero := () => seed`).
+    //
+    // The display class, the capture copies and the body are the TARGETED arm's; what differs is the
+    // order. A targeted lambda knows its delegate's return type before the body runs, so the
+    // synthesized method is defined with its full signature. Here the return type IS the body's, so
+    // the method is defined signature-less, the body emits into it, and `SetReturnType` /
+    // `SetParameters` follow — the same order the capture-LESS inferred arm already proved on
+    // `PersistedAssemblyBuilder`. A void body yields `Action`, any other `Func<bodyType>`.
+    private func TryEmitCapturingInferredZeroParamLambda(bodyNode: int, captures: SortedSet<string>, out delegateType: Type): bool {
+        delegateType = null
+        let displayBuild: ColumnarLambdaDisplayBuild? = null
+        if (!TryBuildLambdaDisplay(bodyNode, new Dictionary<string, int>(StringComparer.Ordinal), captures, out displayBuild)) {
+            return false
+        }
+        display := displayBuild.Display
+        let inferredInitialReturnType: System.Type? = null
+        let inferredInitialParameterTypes: System.Type[]? = null
+        closureMethod := display.DefineMethod(
+            "<Lambda>",
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            inferredInitialReturnType,
+            inferredInitialParameterTypes
+        )
+        closureIl := closureMethod.GetILGenerator()
+        let closureEnclosingType: ColumnarStructDef? = null
+        if displayBuild.CapturesEnclosingThis {
+            closureEnclosingType = _currentStruct
+        }
+        closureEmitter := new ColumnarIlEmitter(
+            _nodes,
+            _source,
+            new Dictionary<string, int>(StringComparer.Ordinal),
+            new Dictionary<string, Type>(StringComparer.Ordinal),
+            ColumnarTypeOfPlanner.RequiredVoidType(),
+            closureIl,
+            _siblings,
+            _enumRegistry,
+            _structRegistry,
+            _unionRegistry,
+            _unionCaseRegistry,
+            displayBuild.DisplayDef,
+            closureEnclosingType,
+            false,
+            false,
+            _programType,
+            _lambdaCounter,
+            _displayClasses,
+            displayBuild.BoxedCapturesOrNull(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
+            null,
+            false,
+            _referenceAssemblyPaths,
+            _genericInterfaceConstraints,
+            null,
+            _typeResolutionEnums.ForSynthesizedMethod(display),
+            _typeResolutionStructs.ForSynthesizedMethod(display),
+            _typeResolutionUnions.ForSynthesizedMethod(display)
+        )
+        let bodyType: System.Type? = null
+        if (!closureEmitter.EmitExpression(bodyNode, out bodyType)) {
+            return DeclineMember("emit.body", "capturing inferred zero-parameter lambda body emission declined", bodyNode, "lambda")
+        }
+        emptyLambdaParameterTypes: Type[] = Type.EmptyTypes
+        if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(bodyType, emptyLambdaParameterTypes, display)) {
+            return false
+        }
+        closureIl.Emit(OpCodes.Ret)
+        delegateType = bodyType == ColumnarTypeOfPlanner.RequiredVoidType() ? typeof(Action) : typeof(Func<int>).GetGenericTypeDefinition().MakeGenericType([bodyType])
+        if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(delegateType)) {
+            return false
+        }
+        closureMethod.SetReturnType(bodyType)
+        closureMethodForParameters := closureMethod
+        closureMethodForParameters.SetParameters(emptyLambdaParameterTypes)
+        delegateCtor := delegateType.GetConstructor([typeof(object), typeof(IntPtr)])
+        if (delegateCtor == null) {
+            return false
+        }
+        _displayClasses.Add(display)
+        if (!TryEmitLambdaDisplayConstruction(displayBuild)) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldftn, closureMethod)
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
+    }
+
+    // THE DISPLAY CLASS A CAPTURING LAMBDA RUNS ON, built once for both arms that need one.
+    //
+    // Each capture is either LIFTED (its name lives in a shared StrongBox — the display snapshots the
+    // BOX reference, so mutation is shared in both directions, the legacy emitter's box-lift model) or
+    // NEVER-WRITTEN (a by-value snapshot is then semantics-identical to the legacy emitter, which only
+    // box-lifts mutated captures). A written-but-unlifted capture declines (structural writes,
+    // unliftable types, use-before-declaration). The whole-body write scan needs the body root — unset
+    // inside an EXPRESSION-bodied lambda's sub-emitter, so those nested chains decline (block-bodied
+    // sub-emitters set it via EmitBody). The capture scan reads kind-6 nodes positionally, so kinds
+    // whose children are NOT ordinary expressions (match arms, object initializers) decline outright.
+    //
+    // WHAT IT DELIBERATELY DOES NOT DO is define the lambda's own method or check its signature: the
+    // TARGETED arm knows the delegate's return and parameter types before the body runs, and the
+    // INFERRED zero-parameter arm learns its return type FROM the body and sets the signature after.
+    // Those two orders are the only difference between them, and keeping the display construction here
+    // is what stopped the second arm from having to grow a second copy of it.
+    private func TryBuildLambdaDisplay(bodyNode: int, ordinals: Dictionary<string, int>, captures: SortedSet<string>, out build: ColumnarLambdaDisplayBuild): bool {
+        build = null
         if (_displayClasses == null || ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(_nodes, bodyNode)) {
             return false
         }
@@ -1693,9 +1882,6 @@ sealed class ColumnarIlEmitter {
                 TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
             )
         }
-        if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(delegateReturnType, signatureTypes, display)) {
-            return false
-        }
         displayCtor := display.DefineDefaultConstructor(MethodAttributes.Public)
         // SNAPSHOT fields go into the synthetic def (the closure's `_currentStruct` field-chain fallback IS
         // the snapshot-read emission); BOX fields are deliberately kept OUT of it — boxed names route
@@ -1761,108 +1947,64 @@ sealed class ColumnarIlEmitter {
         if enclosingThisField != null {
             displayDef.ClosureEnclosingDef = _currentStruct
         }
-        // The lambda becomes an INSTANCE method on the display class: arg 0 is the closure, so parameter
-        // ordinals shift +1; snapshot names fall through the sub-emitter's locals/params to the
-        // `_currentStruct` field chain, boxed names resolve through _boxedCaptures.
-        shiftedOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
-        for pair in ordinals {
-            shiftedOrdinals[pair.Key] = pair.Value + 1
-        }
-        closureMethod := display.DefineMethod(
-            "<Lambda>",
-            MethodAttributes.Public | MethodAttributes.HideBySig,
-            delegateReturnType,
-            signatureTypes
-        )
-        closureIl := closureMethod.GetILGenerator()
-        closureBoxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null
-        if (boxedCaptureMap.Count > 0) {
-            closureBoxedCaptures = boxedCaptureMap
-        }
-        let closureEnclosingType: ColumnarStructDef? = null
-        if capturesEnclosingThis {
-            closureEnclosingType = _currentStruct
-        }
-        closureEmitter := new ColumnarIlEmitter(
-            _nodes,
-            _source,
-            shiftedOrdinals,
-            paramTypeMap,
-            bodyReturnType,
-            closureIl,
-            _siblings,
-            _enumRegistry,
-            _structRegistry,
-            _unionRegistry,
-            _unionCaseRegistry,
+        build = new ColumnarLambdaDisplayBuild(
+            display,
+            displayCtor,
             displayDef,
-            closureEnclosingType,
-            false,
-            false,
-            _programType,
-            _lambdaCounter,
-            _displayClasses,
-            closureBoxedCaptures,
-            null,
-            null,
-            null,
-            null,
-            null,
-            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
-            asyncReturnType,
-            false,
-            _referenceAssemblyPaths,
-            _genericInterfaceConstraints,
-            null,
-            _typeResolutionEnums.ForSynthesizedMethod(display),
-            _typeResolutionStructs.ForSynthesizedMethod(display),
-            _typeResolutionUnions.ForSynthesizedMethod(display)
+            displayFields,
+            enclosingThisField,
+            snapshotNames,
+            boxedNames,
+            boxedSourceLocals,
+            boxedSourceFields,
+            boxedFields,
+            boxedCaptureMap,
+            capturesEnclosingThis
         )
-        if (!closureEmitter.EmitLambdaBody(closureIl, bodyNode, bodyReturnType)) {
-            return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda")
-        }
-        _displayClasses.Add(display)
-        // Use site: construct the closure; snapshot captures copy the VALUE, boxed captures copy the BOX
-        // reference; bind the delegate to the closure.
-        _il.Emit(OpCodes.Newobj, displayCtor)
-        if enclosingThisField != null {
+        return true
+    }
+
+    // THE USE SITE: construct the closure, copy each capture into it, and leave the instance on the
+    // stack for the delegate constructor. Snapshot captures copy the VALUE; boxed captures copy the BOX
+    // reference, so a write from either depth is seen at every other.
+    private func TryEmitLambdaDisplayConstruction(build: ColumnarLambdaDisplayBuild): bool {
+        _il.Emit(OpCodes.Newobj, build.DisplayCtor)
+        if build.EnclosingThisField != null {
             _il.Emit(OpCodes.Dup)
             _il.Emit(OpCodes.Ldarg_0)
-            _il.Emit(OpCodes.Stfld, enclosingThisField)
+            _il.Emit(OpCodes.Stfld, build.EnclosingThisField)
         }
-        for f := 0; f < snapshotNames.Count; f++ {
+        for f := 0; f < build.SnapshotNames.Count; f++ {
             _il.Emit(OpCodes.Dup)
             let sourceLocal: System.Reflection.Emit.LocalBuilder? = null
-            if (_locals.TryGetValue(snapshotNames[f], out sourceLocal)) {
+            if (_locals.TryGetValue(build.SnapshotNames[f], out sourceLocal)) {
                 _il.Emit(OpCodes.Ldloc, sourceLocal)
             } else {
-                ColumnarArgumentInstructionEmitter.EmitLoad(_il, _paramOrdinals[snapshotNames[f]])
+                ColumnarArgumentInstructionEmitter.EmitLoad(_il, _paramOrdinals[build.SnapshotNames[f]])
             }
             snapshotStoreIl := _il
             snapshotStoreOpcode := OpCodes.Stfld
-            snapshotStoreName := snapshotNames[f]
-            snapshotStoreField: FieldInfo = displayFields[snapshotStoreName]
+            snapshotStoreName := build.SnapshotNames[f]
+            snapshotStoreField: FieldInfo = build.DisplayFields[snapshotStoreName]
             snapshotStoreIl.Emit(snapshotStoreOpcode, snapshotStoreField)
         }
-        for b := 0; b < boxedNames.Count; b++ {
+        for b := 0; b < build.BoxedNames.Count; b++ {
             _il.Emit(OpCodes.Dup)
-            boxedSourceLocal := boxedSourceLocals[b]
+            boxedSourceLocal := build.BoxedSourceLocals[b]
             if (boxedSourceLocal != null) {
                 _il.Emit(OpCodes.Ldloc, boxedSourceLocal)
             } else {
                 // The box rides a field of the display this body is running on, so argument zero is
                 // where it is read from — the only difference from the local case above.
-                boxedSourceField := boxedSourceFields[b]
+                boxedSourceField := build.BoxedSourceFields[b]
                 if (boxedSourceField == null) {
                     return false
                 }
                 _il.Emit(OpCodes.Ldarg_0)
                 _il.Emit(OpCodes.Ldfld, boxedSourceField)
             }
-            _il.Emit(OpCodes.Stfld, boxedFields[b])
+            _il.Emit(OpCodes.Stfld, build.BoxedFields[b])
         }
-        _il.Emit(OpCodes.Ldftn, closureMethod)
-        _il.Emit(OpCodes.Newobj, delegateCtor)
         return true
     }
 
@@ -2077,7 +2219,8 @@ sealed class ColumnarIlEmitter {
     // cases the synthesized method is defined signature-less, its body emits first to determine the
     // return, and SetReturnType/SetParameters run afterwards (spike-proven on
     // PersistedAssemblyBuilder). A parameter without an annotation still has no inference source and
-    // is rejected by analysis with NL203. Capturing inference remains on the contextual path.
+    // is rejected by analysis with NL203. A capturing zero-parameter lambda uses the same display
+    // as its contextual form; parameter-bearing captures still use a contextual delegate target.
     private func TryEmitInferredLambda(lambdaIdx: int, out delegateType: Type): bool {
         delegateType = null
         // An `async` lambda has nothing to infer from: what it produces is the TASK its target
@@ -2119,6 +2262,9 @@ sealed class ColumnarIlEmitter {
             _boxedCaptures
         )
         if captures.Count != 0 {
+            if signatureTypes.Length == 0 {
+                return TryEmitCapturingInferredZeroParamLambda(inferredBodyNode, captures, out delegateType)
+            }
             return false
         }
         // WHERE THE SYNTHESIZED METHOD GOES IS THE SAME QUESTION A TARGETED LAMBDA ASKS. A body that
@@ -2360,6 +2506,74 @@ sealed class ColumnarIlEmitter {
     // The signature is settled by PREFLIGHT before a single instruction is emitted, so a callee that
     // is not a delegate (or whose arity disagrees) declines with nothing on the stack, and the
     // arguments go through the same declared-argument door every other call uses.
+    // WHAT A CALL WHOSE CALLEE IS AN EXPRESSION IS WORTH, without emitting anything. The callee's own
+    // preflight answers the delegate, and `Invoke` answers the result — which is what makes a chain of
+    // invocations (`three(1)(2)(3)`) resolve one link at a time.
+    private func TryGetPreflightDelegateInvocationType(callIdx: int, callee: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let calleeType: System.Type? = null
+        if (!TryGetPreflightExpressionType(callee, out calleeType) || calleeType == null) {
+            return false
+        }
+
+        return TryGetPreflightDelegateResultType(callIdx, calleeType, out columnarResolvedType)
+    }
+
+    // `Invoke`'s return type for a delegate this emitter can invoke, with the call's arity checked
+    // against it: a mismatched argument list is not an invocation of this delegate at all.
+    private func TryGetPreflightDelegateResultType(callIdx: int, calleeType: Type, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (!IsInvocableDelegateType(calleeType)) {
+            return false
+        }
+        let invoke: System.Reflection.MethodInfo = null
+        let invokeParameterTypes: System.Type[] = null
+        let invokeReturnType: System.Type = null
+        if (!TryResolveDelegateInvocation(calleeType, out invoke, out invokeParameterTypes, out invokeReturnType)) {
+            return false
+        }
+        if (_nodes.ChildCount(callIdx) - 1 != invokeParameterTypes.Length) {
+            return false
+        }
+        columnarResolvedType = invokeReturnType
+        return true
+    }
+
+    // THE DECLARED TYPE OF A DELEGATE-VALUED BINDING, in the tier order `TryEmitDelegateInvoke` uses:
+    // a boxed capture's current value, then a lifted local's, then a plain local, then a parameter.
+    private func TryGetPreflightBoundDelegateType(name: string, out delegateType: Type): bool {
+        delegateType = null
+        let boxedDelegateBoxField: System.Reflection.FieldInfo? = null
+        let boxedDelegateValueType: System.Type? = null
+        let boxedDelegate: (BoxField: System.Reflection.FieldInfo, ValueType: System.Type) = (boxedDelegateBoxField, boxedDelegateValueType)
+        if (_boxedCaptures != null && _boxedCaptures.TryGetValue(name, out boxedDelegate)) {
+            delegateType = boxedDelegate.ValueType
+            return delegateType != null
+        }
+        let liftedDelegateBox: System.Reflection.Emit.LocalBuilder? = null
+        let liftedDelegateValueType: System.Type? = null
+        let liftedDelegate: (Box: System.Reflection.Emit.LocalBuilder, ValueType: System.Type) = (liftedDelegateBox, liftedDelegateValueType)
+        if (_liftedLocals.TryGetValue(name, out liftedDelegate)) {
+            delegateType = liftedDelegate.ValueType
+            return delegateType != null
+        }
+        let local: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(name, out local)) {
+            delegateType = local.get_LocalType()
+            return true
+        }
+        let ordinal: int = 0
+        if (_paramOrdinals.TryGetValue(name, out ordinal)) {
+            let paramType: System.Type? = null
+            if (_paramTypes.TryGetValue(name, out paramType)) {
+                delegateType = paramType
+                return paramType != null
+            }
+        }
+
+        return false
+    }
+
     private func TryEmitInvokedDelegateValue(callIdx: int, callee: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         let calleeType: System.Type? = null
@@ -6101,6 +6315,7 @@ sealed class ColumnarIlEmitter {
             // resolvable signatures only, duplicate names decline. A local function SHADOWS a same-named
             // sibling at call sites (probe-pinned), so the map is its own resolution tier.
             localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null
+            genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null
             declaredLocalFuncNodes: Dictionary<int, string>? = null
             // Every local function this body declares, visible from the body's FIRST statement — the
             // block-wide scoping rule, so a forward call and a mutually recursive pair both resolve.
@@ -6114,6 +6329,7 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 localFuncs = localFunctionLowering.LocalFuncs
+                genericLocalFuncs = localFunctionLowering.GenericLocalFuncs
                 declaredLocalFuncNodes = localFunctionLowering.DeclaredNodes
                 visibleLocalFuncNames = localFunctionLowering.VisibleNames
                 localFunctionDisplay = localFunctionLowering.Closure
@@ -6176,7 +6392,8 @@ sealed class ColumnarIlEmitter {
                 typeResolution.Enums,
                 typeResolution.Structs,
                 typeResolution.Unions,
-                localFunctionDisplay
+                localFunctionDisplay,
+                genericLocalFuncs
             )
             ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId, fn.Name)
             try {
@@ -6377,6 +6594,7 @@ sealed class ColumnarIlEmitter {
             memberLocalFunctionLowering: ColumnarLocalFunctionLowering? = null
             memberLocalFunctionClosure: ColumnarLocalFunctionDisplay? = null
             memberLocalFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null
+            memberGenericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null
             memberDeclaredLocalFuncNodes: Dictionary<int, string>? = null
             memberVisibleLocalFuncNames: List<string>? = null
             if (job.Item2.LocalFunctions != null) {
@@ -6390,6 +6608,7 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic("emit.local-function.declaration", "a local function of this member could not be declared", job.Item1.DeclaredTypeName + "." + job.Item2.Name, -1, 0)
                 }
                 memberLocalFuncs = memberLocalFunctionLowering.LocalFuncs
+                memberGenericLocalFuncs = memberLocalFunctionLowering.GenericLocalFuncs
                 memberDeclaredLocalFuncNodes = memberLocalFunctionLowering.DeclaredNodes
                 memberVisibleLocalFuncNames = memberLocalFunctionLowering.VisibleNames
                 memberLocalFunctionClosure = memberLocalFunctionLowering.Closure
@@ -6432,7 +6651,8 @@ sealed class ColumnarIlEmitter {
                 bodyTypeResolution.Enums,
                 bodyTypeResolution.Structs,
                 bodyTypeResolution.Unions,
-                memberLocalFunctionClosure
+                memberLocalFunctionClosure,
+                memberGenericLocalFuncs
             )
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
             // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
@@ -6938,6 +7158,7 @@ sealed class ColumnarIlEmitter {
     ): bool {
         lowering = null
         localFuncs := new Dictionary<string, (MethodBuilder, Type[], Type)>(StringComparer.Ordinal)
+        genericLocalFuncs := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
         declaredLocalFuncNodes := new Dictionary<int, string>()
         visibleLocalFuncNames := new List<string>()
         declaringScopeBindings := new HashSet<string>(parameterOrdinals.Keys, StringComparer.Ordinal)
@@ -6960,6 +7181,17 @@ sealed class ColumnarIlEmitter {
         }
         for localFunction in fn.LocalFunctions {
             localFn := localFunction.Function
+            // A GENERIC LOCAL FUNCTION'S TYPE PARAMETERS ARE ITS OWN, and the order its declaration
+            // takes is the one a generic top-level `func` takes: the method is defined signature-LESS,
+            // `DefineGenericParameters` runs, and only then can the parameter and return types — which
+            // may name those parameters — be resolved and set. It is therefore declared by its own arm
+            // rather than by the fixed-signature one below.
+            if (localFn.TypeParamNames.Length > 0) {
+                if (!TryDeclareGenericLocalFunction(fn, localFn, localFunction.NodeIndex, staticOwner, enclosingDefinition, closure, typeResolution, lambdaCounter, sourceAttributeQueue, genericLocalFuncs, declaredLocalFuncNodes, visibleLocalFuncNames)) {
+                    return false
+                }
+                continue
+            }
             // AN ASYNC LOCAL FUNCTION DECLARES ITS INNER TYPE AND ITS METHOD RETURNS THE WRAP, exactly
             // as a top-level `async func` does: `async func inner(): int` is a method returning
             // `ValueTask<int>`, and every call site sees that. The body is routed through the async
@@ -7027,7 +7259,156 @@ sealed class ColumnarIlEmitter {
             declaredLocalFuncNodes[localFunction.NodeIndex] = localFn.Name
             visibleLocalFuncNames.Add(localFn.Name)
         }
-        lowering = new ColumnarLocalFunctionLowering(localFuncs, declaredLocalFuncNodes, visibleLocalFuncNames, closure, declaringScopeBindings)
+        lowering = new ColumnarLocalFunctionLowering(localFuncs, genericLocalFuncs, declaredLocalFuncNodes, visibleLocalFuncNames, closure, declaringScopeBindings)
+        return true
+    }
+
+    // ONE GENERIC LOCAL FUNCTION'S DECLARATION.
+    //
+    // Everything about it that is not the type parameters is the non-generic arm's: the same placement
+    // decision (a static on the holder, an instance method of the display, or one of the enclosing
+    // type), the same synthesized name, the same parameter metadata. What differs is the ORDER — the
+    // method is defined with no signature, its parameters are declared, and the declared types are
+    // resolved IN THEIR SCOPE and set afterwards — and what is recorded: a generic method has no
+    // handle a call site can dispatch directly, so it goes into the lowering's generic map as the same
+    // record a generic top-level `func` publishes, and the call site closes it by the same inference.
+    //
+    // AN `async` GENERIC LOCAL FUNCTION IS REFUSED, exactly as a generic `async func` is at top level.
+    private static func TryDeclareGenericLocalFunction(
+        fn: ColumnarFunctionInput,
+        localFn: ColumnarFunctionInput,
+        declarationNodeIndex: int,
+        staticOwner: TypeBuilder,
+        enclosingDefinition: ColumnarStructDef?,
+        closure: ColumnarLocalFunctionDisplay?,
+        typeResolution: ColumnarSemanticTypeResolution,
+        lambdaCounter: int[],
+        sourceAttributeQueue: ColumnarSourceAttributeQueue,
+        genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>,
+        declaredLocalFuncNodes: Dictionary<int, string>,
+        visibleLocalFuncNames: List<string>
+    ): bool {
+        if (localFn.IsAsync) {
+            return DeclineStatic("emit.local-function.generic-async", "a generic local function cannot be `async` — the state machine has no type arguments to carry", fn.Name + "." + localFn.Name, -1, 0)
+        }
+        runsOnDisplay := closure != null && closure.IsDisplayMethod(localFn.Name)
+        runsOnEnclosingInstance := closure != null && closure.IsInstanceMethod(localFn.Name)
+        let localMethodOwner: TypeBuilder = staticOwner
+        if (runsOnDisplay) {
+            localMethodOwner = closure.Builder
+        } else if (runsOnEnclosingInstance) {
+            if (enclosingDefinition == null) {
+                return false
+            }
+            localMethodOwner = enclosingDefinition.Builder
+        }
+        localMethodOrdinal := lambdaCounter[0]
+        lambdaCounter[0] = localMethodOrdinal + 1
+        localMethodName := "<" + fn.Name + ">g__" + localMethodOrdinal.ToString()
+        localMethodAttributes := MethodAttributes.Private | MethodAttributes.Static
+        if (runsOnDisplay) {
+            localMethodAttributes = MethodAttributes.Public | MethodAttributes.HideBySig
+        } else if (runsOnEnclosingInstance) {
+            localMethodAttributes = MethodAttributes.Private | MethodAttributes.HideBySig
+        }
+        let genericInitialReturnType: System.Type? = null
+        let genericInitialParameterTypes: System.Type[]? = null
+        localMethod := localMethodOwner.DefineMethod(localMethodName, localMethodAttributes, genericInitialReturnType, genericInitialParameterTypes)
+        gpBuilders := localMethod.DefineGenericParameters(localFn.TypeParamNames)
+        typeParamMap := new Dictionary<string, Type>(StringComparer.Ordinal)
+        localTypeParams := new Type[gpBuilders.Length]
+        for g := 0; g < gpBuilders.Length; g++ {
+            genericParameterForMap := gpBuilders[g]
+            genericParameterAsType: Type = genericParameterForMap
+            typeParamMap[localFn.TypeParamNames[g]] = genericParameterAsType
+            localTypeParams[g] = genericParameterAsType
+        }
+        // THE PARAMETERS ARE REGISTERED AGAINST AN OWNER, exactly as a generic top-level `func`'s are
+        // through `ForSourceMethod`. The structural type-reference registry keys every generic
+        // parameter by its owner, and one that reaches selection unregistered is refused outright —
+        // which is what a generic local function's `T` did. The owner is a METHOD owner (its
+        // parameters are MVARs) named by the enclosing function and the synthesized method's ordinal,
+        // which is unique across the assembly being emitted.
+        typeResolution.Structs.StructuralTypeReferences.RegisterGenericParameters(
+            typeParamMap,
+            ColumnarStructuralGenericOwnerIdentity.SourceTypeMethod(localFn.SourceFileId, fn.Name + "." + localFn.Name, localMethodOrdinal)
+        )
+        // Applied AFTER the whole map exists, so a constraint may name another of this local
+        // function's own parameters (`where T: U`) — the same reason the top-level arm waits.
+        localSpecialConstraints := System.Array.Empty<int>()
+        localBaseConstraints := System.Array.Empty<Type?>()
+        localInterfaceConstraints := System.Array.Empty<Type[]>()
+        if (!ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(gpBuilders, localFn.TypeParamSpecialConstraints, localFn.TypeParamTypeConstraints, typeParamMap, localTypeParams, typeResolution, out localSpecialConstraints, out localBaseConstraints, out localInterfaceConstraints)) {
+            return false
+        }
+        let localReturn: System.Type = null
+        if (localFn.ReturnCanonical == "void") {
+            localReturn = ColumnarTypeOfPlanner.RequiredVoidType()
+        } else {
+            if (!ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(localFn.ReturnCanonical, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localReturn) || !IsValidGenericLocalFunctionSignatureType(localReturn, localMethodOwner, localTypeParams)) {
+                return DeclineStatic("emit.local-function.generic-return", "generic local function return type '" + localFn.ReturnCanonical + "' could not be resolved for '" + localFn.Name + "'", fn.Name + "." + localFn.Name, -1, 0)
+            }
+        }
+        localParams := new Type[localFn.ParamNames.Length]
+        for lp := 0; lp < localParams.Length; lp++ {
+            let localParamType: Type = null
+            if (!ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(localFn.ParamCanonicals[lp], typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localParamType) || !IsValidGenericLocalFunctionSignatureType(localParamType, localMethodOwner, localTypeParams)) {
+                return DeclineStatic("emit.local-function.generic-parameter", "generic local function parameter type '" + localFn.ParamCanonicals[lp] + "' could not be resolved for '" + localFn.Name + "'", fn.Name + "." + localFn.Name, -1, 0)
+            }
+            localParams[lp] = localParamType
+        }
+        localMethod.SetReturnType(localReturn)
+        localMethodForParameters := localMethod
+        localMethodForParameters.SetParameters(localParams)
+        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums, null, null, localFn.ParamLabeledCanonicals, sourceAttributeQueue)) {
+            return false
+        }
+        ColumnarTupleElementNameEmitter.ApplyToReturn(localMethod, localFn.ReturnLabeledCanonical)
+        localMethodAsInfo: MethodInfo = localMethod
+        genericLocalFuncs[localFn.Name] = new ColumnarSiblingMethodDefinition(
+            localMethodAsInfo,
+            localParams,
+            localFn.ParamModifierKinds,
+            localReturn,
+            localTypeParams,
+            localSpecialConstraints,
+            localBaseConstraints,
+            localInterfaceConstraints
+        )
+        declaredLocalFuncNodes[declarationNodeIndex] = localFn.Name
+        visibleLocalFuncNames.Add(localFn.Name)
+        return true
+    }
+
+    // THE SIGNATURE RULE A GENERIC LOCAL FUNCTION KEEPS. The synthesized-method rule beside it refuses
+    // EVERY method-level generic parameter, because the shapes it guards — a display class's fields, a
+    // lambda's method — have no type parameters of their own to put one in context. A generic local
+    // function DOES: its own parameters are exactly the ones its signature may name, and any OTHER
+    // method's are still out of context.
+    private static func IsValidGenericLocalFunctionSignatureType(valueType: Type, declaringType: TypeBuilder, ownTypeParameters: Type[]): bool {
+        if valueType == null {
+            return false
+        }
+        if valueType.get_IsGenericParameter() {
+            for ownTypeParameter in ownTypeParameters {
+                if Object.ReferenceEquals(ownTypeParameter, valueType) {
+                    return true
+                }
+            }
+            return ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(valueType, declaringType)
+        }
+        if valueType.get_HasElementType() {
+            elementType := valueType.GetElementType()
+            return elementType != null && IsValidGenericLocalFunctionSignatureType(elementType, declaringType, ownTypeParameters)
+        }
+        if !valueType.get_IsGenericType() {
+            return true
+        }
+        for argument in valueType.GetGenericArguments() {
+            if !IsValidGenericLocalFunctionSignatureType(argument, declaringType, ownTypeParameters) {
+                return false
+            }
+        }
         return true
     }
 
@@ -7063,7 +7444,34 @@ sealed class ColumnarIlEmitter {
         declaringScopeBindings := lowering.DeclaringScopeBindings
         for localFunction in fn.LocalFunctions {
             localFn := localFunction.Function
-            target := lowering.LocalFuncs[localFn.Name]
+            // A GENERIC local function's facts come from the generic map, because its open handle is
+            // not one a call site can dispatch and it is therefore not in the direct one. Everything
+            // the body needs is the same three things either way — the method to fill, the declared
+            // parameter types and the body's return type — plus, for the generic one, the map from
+            // its written type-parameter names to the builders its signature was resolved against.
+            let localMethodBuilder: System.Reflection.Emit.MethodBuilder? = null
+            let localDeclaredParamTypes: System.Type[]? = null
+            let localDeclaredReturn: System.Type? = null
+            localTypeParamMap: Dictionary<string, Type>? = null
+            let genericTarget: ColumnarSiblingMethodDefinition? = null
+            if (lowering.GenericLocalFuncs.TryGetValue(localFn.Name, out genericTarget) && genericTarget != null) {
+                genericTargetMethod := genericTarget.Method as System.Reflection.Emit.MethodBuilder
+                if (genericTargetMethod == null) {
+                    return false
+                }
+                localMethodBuilder = genericTargetMethod
+                localDeclaredParamTypes = genericTarget.ParamTypes
+                localDeclaredReturn = genericTarget.ReturnType
+                localTypeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal)
+                for tp := 0; tp < localFn.TypeParamNames.Length && tp < genericTarget.TypeParams.Length; tp++ {
+                    localTypeParamMap[localFn.TypeParamNames[tp]] = genericTarget.TypeParams[tp]
+                }
+            } else {
+                directTarget := lowering.LocalFuncs[localFn.Name]
+                localMethodBuilder = directTarget.Item1
+                localDeclaredParamTypes = directTarget.Item2
+                localDeclaredReturn = directTarget.Item3
+            }
             // An instance method's arg 0 is its receiver — the display or the enclosing instance — so
             // every declared parameter sits one ordinal further along, as a lambda's body does.
             localOrdinalShift := lowering.PlacementShift(localFn.Name)
@@ -7074,9 +7482,9 @@ sealed class ColumnarIlEmitter {
                 if (declaringScopeBindings.Contains(localFn.ParamNames[lp])) {
                     return false
                 }
-                localParamTypes[localFn.ParamNames[lp]] = target.Item2[lp]
+                localParamTypes[localFn.ParamNames[lp]] = localDeclaredParamTypes[lp]
             }
-            localIl := target.Item1.GetILGenerator()
+            localIl := localMethodBuilder.GetILGenerator()
             // The local body shares the SAME local-function map (self and mutual recursion, plus the
             // parent's other local functions). A CAPTURED enclosing binding reaches it through the
             // display's boxes — the `_boxedCaptures` route a capturing lambda body already reads and
@@ -7100,7 +7508,7 @@ sealed class ColumnarIlEmitter {
             // facts a top-level `async func`'s body is given. The declaration pass already put the
             // WRAPPED type on the method (and therefore on every call site), so the shape is
             // recomputed here rather than carried: one owner answers it, twice.
-            localBodyReturn := target.Item3
+            localBodyReturn := localDeclaredReturn
             let localAsyncReturn: System.Type? = null
             if (localFn.IsAsync) {
                 let localAsyncInner: System.Type? = null
@@ -7145,11 +7553,12 @@ sealed class ColumnarIlEmitter {
                 },
                 referenceAssemblyPaths,
                 null,
-                null,
+                localTypeParamMap,
                 typeResolution.Enums.ForSynthesizedMethod(synthesizedMethodOwner),
                 typeResolution.Structs.ForSynthesizedMethod(synthesizedMethodOwner),
                 typeResolution.Unions.ForSynthesizedMethod(synthesizedMethodOwner),
-                localClosureView
+                localClosureView,
+                lowering.GenericLocalFuncs
             )
             ColumnarDeclineTrace.SetSourceFileId(localFn.SourceFileId, fn.Name + "." + localFn.Name)
             try {
@@ -9054,6 +9463,13 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Ldarg_0)
                 _il.Emit(OpCodes.Ldfld, boxedWrite.BoxField)
                 let boxedValueType: System.Type? = null
+                if (IsContextualDelegateValueNode(Child(expr, 1))) {
+                    if (!EmitDeclaredCallArgument(Child(expr, 1), boxedWrite.ValueType, true)) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Stfld, ColumnarClosureBindingPlanner.StrongBoxValueField(boxedWrite.ValueType))
+                    return true
+                }
                 if (!EmitExpression(Child(expr, 1), out boxedValueType) || boxedValueType != boxedWrite.ValueType) {
                     return false
                 }
@@ -9066,6 +9482,13 @@ sealed class ColumnarIlEmitter {
             if (_liftedLocals.TryGetValue(targetName, out liftedWrite)) {
                 _il.Emit(OpCodes.Ldloc, liftedWrite.Box)
                 let liftedValueType: System.Type? = null
+                if (IsContextualDelegateValueNode(Child(expr, 1))) {
+                    if (!EmitDeclaredCallArgument(Child(expr, 1), liftedWrite.ValueType, true)) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Stfld, ColumnarClosureBindingPlanner.StrongBoxValueField(liftedWrite.ValueType))
+                    return true
+                }
                 if (!EmitExpression(Child(expr, 1), out liftedValueType) || liftedValueType != liftedWrite.ValueType) {
                     return false
                 }
@@ -9079,6 +9502,13 @@ sealed class ColumnarIlEmitter {
                 // generic-union case construction with no type args ADOPTS the local's declared type
                 // (`o = new Opt.None` on an Opt<int> local — probe-pinned).
                 let valueType: System.Type = null
+                if (IsContextualDelegateValueNode(Child(expr, 1))) {
+                    if (!EmitDeclaredCallArgument(Child(expr, 1), assignTarget.get_LocalType(), true)) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Stloc, assignTarget)
+                    return true
+                }
                 if (IsAdoptableUnionConstruction(Child(expr, 1), assignTarget.get_LocalType())) {
                     if (!EmitAdoptedUnionConstruction(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
                         return false
@@ -9173,6 +9603,13 @@ sealed class ColumnarIlEmitter {
                 // (value params have value semantics, so the mutation is method-local, matching the N# backend path).
                 // The value's type must match the parameter's declared type; adoption applies as for locals.
                 let paramValueType: System.Type = null
+                if (IsContextualDelegateValueNode(Child(expr, 1))) {
+                    if (!EmitDeclaredCallArgument(Child(expr, 1), _paramTypes[targetName], true)) {
+                        return false
+                    }
+                    ColumnarArgumentInstructionEmitter.EmitStore(_il, paramOrdinal)
+                    return true
+                }
                 if (IsAdoptableUnionConstruction(Child(expr, 1), _paramTypes[targetName])) {
                     if (!EmitAdoptedUnionConstruction(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {
                         return false
@@ -12652,6 +13089,17 @@ sealed class ColumnarIlEmitter {
                     }
                     return TryEmitDelegateInvoke(idx, name, out columnarResolvedType)
                 }
+                // A GENERIC local function is closed by the same inference a generic top-level `func`
+                // is closed by: the record it carries is the same one, and the argument walk that
+                // binds each type parameter is the same walk. Its RECEIVER — the display, or the
+                // enclosing instance — is pushed first, exactly as a non-generic one's is.
+                let genericLocalTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+                if (_genericLocalFuncs != null && _visibleLocalFuncs.Contains(name) && _genericLocalFuncs.TryGetValue(name, out genericLocalTarget) && genericLocalTarget != null) {
+                    if (!EmitLocalFunctionCallReceiver(name)) {
+                        return false
+                    }
+                    return TryEmitGenericSiblingCall(idx, genericLocalTarget, new Type[genericLocalTarget.TypeParams.Length], out columnarResolvedType)
+                }
                 let localTargetMethod: System.Reflection.Emit.MethodBuilder? = null
                 let localTargetParamTypes: System.Type[]? = null
                 let localTargetReturnType: System.Type? = null
@@ -12820,6 +13268,28 @@ sealed class ColumnarIlEmitter {
                 // GENERIC top-level sibling binds (explicit type args on a non-generic are pipeline-rejected).
                 if (_locals.ContainsKey(gName) || _paramOrdinals.ContainsKey(gName)) {
                     return Decline("emit.call.generic-shadowed", "generic call '" + gName + "' is shadowed by a value binding", idx)
+                }
+                // A LOCAL FUNCTION SHADOWS A SAME-NAMED SIBLING, which is why it is asked first here
+                // exactly as it is at the bare-name arm.
+                let gLocalTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+                if (_genericLocalFuncs != null && _visibleLocalFuncs.Contains(gName) && _genericLocalFuncs.TryGetValue(gName, out gLocalTarget) && gLocalTarget != null) {
+                    if (_nodes.ChildCount(callee) != gLocalTarget.TypeParams.Length) {
+                        return Decline("emit.call.generic-arity", "generic local function '" + gName + "' takes " + gLocalTarget.TypeParams.Length.ToString() + " type argument(s)", idx)
+                    }
+                    localExplicitBinding := new Type[gLocalTarget.TypeParams.Length]
+                    for lta := 0; lta < gLocalTarget.TypeParams.Length; lta++ {
+                        localTypeArgNode := Child(callee, lta)
+                        let localCanonicalTypeArg: string? = null
+                        let localTaType: System.Type? = null
+                        if (!TryBuildTypeNodeCanonical(localTypeArgNode, out localCanonicalTypeArg) || !TryResolveBodyType(localCanonicalTypeArg, out localTaType) || !ColumnarTypeOfPlanner.IsSupportedType(localTaType)) {
+                            return false
+                        }
+                        localExplicitBinding[lta] = localTaType
+                    }
+                    if (!EmitLocalFunctionCallReceiver(gName)) {
+                        return false
+                    }
+                    return TryEmitGenericSiblingCall(idx, gLocalTarget, localExplicitBinding, out columnarResolvedType)
                 }
                 let gTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
                 if (!_siblings.TryGetValue(gName, out gTarget) || gTarget.TypeParams.Length == 0) {
@@ -21758,12 +22228,29 @@ sealed class ColumnarIlEmitter {
                 }
                 return false
             }
+            // A CALLEE THAT IS NOT A NAME AT ALL PRODUCES THE DELEGATE IT INVOKES. `three(1)(2)` is
+            // two invocations, and the second one's callee is the first CALL — a node kind this arm
+            // had no case for, so it answered nothing and the emitter's delegate-invoke door (which
+            // asks this preflight what the callee is worth) declined the whole expression with
+            // `emit.call.callee-kind`.
             if (_nodes.Kind(callee) != 6) {
-                return false
+                return TryGetPreflightDelegateInvocationType(node, callee, out columnarResolvedType)
             }
             calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
             if (_locals.ContainsKey(calleeName) || _paramOrdinals.ContainsKey(calleeName) || _liftedLocals.ContainsKey(calleeName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(calleeName))) {
-                return false
+                // A BINDING'S NAME INVOKES ONLY WHEN IT IS DELEGATE-TYPED, and a same-named method
+                // tier is terminal — the same precedence the emission arm applies, so what the
+                // preflight promises and what the emitter writes cannot disagree.
+                let shadowingInstanceMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                let shadowingStaticMethod: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+                if (_siblings.ContainsKey(calleeName) || (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, calleeName, out shadowingInstanceMethod)) || (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, calleeName, _nodes.ChildCount(node) - 1, out shadowingStaticMethod))) {
+                    return false
+                }
+                let boundDelegateType: System.Type? = null
+                if (!TryGetPreflightBoundDelegateType(calleeName, out boundDelegateType)) {
+                    return false
+                }
+                return TryGetPreflightDelegateResultType(node, boundDelegateType, out columnarResolvedType)
             }
             let localFnMethod: System.Reflection.Emit.MethodBuilder? = null
             let localFnParamTypes: System.Type[]? = null
@@ -22694,6 +23181,60 @@ sealed class ColumnarIlEmitter {
         }
     }
 
+    // A LOCAL THE PREFLIGHTED BLOCK ITSELF DECLARES, typed into the same frame the lambda's own
+    // parameters were typed into.
+    //
+    // `xs.ConvertAll(x => { s := x * f; return s + 1 })` left `TOutput` with nothing to bind it: the
+    // block-return walk typed `return s + 1` in a frame that held the lambda's parameters and the
+    // enclosing scope but NOTHING the block declared, so no arm could be typed and the whole call
+    // declined after the analyzer had accepted it. The seeding rule is the one the parameter frame
+    // above already states: only the TYPE outlives this plan, so the ordinal need only be DISTINCT —
+    // the real lowering declares a local and assigns the slot that reaches IL.
+    //
+    // It is refused for a name the frame can already see, which is the emitter's own shadowing rule
+    // (NL316) restated: a declaration that shadows is not a program this preflight has to type.
+    private func SeedPreflightBlockLocal(name: string, valueType: Type) {
+        if (name == null || name.Length == 0 || valueType == null) {
+            return
+        }
+        if (_paramOrdinals.ContainsKey(name) || _paramTypes.ContainsKey(name) || _locals.ContainsKey(name) || _liftedLocals.ContainsKey(name)) {
+            return
+        }
+        nextOrdinal := 0
+        for existingOrdinal in _paramOrdinals {
+            if (existingOrdinal.Value >= nextOrdinal) {
+                nextOrdinal = existingOrdinal.Value + 1
+            }
+        }
+        _paramOrdinals[name] = nextOrdinal
+        _paramTypes[name] = valueType
+    }
+
+    // THE DECLARATION STATEMENTS A PREFLIGHTED BLOCK CARRIES, seeded as the walk reaches them. A `:=`
+    // takes its type from its initializer and a `let name: T = …` from its written annotation, which
+    // is exactly what the two emission arms do with the same nodes.
+    private func SeedPreflightBlockDeclaration(node: int) {
+        kind := _nodes.Kind(node)
+        if (kind == 24) {
+            if (_nodes.ChildCount(node) != 1) {
+                return
+            }
+            let inferredType: System.Type? = null
+            if (TryGetPreflightExpressionType(Child(node, 0), out inferredType) && inferredType != null && inferredType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(inferredType)) {
+                SeedPreflightBlockLocal(ColumnarNodeTextFacts.Text(_nodes, _source, node), inferredType)
+            }
+            return
+        }
+        if (kind != 40 || _nodes.ChildCount(node) != 2 || _nodes.Kind(Child(node, 0)) != 6) {
+            return
+        }
+        declaredCanonical := ColumnarTypeCanonicalizer.RemoveWhitespace(ColumnarNodeTextFacts.Text(_nodes, _source, node))
+        let declaredType: System.Type? = null
+        if (TryResolveBodyType(declaredCanonical, out declaredType) && declaredType != null && ColumnarTypeOfPlanner.IsSupportedType(declaredType)) {
+            SeedPreflightBlockLocal(ColumnarNodeTextFacts.Text(_nodes, _source, Child(node, 0)), declaredType)
+        }
+    }
+
     private func TryPreflightContextualLambdaReturnType(lambdaNode: int, parameterTypes: Type[], out returnType: Type): bool {
         returnType = null
         isAsyncLambda := ColumnarLambdaNodeFacts.IsAsyncLambda(_nodes.Kind(lambdaNode))
@@ -22976,6 +23517,9 @@ sealed class ColumnarIlEmitter {
         if (ColumnarLambdaNodeFacts.IsLambda(kind) || kind == 41) {
             return true
         }
+        // A DECLARATION SEEDS THE FRAME THE `return`s AFTER IT ARE TYPED IN. The walk reaches
+        // statements in source order, so a name is in scope for exactly the arms that could read it.
+        SeedPreflightBlockDeclaration(node)
         if (kind == 20) {
             if (_nodes.ChildCount(node) != 1) {
                 return false
@@ -23453,8 +23997,17 @@ sealed class ColumnarIlEmitter {
         // A NAME WITH SEVERAL OVERLOADS CARRIES NO SINGLE SIGNATURE, so it contributes nothing to
         // inference — but it is still a method group, and the delegate the position wants is exactly
         // what selects among its candidates.
+        //
+        // ALL THREE GROUP SHAPES ARE ASKED, and the receiver-instance one was missing: the inference
+        // loop below already reads it (`TryGetReceiverInstanceMethodGroup` is the third arm of its
+        // phase-one test), but this gate is what decides whether that loop runs at all. Without it
+        // `names.ConvertAll(greeter.Greet)` with TWO `Greet` overloads never reached the contextual
+        // tier — the call looked like one with no delegate argument — and declined at
+        // `emit.call.instance-member`, while the same call on a NON-overloaded name emitted.
         let overloadedCandidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
-        return TryGetEnclosingMethodGroupCandidates(node, out overloadedCandidates) || TryGetExternalStaticMethodGroupCandidates(node, out overloadedCandidates)
+        let overloadedReceiverNode: int = -1
+        let overloadedReceiverType: System.Type? = null
+        return TryGetEnclosingMethodGroupCandidates(node, out overloadedCandidates) || TryGetExternalStaticMethodGroupCandidates(node, out overloadedCandidates) || TryGetReceiverInstanceMethodGroup(node, out overloadedReceiverNode, out overloadedReceiverType, out overloadedCandidates)
     }
 
     // Does this call carry an argument whose type only a delegate context can supply? Ordinary

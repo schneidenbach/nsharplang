@@ -58,6 +58,7 @@ enum ErrorCode {
     EventRequiresDelegateType = 338,
     TypeDeclaredInAnotherFile = 339,
     ThrowExpressionNotAllowedHere = 340,
+    FinalizerNotCallable = 341,
     InterfaceValueMemberWrite = 342,
     InitOnlyMemberWrite = 343,
     RequiredMemberNotSet = 344,

@@ -50,3 +50,37 @@ class Totals {
         return xs.ConvertAll(x => x * Factor + bonus)
     }
 }
+
+// A BLOCK BODY'S OWN LOCALS ARE PART OF THE FRAME ITS `return`s ARE TYPED IN.
+//
+// The block-return walk that binds `TOutput` typed each `return` in a frame holding the lambda's
+// parameters and the enclosing scope and NOTHING the block declared, so `return s + 1` after
+// `s := x * f` had no type, no arm could be read, and the whole call declined at
+// `emit.call.instance-member` after the analyzer had accepted it. A declaration now seeds that frame
+// as the walk reaches it, in source order, exactly as the parameters are seeded.
+func ScaleThroughABlockLocal(xs: List<int>, factor: int): List<int> {
+    return xs.ConvertAll(x => {
+        s := x * factor
+        return s + 1
+    })
+}
+
+// A WRITTEN annotation types its local the same way an initializer does.
+func LabelThroughATypedBlockLocal(xs: List<int>, prefix: string): List<string> {
+    return xs.ConvertAll(x => {
+        let label: string = prefix + x.ToString()
+        return label + "!"
+    })
+}
+
+// SEVERAL declarations, each one in scope for the next, and a `return` inside a branch.
+func ChainedBlockLocals(xs: List<int>, bump: int): List<int> {
+    return xs.ConvertAll(x => {
+        doubled := x * 2
+        shifted := doubled + bump
+        if shifted > 100 {
+            return 100
+        }
+        return shifted
+    })
+}

@@ -57,3 +57,26 @@ test "the instance and a captured parameter both reach an inferring position" {
     assert weighted[0] == 13
     assert weighted[1] == 16
 }
+
+test "a block body's own locals are in scope for the return that binds the output type" {
+    xs := new List<int>()
+    xs.Add(1)
+    xs.Add(2)
+
+    scaled := ScaleThroughABlockLocal(xs, 10)
+    assert scaled.Count == 2
+    assert scaled[0] == 11
+    assert scaled[1] == 21
+
+    labelled := LabelThroughATypedBlockLocal(xs, "n")
+    assert labelled[0] == "n1!"
+    assert labelled[1] == "n2!"
+
+    chained := ChainedBlockLocals(xs, 5)
+    assert chained[0] == 7
+    assert chained[1] == 9
+
+    big := new List<int>()
+    big.Add(60)
+    assert ChainedBlockLocals(big, 5)[0] == 100
+}

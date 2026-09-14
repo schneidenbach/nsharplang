@@ -451,3 +451,41 @@ class WidenedGuard: Guarded {
         return "widened"
     }
 }
+
+// `object`'S PROTECTED SURFACE, REACHED FROM A TYPE THAT WRITES NO BASE AT ALL.
+//
+// Every source type's implicit base is `object`, so `MemberwiseClone` is an inherited protected
+// member of it exactly as it is of a type that writes `: Exception`. It used to resolve only through
+// the WRITTEN base's reflected walk, so these two shapes — which differ in nothing the CLR can see —
+// gave different answers.
+class Cloned {
+    Tag: int
+
+    constructor(tag: int) {
+        Tag = tag
+    }
+
+    func ShallowCopy(): Cloned {
+        copy := this.MemberwiseClone() as Cloned
+        if copy == null {
+            throw new System.InvalidOperationException("MemberwiseClone did not answer a Cloned.")
+        }
+        return copy
+    }
+}
+
+class ClonedWithBase: System.Exception {
+    Tag: int
+
+    constructor(tag: int) {
+        Tag = tag
+    }
+
+    func ShallowCopy(): ClonedWithBase {
+        copy := this.MemberwiseClone() as ClonedWithBase
+        if copy == null {
+            throw new System.InvalidOperationException("MemberwiseClone did not answer a ClonedWithBase.")
+        }
+        return copy
+    }
+}

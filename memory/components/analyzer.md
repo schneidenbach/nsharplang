@@ -1405,6 +1405,82 @@ public-only flags. `System.Object`'s own `protected` methods (`MemberwiseClone`,
 listed on such a receiver, which is honest — they ARE reachable — and is what a name-based filter
 would have to be invented to suppress. A VS Code visual pass over this list is OWED.
 
+**A LOCAL FUNCTION MAY DECLARE ITS OWN TYPE PARAMETERS** (2026-09-14, stream CAPTURE3). The statement
+kernel refused any local function that declared one (`ParseColumnarFunctionInfoCore`'s
+`isLocalFunction != 0 && signatureResult.Values[2] > 0`), so the whole ENCLOSING function failed at
+`parse.function`. Lifting it needed no new lowering: `TryDeclareGenericLocalFunction` declares the
+method in the order a generic top-level `func` is declared (define with no signature,
+`DefineGenericParameters`, resolve the declared types through `TryResolveTypeWithTypeParams` in that
+scope, `SetReturnType`/`SetParameters`), registers the parameters against a METHOD owner
+(`ColumnarStructuralGenericOwnerIdentity.SourceTypeMethod`, keyed by the enclosing function's name
+plus the synthesized ordinal — an unregistered parameter is refused outright by
+`ColumnarStructuralTypeReferences`), and publishes the same `ColumnarSiblingMethodDefinition` a
+generic top-level `func` publishes. Both call arms — the bare name and the explicit `id<int>(…)` —
+then reach `TryEmitGenericSiblingCall`, which is where the inference, the constraint check and
+`MakeGenericMethod` already live; a capturing one pushes its display receiver first, exactly as a
+non-generic one does. The generic ones ride a SEPARATE map on `ColumnarLocalFunctionLowering`
+(`GenericLocalFuncs`) because the direct map's entries are handles a call site dispatches without
+closing. Still refused: a local function whose SIGNATURE names the enclosing method's type parameter
+(pre-existing — C# lowers it by COPYING those parameters onto the generated method), and an `async`
+generic local function (`emit.local-function.generic-async`).
+
+**THE CONTEXTUAL-TIER GATE ASKS ALL THREE METHOD-GROUP SHAPES** (2026-09-14, stream CAPTURE3).
+`ColumnarIlEmitter.IsContextualDelegateValueNode` — the predicate `HasContextualDelegateArgument`
+uses to decide whether the contextual walk runs at all — recognised an OVERLOADED group written as a
+bare name or on a TYPE, and not one written on a VALUE, even though the inference loop's own
+phase-one test already reads all three (`TryGetReceiverInstanceMethodGroup` is its third arm). The
+EXTENSION tier has no such gate by design, so `words.Select(greeter.Describe)` ran while
+`words.ConvertAll(greeter.Describe)` — the same question asked of an INSTANCE method, which goes
+through `TryResolveContextualDirectCandidate` — declined at `emit.call.instance-member`. A genuine
+ambiguity (a group whose overloads make TWO `Select` overloads applicable) is still NL414, matching
+C# CS0121.
+
+**A PREFLIGHTED BLOCK LAMBDA'S OWN LOCALS ARE PART OF ITS FRAME** (2026-09-14, stream CAPTURE3).
+`ColumnarIlEmitter.CollectBlockReturnTypes` typed each `return` in a frame carrying the lambda's
+parameters and the enclosing scope and nothing the BLOCK declared, so
+`xs.ConvertAll(x => { s := x * f; return s + 1 })` could type no arm at all and the call declined at
+`emit.call.instance-member` after the analyzer had accepted it. `SeedPreflightBlockDeclaration` now
+seeds a `:=` from its initializer's preflighted type and a `let name: T = …` from its written
+annotation, as the walk reaches each statement in source order. The seeding rule is the one
+`TryPreflightContextualLambdaReturnType` already states for the lambda's own parameters: only the
+TYPE outlives this plan, so the ordinal need only be DISTINCT — the real lowering declares a local
+and assigns the slot that reaches IL. A name the frame can already see is refused rather than
+rebound, which is the emitter's own shadowing rule (NL316) restated.
+
+**A MEMBER DECLARED IN A MORE DERIVED TYPE HIDES ONE OF THE SAME SIGNATURE IN A BASE** (2026-09-14,
+stream CAPTURE3). `Type.GetMethods()` returns BOTH declarations of a `new`-hidden member, and both
+candidate paths of `ColumnarOrdinaryRuntimeDirectCallResolver` counted that as an ambiguity:
+`ResolveFromCandidatesCore` scored them equally (`bestCount > 1` -> `Rejected`, which the direct-call
+planner reports as OWNED and refused) and `CandidatesAtArityCore` left two rows standing (so the
+unique-at-arity rule answered nothing). `Task<TResult>` re-declares `GetAwaiter()` — returning
+`TaskAwaiter<TResult>` where the base `Task`'s returns `TaskAwaiter` — so a written
+`t.GetAwaiter()` on a `Task<int>` declined at emit while the identical call on a non-generic `Task`
+bound. Both paths now apply C# §12.5's hiding relation, reusing the `SameCallSignature` /
+`HidesDeclaration` pair the interface walk beside them already had: a return type is not part of a
+signature, and when NEITHER declaration hides the other both are kept, because two unrelated base
+interfaces declaring one signature is a real ambiguity.
+
+**`object`'S PROTECTED SURFACE IS THE SAME BASE WHETHER OR NOT ONE IS WRITTEN, AND `Finalize` IS
+REFUSED AT THE CALL** (2026-09-14, stream CAPTURE3). `class Holder: Exception` reached
+`MemberwiseClone` and `Finalize` through the reflected base walk above; `class Holder` with no written
+base reported NL303 for both, because `AnalyzerMemberResolution.TryResolveInheritedRuntimeMember` —
+the arm `TryResolveSourceObjectMember` uses for the IMPLICIT `object` base — asked for
+`BindingFlags.Public` only. It now takes `inheritedProtectedAccess` (the same flag `ResolveMember`
+already threads) and opens `NonPublic` on its METHOD arm alone, holding every candidate to
+`IsReachableReflectedMethod`; `object` declares no non-public property or field, so the other two arms
+stay public-only. The enum surface (`System.Enum`) keeps the public-only flags: it is asked of a
+VALUE, never from inside a declaring type.
+
+`Finalize` is then refused at the invocation position of `AnalyzerMemberAccess`
+(`ReportFinalizerCall`, **NL341**) — the garbage collector owns that slot and calling it runs the
+cleanup twice (C# CS0245). The test is the SLOT, not the name:
+`AnalyzerMemberResolution.IsRuntimeFinalizerMethod` asks for a non-static, virtual, parameterless
+`void Finalize()` that is either declared by `System.Object` or is not `newslot` — which is what an
+override of `object.Finalize` is in metadata. `MethodInfo.GetBaseDefinition()` would say this
+directly and THROWS on every assembly loaded through a `MetadataLoadContext`, so the metadata bits are
+read instead (`MethodAttributes.NewSlot`, 0x0100), and the return type is compared by full name
+because an MLC type is never reference-equal to the running `typeof(void)`.
+
 **THE FORMATTER STOPPED WIDENING MEMBERS** (2026-09-13, stream INHERIT2, LSP-VISIBLE — format on
 save). `FormatterSyntaxText.ShouldPreserveExplicitCasingVisibility` dropped a written `public`/
 `private` whenever the PACKAGE-export answer was unchanged, which is only half of what a word means:
