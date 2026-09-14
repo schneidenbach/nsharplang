@@ -24,6 +24,7 @@ class SdkFeedState {
     static RuntimeVersion: string = ""
     static Built: bool = false
     static WarmedUp: bool = false
+    static LastFailureOutput: string = ""
 }
 
 // One generous ceiling per feed step: the Build.Tasks step self-emits Compiler Core (~6m20s
@@ -76,9 +77,9 @@ func EnsureColdStartWarmup() {
         File.WriteAllText(Path.Combine(warmupDirectory, "Warmup.csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n")
         File.WriteAllText(Path.Combine(warmupDirectory, "project.yml"), "name: Warmup\noutputType: library\ntargetFramework: net10.0\n")
         WriteResolutionFilesCore(warmupDirectory)
-        exitCode := RunDotnetNoCapture(warmupDirectory, "restore \"" + Path.Combine(warmupDirectory, "Warmup.csproj") + "\" -v q --disable-build-servers", SdkFeedCommandTimeoutMilliseconds())
+        exitCode := RunDotnetCaptured(warmupDirectory, "restore \"" + Path.Combine(warmupDirectory, "Warmup.csproj") + "\" -v q --disable-build-servers", SdkFeedCommandTimeoutMilliseconds())
         if exitCode != 0 {
-            throw new InvalidOperationException("SDK feed warm-up restore failed.")
+            throw SdkFeedFailure("SDK feed warm-up restore failed.")
         }
     } finally {
         Directory.Delete(warmupDirectory, true)
@@ -137,31 +138,31 @@ func BuildSdkFeed() {
         Directory.CreateDirectory(temporaryFeedDirectory)
 
         try {
-            buildTasksExitCode := RunDotnetNoCapture(
+            buildTasksExitCode := RunDotnetCaptured(
                 repositoryRoot,
                 "build \"" + Path.Combine(Path.Combine(Path.Combine(repositoryRoot, "src"), "NSharpLang.Build.Tasks"), "NSharpLang.Build.Tasks.csproj") + "\" -c Release -v q --disable-build-servers",
                 SdkFeedCommandTimeoutMilliseconds()
             )
             if buildTasksExitCode != 0 {
-                throw new InvalidOperationException("Failed to build NSharp build tasks.")
+                throw SdkFeedFailure("Failed to build NSharp build tasks.")
             }
 
-            runtimePackExitCode := RunDotnetNoCapture(
+            runtimePackExitCode := RunDotnetCaptured(
                 repositoryRoot,
                 "pack \"" + Path.Combine(Path.Combine(Path.Combine(repositoryRoot, "src"), "NSharpLang.Runtime"), "NSharpLang.Runtime.csproj") + "\" -c Release -o \"" + temporaryFeedDirectory + "\" -p:Version=" + runtimeVersion + " -v q --disable-build-servers",
                 SdkFeedCommandTimeoutMilliseconds()
             )
             if runtimePackExitCode != 0 {
-                throw new InvalidOperationException("Failed to pack NSharp runtime.")
+                throw SdkFeedFailure("Failed to pack NSharp runtime.")
             }
 
-            packExitCode := RunDotnetNoCapture(
+            packExitCode := RunDotnetCaptured(
                 repositoryRoot,
                 "pack \"" + Path.Combine(Path.Combine(Path.Combine(repositoryRoot, "src"), "NSharpLang.Sdk"), "NSharpLang.Sdk.csproj") + "\" -c Release -o \"" + temporaryFeedDirectory + "\" -p:Version=" + version + " -v q --disable-build-servers",
                 SdkFeedCommandTimeoutMilliseconds()
             )
             if packExitCode != 0 {
-                throw new InvalidOperationException("Failed to pack NSharp SDK.")
+                throw SdkFeedFailure("Failed to pack NSharp SDK.")
             }
 
             WriteSdkFeedManifest(temporaryFeedDirectory, version, runtimeVersion)
@@ -330,15 +331,26 @@ func IsUnderBuildOutputDirectory(path: string): bool {
     return false
 }
 
-func RunDotnetNoCapture(workingDirectory: string, arguments: string, timeoutMilliseconds: int): int {
+// THE FEED BUILD MUST NOT WRITE TO THIS PROCESS'S STDOUT, AND THE C# IT REPLACES COULD.
+// `tests/TestSdkFeed.cs` ran these `dotnet build`/`dotnet pack` steps with both streams INHERITED,
+// which was harmless inside the xunit host. It is not harmless here: the product gate runs this
+// project as `nlc test --project … --json` and PARSES STDOUT AS JSON, so a single line of MSBuild
+// output on the way past corrupts the envelope and fails the step with a parse error rather than a
+// test failure — measured exactly that way on the first full native sweep. Both streams are
+// captured instead, and the captured text is what the failure message carries, so a broken feed
+// build is MORE legible than it was, not less. The two pipes are drained as tasks before the wait
+// for the usual reason: a chatty child deadlocks against a full pipe buffer otherwise.
+func RunDotnetCaptured(workingDirectory: string, arguments: string, timeoutMilliseconds: int): int {
     startInfo := new System.Diagnostics.ProcessStartInfo { FileName: "dotnet", Arguments: arguments }
     startInfo.WorkingDirectory = workingDirectory
-    startInfo.RedirectStandardOutput = false
-    startInfo.RedirectStandardError = false
+    startInfo.RedirectStandardOutput = true
+    startInfo.RedirectStandardError = true
     startInfo.UseShellExecute = false
 
     process := new System.Diagnostics.Process { StartInfo: startInfo }
     process.Start()
+    stdoutTask := process.StandardOutput.ReadToEndAsync()
+    stderrTask := process.StandardError.ReadToEndAsync()
     if !process.WaitForExit(timeoutMilliseconds) {
         process.Kill(true)
         process.WaitForExit()
@@ -347,6 +359,14 @@ func RunDotnetNoCapture(workingDirectory: string, arguments: string, timeoutMill
     }
 
     exitCode := process.ExitCode
+    if exitCode != 0 {
+        SdkFeedState.LastFailureOutput = stdoutTask.Result + "\n" + stderrTask.Result
+    }
+
     process.Dispose()
     return exitCode
+}
+
+func SdkFeedFailure(step: string): InvalidOperationException {
+    return new InvalidOperationException(step + "\n" + SdkFeedState.LastFailureOutput)
 }

@@ -863,6 +863,20 @@ class ColumnarConstructionPlanner {
             if setterCandidate == null || setterCandidate.get_IsStatic() || setterCandidate.GetParameters().Length != 1 {
                 return false
             }
+
+            // A SETTER THE EMITTED ASSEMBLY CANNOT NAME. A signature carrying REQUIRED CUSTOM
+            // MODIFIERS loses them when the metadata writer emits a `MemberRef`, and the resulting
+            // reference resolves to nothing at run time -- the measured writer limitation
+            // `ColumnarForeachLoopPlanner.IsReferenceablePattern` already refuses `ReadOnlySpan<T>`'s
+            // enumerator for, with the same "Method not found" symptom. `init` is written in metadata
+            // as exactly such a modifier (`modreq(IsExternalInit)` on the setter's return), so
+            // `new External { InitOnlyProperty: v }` used to CHECK CLEAN and then throw
+            // `MissingMethodException` the first time it ran. Every C# `record` is this shape. Refusing
+            // here makes it a diagnostic instead of a crash; the planned BCL write door already refuses
+            // the same shape (`IsInitOnlySetter`), and this construction door did not.
+            if !SetterSignatureSurvivesAMemberRef(setterCandidate) {
+                return false
+            }
             setter: MethodInfo = setterCandidate
             setterDeclaringType := setter.get_DeclaringType()
             if setterDeclaringType == null {
@@ -879,6 +893,19 @@ class ColumnarConstructionPlanner {
             index += 2
         }
         return true
+    }
+
+    // Whether this setter's signature survives the round trip into a `MemberRef`. Required custom
+    // modifiers do not, so a setter that carries any of them can be planned but never bound.
+    static func SetterSignatureSurvivesAMemberRef(setter: MethodInfo): bool {
+        modifiers: Type[]? = null
+        try {
+            modifiers = setter.get_ReturnParameter().GetRequiredCustomModifiers()
+        } catch {
+            return false
+        }
+
+        return modifiers == null || modifiers.Length == 0
     }
 
     static func TryAppendValueTypeObjectFields(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, definition: ColumnarStructDef, localIndex: int, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {

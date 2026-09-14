@@ -8662,6 +8662,20 @@ sealed class ColumnarIlEmitter {
                             if (reflectedSetter == null || reflectedSetter.get_IsStatic() || reflectedSetter.GetParameters().Length != 1) {
                                 return false
                             }
+                            // A SETTER THE EMITTED ASSEMBLY CANNOT NAME. See
+                            // `SetterSignatureSurvivesAMemberRef`: the metadata writer drops required
+                            // custom modifiers from a MemberRef, and `init` is written as exactly such
+                            // a modifier, so emitting this call would produce a reference that resolves
+                            // to nothing at run time ("Method not found: 'Void …set_X(…)'"). The planned
+                            // BCL write door already refuses the same shape through `IsInitOnlySetter`;
+                            // this reflected door did not, which is how the failure survived to run time.
+                            if (!SetterSignatureSurvivesAMemberRef(reflectedSetter)) {
+                                return Decline(
+                                    "emit.member-assignment.unreferenceable-setter",
+                                    "the setter of '" + writeChain.ReceiverType.Name + "." + memberName + "' carries a required custom modifier (an `init` accessor is written that way), and the metadata writer drops required modifiers from a MemberRef, so the emitted call would resolve to nothing at run time",
+                                    expr
+                                )
+                            }
                             EmitMemberWriteLocator(writeChain)
                             let reflectedPropertyValueType: System.Type = null
                             if (TryEmitIntLiteralAsType(Child(expr, 1), reflectedWriteProperty.get_PropertyType(), out reflectedPropertyValueType)) {
@@ -11346,6 +11360,26 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // A SETTER THE EMITTED ASSEMBLY CANNOT NAME. A signature carrying REQUIRED CUSTOM MODIFIERS loses
+    // them when the metadata writer emits a `MemberRef`, and the resulting reference resolves to
+    // nothing at run time — the same measured writer limitation `ColumnarForeachLoopPlanner`'s
+    // `IsReferenceablePattern` refuses `ReadOnlySpan<T>`'s enumerator for. `init` is written in
+    // metadata as exactly such a modifier (`modreq(IsExternalInit)` on the setter's return), so
+    // `new External { InitOnlyProperty: v }` used to CHECK CLEAN and then throw
+    // `MissingMethodException: Method not found: 'Void …set_Position(…)'` the first time it ran.
+    // Every C# `record` and most modern library option types are this shape, so the hole was wide.
+    // Refusing here turns a silent runtime failure into an honest decline that names the property.
+    private static func SetterSignatureSurvivesAMemberRef(setter: MethodInfo): bool {
+        let modifiers: System.Type[]? = null
+        try {
+            modifiers = setter.get_ReturnParameter().GetRequiredCustomModifiers()
+        } catch {
+            return false
+        }
+
+        return modifiers == null || modifiers.Length == 0
+    }
+
     // `init` IN METADATA IS A REQUIRED MODIFIER ON THE SETTER'S RETURN, and that is the only place it
     // is written. A setter carrying it may be called during construction and nowhere else.
     private static func IsInitOnlySetter(setter: MethodInfo): bool {
@@ -13664,6 +13698,13 @@ sealed class ColumnarIlEmitter {
                         if ((property == null || property.get_SetMethod() == null)) {
                             return false
                         }
+                        if (!SetterSignatureSurvivesAMemberRef(property.get_SetMethod())) {
+                            return Decline(
+                                "emit.object-initializer.unreferenceable-setter",
+                                "the setter of '" + bclInitType.Name + "." + memberName + "' carries a required custom modifier (an `init` accessor is written that way), and the metadata writer drops required modifiers from a MemberRef, so the emitted call would resolve to nothing at run time",
+                                idx
+                            )
+                        }
                         _il.Emit(OpCodes.Dup)
                         propertyType := property.get_PropertyType()
                         let propertyValueType: System.Type = null
@@ -13796,6 +13837,13 @@ sealed class ColumnarIlEmitter {
 
                     _il.Emit(OpCodes.Dup)
                     property := constructedType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance)
+                    if ((property != null && property.get_SetMethod() != null && !SetterSignatureSurvivesAMemberRef(property.get_SetMethod()))) {
+                        return Decline(
+                            "emit.object-initializer.unreferenceable-setter",
+                            "the setter of '" + constructedType.Name + "." + memberName + "' carries a required custom modifier (an `init` accessor is written that way), and the metadata writer drops required modifiers from a MemberRef, so the emitted call would resolve to nothing at run time",
+                            idx
+                        )
+                    }
                     if ((property != null && property.get_SetMethod() != null)) {
                         propertyType := property.get_PropertyType()
                         let propertyValueType: System.Type = null
