@@ -1855,6 +1855,88 @@ test "a SOURCE attribute written where its AttributeUsage allows is accepted" {
     assert harness.Errors.Count == 0
 }
 
+// ─── a positional constructor parameter, which is ONE declaration and TWO metadata rows ──────────
+//
+// `record Options(Summary: bool)` declares a constructor parameter AND the field that parameter
+// stores into, and N# has no `[property: ...]`/`[field: ...]` prefix to say which of them an
+// attribute is for. So the placement question is asked of the PAIR: the declaration admits an
+// attribute declared for either, and the emitter writes it on the row the attribute allows —
+// the parameter wherever it allows one, the field otherwise.
+
+test "an attribute a positional parameter's FIELD admits is accepted there" {
+    harness := AttrUsageHarness("Field", false)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Marker", AttrArgs())), AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets())
+
+    assert harness.Errors.Count == 0
+}
+
+test "an attribute a positional parameter's PARAMETER admits is accepted there" {
+    harness := AttrUsageHarness("Parameter", false)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Marker", AttrArgs())), AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets())
+
+    assert harness.Errors.Count == 0
+}
+
+// THE SAME FIELD-ONLY ATTRIBUTE IS STILL REFUSED ON AN ORDINARY PARAMETER. Nothing was widened for
+// parameters in general; only the declaration that is also a member carries the pair.
+test "a field-only attribute on an ordinary parameter is still refused" {
+    harness := AttrUsageHarness("Field", false)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Marker", AttrArgs())), AnalyzerAttributeUsageFacts.ParameterTarget)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeTargetInvalid
+    assert harness.Errors[0].Message == "Attribute 'MarkerAttribute' cannot be applied to a parameter — it is declared for fields"
+}
+
+// AND AN ATTRIBUTE NEITHER ROW ADMITS NAMES THE POSITION AND THE RULE IT BROKE. The sentence has to
+// say what would have happened, because the developer never chose a row: the compiler does.
+test "an attribute neither row of a positional parameter admits names the fallback" {
+    harness := AttrUsageHarness("Class", false)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Marker", AttrArgs())), AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets())
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeTargetInvalid
+    assert harness.Errors[0].Message == "Attribute 'MarkerAttribute' cannot be applied to a positional constructor parameter — it is declared for classes"
+    assert harness.Errors[0].Suggestion == "A positional constructor parameter carries its attribute on the parameter when the attribute allows parameters, and on the field that parameter declares when it allows fields — this one allows neither. Move it to a declaration it allows, or widen the attribute's own '[AttributeUsage(...)]'."
+}
+
+test "the positional pair is the parameter bit and the field bit, and it reads as one declaration" {
+    parameterBit := AnalyzerAttributeUsageFacts.ParameterTarget
+    fieldBit := AnalyzerAttributeUsageFacts.FieldTarget
+
+    combined := parameterBit | fieldBit
+    assert AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets() == combined
+    assert AnalyzerAttributeUsageFacts.DescribeTarget(AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets()) == "a positional constructor parameter"
+}
+
+// A RECORD, A CLASS AND A STRUCT ALL ASK THE PAIR QUESTION OF THEIR PRIMARY PARAMETERS, and an
+// ordinary `func` still asks the parameter question of its own.
+test "a record's positional parameter admits a field-only attribute through the declaration walk" {
+    harness := AttrUsageHarness("Field", false)
+    parameters := new List<Parameter>()
+    parameters.Add(new Parameter("Summary", AttrSimple("bool"), null, false, Ast.ParameterModifier.None, AttrNodes(AttrNode("Marker", AttrArgs())), 5, 16, false, null))
+    declared := new RecordDeclaration("Options", null, new List<TypeReference>(), new List<Declaration>(), parameters, false, Modifiers.None, new List<AttributeNode>(), 5, 1)
+
+    harness.Validator.ValidateDeclarationAttributeArguments(declared)
+
+    assert harness.Errors.Count == 0
+}
+
+test "a function's parameter does not admit a field-only attribute" {
+    harness := AttrUsageHarness("Field", false)
+    parameters := new List<Parameter>()
+    parameters.Add(new Parameter("value", AttrSimple("int"), null, false, Ast.ParameterModifier.None, AttrNodes(AttrNode("Marker", AttrArgs())), 5, 16, false, null))
+    declared := new FunctionDeclaration("Take", parameters, null, null, null, null, null, Modifiers.None, new List<AttributeNode>(), false, null, false, false, 5, 1)
+
+    harness.Validator.ValidateDeclarationAttributeArguments(declared)
+
+    assert AttrHasCode(harness.Errors, ErrorCode.AttributeTargetInvalid)
+}
+
 test "a SOURCE attribute without AllowMultiple is refused the second time" {
     harness := AttrUsageHarness("Method", false)
 

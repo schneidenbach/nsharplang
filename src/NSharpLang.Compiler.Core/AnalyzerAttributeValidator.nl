@@ -152,7 +152,7 @@ class AnalyzerAttributeValidator {
         classDecl := decl as ClassDeclaration
         if classDecl != null {
             ValidateAttributeArgumentsOn(classDecl.Attributes, AnalyzerAttributeUsageFacts.ClassTarget)
-            ValidateParameterAttributeArguments(classDecl.PrimaryConstructorParameters)
+            ValidatePositionalParameterAttributeArguments(classDecl.PrimaryConstructorParameters)
             ReportMethodImplOnNonCarrier(classDecl.Attributes, "a class")
             return
         }
@@ -160,7 +160,7 @@ class AnalyzerAttributeValidator {
         structDecl := decl as StructDeclaration
         if structDecl != null {
             ValidateAttributeArgumentsOn(structDecl.Attributes, AnalyzerAttributeUsageFacts.StructTarget)
-            ValidateParameterAttributeArguments(structDecl.PrimaryConstructorParameters)
+            ValidatePositionalParameterAttributeArguments(structDecl.PrimaryConstructorParameters)
             ReportMethodImplOnNonCarrier(structDecl.Attributes, "a struct")
             ValidateValueTypeMemberMethodImpl(structDecl.Members)
             return
@@ -174,7 +174,7 @@ class AnalyzerAttributeValidator {
             }
 
             ValidateAttributeArgumentsOn(recordDecl.Attributes, recordTarget)
-            ValidateParameterAttributeArguments(recordDecl.PrimaryConstructorParameters)
+            ValidatePositionalParameterAttributeArguments(recordDecl.PrimaryConstructorParameters)
             ReportMethodImplOnNonCarrier(recordDecl.Attributes, "a record")
             if recordDecl.IsStruct {
                 ValidateValueTypeMemberMethodImpl(recordDecl.Members)
@@ -426,12 +426,22 @@ class AnalyzerAttributeValidator {
     }
 
     func ValidateParameterAttributeArguments(parameters: List<Parameter>?) {
+        ValidateParameterAttributeArgumentsAs(parameters, AnalyzerAttributeUsageFacts.ParameterTarget)
+    }
+
+    // A PRIMARY CONSTRUCTOR'S PARAMETERS ARE MEASURED AS THE MEMBERS THEY ALSO DECLARE. Everything
+    // else about them is a parameter's rule; only the placement question has a second answer.
+    func ValidatePositionalParameterAttributeArguments(parameters: List<Parameter>?) {
+        ValidateParameterAttributeArgumentsAs(parameters, AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets())
+    }
+
+    func ValidateParameterAttributeArgumentsAs(parameters: List<Parameter>?, target: int) {
         if parameters == null {
             return
         }
 
         for parameter in parameters {
-            ValidateAttributeArgumentsOn(parameter.Attributes, AnalyzerAttributeUsageFacts.ParameterTarget)
+            ValidateAttributeArgumentsOn(parameter.Attributes, target)
             ReportMethodImplOnNonCarrier(parameter.Attributes, "a parameter")
         }
     }
@@ -1332,7 +1342,19 @@ class AnalyzerAttributeValidator {
 
     func ReportAttributeTargetInvalid(attribute: AttributeNode, displayName: string, usage: AnalyzerAttributeUsage, target: int) {
         span := AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute)
-        diagnostics.Report(ErrorCode.AttributeTargetInvalid, "Attribute '" + displayName + "' cannot be applied to " + AnalyzerAttributeUsageFacts.DescribeTarget(target) + " — it is declared for " + AnalyzerAttributeUsageFacts.DescribeTargets(usage.Targets), span.Line, span.Column, "Move it to one of those declarations, or widen the attribute's own '[AttributeUsage(...)]'.", span.Length)
+        diagnostics.Report(ErrorCode.AttributeTargetInvalid, "Attribute '" + displayName + "' cannot be applied to " + AnalyzerAttributeUsageFacts.DescribeTarget(target) + " — it is declared for " + AnalyzerAttributeUsageFacts.DescribeTargets(usage.Targets), span.Line, span.Column, DescribeAttributeTargetRepair(target), span.Length)
+    }
+
+    // WHAT TO DO ABOUT A MISPLACED ATTRIBUTE. A positional constructor parameter gets the longer
+    // sentence, because the developer has to be told the rule they did not break rather than only the
+    // one they did: the attribute would have been written on the parameter or on the field that
+    // parameter declares, and it allows neither.
+    static func DescribeAttributeTargetRepair(target: int): string {
+        if target == AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets() {
+            return "A positional constructor parameter carries its attribute on the parameter when the attribute allows parameters, and on the field that parameter declares when it allows fields — this one allows neither. Move it to a declaration it allows, or widen the attribute's own '[AttributeUsage(...)]'."
+        }
+
+        return "Move it to one of those declarations, or widen the attribute's own '[AttributeUsage(...)]'."
     }
 
     func ReportAttributeNotRepeatable(attribute: AttributeNode, displayName: string) {

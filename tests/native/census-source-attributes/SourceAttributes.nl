@@ -2,6 +2,7 @@ namespace NSharpLang.CensusSourceAttributes
 
 import System
 import System.Runtime.CompilerServices
+import System.Text.Json.Serialization
 
 // THE SUBJECT: attributes this program declares for itself, applied to declarations in the same
 // program. Every shape here is asserted against the EMITTED metadata in `SourceAttributes.tests.nl`
@@ -338,5 +339,57 @@ class BaseCarrier {
 class DerivedCarrier: BaseCarrier {
     override func Describe(): string {
         return "derived"
+    }
+}
+
+// A POSITIONAL CONSTRUCTOR PARAMETER IS ONE DECLARATION AND TWO METADATA ROWS: the constructor's
+// parameter, and the field that parameter stores into. C# picks between them with a target prefix
+// (`[property: JsonIgnore]`); N# has no prefix at any position, so the ATTRIBUTE'S OWN
+// `[AttributeUsage]` picks instead. A parameter is what the source literally wrote, so it wins
+// wherever the attribute allows one; an attribute that allows no parameter goes on the field. An
+// attribute that allows neither is refused by `NL933`, which names both rows.
+[AttributeUsage(AttributeTargets.Field)]
+class MemberOnlyAttribute: Attribute {
+    Note: string
+
+    constructor(note: string) {
+        Note = note
+    }
+}
+
+[AttributeUsage(AttributeTargets.Parameter)]
+class ArgumentOnlyAttribute: Attribute {
+    constructor() {
+    }
+}
+
+// ALLOWED ON BOTH, WHICH IS THE CASE THE RULE HAS TO DECIDE RATHER THAN DEDUCE.
+[AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Field)]
+class EitherAttribute: Attribute {
+    constructor() {
+    }
+}
+
+record Positional([MemberOnly("on the member")] Summary: bool = false, [ArgumentOnly] Name: string = "", [Either] Rank: int = 0, [Mark("wide open")] Wide: string = "", [Obsolete("the field went away")] Legacy: string = "", [CompilerGenerated] Generated: int = 0, [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] Ignored: bool = false, Plain: int = 0) {
+}
+
+// A CLASS'S PRIMARY CONSTRUCTOR TAKES THE SAME RULE. Its parameter declares a field of the same
+// name, and the attribute lands on whichever row it allows.
+class PositionalCarrier([MemberOnly("on the class member")] seed: int, [ArgumentOnly] scale: int) {
+    Scaled: int => seed * scale
+}
+
+// AND SO DOES A VALUE TYPE'S.
+record struct PositionalPoint([MemberOnly("on the struct member")] X: int = 0, [ArgumentOnly] Y: int = 0) {
+}
+
+// AN EXPLICIT CONSTRUCTOR'S PARAMETER DECLARES NOTHING BUT A PARAMETER, and its attributes were
+// dropped from the assembly entirely — the parameter metadata a constructor writes never carried
+// them, the way a method's always has.
+class ExplicitParameterCarrier {
+    Value: int
+
+    constructor([Mark("on the constructor parameter")] value: int, plain: int) {
+        Value = value + plain
     }
 }

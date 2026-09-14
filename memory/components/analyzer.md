@@ -2903,7 +2903,7 @@ already says the same thing better, and reporting both would report one mistake 
 
 Attachment reaches types, methods and free functions, constructors, properties (the PROPERTY row —
 which is where `PropertyInfo.GetCustomAttributes` and every framework that reads it looks), FIELDS and
-parameters. A field's attributes used to be validated and then dropped, because the struct field scan
+parameters — a METHOD's, a CONSTRUCTOR's and a PRIMARY CONSTRUCTOR's alike. A field's attributes used to be validated and then dropped, because the struct field scan
 in `ColumnarParserKernels.ParseColumnarStructInfoInto` yielded field NAME and TYPE texts with no
 declaration token index for `ColumnarSourceAttributes.Read` to scan back from. The scan now records
 each field's NAME TOKEN index in a `FieldDeclTokens` column — the same shape `FieldInitTokens` takes —
@@ -2933,6 +2933,44 @@ written and there is no conversion from `int[]` to `byte[]`, but the blob alread
 against the ELEMENT type — so `IsAttributeArgumentCompatibleValue` applies the same
 constant-expression conversion one level down, which is as deep as attribute metadata goes.
 
+### A positional constructor parameter is ONE declaration and TWO metadata rows
+
+A primary constructor's parameter declares the constructor's parameter AND the field that parameter
+stores into. C# picks between them with a target prefix (`[property: JsonIgnore]`); N# has no prefix
+at any position, so the attribute's own `[AttributeUsage]` picks. Three owners changed together:
+
+- `ColumnarParserKernels.ParsePrimaryConstructorParameterSpansCore` SKIPS the `[...]` groups before a
+  parameter (`SkipPrimaryConstructorParameterAttributeGroups`). It used to answer -1 at the `[`, which
+  the caller reports as `parse.struct` on the type header — so `record Options([JsonIgnore] Summary:
+  bool = false)` declined the WHOLE type at emission while the analyzer reported NL933 on it.
+- `ColumnarProgramInputBuilder.TryParseColumnarConstructorAt` reads
+  `ColumnarSourceAttributes.ReadParameters` into `ctor.Body.ParameterSourceAttributes`, which serves an
+  explicit `constructor(...)` and the synthesized primary constructor alike — the primary's
+  declaration token is the type keyword, and the reader walks forward to the `(` from whatever token
+  it is given. A CONSTRUCTOR's parameter attributes were dropped from the assembly entirely before
+  this: `DefineConstructorParameterMetadata*` never asked what the source declared.
+- `ColumnarConstructorDeclarationPlanner.PositionalParameterFields` pairs each parameter with the
+  field it declares (null for an explicit constructor — a parameter that shares a field's NAME is
+  still only a parameter), and `ColumnarSourceAttributeQueue.QueuePositionalParameter` carries the
+  pair. The choice is made at FLUSH time, because it needs the attribute type resolved.
+
+`ColumnarSourceAttributeQueue.AdmitsParameter` is the rule: the parameter wins wherever the usage
+admits `Parameter`, the field takes it when the usage admits `Field` and not `Parameter`, and an
+attribute that admits neither stays on the parameter — the analyzer has already reported it. The
+analyzer asks the same question as a COMBINED target
+(`AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets()` = `Parameter | Field`, the same
+shape `PropertyDeclarationTargets()` has), so `NL933` fires only when neither row admits the
+attribute, and `DescribeAttributeTargetRepair` gives that case its own sentence.
+
+`ColumnarAttributeUsageTargets` is how the EMITTER learns a usage the analyzer reads from the AST. A
+source-declared attribute class is a `TypeBuilder` when the attribute is attached, and a type still
+being built answers no reflection question, so its `[AttributeUsage]` is read from
+`ColumnarStructDef.DeclaredSourceAttributes` — the attributes its own declaration carried, recorded
+beside the `QueueType` call — and its positional argument is reduced by
+`ColumnarAttributeBlobWriter.TryEvaluateInteger`, the same evaluator that encodes
+`AttributeTargets.Method | AttributeTargets.Class` into the blob. The walk crosses into metadata
+(`AnalyzerAttributeUsageFacts.ReadUsage`) at the first base from a referenced assembly.
+
 ### Positions N# has no attribute for
 
 `NL935` (`ErrorCode.AttributePositionUnsupported`) is reported by `ColumnarParserRecovery` at two
@@ -2948,9 +2986,20 @@ prefix may be a keyword (`return`) or a plain identifier (`field`), and no legal
 colon at that position (a named argument's `name:` is inside the parentheses). An enum member has a
 declaration, but an enum's members become literal fields of a type the emitter finalizes in its first
 pass — before any attribute in the program has been bound — so there is no point at which an
-attribute on one could be attached. Supporting them means deferring `EnumBuilder.CreateType` past the
-attribute-queue flush, which every struct field-type resolution depends on. The formatter never
-rewrites a file that reported a parse error, so a refused attribute is never silently deleted.
+attribute on one could be attached. The formatter never rewrites a file that reported a parse error,
+so a refused attribute is never silently deleted.
+
+THE ENUM-MEMBER COST, MEASURED. Supporting `[Mark] Low = 1` means deferring `EnumBuilder.CreateType`
+past the attribute-queue flush, because `FieldBuilder.SetCustomAttribute` on a literal is refused once
+the enum type is created. The enum pass runs FIRST in `ColumnarIlEmitter` (before interfaces, structs
+and every signature) and `CreateType`s each enum immediately, so `ColumnarEnumDef.EnumType` is a
+CREATED `Type` everywhere downstream. Deferring it makes that column an `EnumBuilder` for the whole
+emission, and an `EnumBuilder` answers no reflection question: the counted reflection-on-enum sites
+in `src/NSharpLang.Compiler.Core` are 34 `get_IsEnum()`, 8 `Enum.GetUnderlyingType`, 10
+`Enum.Parse`/`IsDefined`/`GetValues`/`GetNames`, 29 `.EnumType` reads and 7 existing `is EnumBuilder`
+guards — before the IL paths that box, convert, `typeof` and instantiate generics over an enum. That
+is a restructure of the emitter's type model, not a change to the attribute owner, and it belongs to
+a slice that can gate the whole emitter rather than to an attribute slice.
 
 Not supported, and stated as such in `website/docs/basics.md`: `[assembly: ...]`, `[return: ...]`, an
 attribute on an enum member, and generic attributes.

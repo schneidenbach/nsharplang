@@ -1547,6 +1547,11 @@ sealed class ColumnarProgramInputBuilder {
             0
         )
         body.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, ctorIndex)
+        // A CONSTRUCTOR'S PARAMETERS CARRY ATTRIBUTES THE SAME WAY A FUNCTION'S DO. The reader walks
+        // forward from the declaration token to its `(` and back from each parameter's name, so the
+        // one scan answers both an explicit `constructor(...)` and the synthesized constructor a
+        // primary parameter list declares — whose token is the type keyword itself.
+        body.ParameterSourceAttributes = ColumnarSourceAttributes.ReadParameters(source, ck, cs, cv, ctorIndex, paramCount)
         parsedInput.ChainArgNodes = chainArgNodes
         parsedInput.ChainArgRoots = chainArgRoots
         input = parsedInput
