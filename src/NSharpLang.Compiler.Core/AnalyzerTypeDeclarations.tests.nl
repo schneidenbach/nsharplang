@@ -339,7 +339,7 @@ func TypeDeclUnion(name: string, cases: List<UnionCase>, modifiers: Modifiers): 
 }
 
 func TypeDeclEnumMember(name: string, value: Expression?, line: int): EnumMember {
-    return new EnumMember(name, value, line, 12)
+    return new EnumMember(name, value, null, line, 12)
 }
 
 func TypeDeclEnum(name: string, members: List<EnumMember>, backing: EnumType, modifiers: Modifiers): EnumDeclaration {

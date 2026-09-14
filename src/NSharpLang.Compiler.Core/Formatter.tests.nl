@@ -400,15 +400,15 @@ test "a union case with properties writes them inline, comma separated, inside s
 
 test "an enum's LAST member has no trailing comma" {
     members := new List<EnumMember>()
-    members.Add(new EnumMember("A", null, 0, 0))
-    members.Add(new EnumMember("B", null, 0, 0))
+    members.Add(new EnumMember("A", null, null, 0, 0))
+    members.Add(new EnumMember("B", null, null, 0, 0))
     enumeration := new EnumDeclaration("E", members, EnumType.Int, Modifiers.None, FmtNoAttributes(), 1, 1)
     assert FmtRender(enumeration) == "enum E {|    A,|    B|}|"
 }
 
 test "a string-backed enum announces its backing type and an int-backed one does not" {
     members := new List<EnumMember>()
-    members.Add(new EnumMember("A", null, 0, 0))
+    members.Add(new EnumMember("A", null, null, 0, 0))
     stringBacked := new EnumDeclaration("E", members, EnumType.String, Modifiers.None, FmtNoAttributes(), 1, 1)
     assert FmtRender(stringBacked) == "enum E: string {|    A|}|"
 
@@ -418,9 +418,20 @@ test "a string-backed enum announces its backing type and an int-backed one does
 
 test "an enum member with an explicit value writes it through the expression walk" {
     members := new List<EnumMember>()
-    members.Add(new EnumMember("A", FmtInt("7"), 0, 0))
+    members.Add(new EnumMember("A", FmtInt("7"), null, 0, 0))
     enumeration := new EnumDeclaration("E", members, EnumType.Int, Modifiers.None, FmtNoAttributes(), 1, 1)
     assert FmtRender(enumeration) == "enum E {|    A = 7|}|"
+}
+
+// AN ENUM MEMBER'S OWN ATTRIBUTES ARE WRITTEN ABOVE IT, one per line, indented with the member. The
+// formatter never rewrites a file that reported a parse error, but it DOES rewrite one that parsed —
+// so a member attribute the walk did not know about would be silently deleted.
+test "an enum member's attributes are written above it, indented with the member" {
+    members := new List<EnumMember>()
+    members.Add(new EnumMember("A", FmtInt("1"), FmtAttribute("Mark", 2), 0, 0))
+    members.Add(new EnumMember("B", FmtInt("2"), null, 0, 0))
+    enumeration := new EnumDeclaration("E", members, EnumType.Int, Modifiers.None, FmtAttribute("Flags", 1), 1, 1)
+    assert FmtRender(enumeration) == "[Flags]|enum E {|    [Mark]|    A = 1,|    B = 2|}|"
 }
 
 // ---- the constructor ----------------------------------------------------------------------------

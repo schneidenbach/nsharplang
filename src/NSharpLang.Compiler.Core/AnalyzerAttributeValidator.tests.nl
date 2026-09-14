@@ -1437,6 +1437,46 @@ test "an ENUM declaration's attributes are validated" {
     assert AttrCodes(harness.Errors) == "201"
 }
 
+// AN ENUM MEMBER IS A LITERAL FIELD, so the attributes written on one are validated as a FIELD's —
+// not as the enum's. The declaration's own attributes and every member's are walked together.
+test "an ENUM MEMBER's attributes are validated beside the declaration's" {
+    harness := AttributeHarnessNew()
+    members := new List<EnumMember>()
+    members.Add(new EnumMember("Red", null, AttrNodes(AttrNode("Nonexistent", AttrArgs())), 6, 5))
+    members.Add(new EnumMember("Blue", null, null, 7, 5))
+    declared := new EnumDeclaration("Colors", members, EnumType.Int, Modifiers.None, AttrNodes(AttrNode("AlsoNonexistent", AttrArgs())), 5, 1)
+
+    harness.Validator.ValidateDeclarationAttributeArguments(declared)
+
+    assert AttrCodes(harness.Errors) == "201,201"
+}
+
+// THE TARGET IS `Field`, AND THAT IS THE WHOLE RULE: an attribute declared only for the enum TYPE is
+// refused on a member, and one declared for fields is accepted there.
+test "an enum member refuses an attribute its usage declares only for enums" {
+    harness := AttrUsageHarness("Enum", false)
+    members := new List<EnumMember>()
+    members.Add(new EnumMember("Red", null, AttrNodes(AttrNode("Marker", AttrArgs())), 6, 5))
+    declared := new EnumDeclaration("Colors", members, EnumType.Int, Modifiers.None, new List<AttributeNode>(), 5, 1)
+
+    harness.Validator.ValidateDeclarationAttributeArguments(declared)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeTargetInvalid
+    assert harness.Errors[0].Message == "Attribute 'MarkerAttribute' cannot be applied to a field — it is declared for enums"
+}
+
+test "an enum member accepts an attribute its usage declares for fields" {
+    harness := AttrUsageHarness("Field", false)
+    members := new List<EnumMember>()
+    members.Add(new EnumMember("Red", null, AttrNodes(AttrNode("Marker", AttrArgs())), 6, 5))
+    declared := new EnumDeclaration("Colors", members, EnumType.Int, Modifiers.None, new List<AttributeNode>(), 5, 1)
+
+    harness.Validator.ValidateDeclarationAttributeArguments(declared)
+
+    assert harness.Errors.Count == 0
+}
+
 test "a declaration shape that carries no attributes is silent" {
     harness := AttributeHarnessNew()
 

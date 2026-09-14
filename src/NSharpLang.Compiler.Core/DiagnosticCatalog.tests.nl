@@ -178,7 +178,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     // value where nothing can say what the expression is worth), NL342 (a write to an interface's value
     // member, which is a read slot), NL933 (an attribute
     // outside its AttributeUsage targets), NL934 (an attribute repeated without AllowMultiple) and
-    // NL935 (an attribute at a position N# has none — a target prefix, or an enum member).
+    // NL935 (an attribute at a position N# has none — a target prefix).
     assert codes.Count == 105
 
     duplicates := 0

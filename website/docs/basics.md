@@ -432,9 +432,10 @@ func Create([FromBody] [Required] user: CreateUserRequest): IActionResult {
 
 Attribute names resolve in the declaring file's scope, with or without the `Attribute` suffix —
 `[Mark]` and `[MarkAttribute]` name the same type. Attributes are emitted on classes, structs,
-records, interfaces, functions, methods, constructors, properties, **fields**, and parameters. A
-property's attributes go on the **property** itself, which is where `PropertyInfo.GetCustomAttributes`
-— and so every model-binding, serialization and validation framework — looks for them.
+records, interfaces, **enums**, **enum members**, functions, methods, constructors, properties,
+**fields**, and parameters. A property's attributes go on the **property** itself, which is where
+`PropertyInfo.GetCustomAttributes` — and so every model-binding, serialization and validation
+framework — looks for them.
 
 A field carries its own attributes, whatever shape the field has — instance, `static`, `const`, and a
 field of a `struct` alike:
@@ -451,6 +452,42 @@ class Order {
     const Max: int = 100
 }
 ```
+
+### An attribute on an enum, and on an enum member
+
+An enum's members become **literal fields** of the emitted type, so a member carries attributes the
+way a field does — and the enum declaration carries its own on the type:
+
+```n#
+import System
+
+[Flags]
+[Mark("what a request may do")]
+enum Permission {
+    [Mark("read only")]
+    Read = 1,
+
+    [Mark("write only")]
+    [Obsolete("use ReadWrite")]
+    Write = 2,
+
+    ReadWrite = 3
+}
+```
+
+A member's attributes are read back from the field:
+
+```n#
+field := must typeof(Permission).GetField("Write")
+data := field.GetCustomAttributesData()
+```
+
+A member is a field, so its attributes answer to `AttributeTargets.Field` — an attribute whose
+`[AttributeUsage]` excludes fields is reported by [`NL933`](./errors/NL933.md) there, exactly as it
+is on a `name: int` field. `AttributeTargets.Enum` belongs to the declaration above them.
+
+A **string-backed** enum (`enum Kind: string`) is not a CLR enum — it is a class of literal string
+fields — and its members carry attributes on the same rows.
 
 Parameter attributes are emitted as real CLR parameter metadata, so ASP.NET model-binding attributes
 such as `[FromBody]` and `[FromRoute]`, plus xUnit-style parameter attributes from referenced
@@ -576,11 +613,10 @@ and it reaches the property's accessors.
 
 ### Positions N# has no attribute for
 
-N# has no attribute **target** prefix — `[assembly: ...]`, `[return: ...]`, `[field: ...]` — and no
-attribute position on an **enum member**. Writing one reports [`NL935`](./errors/NL935.md), which
-names the position and stops there: the rest of the declaration still parses, so one refused attribute
-does not cascade into a page of syntax errors. Generic attributes (`class Mark<T>: Attribute`) are not
-supported either.
+N# has no attribute **target** prefix — `[assembly: ...]`, `[return: ...]`, `[field: ...]`. Writing
+one reports [`NL935`](./errors/NL935.md), which names the position and stops there: the rest of the
+declaration still parses, so one refused attribute does not cascade into a page of syntax errors.
+Generic attributes (`class Mark<T>: Attribute`) are not supported either.
 
 ### `[MethodImpl]` — the attribute that is not stored as an attribute
 

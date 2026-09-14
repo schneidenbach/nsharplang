@@ -208,6 +208,17 @@ class AnalyzerAttributeValidator {
         if enumDecl != null {
             ValidateAttributeArgumentsOn(enumDecl.Attributes, AnalyzerAttributeUsageFacts.EnumTarget)
             ReportMethodImplOnNonCarrier(enumDecl.Attributes, "an enum")
+            // AN ENUM MEMBER IS A LITERAL FIELD, so its attributes answer to `AttributeTargets.Field`
+            // — the same question a `name: int` field answers. `AttributeTargets.Enum` belongs to the
+            // declaration above them and says nothing about a member.
+            memberIndex := 0
+            while memberIndex < enumDecl.Members.Count {
+                memberAttributes := enumDecl.Members[memberIndex].Attributes
+                ValidateAttributeArgumentsOn(memberAttributes, AnalyzerAttributeUsageFacts.FieldTarget)
+                ReportMethodImplOnNonCarrier(memberAttributes, "an enum member")
+                memberIndex = memberIndex + 1
+            }
+
             return
         }
 

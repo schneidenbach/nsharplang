@@ -941,7 +941,7 @@ class Golden {
 
     // A valueless enum member — Value null (Parser.cs :1310).
     static func AddEMem(members: List<EnumMember>, name: string, line: int, column: int) {
-        members.Add(new EnumMember(name, null, line, column))
+        members.Add(new EnumMember(name, null, null, line, column))
     }
 
     // ---- soa record bodies ----
@@ -1013,7 +1013,7 @@ class Golden {
 
     // A value-bearing enum member — Value is the materialized expression (Parser.cs :1310).
     static func AddEMemV(members: List<EnumMember>, name: string, value: Expression, line: int, column: int) {
-        members.Add(new EnumMember(name, value, line, column))
+        members.Add(new EnumMember(name, value, null, line, column))
     }
 
     // ---- N+1c tranche 8: composed operator-tier builders ----

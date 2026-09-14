@@ -248,15 +248,20 @@ class EnumDeclaration: Declaration {
     }
 }
 
+// ONE ENUM MEMBER. It becomes a literal FIELD of the emitted enum, which is why it carries
+// attributes of its own: `[Description("warm")] Red = 1` puts the attribute on that field's
+// custom-attribute rows, read back with `typeof(Color).GetField("Red").GetCustomAttributesData()`.
 class EnumMember {
     Name: string
     Value: Expression?
+    Attributes: List<AttributeNode>
     Line: int
     Column: int
 
-    constructor(Name: string, Value: Expression?, Line: int = 0, Column: int = 0) {
+    constructor(Name: string, Value: Expression?, Attributes: List<AttributeNode>? = null, Line: int = 0, Column: int = 0) {
         this.Name = Name
         this.Value = Value
+        this.Attributes = Attributes ?? new List<AttributeNode>()
         this.Line = Line
         this.Column = Column
     }

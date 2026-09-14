@@ -715,6 +715,33 @@ enum Priority {
 }
 ```
 
+### Attributes on an enum and its members
+
+An enum's members become **literal fields** of the emitted type, so a member carries attributes the
+way a field does, and the declaration carries its own on the type. `[Flags]` therefore does what it
+does in C#.
+
+```n#
+import System
+
+[Flags]
+enum Permission {
+    Read = 1,
+
+    [Obsolete("use ReadWrite")]
+    Write = 2
+}
+
+func main() {
+    print (Permission.Read | Permission.Write).ToString()    // Read, Write
+    field := must typeof(Permission).GetField("Write")
+    print field.GetCustomAttributesData().Count.ToString()   // 1
+}
+```
+
+A member's attributes answer to `AttributeTargets.Field`; `AttributeTargets.Enum` belongs to the
+declaration above them. See [Attributes](./basics.md#attributes).
+
 ## Error Handling
 
 ### Try/Catch

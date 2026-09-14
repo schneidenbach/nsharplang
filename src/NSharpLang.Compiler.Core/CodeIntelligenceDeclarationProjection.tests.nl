@@ -301,8 +301,8 @@ test "a parameter with no default carries neither the flag nor the text" {
 
 test "(f)(g) AN ENUM LISTS ITS MEMBERS AT LINE 0 IN THE SYMBOL ANSWER AND HAS NO OUTLINE CHILDREN" {
     members := new List<EnumMember>()
-    members.Add(new EnumMember("Red", null, 12, 5))
-    members.Add(new EnumMember("Green", null, 13, 5))
+    members.Add(new EnumMember("Red", null, null, 12, 5))
+    members.Add(new EnumMember("Green", null, null, 13, 5))
 
     declaration := new EnumDeclaration(
         "Colour",

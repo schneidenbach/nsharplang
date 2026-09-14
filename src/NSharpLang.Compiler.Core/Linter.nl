@@ -166,10 +166,15 @@ class LinterDeclarationWalk {
             return
         }
 
-        // An enum's members are names and constant values; only its attributes name a type.
+        // An enum's members are names and constant values; only the attributes — its own and each
+        // member's — name a type.
         enumDeclaration := declaration as EnumDeclaration
         if enumDeclaration != null {
             TrackAttributes(enumDeclaration.Attributes)
+            for enumMember in enumDeclaration.Members {
+                TrackAttributes(enumMember.Attributes)
+            }
+
             return
         }
 

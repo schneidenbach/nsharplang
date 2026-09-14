@@ -47,8 +47,8 @@ func DeclarationPlanStringEnum(name: string): ColumnarEnumInput {
 
 test "the declaration planner publishes the CLR attribute words the enum pass used to compose inline" {
     // TypeAttributes.Public|Abstract|Sealed == 1|128|256 == 385, the word a string-backed enum needs
-    // because the CLR has no string-underlying enum; DefineEnum composes the rest itself and takes
-    // only the visibility.
+    // because the CLR has no string-underlying enum; an int-backed one publishes the visibility alone
+    // and the emitter ORs `Sealed` on.
     assert ColumnarDeclarationPlanner.StringBackedEnumTypeAttributes() == 385
     assert ColumnarDeclarationPlanner.IntBackedEnumTypeAttributes() == 1
     assert ColumnarDeclarationPlanner.PublicTypeAttribute() == 1

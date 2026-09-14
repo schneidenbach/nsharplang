@@ -1883,14 +1883,14 @@ Two rules the compiler enforces about the type-argument list itself:
   diagnostic, and the emitted method's `GetMethodImplementationFlags()` is `0` whether the argument is
   a single `MethodImplOptions` value or a flags combination. Treat inlining hints as unavailable
   rather than applied.
-- An attribute **target prefix** and an attribute on an **enum member** have no N# spelling.
-  `[assembly: InternalsVisibleTo(...)]`, `[return: NotNull]` and `[field: NonSerialized]` name
-  positions the grammar cannot write at all — N# writes every attribute directly on the declaration
-  it belongs to — and an enum's members become literal fields of a type the compiler finalizes before
-  any attribute in the program has been bound, so an attribute written on one would have no row to be
-  attached to. Both report [`NL935`](./errors/NL935.md) at the attribute and keep parsing the
-  declaration around it. A **positional constructor parameter** is the one place where a prefix would
-  otherwise be needed and is not: the attribute's own `[AttributeUsage]` picks between the parameter
+- An attribute **target prefix** has no N# spelling. `[assembly: InternalsVisibleTo(...)]`,
+  `[return: NotNull]` and `[field: NonSerialized]` name positions the grammar cannot write at all —
+  N# writes every attribute directly on the declaration it belongs to. They report
+  [`NL935`](./errors/NL935.md) at the prefix and keep parsing the declaration around it. An attribute
+  on an **enum member** is no longer among them: a member becomes a literal field of the emitted enum
+  and carries its attributes on that field's rows. A **positional constructor parameter** is the one
+  place where a prefix would otherwise be needed and is not: the attribute's own `[AttributeUsage]`
+  picks between the parameter
   and the field that parameter declares (see [Attributes](./basics.md#attributes)). Assembly-level
   attributes that the toolchain owns are written in `project.yml` rather than in source. Generic
   attributes (`class Mark<T>: Attribute`) are not supported either.

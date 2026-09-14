@@ -2989,7 +2989,7 @@ diagnostics enforce it:
 |---|---|
 | `NL933` | The attribute is written on a declaration its `AttributeTargets` exclude. |
 | `NL934` | The attribute is written twice on one declaration without `AllowMultiple = true`. |
-| `NL935` | The attribute is written at a position N# has none — a target prefix, or an enum member. |
+| `NL935` | The attribute is written at a position N# has none — a target prefix. |
 
 The target is the DECLARATION's, and a property offers both `Property` and `Method` because N# has no
 attribute position inside accessor braces. `[MethodImpl]`'s placement is exempt from `NL933`: `NL930`
@@ -3067,52 +3067,69 @@ beside the `QueueType` call — and its positional argument is reduced by
 
 ### Positions N# has no attribute for
 
-`NL935` (`ErrorCode.AttributePositionUnsupported`) is reported by `ColumnarParserRecovery` at two
-places, and both of them SKIP the refused `[...]` so nothing after it cascades:
+`NL935` (`ErrorCode.AttributePositionUnsupported`) is reported by `ColumnarParserRecovery` at the
+attribute TARGET PREFIX, and it SKIPs the refused `[...]` so nothing after it cascades:
 
 | Written | Reported |
 |---|---|
 | an attribute TARGET prefix — `[return: X]`, `[assembly: X]`, `[field: X]` | one `NL935` naming the prefix; `[return: Mark]` used to produce four diagnostics, none of which named the problem |
-| an attribute on an ENUM MEMBER | one `NL935` at the first attributed member; `[Mark] Low = 1` used to produce nine |
 
 The prefix is recognised by the COLON after the first token inside `[`, not by the token's kind: a
 prefix may be a keyword (`return`) or a plain identifier (`field`), and no legal attribute presents a
-colon at that position (a named argument's `name:` is inside the parentheses). An enum member has a
-declaration, but an enum's members become literal fields of a type the emitter finalizes in its first
-pass — before any attribute in the program has been bound — so there is no point at which an
-attribute on one could be attached. The formatter never rewrites a file that reported a parse error,
-so a refused attribute is never silently deleted.
+colon at that position (a named argument's `name:` is inside the parentheses). The formatter never
+rewrites a file that reported a parse error, so a refused attribute is never silently deleted.
 
-THE ENUM-MEMBER COST, MEASURED. Supporting `[Mark] Low = 1` means deferring `EnumBuilder.CreateType`
-past the attribute-queue flush, because `FieldBuilder.SetCustomAttribute` on a literal is refused once
-the enum type is created. The enum pass runs FIRST in `ColumnarIlEmitter` (before interfaces, structs
-and every signature) and `CreateType`s each enum immediately, so `ColumnarEnumDef.EnumType` is a
-CREATED `Type` everywhere downstream. Deferring it makes that column an `EnumBuilder` for the whole
-emission, and an `EnumBuilder` answers no reflection question: the counted reflection-on-enum sites
-in `src/NSharpLang.Compiler.Core` are 34 `get_IsEnum()`, 8 `Enum.GetUnderlyingType`, 10
-`Enum.Parse`/`IsDefined`/`GetValues`/`GetNames`, 29 `.EnumType` reads and 7 existing `is EnumBuilder`
-guards — before the IL paths that box, convert, `typeof` and instantiate generics over an enum. That
-is a restructure of the emitter's type model, not a change to the attribute owner, and it belongs to
-a slice that can gate the whole emitter rather than to an attribute slice.
+### An enum member IS a field, and the emitter's materialization order says so
 
-MEASURED BY EXECUTION, not only by grep. The deferral was actually built (collect each `EnumBuilder`
-in pass 0, register `ColumnarEnumDef` with the BUILDER, `CreateType` them immediately after the first
-`sourceAttributeQueue.Flush()`) and run against the native corpus on tip
-`0.1.0+57584946c`. It builds, and most of the corpus stays green — `erased-enum-identity` 2/2,
-`census-pattern-foreach` 30/30, `census-source-attributes` 48/48 — but
-`columnar-emit-facts/MultiFileCompiler_EmitsNestedEnumMembersOnClasses` emits an assembly the CLR
-refuses to load:
+`[Description("warm")] Red = 1` was `NL935` until 2026-09-14, and the reason was an ORDER: the enum
+pass ran first in `ColumnarIlEmitter` and `CreateType`d each enum immediately, while the
+source-attribute queue flushes at the END of the declaration walk — and
+`FieldBuilder.SetCustomAttribute` on a literal is refused once its declaring type is created.
+
+THE FIX IS NOT A DEFERRAL, IT IS A TYPE-MODEL CHANGE. Deferring `ModuleBuilder.DefineEnum`'s
+`CreateType` past the flush makes the assembly unloadable:
 
     System.BadImageFormatException: A valid typedef or typeref token is expected to follow a
     ELEMENT_TYPE_CLASS or ELEMENT_TYPE_VALUETYPE
 
-A NESTED enum's signatures are written before its typedef exists, so the failure is in the persisted
-metadata writer's token ordering rather than in anything the attribute owner can reach. Closing the
-enum-member position means owning that ordering — the enum must still be materialized before any
-signature that names it, while its literal `FieldBuilder`s stay open until the attribute flush.
+This was recorded as a NESTED-enum token-ordering bug in the persisted metadata writer. IT IS NOT.
+Measured by execution at `0.1.0+4c3a25f30`, a TOP-LEVEL enum fails the same way and nesting is
+irrelevant: the failing shape is `$"{value}"` over an enum — a GENERIC INSTANTIATION
+(`DefaultInterpolatedStringHandler.AppendFormatted<T>`) whose signature blob names the enum. What
+`DefineEnum` answers is an `EnumBuilder`, a WRAPPER around the real `TypeBuilder`, and
+`PersistedAssemblyBuilder` resolves an un-created `EnumBuilder` in a generic instantiation to a bogus
+token. Creating it hid the bug because `CreateType()` answers the wrapper's baked form.
 
-Not supported, and stated as such in `website/docs/basics.md`: `[assembly: ...]`, `[return: ...]`, an
-attribute on an enum member, and generic attributes.
+So the emitter does the three things `DefineEnum` does, itself:
+
+    module.DefineType(name, visibility | Sealed, typeof(Enum))
+    DefineField("value__", typeof(int), Public | SpecialName | RTSpecialName)
+    DefineField(member, <the TypeBuilder>, Public | Static | Literal | HasDefault).SetConstant(value)
+
+The enum is then an ordinary `TypeBuilder` from definition to `CreateType`, nothing downstream
+notices (every un-baked-builder guard in the back end already reads `is TypeBuilder`), and the type
+can stay OPEN for the whole declaration walk. It is created immediately after the first
+`sourceAttributeQueue.Flush()`, before the interfaces and the structs. Measured on the whole native
+corpus: 92 projects, 3932 tests, none not-green.
+
+With the type open, PASS 0n (right after the resolution catalog exists) queues both positions:
+`QueueType(enumBuilder, input.SourceAttributes, …)` and, per member,
+`QueueField(literal, input.MemberSourceAttributesAt(m), …)`. A member's attributes answer to
+`AttributeTargets.Field` (`AnalyzerAttributeValidator` walks `EnumDeclaration.Members`), because a
+member IS a field; `AttributeTargets.Enum` belongs to the declaration above them.
+
+THE ENUM'S OWN ATTRIBUTES WERE ALSO BEING DROPPED, silently, and nobody had noticed: `[Flags]` on an
+N# enum emitted NO custom-attribute row at all (`typeof(Color).GetCustomAttributes(false).Length == 0`,
+and `(Color.Red | Color.Blue).ToString()` printed `3`). `ColumnarEnumInput` had no `SourceAttributes`
+column and the emitter never called `QueueType` for an enum. Both columns are read by
+`ColumnarProgramInputBuilder` now, from the member's own name-token index and the `enum` keyword's.
+
+A STRING-BACKED enum is not a CLR enum — it is an `abstract sealed` class of literal string fields and
+its `ColumnarEnumDef.EnumType` is `typeof(string)` — but its literal fields take attributes on exactly
+the same rows; reflection reaches that class by name, not through `typeof`.
+
+Not supported, and stated as such in `website/docs/basics.md`: `[assembly: ...]`, `[return: ...]`,
+and generic attributes.
 
 ## Convention-Based Visibility
 

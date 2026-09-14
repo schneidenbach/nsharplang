@@ -883,9 +883,10 @@ class ColumnarAttributeBlobWriter {
     // metadata. `Enum.GetUnderlyingType` is not the door because it needs a runtime type and a
     // reference-loaded enum is not one.
     //
-    // A SOURCE ENUM IS NOT ASKED AT ALL. Its `CreateType()` answers a builder, which throws rather
-    // than answering `GetField`, and its underlying type is a declaration fact: the emitter's enum
-    // pass defines every source enum with `DefineEnum(..., typeof(int))`.
+    // A SOURCE ENUM IS NOT ASKED AT ALL. It is a `TypeBuilder` for the whole emission — created only
+    // after the attribute queue flushes — and a builder throws rather than answering `GetField`. Its
+    // underlying type is a declaration fact: the emitter's enum pass gives every source enum an
+    // `int` `value__`.
     func TryGetEnumUnderlyingType(enumType: Type, out underlyingType: Type): bool {
         underlyingType = typeof(int)
         if IsSourceEnumType(enumType) {
