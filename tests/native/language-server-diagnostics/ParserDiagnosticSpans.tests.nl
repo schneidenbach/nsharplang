@@ -1,6 +1,6 @@
 namespace NSharpLang.LanguageServerDiagnostics.Tests
-import System
 
+import System
 
 func LsdAssertDiagnosticCase(
     uri: string,

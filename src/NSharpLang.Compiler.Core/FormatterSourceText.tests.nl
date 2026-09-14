@@ -1244,28 +1244,28 @@ test "chip: a comment at the end of a block stays inside that block, at the bloc
     // The shape that lost a suppression pragma: nothing follows the `try` block inside the function,
     // so the unclaimed comment used to land after the closing `}` of `Cleanup` itself.
     tryTail := "func Cleanup(directory: string) {\n    try {\n        Delete(directory)\n    // nlc:ignore NL011\n    } catch error: Exception {\n        return\n    }\n}"
-    assert FstFormat(tryTail) == "func Cleanup(directory: string) {|    try {|        Delete(directory)|        // nlc:ignore NL011|    } catch error: Exception {|        return|    }|}", FstFormat(tryTail)
+    assert FstFormatComments(tryTail) == "func Cleanup(directory: string) {|    try {|        Delete(directory)|        // nlc:ignore NL011|    } catch error: Exception {|        return|    }|}", FstFormatComments(tryTail)
 
     // The `if` shape: the comment used to become the FIRST line of the `else` arm, which reads as a
     // statement about the wrong branch.
     ifTail := "func Pick(flag: bool): int {\n    if flag {\n        return 1\n    // the true arm ends here\n    } else {\n        return 2\n    }\n}"
-    assert FstFormat(ifTail) == "func Pick(flag: bool): int {|    if flag {|        return 1|        // the true arm ends here|    } else {|        return 2|    }|}", FstFormat(ifTail)
+    assert FstFormatComments(ifTail) == "func Pick(flag: bool): int {|    if flag {|        return 1|        // the true arm ends here|    } else {|        return 2|    }|}", FstFormatComments(ifTail)
 
     // The loop shape: the comment used to move below the loop, where it describes the wrong code.
     loopTail := "func Count(): int {\n    total := 0\n    while total < 3 {\n        total = total + 1\n    // one more turn\n    }\n    return total\n}"
-    assert FstFormat(loopTail) == "func Count(): int {|    total := 0|    while total < 3 {|        total = total + 1|        // one more turn|    }|    return total|}", FstFormat(loopTail)
+    assert FstFormatComments(loopTail) == "func Count(): int {|    total := 0|    while total < 3 {|        total = total + 1|        // one more turn|    }|    return total|}", FstFormatComments(loopTail)
 
     // A block whose ONLY content is a comment keeps it: there is no statement to hang it on, so the
     // tail flush is the only thing that can claim it.
     onlyComment := "func Swallow() {\n    try {\n        Work()\n    } catch error: Exception {\n        // deliberately ignored\n    }\n}"
-    assert FstFormat(onlyComment) == "func Swallow() {|    try {|        Work()|    } catch error: Exception {|        // deliberately ignored|    }|}", FstFormat(onlyComment)
+    assert FstFormatComments(onlyComment) == "func Swallow() {|    try {|        Work()|    } catch error: Exception {|        // deliberately ignored|    }|}", FstFormatComments(onlyComment)
 
-    assert FstIdempotent(tryTail)
-    assert FstIdempotent(ifTail)
-    assert FstIdempotent(loopTail)
-    assert FstIdempotent(onlyComment)
-    assert FstReparseErrorsAfterFormat(tryTail) == 0
-    assert FstReparseErrorsAfterFormat(ifTail) == 0
-    assert FstReparseErrorsAfterFormat(loopTail) == 0
-    assert FstReparseErrorsAfterFormat(onlyComment) == 0
+    assert FstIdempotentComments(tryTail)
+    assert FstIdempotentComments(ifTail)
+    assert FstIdempotentComments(loopTail)
+    assert FstIdempotentComments(onlyComment)
+    assert FstReparseErrors(FstFormatCommentsRaw(tryTail)) == 0
+    assert FstReparseErrors(FstFormatCommentsRaw(ifTail)) == 0
+    assert FstReparseErrors(FstFormatCommentsRaw(loopTail)) == 0
+    assert FstReparseErrors(FstFormatCommentsRaw(onlyComment)) == 0
 }
