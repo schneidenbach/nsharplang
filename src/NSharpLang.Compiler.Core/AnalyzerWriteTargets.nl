@@ -898,31 +898,6 @@ class AnalyzerWriteTargets {
         return false
     }
 
-    // `[SetsRequiredMembers]` ON THE CHOSEN CONSTRUCTOR LIFTS THE DEMAND, because the constructor is
-    // promising to set them itself. It is asked of an EXTERNAL type's constructors here; a source
-    // type's constructors are asked by the construction family, which has their declarations.
-    func ReflectedConstructorSetsRequiredMembers(receiver: TypeInfo, argumentCount: int): bool {
-        resolvedReceiver := declarationContextValue.ResolveDeclaredAlias(receiver)
-        reflected := NormalizeReflectionOwner(resolvedReceiver) as ReflectionTypeInfo
-        if reflected == null {
-            return false
-        }
-
-        reflectedType := reflected.Type
-        if IsTypeBuilder(reflectedType) {
-            return false
-        }
-
-        constructors := reflectedType.GetConstructors()
-        for constructor in constructors {
-            if constructor.GetParameters().Length == argumentCount && ConstructorCarriesSetsRequiredMembers(constructor.GetCustomAttributesData()) {
-                return true
-            }
-        }
-
-        return false
-    }
-
     static func ConstructorCarriesSetsRequiredMembers(attributes: IList<CustomAttributeData>): bool {
         index := 0
         while index < attributes.Count {

@@ -481,7 +481,9 @@ class Analyzer: IDisposable {
             MemberResolution,
             MatchExhaustiveness,
             ClrTypeConversion,
-            WriteTargets
+            WriteTargets,
+            FunctionTypeFactory,
+            SyntheticCallWalk
         )
     }
 

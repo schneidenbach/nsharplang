@@ -56,3 +56,54 @@ struct Sample {
     required Value: int
     Weight: int
 }
+
+class Animal {
+}
+class Dog: Animal {
+}
+class Poodle: Dog {
+}
+
+class SpecificPreset {
+    required Kind: string
+
+    constructor(value: Animal) {
+        Kind = "animal"
+    }
+
+    [SetsRequiredMembers]
+    constructor(value: Dog) {
+        Kind = "dog"
+    }
+}
+
+class NumericPreset {
+    required Kind: string
+
+    [SetsRequiredMembers]
+    constructor(value: long) {
+        Kind = "long"
+    }
+
+    constructor(value: float) {
+        Kind = "float"
+    }
+}
+
+struct RequiredPacket<T> {
+    required Value: T
+
+    [SetsRequiredMembers]
+    constructor(value: T) {
+        Value = value
+    }
+}
+
+record RequiredReceipt {
+    required Code: string
+
+    [SetsRequiredMembers]
+    constructor(code: string) {
+        Code = code
+    }
+}

@@ -33,6 +33,20 @@ test "a constructor that promises to set the required members sets them" {
     assert preset.Weight == 0
 }
 
+test "required-member exemption follows ordinary reference and numeric constructor specificity" {
+    specific := new SpecificPreset(new Poodle())
+    numeric := new NumericPreset(1)
+    assert specific.Kind == "dog"
+    assert numeric.Kind == "long"
+}
+
+test "annotated generic struct and record constructors discharge their required members" {
+    packet := new RequiredPacket<int>(7)
+    receipt := new RequiredReceipt("r-1")
+    assert packet.Value == 7
+    assert receipt.Code == "r-1"
+}
+
 test "a required member declared by a base type is set through the derived creation" {
     leaf := new Leaf {
         Key: "k",

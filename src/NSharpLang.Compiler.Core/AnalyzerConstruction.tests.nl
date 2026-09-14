@@ -87,10 +87,14 @@ func ConstructionArm(): ConstructionHarness {
     arrayLiteral := new AnalyzerArrayLiteral(sink, spans, context, ambient, soaEscape, assignability, facts)
     constantFacts := new AnalyzerConstantExpressionFacts(scopes, context)
     exhaustiveness := new AnalyzerMatchExhaustiveness(sink, substitution, assignability, resolver)
+    scoring := new AnalyzerOverloadScoring(context, clrConversion, assignability, resolver, null)
+    syntheticBinder := new AnalyzerSyntheticCallBinder(context, scoring, assignability, clrConversion)
+    syntheticReporter := new AnalyzerSyntheticCallReporter(sink, spans)
+    syntheticWalk := new AnalyzerSyntheticCallWalk(resolver, syntheticBinder, syntheticReporter, scoring, assignability, spans, sink)
 
     indexAccess := new AnalyzerIndexAccess(sink, spans, context, ambient, nullFlow, soaEscape, memberAccess, constantFacts)
     writeTargets := new AnalyzerWriteTargets(sink, spans, scopes, context, substitution, clrConversion, ambient, soaEscape, memberAccess, indexAccess)
-    arm := new AnalyzerConstruction(sink, spans, scopes, context, resolver, substitution, discovery, ambient, soaEscape, memberAccess, arrayLiteral, constantFacts, assignability, members, exhaustiveness, clrConversion, writeTargets)
+    arm := new AnalyzerConstruction(sink, spans, scopes, context, resolver, substitution, discovery, ambient, soaEscape, memberAccess, arrayLiteral, constantFacts, assignability, members, exhaustiveness, clrConversion, writeTargets, functionTypes, syntheticWalk)
     return new ConstructionHarness(arm, errors, ambient, scopes, context, sink)
 }
 
@@ -1178,6 +1182,23 @@ func ConstructionArgumentsOf(count: int): List<Argument> {
     }
 
     return args
+}
+
+test "a reflected closed generic constructor signature preserves a source type argument" {
+    sourceArgument := ConstructionPlainStruct("Payload")
+    arguments := new List<TypeInfo>()
+    arguments.Add(sourceArgument)
+    definition := typeof(Tuple<int>).GetGenericTypeDefinition()
+    constructed: TypeInfo = new GenericTypeInfo("Tuple", arguments, new ReflectionTypeInfo(definition))
+    overrides := AnalyzerConstruction.ReflectionConstructorTypeOverrides(constructed, definition)
+    assert overrides != null
+
+    constructors := AnalyzerReflectionMemberProbe.ConstructorsOrEmpty(definition)
+    assert constructors.Length == 1
+    signature := AnalyzerFunctionTypeFactory.CreateFromReflectionConstructor(constructors[0], overrides)
+    assert signature != null
+    assert signature.ParameterTypes != null
+    assert Object.ReferenceEquals(signature.ParameterTypes[0], sourceArgument)
 }
 
 test "a call that fits NO declared constructor is refused, naming the one that exists" {
