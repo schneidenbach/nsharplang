@@ -57,6 +57,11 @@ test "named constructor arguments bind by name" {
     assert label.Width == 4
 }
 
+test "named constructor arguments may leave optional holes" {
+    value := new OptionalConstructorSlots(last: 9)
+    assert value.Value == 129
+}
+
 test "a constructor overload is still selected beside a named argument" {
     label := new Label(text: "abc")
     assert label.Width == 3

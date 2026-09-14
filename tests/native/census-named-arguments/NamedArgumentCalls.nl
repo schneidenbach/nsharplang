@@ -89,6 +89,14 @@ class NamedOverloadPicker {
     }
 }
 
+class OptionalConstructorSlots {
+    Value: int
+
+    constructor(first: int = 1, middle: int = 2, last: int = 3) {
+        Value = first * 100 + middle * 10 + last
+    }
+}
+
 // A delegate parameter named at the call, which reaches emission through a different argument arm
 // than an ordinary value does.
 func ApplyTwice(value: int, mapper: Func<int, int>): int {
