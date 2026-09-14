@@ -251,3 +251,41 @@ test "an exception inside an await foreach body releases the inner enumerator fi
     assert collected.Count == 2
     assert trace.Joined() == "source released"
 }
+
+test "an await using declaration guards the rest of its block" {
+    trace := new CensusTrace()
+    collected := new List<int>()
+    await foreach v in AsyncScopedDeclaration(trace) {
+        collected.Add(v)
+    }
+    assert collected.Count == 2
+    assert trace.Joined() == "acquire d,release d"
+}
+
+test "a plain region nested inside an awaiting one unwinds innermost first" {
+    trace := new CensusTrace()
+    await foreach v in PlainInsideAwaiting(trace) {
+        assert v == 1
+    }
+    assert trace.Joined() == "inner plain,outer awaiting"
+
+    abandoned := new CensusTrace()
+    await foreach v in PlainInsideAwaiting(abandoned) {
+        break
+    }
+    assert abandoned.Joined() == "inner plain,outer awaiting"
+}
+
+test "an awaiting region nested inside a plain one unwinds innermost first" {
+    trace := new CensusTrace()
+    await foreach v in AwaitingInsidePlain(trace) {
+        assert v == 1
+    }
+    assert trace.Joined() == "inner awaiting,outer plain"
+
+    abandoned := new CensusTrace()
+    await foreach v in AwaitingInsidePlain(abandoned) {
+        break
+    }
+    assert abandoned.Joined() == "inner awaiting,outer plain"
+}

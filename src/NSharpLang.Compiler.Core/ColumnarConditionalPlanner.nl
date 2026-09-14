@@ -81,7 +81,7 @@ class ColumnarConditionalPlanner {
     // The scratch is discarded rather than sealed: a method body is sealed only when it terminates on
     // every path, and a bare value expression never does. Validation of the rows that matter happens
     // when the SAME planner appends them into the real body.
-    static func TryGetBranchMergeValueType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, out resultType: Type): bool {
+    static func TryGetBranchMergeValueType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, methodBodySchema: bool, out resultType: Type): bool {
         resultType = typeof(int)
         if nodes == null || source == null || bindings == null || handles == null {
             return false
@@ -90,7 +90,11 @@ class ColumnarConditionalPlanner {
         scratch := new ColumnarCodePlan()
         scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
         scratch.EnableNestedValueFrame()
-        scratch.PrepareMethodBody()
+        if methodBodySchema {
+            scratch.PrepareMethodBody()
+        } else {
+            scratch.PrepareV3()
+        }
         return TryAppendRoot(nodes, source, node, bindings, handles, scratch, out resultType) && resultType != null
     }
 

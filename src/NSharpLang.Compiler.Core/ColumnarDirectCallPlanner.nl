@@ -213,7 +213,7 @@ class ColumnarDirectCallPlanner {
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
         argumentOwnership := ColumnarDirectCallOwnership.NotOwned
-        if !TryGetArgumentTypes(nodes, source, node, bindings, handles, depth, ArgumentsAdmitPrimitiveBinary(), argumentTypes, argumentFacts, out argumentOwnership) {
+        if !TryGetArgumentTypes(nodes, source, node, bindings, handles, depth, ArgumentsAdmitPrimitiveBinary(), plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out argumentOwnership) {
             if argumentOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
             } else {
@@ -1204,7 +1204,7 @@ class ColumnarDirectCallPlanner {
         // argument loop above. `015-B12`'s census listed all three as one family of "hard-coded PLAIN
         // inner positions"; they are two families — an argument site that had no matching decision, and
         // a receiver PAIR that has one and states it here.
-        if !TryGetPlannableValueType(nodes, source, receiverNode, bindings, handles, depth + 1, false, out receiverType, out receiverOwnership) || IsVoidType(receiverType) {
+        if !TryGetPlannableValueType(nodes, source, receiverNode, bindings, handles, depth + 1, false, plan.IsMethodBodySchema(), out receiverType, out receiverOwnership) || IsVoidType(receiverType) {
             if receiverOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
             } else {
@@ -1926,7 +1926,7 @@ class ColumnarDirectCallPlanner {
         return false
     }
 
-    static func TryGetArgumentTypes(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, allowPrimitiveBinary: bool, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+    static func TryGetArgumentTypes(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, allowPrimitiveBinary: bool, methodBodySchema: bool, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
         if argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument type slots.")
@@ -1957,7 +1957,7 @@ class ColumnarDirectCallPlanner {
             }
 
             argumentType := typeof(int)
-            if !TryGetPlannableValueType(nodes, source, argumentNode, bindings, handles, depth + 1, allowPrimitiveBinary, out argumentType, out nestedOwnership) || IsVoidType(argumentType) {
+            if !TryGetPlannableValueType(nodes, source, argumentNode, bindings, handles, depth + 1, allowPrimitiveBinary, methodBodySchema, out argumentType, out nestedOwnership) || IsVoidType(argumentType) {
                 return false
             }
 
@@ -2087,7 +2087,7 @@ class ColumnarDirectCallPlanner {
     // position the value can never occupy and refused `f(arr[0])` at the TYPE step while the APPEND step
     // admitted it. The two sides now ask the same question. `015-B8` measured the old refusal from the
     // outside as "the owner declines an index access in argument position"; there was never such a rule.
-    static func TryGetPlannableValueType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, allowPrimitiveBinary: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+    static func TryGetPlannableValueType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, allowPrimitiveBinary: bool, methodBodySchema: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         resultType = typeof(int)
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
         syntaxAdmitted := IsAdmittedValueSyntax(nodes, source, node, depth)
@@ -2104,8 +2104,14 @@ class ColumnarDirectCallPlanner {
         // A BRANCH-MERGE TYPES THROUGH ITS OWN OWNER'S METHOD-BODY SCRATCH, not through the schema-v3
         // one below: the reference arm of `??` appends `pop`, a method-body opcode a v3 plan THROWS on
         // rather than declining. See `ColumnarConditionalPlanner.TryGetBranchMergeValueType`.
+        // ⚠ THE SCRATCH TAKES THE DESTINATION'S SCHEMA, and that is not decoration either. The
+        // reference arm of `??` needs `pop`, which only a METHOD-BODY plan admits — so a v4 scratch in
+        // front of a schema-v3 destination would TYPE a `list.Add(name ?? "d")` the append step then
+        // declines, and a type/append disagreement in the call owner is a TERMINAL decline rather than
+        // the legacy fall-back the shape deserves. `DhWriteCompanion`'s
+        // `Directory.CreateDirectory(parent ?? directory)` is the shape that measured it.
         if ColumnarConditionalPlanner.IsBranchMergeValue(nodes, source, node) {
-            return ColumnarConditionalPlanner.TryGetBranchMergeValueType(nodes, source, node, bindings, handles, out resultType)
+            return ColumnarConditionalPlanner.TryGetBranchMergeValueType(nodes, source, node, bindings, handles, methodBodySchema, out resultType)
         }
 
         // 015-B8 — THE ONE SCRATCH SITE A CLAIMED BODY ACTUALLY REACHES, MEASURED RATHER THAN ASSUMED.

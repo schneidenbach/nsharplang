@@ -1945,6 +1945,10 @@ class ColumnarMoveNextEmit {
     HoistedRegionEnds: int[]
     HoistedBranchFields: string[]
     HoistedDepth: int
+    // How many hoisted HANDLER BODIES the walk is writing inside. A handler is already an unwind, so
+    // a suspension inside one must not re-issue the abandonment branch when it resumes: the machine
+    // is standing in the very handler that branch exists to run.
+    HoistedHandlerDepth: int
     NextTryRegion: int
     NextUsingResource: int
     // Async mode: yields and awaits share ONE resume-state counter (walk order), awaits number their
@@ -1985,6 +1989,7 @@ class ColumnarMoveNextEmit {
         HoistedRegionEnds = new int[](RegionEntryLabels.Length)
         HoistedBranchFields = new string[](RegionEntryLabels.Length)
         HoistedDepth = 0
+        HoistedHandlerDepth = 0
         NextTryRegion = 0
         NextUsingResource = 0
         CatchHandlerDepth = 0
@@ -3875,7 +3880,9 @@ class ColumnarIteratorBodyPlanner {
         }
 
         EndHoistedHandlerRegion(emit, bodyFalls, pendingName)
+        emit.HoistedHandlerDepth = emit.HoistedHandlerDepth + 1
         AppendAwaitedUsingRelease(emit, disposal, resourceName)
+        emit.HoistedHandlerDepth = emit.HoistedHandlerDepth - 1
         if emit.Context.Declined {
             return false
         }
@@ -4117,7 +4124,9 @@ class ColumnarIteratorBodyPlanner {
         }
 
         EndHoistedHandlerRegion(emit, bodyFalls, pendingName)
+        emit.HoistedHandlerDepth = emit.HoistedHandlerDepth + 1
         EmitStatement(emit, finallyNode)
+        emit.HoistedHandlerDepth = emit.HoistedHandlerDepth - 1
         if emit.Context.Declined {
             return false
         }
@@ -4569,7 +4578,9 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendMarkLabel(afterLabel)
 
         EndHoistedHandlerRegion(emit, true, pendingName)
+        emit.HoistedHandlerDepth = emit.HoistedHandlerDepth + 1
         AppendAsyncEnumeratorRelease(emit, enumPool, enumeratorType)
+        emit.HoistedHandlerDepth = emit.HoistedHandlerDepth - 1
         if emit.Context.Declined {
             return false
         }
@@ -5086,6 +5097,15 @@ class ColumnarIteratorBodyPlanner {
     // makes the runtime run each `finally` on the way, innermost first. A resume point in
     // unprotected code has nothing to unwind and carries no check at all.
     static func AppendDisposeModeExit(emit: ColumnarMoveNextEmit, resumeState: int) {
+        // A SUSPENSION INSIDE A HOISTED HANDLER IS ALREADY UNWINDING. The handler stands outside the
+        // region it releases, so it lives in the ENCLOSING region and its resume state has that
+        // region as its home — which would arm the abandonment branch and jump out of the very
+        // handler the abandonment exists to run, losing the rest of the release. An awaiting
+        // `finally` nested inside a plain one is the shape that measured it: abandoning there
+        // observed the outer handler and never the inner one.
+        if emit.HoistedHandlerDepth > 0 {
+            return
+        }
         if emit.Context.Shape.ResumeRegionOf(resumeState) < 0 || !emit.Context.HasHoistedField(ColumnarIteratorPlanner.DisposeModeFieldName()) {
             return
         }

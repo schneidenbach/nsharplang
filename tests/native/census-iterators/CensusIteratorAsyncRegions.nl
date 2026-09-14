@@ -248,3 +248,42 @@ async func* RecordedAsyncSource(trace: CensusTrace, count: int): IAsyncEnumerabl
         trace.Add("source released")
     }
 }
+
+// THE `await using` DECLARATION FORM guards the REST OF ITS BLOCK, exactly as the synchronous
+// declaration does — the region is opened around the statements after it, not around the
+// declaration, and both passes hand the remainder to the same region.
+async func* AsyncScopedDeclaration(trace: CensusTrace): IAsyncEnumerable<int> {
+    await using r := new CensusAsyncRecordingResource(trace, "d")
+    await Task.Delay(1)
+    yield 1
+    yield 2
+}
+
+// A PLAIN region nested inside an AWAITING one: the inner `finally` is a real EH clause whose
+// handler runs on the `leave`, and the outer one is hoisted past the region. Both orders are
+// written below so neither nesting can silently lose a handler.
+async func* PlainInsideAwaiting(trace: CensusTrace): IAsyncEnumerable<int> {
+    try {
+        try {
+            yield 1
+        } finally {
+            trace.Add("inner plain")
+        }
+    } finally {
+        await Task.Delay(1)
+        trace.Add("outer awaiting")
+    }
+}
+
+async func* AwaitingInsidePlain(trace: CensusTrace): IAsyncEnumerable<int> {
+    try {
+        try {
+            yield 1
+        } finally {
+            await Task.Delay(1)
+            trace.Add("inner awaiting")
+        }
+    } finally {
+        trace.Add("outer plain")
+    }
+}

@@ -406,7 +406,7 @@ class ColumnarConstructionPlanner {
         }
         lengthType := typeof(int)
         nestedOwnership := ColumnarDirectCallOwnership.NotOwned
-        if !ColumnarDirectCallPlanner.TryGetPlannableValueType(nodes, source, lengthNode, bindings, handles, depth + 1, true, out lengthType, out nestedOwnership) {
+        if !ColumnarDirectCallPlanner.TryGetPlannableValueType(nodes, source, lengthNode, bindings, handles, depth + 1, true, plan.IsMethodBodySchema(), out lengthType, out nestedOwnership) {
             if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                 ownership = nestedOwnership
             }
@@ -462,7 +462,7 @@ class ColumnarConstructionPlanner {
 
             currentType := typeof(int)
             nestedOwnership := ColumnarDirectCallOwnership.NotOwned
-            if !ColumnarDirectCallPlanner.TryGetPlannableValueType(nodes, source, elementNode, bindings, handles, depth + 1, true, out currentType, out nestedOwnership) {
+            if !ColumnarDirectCallPlanner.TryGetPlannableValueType(nodes, source, elementNode, bindings, handles, depth + 1, true, plan.IsMethodBodySchema(), out currentType, out nestedOwnership) {
                 if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                     ownership = nestedOwnership
                 }
@@ -1340,7 +1340,7 @@ class ColumnarConstructionPlanner {
         argumentTypes := new Type[](argumentCount)
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
-        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
 
@@ -1387,7 +1387,7 @@ class ColumnarConstructionPlanner {
         argumentTypes := new Type[](argumentCount)
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
-        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
 
@@ -1442,7 +1442,7 @@ class ColumnarConstructionPlanner {
         argumentTypes := new Type[](argumentCount)
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
-        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
 
@@ -1544,7 +1544,7 @@ class ColumnarConstructionPlanner {
         argumentTypes := new Type[](argumentCount)
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
-        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
+        if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
 
@@ -1700,7 +1700,7 @@ class ColumnarConstructionPlanner {
         return false
     }
 
-    static func TryGetConstructorArguments(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+    static func TryGetConstructorArguments(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, methodBodySchema: bool, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
         ownership = ColumnarDirectCallOwnership.OwnedRejected
         legacyWholeSubtreePlanning = false
         index := 1
@@ -1714,7 +1714,7 @@ class ColumnarConstructionPlanner {
         }
 
         nestedOwnership := ColumnarDirectCallOwnership.NotOwned
-        if !ColumnarDirectCallPlanner.TryGetArgumentTypes(nodes, source, node, bindings, handles, depth, true, argumentTypes, argumentFacts, out nestedOwnership) {
+        if !ColumnarDirectCallPlanner.TryGetArgumentTypes(nodes, source, node, bindings, handles, depth, true, methodBodySchema, argumentTypes, argumentFacts, out nestedOwnership) {
             if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                 ownership = nestedOwnership
             }
