@@ -78,6 +78,32 @@ class LocationIndex {
     func SeenSet(): IReadOnlySet<Loc> {
         return seen
     }
+
+    // With no target delegate on the left, the annotation itself supplies the lambda's signature.
+    func NextLine(value: Loc): int {
+        next := (line: int) => line + 1
+        return next(value.Line)
+    }
+
+    func SumSix(): int {
+        sum := (a: int, b: int, c: int, d: int, e: int, f: int) => a + b + c + d + e + f
+        return sum(1, 2, 3, 4, 5, 6)
+    }
+
+    static func WrittenParameterKind(_value: object): int => 1
+    static func WrittenParameterKind(_value: string): int => 2
+
+    func CompatibleWrittenParameter(): int {
+        classify: Func<string, int> = (value: object) => LocationIndex.WrittenParameterKind(value)
+        return classify("text")
+    }
+}
+
+class LambdaOwner<T> {
+    func Echo(value: T): T {
+        identity := (item: T) => item
+        return identity(value)
+    }
 }
 
 // A DELEGATE OVER TWO SOURCE DECLARATIONS — one a value type, one a reference type — declared as a

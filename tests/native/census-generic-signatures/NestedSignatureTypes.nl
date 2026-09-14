@@ -29,7 +29,7 @@ class Snapshots {
     Recent: IReadOnlyList<Cached> => ordered
 
     constructor() {
-        formatter = value => value.Note
+        formatter = (value: Cached) => value.Note
     }
 
     func Add(stamp: string, note: string) {
@@ -100,6 +100,13 @@ class Snapshots {
 
     func FormattedNewest(): string {
         return formatter(Newest())
+    }
+
+    private static func PrivateLabel(): string => "private"
+
+    func PrivateLambdaResult(): string {
+        read := () => Snapshots.PrivateLabel()
+        return read()
     }
 
     func SlotCount(): int {

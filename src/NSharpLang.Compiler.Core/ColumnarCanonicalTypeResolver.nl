@@ -1156,38 +1156,57 @@ class ColumnarCanonicalTypeResolver {
     // result and `Action` reads them all as parameters, which is the same reading every other
     // delegate surface in this compiler gives those two names.
     static func OpenDelegateDefinition(isFunc: bool, arity: int): Type? {
-        if isFunc {
-            if arity == 1 {
-                return typeof(Func<int>).GetGenericTypeDefinition()
-            }
-            if arity == 2 {
-                return typeof(Func<int, int>).GetGenericTypeDefinition()
-            }
-            if arity == 3 {
-                return typeof(Func<int, int, int>).GetGenericTypeDefinition()
-            }
-            if arity == 4 {
-                return typeof(Func<int, int, int, int>).GetGenericTypeDefinition()
-            }
-            if arity == 5 {
-                return typeof(Func<int, int, int, int, int>).GetGenericTypeDefinition()
-            }
+        if arity <= 0 {
             return null
         }
+        family := isFunc ? "System.Func`" : "System.Action`"
+        definition := Type.GetType(family + arity.ToString())
+        if definition == null || !definition.get_IsGenericTypeDefinition() {
+            return null
+        }
+        return definition
+    }
 
-        if arity == 1 {
-            return typeof(Action<int>).GetGenericTypeDefinition()
+    static func SupportsInferredDelegateParameterCount(parameterCount: int): bool {
+        if parameterCount < 0 {
+            return false
         }
-        if arity == 2 {
-            return typeof(Action<int, int>).GetGenericTypeDefinition()
+        if parameterCount == 0 {
+            return true
         }
-        if arity == 3 {
-            return typeof(Action<int, int, int>).GetGenericTypeDefinition()
+        return OpenDelegateDefinition(false, parameterCount) != null && OpenDelegateDefinition(true, parameterCount + 1) != null
+    }
+
+    static func TryConstructInferredDelegate(parameterTypes: Type[], returnType: Type, out delegateType: Type): bool {
+        delegateType = null
+        if parameterTypes == null || returnType == null || !SupportsInferredDelegateParameterCount(parameterTypes.Length) {
+            return false
         }
-        if arity == 4 {
-            return typeof(Action<int, int, int, int>).GetGenericTypeDefinition()
+        if returnType == ColumnarTypeOfPlanner.RequiredVoidType() {
+            if parameterTypes.Length == 0 {
+                delegateType = typeof(Action)
+                return true
+            }
+            actionDefinition := OpenDelegateDefinition(false, parameterTypes.Length)
+            if actionDefinition == null {
+                return false
+            }
+            delegateType = actionDefinition.MakeGenericType(parameterTypes)
+            return true
         }
-        return null
+        funcDefinition := OpenDelegateDefinition(true, parameterTypes.Length + 1)
+        if funcDefinition == null {
+            return false
+        }
+        arguments := new Type[](parameterTypes.Length + 1)
+        i := 0
+        while i < parameterTypes.Length {
+            arguments[i] = parameterTypes[i]
+            i += 1
+        }
+        arguments[parameterTypes.Length] = returnType
+        delegateType = funcDefinition.MakeGenericType(arguments)
+        return true
     }
 
     static func TrySelectDelegateWithTypeParams(

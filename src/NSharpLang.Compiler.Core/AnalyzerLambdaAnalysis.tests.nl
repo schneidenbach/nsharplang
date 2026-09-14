@@ -476,6 +476,16 @@ test "an explicitly typed parameter needs no inference source and reports nothin
     assert harness.Errors.Count == 0
 }
 
+test "a written lambda parameter that disagrees with its declared delegate is NL202 end to end" {
+    source := "func Use(): int {\n    f: Func<int, int> = (value: string) => value.Length\n    return f(1)\n}\n"
+    errors := TypeArityAnalysisErrors(source)
+
+    assert errors.Count == 1, errors.Count.ToString()
+    assert errors[0].Code == ErrorCode.TypeMismatch, errors[0].Message
+    assert errors[0].ExpectedType == "(int) -> int", errors[0].ExpectedType ?? "<null>"
+    assert errors[0].ActualType == "(string) -> int", errors[0].ActualType ?? "<null>"
+}
+
 // ── the parameter's position ──────────────────────────────────────────────────
 
 test "a parameter with its own position is declared there and one without falls back to the lambda's" {

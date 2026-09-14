@@ -3510,6 +3510,19 @@ Three resolution facts go with it, all in `ColumnarCanonicalTypeResolver.nl`:
   `IReadOnlySet`/`IReadOnlyDictionary` — so a BODY LOCAL typed `IEnumerable<int>` resolved to nothing
   while the identical signature spelling resolved. A body's resolver is not a narrower language.
 
+**LEXICAL SOURCE TYPES INSIDE GENERIC SIGNATURES** use that same structural selection path. A
+declaration such as `Outer.CachedList: List<Cached>` must resolve `Cached` from `Outer`, even though
+the current declaration's exact name is `Outer.CachedList` and `Cached` is private. Both
+`ColumnarSemanticTypeRegistry` and `ColumnarBindingScopeFacts` rewrite a lexical generic head at its
+written arity (`Slot`1`, not the arity-free `Slot`), then recurse through each argument. The selected
+structural reference preserves the open generic definition beside the closed runtime handle: a
+`TypeBuilderInstantiation` over an unbaked source argument is legal metadata but cannot reliably
+answer `IsClass` or `IsInterface`, so `ColumnarBaseTypePlanner` classifies the definition and applies
+the closed handle. Fields, properties, events, parameters, returns, locals, base lists, constraints,
+arrays, nullable source structs, delegates and nested source generics consequently share one
+resolution rule. `tests/native/census-generic-signatures` verifies both emitted metadata and runtime
+member use, including `(value: Cached) => ...` as an explicitly typed lambda parameter.
+
 `ColumnarReferenceConversionFacts` gained the matching conversion halves:
 
 - `TryClassifyExactSourceInterfaceUpcast` accepts a CLOSED INSTANTIATION of a source generic as the

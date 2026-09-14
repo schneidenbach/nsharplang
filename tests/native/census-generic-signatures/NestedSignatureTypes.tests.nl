@@ -18,9 +18,13 @@ func NestedCachedType(): Type {
     return must found
 }
 
-func NestedFieldType(name: string): Type {
+func NestedField(name: string): FieldInfo {
     found: FieldInfo? = typeof(Snapshots).GetField(name, NestedDeclaredFlags())
-    return (must found).FieldType
+    return must found
+}
+
+func NestedFieldType(name: string): Type {
+    return NestedField(name).FieldType
 }
 
 test "a nested source type is the generic argument of an unmodelled external head" {
@@ -71,6 +75,7 @@ test "the members of the constructed type are reachable after it resolves" {
     assert snapshots.NewestNote() == "beta"
     assert snapshots.RecentCount() == 2
     assert snapshots.FormattedNewest() == "beta"
+    assert snapshots.PrivateLambdaResult() == "private"
     assert snapshots.SlotCount() == 2
 }
 
@@ -85,6 +90,15 @@ test "property event and annotated lambda positions keep the nested source argum
     assert handlerType != null
     assert handlerType.GetGenericTypeDefinition() == typeof(Action<int>).GetGenericTypeDefinition()
     assert Object.ReferenceEquals(handlerType.GetGenericArguments()[0], NestedCachedType())
+
+    formatter := NestedField("formatter").GetValue(new Snapshots()) as Delegate
+    assert formatter != null
+    delegateMethod := formatter.Method
+    parameters := delegateMethod.GetParameters()
+    assert delegateMethod.Name.StartsWith("<Lambda>", StringComparison.Ordinal)
+    assert parameters.Length == 1
+    assert Object.ReferenceEquals(parameters[0].ParameterType, NestedCachedType())
+    assert Object.ReferenceEquals(delegateMethod.get_DeclaringType(), typeof(Snapshots))
 }
 
 test "a nested source generic and a base signature close over the private nested type" {

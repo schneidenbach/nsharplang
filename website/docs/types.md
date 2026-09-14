@@ -1725,6 +1725,30 @@ func Report(rows: List<Plain>, seed: IEquatable<Plain>): KeyValuePair<string, Pl
 }
 ```
 
+A nested declaration stays in scope throughout its enclosing declaration's signatures. It may be a
+generic argument in a field, property, event, parameter, return, base list, constraint, local type or
+explicitly typed lambda parameter, including when the generic head is another nested source type:
+
+```n#
+class SnapshotStore {
+    readonly values: Dictionary<string, List<Cached>> = new Dictionary<string, List<Cached>>()
+    readonly formatter: Func<Cached, string>
+
+    constructor() {
+        formatter = (value: Cached) => value.Note
+    }
+
+    private class CachedList: List<Cached> {}
+    private sealed record Cached(Note: string) {}
+}
+```
+
+The emitted signatures carry the exact nested CLR type. This also applies to source structs and
+record structs, lifted value types such as `List<Loc?>`, arrays such as
+`Dictionary<string, Cached[]>`, delegate types such as `Func<Loc, Cached>`, and a closed source
+generic such as `List<Slot<Cached>>`. Resolution follows lexical ownership at every nesting depth;
+the nested declaration does not need to be exported or moved to namespace scope.
+
 - **A base list.** `struct Plain: IEquatable<Plain>` and `class Item: IComparable<Item>` land the
   CONSTRUCTED interface in the emitted metadata, and the BCL dispatches through it:
   `EqualityComparer<Plain>.Default.Equals` calls your `Equals`, and `List<Item>.Sort()` orders by

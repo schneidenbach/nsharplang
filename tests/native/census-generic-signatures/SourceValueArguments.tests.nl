@@ -116,3 +116,29 @@ test "a delegate field typed by two source declarations emits and runs" {
     projector := new Projector(value => new Marker(value.Line.ToString()))
     assert projector.Apply(new Loc(11, 0)).Text == "11"
 }
+
+test "an untargeted typed lambda keeps its written parameter and runs" {
+    index := new LocationIndex()
+    assert index.NextLine(new Loc(8, 3)) == 9
+    assert index.SumSix() == 21
+
+    methods := typeof(LocationIndex).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+    found := false
+    for method in methods {
+        parameters := method.GetParameters()
+        if method.Name.StartsWith("<Lambda>", StringComparison.Ordinal) && parameters.Length == 1 && Object.ReferenceEquals(parameters[0].ParameterType, typeof(int)) {
+            found = true
+        }
+    }
+    assert found
+}
+
+test "a compatible written lambda parameter controls overload selection" {
+    index := new LocationIndex()
+    assert index.CompatibleWrittenParameter() == 1
+}
+
+test "an inferred typed lambda keeps its generic lexical owner" {
+    owner := new LambdaOwner<string>()
+    assert owner.Echo("generic") == "generic"
+}

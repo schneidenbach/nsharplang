@@ -3477,6 +3477,16 @@ test "016 lambda: a well-formed multi-parameter lambda reports no parser diagnos
     assert errors.Count == 0
 }
 
+test "016 lambda: an explicitly typed parameter reports no parser diagnostic" {
+    errors := RunPreamble("func f() {\n    g := (value: Dictionary<string, List<int>>, pair: (Head: int, Tail: string), format: Func<int, string>) => value.Count\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 lambda: an empty explicit parameter type remains a parser error" {
+    errors := RunPreamble("func f() {\n    g := (value: ) => 1\n}\n")
+    assert errors.Count > 0
+}
+
 test "016 lambda: a well-formed empty-parameter lambda reports no parser diagnostic" {
     errors := RunPreamble("func f() {\n    g := () => 1\n}\n")
     assert errors.Count == 0

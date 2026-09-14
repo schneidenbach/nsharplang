@@ -13,7 +13,7 @@ class ColumnarSemanticTypeRegistryBridge {
         owned: Dictionary<string, Type>? = null
         for pair in visibleTypeParameters {
             typeParameter := pair.Value
-            if !typeParameter.get_IsGenericParameter() || typeParameter.get_DeclaringMethod() != null || !Object.ReferenceEquals(typeParameter.get_DeclaringType(), declaringType) {
+            if !IsTypeParameterOwnedByType(typeParameter, declaringType) {
                 continue
             }
             if owned == null {
@@ -26,7 +26,7 @@ class ColumnarSemanticTypeRegistryBridge {
 
     static func IsValidSynthesizedMethodSignatureType(valueType: Type, declaringType: TypeBuilder): bool {
         if valueType.get_IsGenericParameter() {
-            return valueType.get_DeclaringMethod() == null && Object.ReferenceEquals(valueType.get_DeclaringType(), declaringType)
+            return IsTypeParameterOwnedByType(valueType, declaringType)
         }
         if valueType.get_HasElementType() {
             elementType := valueType.GetElementType()
@@ -41,6 +41,18 @@ class ColumnarSemanticTypeRegistryBridge {
             }
         }
         return true
+    }
+
+    // A generic parameter selected through a synthesized semantic view can be a distinct reflection
+    // wrapper for the same unbaked declaring-type slot. Position and declared name are the stable CLR
+    // identity available before bake; method parameters are always excluded.
+    static func IsTypeParameterOwnedByType(valueType: Type, declaringType: TypeBuilder): bool {
+        if !valueType.get_IsGenericParameter() || valueType.get_DeclaringMethod() != null {
+            return false
+        }
+        position := valueType.get_GenericParameterPosition()
+        declared := declaringType.GetGenericArguments()
+        return position >= 0 && position < declared.Length && declared[position].Name == valueType.Name
     }
 
     static func IsValidSynthesizedMethodSignature(returnType: Type, parameterTypes: Type[], declaringType: TypeBuilder): bool {

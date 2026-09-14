@@ -357,12 +357,14 @@ class TypeReferenceTupleNameTable {
 //                                         distinct kind marks the body as one whose value the target
 //                                         delegate's task-like return WRAPS, exactly as an `async
 //                                         func`'s declared return is wrapped. )
-//   Lambda                  -> kind 39  ( `x => expr` / `() => expr` / `(x, y) => expr` -- the level ABOVE
+//   Lambda                  -> kind 39  ( `x => expr` / `() => expr` / `(x, y) => expr` /
+//                                         `(x: T) => expr` -- the level ABOVE
 //                                         assignment (ParseLambdaOrAssignmentExpression, Parser.cs:3660). The
 //                                         `=>` token in the value span; children = [param Identifiers (kind 6,
 //                                         zero or more), body expression root] -- paramCount = childCount - 1.
-//                                         Params are UNTYPED by grammar (the production parser rejects `:` in a
-//                                         lambda list); the body is an EXPRESSION at this level or a statement
+//                                         A typed parameter's annotation is validated by the semantic AST parser;
+//                                         its parameter node's FULL span preserves the annotation while its value span
+//                                         remains the name. The body is an EXPRESSION at this level or a statement
 //                                         BLOCK (kind 25, parsed by the statement kernel -- mutual recursion in
 //                                         the other direction from statements-call-expressions). Parsed at the
 //                                         full-expression entry and in EVERY ARGUMENT POSITION: a call argument,
@@ -745,10 +747,9 @@ class ParserExpressionNodeTable {
 // Modeled shapes (Lambda kind 39, the `=>` token in the value span, children = [param Identifiers..., body]):
 //   `x => expr`     -- a bare Identifier DIRECTLY followed by Arrow 120 (the Parser.cs:3672 lookahead);
 //   `() => expr`    -- empty parenthesized list (`( ) =>`);
-//   `(x, y) => expr`-- a parenthesized BARE-identifier list, committed via a pure speculative scan mirroring
-//                      Parser.cs IsLambdaExpression (identifiers separated by commas to `)`, then `=>`) --
-//                      anything else in the list (a type annotation `:`, a default, a non-identifier) falls
-//                      through to the assignment level, where `(x, y)` refuses as an unmodeled tuple.
+//   `(x, y) => expr` / `(x: T) => expr` -- a parenthesized identifier list, optionally carrying an
+//                      explicit type after `:`, committed via a pure speculative scan. Defaults and
+//                      non-identifiers still fall through to the assignment level.
 // The BODY is an expression parsed at THIS level (a lambda can return a lambda, as in the production
 // ParseExpression recursion); a BLOCK body (`=> {`) makes the body parse refuse (-1) -- statement-bodied
 // lambdas are a later rung, and the refusal declines the whole program (safe under-acceptance).
@@ -6410,6 +6411,53 @@ func ParseOnSubscriptionNode(tokens: ParserTokenTable, count: int, st: ParserSta
     return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.OnSubscriptionExpression(), onStart, onLength, childRunStart, 2, onStart, handlerEnd - onStart)
 }
 
+// Return the comma/right-paren delimiter after one typed lambda parameter, or -1 when the tokens do
+// not contain a balanced type reference. The production AST parser owns the exact type grammar and
+// diagnostics; this kernel only has to preserve the expression boundary after that validation.
+func ScanTypedLambdaParameterEnd(tokens: ParserTokenTable, count: int, start: int): int {
+    pos := start
+    angleDepth := 0
+    groupDepth := 0
+    bracketDepth := 0
+    sawTypeToken := false
+    while pos < count {
+        kind := tokens.Kinds[pos]
+        if angleDepth == 0 && groupDepth == 0 && bracketDepth == 0 && (kind == 134 || kind == 128) {
+            return sawTypeToken ? pos : -1
+        }
+        sawTypeToken = true
+        if kind == 100 {
+            angleDepth += 1
+        } else if kind == 102 {
+            if angleDepth <= 0 {
+                return -1
+            }
+            angleDepth -= 1
+        } else if kind == 112 {
+            if angleDepth < 2 {
+                return -1
+            }
+            angleDepth -= 2
+        } else if kind == 127 {
+            groupDepth += 1
+        } else if kind == 128 {
+            if groupDepth <= 0 {
+                return -1
+            }
+            groupDepth -= 1
+        } else if kind == 131 {
+            bracketDepth += 1
+        } else if kind == 132 {
+            if bracketDepth <= 0 {
+                return -1
+            }
+            bracketDepth -= 1
+        }
+        pos += 1
+    }
+    return -1
+}
+
 func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     if depth > 200 {
         return -1
@@ -6449,6 +6497,16 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int,
                     scanning = false
                 } else {
                     scan = scan + 1
+                    if scan < count && tokens.Kinds[scan] == 122 {
+                        scan = ScanTypedLambdaParameterEnd(tokens, count, scan + 1)
+                        if scan < 0 {
+                            valid = false
+                            scanning = false
+                        }
+                    }
+                    if !valid {
+                        continue
+                    }
                     if scan < count && tokens.Kinds[scan] == 128 {
                         scan = scan + 1
                         scanning = false
@@ -6482,10 +6540,23 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int,
     } else {
         st.Pos = st.Pos + 1
         while st.Pos < count && tokens.Kinds[st.Pos] != 128 {
-            paramNode := EmitExpressionNode(st, nodes, 6, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos], -1, 0, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos])
+            parameterIndex := st.Pos
+            parameterSpanEnd := tokens.Starts[parameterIndex] + tokens.ValueLengths[parameterIndex]
+            st.Pos = st.Pos + 1
+            if st.Pos < count && tokens.Kinds[st.Pos] == 122 {
+                st.Pos = ScanTypedLambdaParameterEnd(tokens, count, st.Pos + 1)
+                if st.Pos < 0 {
+                    st.ArgStackTop = argBase
+                    return -1
+                }
+                lastTypeToken := st.Pos - 1
+                parameterSpanEnd = tokens.Starts[lastTypeToken] + tokens.ValueLengths[lastTypeToken]
+            }
+            // ValueSpan remains the parameter's identifier. Span includes a written annotation so
+            // the emitter can resolve an untargeted typed lambda without inventing a parallel AST.
+            paramNode := EmitExpressionNode(st, nodes, 6, tokens.Starts[parameterIndex], tokens.ValueLengths[parameterIndex], -1, 0, tokens.Starts[parameterIndex], parameterSpanEnd - tokens.Starts[parameterIndex])
             argStack.Values[st.ArgStackTop] = paramNode
             st.ArgStackTop = st.ArgStackTop + 1
-            st.Pos = st.Pos + 1
             if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
                 st.Pos = st.Pos + 1
             }
