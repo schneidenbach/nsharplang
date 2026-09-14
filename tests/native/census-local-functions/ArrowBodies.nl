@@ -129,3 +129,18 @@ async func AwaitInner(v: int): int {
     async func inner(x: int): int => await Task.FromResult(x + 1)
     return await inner(v)
 }
+
+// A THROW ARROW BODY on a local function, `void` and valued. The `void` form is the one that meets
+// two lowerings: a `void` arrow body is an expression statement, but a throw has no expression-
+// statement owner — it keeps the synthesized return that the return owner ends with `throw`, the
+// same shape a top-level `func AlwaysFails() => throw e` takes.
+func ThrowingLocals(flag: bool): int {
+    func boom() => throw new InvalidOperationException("local void arrow")
+    func pick(): int => flag ? 1 : throw new InvalidOperationException("local value arrow")
+    if flag {
+        return pick()
+    }
+
+    boom()
+    return 0
+}

@@ -14328,8 +14328,12 @@ func ParseColumnarFunctionExpressionBodyNodesCore(source: string, tokens: Column
     childRunStart := st.ChildCursor
     AppendExpressionChild(st, children, valueRoot)
     valueEnd := nodes.SpanStarts[valueRoot] + nodes.SpanLengths[valueRoot]
+    // A `void` body is an expression STATEMENT (kind 23) — `=> log.Append(t)` is a call, not a
+    // return. A throw body is the exception: `=> throw e` on a `void` function keeps the synthesized
+    // return (kind 20), which is the shape the return owner ends with `throw`; as an expression
+    // statement a throw has no owner and the body would decline.
     bodyStatementKind := 20
-    if returnsVoid {
+    if returnsVoid && nodes.Kinds[valueRoot] != 83 {
         bodyStatementKind = 23
     }
 

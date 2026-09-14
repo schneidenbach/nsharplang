@@ -1,5 +1,6 @@
 namespace NSharpLang.CensusLocalFunctions.Tests
 
+import System
 import System.Collections.Generic
 import System.Reflection
 
@@ -100,4 +101,17 @@ test "an arrow body inside a method reads the enclosing instance" {
 
 test "an async local function's arrow body answers the task's result" {
     assert await AwaitInner(41) == 42
+}
+
+test "a throw arrow body on a local function throws, `void` and valued alike" {
+    assert ThrowingLocals(true) == 1
+
+    caught: string? = null
+    try {
+        ThrowingLocals(false)
+    } catch e: InvalidOperationException {
+        caught = e.Message
+    }
+
+    assert caught == "local void arrow"
 }
