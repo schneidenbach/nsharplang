@@ -78,6 +78,17 @@ class ColumnarNodeTable {
 
     func Child(index: int, childOrdinal: int): int => childIndices[childStarts[index] + childOrdinal]
 
+    // REPLACE ONE CHILD EDGE. The single owner that writes here is the named-argument binder, and it
+    // writes exactly one thing: an argument list whose `name:` wrappers have been VERIFIED to name
+    // the parameters they are already written at is flattened to the arguments underneath them, so
+    // every later reader of the table -- including the residual emitter, which knows nothing about
+    // names -- sees the positional call the names describe. A binding that MOVES an argument is never
+    // flattened: the move is the planner's to emit, and a reader that assumed written order would
+    // then be wrong about both the order and the evaluation.
+    func SetChild(index: int, childOrdinal: int, node: int) {
+        childIndices[childStarts[index] + childOrdinal] = node
+    }
+
     func Text(source: string, index: int): string => source.Substring(valueStarts[index], valueLengths[index])
 
     func SpanStart(index: int): int {

@@ -361,11 +361,34 @@ class ColumnarNamedArgumentBinder {
         }
     }
 
+    // THE SOURCE DECLARATION A RECEIVER TYPE BELONGS TO, by builder identity -- the plain emitted type
+    // and the closed generic alike. A receiver that is not a source type at all answers null, and its
+    // names come from metadata instead.
+    static func FindReceiverDefinition(receiverType: Type?, definitions: IEnumerable<ColumnarStructDef>): ColumnarStructDef? {
+        if receiverType == null || definitions == null {
+            return null
+        }
+
+        if receiverType is System.Reflection.Emit.TypeBuilder {
+            return ColumnarSourceDefinitionResolver.FindByBuilderIdentity(definitions, receiverType)
+        }
+
+        return ColumnarGenericTypeReceiverFacts.FindSourceDefinition(receiverType, definitions)
+    }
+
+    // A TYPE STILL BEING EMITTED ANSWERS NO REFLECTION QUESTION -- `TypeBuilder.GetMethods()` throws
+    // "the invoked member is not supported before the type is created". A source type's parameter
+    // names are carried on its own definitions instead, which is what the collectors above read, so
+    // the reflected collectors simply have nothing to say about one.
+    static func IsReflectable(candidate: Type?): bool {
+        return candidate != null && !(candidate is System.Reflection.Emit.TypeBuilder) && !candidate.get_IsGenericParameter()
+    }
+
     // The reflected members of `ownerType` named `memberName` at `arity`, including those it
     // inherits. `Type.GetMethods()` already walks the base chain for public members, which is the
     // only visibility an external call can reach.
     static func CollectReflectedParameterNames(ownerType: Type?, memberName: string, arity: int, requireStatic: bool, candidates: List<string[]>) {
-        if ownerType == null || memberName == null || arity == 0 {
+        if !IsReflectable(ownerType) || memberName == null || arity == 0 {
             return
         }
 
@@ -380,7 +403,7 @@ class ColumnarNamedArgumentBinder {
 
     // The reflected constructors of `ownerType` that take `arity` arguments.
     static func CollectReflectedConstructorParameterNames(ownerType: Type?, arity: int, candidates: List<string[]>) {
-        if ownerType == null || arity == 0 {
+        if !IsReflectable(ownerType) || arity == 0 {
             return
         }
 
@@ -425,6 +448,29 @@ class ColumnarNamedArgumentBinder {
             }
         }
 
-        return found && ApplyPlacement(argumentTypes, facts, agreed)
+        if !found || !ApplyPlacement(argumentTypes, facts, agreed) {
+            return false
+        }
+
+        FlattenPlacedArguments(nodes, callNode, firstArgumentOrdinal, argumentTypes.Length, facts)
+        return true
+    }
+
+    // A VERIFIED IN-POSITION PLACEMENT IS FLATTENED INTO THE NODE TABLE. Once the names have been
+    // checked against a real signature and found to name the parameters they were already written
+    // at, the wrappers carry no information at all -- so they are removed, and a call the planner
+    // ends up declining for some unrelated reason (a lambda argument, say) reaches the residual
+    // emitter as the ordinary positional call it is. A placement that MOVES an argument is left
+    // alone: only the planner can emit that, because only it spills the written order.
+    static func FlattenPlacedArguments(nodes: ColumnarNodeTable, callNode: int, firstArgumentOrdinal: int, argumentCount: int, facts: ColumnarDirectCallArgumentFacts) {
+        if facts.RequiresReorder {
+            return
+        }
+
+        index := 0
+        while index < argumentCount {
+            nodes.SetChild(callNode, firstArgumentOrdinal + index, facts.ArgumentNodes[index])
+            index = index + 1
+        }
     }
 }

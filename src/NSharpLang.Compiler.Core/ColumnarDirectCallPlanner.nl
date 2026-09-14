@@ -324,7 +324,7 @@ class ColumnarDirectCallPlanner {
         receiverType := typeof(object)
         receiverOwnership := ColumnarDirectCallOwnership.NotOwned
         if TryGetPlannableValueType(nodes, source, receiverNode, bindings, handles, depth + 1, ArgumentsAdmitPrimitiveBinary(), methodBodySchema, out receiverType, out receiverOwnership) {
-            ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(ColumnarGenericTypeReceiverFacts.FindSourceDefinition(receiverType, bindings.SourceTypeDefinitions), memberName, arity, candidates)
+            ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(ColumnarNamedArgumentBinder.FindReceiverDefinition(receiverType, bindings.SourceTypeDefinitions), memberName, arity, candidates)
             ColumnarNamedArgumentBinder.CollectReflectedParameterNames(receiverType, memberName, arity, false, candidates)
         }
 
