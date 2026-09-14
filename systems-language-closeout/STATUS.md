@@ -37,7 +37,20 @@ Facade and MSBuild task lanes are running from `06186dc6d`; CLI/LSP/Playground/R
 Visual Studio is deferred; compiler completion and rename evidence below remain accepted.
 Shared compiler prerequisites, seeds and integration gates remain root-owned.
 
-**Census wave 8 integrating, 2026-09-13** (systems-language `17d626dca` → this push): nine streams merged in landing order
+**Census wave 9 integrating, 2026-09-13** (systems-language `8daf279f7` → this push): eight streams merged in landing order
+onto `census/merge` — CONV3, FLOW6, NULLABLE2, INHERIT2, LAMBDA4, EVENTS3, FLOW7 (a root-found if-join gap, launched
+mid-wave), TOOL3 — rows in tasks/TOOLCHAIN-NATIVE.md "Census wave 3"; corpus pin 117, 90 native projects, catalog 103
+codes / 93 compiler rows (NL339 duplicate type declarations); node kinds unchanged. TOOL3's binding-based NL002 caught
+three fixtures of sibling streams using `System` types without the import (fixed at the merge). Converter: `x is A or B`
+written as two type tests; census at converter 04d51f0 against this tip: runtime 0, cli 37 (35 warnings), tests 1,
+languageserver 19 (16 warnings) — the real rows are the corpus's own CS8603, a property pattern, a `ToString()`
+override annotation and two true-positive dead imports. TOOL3's rules also fixed five examples, the benchmark runner and a fixture (missing `import System`, two dead imports)
+and gave ten single-file examples their own namespaces (each re-declared a sibling file's type — two CLR types before).
+Fresh gates at `404218806`: `VSCODE_TESTS=skip` 17m49s and VS Code-enabled 18m44s (smoke 16/16, extension 36 passing), both ALL TESTS PASSED; pushed as systems-language `404218806`+docs → this commit.
+Owed: the visual VS Code pass (INHERIT2 completion, TOOL3 per-keystroke NL010/NL002, EVENTS3 hover); root C# task:
+`Program.Testing.cs` must redirect `Console.Out` in JSON mode.
+
+**Census wave 8 integrated, 2026-09-13** (systems-language `17d626dca` → `8daf279f7`): nine streams merged in landing order
 onto `census/merge` — EMIT4, LIFT, EVENTS, AMBIG, ACCESS, USING, OVERLOAD, TOOL2 (its agent died silently; root merged
 its four commits), ASYNC (its agent did the integration merge: NL333→NL336, kinds 77 `using` / 78 async lambda / 79 `on` /
 80 `off` / 81 `await using`), EVENTS2 (source-declared events, kind 82 bare `this`, NL337/NL338) — rows in
