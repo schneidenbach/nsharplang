@@ -1125,9 +1125,14 @@ class ColumnarCodePlanExecutor {
     }
 
     static func ValidateValuePools(plan: ColumnarCodePlan, schemaName: string, allowVoidMethodReturns: bool) {
+        metadataOnlyTypes := MetadataOnlyTypePoolRows(plan)
         i := 0
         while i < plan.TypeCount {
-            ValidateStorableType(plan.ValidatedTypeAt(i), "type pool", schemaName)
+            if metadataOnlyTypes[i] {
+                ValidateMetadataReferenceType(plan.ValidatedTypeAt(i), "type pool", schemaName)
+            } else {
+                ValidateStorableType(plan.ValidatedTypeAt(i), "type pool", schemaName)
+            }
             i += 1
         }
 
@@ -1387,6 +1392,59 @@ class ColumnarCodePlanExecutor {
         }
 
         ValidateStorableType(elementType, "method argument", schemaName)
+    }
+
+    // ── THE ONE POOL ROW THAT NAMES METADATA RATHER THAN STORAGE ───────────────────────────────
+    //
+    // Every type-pool row is a STORAGE type — the element `newarr` allocates, the type `box`/`isinst`
+    // /`castclass`/`unbox.any` names, the operand of `initobj` — except when the ONLY instruction that
+    // reads it is `ldtoken`. `ldtoken` pushes a `RuntimeTypeHandle`; its operand is a metadata token
+    // and nothing is ever stored in it.
+    //
+    // That distinction is the reason `typeof(void)` is a legal expression while `x: void` is not.
+    // C# §12.8.18 permits `void` as the type argument of `typeof` and nowhere else, and the CLR
+    // lowering is the ordinary `ldtoken void; call Type.GetTypeFromHandle` pair. Refusing `System.Void`
+    // in EVERY pool row refused the expression along with the storage, so the void rule moves to the
+    // storage half of the split and this half keeps the rest of it (a by-ref type still names no
+    // metadata a token can carry).
+    //
+    // A row is metadata-only when NO argument slot, plan local or non-`ldtoken` instruction references
+    // it; a row shared by a `ldtoken` and a `newarr` stays storable, so the relaxation can never widen
+    // beyond the token itself.
+    static func MetadataOnlyTypePoolRows(plan: ColumnarCodePlan): bool[] {
+        metadataOnly := new bool[](plan.TypeCount)
+        i := 0
+        while i < plan.TypeCount {
+            metadataOnly[i] = true
+            i += 1
+        }
+        i = 0
+        while i < plan.ArgumentCount {
+            metadataOnly[plan.ArgumentTypeIndices[i]] = false
+            i += 1
+        }
+        i = 0
+        while i < plan.PlanLocalCount {
+            metadataOnly[plan.PlanLocalTypeIndices[i]] = false
+            i += 1
+        }
+        i = 0
+        while i < plan.OperationCount {
+            if plan.OperandKinds[i] == ColumnarCodePlanContract.TypeOperand() && plan.OpCodeValues[i] != ColumnarCodePlanContract.Ldtoken() {
+                metadataOnly[plan.OperandIndices[i]] = false
+            }
+            i += 1
+        }
+        return metadataOnly
+    }
+
+    static func ValidateMetadataReferenceType(valueType: Type, role: string, schemaName: string) {
+        if valueType.get_IsByRef() {
+            throw new InvalidOperationException(schemaName + " " + role + " types cannot be null, void, or by-reference.")
+        }
+        if valueType.get_IsGenericTypeDefinition() && !(valueType is TypeBuilder) {
+            throw new InvalidOperationException(schemaName + " " + role + " types cannot be generic type definitions.")
+        }
     }
 
     static func ValidateStorableType(valueType: Type, role: string, schemaName: string) {

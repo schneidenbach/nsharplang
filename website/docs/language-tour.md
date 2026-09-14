@@ -2288,6 +2288,22 @@ func main() {
 }
 ```
 
+`typeof` is also the one type position that accepts `void`. `void` is not a type a binding, field,
+parameter or array element can hold, so it is not written anywhere else; `typeof(void)` names
+`System.Void`, which is exactly the type a reflected `void` method reports as its return type.
+
+```n#
+import System
+
+func Nothing() {
+}
+
+func main() {
+    reported := typeof(Program).GetMethod("Nothing", new Type[](0))
+    print reported.ReturnType == typeof(void)   // True
+}
+```
+
 ## File-Scoped Types
 
 Mark a type `file` to keep it visible only within the file that declares it — useful for
