@@ -93,7 +93,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
             }
 
             // Dot-qualified call — resolve the receiver as a value first, then as a type.
-            var typeName = SignatureHelpArgumentFacts.DeclarationReceiverName(callInfo.ReceiverName);
+            var typeName = callInfo.ReceiverName;
             var methodName = callInfo.MethodName;
 
             _logger.LogDebug("Method call: {Type}.{Method}", typeName, methodName);
@@ -244,7 +244,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         }
 
         // Direct N# type access, e.g. Person.Create(
-        var nsharpMemberSignatures = BuildNSharpMemberSignatures(doc, receiverName, methodName);
+        var nsharpMemberSignatures = BuildNSharpMemberSignatures(doc, SignatureHelpArgumentFacts.DeclarationReceiverName(receiverName, doc.CompilationUnit?.Namespace?.Name), methodName);
         if (nsharpMemberSignatures.Count > 0)
         {
             return nsharpMemberSignatures;

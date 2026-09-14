@@ -175,10 +175,10 @@ test "signature help follows a reordered named argument" {
 test "signature help resolves a named argument on a generic receiver and method" {
     docs := LshNewDocs()
     uri := "file:///generic-receiver-signature.nl"
-    source := "\nclass Box<T> {\n    static func Method<U>(first: U, second: int): U { return first }\n}\n\nfunc main(): void\n    Box<int>.Method<int>(second: 2, first: "
+    source := "namespace Catalog\n\nclass Box<T> {\n    static func Method<U>(first: U, second: int): U { return first }\n}\n\nclass WrongBox {\n    func Other(first: int, second: int): int { return first }\n}\n\nfunc main(): void\n    Box := new WrongBox()\n    Catalog.Box<int>.Method<int>(second: 2, first: "
     LshOpen(docs, uri, source)
 
-    help := LshSignatureHelp(docs, uri, 6, 48)
+    help := LshSignatureHelp(docs, uri, 12, 56)
 
     assert help != null
     assert LshSignatureCount(help) > 0

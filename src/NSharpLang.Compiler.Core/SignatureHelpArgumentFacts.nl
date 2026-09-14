@@ -23,17 +23,43 @@ class SignatureHelpCallContext {
 // lexer and the parser kernel's generic-call/type-receiver lookahead, so comments and every string
 // form are single tokens and `<` is nested only when the language grammar reads type arguments.
 class SignatureHelpArgumentFacts {
-    static func DeclarationReceiverName(receiverName: string): string {
+    static func DeclarationReceiverName(receiverName: string, currentNamespace: string?): string {
         if receiverName == null {
             return ""
         }
-        generic := receiverName.IndexOf('<')
-        if generic < 0 {
-            return receiverName
+
+        lexer := new Lexer(receiverName, "<signature-help-receiver>")
+        raw := lexer.Tokenize()
+        segments := new List<string>()
+        genericDepth := 0
+        for token in raw {
+            if token.Type == TokenType.Less {
+                genericDepth += 1
+            } else if token.Type == TokenType.Greater {
+                genericDepth -= 1
+            } else if token.Type == TokenType.RightShift {
+                genericDepth -= 2
+            } else if genericDepth == 0 && token.Type == TokenType.Identifier {
+                segments.Add(token.Value)
+            }
         }
-        separator := receiverName.LastIndexOf('.', generic)
-        start := separator >= 0 ? separator + 1 : 0
-        return receiverName.Substring(start, generic - start).Trim()
+        if genericDepth != 0 || segments.Count == 0 {
+            return receiverName.Trim()
+        }
+
+        declarationName := string.Join(".", segments)
+        if String.IsNullOrEmpty(currentNamespace) {
+            return declarationName
+        }
+        namespacePrefix := currentNamespace + "."
+        if !declarationName.StartsWith(namespacePrefix, StringComparison.Ordinal) {
+            return declarationName
+        }
+        localName := declarationName.Substring(namespacePrefix.Length)
+        if localName.IndexOf('.') >= 0 {
+            return declarationName
+        }
+        return localName
     }
 
     static func ActiveCallAtPosition(source: string, zeroBasedLine: int, character: int): SignatureHelpCallContext? {
@@ -86,15 +112,16 @@ class SignatureHelpArgumentFacts {
         }
 
         receiverEnd := calleeIndex - 2
-        receiverStart := receiverEnd
-        if tokens[receiverEnd].Type != TokenType.Identifier {
-            receiverStart = CalleeIdentifierIndex(tokens, receiverEnd + 1)
-        }
+        receiverStart := ReceiverSegmentStart(tokens, receiverEnd)
         if receiverStart < 0 {
             return new SignatureHelpCallContext(null, methodName, false, argumentText)
         }
-        while receiverStart >= 2 && tokens[receiverStart - 1].Type == TokenType.Dot && tokens[receiverStart - 2].Type == TokenType.Identifier {
-            receiverStart -= 2
+        while receiverStart >= 2 && tokens[receiverStart - 1].Type == TokenType.Dot {
+            precedingStart := ReceiverSegmentStart(tokens, receiverStart - 2)
+            if precedingStart < 0 {
+                break
+            }
+            receiverStart = precedingStart
         }
         startOffset := TokenOffset(prefix, tokens[receiverStart])
         dotOffset := TokenOffset(prefix, tokens[calleeIndex - 1])
@@ -103,6 +130,16 @@ class SignatureHelpArgumentFacts {
         }
         receiverName := prefix.Substring(startOffset, dotOffset - startOffset).Trim()
         return new SignatureHelpCallContext(receiverName, methodName, false, argumentText)
+    }
+
+    static func ReceiverSegmentStart(tokens: List<Token>, segmentEnd: int): int {
+        if segmentEnd < 0 {
+            return -1
+        }
+        if tokens[segmentEnd].Type == TokenType.Identifier {
+            return segmentEnd
+        }
+        return CalleeIdentifierIndex(tokens, segmentEnd + 1)
     }
 
     static func CalleeIdentifierIndex(tokens: List<Token>, openIndex: int): int {

@@ -37,7 +37,13 @@ test "signature help retains generic and qualified generic receivers" {
     qualified := SignatureHelpArgumentFacts.ActiveCallAtPosition("func main(): void\n    Catalog.Box<int>.Method<string>(first: ", 1, 51)
     assert qualified != null
     assert qualified.ReceiverName == "Catalog.Box<int>"
-    assert SignatureHelpArgumentFacts.DeclarationReceiverName(qualified.ReceiverName) == "Box"
+    assert SignatureHelpArgumentFacts.DeclarationReceiverName(qualified.ReceiverName, "Catalog") == "Box"
+    assert SignatureHelpArgumentFacts.DeclarationReceiverName(qualified.ReceiverName, "Other") == "Catalog.Box"
+
+    nested := SignatureHelpArgumentFacts.ActiveCallAtPosition("func main(): void\n    Catalog.Outer<int>.Inner<string>.Method<bool>(first: ", 1, 70)
+    assert nested != null
+    assert nested.ReceiverName == "Catalog.Outer<int>.Inner<string>"
+    assert SignatureHelpArgumentFacts.DeclarationReceiverName(nested.ReceiverName, "Catalog") == "Catalog.Outer.Inner"
 }
 
 test "signature help follows the parameter named by the current argument" {
