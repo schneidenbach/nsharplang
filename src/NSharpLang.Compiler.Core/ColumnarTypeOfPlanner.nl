@@ -828,7 +828,7 @@ class ColumnarTypeOfPlanner {
                 keyCanonical = argumentCanonicals[0]
                 valueCanonical = argumentCanonicals[1]
             }
-            if argumentCanonicals.Count != 2 || !TryResolveType(keyCanonical, bindings, out key) || !TryResolveType(valueCanonical, bindings, out value) || (head == "SortedDictionary" ? ContainsBuilderBoundType(key) : !IsAdmissibleDictionaryKeyInCompilation(key, bindings.SourceTypeDefinitions)) || !IsAdmissibleCollectionElement(value) {
+            if argumentCanonicals.Count != 2 || !TryResolveType(keyCanonical, bindings, out key) || !TryResolveType(valueCanonical, bindings, out value) || (head == "SortedDictionary" ? ContainsBuilderBoundType(key) : !IsAdmissibleDictionaryKey(key)) || !IsAdmissibleCollectionElement(value) {
                 return false
             }
             definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
@@ -1795,13 +1795,18 @@ class ColumnarTypeOfPlanner {
         return arguments.Length == 2 && IsSupportedType(arguments[0]) && IsAdmissibleDictionaryKey(arguments[0]) && IsAdmissibleCollectionElement(arguments[1])
     }
 
-    // The element/value types a collection may close over (the builder-element rebind rung):
-    // - a user TypeBuilder (record/class/struct under construction) — members rebind, probe-pinned working;
+    // The element/value types a collection may close over:
+    // - a user TypeBuilder (record/class/struct under construction) — members rebind;
+    // - an ARRAY of any element an array may hold, including a source declaration: the array itself is
+    //   an ordinary reference whatever it holds, and its element rule already owns that question;
+    // - a CLOSED SOURCE GENERIC (`Box<int>` declared in this compilation) — a complete type whose
+    //   members rebind through the same `TypeBuilder.Get*` bridge a direct builder uses;
+    // - `T?` over an element that lifts — `Nullable<T>` keeps ONE owner, so the lifting rules answer;
     // - a nested admissible collection (List<List<Pt>>, List<HashSet<int>>) — its own resolution already
-    //   vetted the inner arguments, which is why the five concrete heads return before asking about them;
+    //   vetted the inner arguments, which is why the six concrete heads return before asking about them;
     // - the BAKED surface (scalars/string/enums/baked closed generics), through the supported-value tail.
-    // PINNED DECLINES (legacy-emitter accepted, flip in later rungs): user-headed closed generics
-    // (List<Box<int>>), builder-bound key/equality shapes, and tuples/delegates over builders.
+    // A POINTER OR BYREF is not a value a collection may hold at all, and it is refused first because
+    // SymbolType reports `IsSZArray` for both.
     static func IsAdmissibleCollectionElement(valueType: Type): bool {
         if IsEnumBuilder(valueType) {
             return false
@@ -1812,6 +1817,16 @@ class ColumnarTypeOfPlanner {
         if valueType is TypeBuilder {
             return true
         }
+        if valueType.get_IsPointer() || valueType.get_IsByRef() {
+            return false
+        }
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
+            element := valueType.GetElementType()
+            return element != null && IsSupportedElementType(element)
+        }
+        if IsClosedSourceGeneric(valueType) {
+            return true
+        }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             name := valueType.GetGenericTypeDefinition().FullName ?? ""
             if name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1" || name == "System.Collections.Generic.Stack`1" {
@@ -1820,6 +1835,9 @@ class ColumnarTypeOfPlanner {
             if IsSupportedValueTuple(valueType) {
                 return true
             }
+            if IsExactNullableConstruction(valueType) {
+                return IsSupportedNullable(valueType)
+            }
             if ContainsBuilderBoundType(valueType) {
                 return false
             }
@@ -1827,42 +1845,28 @@ class ColumnarTypeOfPlanner {
         return IsSupportedType(valueType) && !ContainsBuilderBoundType(valueType)
     }
 
-    // HashSet<T> elements are keys. A complete non-generic source reference declaration now has direct
-    // identity/equality coverage; source value types, open definitions, and constructed builder-bound
-    // shapes remain outside this key surface. Source enums retain their underlying integral semantics.
+    // HashSet<T> elements are keys. A complete non-generic source declaration — reference OR value —
+    // has direct identity/equality coverage, and open definitions and constructed builder-bound shapes
+    // remain outside this key surface. Source enums retain their underlying integral semantics.
     static func IsAdmissibleHashSetElement(valueType: Type): bool {
-        return IsAdmissibleCollectionElement(valueType) && (IsAdmissibleSourceReferenceKey(valueType) || !ContainsNonEnumBuilderBoundType(valueType))
+        return IsAdmissibleCollectionElement(valueType) && IsAdmissibleDictionaryKey(valueType)
     }
 
-    // Dictionary shares the direct source-reference key admission. Keep the exception at the direct
+    // Dictionary shares the direct source-declaration key admission. Keep the exception at the direct
     // builder leaf so arrays and constructed shapes cannot inherit it accidentally.
     static func IsAdmissibleDictionaryKey(valueType: Type): bool {
-        return IsAdmissibleSourceReferenceKey(valueType) || !ContainsNonEnumBuilderBoundType(valueType)
+        return IsAdmissibleSourceDeclarationKey(valueType) || !ContainsNonEnumBuilderBoundType(valueType)
     }
 
-    // Record structs synthesize value equality and hashing before any body uses them. Admit that
-    // key surface only when the live source registry proves this exact direct TypeBuilder is a
-    // non-generic record value declaration. The type-only predicate above intentionally remains
-    // conservative: a bare reflection handle carries no record-declaration fact, and arrays or
-    // constructed builder-bound shapes must not inherit this exception.
-    static func IsAdmissibleDictionaryKeyInCompilation(valueType: Type, sourceDefinitions: IEnumerable<ColumnarStructDef>): bool {
-        if IsAdmissibleDictionaryKey(valueType) {
-            return true
-        }
-        if sourceDefinitions == null || !(valueType is TypeBuilder) || IsEnumBuilder(valueType) || valueType.get_IsGenericTypeDefinition() || !valueType.get_IsValueType() {
-            return false
-        }
-
-        for definition in sourceDefinitions {
-            if definition != null && Object.ReferenceEquals(definition.Builder, valueType) {
-                return definition.IsRecord && !definition.IsReference
-            }
-        }
-        return false
-    }
-
-    static func IsAdmissibleSourceReferenceKey(valueType: Type): bool {
-        return valueType is TypeBuilder && !IsEnumBuilder(valueType) && !valueType.get_IsGenericTypeDefinition() && !valueType.get_IsValueType()
+    // A DIRECT SOURCE DECLARATION IS A KEY, whether it is a class, a record, a struct or a record
+    // struct. Every one of them has well-defined equality and hashing the moment it exists: a source
+    // reference declaration through its own members, a record through the equality it synthesizes, and
+    // a plain source struct through `System.ValueType`'s — which is the same answer C# gives, and the
+    // reason no registry lookup is needed to tell the value shapes apart. The exception stays at the
+    // direct builder leaf: an open definition names no single type, an `EnumBuilder` is handled by the
+    // enum rule beside this one, and arrays or constructed builder-bound shapes must not inherit it.
+    static func IsAdmissibleSourceDeclarationKey(valueType: Type): bool {
+        return valueType is TypeBuilder && !IsEnumBuilder(valueType) && !valueType.get_IsGenericTypeDefinition()
     }
 
     static func IsSupportedDelegateType(valueType: Type): bool {

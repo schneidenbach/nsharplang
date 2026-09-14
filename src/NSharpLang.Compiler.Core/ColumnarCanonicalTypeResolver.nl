@@ -749,7 +749,7 @@ class ColumnarCanonicalTypeResolver {
         if genericOpen == 19 && canonical.StartsWith("IReadOnlyDictionary<", StringComparison.Ordinal) {
             claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectTypeParameterArguments(canonical.Substring(20, canonical.Length - 21), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceReferenceKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
+            if TrySelectTypeParameterArguments(canonical.Substring(20, canonical.Length - 21), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceDeclarationKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
                 definition := ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
@@ -761,7 +761,7 @@ class ColumnarCanonicalTypeResolver {
         if genericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal) {
             claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectTypeParameterArguments(canonical.Substring(11, canonical.Length - 12), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceReferenceKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
+            if TrySelectTypeParameterArguments(canonical.Substring(11, canonical.Length - 12), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceDeclarationKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
                 definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
@@ -1600,7 +1600,7 @@ class ColumnarCanonicalTypeResolver {
         if genericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal) {
             claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectOrdinaryArguments(canonical.Substring(11, canonical.Length - 12), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(arguments[0].RuntimeType, structRegistry.Values) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
+            if TrySelectOrdinaryArguments(canonical.Substring(11, canonical.Length - 12), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(arguments[0].RuntimeType) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
                 definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
@@ -1612,7 +1612,7 @@ class ColumnarCanonicalTypeResolver {
         if genericOpen == 19 && canonical.StartsWith("IReadOnlyDictionary<", StringComparison.Ordinal) {
             claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectOrdinaryArguments(canonical.Substring(20, canonical.Length - 21), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(arguments[0].RuntimeType, structRegistry.Values) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
+            if TrySelectOrdinaryArguments(canonical.Substring(20, canonical.Length - 21), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(arguments[0].RuntimeType) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
                 definition := ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)

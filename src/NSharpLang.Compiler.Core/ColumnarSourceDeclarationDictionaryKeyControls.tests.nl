@@ -5,13 +5,13 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
-func SourceRecordDictionaryKeyRecord(name: string): ColumnarStructDef {
+func SourceDeclarationDictionaryKeyRecord(name: string): ColumnarStructDef {
     definition := SourceCallDefinition(name, false)
     definition.IsRecord = true
     return definition
 }
 
-func SourceRecordDictionaryKeyDefinitions(
+func SourceDeclarationDictionaryKeyDefinitions(
     first: ColumnarStructDef,
     second: ColumnarStructDef
 ): ColumnarStructDef[] {
@@ -21,7 +21,7 @@ func SourceRecordDictionaryKeyDefinitions(
     return definitions
 }
 
-func SourceRecordDictionaryKeyAssertClosed(
+func SourceDeclarationDictionaryKeyAssertClosed(
     valueType: Type,
     expectedDefinition: Type,
     expectedKey: Type,
@@ -36,16 +36,19 @@ func SourceRecordDictionaryKeyAssertClosed(
     assert Object.ReferenceEquals(arguments[1], expectedValue)
 }
 
-test "Dictionary key admission requires the exact registered source record struct fact" {
-    recordDefinition := SourceRecordDictionaryKeyRecord(
+// EVERY DIRECT SOURCE DECLARATION IS A KEY, and nothing built out of one is. A record struct, a
+// plain struct and a source class all carry well-defined equality and hashing the moment they
+// exist, so the key admission asks about the DECLARATION and never about which kind it is — no
+// registry lookup, and no record-only exception. An open definition names no single type, and an
+// array, a byref, a pointer or a constructed source generic is a shape over a declaration rather
+// than the declaration itself.
+test "Dictionary key admission takes any direct source declaration and stops at the builder leaf" {
+    recordDefinition := SourceDeclarationDictionaryKeyRecord(
         "RecordDictionaryControls.Outer.Site"
     )
     ordinary := SourceCallDefinition(
         "RecordDictionaryControls.Outer.Plain",
         false
-    )
-    unregistered := SourceRecordDictionaryKeyRecord(
-        "RecordDictionaryControls.Outer.Unregistered"
     )
     generic := SourceCallGenericDefinition(
         "RecordDictionaryControls.GenericSite"
@@ -53,59 +56,33 @@ test "Dictionary key admission requires the exact registered source record struc
     generic.IsRecord = true
     generic.IsReference = false
 
-    definitions := SourceRecordDictionaryKeyDefinitions(recordDefinition, ordinary)
     recordType: Type = recordDefinition.Builder
     ordinaryType: Type = ordinary.Builder
-    unregisteredType: Type = unregistered.Builder
     genericDefinition: Type = generic.Builder
     genericArguments := new Type[](1)
     genericArguments[0] = typeof(int)
     constructedGeneric := genericDefinition.MakeGenericType(genericArguments)
 
-    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(recordType)
-    assert ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(
-        recordType,
-        definitions
-    )
-    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(
-        ordinaryType,
-        definitions
-    )
-    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(
-        unregisteredType,
-        definitions
-    )
-    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(
-        genericDefinition,
-        definitions
-    )
-    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(
-        constructedGeneric,
-        definitions
-    )
-    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(
-        recordType.MakeArrayType(),
-        definitions
-    )
-    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(
-        recordType.MakeByRefType(),
-        definitions
-    )
-    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(
-        recordType.MakePointerType(),
-        definitions
-    )
+    assert ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(recordType)
+    assert ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(ordinaryType)
+    assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(recordType)
+    assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(ordinaryType)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(genericDefinition)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(constructedGeneric)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(recordType.MakeArrayType())
+    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(recordType.MakeByRefType())
+    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(recordType.MakePointerType())
 }
 
-test "canonical and fragment resolution carry the live record declaration into Dictionary only" {
-    recordDefinition := SourceRecordDictionaryKeyRecord(
+test "canonical and fragment resolution carry every live source declaration into Dictionary" {
+    recordDefinition := SourceDeclarationDictionaryKeyRecord(
         "RecordDictionaryControls.Outer.Site"
     )
     ordinary := SourceCallDefinition(
         "RecordDictionaryControls.Outer.Plain",
         false
     )
-    definitions := SourceRecordDictionaryKeyDefinitions(recordDefinition, ordinary)
+    definitions := SourceDeclarationDictionaryKeyDefinitions(recordDefinition, ordinary)
     structs := SemanticEmptyStructs()
     structs[recordDefinition.DeclaredTypeName] = recordDefinition
     structs[ordinary.DeclaredTypeName] = ordinary
@@ -127,6 +104,7 @@ test "canonical and fragment resolution carry the live record declaration into D
     dictionaryDefinition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
     readOnlyDictionaryDefinition := ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition()
     recordType: Type = recordDefinition.Builder
+    ordinaryType: Type = ordinary.Builder
     resolved := typeof(object)
     assert ColumnarCanonicalTypeResolver.TryResolveType(
         "Dictionary<Site,string>",
@@ -135,7 +113,7 @@ test "canonical and fragment resolution carry the live record declaration into D
         resolution.Unions,
         out resolved
     )
-    SourceRecordDictionaryKeyAssertClosed(
+    SourceDeclarationDictionaryKeyAssertClosed(
         resolved,
         dictionaryDefinition,
         recordType,
@@ -150,22 +128,29 @@ test "canonical and fragment resolution carry the live record declaration into D
         resolution.Unions,
         out resolved
     )
-    SourceRecordDictionaryKeyAssertClosed(
+    SourceDeclarationDictionaryKeyAssertClosed(
         resolved,
         readOnlyDictionaryDefinition,
         recordType,
         typeof(string)
     )
 
+    // The plain struct resolves exactly as the record struct does: the key surface is the
+    // declaration, not the kind of declaration.
     resolved = typeof(object)
-    assert !ColumnarCanonicalTypeResolver.TryResolveType(
+    assert ColumnarCanonicalTypeResolver.TryResolveType(
         "Dictionary<Plain,string>",
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,
         out resolved
     )
-    assert resolved == null
+    SourceDeclarationDictionaryKeyAssertClosed(
+        resolved,
+        dictionaryDefinition,
+        ordinaryType,
+        typeof(string)
+    )
 
     bindings := ColumnarRangePlannerEmptyBindings()
     bindings.SourceTypeDefinitions = definitions
@@ -176,7 +161,7 @@ test "canonical and fragment resolution carry the live record declaration into D
     )
     bindings.StructuralTypeReferences.RegisterSourceDefinition(
         ordinary.DeclaredTypeName,
-        ordinary.Builder,
+        ordinaryType,
         false
     )
     recordTree := TypeOfGenericTree(
@@ -185,7 +170,7 @@ test "canonical and fragment resolution carry the live record declaration into D
         "string"
     )
     recordPlan := TypeOfPlan(recordTree, bindings)
-    SourceRecordDictionaryKeyAssertClosed(
+    SourceDeclarationDictionaryKeyAssertClosed(
         recordPlan.Types[0],
         dictionaryDefinition,
         recordType,
@@ -197,13 +182,11 @@ test "canonical and fragment resolution carry the live record declaration into D
         ordinary.DeclaredTypeName,
         "string"
     )
-    ordinaryPlan := new ColumnarCodePlan()
-    assert ColumnarTypeOfPlanner.Plan(
-        ordinaryTree.Nodes,
-        ordinaryTree.Source,
-        ordinaryTree.Root,
-        bindings,
-        ordinaryPlan
-    ) == ColumnarFragmentPlanStatus.NotOwned
-    assert ordinaryPlan.OperationCount == 0
+    ordinaryPlan := TypeOfPlan(ordinaryTree, bindings)
+    SourceDeclarationDictionaryKeyAssertClosed(
+        ordinaryPlan.Types[0],
+        dictionaryDefinition,
+        ordinaryType,
+        typeof(string)
+    )
 }
