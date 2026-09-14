@@ -122,15 +122,30 @@ class ColumnarAttributeArgumentReader {
         return true
     }
 
-    // `Name = value` IS A NAMED ARGUMENT ONLY WHEN THE TARGET IS A BARE IDENTIFIER, and `==` is never
-    // one. The analyzer draws the same line; drawing it differently here would bind a named argument
-    // the analyzer validated as positional, or the reverse.
+    // A NAMED ARGUMENT IS A BARE IDENTIFIER FOLLOWED BY `=` OR `:`, and `==` is never one. The
+    // analyzer draws the same line; drawing it differently here would bind a named argument the
+    // analyzer validated as positional, or the reverse.
+    //
+    // BOTH SPELLINGS, BECAUSE THE FRONT END ALREADY ACCEPTS BOTH. `Name: value` is N#'s own named-
+    // argument syntax — it is what a call and an object initializer are written with — and the
+    // analyzer validates it in an attribute exactly like `Name = value`: an unknown member reports
+    // NL303 and a mismatched value reports NL202, under either spelling. This reader knew only `=`,
+    // so `[JsonIgnore(Condition: JsonIgnoreCondition.WhenWritingNull)]` read `Condition` and its
+    // value as ONE positional argument, failed to decode it, and the WHOLE ATTRIBUTE was then
+    // dropped from the emitted metadata with no diagnostic anywhere — a silently missing
+    // custom-attribute row, which is the one outcome the attribute rules promise never to produce
+    // ("refused by NL310 rather than silently dropped").
     func LooksLikeNamedArgument(): bool {
         if position + 1 >= limit {
             return false
         }
 
-        return tokens.Kinds[position] == (int)TokenType.Identifier && tokens.Kinds[position + 1] == (int)TokenType.Assign
+        if tokens.Kinds[position] != (int)TokenType.Identifier {
+            return false
+        }
+
+        next := tokens.Kinds[position + 1]
+        return next == (int)TokenType.Assign || next == (int)TokenType.Colon
     }
 
     func TokenText(index: int): string {

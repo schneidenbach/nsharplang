@@ -1582,6 +1582,76 @@ test "primitive binary planner owns numeric and Boolean equality" {
     ) == "True"
 }
 
+// STRING EQUALITY IS VALUE EQUALITY, and the plan path had no arm for it at all: the pair declined,
+// and every consumer that PLANS rather than emitting directly went down with it — `name == "a"`
+// inside a `func*` reported `emit.iterator.unsupported-shape: an iterator body expression (node kind
+// 12) could not be lowered`, while `name + "!"` in the same body planned fine. `ceq` over two string
+// references is the wrong answer, so the arm calls the same `String.op_Equality` the ordinary body
+// emitter calls for the same pair.
+test "primitive binary planner owns string equality through String.op_Equality" {
+    equalPlan := PrimitiveBinaryPlan(
+        "left == right",
+        PrimitiveBinaryParameterBindings(typeof(string))
+    )
+    assert equalPlan.ResultType == typeof(bool)
+    assert equalPlan.MethodCount == 1
+    equality := equalPlan.Methods[0]
+    assert equality.get_DeclaringType() == typeof(string)
+    assert equality.get_Name() == "op_Equality"
+    assert equality.get_IsStatic()
+    assert equality.get_ReturnType() == typeof(bool)
+    equalityParameters := equality.GetParameters()
+    assert equalityParameters.Length == 2
+    assert equalityParameters[0].get_ParameterType() == typeof(string)
+    assert equalityParameters[1].get_ParameterType() == typeof(string)
+    // Reference comparison is what `ceq` would have produced, and it is not what this means.
+    assert PrimitiveBinaryOpcodeCount(
+        equalPlan,
+        ColumnarCodePlanContract.Ceq()
+    ) == 0
+
+    // Two DISTINCT string instances that carry the same characters: a reference comparison answers
+    // False here and value equality answers True, which is the whole point of the arm.
+    assert StringEqualityResult("left == right", "ab", StringEqualityRebuilt()) == "True"
+    assert StringEqualityResult("left == right", "ab", "ac") == "False"
+
+    notEqualPlan := PrimitiveBinaryPlan(
+        "left != right",
+        PrimitiveBinaryParameterBindings(typeof(string))
+    )
+    assert notEqualPlan.ResultType == typeof(bool)
+    assert notEqualPlan.MethodCount == 1
+    assert notEqualPlan.Methods[0].get_Name() == "op_Equality"
+    // `!=` is the negation of the same call: one `ldc.i4.0` + `ceq` after it.
+    assert PrimitiveBinaryOpcodeCount(
+        notEqualPlan,
+        ColumnarCodePlanContract.Ceq()
+    ) == 1
+    assert StringEqualityResult("left != right", "ab", StringEqualityRebuilt()) == "False"
+    assert StringEqualityResult("left != right", "ab", "ac") == "True"
+}
+
+// One plan per execution, because a sealed plan is executed once.
+func StringEqualityResult(text: string, left: string, right: string): string {
+    return PrimitiveBinaryExecuteParameters(
+        PrimitiveBinaryPlan(text, PrimitiveBinaryParameterBindings(typeof(string))),
+        typeof(bool),
+        typeof(string),
+        typeof(string),
+        left,
+        right
+    )
+}
+
+// A "ab" that is not the interned literal, so the value-equality assertions cannot pass by
+// reference identity.
+func StringEqualityRebuilt(): string {
+    letters := new char[](2)
+    letters[0] = 'a'
+    letters[1] = 'b'
+    return new string(letters)
+}
+
 test "primitive binary planner owns the decimal operator statics" {
     subPlan := PrimitiveBinaryPlan(
         "left - right",
@@ -1829,10 +1899,9 @@ test "primitive binary planner declines mixed pairs boolean and non numeric rela
         "left < right",
         PrimitiveBinaryParameterBindings(typeof(string))
     )
-    PrimitiveBinaryDeclines(
-        "left == right",
-        PrimitiveBinaryParameterBindings(typeof(string))
-    )
+    // `left == right` over two strings is NO LONGER a decline: it is value equality through
+    // String.op_Equality, pinned by "primitive binary planner owns string equality" above. Ordering
+    // over strings stays declined — there is no predefined `<` for them.
 
     partialBindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(partialBindings, "left", 0, typeof(int))

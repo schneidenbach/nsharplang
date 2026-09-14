@@ -37,6 +37,15 @@ class DotnetRunner {
         return exitCode
     }
 
+    // THE SHAPE THAT INHERITS THIS PROCESS'S DIRECTORY AND TAKES THE DEFAULT TIMEOUT, DECLARED AT ITS
+    // OWN ARITY. An N#-emitted assembly writes no nullability metadata and a defaulted parameter
+    // cannot be omitted at a call site yet, so a CALLER IN ANOTHER ASSEMBLY cannot reach the four-
+    // parameter declaration below at all — neither by omitting the tail nor by passing `null` for it.
+    // The two-argument call every such caller wants is therefore a declaration rather than a default.
+    static func RunProcess(fileName: string, arguments: string): DotnetRunResult {
+        return RunProcessCore(fileName, arguments, null, true, null)
+    }
+
     static func RunProcess(fileName: string, arguments: string, workingDirectory: string? = null, timeout: TimeSpan? = null): DotnetRunResult {
         return RunProcessCore(fileName, arguments, workingDirectory, true, timeout)
     }

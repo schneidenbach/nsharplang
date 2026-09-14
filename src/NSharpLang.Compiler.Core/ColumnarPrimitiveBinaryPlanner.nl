@@ -585,13 +585,30 @@ class ColumnarPrimitiveBinaryPlanner {
     // are intentionally excluded and remain whole-subtree exits for the legacy equality forms.
     static func TryAppendEquality(nodes: ColumnarNodeTable, source: string, candidate: int, opType: Type, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(bool)
-        if !ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float) && opType != typeof(bool) {
-            return false
-        }
-
         isEqual := HasExactOperatorText(nodes, source, candidate, "==")
         isNotEqual := HasExactOperatorText(nodes, source, candidate, "!=")
         if !isEqual && !isNotEqual {
+            return false
+        }
+
+        // STRING EQUALITY IS VALUE EQUALITY, and the plan path had no arm for it at all. `ceq` over
+        // two string references compares the REFERENCES, which is the wrong answer, so this owner
+        // declined the pair — and every consumer that plans rather than emits directly went with it:
+        // `name == "a"` inside a `func*` reported `emit.iterator.unsupported-shape: an iterator body
+        // expression (node kind 12) could not be lowered`, while `name + "!"` in the same body
+        // planned fine. `String.op_Equality` is the same call the ordinary body emitter makes for the
+        // same pair, so the two paths now emit the same IL.
+        if opType == typeof(string) {
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(RequiredStringEquality()))
+            if isNotEqual {
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+            }
+            resultType = typeof(bool)
+            return true
+        }
+
+        if !ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float) && opType != typeof(bool) {
             return false
         }
 
@@ -710,6 +727,21 @@ class ColumnarPrimitiveBinaryPlanner {
         parameters := method.GetParameters()
         if parameters.Length != 2 || parameters[0].get_ParameterType() != typeof(string) || parameters[1].get_ParameterType() != typeof(string) {
             throw new InvalidOperationException("String.Concat(String,String) has an unexpected runtime signature.")
+        }
+        return method
+    }
+
+    static func RequiredStringEquality(): MethodInfo {
+        parameterTypes := new Type[](2)
+        parameterTypes[0] = typeof(string)
+        parameterTypes[1] = typeof(string)
+        method := typeof(string).GetMethod("op_Equality", parameterTypes)
+        if method == null || method.get_DeclaringType() != typeof(string) || !method.get_IsStatic() || method.get_ReturnType() != typeof(bool) {
+            throw new InvalidOperationException("Required CLR method String.op_Equality(String,String) was not found exactly.")
+        }
+        parameters := method.GetParameters()
+        if parameters.Length != 2 || parameters[0].get_ParameterType() != typeof(string) || parameters[1].get_ParameterType() != typeof(string) {
+            throw new InvalidOperationException("String.op_Equality(String,String) has an unexpected runtime signature.")
         }
         return method
     }

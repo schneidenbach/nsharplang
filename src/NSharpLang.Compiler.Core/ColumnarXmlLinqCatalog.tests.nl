@@ -336,10 +336,9 @@ test "an un-admitted property of an admitted receiver still selects nothing" {
 
 test "the emit-side common assembly list carries the implementation assembly, not the facade" {
     names := ExternalAssemblyScan.CommonAssemblyNames()
-    // 28 since 023/1b added `System.Reflection.Metadata`, the ECMA-335 writer's own assembly; 30
-    // since `System.IO.Compression` and `System.IO.Compression.ZipFile` made `import
-    // System.IO.Compression` resolvable at all (the second name is the one that exports `ZipFile`).
-    assert names.Length == 30
+    // 31: 28 since 023/1b added `System.Reflection.Metadata`, the ECMA-335 writer's own assembly,
+    // and three more for the file-system watcher and the zip writer the CLI needs.
+    assert names.Length == 31
 
     found := false
     facade := false

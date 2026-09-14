@@ -202,6 +202,32 @@ class Target {
     [Obsolete(DiagnosticId = "NL9999")]
     func ExternalNamedOnly() {
     }
+
+    // THE OTHER SPELLING OF A NAMED ARGUMENT. `Name: value` is what N# writes a named argument with
+    // everywhere else — a call, an object initializer — and the analyzer validates it in an
+    // attribute exactly like `Name = value` (an unknown member is NL303, a mismatched value NL202).
+    // The emitter's argument reader knew only `=`, so each of these read its name and its value as
+    // ONE positional argument, failed to decode it, and the WHOLE attribute was dropped from the
+    // emitted metadata with no diagnostic: `GetCustomAttributesData()` simply had no row.
+    [Mark("colon named", Count: 43)]
+    func ColonNamedField() {
+    }
+
+    [Noted(Note: "through a setter, colon")]
+    func ColonNamedProperty() {
+    }
+
+    [DerivedMark("colon derived", Count: 4, Extra: "colon own")]
+    func ColonDerived() {
+    }
+
+    [Obsolete(DiagnosticId: "NL9998")]
+    func ColonExternalNamedOnly() {
+    }
+
+    [Levelled(Level.High, AttributeTargets.Method | AttributeTargets.Class, 19)]
+    func ColonPositionalStillPositional() {
+    }
 }
 
 // OPTIONAL CONSTRUCTOR PARAMETERS. A custom-attribute blob has no notion of an omitted argument, so

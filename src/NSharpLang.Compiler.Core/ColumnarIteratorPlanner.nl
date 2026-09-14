@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -901,6 +902,17 @@ class ColumnarIteratorPlanner {
         }
         if kind == 20 {
             state.Decline("emit.iterator.unsupported-shape", "a `return` statement cannot appear in an iterator body; use `yield` to produce a value and `yield break` to stop")
+            return false
+        }
+        if kind == 21 || kind == 22 {
+            // Break / Continue: a branch to the enclosing loop's exit or step. Neither carries a
+            // value, hoists a local or suspends, so the walk has nothing to record — it only has to
+            // say that the path does not fall through, which is what makes the rows after it dead.
+            // `LoopDepth` is the walk's own nesting count; a placement outside a loop is the
+            // analyzer's NL318/NL319 to report, and the decline here is this owner's contract guard.
+            if state.LoopDepth == 0 {
+                state.Decline("emit.iterator.loop-branch-placement", (kind == 21 ? "`break`" : "`continue`") + " is only valid inside a loop")
+            }
             return false
         }
         if kind == 76 {
@@ -1964,6 +1976,26 @@ class ColumnarMoveNextEmit {
     // cannot open a `finally` INSIDE a `catch` (a `try` that declares a `catch` refuses to hold a
     // suspension point at all), so there is no nested-finally barrier to track alongside it.
     CatchHandlerDepth: int
+    // How many `finally` HANDLER BODIES the walk is writing inside. A branch OUT of a finally is
+    // illegal IL whatever it targets, so `break`/`continue` refuses to cross one — the same guard the
+    // ordinary body emitter keeps, and the analyzer has already reported NL319 for the shape.
+    FinallyHandlerDepth: int
+    // THE ENCLOSING LOOPS' BRANCH TARGETS, innermost LAST. `break` goes to the loop's exit label and
+    // `continue` to the label standing just before its step and back edge, so a counted loop's
+    // increment still runs on the continue path exactly as it does on the fall-through one. Each
+    // frame also records the depths the loop was OPENED at: a branch that crosses a protected region
+    // must be `leave` rather than `br`, one that would leave a `finally` cannot be written at all,
+    // and one that would cross a HOISTED handler (an `await`-bearing `finally`, or the region an
+    // `await foreach` keeps) has a handler to run on the way out that this branch does not know how
+    // to re-issue — so that frame is marked not-lowerable and declines by name instead of silently
+    // skipping the handler.
+    LoopBreakLabels: List<int>
+    LoopContinueLabels: List<int>
+    LoopRegionDepths: List<int>
+    LoopFinallyDepths: List<int>
+    LoopHoistedDepths: List<int>
+    LoopLowerable: List<bool>
+    LoopContinueUsed: List<bool>
 
     constructor(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, thisArg: int, stateFieldPool: int, resumeLabels: int[], endLabel: int, regionMode: bool, resultLocal: int, regionEndLabel: int, isAsync: bool = false, faultGuarded: bool = false, regionEntryLabels: int[]? = null) {
         Plan = plan
@@ -1993,11 +2025,48 @@ class ColumnarMoveNextEmit {
         NextTryRegion = 0
         NextUsingResource = 0
         CatchHandlerDepth = 0
+        FinallyHandlerDepth = 0
+        LoopBreakLabels = new List<int>()
+        LoopContinueLabels = new List<int>()
+        LoopRegionDepths = new List<int>()
+        LoopFinallyDepths = new List<int>()
+        LoopHoistedDepths = new List<int>()
+        LoopLowerable = new List<bool>()
+        LoopContinueUsed = new List<bool>()
     }
 
     // True where the plan is standing inside a protected region, which is exactly where a branch out
     // must be a `leave` and a `ret` is illegal.
     InsideRegion: bool => FaultGuarded || RegionDepth > 0
+
+    LoopDepth: int => LoopBreakLabels.Count
+
+    // OPEN A LOOP FRAME. `continueLabel` is where the step and the back edge stand; for a `while` it
+    // is the condition itself, because there is no step to run first.
+    func PushLoop(continueLabel: int, breakLabel: int, lowerable: bool) {
+        LoopBreakLabels.Add(breakLabel)
+        LoopContinueLabels.Add(continueLabel)
+        LoopRegionDepths.Add(RegionDepth)
+        LoopFinallyDepths.Add(FinallyHandlerDepth)
+        LoopHoistedDepths.Add(HoistedDepth)
+        LoopLowerable.Add(lowerable)
+        LoopContinueUsed.Add(false)
+    }
+
+    // Whether any `continue` in the body that just closed branched to this frame — the step and back
+    // edge are emitted for a body that cannot fall through only when one did.
+    func PopLoop(): bool {
+        last := LoopBreakLabels.Count - 1
+        used := LoopContinueUsed[last]
+        LoopBreakLabels.RemoveAt(last)
+        LoopContinueLabels.RemoveAt(last)
+        LoopRegionDepths.RemoveAt(last)
+        LoopFinallyDepths.RemoveAt(last)
+        LoopHoistedDepths.RemoveAt(last)
+        LoopLowerable.RemoveAt(last)
+        LoopContinueUsed.RemoveAt(last)
+        return used
+    }
 }
 
 class ColumnarIteratorBodyPlanner {
@@ -3558,7 +3627,8 @@ class ColumnarIteratorBodyPlanner {
             return true
         }
         if kind == 26 {
-            // while [condition, body]: the back edge only exists when the body can complete.
+            // while [condition, body]: the back edge only exists when the body can complete. A
+            // `continue` targets the condition, which is where the loop's next iteration begins.
             condLabel := emit.Plan.DefineLabel()
             afterLabel := emit.Plan.DefineLabel()
             emit.Plan.AppendMarkLabel(condLabel)
@@ -3566,7 +3636,10 @@ class ColumnarIteratorBodyPlanner {
                 return false
             }
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
-            if EmitStatement(emit, nodes.Child(node, 1)) {
+            emit.PushLoop(condLabel, afterLabel, true)
+            bodyFalls := EmitStatement(emit, nodes.Child(node, 1))
+            emit.PopLoop()
+            if bodyFalls {
                 emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
             }
             emit.Plan.AppendMarkLabel(afterLabel)
@@ -3622,13 +3695,23 @@ class ColumnarIteratorBodyPlanner {
                 return false
             }
             condLabel := emit.Plan.DefineLabel()
+            stepLabel := emit.Plan.DefineLabel()
             afterLabel := emit.Plan.DefineLabel()
             emit.Plan.AppendMarkLabel(condLabel)
             if !AppendCondition(emit, nodes.Child(node, 1)) {
                 return false
             }
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
-            if EmitStatement(emit, nodes.Child(node, 3)) {
+            // A `continue` targets the STEP, not the condition: `for i := 0; i < n; i++` must still
+            // step `i` on the continue path or the loop never ends.
+            emit.PushLoop(stepLabel, afterLabel, true)
+            bodyFalls := EmitStatement(emit, nodes.Child(node, 3))
+            continued := emit.PopLoop()
+            if emit.Context.Declined {
+                return false
+            }
+            if bodyFalls || continued {
+                emit.Plan.AppendMarkLabel(stepLabel)
                 EmitStatement(emit, nodes.Child(node, 2))
                 if emit.Context.Declined {
                     return false
@@ -3680,7 +3763,53 @@ class ColumnarIteratorBodyPlanner {
             emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Throw())
             return false
         }
+        if kind == 21 || kind == 22 {
+            return EmitLoopBranch(emit, kind == 21)
+        }
         emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
+        return false
+    }
+
+    // `break` / `continue` INSIDE A GENERATOR BODY. Neither was lowered at all: `func*` plus a loop
+    // that broke or continued declined the whole program with "an iterator body statement (node kind
+    // 21/22) is not yet lowered", which took a great many ordinary sequence functions with it — a
+    // directory walk that skips an unreadable directory is the shape that found it.
+    //
+    // The branch itself is the ordinary one: to the innermost frame's exit label for `break`, to its
+    // step label for `continue` (so a counted loop's increment runs on the continue path), and
+    // `leave` rather than `br` when it crosses a protected region the loop opened outside of. Two
+    // placements refuse instead: out of a `finally` (illegal IL whatever the target, and NL319
+    // already reports it), and across a HOISTED handler, whose body stands past the region end and
+    // would be skipped by a branch that does not know to stop there.
+    static func EmitLoopBranch(emit: ColumnarMoveNextEmit, isBreak: bool): bool {
+        word := isBreak ? "break" : "continue"
+        if emit.LoopDepth == 0 {
+            emit.Context.Decline("emit.iterator.loop-branch-placement", "`" + word + "` is only valid inside a loop")
+            return false
+        }
+
+        frame := emit.LoopDepth - 1
+        if !emit.LoopLowerable[frame] {
+            emit.Context.Decline("emit.iterator.loop-branch-placement", "a `" + word + "` out of an `await foreach` is not yet lowered in an iterator body")
+            return false
+        }
+        if emit.FinallyHandlerDepth > emit.LoopFinallyDepths[frame] {
+            emit.Context.Decline("emit.iterator.loop-branch-placement", "a `" + word + "` cannot leave a `finally` handler")
+            return false
+        }
+        if emit.HoistedDepth > emit.LoopHoistedDepths[frame] {
+            emit.Context.Decline("emit.iterator.loop-branch-placement", "a `" + word + "` out of an `await`-bearing `finally` is not yet lowered in an iterator body")
+            return false
+        }
+
+        target := emit.LoopBreakLabels[frame]
+        if !isBreak {
+            target = emit.LoopContinueLabels[frame]
+            emit.LoopContinueUsed[frame] = true
+        }
+
+        crossesRegion := emit.RegionDepth > emit.LoopRegionDepths[frame]
+        emit.Plan.AppendLabelInstruction(crossesRegion ? ColumnarCodePlanContract.Leave() : ColumnarCodePlanContract.Br(), target)
         return false
     }
 
@@ -4076,7 +4205,9 @@ class ColumnarIteratorBodyPlanner {
             EmitInt(emit, 0)
             emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Clt())
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), skipLabel)
+            emit.FinallyHandlerDepth = emit.FinallyHandlerDepth + 1
             EmitStatement(emit, finallyNode)
+            emit.FinallyHandlerDepth = emit.FinallyHandlerDepth - 1
             if emit.Context.Declined {
                 return false
             }
@@ -4456,8 +4587,14 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), varPool)
-        if EmitStatement(emit, bodyNode) {
+        // A `continue` targets the index step, so the next element is read rather than the same one.
+        stepLabel := emit.Plan.DefineLabel()
+        emit.PushLoop(stepLabel, afterLabel, true)
+        bodyFalls := EmitStatement(emit, bodyNode)
+        continued := emit.PopLoop()
+        if bodyFalls || continued {
             // index = index + 1
+            emit.Plan.AppendMarkLabel(stepLabel)
             LoadThis(emit)
             LoadThis(emit)
             emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), indexPool)
@@ -4569,7 +4706,16 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), varPool)
-        if EmitStatement(emit, bodyNode) {
+        // THE FRAME IS PUSHED EVEN THOUGH IT CANNOT BE BRANCHED TO. This loop's exit label stands
+        // INSIDE its hoisted-handler region, so a `break` cannot simply leave to it — the handler
+        // past the region end has to run on the way out and this branch does not record that hop.
+        // The frame is opened anyway, marked not-lowerable, so a `break` written in this body
+        // declines by name rather than silently retargeting the NEXT loop out, which is a different
+        // program.
+        emit.PushLoop(condLabel, afterLabel, false)
+        bodyFalls := EmitStatement(emit, bodyNode)
+        emit.PopLoop()
+        if bodyFalls {
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
         }
         if emit.Context.Declined {
@@ -4668,7 +4814,12 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), varPool)
-        if EmitStatement(emit, bodyNode) {
+        // There is no step to run, so `continue` targets the MoveNext condition. `break` targets the
+        // label the enumerator is disposed at, which is what makes an early exit release it.
+        emit.PushLoop(condLabel, afterLabel, true)
+        bodyFalls := EmitStatement(emit, bodyNode)
+        emit.PopLoop()
+        if bodyFalls {
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
         }
         if emit.Context.Declined {

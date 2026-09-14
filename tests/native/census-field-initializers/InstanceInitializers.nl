@@ -66,3 +66,25 @@ class NullableDefaults {
     Names: List<string>?
     Label: string = "set"
 }
+
+// AN IMPLICITLY-DEFAULTED NULLABLE FIELD BESIDE A WRITTEN INITIALIZER. `Absent: string?` carries no
+// `= null`, so the store the initializer body synthesizes for it has no `=` token anywhere in the
+// source and its operator span is -1. Reading that span crashed the compiler outright
+// (ArgumentOutOfRangeException out of Substring, before any diagnostic): six ordinary lines refused
+// to compile at all, for `nlc check`, `build`, `run` and the MSBuild task alike. The shape only
+// reaches the initializer planner when the type ALSO has a written initializer, which is why a type
+// of nothing but nullable fields never showed it.
+class NullableBesideWritten {
+    Absent: string?
+    AbsentNumber: int?
+    Present: int = 2
+    PresentText: string = "set"
+}
+
+// The same shape with the nullable field written LAST, and with an explicit `= null` beside it —
+// both spellings have to land on the same values.
+class NullableAfterWritten {
+    Present: int = 3
+    Absent: string?
+    Explicit: string? = null
+}

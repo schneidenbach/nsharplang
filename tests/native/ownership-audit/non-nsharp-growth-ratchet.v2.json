@@ -4,7 +4,7 @@
   "codeEpochFileCount": 223,
   "codeEpochPathFingerprint": "pathset-v2:fbda7fc3d5053525",
   "codeEpochFactFingerprint": "epochfacts-v2:05f608333cab8ef7",
-  "reviewedHeadFingerprint": "head-v2:ea23802b6a013a72",
+  "reviewedHeadFingerprint": "head-v2:604470246c3674ad",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":163,"currentNonBlankLines":137,"currentBytes":0,"currentFingerprint":"text-v1:bc7886703362adb1"},
@@ -182,7 +182,7 @@
     {"path":"src/NSharpLang.Cli/Cli.csproj","language":"msbuild","surface":"cli","campaignScope":"closeout","state":"reviewed","currentLines":41,"currentNonBlankLines":35,"currentBytes":0,"currentFingerprint":"text-v1:285f1cf20ccc9b02"},
     {"path":"src/NSharpLang.Cli/Commands/CheckCommand.cs","language":"csharp","surface":"cli","campaignScope":"closeout","state":"removed","epochLines":167,"currentLines":0,"epochNonBlankLines":149,"currentNonBlankLines":0,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
     {"path":"src/NSharpLang.Cli/Commands/DaemonCommand.cs","language":"csharp","surface":"cli","campaignScope":"closeout","state":"existing-debt","epochLines":96,"currentLines":96,"epochNonBlankLines":85,"currentNonBlankLines":85,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:a06f84fef0a5fac2"},
-    {"path":"src/NSharpLang.Cli/Commands/DocCommand.cs","language":"csharp","surface":"cli","campaignScope":"closeout","state":"existing-debt","epochLines":137,"currentLines":137,"epochNonBlankLines":114,"currentNonBlankLines":114,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:cd6b52b03d6a2888"},
+    {"path":"src/NSharpLang.Cli/Commands/DocCommand.cs","language":"csharp","surface":"cli","campaignScope":"closeout","state":"removed","epochLines":137,"currentLines":0,"epochNonBlankLines":114,"currentNonBlankLines":0,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
     {"path":"src/NSharpLang.Cli/Commands/FixCommand.cs","language":"csharp","surface":"cli","campaignScope":"closeout","state":"removed","epochLines":191,"currentLines":0,"epochNonBlankLines":167,"currentNonBlankLines":0,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
     {"path":"src/NSharpLang.Cli/Commands/LintCommand.cs","language":"csharp","surface":"cli","campaignScope":"closeout","state":"removed","epochLines":199,"currentLines":0,"epochNonBlankLines":181,"currentNonBlankLines":0,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
     {"path":"src/NSharpLang.Cli/Commands/PackCommand.cs","language":"csharp","surface":"cli","campaignScope":"closeout","state":"existing-debt","epochLines":204,"currentLines":204,"epochNonBlankLines":180,"currentNonBlankLines":180,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:222a46277329c685"},

@@ -1234,7 +1234,7 @@ class ExternalAssemblyScan {
     }
 
     static func CommonAssemblyNames(): string[] {
-        names := new string[](30)
+        names := new string[](31)
         names[0] = "System.Runtime"
         names[1] = "System.Console"
         names[2] = "System.Collections"
@@ -1276,14 +1276,18 @@ class ExternalAssemblyScan {
         // (`System.Reflection.Metadata.Ecma335.MetadataTokens.X` answers "Variable 'System' not
         // found"), which is what makes this entry load-bearing rather than a convenience.
         names[27] = "System.Reflection.Metadata"
-        // ZIP ARCHIVES, AND THEY NEED BOTH NAMES. `System.IO.Compression.dll` carries `ZipArchive`
-        // and `ZipArchiveEntry`; the ENTRY POINTS that open one from a path -- `ZipFile` and
-        // `ZipFileExtensions` -- live in the separate `System.IO.Compression.ZipFile.dll`. Loading
-        // only the first leaves `import System.IO.Compression` resolving the archive types while
-        // `ZipFile.OpenRead` answers "Variable 'ZipFile' not found", which is the shape this pair
-        // was added to close. Both ship in Microsoft.NETCore.App, so neither adds a dependency.
-        names[28] = "System.IO.Compression"
-        names[29] = "System.IO.Compression.ZipFile"
+        // THE FILE-SYSTEM WATCHER AND THE ZIP WRITER, which are the two BCL surfaces a `nlc`-shaped
+        // program reaches for and neither of which lives in an assembly already named above.
+        // `FileSystemWatcher` (with `NotifyFilters`, `FileSystemEventArgs`, `RenamedEventArgs`) is
+        // the whole of `System.IO.FileSystem.Watcher`; without it a watch loop reports NL201 "Type
+        // 'FileSystemWatcher' not found" with no import that could fix it. `ZipArchive` /
+        // `ZipArchiveMode` live in `System.IO.Compression` and the `ZipFile` /
+        // `ZipArchive.CreateEntryFromFile` pair in `System.IO.Compression.ZipFile`, so writing a
+        // NuGet package — a zip — needed both entries: `import System.IO.Compression` itself
+        // reported NL704 "namespace not found" because nothing in the loaded set declared it.
+        names[28] = "System.IO.FileSystem.Watcher"
+        names[29] = "System.IO.Compression"
+        names[30] = "System.IO.Compression.ZipFile"
         return names
     }
 }
