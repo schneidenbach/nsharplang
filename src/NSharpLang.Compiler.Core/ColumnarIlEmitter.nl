@@ -3150,18 +3150,92 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // THE ORDINARY EXTERNAL CALL FOR A SITE WHOSE ARGUMENTS CANNOT ALL BE TYPED BEFORE EMISSION.
+    // THE MEMBER AN ORDINARY EXTERNAL CALL SELECTS, IN THE SAME TWO TIERS THE EXPLICIT-GENERIC FORM
+    // ALREADY USED.
     //
-    // The direct-call planner owns every external call whose arguments it can type, and it types them
-    // BEFORE it chooses the overload. A LAMBDA ARGUMENT HAS NO TYPE UNTIL IT IS BOUND to the parameter
-    // it is passed to, so a call like `u.Switch(a => ..., b => ...)` leaves the planner with nothing to
-    // select on and arrives here. The member is chosen by ordinary CLR member resolution restricted to
-    // the ONE declaration of that name at this arity — an ambiguity is refused, because the argument
-    // types are exactly what would have chosen between them — and each argument is then emitted
-    // against its declared parameter type, which is what gives a lambda its contextual shape.
+    // Unique-at-arity answers first, because it is the only tier a site with a LAMBDA or an `out`
+    // argument can reach: such an argument has no type until it is bound to the parameter it is
+    // passed to, so there is nothing to score with and a name that leaves two declarations at this
+    // arity is refused rather than guessed.
+    //
+    // ⚠ AND "REFUSED" WAS THE WHOLE ANSWER UNTIL THIS SLICE, WHICH IS WHY A TIE AT THIS DOOR ENDED IN
+    // A PER-API TABLE. `Encoding.UTF8.GetString(bytes)` has two arity-1 declarations (`byte[]` and
+    // `ReadOnlySpan<byte>`), `Box.Text.IndexOf("a")` has two (`char` and `string`) — ordinary calls
+    // whose arguments type perfectly well, arriving here only because the receiver was a static
+    // member read the direct-call planner yielded. The refusal then fell through to the emitter's
+    // residual arms, where a hand-written `string.IndexOf` table bound `IndexOf(char)` for a `string`
+    // argument (declining the call outright) and `IndexOf(string, StringComparison)` for
+    // `IndexOf("a", 0)` — the WRONG overload, silently.
+    //
+    // So the second tier is the SCORING resolver the direct-call planner itself uses, fed the
+    // argument types this emitter can preflight. It is the same owner, asked the same question, and a
+    // site that reaches it picks exactly what the planner would have picked for the same arguments.
+    // No per-API table is consulted, and the tie-declines that made those tables look necessary stop
+    // happening.
+    private func SelectOrdinaryRuntimeCall(callIdx: int, lookupType: Type, member: string, argCount: int, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        unique := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(lookupType, member, argCount, expectedStatic)
+        if (unique.IsSelected) {
+            return unique
+        }
+        if (_nodes.ChildCount(callIdx) - 1 != argCount) {
+            return unique
+        }
+        argumentTypes := new Type[argCount]
+        allArgumentsTyped := true
+        for a := 0; a < argCount; a++ {
+            let argType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(callIdx, a + 1), out argType) || argType == null) {
+                allArgumentsTyped = false
+            } else {
+                argumentTypes[a] = argType
+            }
+        }
+        if (allArgumentsTyped) {
+            scored := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(lookupType, member, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount), expectedStatic)
+            if (scored.IsSelected) {
+                return scored
+            }
+        }
+
+        // THE THIRD TIER: AN ARGUMENT WHOSE TYPE IS TARGET-TYPED IS STILL AN ARGUMENT THAT CHOOSES.
+        //
+        // A COLLECTION EXPRESSION has no type until a parameter names its element type. Preflight gives
+        // it a PROVISIONAL one from its own elements — `[72, 105]` is `int[]` — and scoring that against
+        // `GetString(byte[])` answers no, which is why `Encoding.UTF8.GetString([72, 105])` reached the
+        // residual arms with two arity-1 declarations standing. But the literal is not silent about
+        // which of them it fits: `byte[]` accepts it and `ReadOnlySpan<byte>` does not, and the emitter
+        // already answers exactly that question for every argument it is about to write.
+        //
+        // So the candidate set resolution admits is filtered by the SAME argument predicate the selected
+        // overload would then be emitted with. Exactly one survivor is the call; two or more is a real
+        // ambiguity and stays refused, which is what the unique-at-arity tier already said. This tier is
+        // reached only when the two above declined, so a call either of them could answer is unchanged.
+        admitted := ColumnarOrdinaryRuntimeDirectCallResolver.CandidatesAtArity(lookupType, member, argCount, expectedStatic)
+        applicable := unique
+        applicableCount := 0
+        for c := 0; c < admitted.Count; c++ {
+            candidate := admitted[c]
+            if (candidate.IsSelected && candidate.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, candidate.ParameterTypes)) {
+                applicable = candidate
+                applicableCount = applicableCount + 1
+            }
+        }
+        if (applicableCount == 1) {
+            return applicable
+        }
+        return unique
+    }
+
+    // THE ORDINARY EXTERNAL CALL FOR A SITE THE DIRECT-CALL PLANNER YIELDED.
+    //
+    // The direct-call planner owns every external call whose arguments AND receiver it can type; what
+    // reaches here is the rest — a lambda argument, or a receiver the planner does not type, such as a
+    // static member read. The member is chosen by ordinary CLR member resolution through the two tiers
+    // above, and each argument is then emitted against its declared parameter type, which is what
+    // gives a lambda its contextual shape.
     private func TryEmitOrdinaryRuntimeStaticCall(callIdx: int, ownerType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
-        selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(ownerType, member, argCount, true)
+        selection := SelectOrdinaryRuntimeCall(callIdx, ownerType, member, argCount, true)
         if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
             return false
         }
@@ -3172,7 +3246,7 @@ sealed class ColumnarIlEmitter {
     // spilled to reach its address: an instance method on a value type takes a managed pointer.
     private func TryEmitOrdinaryRuntimeInstanceCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
-        selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(receiverType, member, argCount, false)
+        selection := SelectOrdinaryRuntimeCall(callIdx, receiverType, member, argCount, false)
         if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
             return false
         }
@@ -23650,55 +23724,6 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
-        if (receiverType == typeof(string) && member == "IndexOf") {
-            // string.IndexOf overloads -> int. 1-arg: IndexOf(char). 2-arg: distinguished by the FIRST arg's
-            // type — IndexOf(char, int) vs IndexOf(string, StringComparison) — so emit arg1, read its type, then
-            // bind the matching overload + arg2.
-            if (argCount == 1) {
-                method1 := typeof(string).GetMethod(nameof(string.IndexOf), [typeof(char)])
-                if (method1 == null || !EmitArg(callIdx, 1, typeof(char))) {
-                    return false
-                }
-                _il.Emit(OpCodes.Callvirt, method1)
-                columnarResolvedType = typeof(int)
-                return true
-            }
-            if (argCount == 2) {
-                let arg1Type: System.Type? = null
-                if (!EmitExpression(Child(callIdx, 1), out arg1Type)) {
-                    return false
-                }
-                if (arg1Type == typeof(char)) {
-                    m := typeof(string).GetMethod(nameof(string.IndexOf), [typeof(char), typeof(int)])
-                    if (m == null || !EmitArg(callIdx, 2, typeof(int))) {
-                        return false
-                    }
-                    _il.Emit(OpCodes.Callvirt, m)
-                    columnarResolvedType = typeof(int)
-                    return true
-                }
-                if (arg1Type == typeof(string)) {
-                    m := typeof(string).GetMethod(nameof(string.IndexOf), [typeof(string), typeof(StringComparison)])
-                    if (m == null || !EmitArg(callIdx, 2, typeof(StringComparison))) {
-                        return false
-                    }
-                    _il.Emit(OpCodes.Callvirt, m)
-                    columnarResolvedType = typeof(int)
-                    return true
-                }
-                return false
-            }
-            if (argCount == 3) {
-                method3 := typeof(string).GetMethod(nameof(string.IndexOf), [typeof(string), typeof(int), typeof(StringComparison)])
-                if (method3 == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(StringComparison))) {
-                    return false
-                }
-                _il.Emit(OpCodes.Callvirt, method3)
-                columnarResolvedType = typeof(int)
-                return true
-            }
-            return false
-        }
         if (receiverType == typeof(string) && (member == "Trim" || member == "TrimEnd") && argCount == 0) {
             // string.Trim() -> string (strip leading/trailing whitespace). The receiver string is on the stack;
             // `callvirt` the parameterless overload. DiagnosticClusters.nl: `builder.ToString().Trim()`.

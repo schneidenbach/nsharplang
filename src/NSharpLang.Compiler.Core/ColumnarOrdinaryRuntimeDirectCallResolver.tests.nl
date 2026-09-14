@@ -487,3 +487,48 @@ test "ordinary runtime resolution refuses an instantiation of a source generic w
     // The open definition itself and the bare builder are refused the same way.
     assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(builderDefinitionType, "Pick", 2, false).IsSelected
 }
+
+// ── THE ADMITTED SET, WHICH IS WHAT "UNIQUE AT ARITY" IS THE ONE-ELEMENT CASE OF ────────────────
+//
+// `ResolveUniqueAtArity` is `CandidatesAtArity` plus the sentence "exactly one, or nothing", and the
+// two now share ONE admission rule rather than two copies of it. The list matters for a caller whose
+// ARGUMENTS still carry the information that would choose — a collection expression has no type until
+// a parameter names its element type, so it can only be asked "which of these can you be emitted at".
+test "candidates at arity are the admitted set the unique tier reduces" {
+    // `Encoding.GetString` declares `byte[]` and `ReadOnlySpan<byte>` at arity 1, which is exactly the
+    // tie that used to end in a per-API table.
+    getString := ColumnarOrdinaryRuntimeDirectCallResolver.CandidatesAtArity(typeof(System.Text.Encoding), "GetString", 1, false)
+    assert getString.Count >= 2
+    sawByteArray := false
+    index := 0
+    while index < getString.Count {
+        candidate := getString[index]
+        assert candidate.IsSelected
+        assert candidate.Method != null
+        assert candidate.Method.get_Name() == "GetString"
+        assert candidate.ParameterTypes.Length == 1
+        if candidate.ParameterTypes[0] == typeof(byte[]) {
+            sawByteArray = true
+        }
+
+        index = index + 1
+    }
+    assert sawByteArray
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Text.Encoding), "GetString", 1, false).IsSelected
+
+    // Where the set has exactly one member the two answers are the same member.
+    preamble := ColumnarOrdinaryRuntimeDirectCallResolver.CandidatesAtArity(typeof(System.Text.Encoding), "GetPreamble", 0, false)
+    assert preamble.Count == 1
+    unique := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Text.Encoding), "GetPreamble", 0, false)
+    assert unique.IsSelected
+    assert unique.Method == preamble[0].Method
+
+    // A name nothing declares, an open owner and a source owner answer with an EMPTY set rather than
+    // a candidate, which is the same refusal the unique tier makes for them.
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.CandidatesAtArity(typeof(System.Text.Encoding), "NoSuchMember", 0, false).Count == 0
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.CandidatesAtArity(typeof(System.Collections.Generic.List<int>).GetGenericTypeDefinition(), "ForEach", 1, false).Count == 0
+
+    // A STATIC name is not in the instance set and an instance name is not in the static one.
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.CandidatesAtArity(typeof(System.Text.Encoding), "GetString", 1, true).Count == 0
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.CandidatesAtArity(typeof(string), "Join", 2, true).Count > 0
+}
