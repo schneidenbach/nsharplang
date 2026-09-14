@@ -5104,7 +5104,9 @@ non-generic form, then emits the exact constructed method identity. That path al
 holes, preserves reordered `ref`/`out` addresses, and handles a trailing `params` array in its direct,
 omitted, expanded, and spread forms. A generic method on a generic source receiver substitutes the
 declaring type's parameters and the method's parameters by their distinct live CLR identities; their
-shared ordinal positions never stand in for identity.
+shared ordinal positions never stand in for identity. The same closed-signature argument binding is
+used for source instance methods and static methods on constructed source types, including optional
+and `params` parameters.
 
 Signature help uses the same written names when it selects the highlighted parameter. Its N#
 syntax owner lexes the document through the cursor, finds the innermost unmatched call, and counts
@@ -5112,5 +5114,6 @@ only top-level argument separators using the parser's generic-call lookahead. A 
 call, a multiline argument list, a comparison expression, a block lambda, or punctuation inside a
 comment or string therefore cannot redirect the request or move the highlight. The language-server
 handler only resolves the resulting call and renders the selected signature. Explicit generic
-receiver spellings such as `Box<int>.Map<string>(value: ...)` retain the complete receiver while the
-source declaration lookup uses its `Box` head.
+receiver spellings such as `Catalog.Box<int>.Map<string>(value: ...)` retain the complete receiver
+for semantic value lookup. Source declaration lookup removes type arguments only after that lookup,
+while preserving namespace and enclosing-type identity.

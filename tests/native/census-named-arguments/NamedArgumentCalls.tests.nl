@@ -216,6 +216,17 @@ test "a generic source owner keeps enclosing and method type arguments distinct"
     assert owner.Order[1] == "owner"
 }
 
+test "generic source instance and static calls share defaults and params binding" {
+    owner := new GenericNamedOwner<string>()
+    assert owner.Pick<int>(value: 43, owner: "text") == 43
+    assert owner.Pack<int>(owner: "text") == 0
+    assert owner.Pack<int>(owner: "text", 1, 2) == 2
+    values: int[] = [1, 2]
+    assert owner.Pack<int>(values: values, owner: "text") == 2
+    assert owner.Pack<int>(owner: "text", ...values) == 2
+    assert GenericNamedOwner<string>.StaticPick<int>(value: 44, owner: "text") == 44
+}
+
 test "attribute constructor arguments bind by name" {
     found := typeof(NamedAttributeTarget).GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
     assert found != null
