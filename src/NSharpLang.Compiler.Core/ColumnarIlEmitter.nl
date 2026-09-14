@@ -7078,8 +7078,9 @@ sealed class ColumnarIlEmitter {
 
     // ASYNC mirror of the legacy emitter's EmitAwaiterGetResult — the BLOCKING await: ValueTask(/T) spills
     // and converts via AsTask() first; Task(/T) goes callvirt GetAwaiter() then the STRUCT awaiter
-    // spills for `call GetResult()`. Only the four BCL task shapes are modelled — any other
-    // awaitable declines (the legacy emitter's general GetAwaiter pattern is a later rung).
+    // spills for `call GetResult()`. The four BCL task shapes keep those exact lowerings — a
+    // `ValueTask` must be converted rather than blocked on directly — and every OTHER awaitable is
+    // served by the general awaiter pattern below, which is the rule the four are instances of.
     private func TryEmitBlockingAwait(awaitableType: Type, out resultType: Type): bool {
         resultType = null
         if (awaitableType == typeof(System.Threading.Tasks.ValueTask)) {
@@ -7132,7 +7133,123 @@ sealed class ColumnarIlEmitter {
             resultType = taskResult
             return true
         }
+        return TryEmitBlockingAwaitPattern(awaitableType, out resultType)
+    }
+
+    // WHAT MAKES A VALUE AWAITABLE IS THE PATTERN, NOT ITS NAME. C# asks for a parameterless
+    // `GetAwaiter()` whose result carries `IsCompleted`, `OnCompleted` and `GetResult()`; the four
+    // task shapes above are simply the instances of that pattern whose blocking lowering has a
+    // conversion of its own. `await Task.Yield()` is the shape that named this gap — `YieldAwaitable`
+    // is not a task at all, and a bare `await Task.Yield()` statement declined at
+    // `emit.expression-statement.await` — and a custom awaitable a program writes for itself is the
+    // same question.
+    //
+    // The blocking lowering is the one the modelled shapes use: take the awaiter, spill it, and call
+    // `GetResult()` on it. An awaiter is conventionally a STRUCT, so it spills to a local and the
+    // call takes its address; a reference awaiter dispatches virtually as any other receiver does.
+    // The awaitable itself takes the same treatment for the `GetAwaiter()` call.
+    private func TryEmitBlockingAwaitPattern(awaitableType: Type, out resultType: Type): bool {
+        resultType = null
+        if (awaitableType == null || awaitableType.get_IsGenericParameter() || awaitableType.get_IsByRef() || awaitableType.get_IsPointer()) {
+            return false
+        }
+        let getAwaiter: System.Reflection.MethodInfo? = null
+        if (!TryResolveAwaitPatternMethod(awaitableType, "GetAwaiter", out getAwaiter) || getAwaiter == null) {
+            return false
+        }
+        awaiterType := getAwaiter.get_ReturnType()
+        if (awaiterType == null || awaiterType == ColumnarTypeOfPlanner.RequiredVoidType()) {
+            return false
+        }
+        let getResult: System.Reflection.MethodInfo? = null
+        if (!TryResolveAwaitPatternMethod(awaiterType, "GetResult", out getResult) || getResult == null) {
+            return false
+        }
+        // `IsCompleted` is what separates an awaiter from any other object with a `GetResult()`, so
+        // it is required even though this blocking lowering never reads it.
+        if (!AwaiterDeclaresIsCompleted(awaiterType)) {
+            return false
+        }
+        awaitedResultType := getResult.get_ReturnType()
+        if (awaitedResultType != ColumnarTypeOfPlanner.RequiredVoidType() && !ColumnarTypeOfPlanner.IsSupportedType(awaitedResultType)) {
+            return false
+        }
+        EmitAwaitPatternReceiver(awaitableType, getAwaiter)
+        EmitAwaitPatternReceiver(awaiterType, getResult)
+        resultType = awaitedResultType
+        return true
+    }
+
+    // A PARAMETERLESS PUBLIC INSTANCE METHOD OF THAT NAME, wherever the type came from. A type this
+    // compilation is still BUILDING answers no reflection question at all — `TypeBuilder.GetMethod`
+    // throws before `CreateType` — so its own definition is the only place to ask, exactly as every
+    // other member lookup on a source type does.
+    private func TryResolveAwaitPatternMethod(owner: Type, name: string, out method: MethodInfo?): bool {
+        method = null
+        if (owner == null || owner.get_IsGenericParameter()) {
+            return false
+        }
+        let sourceDefinition: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (TryFindSourceDefinitionForType(owner, out sourceDefinition) && sourceDefinition != null) {
+            let sourceMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+            if (!ColumnarSourceMemberChainResolver.TryFindMethodOnChain(sourceDefinition, name, 0, out sourceMethod) || sourceMethod == null || sourceMethod.Generics != null) {
+                return false
+            }
+            method = sourceMethod.Builder
+            return true
+        }
+        if (owner is TypeBuilder) {
+            return false
+        }
+        resolved := owner.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
+        if (resolved == null || resolved.get_IsStatic()) {
+            return false
+        }
+        method = resolved
+        return true
+    }
+
+    private func AwaiterDeclaresIsCompleted(awaiterType: Type): bool {
+        let sourceDefinition: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (TryFindSourceDefinitionForType(awaiterType, out sourceDefinition) && sourceDefinition != null) {
+            let sourceProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+            return ColumnarSourceMemberChainResolver.TryFindPropertyOnChain(sourceDefinition, "IsCompleted", out sourceProperty) && sourceProperty != null && sourceProperty.PropertyType == typeof(bool)
+        }
+        if (awaiterType is TypeBuilder) {
+            return false
+        }
+        isCompleted := awaiterType.GetProperty("IsCompleted", BindingFlags.Public | BindingFlags.Instance)
+        return isCompleted != null && isCompleted.get_PropertyType() == typeof(bool)
+    }
+
+    // THE SOURCE DECLARATION BEHIND A TYPE THIS COMPILATION IS EMITTING, by builder identity.
+    private func TryFindSourceDefinitionForType(candidate: Type, out definition: ColumnarStructDef?): bool {
+        definition = null
+        if (candidate == null || !(candidate is TypeBuilder)) {
+            return false
+        }
+        for pair in _structRegistry {
+            structDefinition := pair.Value
+            structBuilder: Type = structDefinition.Builder
+            if (Object.ReferenceEquals(structBuilder, candidate)) {
+                definition = structDefinition
+                return true
+            }
+        }
         return false
+    }
+
+    // The receiver hop a value-type instance call needs: spill to a local and take its address. A
+    // reference receiver is already on the stack and dispatches virtually.
+    private func EmitAwaitPatternReceiver(receiverType: Type, method: MethodInfo): void {
+        if (receiverType.get_IsValueType()) {
+            receiverLocal := _il.DeclareLocal(receiverType)
+            _il.Emit(OpCodes.Stloc, receiverLocal)
+            _il.Emit(OpCodes.Ldloca, receiverLocal)
+            _il.Emit(OpCodes.Call, method)
+            return
+        }
+        _il.Emit(OpCodes.Callvirt, method)
     }
 
     // The single body-level tail every protected-region `return` leaves to (E2): `done: [ldloc result;] ret`.
