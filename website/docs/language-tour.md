@@ -1460,6 +1460,33 @@ and `Cell<TKey, TValue>` as ``Cell`2``. N# always shows you the written form —
 diagnostics, hovers and completions; the backtick name is what a C# consumer of your assembly sees,
 and what `GetType().Name` returns at runtime.
 
+### Comparing two values of an open type parameter
+
+`a == b` works when both sides are the **same** type parameter, whether or not either is written
+`?`. C# refuses this outright (`CS0019`) and makes you write
+`EqualityComparer<T>.Default.Equals(a, b)` by hand; N# writes it for you, because that *is* the CLR's
+one comparison for a value whose kind is not known until the instantiation is chosen — it dispatches
+to `IEquatable<T>.Equals` when the instantiation implements it and to `Equals` otherwise.
+
+```n#
+func Same<T>(a: T, b: T): bool => a == b
+
+// `T?` under `where T : struct` is a real `Nullable<T>`, so this is the lifted form: two ABSENT
+// values are equal, an absent one differs from every present one, and the answer is a plain `bool`.
+func SameOptional<T>(a: T?, b: T?): bool where T : struct => a == b
+
+func main() {
+    absent: int? = null
+    print Same(3, 3)                    // True
+    print SameOptional(absent, absent)  // True
+    print SameOptional(1, absent)       // False
+}
+```
+
+Only equality lifts this way. `<`, `>`, `+` and the rest of the numeric operators need an operand
+type that has them, and an open parameter does not — those stay `NL202`, exactly as in C#. Constrain
+the parameter to a concrete type, or take a `Comparer<T>` if ordering is what you need.
+
 ## Properties: Required and Init-Only
 
 Mark a property `required` to force callers to set it in the object initializer, and `init`
@@ -2130,6 +2157,36 @@ that ends in `break` or `continue` rather than `return` — see
 an error. Flow state is not something a mechanical translation can know, and a human tightening a
 guard should not have their build broken by a keyword that is merely no longer needed. Remove the
 `must` when the warning appears.
+
+### Conditional expressions
+
+A conditional arm that has **no type of its own** — a bare `null`, a `default`, or a `throw` — takes
+its type from what the conditional is written *at*: the declared return type, the declared type of
+the local, the type of the local being assigned, or the parameter the value is passed to.
+
+```n#
+import System
+
+func pick(flag: bool, name: string): string? => flag ? name : null
+func pickValue(flag: bool, n: int): int? => flag ? n : null      // the `int` arm lifts to `int?`
+func orThrow(ok: bool, failure: Exception): string? => ok ? null : throw failure
+
+func main() {
+    picked: int? = true ? 3 : null         // a declared local is a target too
+    picked = false ? 3 : null              // so is the local being assigned
+    print unwrap(true ? 3 : null)          // and so is a parameter
+    print picked.HasValue
+}
+
+func unwrap(value: int?): int => value ?? -1
+```
+
+The *typed* arm decides nothing here; the target does. That is what lets a value arm lift (`int` →
+`int?`) rather than having to match a `null` it can never equal, and what gives a `null` a type when
+the only other arm raises.
+
+The one shape with nothing to take is **both** arms throwing (`ok ? throw a : throw b`): there is no
+value either way, so write the `throw` as a statement instead. C# refuses that shape too.
 
 ## Resource Management and Locking
 

@@ -154,7 +154,7 @@ class TypeConversionSuggester {
         }
 
         if fromType == toType + "?" {
-            return "You're trying to use a nullable value where a non-nullable is expected.\n" + "You need to handle the null case, perhaps with 'if (x != null)' or the\n" + "null-coalescing operator 'x ?? defaultValue'."
+            return "You're trying to use a nullable value where a non-nullable is expected.\n" + "Handle the absent case: guard it with 'if x != null { ... }', give it a\n" + "fallback with 'x ?? fallback' (or 'x ?? default' when the type has no obvious\n" + "one), or unwrap it with 'must x' when an absent value is a bug worth throwing\n" + "over. N# has no postfix '!'."
         }
 
         // ARRAY COVARIANCE IS A REFERENCE RULE, AND THIS IS THE SENTENCE THAT SAYS SO. `string[]`

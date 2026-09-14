@@ -1923,8 +1923,8 @@ class AnalyzerOperatorExpressions {
     // WHAT `==` ADMITS. Null on either side compares with anything; two booleans compare; two
     // primitives compare when they have a common type; the same flags enum compares; the same record
     // struct compares BY REFERENCE IDENTITY of its type info, which is what makes two DIFFERENT
-    // record structs not comparable; and two reference types always compare, because reference
-    // equality is always meaningful.
+    // record structs not comparable; the SAME open type parameter compares, `?` or not; and two
+    // reference types always compare, because reference equality is always meaningful.
     func CanCompareWithEqualityOperator(left: TypeInfo, right: TypeInfo): bool {
         resolvedLeft := declarationsValue.ResolveDeclaredAlias(left)
         resolvedRight := declarationsValue.ResolveDeclaredAlias(right)
@@ -1948,7 +1948,60 @@ class AnalyzerOperatorExpressions {
             return true
         }
 
+        if CanCompareOpenTypeParameter(resolvedLeft, resolvedRight) {
+            return true
+        }
+
         return AnalyzerConversionFacts.IsReferenceType(resolvedLeft) && AnalyzerConversionFacts.IsReferenceType(resolvedRight)
+    }
+
+    // `a == b` WHERE BOTH SIDES ARE THE SAME OPEN TYPE PARAMETER, `?` OR NOT.
+    //
+    // A bare `T` already compared here, because the tail below reads an unresolved parameter name as
+    // a reference; `T? == T?` did not, and that asymmetry is what the census caught. `Same<T>(a: T?,
+    // b: T?)` under `where T : struct` is the shape a converter writes wherever the source compared
+    // two optional values, and it was refused with a sentence about primitives and record structs
+    // that named nothing the author could act on.
+    //
+    // BOTH SIDES MUST NAME THE SAME PARAMETER. `T == U` is two unrelated instantiations and stays
+    // with the reference tail, which is the only rule that has anything to say about it, and a
+    // parameter compared against a CONCRETE type is not this rule either.
+    //
+    // THE CONSTRAINT DOES NOT DECIDE THIS — it decides the LOWERING, not the legality. A `struct`
+    // parameter's `T?` is a real `Nullable<T>` and lowers to the presence-and-value pair; an
+    // unconstrained or `class` parameter's `?` is an annotation on one CLR type and lowers to the
+    // same comparison the bare parameter gets. Both are `bool`, and both are decided.
+    func CanCompareOpenTypeParameter(left: TypeInfo, right: TypeInfo): bool {
+        leftName := OpenTypeParameterName(left)
+        if leftName == null {
+            return false
+        }
+
+        rightName := OpenTypeParameterName(right)
+        return rightName != null && leftName == rightName
+    }
+
+    // The NAME an operand names when it is a type parameter visible here, seen through at most one
+    // `?`, and null for everything else. A type parameter has no TypeInfo kind of its own — it
+    // resolves to a `SimpleTypeInfo` carrying the written name — so the SCOPE is what says whether a
+    // name is one, which is also what makes a generic `struct` and `record` answer as a `class` does.
+    func OpenTypeParameterName(candidate: TypeInfo): string? {
+        resolved := declarationsValue.ResolveDeclaredAlias(candidate)
+        nullable := resolved as NullableTypeInfo
+        if nullable != null {
+            resolved = declarationsValue.ResolveDeclaredAlias(nullable.InnerType)
+        }
+
+        simple := resolved as SimpleTypeInfo
+        if simple == null {
+            return null
+        }
+
+        if !scopesValue.IsTypeParameterInScope(simple.Name) {
+            return null
+        }
+
+        return simple.Name
     }
 
     // THE LIFTED FORM OF EVERY EQUALITY THE RULE ABOVE ALREADY ADMITS. `Nullable<T>` gets a lifted

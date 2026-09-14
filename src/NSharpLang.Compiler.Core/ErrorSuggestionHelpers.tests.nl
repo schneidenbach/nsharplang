@@ -219,8 +219,14 @@ test "converting a nullable to a non-nullable names the null case" {
     assert hint != null
     assert (hint ?? "").Contains("nullable")
     assert (hint ?? "").Contains("??")
+    // THE N# SPELLINGS, NOT C#'s. `must` is the unwrap — there is no postfix `!` — and a generic
+    // position whose element has no obvious fallback needs `default`, which the census's `getParam`
+    // shape (a source generic returning `T` from a `T?`-typed expression) is exactly.
+    assert (hint ?? "").Contains("must x")
+    assert (hint ?? "").Contains("?? default")
+    assert !(hint ?? "").Contains("(x != null)")
 
-    assert (hint ?? "") == "You're trying to use a nullable value where a non-nullable is expected.\nYou need to handle the null case, perhaps with 'if (x != null)' or the\nnull-coalescing operator 'x ?? defaultValue'."
+    assert (hint ?? "") == "You're trying to use a nullable value where a non-nullable is expected.\nHandle the absent case: guard it with 'if x != null { ... }', give it a\nfallback with 'x ?? fallback' (or 'x ?? default' when the type has no obvious\none), or unwrap it with 'must x' when an absent value is a bug worth throwing\nover. N# has no postfix '!'."
 
     // NOT IN THE DELETED FILE: the rule is `fromType == toType + "?"`, so it holds for ANY type, not
     // only for the built-in the sample used.

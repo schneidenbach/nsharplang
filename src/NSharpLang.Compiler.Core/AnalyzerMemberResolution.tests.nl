@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 // Native contracts for `ResolveMember` — what a member NAME resolves to on a type.
 //
@@ -573,4 +574,55 @@ test "`AsSpan` on an ARRAY needs `System` imported, and the import is read live"
     assert BuiltInTypes.IsUnknown(
         harness.Resolution.ResolveMember(intArray, "AsSpan", true, null)
     )
+}
+
+// ── a member's nullability is the most-derived override's ───────────────
+//
+// `object.ToString()` is annotated `string?` in the BCL. A type that OVERRIDES it with a non-null
+// `string` says something stronger about itself, and member lookup has to answer from the override
+// the receiver's STATIC type actually reaches. These rows go through the real `Analyzer.Analyze`
+// entry because the question is about a declaration chain rather than about one TypeInfo.
+//
+// The positive half RUNS in `tests/native/census-flow-rules/OverriddenMemberAnnotations`; what is
+// stated here is the boundary: a receiver whose chain has NO override keeps `object`'s `string?`,
+// which is a TRUE positive (C# warns CS8603 on exactly that shape).
+func MemberResolutionSourceErrors(source: string): List<string> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-member-override-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    messages := new List<string>()
+    analyzer := new Analyzer()
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                messages.Add(error.Message)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return messages
+}
+
+test "AN OVERRIDE'S ANNOTATION IS WHAT THE RECEIVER'S TYPE ANSWERS, AND A TYPE WITH NO OVERRIDE KEEPS object's" {
+    declared := MemberResolutionSourceErrors("namespace P\n\nclass Labelled {\n    Name: string\n\n    constructor(name: string) {\n        Name = name\n    }\n\n    override func ToString(): string {\n        return Name\n    }\n}\n\nfunc Format(value: Labelled): string {\n    return value.ToString()\n}\n")
+    assert declared.Count == 0
+
+    // The override is INHERITED rather than declared, and the receiver still reaches it.
+    inherited := MemberResolutionSourceErrors("namespace P\n\nclass Labelled {\n    Name: string\n\n    constructor(name: string) {\n        Name = name\n    }\n\n    override func ToString(): string {\n        return Name\n    }\n}\n\nclass Marked: Labelled {\n    constructor(name: string): base(name) {\n    }\n}\n\nfunc Format(value: Marked): string {\n    return value.ToString()\n}\n")
+    assert inherited.Count == 0
+
+    // THE BOUNDARY: nothing in this chain overrides `ToString`, so `object`'s `string?` is the
+    // answer and NL202 is right. This is the census's `InlayHintHandler` row, and C# warns CS8603
+    // at the same line.
+    noOverride := MemberResolutionSourceErrors("namespace P\n\nclass Plain {\n    Tag: int\n}\n\nfunc Format(value: Plain): string {\n    return value.ToString()\n}\n")
+    assert noOverride.Count == 1
+    assert noOverride[0] == "Function 'Format' should return string but returns string?"
 }

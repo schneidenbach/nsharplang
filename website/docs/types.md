@@ -1880,13 +1880,11 @@ Two rules the compiler enforces about the type-argument list itself:
   (`Sink.Accept([1, "b", null])` where `Accept` takes both `int[]` and `object[]`). The emitter picks
   a same-arity candidate before it looks at the argument. A single candidate of that arity, and an
   overload set reached with a literal whose elements DO have a common type, are both unaffected.
-- A **conditional with no type left to take** declines at emission with
-  [NL103](./errors/NL103.md). Two shapes reach it: BOTH arms throwing
-  (`ok ? throw new A() : throw new B()` — C# refuses this too, since there is nothing for the
-  conditional to be worth) and a throw against a BARE `null` literal (`ok ? null : throw new A()`,
-  where the literal has no type of its own and the arm that would have supplied one raises instead).
-  Give the `null` arm a typed value — a local or a parameter of the type you mean — or write the
-  throw as a statement.
+- A **conditional whose arms BOTH throw** (`ok ? throw new A() : throw new B()`) declines at emission
+  with [NL103](./errors/NL103.md): there is nothing for the conditional to be worth, and C# refuses
+  it for the same reason. Write the throw as a statement instead. A conditional with only ONE
+  typeless arm — a `null`, a `default` or a single `throw` — is decided by what the conditional is
+  written *at*; see [target-typed conditional arms](./language-tour.md#conditional-expressions).
 - A **bare `GetType()`** with no receiver at all reports [NL412](./errors/NL412.md): the members
   `object` declares and your type inherits are reached through a receiver, not through the bare name.
   `this.GetType()`, `other.GetType()` on a parameter or a local, and `(this as object).GetType()` all

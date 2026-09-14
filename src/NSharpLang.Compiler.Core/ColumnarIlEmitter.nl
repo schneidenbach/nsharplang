@@ -7426,9 +7426,12 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitArrayLiteralAsType(retNode, _returnType, out retType)) {
                             } else {
                                 // target-typed array literal return.
-                                if (TryEmitZeroLiteralAsType(retNode, _returnType, out retType)) {
+                                if (TryEmitConditionalAsType(retNode, _returnType, out retType)) {
+                                } else if (TryEmitZeroLiteralAsType(retNode, _returnType, out retType)) {
                                 } else {
-                                    // `return null` on a reference-typed function.
+                                    // `return flag ? value : null` — a conditional with a typeless arm
+                                    // takes the declared return type; `return null` on a
+                                    // reference-typed function.
                                     if (ColumnarTypeOfPlanner.IsSupportedNullable(_returnType)) {
                                         // `return 5` / `return null` / `return n` on an int? function — the lifted
                                         // conversion OWNS the emission; failure declines the whole program.
@@ -7606,7 +7609,8 @@ sealed class ColumnarIlEmitter {
                                 } else {
                                     // `values: T[] = [a, b]` — the target array type owns the element type.
                                     let columnarDiscard11: System.Type = null
-                                    if (TryEmitZeroLiteralAsType(declaredInit, declaredType, out columnarDiscard11)) {
+                                    if (TryEmitConditionalAsType(declaredInit, declaredType, out columnarDiscard11)) {
+                                    } else if (TryEmitZeroLiteralAsType(declaredInit, declaredType, out columnarDiscard11)) {
                                     } else {
                                         // `s: string? = null` (a `?`-annotated reference resolves to its element type).
                                         if (ColumnarTypeOfPlanner.IsSupportedNullable(declaredType)) {
@@ -8373,9 +8377,11 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitArrayLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
                             } else {
                                 // target-typed array literal re-store.
-                                if (TryEmitZeroLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
+                                if (TryEmitConditionalAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
+                                } else if (TryEmitZeroLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
                                 } else {
-                                    // `s = null` on a reference-typed local.
+                                    // `local = flag ? value : null` — the local's type decides a
+                                    // typeless arm; `s = null` on a reference-typed local.
                                     if (ColumnarTypeOfPlanner.IsSupportedNullable(assignTarget.get_LocalType())) {
                                         // lifted re-store onto an int? local (owns the emission).
                                         if (!TryEmitValueAsNullable(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
@@ -11825,6 +11831,20 @@ sealed class ColumnarIlEmitter {
                         _il.Emit(OpCodes.Call, typeEquality)
                     } else {
                         EmitComparison(op, false, false)
+                    }
+                    columnarResolvedType = typeof(bool)
+                    return true
+                }
+                // AN OPEN TYPE PARAMETER compares through `EqualityComparer<T>.Default`, the one
+                // comparison the CLR has for a value whose size and kind are not known until the
+                // instantiation is chosen. `!=` is that answer negated below.
+                if (opType.get_IsGenericParameter()) {
+                    if (!EmitOpenTypeParameterEquality(opType)) {
+                        return false
+                    }
+                    if (op == "!=") {
+                        _il.Emit(OpCodes.Ldc_I4_0)
+                        _il.Emit(OpCodes.Ceq)
                     }
                     columnarResolvedType = typeof(bool)
                     return true
@@ -18286,6 +18306,9 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ceq)
             return true
         }
+        if (leftElement.get_IsGenericParameter() && TypesEquivalent(leftElement, rightElement)) {
+            return EmitOpenTypeParameterEquality(leftElement)
+        }
         equality := ResolveLiftedEqualityOperator(leftElement, rightElement)
         if (equality == null) {
             return false
@@ -18325,12 +18348,53 @@ sealed class ColumnarIlEmitter {
         return ResolveLiftedEqualityOperator(element, otherElement) != null
     }
 
-    // An operand this lowering can carry: a `ceq` element, or a `Nullable<T>` over one.
+    // An operand this lowering can carry: a `ceq` element, an OPEN TYPE PARAMETER, or a `Nullable<T>`
+    // over either. `T?` over a `struct`-constrained parameter is a real `Nullable<T>`, so its presence
+    // half is the same pair of `HasValue` reads every closed lift performs and only its VALUE half
+    // needs the open comparison below.
     private static func IsLiftedEqualityOperandType(operandType: Type): bool {
         if (ColumnarTypeOfPlanner.IsSupportedNullable(operandType)) {
-            return IsLiftedEqualityElement(operandType.GetGenericArguments()[0])
+            element := operandType.GetGenericArguments()[0]
+            return IsLiftedEqualityElement(element) || element.get_IsGenericParameter()
         }
-        return IsLiftedEqualityElement(operandType)
+        return IsLiftedEqualityElement(operandType) || operandType.get_IsGenericParameter()
+    }
+
+    // `a == b` ON AN OPEN TYPE PARAMETER, WHICH IS THE ONE COMPARISON THE CLR HAS FOR IT.
+    //
+    // `ceq` cannot serve: the instruction compares two stack slots, and `!!T` is a value of unknown
+    // size for a value instantiation and a reference for a class one. `EqualityComparer<T>.Default`
+    // is the CLR's own answer to exactly that question — it dispatches to `IEquatable<T>.Equals` when
+    // the instantiation implements it and to `Object.Equals` otherwise, with no boxing for a value
+    // type that does — and it is what a C# author writes by hand at this site, because C# refuses
+    // `==` here outright.
+    //
+    // THE TWO VALUES ARE ALREADY ON THE STACK when this is reached, and the comparer is an INSTANCE
+    // receiver that has to precede them, so they are parked in locals and re-loaded in the SAME
+    // order. Nothing is re-evaluated: the operands were emitted by the caller and the locals only
+    // move the values, so argument evaluation order is the source's.
+    private func EmitOpenTypeParameterEquality(element: Type): bool {
+        comparerDefinition := typeof(EqualityComparer<int>).GetGenericTypeDefinition()
+        defaultProperty := comparerDefinition.GetProperty("Default", BindingFlags.Public | BindingFlags.Static)
+        if (defaultProperty == null) {
+            return false
+        }
+        openDefaultGetter := defaultProperty.GetGetMethod()
+        openElement := comparerDefinition.GetGenericArguments()[0]
+        openEquals := comparerDefinition.GetMethod("Equals", [openElement, openElement])
+        if (openDefaultGetter == null || openEquals == null) {
+            return false
+        }
+        comparerType := comparerDefinition.MakeGenericType([element])
+        rightLocal := _il.DeclareLocal(element)
+        _il.Emit(OpCodes.Stloc, rightLocal)
+        leftLocal := _il.DeclareLocal(element)
+        _il.Emit(OpCodes.Stloc, leftLocal)
+        _il.Emit(OpCodes.Call, ResolveClosedGenericMethod(comparerType, openDefaultGetter))
+        _il.Emit(OpCodes.Ldloc, leftLocal)
+        _il.Emit(OpCodes.Ldloc, rightLocal)
+        _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(comparerType, openEquals))
+        return true
     }
 
     // The elements `ceq` compares directly: the integral family, `char`, `bool`, the two floating
@@ -19199,6 +19263,98 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Newobj, ResolveNullableConstructor(target))
         resolvedClrType = target
         return true
+    }
+
+    // `flag ? value : null` AND ITS FAMILY, TARGET-TYPED — a conditional one of whose arms has no type
+    // of its own.
+    //
+    // The ordinary conditional arm unifies the two arms against EACH OTHER, so an arm that is worth
+    // nothing by itself has to borrow the other one's type. That works for a reference pair and fails
+    // everywhere else: `flag ? n : null` on an `int?` had nothing to lift the `int` arm to (declined as
+    // `emit.statement.block-child`, kind 20 — the return statement), and `ok ? null : throw a` had no
+    // arm left to borrow from at all (`emit.conditional.throw-and-null`, documented as a limit in
+    // `website/docs/types.md`). Both are decided by the TARGET instead, which is exactly how C# reads a
+    // conditional with a typeless arm and how every other typeless literal in this emitter is read.
+    //
+    // THE ROUTE IS CHOSEN BEFORE ANYTHING IS EMITTED, because emit-then-check abandons the program: a
+    // conditional whose arms both carry types keeps the unification arm and its IL, and only one with a
+    // `null`, a `default` or a `throw` arm comes here.
+    //
+    // A THROWING ARM EMITS NO BRANCH TO THE MERGE. The exception ends that path, so a `br` after it
+    // would be unreachable IL over an empty stack — the merge label is reached only from the arm that
+    // produces a value, which is the same shape the unification arm writes for a throwing arm.
+    private func TryEmitConditionalAsType(node: int, target: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (target == null || _nodes.Kind(node) != 13 || _nodes.ChildCount(node) != 3) {
+            return false
+        }
+        thenNode := Child(node, 1)
+        elseNode := Child(node, 2)
+        if (!IsTypelessConditionalArm(thenNode) && !IsTypelessConditionalArm(elseNode)) {
+            return false
+        }
+        thenThrows := IsThrowExpressionNode(thenNode)
+        elseThrows := IsThrowExpressionNode(elseNode)
+        if (thenThrows && elseThrows) {
+            return false
+        }
+        if (!EmitCondition(Child(node, 0))) {
+            return false
+        }
+        elseLabel := _il.DefineLabel()
+        endLabel := _il.DefineLabel()
+        _il.Emit(OpCodes.Brfalse, elseLabel)
+        if (thenThrows) {
+            if (!EmitThrowExpressionValue(thenNode)) {
+                return false
+            }
+        } else {
+            if (!EmitConditionalArmAsType(thenNode, target)) {
+                return false
+            }
+            _il.Emit(OpCodes.Br, endLabel)
+        }
+        _il.MarkLabel(elseLabel)
+        if (elseThrows) {
+            if (!EmitThrowExpressionValue(elseNode)) {
+                return false
+            }
+        } else {
+            if (!EmitConditionalArmAsType(elseNode, target)) {
+                return false
+            }
+        }
+        _il.MarkLabel(endLabel)
+        resolvedClrType = target
+        return true
+    }
+
+    // An arm with no type of its own: the two keyword literals and a `throw`.
+    private func IsTypelessConditionalArm(node: int): bool {
+        kind := _nodes.Kind(node)
+        return kind == 5 || kind == ColumnarExpressionNodeKind.DefaultExpression() || IsThrowExpressionNode(node)
+    }
+
+    // ONE ARM AS THE TARGET TYPE, through the same three doors the return and typed-local ladders use
+    // for a value written where a type is already known: the lifted conversion when the target is a
+    // `Nullable<T>` (which is what makes the `int` arm of `flag ? n : null` a `Nullable<int>`), the
+    // keyword zero values, an adopted integer literal, and otherwise the ordinary walk measured against
+    // the target.
+    private func EmitConditionalArmAsType(node: int, target: Type): bool {
+        let armType: System.Type? = null
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
+            return TryEmitValueAsNullable(node, target, out armType) && TypesEquivalent(armType, target)
+        }
+        if (TryEmitZeroLiteralAsType(node, target, out armType)) {
+            return true
+        }
+        if (TryEmitIntLiteralAsType(node, target, out armType)) {
+            return true
+        }
+        if (!EmitExpression(node, out armType)) {
+            return false
+        }
+        return TypesEquivalent(armType, target)
     }
 
     // THE TWO KEYWORD LITERALS THAT SPELL A TARGET TYPE'S ZERO VALUE, in the one place that knows the
@@ -23656,8 +23812,15 @@ sealed class ColumnarIlEmitter {
             // type — IndexOf(char, int) vs IndexOf(string, StringComparison) — so emit arg1, read its type, then
             // bind the matching overload + arg2.
             if (argCount == 1) {
-                method1 := typeof(string).GetMethod(nameof(string.IndexOf), [typeof(char)])
-                if (method1 == null || !EmitArg(callIdx, 1, typeof(char))) {
+                // THE ARGUMENT CHOOSES, exactly as it does at arity 2 below. This arm used to assume
+                // `char` and refuse every `IndexOf("bc")` that reached it — the two-argument arm one
+                // rung down had always read its first argument's type, and reading it here is the same
+                // question asked one argument earlier. The preflight emits nothing, so a refusal costs
+                // no stack.
+                let singleArgumentType: System.Type? = null
+                singleParameterType := TryGetPreflightExpressionType(Child(callIdx, 1), out singleArgumentType) && singleArgumentType == typeof(string) ? typeof(string) : typeof(char)
+                method1 := typeof(string).GetMethod(nameof(string.IndexOf), [singleParameterType])
+                if (method1 == null || !EmitArg(callIdx, 1, singleParameterType)) {
                     return false
                 }
                 _il.Emit(OpCodes.Callvirt, method1)
@@ -23964,11 +24127,61 @@ sealed class ColumnarIlEmitter {
             }
             return false
         }
+        // ORDINARY CLR OVERLOAD RESOLUTION, ASKED WITH THE ARGUMENT TYPES THE PREFLIGHT CAN ANSWER FOR.
+        //
+        // The tier above resolves a member that is UNIQUE at its arity, because it asks before any
+        // argument has a type. That is every member with one signature and NO member with two:
+        // `Int32.CompareTo` declares `CompareTo(int)` and `CompareTo(object)`, so a narrowed `count`
+        // or a parenthesised `(x + 1)` receiver — the two shapes the direct-call planner does not
+        // claim — reached the bottom of this ladder and declined as "not modeled". A per-API arm for
+        // `CompareTo` would be the wrong fix; the right one is to ASK THE ARGUMENTS what they are and
+        // then run the SAME scoped resolution the planned door runs.
+        //
+        // LAST, AND DELIBERATELY. Everything above this line already answers, so nothing that emits
+        // today changes shape; what reaches here would otherwise be a decline.
+        if (TryEmitPreflightedRuntimeInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
         return Decline(
             "emit.call.instance-member-unmodeled",
             "instance call '" + receiverType.Name + "." + member + "' with " + argCount.ToString() + " argument(s) is not modeled",
             callIdx
         )
+    }
+
+    // The overloaded half of `TryEmitOrdinaryRuntimeInstanceCall`: the same resolver, the same
+    // value-type receiver spill and the same argument emission, given argument types rather than an
+    // arity. An argument the preflight cannot type (a lambda, a chain it does not model) leaves the
+    // call to the decline, exactly as it does one tier up — nothing is emitted before the selection
+    // is complete, so a refusal here costs nothing.
+    private func TryEmitPreflightedRuntimeInstanceCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (argCount < 1 || _nodes.ChildCount(callIdx) - 1 != argCount) {
+            return false
+        }
+        argumentTypes := new Type[](argCount)
+        for a := 0; a < argCount; a++ {
+            let argumentType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(callIdx, a + 1), out argumentType) || argumentType == null) {
+                return false
+            }
+            argumentTypes[a] = argumentType
+        }
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, member, argumentTypes, false)
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+            return false
+        }
+        if (receiverType.get_IsValueType()) {
+            // A method the value type INHERITS would need a box or a `constrained.` prefix, which is a
+            // different dispatch; only the type's own declarations bind here.
+            if (!ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(selection.DeclaringType, receiverType)) {
+                return false
+            }
+            spilledReceiver := _il.DeclareLocal(receiverType)
+            _il.Emit(OpCodes.Stloc, spilledReceiver)
+            _il.Emit(OpCodes.Ldloca, spilledReceiver)
+        }
+        return EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx, selection, out columnarResolvedType)
     }
 
     // THE MEMBER OF THIS RECEIVER THAT HOLDS A DELEGATE, or a decline. A member of one of this
@@ -24355,6 +24568,10 @@ sealed class ColumnarIlEmitter {
         }
         let ignoredNullType: System.Type? = null
         if (TryEmitZeroLiteralAsType(argNode, expectedParamType, out ignoredNullType)) {
+            return true
+        }
+        let ignoredConditionalType: System.Type? = null
+        if (TryEmitConditionalAsType(argNode, expectedParamType, out ignoredConditionalType)) {
             return true
         }
         if (ColumnarTypeOfPlanner.IsSupportedNullable(expectedParamType)) {

@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 
 // Native contracts for WHAT AN OPERATOR MEANS — the unary and binary arms of the expression walk,
@@ -1457,4 +1458,87 @@ test "A NON-CONSTANT SIGNED OPERAND AGAINST ulong IS REFUSED, AND THE MESSAGE NA
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "The '&' operator doesn't work with 'ulong' and 'int' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast"
     assert harness.Errors[0].Suggestion == "Cast the 'int' side to 'ulong', or make both sides signed."
+}
+
+// ── equality over an open type parameter ────────────────────────────────
+//
+// The rule this section states cannot be asked of the TypeInfo harness above: whether a name is a
+// type parameter is a fact about the ENCLOSING DECLARATION, not about the operand's type info, so
+// these rows go through the real `Analyzer.Analyze` entry over real source — the same route
+// `AnalyzerGenericTypeReceiver`'s rows take, and for the same reason.
+//
+// A bare temporary project with no reference assemblies is enough: nothing here needs metadata.
+func OperatorSourceErrors(source: string): List<string> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-operator-open-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    messages := new List<string>()
+    analyzer := new Analyzer()
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                messages.Add(error.Message)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return messages
+}
+
+test "TWO VALUES OF THE SAME OPEN TYPE PARAMETER COMPARE, `?` OR NOT" {
+    // The census row: a generic helper comparing two optional values was refused with a sentence
+    // about primitives and record structs that named nothing its author could act on.
+    lifted := OperatorSourceErrors("namespace P\n\nfunc Same<T>(a: T?, b: T?): bool where T : struct {\n    return a == b\n}\n")
+    assert lifted.Count == 0
+
+    bare := OperatorSourceErrors("namespace P\n\nfunc Same<T>(a: T, b: T): bool where T : struct {\n    return a != b\n}\n")
+    assert bare.Count == 0
+
+    // The CONSTRAINT decides the lowering, not the legality: an unconstrained parameter's `?` is an
+    // annotation rather than a `Nullable<T>` construction, and both spellings still compare.
+    unconstrained := OperatorSourceErrors("namespace P\n\nfunc Same<T>(a: T?, b: T?): bool {\n    return a == b\n}\n")
+    assert unconstrained.Count == 0
+
+    // ONE lifted side is enough — the plain operand converts to `T?`.
+    mixed := OperatorSourceErrors("namespace P\n\nfunc Same<T>(a: T?, b: T): bool where T : struct {\n    return a == b\n}\n")
+    assert mixed.Count == 0
+
+    // A type parameter of the enclosing TYPE reads the same rule as one of the function, and the
+    // enclosing type may be of ANY kind: the question is asked of the SCOPE, which records a
+    // declaration's parameters whatever the declaration is.
+    onClass := OperatorSourceErrors("namespace P\n\nclass Box<T> {\n    Value: T\n\n    constructor(value: T) {\n        Value = value\n    }\n\n    func Holds(candidate: T): bool {\n        return Value == candidate\n    }\n}\n")
+    assert onClass.Count == 0
+
+    onStruct := OperatorSourceErrors("namespace P\n\nstruct Cell<T> where T : struct {\n    Value: T?\n\n    constructor(value: T?) {\n        Value = value\n    }\n\n    func Holds(candidate: T?): bool {\n        return Value == candidate\n    }\n}\n")
+    assert onStruct.Count == 0
+
+    onRecord := OperatorSourceErrors("namespace P\n\nrecord Pair<T> where T : struct {\n    Left: T?\n    Right: T?\n\n    func Balanced(): bool {\n        return Left == Right\n    }\n}\n")
+    assert onRecord.Count == 0
+}
+
+test "TWO DIFFERENT OPEN TYPE PARAMETERS ARE NOT THIS RULE, AND NEITHER IS AN ORDERING" {
+    // `T` and `U` are two unrelated instantiations. The rule admits only the SAME parameter, so this
+    // pair falls through to the arms that owned it before — and a `?` over one of them is still
+    // refused, in the types the programmer wrote.
+    different := OperatorSourceErrors("namespace P\n\nfunc Same<T, U>(a: T?, b: U?): bool where T : struct where U : struct {\n    return a == b\n}\n")
+    assert different.Count == 1
+    assert different[0] == "The '==' operator doesn't work with 'T?' and 'U?' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload"
+
+    // ONLY EQUALITY LIFTS THIS WAY. `<` and `+` need an operand type that HAS them and an open
+    // parameter does not, so they keep their own refusals — exactly as C# refuses them.
+    ordering := OperatorSourceErrors("namespace P\n\nfunc Before<T>(a: T, b: T): bool where T : struct {\n    return a < b\n}\n")
+    assert ordering.Count == 1
+    assert ordering[0] == "The '<' operator doesn't work with 'T' and 'T' — both sides need primitive numeric values or a comparison operator overload, but I found 'T' and 'T'"
+
+    arithmetic := OperatorSourceErrors("namespace P\n\nfunc Add<T>(a: T, b: T): T where T : struct {\n    return a + b\n}\n")
+    assert arithmetic.Count == 1
+    assert arithmetic[0] == "The '+' operator doesn't work with 'T' and 'T' — both sides need numeric values, but I found 'T' and 'T'"
 }

@@ -829,6 +829,47 @@ arm now emits `ldnull` for it and takes the other arm's type, which must be a re
 literal is the THEN arm it is emitted first, so the else arm's type is preflighted before the branch
 is written at all.
 
+### Equality over an OPEN type parameter (census 2026-09-14, §NULLABLE4)
+
+`a == b` where both operands name the SAME type parameter of the enclosing function or type — seen
+through at most one `?` — is admitted by `AnalyzerOperatorExpressions.CanCompareOpenTypeParameter`,
+which sits between `CanCompareLiftedEquality` and the reference tail of
+`CanCompareWithEqualityOperator`. `OpenTypeParameterName` answers the written name when the operand
+resolves to a `SimpleTypeInfo` the enclosing declaration introduced (a type parameter has no TypeInfo
+kind of its own), and `DeclaresEnclosingTypeParameter` reads `ambient.CurrentFunction` and
+`ambient.CurrentClass` — exactly as the `lock` rule does.
+
+A BARE `T` already compared, accidentally: the reference tail reads an unresolved parameter name as a
+reference. `T? == T?` did not, and that asymmetry is what the census caught (`Same<T>(a: T?, b: T?)`
+under `where T : struct`). The CONSTRAINT decides the LOWERING, not the legality — a `struct`
+parameter's `T?` is a real `Nullable<T>` and lifts, an unconstrained or `class` parameter's `?` is an
+annotation on one CLR type and lowers to the bare comparison. TWO DIFFERENT parameters (`T == U`) are
+NOT this rule and keep the old refusal.
+
+EMIT IS `ColumnarIlEmitter.EmitOpenTypeParameterEquality`: `EqualityComparer<T>.Default.Equals(a, b)`,
+resolved through `ResolveClosedGenericMethod` (the same closed-generic member rebinding the
+`Nullable<T>` getters use). The two values are already on the stack when the comparer receiver has to
+precede them, so they are parked in locals and re-loaded in the SAME order — nothing is re-evaluated.
+`IsLiftedEqualityOperandType` now admits a generic-parameter element, so the existing lifted pair
+(`GetValueOrDefault` values compared that way, `HasValue` presence compared with `ceq`) serves `T?`
+unchanged. C# refuses BOTH forms outright (CS0019); only equality lifts this way, because `<` and `+`
+need an operand type that HAS them.
+
+### A conditional arm with no type of its own is TARGET-typed (census 2026-09-14, §NULLABLE4)
+
+`ColumnarIlEmitter.TryEmitConditionalAsType` takes a kind-13 node whose THEN or ELSE arm is a bare
+`null`, a `default` or a `throw`, and emits BOTH arms as the target type — the declared return type,
+the declared local's type, the assigned local's type, or the parameter's type. The typed arm goes
+through `EmitConditionalArmAsType`, which is the lifted conversion when the target is a `Nullable<T>`
+(that is what makes the `int` arm of `flag ? n : null` a `Nullable<int>`) and the keyword-zero,
+adopted-int-literal and ordinary-walk doors otherwise.
+
+THE ROUTE IS CHOSEN BEFORE ANYTHING IS EMITTED, because emit-then-check abandons the program: a
+conditional whose arms BOTH carry types keeps the existing unification arm and its exact IL. A
+throwing arm emits NO branch to the merge — the exception ends that path, so the merge label is
+reached only from the arm that produces a value. BOTH arms throwing still declines
+(`emit.conditional.both-arms-throw`), which C# refuses too.
+
 ### Reachability attributes — where a call sends control (census 2026-09-13, §FLOW4)
 
 `AnalyzerReachabilityAttributes.nl` is the reachability companion of the nullability vocabulary
