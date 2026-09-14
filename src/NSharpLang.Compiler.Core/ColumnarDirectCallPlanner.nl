@@ -1567,7 +1567,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if !ByRefArgumentModesMatch(nodes, source, callNode, method) {
+        if !ByRefArgumentModesMatch(nodes, source, callNode, argumentFacts, method) {
             resultType = typeof(int)
             return false
         }
@@ -1581,20 +1581,24 @@ class ColumnarDirectCallPlanner {
     // `ParameterInfo.IsOut`. The spelling has to match it in both directions at the ordinary runtime
     // boundary, because a matching managed address alone would otherwise let `ref x` bind an `out`
     // parameter — silently changing the caller's definite-assignment and write contract.
-    static func ByRefArgumentModesMatch(nodes: ColumnarNodeTable, source: string, callNode: int, method: MethodInfo): bool {
-        if nodes == null || source == null || method == null {
+    static func ByRefArgumentModesMatch(nodes: ColumnarNodeTable, source: string, callNode: int, argumentFacts: ColumnarDirectCallArgumentFacts, method: MethodInfo): bool {
+        if nodes == null || source == null || method == null || argumentFacts == null {
             return false
         }
 
         try {
             parameters := method.GetParameters()
-            if parameters == null || parameters.Length != nodes.ChildCount(callNode) - 1 {
+            if parameters == null || parameters.Length != nodes.ChildCount(callNode) - 1 || argumentFacts.ArgumentNodes.Length != parameters.Length {
                 return false
             }
 
             index := 0
             while index < parameters.Length {
-                argumentNode := nodes.Child(callNode, index + 1)
+
+                // The argument that landed in THIS parameter's slot -- a named argument may have been
+                // written somewhere else in the list, and `ref`/`out` is matched against the parameter
+                // it binds to, not the position it was typed at.
+                argumentNode := argumentFacts.ArgumentNodes[index]
                 if parameters[index].get_ParameterType().get_IsByRef() {
                     candidate := UnwrapParentheses(nodes, argumentNode)
                     if candidate < 0 || nodes.Kind(candidate) != 54 || nodes.ChildCount(candidate) != 1 {
@@ -2406,7 +2410,10 @@ class ColumnarDirectCallPlanner {
 
         index := 1
         while index < nodes.ChildCount(node) {
-            if !IsAdmittedValueSyntax(nodes, source, nodes.Child(node, index), depth + 1) {
+
+            // A `name:` wrapper is placement rather than value syntax: what has to be admitted is the
+            // argument underneath the name.
+            if !IsAdmittedValueSyntax(nodes, source, ColumnarNamedArgumentBinder.ArgumentValueNode(nodes, nodes.Child(node, index)), depth + 1) {
                 return false
             }
 

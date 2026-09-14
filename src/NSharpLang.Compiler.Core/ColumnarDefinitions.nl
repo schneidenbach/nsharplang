@@ -578,7 +578,13 @@ class ColumnarStructDef {
 
     // Keep the existing three-argument, default-public API while the complete input owner supplies
     // the source visibility word to the declaration planner's four-argument call.
-    func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[], visibilityModifierFlags: int, parameterNames: string[]? = null): ConstructorBuilder {
+    func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[], visibilityModifierFlags: int): ConstructorBuilder {
+        return DefineUserConstructor(parameterTypes, defaultKinds, defaultTexts, visibilityModifierFlags, new string[](0))
+    }
+
+    // The five-argument form carries the declaration's PARAMETER NAMES as well, which is what a named
+    // argument at a `new` binds by. An empty list means the registration site had none to carry.
+    func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[], visibilityModifierFlags: int, parameterNames: string[]): ConstructorBuilder {
         if parameterTypes == null || defaultKinds == null || defaultTexts == null {
             throw new InvalidOperationException("Source constructor definition facts cannot be null.")
         }
@@ -613,7 +619,7 @@ class ColumnarStructDef {
         visibility := ColumnarDeclarationPlanner.MethodVisibilityAttributes("Constructor", visibilityModifierFlags)
         builder := Builder.DefineConstructor((MethodAttributes)visibility, CallingConventions.Standard, exactParameterTypes)
         exactParameterNames := new string[](parameterTypes.Length)
-        if parameterNames != null && parameterNames.Length == parameterTypes.Length {
+        if parameterNames.Length == parameterTypes.Length {
             nameIndex := 0
             while nameIndex < parameterTypes.Length {
                 exactParameterNames[nameIndex] = parameterNames[nameIndex] ?? ""

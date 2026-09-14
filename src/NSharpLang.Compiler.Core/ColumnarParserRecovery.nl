@@ -7597,33 +7597,44 @@ class ColumnarParserRecovery {
         return arguments
     }
 
+    // The `ref`/`out` modifier in front of an argument (Parser.cs :4547), and the inline `out T x`
+    // declaration N# does not admit. Answers the modifier that was consumed; `inlineOutTarget` is
+    // non-null only for the reported inline-out shape, whose second identifier IS the argument --
+    // Parser.cs :4582 builds a real argument alongside the NL103 rather than synthetic error content.
+    func ParseArgumentModifier(out inlineOutTarget: Expression?): ArgumentModifier {
+        inlineOutTarget = null
+        if Check(TokenType.Ref) {
+            Advance()
+            return ArgumentModifier.Ref
+        }
+
+        if !Check(TokenType.Out) {
+            return ArgumentModifier.None
+        }
+
+        Advance()
+        if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Identifier {
+            first := Current()
+            second := LookAhead(1)
+            ReportInlineOutDeclaration(first, second)
+            Advance()
+            Advance()
+            inlineOutTarget = new IdentifierExpression(second.Value, second.Line, second.Column)
+        }
+
+        return ArgumentModifier.Out
+    }
+
     // One argument (Parser.cs :4544-4606): the ref/out modifier (with the inline-out NL103), the named
     // `name:` prefix, the spread `...`, the bare alloc/allow/stackalloc identifier, or a plain expression.
     // Stage N+1c tranche 9b: RETURNS `new Argument(argName, argValue, modifier)` (Parser.cs :4617), or null
     // when the value expression is a still-deferred form.
     func ParseArgument(): Argument? {
         // ref / out modifier (Parser.cs :4547).
-        modifier := ArgumentModifier.None
-        if Check(TokenType.Ref) {
-            modifier = ArgumentModifier.Ref
-            Advance()
-        } else {
-            if Check(TokenType.Out) {
-                modifier = ArgumentModifier.Out
-                Advance()
-                // Inline out declaration `out T x` (Parser.cs :4557): two consecutive identifiers. Parser.cs
-                // builds a REAL `new Argument(null, new IdentifierExpression(second.Value, second.Line,
-                // second.Column), modifier)` (:4582) alongside the NL103 — not synthetic-error content — so
-                // the owner materializes it byte-exact.
-                if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Identifier {
-                    first := Current()
-                    second := LookAhead(1)
-                    ReportInlineOutDeclaration(first, second)
-                    Advance()
-                    Advance()
-                    return new Argument(null, new IdentifierExpression(second.Value, second.Line, second.Column), modifier)
-                }
-            }
+        inlineOutTarget: Expression? = null
+        modifier := ParseArgumentModifier(out inlineOutTarget)
+        if inlineOutTarget != null {
+            return new Argument(null, inlineOutTarget, modifier)
         }
 
         // Named argument `name:` (Parser.cs :4579).
@@ -7634,6 +7645,17 @@ class ColumnarParserRecovery {
             Advance()
         }
         // the colon
+
+        // THE MODIFIER MAY ALSO FOLLOW THE NAME, and that is the order the argument is usually
+        // written in: `Int32.TryParse(text, result: out parsed)` names the parameter first and then
+        // says how it is passed. The name prefixes the whole argument, modifier included.
+        if argumentName != null && modifier == ArgumentModifier.None {
+            namedInlineOutTarget: Expression? = null
+            modifier = ParseArgumentModifier(out namedInlineOutTarget)
+            if namedInlineOutTarget != null {
+                return new Argument(argumentName, namedInlineOutTarget, modifier)
+            }
+        }
 
         // Spread `...expr` (Parser.cs :4587): `new SpreadExpression(spreadExpr, spreadLine, spreadColumn)`
         // (:4604) anchored on the `...`, then wrapped in the Argument (the name/modifier still apply).
