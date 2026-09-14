@@ -1321,6 +1321,13 @@ class AnalyzerCallAnalysis {
         acceptedPostconditions := finalizeState.Postconditions
         state.FinalizeState = null
         if bound != null {
+            // FINALIZER REFUSAL FOLLOWS THE SELECTED METHOD, not the unresolved group. A legal
+            // overload may share the name with object.Finalize, and only ordinary overload binding
+            // can establish which member this call names.
+            if AnalyzerMemberResolution.IsRuntimeFinalizerMethod(finalizeState.RuntimeMethod) {
+                ReportFinalizerCall(state.Call)
+            }
+
             // The candidate is the call's now, so its postconditions become the flow's. A candidate
             // that failed has already had its diagnostics withdrawn and leaves nothing behind.
             if acceptedPostconditions != null {
@@ -1353,6 +1360,17 @@ class AnalyzerCallAnalysis {
         state.ReflectionCandidateIndex = state.ReflectionCandidateIndex + 1
         state.Phase = 35
         return null
+    }
+
+    // NL341, THE RENDERING. The sentence names what the runtime does instead, and the suggestion
+    // points at the release mechanism a program can call deterministically.
+    func ReportFinalizerCall(call: CallExpression) {
+        member := call.Callee as MemberAccessExpression
+        if member == null {
+            return
+        }
+
+        diagnostics.Report(ErrorCode.FinalizerNotCallable, "`" + member.MemberName + "` is the runtime's finalizer and cannot be called from source — the garbage collector calls it, on its own schedule", member.Line, spans.GetMemberNameColumn(member), "Release resources deterministically instead: implement `IDisposable` and call `Dispose()`, or wrap the value in a `using` statement.", Math.Max(1, member.MemberName.Length))
     }
 
     // A BOUND REFLECTED CALL IS ITS RETURN TYPE — and a bound call with no return type at all is
