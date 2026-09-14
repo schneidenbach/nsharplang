@@ -3,9 +3,7 @@ namespace NSharpLang.CompilationBackend.Tests
 import System.IO
 
 // Post-construction writes to a reflected init-only property are a semantic error (NL343).
-// Legal object initializers still encounter the pending MemberRef custom-modifier repair: the
-// persisted metadata writer drops modreq(IsExternalInit), producing a runtime MissingMethodException
-// if emission is permitted. Keep that refusal covered until INITREQ replaces it with runtime proof.
+// Legal object initializers preserve the setter's MemberRef custom modifier and run normally.
 // JsonSchemaExporterOptions supplies the reflected shape from the default framework references.
 func WriteInitOnlyProbe(directory: string, body: string) {
     WriteFile(directory, "project.yml", ProjectYml("InitOnlySetter", "il", "library"))
@@ -42,24 +40,22 @@ test "assigning an init-only property of a referenced type is refused, and the m
     }
 }
 
-test "an object initializer that writes an init-only property of a referenced type is refused too" {
+test "an object initializer that writes an init-only property of a referenced type builds and runs" {
     directory := NewTempDirectory()
     try {
-        WriteInitOnlyProbe(
+        WriteFile(directory, "project.yml", ProjectYml("InitOnlySetter", "il", "exe"))
+        WriteFile(
             directory,
-            "func Build(): JsonSchemaExporterOptions {\n    return new JsonSchemaExporterOptions { TreatNullObliviousAsNonNullable: true }\n}\n"
+            "Program.nl",
+            "namespace InitOnlySetter\n\nimport System.Text.Json.Schema\n\nfunc main() {\n    options := new JsonSchemaExporterOptions { TreatNullObliviousAsNonNullable: true }\n    print options.TreatNullObliviousAsNonNullable\n}\n"
         )
 
-        run := Nlc("check --project " + Quote(directory) + " --text", directory)
-
-        assert run.ExitCode == 1
-
-        // The construction planner has no reason channel, so the site is the enclosing expression and
-        // the setter is not named. What this row pins is that the program does NOT build — which is
-        // the whole point, because it used to build and then die.
-        said := SaidByCheck(run)
-        assert said.Contains("NL103")
-        assert said.Contains("Columnar emission is required")
+        outputDirectory := Path.Combine(directory, "dist")
+        build := Nlc("build -o " + Quote(outputDirectory), directory)
+        assert build.ExitCode == 0, build.Stdout + build.Stderr
+        executed := DotnetApp(Path.Combine(outputDirectory, "InitOnlySetter.dll"), directory)
+        assert executed.ExitCode == 0, executed.Stdout + executed.Stderr
+        assert executed.Stdout.Trim() == "True"
     } finally {
         DeleteTempDirectory(directory)
     }

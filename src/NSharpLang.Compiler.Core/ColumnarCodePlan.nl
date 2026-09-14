@@ -634,6 +634,7 @@ class ColumnarCodePlan {
     MethodDeclaringTypes: Type[]
     MethodReturnTypes: Type[]
     MethodParameterTypes: Type[][]
+    MethodModifiedSignatureSources: MethodInfo?[]
     MethodIsStatic: bool[]
     MethodIsAbstract: bool[]
     ConstructorCount: int
@@ -723,6 +724,7 @@ class ColumnarCodePlan {
         MethodDeclaringTypes = new Type[](0)
         MethodReturnTypes = new Type[](0)
         MethodParameterTypes = new Type[][](0)
+        MethodModifiedSignatureSources = new MethodInfo?[](0)
         MethodIsStatic = new bool[](0)
         MethodIsAbstract = new bool[](0)
         ConstructorCount = 0
@@ -1084,8 +1086,16 @@ class ColumnarCodePlan {
         MethodParameterTypes[index] = exactParameterTypes
         MethodIsStatic[index] = isStatic
         MethodIsAbstract[index] = isAbstract
+        MethodModifiedSignatureSources[index] = null
         MethodCount = MethodCount + 1
         return index
+    }
+
+    func MarkMethodForModifiedMemberReferenceRepair(methodIndex: int, signatureSource: MethodInfo) {
+        if methodIndex < 0 || methodIndex >= MethodCount || signatureSource == null {
+            throw new ArgumentOutOfRangeException("methodIndex")
+        }
+        MethodModifiedSignatureSources[methodIndex] = signatureSource
     }
 
     func AddConstructor(value: ConstructorInfo): int {
@@ -1838,7 +1848,7 @@ class ColumnarCodePlan {
     }
 
     func HasValidV2ColumnsAndPools(): bool {
-        if OperationCount <= 0 || TypeCount < 0 || Int32Count < 0 || ArgumentCount < 0 || AmbientLocalCount < 0 || MethodCount < 0 || ConstructorCount < 0 || FieldCount < 0 || PlanLocalCount < 0 || LabelCount < 0 || FragmentCount <= 0 || OperationKinds == null || OpCodeValues == null || OperandKinds == null || OperandIndices == null || OperationOwnerFragmentIndices == null || OperationKinds.Length < OperationCount || OpCodeValues.Length < OperationCount || OperandKinds.Length < OperationCount || OperandIndices.Length < OperationCount || OperationOwnerFragmentIndices.Length < OperationCount || Types == null || Types.Length < TypeCount || TypeStructuralReferences == null || TypeStructuralReferences.Length < TypeCount || TypeUsesStructuralReference == null || TypeUsesStructuralReference.Length < TypeCount || Int32Values == null || Int32Values.Length < Int32Count || ArgumentOrdinals == null || ArgumentTypeIndices == null || ArgumentIsAddress == null || ArgumentOrdinals.Length < ArgumentCount || ArgumentTypeIndices.Length < ArgumentCount || ArgumentIsAddress.Length < ArgumentCount || AmbientLocals == null || AmbientLocals.Length < AmbientLocalCount || Methods == null || Methods.Length < MethodCount || MethodUsesDeclaredSignature == null || MethodUsesDeclaredSignature.Length < MethodCount || MethodDeclaringTypes == null || MethodDeclaringTypes.Length < MethodCount || MethodReturnTypes == null || MethodReturnTypes.Length < MethodCount || MethodParameterTypes == null || MethodParameterTypes.Length < MethodCount || MethodIsStatic == null || MethodIsStatic.Length < MethodCount || MethodIsAbstract == null || MethodIsAbstract.Length < MethodCount || Constructors == null || Constructors.Length < ConstructorCount || ConstructorUsesDeclaredSignature == null || ConstructorUsesDeclaredSignature.Length < ConstructorCount || ConstructorDeclaringTypes == null || ConstructorDeclaringTypes.Length < ConstructorCount || ConstructorParameterTypes == null || ConstructorParameterTypes.Length < ConstructorCount || Fields == null || Fields.Length < FieldCount || FieldUsesDeclaredSignature == null || FieldUsesDeclaredSignature.Length < FieldCount || FieldDeclaringTypes == null || FieldDeclaringTypes.Length < FieldCount || FieldValueTypes == null || FieldValueTypes.Length < FieldCount || FieldIsStatic == null || FieldIsStatic.Length < FieldCount || PlanLocalTypeIndices == null || PlanLocalTypeIndices.Length < PlanLocalCount || PlanLocalIsMirror == null || PlanLocalIsMirror.Length < PlanLocalCount {
+        if OperationCount <= 0 || TypeCount < 0 || Int32Count < 0 || ArgumentCount < 0 || AmbientLocalCount < 0 || MethodCount < 0 || ConstructorCount < 0 || FieldCount < 0 || PlanLocalCount < 0 || LabelCount < 0 || FragmentCount <= 0 || OperationKinds == null || OpCodeValues == null || OperandKinds == null || OperandIndices == null || OperationOwnerFragmentIndices == null || OperationKinds.Length < OperationCount || OpCodeValues.Length < OperationCount || OperandKinds.Length < OperationCount || OperandIndices.Length < OperationCount || OperationOwnerFragmentIndices.Length < OperationCount || Types == null || Types.Length < TypeCount || TypeStructuralReferences == null || TypeStructuralReferences.Length < TypeCount || TypeUsesStructuralReference == null || TypeUsesStructuralReference.Length < TypeCount || Int32Values == null || Int32Values.Length < Int32Count || ArgumentOrdinals == null || ArgumentTypeIndices == null || ArgumentIsAddress == null || ArgumentOrdinals.Length < ArgumentCount || ArgumentTypeIndices.Length < ArgumentCount || ArgumentIsAddress.Length < ArgumentCount || AmbientLocals == null || AmbientLocals.Length < AmbientLocalCount || Methods == null || Methods.Length < MethodCount || MethodUsesDeclaredSignature == null || MethodUsesDeclaredSignature.Length < MethodCount || MethodDeclaringTypes == null || MethodDeclaringTypes.Length < MethodCount || MethodReturnTypes == null || MethodReturnTypes.Length < MethodCount || MethodParameterTypes == null || MethodParameterTypes.Length < MethodCount || MethodModifiedSignatureSources == null || MethodModifiedSignatureSources.Length < MethodCount || MethodIsStatic == null || MethodIsStatic.Length < MethodCount || MethodIsAbstract == null || MethodIsAbstract.Length < MethodCount || Constructors == null || Constructors.Length < ConstructorCount || ConstructorUsesDeclaredSignature == null || ConstructorUsesDeclaredSignature.Length < ConstructorCount || ConstructorDeclaringTypes == null || ConstructorDeclaringTypes.Length < ConstructorCount || ConstructorParameterTypes == null || ConstructorParameterTypes.Length < ConstructorCount || Fields == null || Fields.Length < FieldCount || FieldUsesDeclaredSignature == null || FieldUsesDeclaredSignature.Length < FieldCount || FieldDeclaringTypes == null || FieldDeclaringTypes.Length < FieldCount || FieldValueTypes == null || FieldValueTypes.Length < FieldCount || FieldIsStatic == null || FieldIsStatic.Length < FieldCount || PlanLocalTypeIndices == null || PlanLocalTypeIndices.Length < PlanLocalCount || PlanLocalIsMirror == null || PlanLocalIsMirror.Length < PlanLocalCount {
             return false
         }
 
@@ -2147,13 +2157,14 @@ class ColumnarCodePlan {
     }
 
     func EnsureMethodCapacity(minimum: int) {
-        if Methods == null || Methods.Length < minimum || MethodUsesDeclaredSignature == null || MethodUsesDeclaredSignature.Length < minimum || MethodDeclaringTypes == null || MethodDeclaringTypes.Length < minimum || MethodReturnTypes == null || MethodReturnTypes.Length < minimum || MethodParameterTypes == null || MethodParameterTypes.Length < minimum || MethodIsStatic == null || MethodIsStatic.Length < minimum || MethodIsAbstract == null || MethodIsAbstract.Length < minimum {
+        if Methods == null || Methods.Length < minimum || MethodUsesDeclaredSignature == null || MethodUsesDeclaredSignature.Length < minimum || MethodDeclaringTypes == null || MethodDeclaringTypes.Length < minimum || MethodReturnTypes == null || MethodReturnTypes.Length < minimum || MethodParameterTypes == null || MethodParameterTypes.Length < minimum || MethodModifiedSignatureSources == null || MethodModifiedSignatureSources.Length < minimum || MethodIsStatic == null || MethodIsStatic.Length < minimum || MethodIsAbstract == null || MethodIsAbstract.Length < minimum {
             capacity := NextCapacity(Methods == null ? 0 : Methods.Length, minimum)
             Methods = GrowMethodArray(Methods, capacity)
             MethodUsesDeclaredSignature = GrowBoolArray(MethodUsesDeclaredSignature, capacity)
             MethodDeclaringTypes = GrowTypeArray(MethodDeclaringTypes, capacity)
             MethodReturnTypes = GrowTypeArray(MethodReturnTypes, capacity)
             MethodParameterTypes = GrowTypeArrayArray(MethodParameterTypes, capacity)
+            MethodModifiedSignatureSources = GrowMethodArray(MethodModifiedSignatureSources, capacity)
             MethodIsStatic = GrowBoolArray(MethodIsStatic, capacity)
             MethodIsAbstract = GrowBoolArray(MethodIsAbstract, capacity)
         }

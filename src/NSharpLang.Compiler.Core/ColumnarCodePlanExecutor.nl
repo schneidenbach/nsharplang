@@ -171,6 +171,10 @@ class ColumnarCodePlanStackState {
 // calls back into the legacy emitter.
 class ColumnarCodePlanExecutor {
     static func Execute(plan: ColumnarCodePlan, il: ILGenerator) {
+        Execute(plan, il, null)
+    }
+
+    static func Execute(plan: ColumnarCodePlan, il: ILGenerator, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?) {
         Validate(plan)
         if il == null {
             throw new InvalidOperationException("Columnar code-plan IL generator cannot be null.")
@@ -190,14 +194,14 @@ class ColumnarCodePlanExecutor {
             return
         }
         if plan.SchemaVersion == ColumnarCodePlanContract.RecursiveSchemaVersion() {
-            ExecuteV2(plan, il)
+            ExecuteV2(plan, il, modifiedMemberReferences)
             return
         }
         if plan.SchemaVersion == ColumnarCodePlanContract.MethodBodySchemaVersion() {
-            ExecuteMethodBody(plan, il)
+            ExecuteMethodBody(plan, il, modifiedMemberReferences)
             return
         }
-        ExecuteV3(plan, il)
+        ExecuteV3(plan, il, modifiedMemberReferences)
     }
 
     static func Validate(plan: ColumnarCodePlan) {
@@ -216,16 +220,20 @@ class ColumnarCodePlanExecutor {
     }
 
     static func ExecuteMethodBody(plan: ColumnarCodePlan, il: ILGenerator) {
+        ExecuteMethodBody(plan, il, null)
+    }
+
+    static func ExecuteMethodBody(plan: ColumnarCodePlan, il: ILGenerator, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?) {
         // Consume at the same pre-emission boundary as the recursive schemas: a failed declaration or
         // emit must never leave a method body replayable.
         plan.ConsumeMethodBody()
-        ExecuteMethodBodyRows(plan, il)
+        ExecuteMethodBodyRows(plan, il, modifiedMemberReferences)
     }
 
     // Replay a flat method body. Labels are pre-declared so both forward and backward branches resolve;
     // the four structured region operations map to the ILGenerator region calls, with BeginExceptionBlock's
     // returned end label written into its operand slot so `leave` rows can target it.
-    static func ExecuteMethodBodyRows(plan: ColumnarCodePlan, il: ILGenerator) {
+    static func ExecuteMethodBodyRows(plan: ColumnarCodePlan, il: ILGenerator, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?) {
         planLocals := new LocalBuilder[](plan.PlanLocalCount)
         i := 0
         while i < plan.PlanLocalCount {
@@ -256,7 +264,7 @@ class ColumnarCodePlanExecutor {
             } else if operationKind == ColumnarCodePlanContract.EndExceptionBlockOperation() {
                 il.EndExceptionBlock()
             } else {
-                EmitInstruction(plan, il, planLocals, labels, i)
+                EmitInstruction(plan, il, planLocals, labels, i, modifiedMemberReferences)
             }
             i += 1
         }
@@ -271,7 +279,7 @@ class ColumnarCodePlanExecutor {
         }
     }
 
-    static func ExecuteV2(plan: ColumnarCodePlan, il: ILGenerator) {
+    static func ExecuteV2(plan: ColumnarCodePlan, il: ILGenerator, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?) {
         // Trusted execution-context boundary: argument ordinals/types and ambient LocalBuilders
         // are captured by the N# planner from this same live method emitter. Public
         // Reflection.Emit exposes neither an ILGenerator target signature nor a LocalBuilder owner,
@@ -281,17 +289,17 @@ class ColumnarCodePlanExecutor {
         // Validation has already completed. Consume before the first ILGenerator mutation so a
         // declaration or emission failure can never make this plan replayable.
         plan.ConsumeV2()
-        ExecuteRecursiveRows(plan, il)
+        ExecuteRecursiveRows(plan, il, modifiedMemberReferences)
     }
 
-    static func ExecuteV3(plan: ColumnarCodePlan, il: ILGenerator) {
+    static func ExecuteV3(plan: ColumnarCodePlan, il: ILGenerator, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?) {
         // Consume at the same pre-emission boundary as schema v2. A failed declaration or emit
         // must never leave a scalar plan replayable.
         plan.ConsumeV3()
-        ExecuteRecursiveRows(plan, il)
+        ExecuteRecursiveRows(plan, il, modifiedMemberReferences)
     }
 
-    static func ExecuteRecursiveRows(plan: ColumnarCodePlan, il: ILGenerator) {
+    static func ExecuteRecursiveRows(plan: ColumnarCodePlan, il: ILGenerator, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?) {
         planLocals := new LocalBuilder[](plan.PlanLocalCount)
         i := 0
         while i < plan.PlanLocalCount {
@@ -311,13 +319,13 @@ class ColumnarCodePlanExecutor {
             if plan.OperationKinds[i] == ColumnarCodePlanContract.MarkLabelOperation() {
                 il.MarkLabel(labels[plan.OperandIndices[i]])
             } else {
-                EmitInstruction(plan, il, planLocals, labels, i)
+                EmitInstruction(plan, il, planLocals, labels, i, modifiedMemberReferences)
             }
             i += 1
         }
     }
 
-    static func EmitInstruction(plan: ColumnarCodePlan, il: ILGenerator, planLocals: LocalBuilder[], labels: Label[], operationIndex: int) {
+    static func EmitInstruction(plan: ColumnarCodePlan, il: ILGenerator, planLocals: LocalBuilder[], labels: Label[], operationIndex: int, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?) {
         opCodeValue := plan.OpCodeValues[operationIndex]
         operandKind := plan.OperandKinds[operationIndex]
         operandIndex := plan.OperandIndices[operationIndex]
@@ -341,6 +349,19 @@ class ColumnarCodePlanExecutor {
         } else if operandKind == ColumnarCodePlanContract.PlanLocalOperand() {
             EmitLocal(il, opCodeValue, planLocals[operandIndex])
         } else if operandKind == ColumnarCodePlanContract.MethodOperand() {
+            signatureSource := plan.MethodModifiedSignatureSources[operandIndex]
+            if signatureSource != null {
+                if modifiedMemberReferences == null {
+                    throw new InvalidOperationException("A modified MemberRef method requires an emission ledger.")
+                }
+                modifiedMemberReferences.Record(
+                    plan.MethodDeclaringTypes[operandIndex],
+                    plan.Methods[operandIndex],
+                    signatureSource,
+                    plan.MethodParameterTypes[operandIndex],
+                    plan.MethodReturnTypes[operandIndex]
+                )
+            }
             if opCodeValue == ColumnarCodePlanContract.Call() {
                 il.Emit(OpCodes.Call, plan.Methods[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Ldftn() {

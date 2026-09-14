@@ -355,6 +355,11 @@ class Seeded {
 }
 ```
 
+The same rule applies through generics and assembly boundaries. A closed generic initializer such as
+`new Box<string> { Value: "ready" }` calls the marked setter, and a derived constructor may assign an
+inherited `init` member declared by a referenced `Box<T>`. The emitted call preserves the setter's
+`IsExternalInit` required modifier, so the CLR binds it to the same method the declaration exposes.
+
 `init` may also be written in front of an explicit accessor pair, which puts the same marker on the
 declared setter:
 
@@ -1925,12 +1930,6 @@ Two rules the compiler enforces about the type-argument list itself:
   lambda's body) but does not EMIT yet. A generic FREE function with a delegate parameter is
   unaffected, and so is every generic method on an external type; write the type argument out
   (`Match<string>(...)`) or move the call into a free function.
-- An **`init` member of a GENERIC type** can be set by a constructor of that type, but not by an
-  object initializer written against a closed instantiation (`new Holder<string> { Value: … }`). The
-  reference such an initializer needs cannot carry the `IsExternalInit` marker the setter's
-  definition has, so the creation declines rather than emitting IL the runtime would refuse to bind.
-  Give the type a constructor and construct through it. `init` on a non-generic type, and a plain
-  settable property on a generic one, are unaffected.
 - **Null-conditional INDEXING** (`items?[0]`) is not compiled yet; `?.` on a member or a method is
   unaffected, and an explicit null check reads the element.
 - An argument that must be **boxed into an `object` parameter of a GENERIC function**

@@ -178,7 +178,7 @@ class ColumnarConstructionPlanner {
         return true
     }
 
-    static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, il: ILGenerator, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+    static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, il: ILGenerator, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger? = null): bool {
         ownership := ColumnarDirectCallOwnership.NotOwned
         status := Plan(nodes, source, node, bindings, plan, out ownership, out legacyWholeSubtreePlanning, out resultType)
         ValidateOwnershipBoundary(ownership, legacyWholeSubtreePlanning)
@@ -187,7 +187,7 @@ class ColumnarConstructionPlanner {
             return false
         }
 
-        ColumnarCodePlanExecutor.Execute(plan, il)
+        ColumnarCodePlanExecutor.Execute(plan, il, modifiedMemberReferences)
         resultType = RequiredResultType(plan)
         return true
     }
@@ -783,17 +783,11 @@ class ColumnarConstructionPlanner {
                     }
                     propertyType := propertyOwnerArguments.Length > 0 ? SubstituteTypeArgument(property.PropertyType, propertyOwnerArguments) : property.PropertyType
                     setter: MethodInfo = property.Setter
+                    modifierSignatureSource: MethodInfo? = null
                     declaringType: Type = propertyOwnerType
                     if !SameObject(propertyOwnerType, propertyOwner.Builder) {
-                        // AN `init` SETTER ON A CLOSED GENERIC TYPE CANNOT BE REFERENCED FROM HERE.
-                        // `TypeBuilder.GetMethod` builds the MemberRef from the open method's bare
-                        // signature and drops the `modreq(IsExternalInit)` the definition carries, so
-                        // the runtime refuses to bind it. Declining is the only honest answer: the
-                        // alternative is IL that compiles and throws `MissingMethodException` when the
-                        // caller is first jitted. The member is still settable from a constructor of
-                        // the declaring type, which references the OPEN method directly.
                         if property.IsInitOnly {
-                            return false
+                            modifierSignatureSource = property.Setter
                         }
 
                         setter = TypeBuilder.GetMethod(propertyOwnerType, property.Setter)
@@ -804,6 +798,9 @@ class ColumnarConstructionPlanner {
                     }
                     parameterTypes := Types1(propertyType)
                     methodIndex := plan.AddMethodWithSignature(setter, declaringType, parameterTypes, RequiredVoidType(), false, setter.get_IsAbstract())
+                    if modifierSignatureSource != null {
+                        plan.MarkMethodForModifiedMemberReferenceRepair(methodIndex, modifierSignatureSource)
+                    }
                     plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
                     index += 2
                     continue
@@ -875,24 +872,12 @@ class ColumnarConstructionPlanner {
                 return false
             }
 
-            // A SETTER THE EMITTED ASSEMBLY CANNOT NAME. A signature carrying REQUIRED CUSTOM
-            // MODIFIERS loses them when the metadata writer emits a `MemberRef`, and the resulting
-            // reference resolves to nothing at run time -- the measured writer limitation
-            // `ColumnarForeachLoopPlanner.IsReferenceablePattern` already refuses `ReadOnlySpan<T>`'s
-            // enumerator for, with the same "Method not found" symptom. `init` is written in metadata
-            // as exactly such a modifier (`modreq(IsExternalInit)` on the setter's return), so
-            // `new External { InitOnlyProperty: v }` used to CHECK CLEAN and then throw
-            // `MissingMethodException` the first time it ran. Every C# `record` is this shape. Refusing
-            // here makes it a diagnostic instead of a crash; the planned BCL write door already refuses
-            // the same shape (`IsInitOnlySetter`), and this construction door did not.
-            if !SetterSignatureSurvivesAMemberRef(setterCandidate) {
-                return false
-            }
             setter: MethodInfo = setterCandidate
             setterDeclaringType := setter.get_DeclaringType()
             if setterDeclaringType == null {
                 return false
             }
+            requiresModifierRepair := !SetterSignatureSurvivesAMemberRef(setterCandidate)
             propertyType := selectedProperty.get_PropertyType()
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
             if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, propertyType, out ownership, out legacyWholeSubtreePlanning) {
@@ -900,6 +885,9 @@ class ColumnarConstructionPlanner {
             }
             parameterTypes := Types1(propertyType)
             methodIndex := plan.AddMethodWithSignature(setter, setterDeclaringType, parameterTypes, RequiredVoidType(), false, setter.get_IsAbstract())
+            if requiresModifierRepair {
+                plan.MarkMethodForModifiedMemberReferenceRepair(methodIndex, setter)
+            }
             plan.AppendMethodInstruction(setter.get_IsVirtual() ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
             index += 2
         }
@@ -953,14 +941,11 @@ class ColumnarConstructionPlanner {
                 }
                 valuePropertyType := valuePropertyOwnerArguments.Length > 0 ? SubstituteTypeArgument(valueProperty.PropertyType, valuePropertyOwnerArguments) : valueProperty.PropertyType
                 valueSetter: MethodInfo = valueProperty.Setter
+                valueModifierSignatureSource: MethodInfo? = null
                 valueSetterDeclaringType: Type = valuePropertyOwnerType
                 if !SameObject(valuePropertyOwnerType, valuePropertyOwner.Builder) {
-                    // The same reference the reference-type arm above cannot build: a closed generic
-                    // type's `init` setter loses its `modreq(IsExternalInit)` on the way through
-                    // `TypeBuilder.GetMethod`, and a reference the runtime will not bind is worse than
-                    // a decline.
                     if valueProperty.IsInitOnly {
-                        return false
+                        valueModifierSignatureSource = valueProperty.Setter
                     }
 
                     valueSetter = TypeBuilder.GetMethod(valuePropertyOwnerType, valueProperty.Setter)
@@ -970,6 +955,9 @@ class ColumnarConstructionPlanner {
                     return false
                 }
                 valueSetterIndex := plan.AddMethodWithSignature(valueSetter, valueSetterDeclaringType, Types1(valuePropertyType), RequiredVoidType(), false, false)
+                if valueModifierSignatureSource != null {
+                    plan.MarkMethodForModifiedMemberReferenceRepair(valueSetterIndex, valueModifierSignatureSource)
+                }
                 plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), valueSetterIndex)
                 index += 2
                 continue

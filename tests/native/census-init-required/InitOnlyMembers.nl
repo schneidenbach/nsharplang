@@ -53,15 +53,28 @@ struct Measurement {
 }
 
 // An init-only member typed by the declaration's own type parameter. It is written by the
-// declaring type's OWN constructor, which references the open definition's setter directly: a
-// MemberRef to a closed generic type's `init` setter cannot carry `modreq(IsExternalInit)` (see
-// website/docs/types.md "Current limits"), so an object initializer over `Holder<string>` declines.
+// declaring type's OWN constructor and by callers through a closed generic MemberRef. The metadata
+// repair preserves the definition's init modifier while retaining the constructed owner.
 class Holder<T> {
     init Value: T
     Slot: int
 
     constructor(seed: T) {
         Value = seed
+    }
+}
+
+class GenericInitializable<T> {
+    init Value: T
+}
+
+struct GenericMeasurement<T> {
+    init Value: T
+}
+
+class GenericInitOwner {
+    class Nested<T> {
+        init Value: T
     }
 }
 

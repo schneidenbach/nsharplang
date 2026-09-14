@@ -87,6 +87,7 @@ sealed class ColumnarIlEmitter {
     private _rethrowTargetFinallyDepth: int
     private _overflowCheckingEnabled: bool
     private readonly _il: ILGenerator
+    private readonly _modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger
     private readonly _codePlan: ColumnarCodePlan
     private readonly _siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
     private _siblingCallFacts: Dictionary<string, ColumnarSiblingCallFacts>?
@@ -512,7 +513,7 @@ sealed class ColumnarIlEmitter {
     // generated assignments are `Field = parameter`; when the field and parameter share a name, the left side
     // must bind to the field even though ordinary explicit-constructor assignments keep parameter shadowing.
 
-    private constructor(nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>, unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, programType: TypeBuilder? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, siblingReturnLabeledCanonicals: IReadOnlyDictionary<string, string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>? = null, typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>? = null, typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null) {
+    private constructor(nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>, unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, programType: TypeBuilder? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, siblingReturnLabeledCanonicals: IReadOnlyDictionary<string, string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>? = null, typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>? = null, typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger? = null) {
         // CLR object storage starts zeroed before instance field initializers run. Spell the non-nullable
         // fields explicitly so N# constructor validation sees the same initial state on every path.
         _protectedDone = new Label()
@@ -580,6 +581,7 @@ sealed class ColumnarIlEmitter {
             }
         }
         _il = il
+        _modifiedMemberReferences = modifiedMemberReferences ?? new ColumnarModifiedMemberReferenceLedger()
         _siblings = siblings
         _genericInterfaceConstraints = genericInterfaceConstraints ?? s_noGenericInterfaceConstraints
         _enumRegistry = enumRegistry
@@ -1523,7 +1525,9 @@ sealed class ColumnarIlEmitter {
                 placement.TypeParametersForBody,
                 _typeResolutionEnums.ForSynthesizedMethod(placement.OwnerTypeForBody),
                 _typeResolutionStructs.ForSynthesizedMethod(placement.OwnerTypeForBody),
-                _typeResolutionUnions.ForSynthesizedMethod(placement.OwnerTypeForBody)
+                _typeResolutionUnions.ForSynthesizedMethod(placement.OwnerTypeForBody),
+                null,
+                _modifiedMemberReferences
             )
             if (!subEmitter.EmitLambdaBody(bodyIl, bodyNode, bodyReturnType)) {
                 return DeclineMember("emit.body", "lambda body emission declined", bodyNode, "lambda")
@@ -1785,7 +1789,9 @@ sealed class ColumnarIlEmitter {
             null,
             _typeResolutionEnums.ForSynthesizedMethod(display),
             _typeResolutionStructs.ForSynthesizedMethod(display),
-            _typeResolutionUnions.ForSynthesizedMethod(display)
+            _typeResolutionUnions.ForSynthesizedMethod(display),
+            null,
+            _modifiedMemberReferences
         )
         if (!closureEmitter.EmitLambdaBody(closureIl, bodyNode, bodyReturnType)) {
             return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda")
@@ -2093,7 +2099,9 @@ sealed class ColumnarIlEmitter {
             placement.TypeParametersForBody,
             _typeResolutionEnums.ForSynthesizedMethod(placement.OwnerTypeForBody),
             _typeResolutionStructs.ForSynthesizedMethod(placement.OwnerTypeForBody),
-            _typeResolutionUnions.ForSynthesizedMethod(placement.OwnerTypeForBody)
+            _typeResolutionUnions.ForSynthesizedMethod(placement.OwnerTypeForBody),
+            null,
+            _modifiedMemberReferences
         )
         let bodyType: System.Type? = null
         if (!subEmitter.EmitExpression(inferredBodyNode, out bodyType)) {
@@ -3915,7 +3923,7 @@ sealed class ColumnarIlEmitter {
         return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember, -1, 0)
     }
 
-    private static func EmitInlineInstanceInitializers(constructorIl: ILGenerator, def: ColumnarStructDef, program: ColumnarProgramInput, typeResolutionCatalog: ColumnarSemanticTypeResolutionCatalog, freeFunctionScope: ColumnarFreeFunctionScope, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: Dictionary<string, ColumnarStructDef>, unionRegistry: Dictionary<string, ColumnarUnionDef>, unionCaseRegistry: Dictionary<string, ColumnarUnionCaseDef>, holders: ColumnarFreeFunctionHolders, lambdaCounter: int[], displayClasses: List<TypeBuilder>, referenceAssemblyPaths: IReadOnlyList<string>?): bool {
+    private static func EmitInlineInstanceInitializers(constructorIl: ILGenerator, def: ColumnarStructDef, program: ColumnarProgramInput, typeResolutionCatalog: ColumnarSemanticTypeResolutionCatalog, freeFunctionScope: ColumnarFreeFunctionScope, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: Dictionary<string, ColumnarStructDef>, unionRegistry: Dictionary<string, ColumnarUnionDef>, unionCaseRegistry: Dictionary<string, ColumnarUnionCaseDef>, holders: ColumnarFreeFunctionHolders, lambdaCounter: int[], displayClasses: List<TypeBuilder>, referenceAssemblyPaths: IReadOnlyList<string>?, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger): bool {
         inlinePlan := def.InstanceInitializerPlan
         if (inlinePlan == null || inlinePlan.InlineOrdinals.Length == 0) {
             return true
@@ -3960,7 +3968,9 @@ sealed class ColumnarIlEmitter {
             def.GenericParameters,
             initTypeResolution.Enums,
             initTypeResolution.Structs,
-            initTypeResolution.Unions
+            initTypeResolution.Unions,
+            null,
+            modifiedMemberReferences
         )
         ColumnarDeclineTrace.SetSourceFileId(initCtor.Body.SourceFileId, def.DeclaredTypeName)
         inlineResult := false
@@ -3976,7 +3986,12 @@ sealed class ColumnarIlEmitter {
     /// Build a single assembly from one parsed columnar program bundle.
     /// </summary>
     static func TryEmitColumnarAssembly(assemblyName: string, typeName: string, program: ColumnarProgramInput, isExecutable: bool, out assembly: byte[], assemblyVersion: Version? = null, referenceAssemblyPaths: IReadOnlyList<string>? = null): bool {
+        return TryEmitColumnarAssemblyPass(assemblyName, typeName, program, isExecutable, out assembly, assemblyVersion, referenceAssemblyPaths, null)
+    }
+
+    private static func TryEmitColumnarAssemblyPass(assemblyName: string, typeName: string, program: ColumnarProgramInput, isExecutable: bool, out assembly: byte[], assemblyVersion: Version?, referenceAssemblyPaths: IReadOnlyList<string>?, repairPlan: ColumnarModifiedMemberReferencePlan?): bool {
         assembly = Array.Empty<byte>()
+        modifiedMemberReferences := new ColumnarModifiedMemberReferenceLedger()
         funcs := program.Functions
         enums := program.Enums
         structs := program.Structs
@@ -6064,7 +6079,8 @@ sealed class ColumnarIlEmitter {
                 typeResolution.Enums,
                 typeResolution.Structs,
                 typeResolution.Unions,
-                localFunctionDisplay
+                localFunctionDisplay,
+                modifiedMemberReferences
             )
             ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId, fn.Name)
             try {
@@ -6091,7 +6107,8 @@ sealed class ColumnarIlEmitter {
                     displayClasses,
                     referenceAssemblyPaths,
                     typeResolution,
-                    holders.ForFile(fn.SourceFileId)
+                    holders.ForFile(fn.SourceFileId),
+                    modifiedMemberReferences
                 )) {
                     return false
                 }
@@ -6142,7 +6159,9 @@ sealed class ColumnarIlEmitter {
                 job.Item1.GenericParameters,
                 bodyTypeResolution.Enums,
                 bodyTypeResolution.Structs,
-                bodyTypeResolution.Unions
+                bodyTypeResolution.Unions,
+                null,
+                modifiedMemberReferences
             )
             ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId, job.Item2.Name)
             try {
@@ -6320,7 +6339,8 @@ sealed class ColumnarIlEmitter {
                 bodyTypeResolution.Enums,
                 bodyTypeResolution.Structs,
                 bodyTypeResolution.Unions,
-                memberLocalFunctionClosure
+                memberLocalFunctionClosure,
+                modifiedMemberReferences
             )
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
             // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
@@ -6355,7 +6375,8 @@ sealed class ColumnarIlEmitter {
                     displayClasses,
                     referenceAssemblyPaths,
                     bodyTypeResolution,
-                    job.Item1.Builder
+                    job.Item1.Builder,
+                    modifiedMemberReferences
                 )) {
                     return false
                 }
@@ -6414,7 +6435,9 @@ sealed class ColumnarIlEmitter {
                 staticInitializerDef.GenericParameters,
                 staticInitializerTypeResolution.Enums,
                 staticInitializerTypeResolution.Structs,
-                staticInitializerTypeResolution.Unions
+                staticInitializerTypeResolution.Unions,
+                null,
+                modifiedMemberReferences
             )
             ColumnarDeclineTrace.SetSourceFileId(staticInitializer.SourceFileId, staticInitializer.Name)
             try {
@@ -6436,7 +6459,7 @@ sealed class ColumnarIlEmitter {
         // runs inline readonly initializers, then calls the mutable-field helper when one exists.
         for job in structDefaultCtorJobs {
             dcil := job.Builder.GetILGenerator()
-            if (!EmitInlineInstanceInitializers(dcil, job.Struct, program, typeResolutionCatalog, freeFunctionScope, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, holders, lambdaCounter, displayClasses, referenceAssemblyPaths)) {
+            if (!EmitInlineInstanceInitializers(dcil, job.Struct, program, typeResolutionCatalog, freeFunctionScope, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, modifiedMemberReferences)) {
                 defaultCtorDeclineStruct := job.Struct
                 defaultCtorDeclineBuilder := defaultCtorDeclineStruct.Builder
                 defaultCtorDeclineBuilderName := defaultCtorDeclineBuilder.get_Name()
@@ -6495,7 +6518,9 @@ sealed class ColumnarIlEmitter {
                 job.Struct.GenericParameters,
                 bodyTypeResolution.Enums,
                 bodyTypeResolution.Structs,
-                bodyTypeResolution.Unions
+                bodyTypeResolution.Unions,
+                null,
+                modifiedMemberReferences
             )
             ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId, job.Struct.DeclaredTypeName)
             try {
@@ -6512,7 +6537,7 @@ sealed class ColumnarIlEmitter {
                     // base constructor that reaches a derived override sees the initialized values — the C#
                     // order. A `: this(...)` ctor runs none: the delegated-to ctor already ran them.
                     if (job.Ctor.ChainInitKind == 2) {
-                        if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, freeFunctionScope, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, holders, lambdaCounter, displayClasses, referenceAssemblyPaths)) {
+                        if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, freeFunctionScope, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, modifiedMemberReferences)) {
                             chainedCtorDeclineStruct := job.Struct
                             chainedCtorDeclineBuilder := chainedCtorDeclineStruct.Builder
                             chainedCtorDeclineBuilderName := chainedCtorDeclineBuilder.get_Name()
@@ -6547,7 +6572,7 @@ sealed class ColumnarIlEmitter {
                         }
                         // base has only parameterized ctors — `: base(...)` is required.
                         // Field initializers run inline, ahead of the implicit base call, in C# order.
-                        if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, freeFunctionScope, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, holders, lambdaCounter, displayClasses, referenceAssemblyPaths)) {
+                        if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, freeFunctionScope, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, modifiedMemberReferences)) {
                             implicitCtorDeclineStruct := job.Struct
                             implicitCtorDeclineBuilder := implicitCtorDeclineStruct.Builder
                             implicitCtorDeclineBuilderName := implicitCtorDeclineBuilder.get_Name()
@@ -6564,7 +6589,7 @@ sealed class ColumnarIlEmitter {
                         }
                         // A struct's field initializers run at the start of each declared constructor,
                         // the same placement a class's take — there is simply no base call to precede.
-                        if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, freeFunctionScope, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, holders, lambdaCounter, displayClasses, referenceAssemblyPaths)) {
+                        if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, freeFunctionScope, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, modifiedMemberReferences)) {
                             valueCtorDeclineStruct := job.Struct
                             valueCtorDeclineBuilder := valueCtorDeclineStruct.Builder
                             valueCtorDeclineBuilderName := valueCtorDeclineBuilder.get_Name()
@@ -6719,7 +6744,9 @@ sealed class ColumnarIlEmitter {
                     null,
                     testTypeResolution.Enums,
                     testTypeResolution.Structs,
-                    testTypeResolution.Unions
+                    testTypeResolution.Unions,
+                    null,
+                    modifiedMemberReferences
                 )
                 ColumnarDeclineTrace.SetSourceFileId(testBody.SourceFileId, "test " + testInput.Description)
                 try {
@@ -6768,42 +6795,59 @@ sealed class ColumnarIlEmitter {
         for holderTb in holders.Created() {
             holderTb.CreateType()
         }
+        rawMethodBodies := Array.Empty<byte>()
         stream := new MemoryStream()
         try {
-            if (entryPointMethod != null) {
-                let ilStream: System.Reflection.Metadata.BlobBuilder? = null
-                let mappedFieldData: System.Reflection.Metadata.BlobBuilder? = null
-                metadataBuilder := builder.GenerateMetadata(out ilStream, out mappedFieldData)
-                peHeader := System.Reflection.PortableExecutable.PEHeaderBuilder.CreateExecutableHeader()
-                peMetadataRoot := new System.Reflection.Metadata.Ecma335.MetadataRootBuilder(metadataBuilder, null, false)
-                peIlStream := ilStream
-                peMappedFieldData := mappedFieldData
-                peEntryPointToken := entryPointMethod.get_MetadataToken()
-                peEntryPointHandle := System.Reflection.Metadata.Ecma335.MetadataTokens.MethodDefinitionHandle(peEntryPointToken)
-                peBuilder := new System.Reflection.PortableExecutable.ManagedPEBuilder(
-                    peHeader,
-                    peMetadataRoot,
-                    peIlStream,
-                    peMappedFieldData,
-                    null,
-                    null,
-                    null,
-                    128,
-                    peEntryPointHandle,
-                    System.Reflection.PortableExecutable.CorFlags.ILOnly,
-                    null
-                )
-                peBlob := new System.Reflection.Metadata.BlobBuilder(256)
-                peBuilder.Serialize(peBlob)
-                peOutputStream: System.IO.Stream = stream
-                peBlob.WriteContentTo(peOutputStream)
-            } else {
-                builder.Save(stream)
+            let ilStream: System.Reflection.Metadata.BlobBuilder? = null
+            let mappedFieldData: System.Reflection.Metadata.BlobBuilder? = null
+            metadataBuilder := builder.GenerateMetadata(out ilStream, out mappedFieldData)
+            rawIl := ilStream.ToArray()
+            rawMethodBodies = rawIl
+            finalIl := ilStream
+            if repairPlan != null {
+                let patchedIl: System.Reflection.Metadata.BlobBuilder? = null
+                if !ColumnarModifiedMemberReferenceRepair.Apply(metadataBuilder, rawIl, modifiedMemberReferences, repairPlan, out patchedIl) {
+                    return DeclineStatic("emit.metadata.modified-member-reference", "the final metadata layout did not match the discovered modified member references", "", -1, 0)
+                }
+                finalIl = patchedIl
             }
-
+            peHeader := entryPointMethod == null ? System.Reflection.PortableExecutable.PEHeaderBuilder.CreateLibraryHeader() : System.Reflection.PortableExecutable.PEHeaderBuilder.CreateExecutableHeader()
+            peMetadataRoot := new System.Reflection.Metadata.Ecma335.MetadataRootBuilder(metadataBuilder, null, false)
+            peEntryPointHandle := new System.Reflection.Metadata.MethodDefinitionHandle()
+            if entryPointMethod != null {
+                peEntryPointToken := entryPointMethod.get_MetadataToken()
+                peEntryPointHandle = System.Reflection.Metadata.Ecma335.MetadataTokens.MethodDefinitionHandle(peEntryPointToken)
+            }
+            peBuilder := new System.Reflection.PortableExecutable.ManagedPEBuilder(
+                peHeader,
+                peMetadataRoot,
+                finalIl,
+                mappedFieldData,
+                null,
+                null,
+                null,
+                128,
+                peEntryPointHandle,
+                System.Reflection.PortableExecutable.CorFlags.ILOnly,
+                null
+            )
+            peBlob := new System.Reflection.Metadata.BlobBuilder(256)
+            peBuilder.Serialize(peBlob)
+            peOutputStream: System.IO.Stream = stream
+            peBlob.WriteContentTo(peOutputStream)
             assembly = stream.ToArray()
+            if repairPlan != null && !ColumnarModifiedMemberReferenceRepair.ValidateFinal(assembly, repairPlan) {
+                return DeclineStatic("emit.metadata.modified-member-reference", "the serialized metadata did not preserve the discovered handle identities", "", -1, 0)
+            }
         } finally {
             stream.Dispose()
+        }
+        if repairPlan == null && modifiedMemberReferences.Requests.Count > 0 {
+            discovered := ColumnarModifiedMemberReferenceRepair.Discover(assembly, rawMethodBodies, modifiedMemberReferences)
+            if discovered == null {
+                return DeclineStatic("emit.metadata.modified-member-reference", "the discovery image did not contain the exact modified member references emitted for object initializers", "", -1, 0)
+            }
+            return TryEmitColumnarAssemblyPass(assemblyName, typeName, program, isExecutable, out assembly, assemblyVersion, referenceAssemblyPaths, discovered)
         }
         return true
     }
@@ -6937,7 +6981,8 @@ sealed class ColumnarIlEmitter {
         displayClasses: List<TypeBuilder>,
         referenceAssemblyPaths: IReadOnlyList<string>?,
         typeResolution: ColumnarSemanticTypeResolution,
-        synthesizedMethodOwner: TypeBuilder
+        synthesizedMethodOwner: TypeBuilder,
+        modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger
     ): bool {
         closure := lowering.Closure
         if (closure != null) {
@@ -7037,7 +7082,8 @@ sealed class ColumnarIlEmitter {
                 typeResolution.Enums.ForSynthesizedMethod(synthesizedMethodOwner),
                 typeResolution.Structs.ForSynthesizedMethod(synthesizedMethodOwner),
                 typeResolution.Unions.ForSynthesizedMethod(synthesizedMethodOwner),
-                localClosureView
+                localClosureView,
+                modifiedMemberReferences
             )
             ColumnarDeclineTrace.SetSourceFileId(localFn.SourceFileId, fn.Name + "." + localFn.Name)
             try {
@@ -7234,7 +7280,7 @@ sealed class ColumnarIlEmitter {
                 bodyPlan,
                 _typeResolutionStructs.StructuralTypeReferences
             )) {
-                ColumnarCodePlanExecutor.Execute(bodyPlan, _il)
+                ColumnarCodePlanExecutor.Execute(bodyPlan, _il, _modifiedMemberReferences)
                 return true
             }
         }
@@ -11954,7 +12000,8 @@ sealed class ColumnarIlEmitter {
             out nsharpOwned,
             out legacyWholeSubtreePlanning,
             out columnarResolvedType,
-            _typeResolutionStructs.StructuralTypeReferences
+            _typeResolutionStructs.StructuralTypeReferences,
+            _modifiedMemberReferences
         )) {
             return true
         }
@@ -13906,11 +13953,7 @@ sealed class ColumnarIlEmitter {
                             return false
                         }
                         if (!SetterSignatureSurvivesAMemberRef(property.get_SetMethod())) {
-                            return Decline(
-                                "emit.object-initializer.unreferenceable-setter",
-                                "the setter of '" + bclInitType.Name + "." + memberName + "' carries a required custom modifier (an `init` accessor is written that way), and the metadata writer drops required modifiers from a MemberRef, so the emitted call would resolve to nothing at run time",
-                                idx
-                            )
+                            _modifiedMemberReferences.Record(bclInitType, property.get_SetMethod())
                         }
                         _il.Emit(OpCodes.Dup)
                         propertyType := property.get_PropertyType()
@@ -14002,15 +14045,8 @@ sealed class ColumnarIlEmitter {
                             if (constructedClosedArgs.Length == 0) {
                                 userSetter = userInitProperty.Setter
                             } else {
-                                // A CLOSED GENERIC TYPE'S `init` SETTER CANNOT BE REFERENCED FROM
-                                // OUTSIDE IT. `TypeBuilder.GetMethod` drops the
-                                // `modreq(IsExternalInit)` the definition carries, and the runtime
-                                // refuses to bind the reference that results — so declining here is
-                                // the only honest answer. The member is still settable from a
-                                // constructor of the declaring type, whose body names the method by
-                                // its own handle.
                                 if (userInitProperty.IsInitOnly) {
-                                    return false
+                                    _modifiedMemberReferences.Record(constructedType, userInitProperty.Setter)
                                 }
 
                                 userSetter = TypeBuilder.GetMethod(constructedType, userInitProperty.Setter)
@@ -14056,11 +14092,7 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Dup)
                     property := constructedType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance)
                     if ((property != null && property.get_SetMethod() != null && !SetterSignatureSurvivesAMemberRef(property.get_SetMethod()))) {
-                        return Decline(
-                            "emit.object-initializer.unreferenceable-setter",
-                            "the setter of '" + constructedType.Name + "." + memberName + "' carries a required custom modifier (an `init` accessor is written that way), and the metadata writer drops required modifiers from a MemberRef, so the emitted call would resolve to nothing at run time",
-                            idx
-                        )
+                        _modifiedMemberReferences.Record(constructedType, property.get_SetMethod())
                     }
                     if ((property != null && property.get_SetMethod() != null)) {
                         propertyType := property.get_PropertyType()
@@ -16433,6 +16465,9 @@ sealed class ColumnarIlEmitter {
         let inheritedPropertyValue: System.Type = null
         if (!TryEmitAssignableValue(valueNode, inheritedProperty.get_PropertyType(), out inheritedPropertyValue)) {
             return false
+        }
+        if (!SetterSignatureSurvivesAMemberRef(inheritedSetter)) {
+            _modifiedMemberReferences.Record(inheritedBase, inheritedSetter)
         }
         _il.Emit(inheritedSetter.get_IsVirtual() ? OpCodes.Callvirt : OpCodes.Call, inheritedSetter)
         return true
@@ -22665,7 +22700,9 @@ sealed class ColumnarIlEmitter {
             _typeParameters,
             _typeResolutionEnums,
             _typeResolutionStructs,
-            _typeResolutionUnions
+            _typeResolutionUnions,
+            null,
+            _modifiedMemberReferences
         )
         // THE ENCLOSING FRAME'S LOCALS, for the same reason its parameters are there: a lambda body
         // may read one, and this is the only place a preflight can learn its type. The slots are the

@@ -2605,6 +2605,26 @@ For `:=` declarations:
   and return expectations during call and assignment binding. A lambda with no usable target may
   still contain inference holes rather than being treated as an independently nominal value.
 
+### Init and required construction
+
+`AnalyzerConstruction` records the exact selected source declaration or reflected constructor in
+its construction state. Required-member analysis consumes that identity directly when it checks
+`[SetsRequiredMembers]`; it does not rescan constructors by arity. This matters when same-arity
+overloads differ by reference or numeric specificity, named placement, defaults, `params`, or
+`ref`/`out`: only the constructor ordinary overload resolution selected may exempt the creation.
+An unknown argument suppresses the exemption and does not add a secondary ambiguity diagnostic.
+
+An `init` setter is identified in CLR metadata by `modreq(IsExternalInit)` on its return position.
+Reflection.Emit drops custom modifiers when it creates a `MemberRef` for a method on a constructed
+type, so `ColumnarModifiedMemberReferenceRepair` handles affected closed-generic calls at the
+`PersistedAssemblyBuilder.GenerateMetadata` boundary. The first pass records exact owners and
+setter signatures and discovers the emitted MemberRef rows. A conditional second emission appends
+corrected rows, preserves modifier order and placement while retaining the emitted closed VAR/MVAR
+shape, and structurally remaps only InlineMethod operands. Before publishing the image it compares
+the original ordered AssemblyRef, TypeDef, TypeRef, TypeSpec, MethodDef, and MemberRef identities
+against discovery and verifies each appended repaired row. Assemblies with no affected setter stay
+on the ordinary single-pass path.
+
 ### Exact Runtime Structural Projections
 
 Some CLR surfaces cannot be reconstructed safely by comparing display names or by mixing runtime
