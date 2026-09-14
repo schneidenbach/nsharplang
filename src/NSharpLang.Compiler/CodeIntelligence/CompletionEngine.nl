@@ -32,7 +32,8 @@ class CompletionEngine {
             sourceText,
             line,
             col,
-            out beforeCursor) {
+            out beforeCursor
+        ) {
             throw new InvalidOperationException("N# completion prefix kernel rejected the source.")
         }
 
@@ -53,7 +54,9 @@ class CompletionEngine {
                 line,
                 col,
                 modelValues,
-                unitValues)
+                unitValues,
+                snapshot.FriendGrants
+            )
         }
 
         // The snapshot's other units ride along so the function group can be namespace-wide: a
@@ -66,5 +69,4 @@ class CompletionEngine {
     private static func emptyResult(context: CompletionContext): CompletionResult {
         return new CompletionResult(context, null, null, new Dictionary<string, List<CompletionItem>>())
     }
-
 }

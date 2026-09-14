@@ -239,7 +239,7 @@ sealed class PlaygroundCompiler {
         sourceFiles := compiler.get_SourceFiles()
         projectIndex := compiler.get_ProjectIndex()
         sourceTexts := compiler.get_SourceTexts()
-        snapshot := new ProjectSnapshot(root, compilationUnits, semanticModels, allErrors, sourceFiles, projectIndex, sourceTexts, null, null)
+        snapshot := new ProjectSnapshot(root, compilationUnits, semanticModels, allErrors, sourceFiles, projectIndex, sourceTexts, null, null, compiler.get_FriendGrants())
 
         service := new CodeIntelligenceService()
         diagnostics := new List<PlaygroundDiagnostic>()

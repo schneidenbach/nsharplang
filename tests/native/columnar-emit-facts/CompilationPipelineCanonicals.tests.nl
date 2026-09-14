@@ -1,9 +1,10 @@
 namespace NSharpLang.ColumnarEmitFacts.Tests
 
 import System
+import System.Collections
 import System.IO
 import System.Reflection
-import System.Collections
+
 
 // These controls preserve the compiler-facing assertions that surround emission: route refusal,
 // analysis-before-emit failures, persisted assembly metadata, decline diagnostics, and preprocessing.

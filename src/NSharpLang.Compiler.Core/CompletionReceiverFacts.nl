@@ -265,6 +265,14 @@ class CompletionReceiverFacts {
     }
 
     static func GetMemberAccessCompletions(unit: CompilationUnit, semanticModel: SemanticModel?, precomputedReceiver: string?, line: int, column: int, semanticModels: IEnumerable<SemanticModel>, compilationUnits: IEnumerable<CompilationUnit>): CompletionResult {
+        return GetMemberAccessCompletions(unit, semanticModel, precomputedReceiver, line, column, semanticModels, compilationUnits, null)
+    }
+
+    // `friendGrants` IS THE PROJECT'S OWN `InternalsVisibleToGrants`, or null when the caller has
+    // none. A referenced assembly that names this project in an `InternalsVisibleTo` has made its
+    // `internal` members bindable — the analyzer has resolved them since friends landed — and a
+    // completion that offered only the public surface hid exactly what the compiler would accept.
+    static func GetMemberAccessCompletions(unit: CompilationUnit, semanticModel: SemanticModel?, precomputedReceiver: string?, line: int, column: int, semanticModels: IEnumerable<SemanticModel>, compilationUnits: IEnumerable<CompilationUnit>, friendGrants: InternalsVisibleToGrants?): CompletionResult {
         requestingNamespace := CompletionVisibilityFacts.UnitNamespaceName(unit)
 
         // THE TYPE THE CARET IS WRITTEN INSIDE decides what a written `private` or `protected` lets
@@ -293,7 +301,7 @@ class CompletionReceiverFacts {
                     filter = CompletionMemberFilter.StaticOnly
                 }
 
-                expressionResult := ResolveMemberCompletions(receiverType, displayReceiver, semanticModels, completions, filter, compilationUnits, requestingNamespace, accessingTypeName)
+                expressionResult := ResolveMemberCompletions(receiverType, displayReceiver, semanticModels, completions, filter, compilationUnits, requestingNamespace, accessingTypeName, friendGrants)
                 if expressionResult != null {
                     return expressionResult
                 }
@@ -312,7 +320,7 @@ class CompletionReceiverFacts {
 
             if typeInfo != null {
                 filter := CompletionReflectionFacts.GetMemberFilter(receiver, typeInfo)
-                identifierResult := ResolveMemberCompletions(typeInfo, receiver, semanticModels, completions, filter, compilationUnits, requestingNamespace, accessingTypeName)
+                identifierResult := ResolveMemberCompletions(typeInfo, receiver, semanticModels, completions, filter, compilationUnits, requestingNamespace, accessingTypeName, friendGrants)
                 if identifierResult != null {
                     return identifierResult
                 }
@@ -321,7 +329,7 @@ class CompletionReceiverFacts {
 
         literalTypeInfo := CompletionReflectionFacts.ResolveLiteralReceiverType(receiver)
         if literalTypeInfo != null {
-            literalResult := ResolveMemberCompletions(literalTypeInfo, receiver, semanticModels, completions, CompletionMemberFilter.InstanceOnly, compilationUnits, requestingNamespace, accessingTypeName)
+            literalResult := ResolveMemberCompletions(literalTypeInfo, receiver, semanticModels, completions, CompletionMemberFilter.InstanceOnly, compilationUnits, requestingNamespace, accessingTypeName, friendGrants)
             if literalResult != null {
                 return literalResult
             }
@@ -346,6 +354,10 @@ class CompletionReceiverFacts {
     }
 
     static func ResolveMemberCompletions(typeInfo: TypeInfo, receiver: string, semanticModels: IEnumerable<SemanticModel>, completions: Dictionary<string, List<CompletionItem>>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?): CompletionResult? {
+        return ResolveMemberCompletions(typeInfo, receiver, semanticModels, completions, filter, compilationUnits, requestingNamespace, accessingTypeName, null)
+    }
+
+    static func ResolveMemberCompletions(typeInfo: TypeInfo, receiver: string, semanticModels: IEnumerable<SemanticModel>, completions: Dictionary<string, List<CompletionItem>>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, friendGrants: InternalsVisibleToGrants?): CompletionResult? {
         typeName := CompletionTypeTextFacts.FormatTypeText(typeInfo)
 
         // The RECEIVER rule: `protected` is offerable only when the caret's type IS the receiver's
@@ -355,7 +367,7 @@ class CompletionReceiverFacts {
 
         declaringNamespace := CompletionVisibilityFacts.DeclaringNamespaceOfReceiverType(typeInfo, typeName, compilationUnits)
         declaredMembers := CompletionDeclarationFacts.GetTypeMemberItems(typeInfo, semanticModels, declaringNamespace, requestingNamespace, canReachProtected, isInsideDeclaringType)
-        AppendInheritedMemberItems(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, accessingTypeName, canReachProtected, declaredMembers)
+        AppendInheritedMemberItems(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, accessingTypeName, canReachProtected, friendGrants, declaredMembers)
         if declaredMembers.Count > 0 {
             CompletionEngineKernels.AddGroupedCompletionItemsByKind(declaredMembers, completions)
             return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions)
@@ -363,8 +375,9 @@ class CompletionReceiverFacts {
 
         clrType := CompletionReflectionFacts.ResolveCompletionReflectionType(typeInfo)
         if clrType != null {
-            flags := CompletionReflectionFacts.GetReflectionBindingFlags(filter)
-            reflectionMembers := CompletionReflectionFacts.BuildReflectionMemberItems(clrType, flags)
+            friendAdmits := CompletionReflectionFacts.FriendAdmits(friendGrants, clrType)
+            flags := CompletionReflectionFacts.GetReflectionBindingFlags(filter, false, friendAdmits)
+            reflectionMembers := CompletionReflectionFacts.BuildReflectionMemberItems(clrType, flags, false, friendAdmits)
             if reflectionMembers.Count > 0 {
                 CompletionEngineKernels.AddGroupedCompletionItemsByKind(reflectionMembers, completions)
                 clrTypeName := clrType.get_FullName()
@@ -396,13 +409,17 @@ class CompletionReceiverFacts {
     // A NAME THE DERIVED TYPE ALREADY OFFERS IS NOT OFFERED TWICE. The first list wins, which is the
     // order the language resolves in.
     static func AppendInheritedMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, items: List<CompletionItem>) {
-        AppendInheritedMemberItems(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, null, false, items)
+        AppendInheritedMemberItems(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, null, false, null, items)
+    }
+
+    static func AppendInheritedMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, canReachProtected: bool, items: List<CompletionItem>) {
+        AppendInheritedMemberItems(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, accessingTypeName, canReachProtected, null, items)
     }
 
     // A BASE'S `protected` MEMBER IS INHERITED SURFACE, not foreign surface: the same receiver rule
     // that admits it on the derived type admits it here, so the flag the caller already computed is
     // carried down the chain rather than recomputed against each base.
-    static func AppendInheritedMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, canReachProtected: bool, items: List<CompletionItem>) {
+    static func AppendInheritedMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, canReachProtected: bool, friendGrants: InternalsVisibleToGrants?, items: List<CompletionItem>) {
         current := typeInfo
         depth := 0
         while depth < 64 {
@@ -431,7 +448,8 @@ class CompletionReceiverFacts {
                 return
             }
 
-            AppendNewMemberItems(items, CompletionReflectionFacts.BuildReflectionMemberItems(baseClrType, CompletionReflectionFacts.GetReflectionBindingFlags(filter, canReachProtected), canReachProtected))
+            baseFriendAdmits := CompletionReflectionFacts.FriendAdmits(friendGrants, baseClrType)
+            AppendNewMemberItems(items, CompletionReflectionFacts.BuildReflectionMemberItems(baseClrType, CompletionReflectionFacts.GetReflectionBindingFlags(filter, canReachProtected, baseFriendAdmits), canReachProtected, baseFriendAdmits))
             return
         }
     }

@@ -42,7 +42,9 @@ class CodeIntelligenceService {
             compiler.ProjectIndex,
             compiler.SourceTexts,
             compiler.PerformanceFacts,
-            compiler.SystemsReport)
+            compiler.SystemsReport,
+            compiler.FriendGrants
+        )
     }
 
     func GetSymbols(snapshot: ProjectSnapshot, fileName: string? = null, kind: SymbolKind? = null): List<SymbolResult> {

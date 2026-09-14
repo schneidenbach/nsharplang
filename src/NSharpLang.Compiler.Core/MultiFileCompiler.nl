@@ -62,6 +62,12 @@ class MultiFileCompiler {
     PerformanceFacts: PerformanceFactStore => _performanceFacts
     SystemsReport: SystemsReport => _systemsReport
 
+    // THE FRIEND GRANTS THIS COMPILATION ANALYSED UNDER. `InternalsVisibleToGrants` is deliberately
+    // ONE object so that the probe, member resolution, extension discovery, attribute resolution,
+    // completion and `nlc query` cannot disagree about what this compilation may name — and
+    // completion could not ask it at all until the snapshot carried it out of here.
+    FriendGrants: InternalsVisibleToGrants => _sharedAnalyzer.GetFriendGrants()
+
     AotMode: bool {
         get {
             return _aotMode

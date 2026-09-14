@@ -33,7 +33,8 @@ class CheckCommand {
         projectDir := CheckCommandKernels.GetProjectDirectory(
             arguments.ProjectOption,
             arguments.PositionalProject,
-            Directory.GetCurrentDirectory())
+            Directory.GetCurrentDirectory()
+        )
 
         if !Directory.Exists(projectDir) {
             return EmitError(useText, CheckCommandKernels.GetProjectDirectoryNotFoundMessage(projectDir), projectDir)
@@ -76,7 +77,8 @@ class CheckCommand {
                     fileCount := snapshot.SourceFiles.Count
                     Console.Error.WriteLine(CheckCommandKernels.GetNoErrorsMessage(
                         fileCount,
-                        ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)))
+                        ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)
+                    ))
                 } else {
                     diagnosticText := OutputFormatter.DiagnosticsToText(diagnostics)
                     writer := Console.Error
@@ -89,7 +91,8 @@ class CheckCommand {
                     diagnostics,
                     snapshot.ProjectRoot,
                     snapshot.SourceFiles.Count,
-                    snapshot.SystemsReport)
+                    snapshot.SystemsReport
+                )
                 Console.Write(systemsJson)
             } else {
                 checkJson := OutputFormatter.CheckToJson(diagnostics, snapshot.ProjectRoot, snapshot.SourceFiles.Count)

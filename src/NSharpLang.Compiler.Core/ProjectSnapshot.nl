@@ -50,6 +50,7 @@ class ProjectSnapshot {
     systemsReportValue: SystemsReport
     indexValue: ProjectIndex?
     documentationValue: DocQuery?
+    friendGrantsValue: InternalsVisibleToGrants?
 
     ProjectRoot: string => projectRootValue
     CompilationUnits: IReadOnlyDictionary<string, CompilationUnit> => compilationUnitsValue
@@ -67,7 +68,13 @@ class ProjectSnapshot {
     // Convenience accessor for the merged BindingMap. Null when Index is null.
     Bindings: BindingMap? => IndexBindings(indexValue)
 
-    constructor(projectRoot: string, compilationUnits: IReadOnlyDictionary<string, CompilationUnit>, semanticModels: IReadOnlyDictionary<string, SemanticModel>, allErrors: IReadOnlyList<CompilerError>, sourceFiles: IReadOnlyList<string>, index: ProjectIndex?, sourceTexts: IReadOnlyDictionary<string, string>, performanceFacts: PerformanceFactStore? = null, systemsReport: SystemsReport? = null) {
+    // WHICH REFERENCED ASSEMBLIES MADE THIS PROJECT A FRIEND, carried out of the analysis so the
+    // read-only queries can ask the SAME owner the analyzer asked. Null when the snapshot was built
+    // without a compilation behind it, which grants nothing — the behaviour that existed before.
+    FriendGrants: InternalsVisibleToGrants? => friendGrantsValue
+
+    constructor(projectRoot: string, compilationUnits: IReadOnlyDictionary<string, CompilationUnit>, semanticModels: IReadOnlyDictionary<string, SemanticModel>, allErrors: IReadOnlyList<CompilerError>, sourceFiles: IReadOnlyList<string>, index: ProjectIndex?, sourceTexts: IReadOnlyDictionary<string, string>, performanceFacts: PerformanceFactStore? = null, systemsReport: SystemsReport? = null, friendGrants: InternalsVisibleToGrants? = null) {
+        friendGrantsValue = friendGrants
         projectRootValue = projectRoot
         compilationUnitsValue = compilationUnits
         semanticModelsValue = semanticModels

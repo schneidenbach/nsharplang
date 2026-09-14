@@ -233,3 +233,115 @@ test "loading a multi-file project with imports completes and answers cross-file
 
     Directory.Delete(fixtureRoot, true)
 }
+
+// THE PROJECT'S OWN HELPERS, FROM ANOTHER NAMESPACE OF THE SAME PROJECT.
+//
+// A caret in `Regression.App` was offered the functions of ITS OWN file and nothing else: the
+// project's exported free functions in `Regression.Helpers` appeared in no group, so the one command
+// an LLM has for "what can I call here" could not see the project's own helpers. They are not in
+// scope as written — `ComputeTotal(1, 2)` from `Regression.App` with `Regression.Helpers`
+// unimported is NL412 against the tip CLI — so each such offer carries the namespace to import,
+// which is what makes the offer an answer rather than a trap.
+func WriteQueryNamespaceFixture(): string {
+    fixtureRoot := Path.Combine(
+        Path.GetTempPath(),
+        "nsharp-query-namespaces-" + Guid.NewGuid().ToString("N")
+    )
+    Directory.CreateDirectory(fixtureRoot)
+
+    File.WriteAllText(
+        Path.Combine(fixtureRoot, "project.yml"),
+        "name: NamespaceReach\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n"
+    )
+
+    // The other namespace: one EXPORTED helper and one unexported one. From `Regression.App` the
+    // second is an NL308 that no import line can fix, so it must be offered nowhere.
+    File.WriteAllText(
+        Path.Combine(fixtureRoot, "Helpers.nl"),
+        "namespace Regression.Helpers\n\nfunc ComputeTotal(a: int, b: int): int {\n    return a + b\n}\n\nfunc computeSecret(a: int): int {\n    return a\n}\n"
+    )
+
+    // My own namespace, in a DIFFERENT file: already in scope whatever its casing, and needing no
+    // import — the control that keeps the two halves of the sweep apart.
+    File.WriteAllText(
+        Path.Combine(fixtureRoot, "Sibling.nl"),
+        "namespace Regression.App\n\nfunc siblingHelper(): int {\n    return 3\n}\n"
+    )
+    File.WriteAllText(
+        Path.Combine(fixtureRoot, "Program.nl"),
+        "namespace Regression.App\n\nfunc Run(): int {\n    value := Com\n    return value\n}\n"
+    )
+
+    return fixtureRoot
+}
+
+func QueryCompletionImportNamespace(answer: object, groupKey: string, itemName: string): string {
+    completions := QueryCompletionProperty(answer, "Completions")
+    if completions == null {
+        throw new InvalidOperationException("The production completion result exposed no completions dictionary.")
+    }
+
+    keyParameterTypes := new Type[](1)
+    keyParameterTypes[0] = typeof(string)
+    containsKeyMethod := completions.GetType().GetMethod("ContainsKey", keyParameterTypes)
+    itemProperty := completions.GetType().GetProperty("Item")
+    if containsKeyMethod == null || itemProperty == null {
+        throw new InvalidOperationException("The production completions dictionary contract was incomplete.")
+    }
+
+    keyArguments := new object?[](1)
+    SetQueryObject(keyArguments, 0, groupKey)
+    containsValue := containsKeyMethod.Invoke(completions, keyArguments)
+    if containsValue == null || containsValue.ToString() != "True" {
+        return "<absent>"
+    }
+
+    group := itemProperty.GetValue(completions, keyArguments) as IList
+    if group == null {
+        return "<absent>"
+    }
+
+    index := 0
+    while index < group.Count {
+        item := group[index]
+        if item != null {
+            candidate := QueryCompletionProperty(item, "Name")
+            if candidate != null && candidate.ToString() == itemName {
+                importNamespace := QueryCompletionProperty(item, "ImportNamespace")
+                if importNamespace == null {
+                    return "<none>"
+                }
+
+                return importNamespace.ToString() ?? "<none>"
+            }
+        }
+
+        index = index + 1
+    }
+
+    return "<absent>"
+}
+
+test "an exported free function of ANOTHER namespace of the project is offered with its import" {
+    fixtureRoot := WriteQueryNamespaceFixture()
+
+    snapshot := LoadQueryCompletionsSnapshot(fixtureRoot)
+    answer := AskQueryCompletions(snapshot, "Program.nl", 4, 17)
+
+    context := QueryCompletionProperty(answer, "Context")
+    if context == null {
+        throw new InvalidOperationException("The production completion result had no context.")
+    }
+    assert context.ToString() == "Identifier"
+
+    // The reach that was missing, and the namespace that makes accepting it safe.
+    assert QueryCompletionImportNamespace(answer, "functions", "ComputeTotal") == "Regression.Helpers"
+
+    // My own namespace's helper, unexported, offered with NO import — it is already in scope.
+    assert QueryCompletionImportNamespace(answer, "functions", "siblingHelper") == "<none>"
+
+    // The unexported function of the OTHER namespace is offered nowhere.
+    assert QueryCompletionImportNamespace(answer, "functions", "computeSecret") == "<absent>"
+
+    Directory.Delete(fixtureRoot, true)
+}
