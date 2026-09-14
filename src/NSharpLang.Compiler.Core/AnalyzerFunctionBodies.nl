@@ -930,7 +930,12 @@ class AnalyzerFunctionBodies {
 
         returnType := state.ReturnType
         if BuiltInTypes.Is(returnType, BuiltInTypes.Void) {
-            if BuiltInTypes.IsNot(expressionType, BuiltInTypes.Void) {
+            // A `never` BODY HANDS BACK NOTHING, so it satisfies `void` as well as it satisfies every
+            // other return type: `func Fail() => throw new NotSupportedException()` gives the caller
+            // no value because control never reaches the caller at all. The non-void path already
+            // accepts it through `IsAssignable`; this one used to say "returns never but has no
+            // return type" and offer `: never` as the fix, which is a type nothing can be written as.
+            if BuiltInTypes.IsNot(expressionType, BuiltInTypes.Void) && BuiltInTypes.IsNot(expressionType, BuiltInTypes.Never) {
                 ambientValue.ReportExpressionBodyReturn(declaration, expressionType)
             }
 

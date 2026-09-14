@@ -7230,6 +7230,17 @@ sealed class ColumnarIlEmitter {
             }
             // a return cannot leave a finally handler (illegal IL) — analyzer-
             // rejected with NL319 (defect #20 fixed); decline as a guard.
+            //
+            // `func F(): T => throw e` — AN EXPRESSION BODY THAT IS A THROW. The arrow body is parsed
+            // into this synthesized `return` like every other one, so the throw arrives as the
+            // returned VALUE (kind 83). There is nothing to return: the exception ends the path, and
+            // a `ret` after it would be unreachable IL with an empty stack. This is asked BEFORE the
+            // return type is, because a throw satisfies EVERY return type — `func Fail() => throw e`
+            // on a `void` function reaches the caller with no value for exactly the same reason a
+            // value function's does.
+            if (_nodes.ChildCount(idx) == 1 && IsThrowExpressionNode(Child(idx, 0))) {
+                return EmitThrowExpressionValue(Child(idx, 0))
+            }
             if (_returnType == ColumnarTypeOfPlanner.RequiredVoidType()) {
                 if (_nodes.ChildCount(idx) != 0) {
                     return false
@@ -7257,17 +7268,6 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             retNode := Child(idx, 0)
-            // `func F(): T => throw e` — AN EXPRESSION BODY THAT IS A THROW. The arrow body is parsed
-            // into this synthesized `return` like every other one, so the throw arrives here as the
-            // returned VALUE (kind 83). There is nothing to return: the exception ends the path, and a
-            // `ret` after it would be unreachable IL with an empty stack under a value signature.
-            // The same reading serves a `return` whose value is a throw anywhere it can be written.
-            if (IsThrowExpressionNode(retNode)) {
-                if (_finallyDepth > 0) {
-                    return false
-                }
-                return EmitThrowExpressionValue(retNode)
-            }
             let retType: System.Type = null
             // `return x => …` ON A DELEGATE-RETURNING FUNCTION. A lambda literal has no type of its
             // own either, so the DECLARED return type is what gives it its shape — the same reading

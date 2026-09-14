@@ -109,6 +109,23 @@ test "a lambda whose expression body is a throw raises when it is invoked, not w
     assert message == "rejected 7"
 }
 
+test "a void arrow body and a void-delegate lambda may both be a throw" {
+    assert throws NotSupportedException {
+        AlwaysFails()
+    }
+
+    rejector := VoidRejector()
+    assert throws NotSupportedException {
+        rejector()
+    }
+}
+
+test "a void arrow body that throws is emitted with a void return type" {
+    fails := FindStatic("AlwaysFails")
+    assert fails != null
+    assert fails.ReturnType.FullName == "System.Void"
+}
+
 test "an async body's coalesce throw faults the RETURNED task rather than the caller" {
     completed := LoadName("ada")
     assert completed.Result == "ada"

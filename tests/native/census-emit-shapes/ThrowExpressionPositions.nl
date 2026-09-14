@@ -69,6 +69,15 @@ class Settings {
     }
 }
 
+// A `void` arrow body. A throw satisfies EVERY return type, `void` included: control never reaches
+// the caller, so there is no value for `void` to object to.
+func AlwaysFails() => throw new NotSupportedException("void arrow")
+
+// And the `void` DELEGATE twin.
+func VoidRejector(): Action {
+    return () => throw new NotSupportedException("void lambda")
+}
+
 // A lambda whose expression body is a throw, and the same lambda with a value body for contrast.
 func Rejector(): Func<int, string> {
     return n => throw new NotSupportedException("rejected " + n.ToString())
