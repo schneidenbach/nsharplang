@@ -1535,6 +1535,24 @@ class ColumnarBindingScopeFacts {
         return true
     }
 
+    // The inverse of `ExactNameInFacts`: the spelling a FILE writes for one of its own exact
+    // declaration identities. The per-file walk recognises a declaration of this file by the ROOT
+    // SEGMENT of a name written relative to the file's namespace, so a lexical rewrite hands back
+    // the relative spelling rather than the global one. The two name the same declaration, and only
+    // the relative one keeps the walk inside the file that owns it — a global identity would be
+    // held to the export rule that guards names arriving from elsewhere.
+    func FileRelativeExactTypeName(sourceFileId: int, exactName: string): string {
+        facts := new ColumnarSourceBindingFacts()
+        if exactName == null || exactName.Length == 0 || !fileFactsById.TryGetValue(sourceFileId, out facts) || facts.NamespaceName.Length == 0 {
+            return exactName
+        }
+        prefix := facts.NamespaceName + "."
+        if !exactName.StartsWith(prefix, StringComparison.Ordinal) {
+            return exactName
+        }
+        return exactName.Substring(prefix.Length)
+    }
+
     static func ExactNameInFacts(facts: ColumnarSourceBindingFacts, name: string): string {
         if facts.NamespaceName.Length > 0 {
             return facts.NamespaceName + "." + name
