@@ -378,13 +378,15 @@ class ColumnarConstructorDef {
     // binds by this list; a `ConstructorBuilder` answers no `GetParameters()` before its owner is
     // baked, so the names are carried here exactly as the defaults beside them are.
     ParamNames: string[]
+    ParamModifierKinds: int[]
 
-    constructor(builder: ConstructorBuilder, paramTypes: Type[], defaultKinds: int[], defaultTexts: string[], paramNames: string[]? = null) {
+    constructor(builder: ConstructorBuilder, paramTypes: Type[], defaultKinds: int[], defaultTexts: string[], paramNames: string[]? = null, paramModifierKinds: int[]? = null) {
         Builder = builder
         ParamTypes = paramTypes
         DefaultKinds = defaultKinds
         DefaultTexts = defaultTexts
         ParamNames = paramNames ?? new string[](0)
+        ParamModifierKinds = paramModifierKinds ?? new int[](0)
     }
 
     func Deconstruct(out builder: ConstructorBuilder, out paramTypes: Type[], out defaultKinds: int[], out defaultTexts: string[]) {
@@ -625,6 +627,10 @@ class ColumnarStructDef {
     // The five-argument form carries the declaration's PARAMETER NAMES as well, which is what a named
     // argument at a `new` binds by. An empty list means the registration site had none to carry.
     func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[], visibilityModifierFlags: int, parameterNames: string[]): ConstructorBuilder {
+        return DefineUserConstructor(parameterTypes, defaultKinds, defaultTexts, visibilityModifierFlags, parameterNames, new int[](0))
+    }
+
+    func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[], visibilityModifierFlags: int, parameterNames: string[], parameterModifierKinds: int[]): ConstructorBuilder {
         if parameterTypes == null || defaultKinds == null || defaultTexts == null {
             throw new InvalidOperationException("Source constructor definition facts cannot be null.")
         }
@@ -673,7 +679,11 @@ class ColumnarStructDef {
             }
         }
 
-        Constructors.Add(new ColumnarConstructorDef(builder, exactParameterTypes, exactDefaultKinds, exactDefaultTexts, exactParameterNames))
+        exactModifierKinds := new int[](parameterTypes.Length)
+        if parameterModifierKinds.Length == parameterTypes.Length {
+            Array.Copy(parameterModifierKinds, exactModifierKinds, parameterTypes.Length)
+        }
+        Constructors.Add(new ColumnarConstructorDef(builder, exactParameterTypes, exactDefaultKinds, exactDefaultTexts, exactParameterNames, exactModifierKinds))
         return builder
     }
 

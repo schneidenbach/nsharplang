@@ -179,7 +179,7 @@ class ColumnarConstructorDeclarationPlanner {
                                 )
                             }
 
-                            builder := definition.DefineUserConstructor(parameterTypes, ctor.ParamDefaultKinds, canonicalDefaultTexts, ctor.VisibilityModifierFlags, ctor.Body.ParamNames)
+                            builder := definition.DefineUserConstructor(parameterTypes, ctor.ParamDefaultKinds, canonicalDefaultTexts, ctor.VisibilityModifierFlags, ctor.Body.ParamNames, ctor.Body.ParamModifierKinds)
                             if ColumnarInitRequiredMemberEmitter.DeclaresRequiredMember(constructorInput) {
                                 ColumnarInitRequiredMemberEmitter.ApplyCompilerFeatureRequiredToConstructor(builder)
                             }

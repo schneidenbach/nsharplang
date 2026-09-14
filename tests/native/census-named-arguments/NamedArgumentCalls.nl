@@ -147,6 +147,56 @@ func ApplyTwice(value: int, mapper: Func<int, int>): int {
     return mapper(mapper(value))
 }
 
+func InvokeNamed(value: int, mapper: Func<int, int>): int {
+    return mapper(arg: value)
+}
+
+func InvokeActionNamed(value: int, action: Action<int>) {
+    action(obj: value)
+}
+
+func InvokeComparisonNamed(left: int, right: int, comparison: Comparison<int>): int {
+    return comparison(y: right, x: left)
+}
+
+class DelegateArgumentRecorder {
+    Value: int
+
+    func Record(value: int) {
+        Value = value
+    }
+}
+
+func ReadParams(params values: int[]): int {
+    return values[0] * 10 + values[1]
+}
+
+class SparseConstructorOrderRecorder {
+    Value: int
+
+    constructor() {
+        Value = 4
+    }
+
+    func Build(): ReflectedSparseRefConstructor {
+        return new ReflectedSparseRefConstructor(target: ref Value, last: Mutate())
+    }
+
+    func Mutate(): int {
+        Value = 9
+        return 7
+    }
+}
+
+class SourceSparseOutConstructor {
+    Value: int
+
+    constructor(out target: int, middle: int = 2, last: int = 3) {
+        target = middle * 10 + last
+        Value = target
+    }
+}
+
 // An `out` parameter named at the call: the name prefixes the whole argument, modifier included.
 func TryHalve(value: int, out half: int): bool {
     half = value / 2

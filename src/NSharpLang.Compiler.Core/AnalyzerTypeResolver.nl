@@ -93,14 +93,10 @@ class AnalyzerTypeResolver {
     // and up.
     //
     // A hand-built reference carries no written name and asks nothing.
-    func CreditWrittenDelegateName(functionReference: FunctionTypeReference, parameterCount: int, returnType: TypeInfo) {
-        if importUsageCreditValue == null {
-            return
-        }
-
+    func CreditWrittenDelegateName(functionReference: FunctionTypeReference, parameterCount: int, returnType: TypeInfo): TypeInfo? {
         writtenName := functionReference.WrittenName
         if writtenName.Length == 0 {
-            return
+            return null
         }
 
         arity := parameterCount
@@ -109,8 +105,7 @@ class AnalyzerTypeResolver {
             arity = arity + 1
         }
 
-        ignored := ResolveTypeNameWithArity(writtenName, arity, 0, 0)
-        _ = ignored
+        return ResolveTypeNameWithArity(writtenName, arity, 0, 0)
     }
 
     // The well-known-type bag is rebuilt, never mutated, so the resolver is told about the new bag
@@ -231,7 +226,10 @@ class AnalyzerTypeResolver {
             functionType := new FunctionTypeInfo()
             functionType.ParameterTypes = parameterTypes
             functionType.ReturnType = ResolveType(functionReference.ReturnType)
-            CreditWrittenDelegateName(functionReference, parameterTypes.Count, functionType.ReturnType)
+            writtenDefinition := CreditWrittenDelegateName(functionReference, parameterTypes.Count, functionType.ReturnType)
+            if writtenDefinition != null && AnalyzerCallableReferenceFacts.IsFrameworkDelegateDefinition(writtenDefinition, true, parameterTypes.Count) {
+                functionType.ParameterNames = AnalyzerCallableReferenceFacts.FrameworkDelegateParameterNames(true, parameterTypes.Count)
+            }
             return functionType
         }
 

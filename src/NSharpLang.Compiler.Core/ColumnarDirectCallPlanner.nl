@@ -824,6 +824,10 @@ class ColumnarDirectCallPlanner {
             }
 
             ColumnarNamedArgumentBinder.CollectSourceStaticCandidates(bindings.EnclosingTypeDefinition, bareName, arity, candidates)
+            delegateType := typeof(object)
+            if candidates.Count == 0 && ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, callee, bindings, out delegateType) && IsDelegateValueType(delegateType) {
+                ColumnarNamedArgumentBinder.CollectReflectedCandidates(delegateType, "Invoke", arity, false, candidates)
+            }
             return ColumnarNamedArgumentBinder.TryBestPlacement(nodes, source, callNode, 1, argumentTypes, argumentFacts, candidates, out placement)
         }
 

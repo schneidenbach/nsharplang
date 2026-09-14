@@ -5023,11 +5023,6 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             targetArgBase := st.ArgStackTop
 
             if st.Pos < count && tokens.Kinds[st.Pos] != 128 {
-                if tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79 {
-                    st.ArgStackTop = targetArgBase
-                    return -1
-                }
-
                 targetFirstArg := ParseConstructorArgumentNode(tokens, count, st, argStack, nodes, children, depth + 1)
                 if targetFirstArg < 0 {
                     st.ArgStackTop = targetArgBase
@@ -5039,11 +5034,6 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
 
                 while st.Pos < count && tokens.Kinds[st.Pos] == 134 {
                     st.Pos = st.Pos + 1
-                    if st.Pos < count && (tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79) {
-                        st.ArgStackTop = targetArgBase
-                        return -1
-                    }
-
                     targetNextArg := ParseConstructorArgumentNode(tokens, count, st, argStack, nodes, children, depth + 1)
                     if targetNextArg < 0 {
                         st.ArgStackTop = targetArgBase
@@ -5199,11 +5189,6 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         st.ArgStackTop = st.ArgStackTop + 1
 
         if st.Pos < count && tokens.Kinds[st.Pos] != 128 {
-            if tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79 {
-                st.ArgStackTop = argBase
-                return -1
-            }
-
             firstArg := ParseConstructorArgumentNode(tokens, count, st, argStack, nodes, children, depth + 1)
             if firstArg < 0 {
                 st.ArgStackTop = argBase
@@ -5215,11 +5200,6 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
 
             while st.Pos < count && tokens.Kinds[st.Pos] == 134 {
                 st.Pos = st.Pos + 1
-                if st.Pos < count && (tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79) {
-                    st.ArgStackTop = argBase
-                    return -1
-                }
-
                 nextArg := ParseConstructorArgumentNode(tokens, count, st, argStack, nodes, children, depth + 1)
                 if nextArg < 0 {
                     st.ArgStackTop = argBase
@@ -5908,15 +5888,11 @@ func ParseConstructorArgumentNode(tokens: ParserTokenTable, count: int, st: Pars
         return -1
     }
 
-    if st.Pos < count && (tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79) {
-        return -1
-    }
-
     if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 {
         nameStart := tokens.Starts[st.Pos]
         nameLength := tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 2
-        value := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        value := ParseCallArgumentModifierOrValueNode(tokens, count, st, argStack, nodes, children, depth + 1)
         if value < 0 {
             return -1
         }
@@ -5927,7 +5903,7 @@ func ParseConstructorArgumentNode(tokens: ParserTokenTable, count: int, st: Pars
         return EmitExpressionNode(st, nodes, 60, nameStart, nameLength, childRun, 1, nameStart, valueEnd - nameStart)
     }
 
-    return ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth)
+    return ParseCallArgumentModifierOrValueNode(tokens, count, st, argStack, nodes, children, depth)
 }
 
 func ParseUnaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
@@ -7837,6 +7813,8 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         angleDepth := 0
         groupDepth := 0
         scanning := true
+        hasTypedInitializer := true
+        typedTerminatorConsumed := false
         while scanning {
             if scanPos >= count {
                 return -1
@@ -7846,7 +7824,14 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
             // `=` (93) and `:=` (121) both end an annotation: the production parser accepts either
             // after a written type (`let x: int = 5` and `let x: int := 5` are one declaration), and a
             // type can contain neither, so both are unambiguous terminators.
-            if (k == 93 || k == 121) && angleDepth == 0 && groupDepth == 0 {
+            if ParserTokenBeginsLine(tokens, scanPos) && angleDepth == 0 && groupDepth == 0 {
+                hasTypedInitializer = false
+                scanning = false
+            } else if (k == 93 || k == 121) && angleDepth == 0 && groupDepth == 0 {
+                scanning = false
+            } else if k == 133 && angleDepth == 0 && groupDepth == 0 {
+                hasTypedInitializer = false
+                typedTerminatorConsumed = true
                 scanning = false
             } else {
                 if k == 100 {
@@ -7882,6 +7867,16 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
 
         typeSpanStart := tokens.Starts[typeFirst]
         typeSpanEnd := tokens.Starts[scanPos - 1] + tokens.ValueLengths[scanPos - 1]
+        if !hasTypedInitializer {
+            typedNameNode := EmitExpressionNode(st, nodes, 6, typedNameStart, typedNameLength, -1, 0, typedNameStart, typedNameLength)
+            typedChildRunStart := st.ChildCursor
+            AppendExpressionChild(st, children, typedNameNode)
+            st.Pos = typedTerminatorConsumed ? scanPos + 1 : scanPos
+            declStart := tokens.Starts[start]
+            typeEnd := tokens.Starts[scanPos - 1] + tokens.ValueLengths[scanPos - 1]
+            return EmitExpressionNode(st, nodes, 40, typeSpanStart, typeSpanEnd - typeSpanStart, typedChildRunStart, 1, declStart, typeEnd - declStart)
+        }
+
         st.Pos = scanPos + 1
         typedInit := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
         if typedInit < 0 {

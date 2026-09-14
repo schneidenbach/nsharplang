@@ -191,6 +191,10 @@ test "the Func arity table takes the last argument as the return type" {
     assert FactoryTypeName(parameterTypes[0]) == "int"
     assert FactoryTypeName(parameterTypes[1]) == "string"
     assert FactoryTypeName(signature.ReturnType) == "bool"
+    names := signature.ParameterNames
+    assert names != null
+    assert names[0] == "arg1"
+    assert names[1] == "arg2"
 
     modifiers := signature.ParameterModifiers
     assert modifiers != null
@@ -214,6 +218,10 @@ test "the Action arity table takes every argument as a parameter and returns voi
     assert parameterTypes.Count == 2
     assert FactoryTypeName(parameterTypes[0]) == "int"
     assert FactoryTypeName(signature.ReturnType) == "void"
+    names := signature.ParameterNames
+    assert names != null
+    assert names[0] == "arg1"
+    assert names[1] == "arg2"
 }
 
 test "a delegate outside the arity tables is read through Invoke" {
@@ -225,6 +233,13 @@ test "a delegate outside the arity tables is read through Invoke" {
     assert parameterTypes != null
     assert parameterTypes.Count == 0
     assert FactoryTypeName(signature.ReturnType) == "void"
+
+    comparisonType := FactoryClosed1("System.Comparison`1, System.Private.CoreLib", typeof(int))
+    comparison := AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(comparisonType)
+    comparisonNames := comparison.ParameterNames
+    assert comparisonNames != null
+    assert comparisonNames[0] == "x"
+    assert comparisonNames[1] == "y"
 
     // A type with no `Invoke` at all answers the unknown signature rather than throwing.
     notADelegateType := FactoryRuntimeType("System.Uri, System.Private.Uri")
