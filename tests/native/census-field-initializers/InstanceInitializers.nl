@@ -54,3 +54,15 @@ class OrderTrace {
         return Log.Length
     }
 }
+
+// THE STORES THE SOURCE NEVER SPELLED. A nullable field with no initializer is still assigned by the
+// synthesized instance initializer — it stores `null` — and that store carries no `=` token behind
+// it. Reading the absent operator span out of the synthesized node used to throw
+// ArgumentOutOfRangeException out of the whole compile, so any type pairing a bare nullable field
+// with an initialized one could not be compiled at all.
+class NullableDefaults {
+    Tokens: string?
+    Count: int = 4
+    Names: List<string>?
+    Label: string = "set"
+}

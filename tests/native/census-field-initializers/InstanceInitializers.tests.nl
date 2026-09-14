@@ -40,3 +40,11 @@ test "instance field initializers run before the base constructor call and befor
     // The base constructor already saw the derived initializer's effect when it ran.
     assert derived.Trace == "derived-init;base-ctor;"
 }
+
+test "a nullable field with no initializer defaults to null beside an initialized field" {
+    value := new NullableDefaults()
+    assert value.Tokens == null
+    assert value.Names == null
+    assert value.Count == 4
+    assert value.Label == "set"
+}
