@@ -947,6 +947,101 @@ async func main() {
 }
 ```
 
+## Lambdas and Closures
+
+A lambda is written `x => expression` or `x => { … }`, and it can read whatever the code around it
+can read: its own parameters, the enclosing function's locals and parameters, and — inside a type —
+the instance's own members.
+
+```n#
+class Scaler {
+    Factor: int
+
+    constructor(factor: int) {
+        Factor = factor
+    }
+
+    func Make(bonus: int): Func<int, int> {
+        return x => x * Factor + bonus     // the instance AND a parameter
+    }
+}
+```
+
+**A capture is one storage location, not a copy.** A variable the lambda writes — or one that is
+written after the lambda was built — is shared between the two, so both sides see every write:
+
+```n#
+func counter(): Func<int> {
+    total := 0
+    return () => {
+        total = total + 1
+        return total
+    }
+}
+
+next := counter()
+print next()    // 1
+print next()    // 2
+```
+
+**A binding declared inside a loop is a new binding each time round**, so a delegate collected in the
+loop closes over its own copy — the same rule C# has:
+
+```n#
+adders := new List<Func<int>>()
+for i := 0; i < 3; i++ {
+    step := i * 10
+    adders.Add(() => step)
+}
+print adders[0]()   // 0, not 20
+```
+
+### Lambdas inside lambdas
+
+A lambda written inside another lambda reaches **every** enclosing scope — its own parameters, the
+outer lambda's, the function's, and the instance — to any depth, and nothing about the nesting needs
+to be written down:
+
+```n#
+func curried(seed: int): Func<int, Func<int, int>> {
+    return a => b => a + b + seed
+}
+
+add := curried(100)
+addOne := add(1)
+print addOne(2)     // 103
+```
+
+The same holds for a lambda inside a **local function**, for a local function that captures a
+delegate-typed local, and for a lambda that captures a variable the inner lambda then writes: the
+write is seen at every level, because there is still only one storage location.
+
+### `this` inside a lambda
+
+A lambda that reads an instance member captures the **instance**, not a copy of the member, so it
+answers from the object as it is when the delegate runs:
+
+```n#
+class Holder {
+    Factor: int
+    Scaled: Func<int, int>
+
+    constructor(factor: int, bonus: int) {
+        Factor = factor
+        Scaled = x => x * Factor + bonus     // legal in a constructor too
+    }
+}
+
+h := new Holder(3, 10)
+print h.Scaled(2)     // 16
+h.Factor = 5
+print h.Scaled(2)     // 20 — the field, not a snapshot of it
+```
+
+`this.Factor` and the bare `Factor` name the same member and behave identically. A **struct**'s
+`this` cannot be captured: it is a pointer into the value's own storage, which a delegate would
+outlive.
+
 ## Collections and LINQ
 
 N# uses array literals and has full access to LINQ through `System.Linq`.

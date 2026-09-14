@@ -3726,6 +3726,57 @@ local function, which used to decline the whole type declaration at `parse.struc
 in a GENERIC member still declines (`emit.local-function.generic-member`): a synthesized display
 cannot carry the type parameters in scope.
 
+### A display chain, not a display level
+
+`ColumnarStructDef.ClosureEnclosingDef` is the link that turns the display class model above from a
+one-level answer into a chain. A display that captured an enclosing RECEIVER records the scope it was
+made for: the declaring TYPE when the capturing scope is a member body, and the PARENT DISPLAY when
+the capturing scope is itself a lambda or local function with a display of its own. `<>4__this` is
+therefore one link, not a step.
+
+`ColumnarBoundIdentifierPlanner.TryResolveCapturedEnclosingInstance` walks it. From argument zero it
+collects one `<>4__this` per level and stops at the level that declares the name, which may be the
+enclosing TYPE (a field, a property, or a member inherited from an external base, by the same
+ordinary current-instance resolution `this.Member` uses) or another DISPLAY (a snapshot capture of
+the scope above). The selection carries the whole `ReceiverFields` chain, so no arm counts levels and
+`x => y => z => …` costs nothing extra. A parent display's field resolves AHEAD of the blocked-name
+gate, because it is capture storage; the enclosing type's members resolve AFTER it, because an
+enclosing LOCAL of the same name does shadow a member.
+
+Two consequences fell out of having that route at all:
+
+- `BodyReferencesEnclosingInstanceMemberChain` (was `…InstanceMethodChain`) asks the whole
+  instance-member question — field, property or method, plus bare `this`. It used to narrow to
+  instance METHODS because there was no way to emit the field read the wider answer would have
+  admitted. A STATIC member still says no: it belongs to the type and is reached with no receiver.
+- A MUTATED capture is reachable from one level deeper. Inside a display, a lifted name's box rides a
+  FIELD of the display the body runs on rather than a local, so the capture scan offers
+  `_boxedCaptures` alongside the locals and the classification copies the BOX reference out of
+  argument zero — the same copy the lifted-local arm makes from a slot, which is why a write at
+  either depth is seen at every other.
+
+A lambda whose whole body is another lambda takes its shape from the outer delegate's RETURN type,
+the same contextual reading `return x => …` and a delegate argument position perform; and an
+EXPRESSION body is its own `_bodyRoot`, without which the never-mutated scan a nested capture needs
+had no body to scan.
+
+### A lambda body is typed in the frame around it
+
+`TryPreflightContextualLambdaReturnType` builds its sub-emitter from the ENCLOSING frame — parameters,
+locals, lifted and boxed captures, tuple-element names — with the lambda's own parameters written over
+it. Only a TYPE comes back out of a preflight, so the lambda's ordinals simply move past the enclosing
+frame's rather than colliding with them (two bindings at one argument ordinal is a contradiction the
+plan refuses by throwing).
+
+This is what a generic call whose OUTPUT type parameter is bound by the lambda's return needs:
+`xs.ConvertAll(x => x + bump)` could not type `bump`, so `TOutput` had nothing to bind it and the call
+declined at `emit.call.instance-member`. The same lambda reading a FIELD inferred fine, because the
+instance was already in reach through `_currentStruct` — which is how the gap was named.
+
+STILL OPEN: a BLOCK-bodied lambda at an inferring position cannot type a `return` that reads a local
+the BLOCK declares. `CollectBlockReturnTypes` has no storage to bind such a name to, and it declines
+with or without a capture.
+
 ### A substituted type parameter takes the type ARGUMENT's nullability
 
 `NullabilityGenericSubstitution.nl` is the N# owner for the two facts the nullability reader needs
