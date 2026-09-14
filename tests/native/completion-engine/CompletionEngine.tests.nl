@@ -311,6 +311,21 @@ func CompletionNamesContain(names: string, expected: string): bool {
     return false
 }
 
+func CompletionNameOccurrences(names: string, expected: string): int {
+    parts := names.Split(',')
+    count := 0
+    index := 0
+    while index < parts.Length {
+        if parts[index] == expected {
+            count = count + 1
+        }
+
+        index = index + 1
+    }
+
+    return count
+}
+
 // One field of the first item in a group carrying the given name; `<missing>` when the group has
 // no such item and `<null>` when the field itself is null.
 func CompletionItemField(answer: object, groupKey: string, itemName: string, fieldName: string): string {
@@ -512,6 +527,68 @@ test "a BCL receiver offers its members and NOT the accessors the CLR synthesise
     // pair the CLR synthesises for every property. The property survives; its accessors do not.
     assert !CompletionNamesContain(allNames, "get_Length")
     assert !CompletionNamesContain(allNames, "get_Chars")
+
+    Directory.Delete(fixtureRoot, true)
+}
+
+test "member completion traverses source and CLR interface inheritance with closed generic types" {
+    source := "import System.Collections.Generic\n\ninterface INamed {\n    Name: string\n}\n\ninterface IEntry: INamed {\n    Id: int\n}\n\ninterface IValue<T> {\n    Value: T\n}\n\ninterface ILeft<T>: IValue<T> {\n    Left: T\n}\n\ninterface IRight<T>: IValue<T> {\n    Right: T\n}\n\ninterface IDiamond<T>: ILeft<T>, IRight<T> {\n    Own: T\n}\n\nfunc Source(entry: IEntry) {\n    entry.\n}\n\nfunc Diamond(entry: IDiamond<string>) {\n    entry.\n}\n\nfunc Reflected(entries: IReadOnlyList<string>) {\n    entries.\n}\n"
+    fixtureRoot := WriteCompletionFixture(source)
+    snapshot := LoadCompletionSnapshot(fixtureRoot)
+    sourceFile := CompletionFixtureFile(fixtureRoot)
+
+    // Source interface inheritance: a direct row and its declared base both appear through the
+    // same engine that backs `nlc query completions` and the language server.
+    sourceAnswer := AskCompletions(snapshot, sourceFile, 28, CompletionLineLength(source, 28), false)
+    assert CompletionText(sourceAnswer, "Context") == "MemberAccess"
+    sourceProperties := CompletionGroupNames(sourceAnswer, "properties")
+    assert CompletionNamesContain(sourceProperties, "Id")
+    assert CompletionNamesContain(sourceProperties, "Name")
+
+    // A closed source diamond keeps T as string all the way to IValue<T>, and the two paths to that
+    // base produce one Value row.
+    diamondAnswer := AskCompletions(snapshot, sourceFile, 32, CompletionLineLength(source, 32), false)
+    diamondProperties := CompletionGroupNames(diamondAnswer, "properties")
+    assert CompletionNamesContain(diamondProperties, "Own")
+    assert CompletionNamesContain(diamondProperties, "Left")
+    assert CompletionNamesContain(diamondProperties, "Right")
+    assert CompletionNameOccurrences(diamondProperties, "Value") == 1
+    assert CompletionItemField(diamondAnswer, "properties", "Value", "Type") == "string"
+
+    // CLR reflection has the same closure requirement: Count belongs to IReadOnlyCollection<T>,
+    // while Item belongs to IReadOnlyList<T>.
+    reflectedAnswer := AskCompletions(snapshot, sourceFile, 36, CompletionLineLength(source, 36), false)
+    reflectedProperties := CompletionGroupNames(reflectedAnswer, "properties")
+    assert CompletionNamesContain(reflectedProperties, "Count")
+    assert CompletionNamesContain(reflectedProperties, "Item")
+    assert CompletionItemField(reflectedAnswer, "properties", "Item", "Type") == "string"
+
+    Directory.Delete(fixtureRoot, true)
+}
+
+// The member resolver visits source interface bases depth-first in the order the declaration wrote.
+// A sibling declaration with the same name is therefore not an additional overload set: it is not a
+// callable candidate until the language changes that lookup rule everywhere (analysis, navigation,
+// planning and completion). This drives the production completion engine, rather than asserting the
+// traversal shape only through a hand-built semantic model.
+test "member completion mirrors first-declaration source interface lookup" {
+    source := "interface IA {\n    func F(value: int): int\n}\n\ninterface IB {\n    func F(value: string): string\n}\n\ninterface IC: IA, IB {\n}\n\nfunc Probe(value: IC) {\n    value.\n}\n"
+    fixtureRoot := WriteCompletionFixture(source)
+    answer := AskCompletions(
+        LoadCompletionSnapshot(fixtureRoot),
+        CompletionFixtureFile(fixtureRoot),
+        13,
+        CompletionLineLength(source, 13),
+        false
+    )
+
+    // IA is the first declared base. Its int-returning F is the one the analyzer resolves, so the
+    // completion row must neither switch to IB's string return type nor claim a second overload.
+    assert CompletionText(answer, "Context") == "MemberAccess"
+    assert CompletionNamesContain(CompletionGroupNames(answer, "methods"), "F")
+    assert CompletionItemField(answer, "methods", "F", "Type") == "int"
+    assert CompletionItemField(answer, "methods", "F", "Parameters") == "(value int)"
+    assert CompletionItemField(answer, "methods", "F", "Overloads") == "1"
 
     Directory.Delete(fixtureRoot, true)
 }

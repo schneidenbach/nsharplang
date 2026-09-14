@@ -143,6 +143,62 @@ class CompletionDeclarationFacts {
         return null
     }
 
+    // The same member read through a constructed source owner. The declaration keeps its source
+    // spelling for ordinary members; only a receiver-supplied positional generic binding replaces
+    // the declaration's open type parameters in the row the editor shows.
+    static func DeclaredMemberToCompletionItem(member: DeclaredMemberInfo, memberContext: bool, semanticModels: IEnumerable<SemanticModel>, declarationOwner: TypeInfo, substitution: Dictionary<string, TypeInfo>?): CompletionItem? {
+        effectiveSubstitution := MemberSubstitution(member, substitution)
+        if effectiveSubstitution == null || effectiveSubstitution.Count == 0 {
+            return DeclaredMemberToCompletionItem(member, memberContext)
+        }
+
+        kind := member.Kind
+        if kind == DeclaredMemberKind.Function {
+            kindName := "function"
+            if memberContext {
+                kindName = "method"
+            }
+
+            return new CompletionItem(
+                member.Name,
+                kindName,
+                FormatSubstitutedMemberType(member.ReturnType, semanticModels, declarationOwner, effectiveSubstitution),
+                FormatSubstitutedDeclaredMemberParameters(member, semanticModels, declarationOwner, effectiveSubstitution),
+                null,
+                member.IsStatic
+            )
+        }
+
+        if kind == DeclaredMemberKind.Class {
+            return DeclaredMemberTypeItem(member, "class")
+        }
+        if kind == DeclaredMemberKind.Struct {
+            return DeclaredMemberTypeItem(member, "struct")
+        }
+        if kind == DeclaredMemberKind.Record {
+            return DeclaredMemberTypeItem(member, "record")
+        }
+        if kind == DeclaredMemberKind.Interface {
+            return DeclaredMemberTypeItem(member, "interface")
+        }
+        if kind == DeclaredMemberKind.Enum {
+            return DeclaredMemberTypeItem(member, "enum")
+        }
+        if kind == DeclaredMemberKind.Union {
+            return DeclaredMemberTypeItem(member, "union")
+        }
+
+        if kind == DeclaredMemberKind.Field || kind == DeclaredMemberKind.Property {
+            return new CompletionItem(member.Name, "property", FormatSubstitutedMemberType(member.Type, semanticModels, declarationOwner, effectiveSubstitution), null, null, member.IsStatic)
+        }
+
+        if kind == DeclaredMemberKind.Event {
+            return new CompletionItem(member.Name, "event", FormatSubstitutedMemberType(member.Type, semanticModels, declarationOwner, effectiveSubstitution), null, null, member.IsStatic)
+        }
+
+        return null
+    }
+
     // A nested TYPE offered as a member carries no type text and is never static: it is a name to
     // reach through, not a value to read.
     static func DeclaredMemberTypeItem(member: DeclaredMemberInfo, kind: string): CompletionItem {
@@ -182,6 +238,82 @@ class CompletionDeclarationFacts {
 
         builder.Append(")")
         return builder.ToString()
+    }
+
+    static func FormatSubstitutedDeclaredMemberParameters(member: DeclaredMemberInfo, semanticModels: IEnumerable<SemanticModel>, declarationOwner: TypeInfo, substitution: Dictionary<string, TypeInfo>): string {
+        parameterNames := member.ParameterNames
+        parameterTypes := member.ParameterTypes
+        requiredCount := member.RequiredParameterCount
+        builder := new StringBuilder()
+        builder.Append("(")
+
+        index := 0
+        while index < parameterNames.Length {
+            if index > 0 {
+                builder.Append(", ")
+            }
+
+            builder.Append(parameterNames[index])
+            builder.Append(" ")
+            if index < parameterTypes.Length {
+                builder.Append(FormatSubstitutedMemberType(parameterTypes[index], semanticModels, declarationOwner, substitution))
+            } else {
+                builder.Append("unknown")
+            }
+
+            if index >= requiredCount && GetDeclaredMemberParameterModifier(member, index) != ParameterModifier.Params {
+                builder.Append(" = ...")
+            }
+
+            index = index + 1
+        }
+
+        builder.Append(")")
+        return builder.ToString()
+    }
+
+    // A method's own type parameters shadow a same-spelled parameter from its containing type. The
+    // receiver binding belongs to the containing type only, so remove each method-local name before
+    // formatting its return or parameter types.
+    static func MemberSubstitution(member: DeclaredMemberInfo, substitution: Dictionary<string, TypeInfo>?): Dictionary<string, TypeInfo>? {
+        if substitution == null || substitution.Count == 0 {
+            return null
+        }
+
+        effective := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
+        for entry in substitution {
+            effective[entry.Key] = entry.Value
+        }
+
+        parameters := member.TypeParameters
+        index := 0
+        while index < parameters.Length {
+            effective.Remove(parameters[index].Name)
+            index = index + 1
+        }
+
+        return effective
+    }
+
+    static func FormatSubstitutedMemberType(typeReference: TypeReference?, semanticModels: IEnumerable<SemanticModel>, declarationOwner: TypeInfo, substitution: Dictionary<string, TypeInfo>): string {
+        if typeReference == null {
+            return "void"
+        }
+
+        recorded := CompletionInheritanceFacts.RecordedTypeReferenceType(typeReference, semanticModels, declarationOwner)
+        if recorded != null {
+            return CompletionTypeTextFacts.FormatTypeText(CompletionInheritanceFacts.ApplySubstitution(recorded, substitution))
+        }
+
+        simple := typeReference as SimpleTypeReference
+        if simple != null {
+            replacement: TypeInfo? = null
+            if substitution.TryGetValue(simple.Name, out replacement) && replacement != null {
+                return CompletionTypeTextFacts.FormatTypeText(replacement)
+            }
+        }
+
+        return TypeReferenceFacts.GetDisplayNameOrVoid(typeReference)
     }
 
     // The declared modifier of parameter `index`, or `None` when the index falls outside the list.
@@ -338,6 +470,13 @@ class CompletionDeclarationFacts {
     // declared the member, which is the narrower question `private` asks. A caller that knows
     // neither passes both false, which offers exactly the public and package surface.
     static func GetTypeMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, declaringNamespace: string?, requestingNamespace: string, canReachProtected: bool, isInsideDeclaringType: bool): List<CompletionItem> {
+        return GetTypeMemberItems(typeInfo, semanticModels, declaringNamespace, requestingNamespace, canReachProtected, isInsideDeclaringType, CompletionMemberFilter.All, null)
+    }
+
+    // The receiver half of the same question. Source declarations carry both static and instance
+    // members in one table, so apply the filter here before an inherited interface surface is joined
+    // to the receiver's own rows.
+    static func GetTypeMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, declaringNamespace: string?, requestingNamespace: string, canReachProtected: bool, isInsideDeclaringType: bool, filter: CompletionMemberFilter, substitution: Dictionary<string, TypeInfo>?): List<CompletionItem> {
         items := new List<CompletionItem>()
         members := ResolveDeclaredMembers(typeInfo, semanticModels)
         if members == null {
@@ -348,8 +487,8 @@ class CompletionDeclarationFacts {
         while index < members.Length {
             member := members[index]
             if CompletionVisibilityFacts.IsOfferableAcrossPackages(member.IsExported, declaringNamespace, requestingNamespace) && CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(member.DeclaredModifiers, canReachProtected, isInsideDeclaringType) {
-                item := DeclaredMemberToCompletionItem(member, true)
-                if item != null {
+                item := DeclaredMemberToCompletionItem(member, true, semanticModels, typeInfo, substitution)
+                if item != null && CompletionInheritanceFacts.MemberMatchesFilter(item, filter) {
                     items.Add(item)
                 }
             }

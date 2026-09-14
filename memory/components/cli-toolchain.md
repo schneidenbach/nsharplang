@@ -382,6 +382,14 @@ $ nlc query completions --file PersonService.nl --pos 15:15
 
 Member access completion resolves the receiver expression semantically, including chained calls and properties such as `message.ToUpper().` or `factory.Create().`. CLI query results and LSP completion/hover use the analyzer's recorded expression types as the source of truth, so duplicate member names on unrelated receiver types do not collapse into name-only matches.
 
+The member surface includes the receiver's declarations, its class bases, and the full closure of its
+source or CLR interfaces. Generic interface edges keep their closed type arguments (`IValue<string>`
+offers `Value: string`), and a shared diamond ancestor contributes one row. Source interface edges
+follow the analyzer's depth-first, written-order lookup: the first declaration of a name hides later
+interface declarations, so `IC: IA, IB` offers `IA.F` rather than inventing a cross-interface overload
+set from `IA.F` and `IB.F`. The selected declaration keeps its ordinary overload grouping and static
+or instance filter.
+
 **One row per member name, ordered.** A member access answers one row per NAME, not one per overload: `string` reflects 105 methods under 39 names, and eleven `Split` declarations are one row carrying `"overloads": 11`. The `overloads` key is additive and appears only when a name has more than one declaration, so `schemaVersion` stays at 1; the editor renders the same fact as `(+10 overloads)` in the item's detail. Rows are ordered by kind rank — keyword, variable, function/method, property/field, type, everything else — and then by name, case-insensitively, so the JSON's group order and the editor's row order are the same order. A name listed under two different kinds (`async` as both a keyword and a modifier) collapses to one row but is not counted as an overload.
 
 **A granting reference's internals are offered.** A referenced assembly that declares

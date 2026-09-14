@@ -365,8 +365,7 @@ class CompletionReceiverFacts {
         canReachProtected := CompletionVisibilityFacts.IsTypeOrDerived(accessingTypeName, typeName, compilationUnits)
         isInsideDeclaringType := canReachProtected && CompletionVisibilityFacts.SimpleTypeName(typeName) == CompletionVisibilityFacts.SimpleTypeName(accessingTypeName ?? "")
 
-        declaringNamespace := CompletionVisibilityFacts.DeclaringNamespaceOfReceiverType(typeInfo, typeName, compilationUnits)
-        declaredMembers := CompletionDeclarationFacts.GetTypeMemberItems(typeInfo, semanticModels, declaringNamespace, requestingNamespace, canReachProtected, isInsideDeclaringType)
+        declaredMembers := DeclaredMemberItemsForReceiver(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, canReachProtected, isInsideDeclaringType)
         AppendInheritedMemberItems(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, accessingTypeName, canReachProtected, friendGrants, declaredMembers)
         if declaredMembers.Count > 0 {
             CompletionEngineKernels.AddGroupedCompletionItemsByKind(declaredMembers, completions)
@@ -377,7 +376,7 @@ class CompletionReceiverFacts {
         if clrType != null {
             friendAdmits := CompletionReflectionFacts.FriendAdmits(friendGrants, clrType)
             flags := CompletionReflectionFacts.GetReflectionBindingFlags(filter, false, friendAdmits)
-            reflectionMembers := CompletionReflectionFacts.BuildReflectionMemberItems(clrType, flags, false, friendAdmits)
+            reflectionMembers := CompletionReflectionFacts.BuildReflectionMemberItems(clrType, flags, false, friendAdmits, friendGrants)
             if reflectionMembers.Count > 0 {
                 CompletionEngineKernels.AddGroupedCompletionItemsByKind(reflectionMembers, completions)
                 clrTypeName := clrType.get_FullName()
@@ -392,22 +391,35 @@ class CompletionReceiverFacts {
         return null
     }
 
+    // The receiver may already be a constructed source declaration. Its own members belong to the
+    // open declaration, while their type text belongs to the exact closed receiver, so pass both to
+    // the declaration owner rather than trying to find a same-spelled type by name.
+    static func DeclaredMemberItemsForReceiver(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, canReachProtected: bool, isInsideDeclaringType: bool): List<CompletionItem> {
+        declaration: TypeInfo? = null
+        substitution: Dictionary<string, TypeInfo>? = null
+        if CompletionInheritanceFacts.TryGetSourceDeclaration(typeInfo, out declaration, out substitution) && declaration != null {
+            declarationName := CompletionTypeTextFacts.FormatTypeText(declaration)
+            declaringNamespace := CompletionVisibilityFacts.DeclaringNamespaceOfReceiverType(declaration, declarationName, compilationUnits)
+            return CompletionDeclarationFacts.GetTypeMemberItems(declaration, semanticModels, declaringNamespace, requestingNamespace, canReachProtected, isInsideDeclaringType, filter, substitution)
+        }
+
+        typeName := CompletionTypeTextFacts.FormatTypeText(typeInfo)
+        declaringNamespace := CompletionVisibilityFacts.DeclaringNamespaceOfReceiverType(typeInfo, typeName, compilationUnits)
+        return CompletionDeclarationFacts.GetTypeMemberItems(typeInfo, semanticModels, declaringNamespace, requestingNamespace, canReachProtected, isInsideDeclaringType, filter, null)
+    }
+
     // WHAT THE RECEIVER INHERITS, APPENDED TO WHAT IT DECLARES.
     //
-    // A source type's member surface is its own declarations, then its declared base's, and — when
-    // the chain ends at a type this compilation did not write — that base's whole reflected surface.
-    // The editor used to see only the first of those: `class Names: List<string>` offered its own
-    // members and NOTHING else, so a caret after `names.` produced an empty list while the same
-    // caret after a `List<string>` local produced fifty. Resolution and `nlc query type` had already
-    // walked the chain; completion had not.
+    // A source type's surface is a graph: its class chain and every direct interface edge, where an
+    // interface can itself have bases and the same closed interface can arrive through a diamond.
+    // Every written edge is read from the semantic model that owns its declaration, then rewritten
+    // through the receiver's positional generic binding. This preserves `IEntry<string>:
+    // INamed<string>` as one closed semantic edge instead of reducing it to two strings.
     //
-    // THE BASE IS TAKEN FROM THE SEMANTIC MODEL, NOT RE-RESOLVED. `AnalyzerTypeResolver` records
-    // every type reference it resolves at the reference's own start span, so the `:` clause's
-    // already-analyzed `TypeInfo` — with its type arguments closed — is read back by position. That
-    // is what lets the reflected half close `List<string>` rather than guess at `List<T>`.
-    //
-    // A NAME THE DERIVED TYPE ALREADY OFFERS IS NOT OFFERED TWICE. The first list wins, which is the
-    // order the language resolves in.
+    // A NAME THE RECEIVER ALREADY OFFERS IS NOT OFFERED TWICE. The first list wins, which is the
+    // language's hiding order: receiver declarations, nearest class declarations, then reachable
+    // interfaces. A visited exact-type list makes malformed cycles finite and a diamond's shared base
+    // contribute once.
     static func AppendInheritedMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, items: List<CompletionItem>) {
         AppendInheritedMemberItems(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, null, false, null, items)
     }
@@ -420,67 +432,103 @@ class CompletionReceiverFacts {
     // that admits it on the derived type admits it here, so the flag the caller already computed is
     // carried down the chain rather than recomputed against each base.
     static func AppendInheritedMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, canReachProtected: bool, friendGrants: InternalsVisibleToGrants?, items: List<CompletionItem>) {
-        current := typeInfo
-        depth := 0
-        while depth < 64 {
-            baseReference := DeclaredBaseReference(current)
-            if baseReference == null {
-                return
-            }
+        seen := new List<TypeInfo>()
+        seen.Add(typeInfo)
+        AppendInheritanceEdges(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, accessingTypeName, canReachProtected, friendGrants, items, seen, 0)
+    }
 
-            baseTypeInfo := RecordedTypeReferenceType(baseReference, semanticModels)
-            if baseTypeInfo == null {
-                return
-            }
-
-            if CompletionDeclarationFacts.DeclaredMembersOfType(baseTypeInfo) != null {
-                baseNamespace := CompletionVisibilityFacts.DeclaringNamespaceOfReceiverType(baseTypeInfo, CompletionTypeTextFacts.FormatTypeText(baseTypeInfo), compilationUnits)
-                baseTypeName := CompletionTypeTextFacts.FormatTypeText(baseTypeInfo)
-                insideBase := accessingTypeName != null && CompletionVisibilityFacts.SimpleTypeName(baseTypeName) == CompletionVisibilityFacts.SimpleTypeName(accessingTypeName)
-                AppendNewMemberItems(items, CompletionDeclarationFacts.GetTypeMemberItems(baseTypeInfo, semanticModels, baseNamespace, requestingNamespace, canReachProtected, insideBase))
-                current = baseTypeInfo
-                depth = depth + 1
-                continue
-            }
-
-            baseClrType := CompletionReflectionFacts.ResolveCompletionReflectionType(baseTypeInfo)
-            if baseClrType == null {
-                return
-            }
-
-            baseFriendAdmits := CompletionReflectionFacts.FriendAdmits(friendGrants, baseClrType)
-            AppendNewMemberItems(items, CompletionReflectionFacts.BuildReflectionMemberItems(baseClrType, CompletionReflectionFacts.GetReflectionBindingFlags(filter, canReachProtected, baseFriendAdmits), canReachProtected, baseFriendAdmits))
+    static func AppendInheritanceEdges(current: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, canReachProtected: bool, friendGrants: InternalsVisibleToGrants?, items: List<CompletionItem>, seen: List<TypeInfo>, depth: int) {
+        if depth >= 64 {
             return
         }
-    }
 
-    // The `:` clause's class reference, or nothing. Only a CLASS has one; a struct, a record and an
-    // interface name no base class, and an interface's own bases are a separate surface.
-    static func DeclaredBaseReference(typeInfo: TypeInfo): TypeReference? {
-        classType := typeInfo as ClassTypeInfo
-        if classType == null {
-            return null
+        declaration: TypeInfo? = null
+        substitution: Dictionary<string, TypeInfo>? = null
+        if !CompletionInheritanceFacts.TryGetSourceDeclaration(current, out declaration, out substitution) || declaration == null {
+            return
         }
 
-        return classType.BaseClass
-    }
-
-    // The analyzed type behind a written reference, read back from the model that recorded it.
-    static func RecordedTypeReferenceType(typeReference: TypeReference, semanticModels: IEnumerable<SemanticModel>): TypeInfo? {
-        span := TypeReferenceFacts.GetStartSpan(typeReference)
-        if !span.IsValid {
-            return null
-        }
-
-        key := (Line: span.StartLine, Column: span.StartColumn)
-        for semanticModel in semanticModels {
-            recorded: TypeInfo? = null
-            if semanticModel.TypeReferenceTypes.TryGetValue(key, out recorded) && recorded != null && !BuiltInTypes.IsUnknown(recorded) {
-                return recorded
+        baseReference := LoopSequenceTypeFacts.DeclaredBaseClassOf(declaration)
+        if baseReference != null {
+            baseType := RecordedTypeReferenceType(baseReference, semanticModels, declaration)
+            if baseType != null {
+                AppendInheritedType(
+                    CompletionInheritanceFacts.ApplySubstitution(baseType, substitution),
+                    semanticModels,
+                    filter,
+                    compilationUnits,
+                    requestingNamespace,
+                    accessingTypeName,
+                    canReachProtected,
+                    friendGrants,
+                    items,
+                    seen,
+                    depth + 1
+                )
             }
         }
 
-        return null
+        interfaceReferences := LoopSequenceTypeFacts.DeclaredInterfacesOf(declaration)
+        interfaceIndex := 0
+        while interfaceIndex < interfaceReferences.Length {
+            interfaceType := RecordedTypeReferenceType(interfaceReferences[interfaceIndex], semanticModels, declaration)
+            if interfaceType != null {
+                AppendInheritedType(
+                    CompletionInheritanceFacts.ApplySubstitution(interfaceType, substitution),
+                    semanticModels,
+                    filter,
+                    compilationUnits,
+                    requestingNamespace,
+                    accessingTypeName,
+                    canReachProtected,
+                    friendGrants,
+                    items,
+                    seen,
+                    depth + 1
+                )
+            }
+
+            interfaceIndex = interfaceIndex + 1
+        }
+    }
+
+    static func AppendInheritedType(candidate: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, canReachProtected: bool, friendGrants: InternalsVisibleToGrants?, items: List<CompletionItem>, seen: List<TypeInfo>, depth: int) {
+        if depth >= 64 || CompletionInheritanceFacts.ContainsExactType(seen, candidate) {
+            return
+        }
+
+        seen.Add(candidate)
+        declaration: TypeInfo? = null
+        substitution: Dictionary<string, TypeInfo>? = null
+        if CompletionInheritanceFacts.TryGetSourceDeclaration(candidate, out declaration, out substitution) && declaration != null {
+            declarationName := CompletionTypeTextFacts.FormatTypeText(declaration)
+            declaringNamespace := CompletionVisibilityFacts.DeclaringNamespaceOfReceiverType(declaration, declarationName, compilationUnits)
+            insideDeclaration := accessingTypeName != null && CompletionVisibilityFacts.SimpleTypeName(declarationName) == CompletionVisibilityFacts.SimpleTypeName(accessingTypeName)
+            candidates := CompletionDeclarationFacts.GetTypeMemberItems(declaration, semanticModels, declaringNamespace, requestingNamespace, canReachProtected, insideDeclaration, filter, substitution)
+            AppendNewMemberItems(items, candidates)
+            AppendInheritanceEdges(candidate, semanticModels, filter, compilationUnits, requestingNamespace, accessingTypeName, canReachProtected, friendGrants, items, seen, depth)
+            return
+        }
+
+        clrType := CompletionReflectionFacts.ResolveCompletionReflectionType(candidate)
+        if clrType == null {
+            return
+        }
+
+        friendAdmits := CompletionReflectionFacts.FriendAdmits(friendGrants, clrType)
+        flags := CompletionReflectionFacts.GetReflectionBindingFlags(filter, canReachProtected, friendAdmits)
+        AppendNewMemberItems(items, CompletionReflectionFacts.BuildReflectionMemberItems(clrType, flags, canReachProtected, friendAdmits, friendGrants))
+    }
+
+    // The analyzed type behind a written reference, read back from the model that recorded it. The
+    // owner-aware form avoids mistaking an identically positioned reference in another source file
+    // for this declaration's edge; the two-argument form remains for focused facts with no owner.
+    static func RecordedTypeReferenceType(typeReference: TypeReference, semanticModels: IEnumerable<SemanticModel>): TypeInfo? {
+        return CompletionInheritanceFacts.RecordedTypeReferenceType(typeReference, semanticModels, null)
+    }
+
+    static func RecordedTypeReferenceType(typeReference: TypeReference, semanticModels: IEnumerable<SemanticModel>, declarationOwner: TypeInfo): TypeInfo? {
+        return CompletionInheritanceFacts.RecordedTypeReferenceType(typeReference, semanticModels, declarationOwner)
     }
 
     static func AppendNewMemberItems(items: List<CompletionItem>, candidates: List<CompletionItem>) {
