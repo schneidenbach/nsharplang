@@ -1348,6 +1348,41 @@ and each element is converted to it once per iteration, exactly the way a cast c
 out of `object`, an unboxing, or a numeric conversion. An element that is not what the annotation
 claimed raises `InvalidCastException` from `MoveNext`.
 
+`break` and `continue` work inside a generator's loops exactly as they do anywhere else. `continue`
+runs a counted loop's step before the next iteration, and `break` leaves the loop it is written in —
+including releasing a `for..in`'s enumerator on the way out, and running the `finally` of any `try`
+the branch crosses:
+
+```n#
+import System.Collections.Generic
+import System.IO
+
+func* readableDirectories(root: string): IEnumerable<string> {
+    pending := new Stack<string>()
+    pending.Push(root)
+    while pending.Count > 0 {
+        directory := pending.Pop()
+        children: string[] = []
+        try {
+            children = Directory.GetDirectories(directory)
+        } catch ex: IOException {
+            continue                      // skip the one we cannot read
+        }
+
+        for child in children {
+            pending.Push(child)
+        }
+
+        yield directory
+    }
+}
+```
+
+Two placements are refused rather than lowered: a branch out of a `finally` handler (illegal IL
+whatever it targets — [`NL319`](./errors/NL319.md) reports it), and a `break` or `continue` out of an
+`await foreach` inside an `async func*`, whose exit has a hoisted handler to run on the way that the
+branch cannot re-issue.
+
 A lambda inside a generator captures the body's own bindings — a parameter, a local declared outside
 every loop, and (in an instance generator) the enclosing type's members — and may be handed to
 anything that takes a delegate:
