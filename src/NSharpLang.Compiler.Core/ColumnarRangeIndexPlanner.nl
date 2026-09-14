@@ -454,6 +454,14 @@ class ColumnarRangeIndexPlanner {
                 planned = ColumnarExternalStaticMemberPlanner.TryAppendStaticMember(nodes, source, node, bindings, plan, out resultType)
             }
 
+            // A STATIC OF A TYPE THIS COMPILATION DECLARES, asked after the external owner for the
+            // same reason the enum arm comes first: the nearer the declaration, the earlier the
+            // question. The external owner answers only names its scope resolves to a REFERENCED
+            // type, so the two never both claim one receiver.
+            if !planned {
+                planned = ColumnarSourceStaticMemberPlanner.TryAppendStaticMember(nodes, source, node, bindings, plan, out resultType)
+            }
+
             if !planned {
                 planned = ColumnarInstanceMemberPlanner.TryAppend(nodes, source, node, bindings, plan, fragment, allowPrimitiveBinary, out resultType)
             }

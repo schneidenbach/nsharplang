@@ -64,6 +64,14 @@ class ColumnarStoreTargetPlanner {
         declineReason = ""
         memberName := nodes.Text(source, targetNode)
         receiverNode := nodes.Child(targetNode, 0)
+
+        // A STATIC TARGET HAS NO RECEIVER TO EVALUATE, so it is answered before the receiver is
+        // planned rather than after: `Counter.Total = …` names a type, and asking that type for its
+        // own VALUE is the question that used to decline the whole body.
+        if ColumnarSourceStaticMemberPlanner.MayPlanRoot(nodes, source, targetNode, bindings) {
+            return TryAppendSourceStaticStore(nodes, source, targetNode, valueNode, bindings, plan, memberName, out declineReason)
+        }
+
         receiverType := typeof(int)
         if !TryDiscoverType(nodes, source, receiverNode, bindings, out receiverType) {
             declineReason = "the assignment target's receiver could not be planned"
@@ -116,6 +124,22 @@ class ColumnarStoreTargetPlanner {
         setterParameters[0] = selection.ResultType
         plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethodWithSignature(setter, selection.DeclaringType, setterParameters, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.get_IsAbstract()))
         return true
+    }
+
+    // `<SourceType>.<static> = <value>`. There is no receiver row at all: the value is appended at the
+    // storage type and the store is the `stsfld` or the static `set_X` the definition names.
+    static func TryAppendSourceStaticStore(nodes: ColumnarNodeTable, source: string, targetNode: int, valueNode: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, memberName: string, out declineReason: string): bool {
+        declineReason = ""
+        storageType := typeof(int)
+        if !ColumnarSourceStaticMemberPlanner.TryGetStaticStorageType(nodes, source, targetNode, bindings, out storageType) {
+            declineReason = "'" + memberName + "' is not an assignable static member"
+            return false
+        }
+        if !TryAppendStoredValue(nodes, source, valueNode, bindings, plan, storageType, out declineReason) {
+            return false
+        }
+
+        return ColumnarSourceStaticMemberPlanner.TryAppendStaticStoreRow(nodes, source, targetNode, bindings, plan)
     }
 
     // `<receiver>[<index>] = <value>`. An ARRAY stores through `stelem` with the element conversion an
