@@ -659,9 +659,19 @@ test "the suggestion is safe as well as useful: adding the named import never br
     assert listFixed.IndexOf("-- Dh exit 0 --", StringComparison.Ordinal) >= 0, listFixed
 }
 
-test "a name the table does not carry is still silent — the rule's stated edge, not an accident" {
+test "THERE IS NO TABLE ANY MORE, so a name outside the old list is reported like any other" {
+    // THE RULE'S OLD EDGE WAS A DEFECT, AND THIS ROW PINNED IT. NL002 answered from a 25-name
+    // whitelist, so `Stopwatch` — and every other name in the framework — was accepted in silence
+    // while its mirror, `import System.Diagnostics` beside it, was reported UNUSED by NL010's own
+    // table. Both rules now read the namespace the analyzer recorded as having SUPPLIED the name, so
+    // the two cannot disagree, and neither has a list in it.
     output := DhProbe.Check("nl002-unlisted", DhTakes("Stopwatch"))
-    assert DhCodeCount(output, "NL002") == 0, output
+    assert DhCodeCount(output, "NL002") == 1, output
+
+    // And the import silences it, which is the other half of the same measurement.
+    imported := DhProbe.Check("nl002-unlisted-imported", "import System.Diagnostics\n\n" + DhTakes("Stopwatch"))
+    assert DhCodeCount(imported, "NL002") == 0, imported
+    assert DhCodeCount(imported, "NL010") == 0, imported
 }
 
 // A BARE GENERIC NAME IS NOT AN IMPORT PROBLEM, AND THIS IS WHY NL201 WAS LEFT ALONE. An earlier cut
