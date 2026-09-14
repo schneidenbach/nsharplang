@@ -936,6 +936,11 @@ class AnalyzerImports {
         mappings["System.Text"] = OneAssembly("System.Runtime")
         mappings["System.Net.Http"] = OneAssembly("System.Net.Http")
         mappings["System.Text.Json"] = OneAssembly("System.Text.Json")
+        // ZIP ARCHIVES, and the row needs BOTH names: `System.IO.Compression` exports the archive
+        // types, while `ZipFile`/`ZipFileExtensions` -- the entry points that open an archive from a
+        // path -- are exported by `System.IO.Compression.ZipFile`. A one-assembly row would resolve
+        // the namespace and still leave `ZipFile` unbound.
+        mappings["System.IO.Compression"] = TwoAssemblies("System.IO.Compression", "System.IO.Compression.ZipFile")
         // LINQ-to-XML, and it needs BOTH names for a measured reason. `System.Xml.Linq` is a pure
         // FACADE: a MetadataLoadContext does not follow its type forwarders, so
         // `GetExportedTypes()` on it answers ZERO types and a facade-only row admits nothing. The 23

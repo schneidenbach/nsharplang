@@ -1234,7 +1234,7 @@ class ExternalAssemblyScan {
     }
 
     static func CommonAssemblyNames(): string[] {
-        names := new string[](28)
+        names := new string[](30)
         names[0] = "System.Runtime"
         names[1] = "System.Console"
         names[2] = "System.Collections"
@@ -1276,6 +1276,14 @@ class ExternalAssemblyScan {
         // (`System.Reflection.Metadata.Ecma335.MetadataTokens.X` answers "Variable 'System' not
         // found"), which is what makes this entry load-bearing rather than a convenience.
         names[27] = "System.Reflection.Metadata"
+        // ZIP ARCHIVES, AND THEY NEED BOTH NAMES. `System.IO.Compression.dll` carries `ZipArchive`
+        // and `ZipArchiveEntry`; the ENTRY POINTS that open one from a path -- `ZipFile` and
+        // `ZipFileExtensions` -- live in the separate `System.IO.Compression.ZipFile.dll`. Loading
+        // only the first leaves `import System.IO.Compression` resolving the archive types while
+        // `ZipFile.OpenRead` answers "Variable 'ZipFile' not found", which is the shape this pair
+        // was added to close. Both ship in Microsoft.NETCore.App, so neither adds a dependency.
+        names[28] = "System.IO.Compression"
+        names[29] = "System.IO.Compression.ZipFile"
         return names
     }
 }
