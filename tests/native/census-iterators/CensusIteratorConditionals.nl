@@ -142,3 +142,81 @@ func Fallback(trace: CensusTrace): string {
     trace.Add("fallback")
     return "(computed)"
 }
+
+// A BRANCH-MERGE AS A CALL ARGUMENT. The plan-side owner has lowered all three forms in every value
+// position since the previous slice, but the call owner's SYNTAX PREFLIGHT — the gate that types an
+// argument before the call is claimed — knew nothing about them, so `list.Add(flag ? "a" : "b")`
+// inside a `func*` declined the whole generator. In a plain body the same refusal was invisible: the
+// call fell back to the legacy emitter arm, which has its own lowering. These are the shapes that
+// separated the two.
+func* TernaryArgument(flags: bool[], sink: List<string>): IEnumerable<int> {
+    for i := 0; i < flags.Length; i += 1 {
+        sink.Add(flags[i] ? "yes" : "no")
+        yield sink.Count
+    }
+}
+
+// The condition is itself a short-circuit over a comparison, so the operand surface the gate admits
+// has to be the WIDE one the conditional owner actually plans its operands through.
+func* CompoundConditionArgument(values: int[], sink: List<string>): IEnumerable<int> {
+    for i := 0; i < values.Length; i += 1 {
+        sink.Add(values[i] > 0 && values[i] < 10 ? "small" : "other")
+        yield sink.Count
+    }
+}
+
+// A REFERENCE `??` as an argument. Its lowering is `dup; brtrue; pop; <fallback>`, and `pop` is a
+// method-body opcode — the reason the argument's TYPE is discovered through a method-body scratch.
+func* CoalescedArgument(names: string?[], sink: List<string>): IEnumerable<int> {
+    for i := 0; i < names.Length; i += 1 {
+        sink.Add(names[i] ?? "(none)")
+        yield sink.Count
+    }
+}
+
+// A `Nullable<T>` `??` as an argument: the argument's type is the ELEMENT type.
+func* CoalescedNullableArgument(counts: int?[], sink: List<int>): IEnumerable<int> {
+    for i := 0; i < counts.Length; i += 1 {
+        sink.Add(counts[i] ?? -1)
+        yield sink.Count
+    }
+}
+
+// `&&` and `||` as arguments in their own right, where the argument IS the Boolean.
+func* ShortCircuitArgument(left: bool[], right: bool[], sink: List<bool>): IEnumerable<int> {
+    for i := 0; i < left.Length; i += 1 {
+        sink.Add(left[i] && right[i])
+        sink.Add(left[i] || right[i])
+        yield sink.Count
+    }
+}
+
+// A BRANCH-MERGE AS A RECEIVER, which types through the same seam an argument does.
+func* TernaryReceiver(flags: bool[]): IEnumerable<string> {
+    for i := 0; i < flags.Length; i += 1 {
+        yield (flags[i] ? "alpha" : "beta").ToUpperInvariant()
+    }
+}
+
+// A NESTED branch-merge: the argument of a call that is itself an argument.
+func* NestedBranchArgument(values: int[], sink: List<string>): IEnumerable<int> {
+    for i := 0; i < values.Length; i += 1 {
+        sink.Add(Tagged(values[i] > 0 ? "p" : "n"))
+        yield sink.Count
+    }
+}
+
+func Tagged(label: string): string {
+    return "[" + label + "]"
+}
+
+// A SHORT-CIRCUIT ARGUMENT IS STILL LAZY: the right operand runs only when the left does not decide.
+func* TracedShortCircuitArgument(trace: CensusTrace, flag: bool, sink: List<bool>): IEnumerable<int> {
+    sink.Add(flag && Records(trace))
+    yield sink.Count
+}
+
+func Records(trace: CensusTrace): bool {
+    trace.Add("right")
+    return true
+}

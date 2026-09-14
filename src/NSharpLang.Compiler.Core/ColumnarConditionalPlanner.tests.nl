@@ -409,3 +409,48 @@ test "a throw expression declines an operand that is not an exception" {
     plan.PrepareMethodBody()
     assert !ColumnarThrowExpressionPlanner.TryAppendThrow(tree.Nodes, tree.Source, throwNode, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), plan, -1, 0)
 }
+
+// ---- THE BRANCH-MERGE VALUE FAMILY AS SEEN BY THE CALL OWNER'S SYNTAX PREFLIGHT ----
+
+// `IsBranchMergeValue` is the VALUE-position question, and it is deliberately wider than
+// `MayPlanRoot`: the root gate must not claim a `??` (the legacy emitter arm still serves a
+// schema-v3 `??` fragment), while every value position has owned all three forms since the
+// dispatcher grew its arms.
+test "the branch-merge value gate claims the ternary and all three merge binaries" {
+    ternary := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+    assert ColumnarConditionalPlanner.IsBranchMergeValue(ternary.Nodes, ternary.Source, ternary.Root)
+
+    andTree := ConditionalShortCircuitLiteralTree("&&", "true", "false")
+    assert ColumnarConditionalPlanner.IsBranchMergeValue(andTree.Nodes, andTree.Source, andTree.Root)
+
+    orTree := ConditionalShortCircuitLiteralTree("||", "true", "false")
+    assert ColumnarConditionalPlanner.IsBranchMergeValue(orTree.Nodes, orTree.Source, orTree.Root)
+
+    coalesce := ConditionalShortCircuitLiteralTree("??", "true", "false")
+    assert ColumnarConditionalPlanner.IsBranchMergeValue(coalesce.Nodes, coalesce.Source, coalesce.Root)
+    assert !ColumnarConditionalPlanner.MayPlanRoot(coalesce.Nodes, coalesce.Source, coalesce.Root)
+
+    plusTree := ConditionalIntBinaryTree("+", "20", "22")
+    assert !ColumnarConditionalPlanner.IsBranchMergeValue(plusTree.Nodes, plusTree.Source, plusTree.Root)
+}
+
+// The gate the call owner runs before it types an argument. It admits the branch-merge forms and
+// still refuses a bare arithmetic binary, which is the partition `015-B9` drew and this slice keeps.
+test "the call argument preflight admits a branch-merge and still refuses a bare arithmetic binary" {
+    ternaryCall := DirectCallParsedTree("Accept(flag ? 1 : 2)")
+    assert ColumnarDirectCallPlanner.IsAdmittedValueSyntax(ternaryCall.Nodes, ternaryCall.Source, ternaryCall.Root, 0)
+
+    coalesceCall := DirectCallParsedTree("Accept(name ?? fallback)")
+    assert ColumnarDirectCallPlanner.IsAdmittedValueSyntax(coalesceCall.Nodes, coalesceCall.Source, coalesceCall.Root, 0)
+
+    shortCircuitCall := DirectCallParsedTree("Accept(left && right)")
+    assert ColumnarDirectCallPlanner.IsAdmittedValueSyntax(shortCircuitCall.Nodes, shortCircuitCall.Source, shortCircuitCall.Root, 0)
+
+    // The condition of an admitted ternary may itself be a comparison: an operand of a branch-merge
+    // is planned through the construction-value surface, so the preflight asks the wider question.
+    compoundCall := DirectCallParsedTree("Accept(count > 0 && count < 10 ? 1 : 2)")
+    assert ColumnarDirectCallPlanner.IsAdmittedValueSyntax(compoundCall.Nodes, compoundCall.Source, compoundCall.Root, 0)
+
+    arithmeticCall := DirectCallParsedTree("Accept(20 + 22)")
+    assert !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(arithmeticCall.Nodes, arithmeticCall.Source, arithmeticCall.Root, 0)
+}

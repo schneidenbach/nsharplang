@@ -670,9 +670,9 @@ class ColumnarPrimitiveBinaryPlanner {
             return IsAdmittedSyntax(nodes, source, candidate, depth)
         }
         if ColumnarConstructionPlanner.MayPlanRoot(nodes, candidate) {
-            return ColumnarConstructionPlanner.IsAdmittedValueSyntax(nodes, candidate, depth)
+            return ColumnarConstructionPlanner.IsAdmittedValueSyntax(nodes, source, candidate, depth)
         }
-        return ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, candidate, depth)
+        return ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, source, candidate, depth)
     }
 
     static func IsClaimedOperatorText(nodes: ColumnarNodeTable, source: string, node: int): bool {

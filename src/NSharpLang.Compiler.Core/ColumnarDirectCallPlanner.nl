@@ -2090,7 +2090,7 @@ class ColumnarDirectCallPlanner {
     static func TryGetPlannableValueType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, allowPrimitiveBinary: bool, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         resultType = typeof(int)
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
-        syntaxAdmitted := IsAdmittedValueSyntax(nodes, node, depth)
+        syntaxAdmitted := IsAdmittedValueSyntax(nodes, source, node, depth)
         if allowPrimitiveBinary && !syntaxAdmitted {
             syntaxAdmitted = ColumnarPrimitiveBinaryPlanner.IsAdmittedSyntax(nodes, source, node, depth)
         }
@@ -2099,6 +2099,13 @@ class ColumnarDirectCallPlanner {
         }
         if !syntaxAdmitted {
             return false
+        }
+
+        // A BRANCH-MERGE TYPES THROUGH ITS OWN OWNER'S METHOD-BODY SCRATCH, not through the schema-v3
+        // one below: the reference arm of `??` appends `pop`, a method-body opcode a v3 plan THROWS on
+        // rather than declining. See `ColumnarConditionalPlanner.TryGetBranchMergeValueType`.
+        if ColumnarConditionalPlanner.IsBranchMergeValue(nodes, source, node) {
+            return ColumnarConditionalPlanner.TryGetBranchMergeValueType(nodes, source, node, bindings, handles, out resultType)
         }
 
         // 015-B8 — THE ONE SCRATCH SITE A CLAIMED BODY ACTUALLY REACHES, MEASURED RATHER THAN ASSUMED.
@@ -2125,7 +2132,12 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
-    static func IsAdmittedValueSyntax(nodes: ColumnarNodeTable, node: int, depth: int): bool {
+    // THE GATE TAKES `source` BECAUSE THREE VALUE FORMS ARE SPELLED IN THE SOURCE TEXT, NOT IN THE KIND.
+    // `a && b`, `a || b` and `a ?? b` are all node kind 12 — the operator TEXT is what separates them
+    // from `a + b`, and it lives in the source span, so a gate with no `source` could not tell a
+    // branch-merge from an arithmetic binary and refused all of them. The ternary (kind 13) needs no
+    // text, but it belongs to the same owner and is admitted beside them.
+    static func IsAdmittedValueSyntax(nodes: ColumnarNodeTable, source: string, node: int, depth: int): bool {
         if depth > 200 || node < 0 || node >= nodes.Kinds.Length {
             return false
         }
@@ -2144,20 +2156,46 @@ class ColumnarDirectCallPlanner {
         }
 
         if kind == ColumnarExpressionNodeKind.ParenthesizedExpression() {
-            return nodes.ChildCount(node) == 1 && IsAdmittedValueSyntax(nodes, nodes.Child(node, 0), depth + 1)
+            return nodes.ChildCount(node) == 1 && IsAdmittedValueSyntax(nodes, source, nodes.Child(node, 0), depth + 1)
         }
 
         if kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
-            return ColumnarConstructionPlanner.IsAdmittedValueSyntax(nodes, node, depth)
+            return ColumnarConstructionPlanner.IsAdmittedValueSyntax(nodes, source, node, depth)
         }
 
         // A cast's first child is a TYPE subtree in the type-kernel encoding, so only the operand
         // participates in expression-syntax admission.
         if kind == ColumnarExpressionNodeKind.CastExpression() {
-            return nodes.ChildCount(node) == 2 && IsAdmittedValueSyntax(nodes, nodes.Child(node, 1), depth + 1)
+            return nodes.ChildCount(node) == 2 && IsAdmittedValueSyntax(nodes, source, nodes.Child(node, 1), depth + 1)
         }
 
         if kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression() || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.BaseMemberExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+            return true
+        }
+
+        // THE BRANCH-MERGE VALUE FORMS — the ternary and the short-circuit/null-coalescing binaries.
+        // `ColumnarRangeIndexPlanner`'s value dispatcher has owned all three in every value position
+        // since the conditional planner landed, but this gate — the ONE syntax preflight the call
+        // owner's argument and receiver typing runs first — never admitted them, so `list.Add(flag ?
+        // "a" : "b")` was refused before the dispatcher was ever asked. In an ordinary body the refusal
+        // was invisible (the call fell back to the legacy emitter arm, which has its own kind-13
+        // lowering); inside a `func*` there IS no legacy arm, so the same argument declined the whole
+        // generator at `emit.iterator.unsupported-shape`. Admitting them here is what makes the
+        // plan-side conditional owner serve call arguments too.
+        //
+        // A `throw` arm is deliberately NOT admitted: the type step below plans the value into a
+        // schema-v3 scratch, and `ColumnarThrowExpressionPlanner.TryAppendThrow` requires a METHOD-BODY
+        // schema, so a throw arm would be admitted here only to decline one step later.
+        if ColumnarConditionalPlanner.IsBranchMergeValue(nodes, source, node) {
+            operandIndex := 0
+            while operandIndex < nodes.ChildCount(node) {
+                if !IsAdmittedBranchOperandSyntax(nodes, source, nodes.Child(node, operandIndex), depth + 1) {
+                    return false
+                }
+
+                operandIndex += 1
+            }
+
             return true
         }
 
@@ -2172,7 +2210,7 @@ class ColumnarDirectCallPlanner {
 
         index := 1
         while index < nodes.ChildCount(node) {
-            if !IsAdmittedValueSyntax(nodes, nodes.Child(node, index), depth + 1) {
+            if !IsAdmittedValueSyntax(nodes, source, nodes.Child(node, index), depth + 1) {
                 return false
             }
 
@@ -2180,6 +2218,20 @@ class ColumnarDirectCallPlanner {
         }
 
         return true
+    }
+
+    // AN OPERAND OF A BRANCH-MERGE IS ALWAYS A CONSTRUCTION VALUE, so its admission is the wider one.
+    // `ColumnarConditionalPlanner`'s three arms — the ternary's condition and both arms, the
+    // short-circuit operands, the `??` left and fallback — every one of them appends through
+    // `ColumnarRangeIndexPlanner.TryAppendConstructionValue`, which is the `allowPrimitiveBinary = true`
+    // surface. A gate that asked only the narrow question would refuse `flag && count > 0 ? a : b`
+    // at the preflight while the append step would have planned it, so the two ask the same question.
+    static func IsAdmittedBranchOperandSyntax(nodes: ColumnarNodeTable, source: string, node: int, depth: int): bool {
+        if IsAdmittedValueSyntax(nodes, source, node, depth) {
+            return true
+        }
+
+        return source != null && ColumnarPrimitiveBinaryPlanner.IsAdmittedSyntax(nodes, source, node, depth)
     }
 
     // Excluded declarations belong to later call owners only when the declaration set selected

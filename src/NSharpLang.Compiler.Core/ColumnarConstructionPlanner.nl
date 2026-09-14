@@ -36,7 +36,7 @@ class ColumnarConstructionPlanner {
 
     // DirectCall's syntax preflight may use this without walking NewExpression's type child as a
     // value. Exact type-shape and semantic rejection remain this planner's responsibility.
-    static func IsAdmittedValueSyntax(nodes: ColumnarNodeTable, node: int, depth: int): bool {
+    static func IsAdmittedValueSyntax(nodes: ColumnarNodeTable, source: string, node: int, depth: int): bool {
         if nodes == null || depth > 200 {
             return false
         }
@@ -59,7 +59,7 @@ class ColumnarConstructionPlanner {
             }
             typeKind := nodes.Kind(typeNode)
             if typeKind == ColumnarExpressionNodeKind.NewExpression() {
-                if !IsAdmittedValueSyntax(nodes, typeNode, depth + 1) {
+                if !IsAdmittedValueSyntax(nodes, source, typeNode, depth + 1) {
                     return false
                 }
             } else if typeKind != 0 && typeKind != 1 {
@@ -69,7 +69,7 @@ class ColumnarConstructionPlanner {
             while index < childCount {
                 nameNode := nodes.Child(candidate, index)
                 valueNode := nodes.Child(candidate, index + 1)
-                if nameNode < 0 || nameNode >= nodes.Kinds.Length || nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression() || !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, valueNode, depth + 1) {
+                if nameNode < 0 || nameNode >= nodes.Kinds.Length || nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression() || !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, source, valueNode, depth + 1) {
                     return false
                 }
                 index += 2
@@ -97,10 +97,10 @@ class ColumnarConstructionPlanner {
         while index < nodes.ChildCount(candidate) {
             child := nodes.Child(candidate, index)
             if ColumnarConstructionPlanner.MayPlanRoot(nodes, child) {
-                if !IsAdmittedValueSyntax(nodes, child, depth + 1) {
+                if !IsAdmittedValueSyntax(nodes, source, child, depth + 1) {
                     return false
                 }
-            } else if !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, child, depth + 1) {
+            } else if !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, source, child, depth + 1) {
                 return false
             }
             index += 1
@@ -2563,7 +2563,7 @@ class ColumnarConstructionPlanner {
         } else if MayPlanRoot(nodes, node) {
             syntaxAdmitted = IsAdmittedConstructionValueSyntax(nodes, source, node, bindings, handles, depth)
         } else {
-            syntaxAdmitted = ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, node, depth)
+            syntaxAdmitted = ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, source, node, depth)
         }
         if !syntaxAdmitted {
             return false
