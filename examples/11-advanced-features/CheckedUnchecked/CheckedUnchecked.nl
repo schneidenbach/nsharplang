@@ -3,7 +3,6 @@
 import System
 
 // Helper function with checked arithmetic
-
 func SafeAdd(x: int, y: int): int {
     return checked(x + y)
 }

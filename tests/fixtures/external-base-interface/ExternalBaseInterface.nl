@@ -4,7 +4,6 @@
 import System
 
 // External runtime base class with a public parameterless constructor.
-
 class DocumentError: Exception {
     func Tag(): int {
         return 7
