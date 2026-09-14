@@ -277,3 +277,30 @@ test "the closed generic interface is the one in the implementer's interface map
     assert targets.Contains("Describe")
     assert targets.Contains("get_Value")
 }
+
+// A DUCK INTERFACE'S EVENT SLOT, filled by a structural match rather than by a written base list.
+test "a duck interface's EVENT loads, and the match subscribes through the interface" {
+    broadcaster := new Broadcaster()
+    assert WatchBroadcast(broadcaster) == 2
+    // The third `Touch` ran after `off`, so the type kept raising while nobody listened.
+    assert broadcaster.Touches == 3
+}
+
+test "the duck-matched event's accessors are emitted virtual, which is what lets the type load" {
+    declared := BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
+    broadcasterType := typeof(Broadcaster)
+
+    adder := must broadcasterType.GetMethod("add_Changed", declared)
+    remover := must broadcasterType.GetMethod("remove_Changed", declared)
+    assert adder.IsVirtual
+    assert remover.IsVirtual
+    assert adder.IsFinal
+    assert remover.IsFinal
+
+    // …and the structural match really did register the interface on the type.
+    names := new List<string>()
+    for candidate in broadcasterType.GetInterfaces() {
+        names.Add(candidate.Name)
+    }
+    assert names.Contains("IBroadcasts")
+}

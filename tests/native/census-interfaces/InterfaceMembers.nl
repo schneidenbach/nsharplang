@@ -319,3 +319,39 @@ func DescribeThroughDerived(entry: IDocumentRecord): string {
 func ReadOneLevelUp(tracked: ITracked): string {
     return tracked.Key + "#" + tracked.Revision.ToString()
 }
+
+// A DUCK INTERFACE'S EVENT.
+//
+// A duck interface is never written in a base list — the match is computed structurally — and the
+// event pass used to ask "does an interface declare this event?" of the declaration's own base
+// names, because the duck pass had not run yet. So `Source`'s accessors were emitted NON-virtual and
+// the CLR refused the type: `Method 'add_Changed' in type 'Source' … does not have an
+// implementation.` The passes are now ordered so every base list and every duck match is registered
+// before any member is defined.
+duck interface IBroadcasts {
+    event Changed: EventHandler
+
+    func Touch()
+}
+
+class Broadcaster {
+    event Changed: EventHandler
+    Touches: int = 0
+
+    func Touch() {
+        Touches = Touches + 1
+        Changed?.Invoke(this, EventArgs.Empty)
+    }
+}
+
+func WatchBroadcast(broadcasts: IBroadcasts): int {
+    seen := 0
+    sub := on broadcasts.Changed (sender, args) => {
+        seen = seen + 1
+    }
+    broadcasts.Touch()
+    broadcasts.Touch()
+    off sub
+    broadcasts.Touch()
+    return seen
+}

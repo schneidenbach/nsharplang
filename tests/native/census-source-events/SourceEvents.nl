@@ -329,3 +329,66 @@ func CountThroughExternalInterfaceReceiver(): int {
     observable.Rename("Label")
     return seen
 }
+
+// SUBSCRIBING FROM INSIDE THE DECLARING TYPE.
+//
+// `on this.Changed (…) => { … }` written in the type that declares `Changed` used to report NL318
+// "`on` can only subscribe to a .NET event" — about a member that IS an event — because inside the
+// declaring type the name reads as the backing DELEGATE, which is what makes `Changed?.Invoke(…)`
+// and `Changed == null` ordinary reads there. `on`/`off` are the one position where the name means
+// the EVENT wherever it is written: C#'s `this.E += h` inside the declaring type is the field
+// combine, and the two are the same operation, so one reading serves both.
+//
+// The two spellings are the SAME target. The parser collapses `this.Member` to the bare member read
+// exactly as it does everywhere else, so `on this.Changed` and `on Changed` produce one node.
+class SelfWatcher {
+    event Changed: EventHandler
+    static event Started: EventHandler
+
+    Seen: int
+
+    constructor() {
+        Seen = 0
+    }
+
+    func WatchThroughThis(): int {
+        subscription := on this.Changed (sender, args) => {
+            Seen = Seen + 1
+        }
+        Raise()
+        Raise()
+        off subscription
+        Raise()
+        return Seen
+    }
+
+    func WatchThroughBareName(): int {
+        subscription := on Changed (sender, args) => {
+            Seen = Seen + 1
+        }
+        Raise()
+        off subscription
+        Raise()
+        return Seen
+    }
+
+    // A STATIC event named bare has no receiver at all, and the same reading applies.
+    func WatchStatic(): int {
+        seen := 0
+        subscription := on Started (sender, args) => {
+            seen = seen + 1
+        }
+        RaiseStarted()
+        off subscription
+        RaiseStarted()
+        return seen
+    }
+
+    func Raise() {
+        Changed?.Invoke(this, EventArgs.Empty)
+    }
+
+    static func RaiseStarted() {
+        Started?.Invoke(null, EventArgs.Empty)
+    }
+}

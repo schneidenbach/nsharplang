@@ -6371,9 +6371,15 @@ func ParseEventTargetNode(tokens: ParserTokenTable, count: int, st: ParserState,
 
 // `on <target> <handler>` -> OnSubscriptionExpression kind 79, children [target, handler]. The handler
 // parses at the FULL-EXPRESSION level, so a block-bodied lambda, an expression-bodied lambda, a
-// delegate-typed name and a call that returns a delegate all reach the same node slot. A target that
-// never took a `.`/`[` link names no member and cannot be an event, so it refuses here rather than
-// reaching the emitter as a bare name.
+// delegate-typed name and a call that returns a delegate all reach the same node slot.
+//
+// A BARE NAME IS A TARGET TOO, because `on this.Changed` IS one: `ParseEventTargetNode` collapses
+// `this.Member` to the bare member read exactly as the postfix parser does, so refusing an
+// identifier root refused the enclosing type's own event — `on this.Changed (…) => { … }` and
+// `on Changed (…) => { … }` both declined the whole declaration at `parse.struct`. The C# AST parser
+// beside this one already builds the node for that shape, so refusing here was the two parsers
+// disagreeing about one program. Whether the name IS an event is the analyzer's and the emitter's
+// question, and both answer it by name at the enclosing type.
 func ParseOnSubscriptionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     if depth > 200 {
         return -1
@@ -6388,7 +6394,7 @@ func ParseOnSubscriptionNode(tokens: ParserTokenTable, count: int, st: ParserSta
     }
 
     targetKind := nodes.Kinds[target]
-    if targetKind != ColumnarExpressionNodeKind.MemberAccessExpression() && targetKind != ColumnarExpressionNodeKind.BaseMemberExpression() {
+    if targetKind != ColumnarExpressionNodeKind.MemberAccessExpression() && targetKind != ColumnarExpressionNodeKind.BaseMemberExpression() && targetKind != ColumnarExpressionNodeKind.IdentifierExpression() {
         return -1
     }
 

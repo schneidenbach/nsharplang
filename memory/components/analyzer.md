@@ -2691,6 +2691,18 @@ negative case before the emitter could express the positive ones. No new codes w
 | `override` of a base member that is not `virtual`/`abstract`/`override` | `NL311` | `AnalyzerTypeDeclarations.nl` |
 | an `override` that NARROWS the accessibility of the slot it takes | `NL311` | `AnalyzerTypeDeclarations.nl` |
 
+**`on` / `off` DECIDE WHAT AN EVENT NAME MEANS.** Inside the declaring type a source event's name
+reads as the backing DELEGATE — that is what makes `Changed?.Invoke(...)` and `Changed == null`
+ordinary reads there — but an `on`/`off` TARGET always reads it as the EVENT. The slot is
+`AnalyzerAmbientContext.AllowEventReference`, which `Analyzer.DriveOnSubscription` already opened
+around the target expression for `AnalyzerExpressionTail`'s "event used as a value" guard;
+`AnalyzerMemberResolution.AllowsEventReference` reads the same slot, so the two cannot disagree. An
+owner with no ambient behind it (every planner unit test) gets the ordinary reading. Emission
+follows: `ParseEventTargetNode` collapses `this.Member` to the bare member read, so
+`ParseOnSubscriptionNode` accepts an IDENTIFIER root (it refused one, declining the whole
+declaration at `parse.struct`), and `ColumnarIlEmitter`'s `on` arm treats a bare name as the
+enclosing type's event — `this` as the receiver for an instance event, no receiver for a static one.
+
 **A DERIVED INTERFACE REACHES ITS BASE INTERFACES' MEMBERS.** `AnalyzerSourceMemberShape` carries a
 `BaseInterfaces` array beside its single `BaseType`, because a class has ONE base and an interface has
 MANY; `AnalyzerDeclarationContext.ResolveBaseInterfaces` fills it for an `InterfaceTypeInfo` (resolving

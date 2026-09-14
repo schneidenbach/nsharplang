@@ -286,3 +286,19 @@ test "an event fills a slot a REFERENCED assembly's interface declared" {
     assert typeof(INotifyPropertyChanged).IsAssignableFrom(typeof(Observable))
     assert CountThroughExternalInterfaceReceiver() == 1
 }
+
+// `on` / `off` INSIDE THE DECLARING TYPE.
+test "`on this.Changed` inside the declaring type subscribes, and `off` detaches" {
+    watcher := new SelfWatcher()
+    assert watcher.WatchThroughThis() == 2
+}
+
+test "the bare name is the same target as `this.<Event>`" {
+    watcher := new SelfWatcher()
+    assert watcher.WatchThroughBareName() == 1
+}
+
+test "a STATIC event named bare inside its own type subscribes with no receiver" {
+    watcher := new SelfWatcher()
+    assert watcher.WatchStatic() == 1
+}
