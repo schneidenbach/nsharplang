@@ -300,6 +300,18 @@ class ColumnarParserRecovery {
     // index and is therefore untouched by construction. -1 when no `using` header is being parsed.
     UsingBodyBraceIndex: int
 
+    // THE ONE TOKEN A `throw` MAY BE READ AS AN EXPRESSION AT — the index of the token that opens a
+    // value position which admits one. A throw expression produces NOTHING, so it can only stand
+    // where some OTHER operand supplies the type: the right operand of `??`, either arm of a
+    // conditional, and an expression body (an arrow-bodied `func`/property, or a lambda's). Each of
+    // those callers publishes its own operand's token index here just before descending.
+    //
+    // It is a TOKEN INDEX rather than a mode flag for the reason `UsingBodyBraceIndex` is: the
+    // permission is for one exact position and nesting then needs no bookkeeping. `1 + throw e`
+    // reaches the unary tier having consumed `1` and `+`, so the cursor is past the admitted index
+    // and the throw is reported; `x ?? (throw e)` is past it too, by the `(`. -1 admits nothing.
+    ThrowExpressionValuePosition: int
+
     constructor(source: string, fileName: string?) {
         Source = source
         FileName = fileName
@@ -312,6 +324,7 @@ class ColumnarParserRecovery {
         ScanSplit = 0
         ExpressionNestingDepth = 0
         UsingBodyBraceIndex = -1
+        ThrowExpressionValuePosition = -1
         Errors = new List<CompilerError>()
         NamespaceNode = null
         ImportNodes = new List<ImportDirective>()
@@ -1924,6 +1937,7 @@ class ColumnarParserRecovery {
         // Expression-bodied property `name: type => expr` (Parser.cs :1694).
         if Check(TokenType.Arrow) {
             Advance()
+            AdmitThrowExpressionAtCursor()
             propertyExpressionBody := ParseExprValue().Node
             if !declined && fieldType != null && propertyExpressionBody != null {
                 AddDeclaration(new PropertyDeclaration(name, fieldType, null, null, propertyExpressionBody, effectiveModifiers, propertyModifier, attributes, line, column))
@@ -2444,6 +2458,7 @@ class ColumnarParserRecovery {
         expressionBody: Expression? = null
         if Check(TokenType.Arrow) {
             Advance()
+            AdmitThrowExpressionAtCursor()
             expressionBody = ParseExprValue().Node
             if expressionBody == null {
                 declined = true
@@ -6043,6 +6058,7 @@ class ColumnarParserRecovery {
         if Check(TokenType.Arrow) {
             Advance()
             // consume '=>'
+            AdmitThrowExpressionAtCursor()
             expressionBody = ParseExprValue().Node
             // expression body
             if expressionBody == null {
@@ -6493,6 +6509,33 @@ class ColumnarParserRecovery {
         )
     }
 
+    // PUBLISH THE ONE POSITION A THROW EXPRESSION MAY STAND AT — the token the caller is about to
+    // descend into. Called immediately before the operand parse, so the index it records IS that
+    // operand's first token.
+    func AdmitThrowExpressionAtCursor() {
+        ThrowExpressionValuePosition = Position
+    }
+
+    // NL340 — a `throw` written where a VALUE was expected, in a position that cannot take one.
+    // The three legal positions are named, in the order a reader meets them, and the fix that is
+    // almost always right is offered first: make it a statement of its own.
+    func ReportThrowExpressionMisplaced(token: Token) {
+        suggestions := new List<string>()
+        suggestions.Add("Write `throw` as a statement on its own line")
+        suggestions.Add("Move the `throw` to the right of a `??`")
+        suggestions.Add("Move the `throw` into a conditional arm (`cond ? value : throw ...`)")
+        Report(
+            ErrorCode.ThrowExpressionNotAllowedHere,
+            "A 'throw' can't be used as a value here",
+            token.Line,
+            token.Column,
+            "A `throw` produces no value at all, so it can only stand where something else says what the expression is worth: as the fallback of a `??` (`name ?? throw new ...`), as an arm of a conditional (`ok ? value : throw new ...`), or as an expression body (`func F(): T => throw new ...`). Anywhere else there is nothing to take the type from.",
+            "Make the `throw` a statement of its own, or move it into one of the three positions above. Parentheses do not help: `x ?? (throw e)` is the same mistake, because the parentheses are what the throw is standing in.",
+            suggestions,
+            MaxInt(1, token.Value.Length)
+        )
+    }
+
     // The guarded door onto every expression. The body is `ParseExprValueAtDepth`; this counts.
     func ParseExprValue(): ExprResult {
         entryDepth := ExpressionNestingDepth
@@ -6544,6 +6587,7 @@ class ColumnarParserRecovery {
                 hasBlockBody = true
                 lambdaBlockBody = ParseBlockBody(new RecoverySpan(paramToken.Line, paramToken.Column, MaxInt(1, paramToken.Value.Length)))
             } else {
+                AdmitThrowExpressionAtCursor()
                 lambdaBody = ParseRequiredExpressionAfter(arrowToken, "a lambda body expression", "This lambda expression", DiagnosticSpanFromTokenRange(paramToken, arrowToken))
             }
             lambdaResult := new ExprResult(new RecoverySpan(line, column, 1), false)
@@ -6740,6 +6784,7 @@ class ColumnarParserRecovery {
             }
             multiLambdaBlockBody = ParseBlockBody(lambdaSpan)
         } else {
+            AdmitThrowExpressionAtCursor()
             multiLambdaBody = ParseRequiredExpressionAfter(arrowToken, "a lambda body expression", "This lambda expression", DiagnosticSpanFromTokenRange(leftParenToken, arrowToken))
         }
         multiLambdaResult := new ExprResult(new RecoverySpan(line, column, 1), false)
@@ -6763,8 +6808,12 @@ class ColumnarParserRecovery {
         expr := ParseNullCoalescing()
         if Check(TokenType.Question) {
             questionToken := Advance()
+            // EITHER ARM MAY RAISE — an arm that throws contributes nothing to the join, so the other
+            // arm decides what the conditional is worth.
+            AdmitThrowExpressionAtCursor()
             thenNode := ParseRequiredExpressionAfter(questionToken, "a then expression", "This ternary expression", DiagnosticSpanFromExpressionThroughToken(expr.Span, questionToken))
             colonToken := ConsumeToken(TokenType.Colon, "Expected ':' in ternary expression", ":")
+            AdmitThrowExpressionAtCursor()
             elseNode := ParseRequiredExpressionAfter(colonToken, "an else expression", "This ternary expression", DiagnosticSpanFromExpressionThroughToken(expr.Span, colonToken))
             // A TernaryExpression is anchored on the `?` token and is never a bare identifier.
             ternaryResult := new ExprResult(new RecoverySpan(questionToken.Line, questionToken.Column, 1), false)
@@ -6815,6 +6864,10 @@ class ColumnarParserRecovery {
         result := ParseLogicalOr()
         while Check(TokenType.QuestionQuestion) {
             opToken := Advance()
+            // `x ?? throw e` — the FALLBACK may raise instead of producing a value, because the LEFT
+            // side already decides what the expression is worth. `??` is the only operator that can
+            // say that, so it is the only one that admits a throw.
+            AdmitThrowExpressionAtCursor()
             leftNode := result.Node
             rightNode := BinaryRightOperandMissing(opToken, result.Span)
             if rightNode == null {
@@ -7244,8 +7297,23 @@ class ColumnarParserRecovery {
             return mustResult
         }
         if Check(TokenType.Throw) {
+            // WHERE THE `throw` IS STANDING IS DECIDED BEFORE IT IS CONSUMED. The permission is for
+            // one exact token index and is spent on the way in, so a throw nested deeper inside the
+            // admitted operand (`x ?? f(throw e)`) is judged on its own position, not on its
+            // ancestor's. A misplaced one still BUILDS its node: recovery is better served by the
+            // real tree — the analyzer types it `never` and the reader gets one sentence, not a
+            // cascade of "cannot convert `never`".
+            throwAdmitted := ThrowExpressionValuePosition == Position
+            ThrowExpressionValuePosition = -1
             throwToken := Advance()
             operandNode := ParseUnaryOperandOrMissing(throwToken, "an exception expression to throw", "This throw expression")
+            // THE OPERAND'S OWN COMPLAINT COMES FIRST AND ALONE. `x := throw` is BOTH misplaced and
+            // missing its exception, and the missing one is the nearer, more urgent mistake — the
+            // same "one sentence per broken line" discipline panic mode enforces everywhere else in
+            // this parser. Fix the operand and the position is reported on the next run.
+            if !throwAdmitted && operandNode != null {
+                ReportThrowExpressionMisplaced(throwToken)
+            }
             throwResult := new ExprResult(new RecoverySpan(throwToken.Line, throwToken.Column, 5), false)
             // Stage N+1c tranche 9a: `new ThrowExpression(expr, throwToken.Line, throwToken.Column)` (Parser.cs :4410).
             if operandNode != null {

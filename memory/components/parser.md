@@ -144,6 +144,36 @@ Order matters:
 2. Check for type keywords (`class`, `struct`, `record`, etc.)
 3. Fall back to field/property/method parsing
 
+### `throw` as an expression, and the three positions that admit one
+
+A `throw` produces no value, so it can only stand in value position where some OTHER operand already
+decides what the surrounding expression is worth. Both parsers admit exactly three positions — the
+right operand of `??`, either arm of a conditional, and an expression body (an arrow-bodied
+`func`/property, or a lambda's) — which is the C# rule.
+
+The two parsers enforce it differently, and each way suits its job:
+
+- **`ColumnarParserRecovery` (the AST parser)** still parses a `throw` wherever the unary tier meets
+  one, and DECIDES whether it belongs there by TOKEN INDEX. The three admitting callers set
+  `ThrowExpressionValuePosition = Position` immediately before descending into the operand, and the
+  unary tier's `Throw` arm compares the cursor against it, spending the permission on the way in.
+  A misplaced throw reports **NL340** and still builds its `ThrowExpression` node, so recovery keeps
+  the real tree and the reader gets one sentence instead of a hole. The index (rather than a mode
+  flag) is what makes nesting free: `1 + throw e` has consumed `1` and `+` by the time it arrives,
+  and `x ?? (throw e)` has consumed the `(` — which is why parentheses do not rescue a misplaced
+  throw, and why the message says so.
+- **`ColumnarParserKernels` (the columnar table)** has no unary arm for `throw` at all. The three
+  positions call `ParseThrowExpressionNode` / `ParseValueOrThrowExpressionNode` (assignment level,
+  for conditional arms) / `ParseBodyValueOrThrowExpressionNode` (lambda level, for expression bodies)
+  BY NAME, so `1 + throw e` simply refuses (-1) and declines the program. It never has to: the
+  recovery parser reported NL340 first, and analysis fails before emission is asked.
+
+The node is **kind 83**, ONE child (the exception expression), NO value span, and a span running from
+the `throw` keyword through its operand. Statement-position `throw` stays kind 48, whose ZERO-child
+shape is the bare rethrow. `ParseDeclarationExpressionBodyEndCore` — the member-body END scan — goes
+through the same body-position entry as the body parser, because the two readings of where a member
+ends must agree or every member after it shifts.
+
 ### The `<` disambiguation: comparison, generic call, or constructed generic type receiver
 
 A `<` after a name is ambiguous, and the parser resolves it with ONE bounded pure lookahead whose two

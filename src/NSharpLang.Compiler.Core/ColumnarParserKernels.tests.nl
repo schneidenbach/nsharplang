@@ -2414,3 +2414,89 @@ test "the method flag word also names `abstract` and `virtual`, and they do not 
     assert !ColumnarFunctionInput.IsBodylessAbstractMember(Convert.ToInt32(Modifiers.Virtual), false)
     assert !ColumnarFunctionInput.IsBodylessAbstractMember(0, false)
 }
+
+// ---- KIND 83 — A `throw` IN VALUE POSITION ----
+//
+// The kernel admits a throw expression at exactly three token positions, and it reaches none of them
+// through the precedence chain: a throw produces no value, so the only places it can stand are the
+// ones where another operand already supplies the type. Every other position REFUSES (-1), which
+// declines the whole program rather than building a node the emitter could not lower — and the
+// recovery parser has already reported NL340 for every source that would get here.
+func ThrowExpressionProbe(source: string): ColumnarNumericLiteralParseProbe {
+    return new ColumnarNumericLiteralParseProbe(source)
+}
+
+test "the throw-expression kind is 83 and is distinct from the throw STATEMENT kind 48" {
+    assert ColumnarExpressionNodeKind.ThrowExpression() == 83
+    assert ColumnarExpressionNodeKind.ThrowExpression() != ColumnarExpressionNodeKind.OnSubscriptionExpression()
+    assert ColumnarExpressionNodeKind.ThrowExpression() != ColumnarExpressionNodeKind.ThisExpression()
+    assert ColumnarExpressionNodeKind.ThrowExpression() != 48
+}
+
+test "the fallback of a coalesce parses as kind 83 with the exception as its ONE child" {
+    probe := ThrowExpressionProbe("name ?? throw new System.Exception(\"x\")")
+    assert probe.NodeCount > 0
+
+    root := probe.ParseResult[0]
+    assert probe.NodeKinds[root] == 12
+    assert probe.NodeChildCounts[root] == 2
+
+    fallback := probe.NodeChildren[probe.NodeChildStarts[root] + 1]
+    assert probe.NodeKinds[fallback] == ColumnarExpressionNodeKind.ThrowExpression()
+    assert probe.NodeChildCounts[fallback] == 1
+    // NO value span — the keyword IS the node, exactly as `null` and `default` are.
+    assert probe.NodeValueStarts[fallback] == -1
+    assert probe.NodeValueLengths[fallback] == 0
+    // The span runs from the `throw` keyword through the end of the operand.
+    assert probe.Source.Substring(probe.NodeSpanStarts[fallback], probe.NodeSpanLengths[fallback]) == "throw new System.Exception(\"x\")"
+
+    operand := probe.NodeChildren[probe.NodeChildStarts[fallback]]
+    assert probe.NodeKinds[operand] == ColumnarExpressionNodeKind.NewExpression()
+}
+
+test "either conditional arm parses as kind 83" {
+    elseArm := ThrowExpressionProbe("ok ? value : throw new System.Exception(\"x\")")
+    assert elseArm.NodeCount > 0
+    elseRoot := elseArm.ParseResult[0]
+    assert elseArm.NodeKinds[elseRoot] == ColumnarExpressionNodeKind.TernaryExpression()
+    assert elseArm.NodeKinds[elseArm.NodeChildren[elseArm.NodeChildStarts[elseRoot] + 2]] == ColumnarExpressionNodeKind.ThrowExpression()
+
+    thenArm := ThrowExpressionProbe("ok ? throw new System.Exception(\"x\") : value")
+    assert thenArm.NodeCount > 0
+    thenRoot := thenArm.ParseResult[0]
+    assert thenArm.NodeKinds[thenRoot] == ColumnarExpressionNodeKind.TernaryExpression()
+    assert thenArm.NodeKinds[thenArm.NodeChildren[thenArm.NodeChildStarts[thenRoot] + 1]] == ColumnarExpressionNodeKind.ThrowExpression()
+}
+
+test "every other value position refuses a throw rather than building a node" {
+    // An operand of any operator but `??`, a parenthesised position, an argument, an index, and the
+    // VALUE of an assignment. None of the five has anything to take the type from.
+    assert ThrowExpressionProbe("1 + throw new System.Exception(\"x\")").NodeCount == -1
+    assert ThrowExpressionProbe("name ?? (throw new System.Exception(\"x\"))").NodeCount == -1
+    assert ThrowExpressionProbe("f(throw new System.Exception(\"x\"))").NodeCount == -1
+    assert ThrowExpressionProbe("xs[throw new System.Exception(\"x\")]").NodeCount == -1
+    assert ThrowExpressionProbe("x = throw new System.Exception(\"x\")").NodeCount == -1
+}
+
+test "a coalesce chain admits a throw only at the LAST fallback, and nests left" {
+    probe := ThrowExpressionProbe("a ?? b ?? throw new System.Exception(\"x\")")
+    assert probe.NodeCount > 0
+
+    root := probe.ParseResult[0]
+    assert probe.NodeKinds[root] == 12
+    assert probe.NodeKinds[probe.NodeChildren[probe.NodeChildStarts[root] + 1]] == ColumnarExpressionNodeKind.ThrowExpression()
+    // `a ?? b` is the LEFT child: the chain is left-associative, so the throw is the outer fallback.
+    left := probe.NodeChildren[probe.NodeChildStarts[root]]
+    assert probe.NodeKinds[left] == 12
+    assert probe.NodeKinds[probe.NodeChildren[probe.NodeChildStarts[left] + 1]] == ColumnarExpressionNodeKind.IdentifierExpression()
+}
+
+test "a lambda's expression body may be a throw" {
+    probe := ThrowExpressionProbe("x => throw new System.Exception(\"x\")")
+    assert probe.NodeCount > 0
+
+    root := probe.ParseResult[0]
+    assert ColumnarLambdaNodeFacts.IsLambda(probe.NodeKinds[root])
+    assert probe.NodeChildCounts[root] == 2
+    assert probe.NodeKinds[probe.NodeChildren[probe.NodeChildStarts[root] + 1]] == ColumnarExpressionNodeKind.ThrowExpression()
+}

@@ -324,6 +324,15 @@ class AstPositionVisitor {
             return ChooseBestExpression(currentMatch, childMatch)
         }
 
+        // A THROW EXPRESSION IS ITS OPERAND'S OWNER, exactly as `must` is. The keyword anchors the
+        // node, so a position ON the keyword answers the throw itself (type `never`), while a
+        // position inside the exception being raised must reach that expression — otherwise a hover
+        // over the exception's type name would be told the throw's own bottom type.
+        if typeName == "ThrowExpression" {
+            childMatch := FindExpression(GetRequiredProperty(expression, "Expression"))
+            return ChooseBestExpression(currentMatch, childMatch)
+        }
+
         if typeName == "CallExpression" {
             calleeMatch := FindExpression(GetRequiredProperty(expression, "Callee"))
             NoteCalleeOwner(expression, calleeMatch)

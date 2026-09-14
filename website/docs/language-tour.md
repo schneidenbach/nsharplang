@@ -656,6 +656,50 @@ A bare `throw` needs a handler to re-throw from. Outside a `catch`, inside a `fi
 handler, or inside a lambda or local function written in the handler (each compiles to a method of
 its own), it is [`NL336`](./errors/NL336.md).
 
+### `throw` as an expression
+
+A `throw` produces no value, so it can stand where a value is expected only when something *else*
+says what the surrounding expression is worth. N# admits it in three positions — the same three C#
+does.
+
+**As the fallback of `??`.** The left side decides the type, and the whole expression is worth that
+side with its nullability removed, so flow analysis treats the result as non-null from there on:
+
+```n#
+import System
+
+func Trimmed(name: string?): string {
+    value := name ?? throw new ArgumentNullException("name")
+    return value.Trim()                // `value` is `string`, never `string?`
+}
+```
+
+**As an arm of a conditional.** An arm that throws contributes nothing to the join, so the other arm
+decides the type; only the taken arm is evaluated:
+
+```n#
+import System
+
+func Port(configured: int, ok: bool): int {
+    return ok ? configured : throw new InvalidOperationException("no port configured")
+}
+```
+
+**As an expression body** — an arrow-bodied `func`, an arrow-bodied property, or a lambda's. The
+declared return type is what the body would otherwise have produced:
+
+```n#
+import System
+
+func NotDone(): string => throw new NotImplementedException()
+
+func Rejector(): Func<int, string> => x => throw new NotSupportedException("no")
+```
+
+Anywhere else a `throw` is a statement, not a value, and writing one in value position is
+[`NL340`](./errors/NL340.md) — including inside parentheses, since `x ?? (throw e)` makes the
+parentheses the position the `throw` is standing in.
+
 ### Tuple Error Capture
 
 N# has a Go-inspired pattern: assign both the result and error in one line. If the function throws, the error variable captures the exception instead of crashing.

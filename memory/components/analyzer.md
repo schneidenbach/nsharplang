@@ -4214,3 +4214,29 @@ scopes, and two declarations in ONE file are still NL306. A namespace-less proje
 two `class Shared` reachable through aliased file imports collide, because
 `ColumnarBindingScopeFacts.ExactTypeNameForFile` gives a namespace-less type its bare name and the
 assembly would carry both.
+
+## A `throw` written as a value is NL340 unless something else can type it (census 2026-09-13, THROWEXPR)
+
+`x ?? throw e`, `cond ? v : throw e` and `func F(): T => throw e` all TYPED correctly before this
+slice — `AnalyzerPassThroughOperands.FinishThrow` has always answered `BuiltInTypes.Never`, and
+`AnalyzerOperatorExpressions.NullCoalesceResult` has always read a `throw` on the right of `??` as
+"the expression is worth the LEFT side, non-null". What was missing was on either side of the type
+rule: the columnar backend declined all three forms (NL103), and a MISPLACED throw was complained
+about by whatever it was handed to rather than named.
+
+The placement rule is **NL340**, and it lives in the PARSER rather than here, because it is purely
+positional: three callers publish the token index of the operand they are about to descend into and
+the unary tier compares the cursor against it (see `memory/components/parser.md`). Nothing in the
+analyzer decides placement, and nothing here had to change for it.
+
+Two consequences worth knowing when reading analyzer output:
+
+- A misplaced throw still reaches the analyzer as a real `ThrowExpression` typed `never`, so the
+  operand tier's own complaint (`The '+' operator doesn't work with 'int' and 'never'`) still
+  follows NL340 at the same position. NL340 sorts first and names the mistake; the second sentence
+  is pre-existing `never`-operand behaviour and was deliberately left alone rather than special-cased
+  across the seven operator report sites.
+- `AnalyzerNullFlow.IsThrowFallback` unwraps parentheses when it looks for `x ?? (throw e)`. That
+  spelling is now NL340 (C# refuses it too), so the unwrap is unreachable defence rather than a
+  supported form; it is left in place because a flow fact that over-narrows on a rejected program
+  changes nothing.

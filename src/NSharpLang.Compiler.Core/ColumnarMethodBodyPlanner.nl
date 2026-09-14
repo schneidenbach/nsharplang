@@ -1137,7 +1137,12 @@ class ColumnarMethodBodyPlanner {
         // 82 `this` is declined because the instance's own type is the HOST's fact: argument zero is the
         // instance for a reference type and a managed pointer to it for a value type, and which of those
         // two the body is in is decided by the enclosing declaration this door never sees.
-        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 59 || kind == 64 || kind == ColumnarExpressionNodeKind.DefaultExpression() || kind == ColumnarExpressionNodeKind.NullGuardExpression() || kind == ColumnarExpressionNodeKind.OnSubscriptionExpression() || kind == ColumnarExpressionNodeKind.ThisExpression()
+        // 83 THROW-IN-VALUE-POSITION is declined because it is not a value at all: it leaves NOTHING
+        // on the stack and ends its path, so the three positions that may contain one — the fallback
+        // of a `??`, a conditional arm, an expression body — each lower it themselves, in the host
+        // emitter, where the branch structure the throw sits inside is already being written. A door
+        // that claimed it would have to promise a result type it can never produce.
+        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 59 || kind == 64 || kind == ColumnarExpressionNodeKind.DefaultExpression() || kind == ColumnarExpressionNodeKind.NullGuardExpression() || kind == ColumnarExpressionNodeKind.OnSubscriptionExpression() || kind == ColumnarExpressionNodeKind.ThisExpression() || kind == ColumnarExpressionNodeKind.ThrowExpression()
     }
 
     // THE LEDGER THE DOOR PARTITIONS — every node kind the parser can produce in a return-VALUE
@@ -1146,7 +1151,7 @@ class ColumnarMethodBodyPlanner {
     // totality property is a fact something can assert, not a promise a comment makes: for every kind
     // here, exactly one of `IsClaimedExpressionKind` and `IsDeclinedExpressionKind` holds.
     static func ExpressionKindLedger(): int[] {
-        return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 36, 39, 42, 44, 45, 46, 47, 52, 53, 55, 57, 58, 59, 62, 64, 69, 74, 75, 78, 79, 82]
+        return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 36, 39, 42, 44, 45, 46, 47, 52, 53, 55, 57, 58, 59, 62, 64, 69, 74, 75, 78, 79, 82, 83]
     }
 
     // THE IDENTIFIER CLASSES. `ColumnarBoundIdentifierPlanner` is the SOLE owner of lexical
