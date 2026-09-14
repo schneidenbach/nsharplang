@@ -441,6 +441,16 @@ class AnalyzerConstruction {
             return
         }
 
+        // An earlier expression diagnostic owns an unknown argument. Every overload remains
+        // provisionally applicable to it, so asking the ordinary binder to choose would manufacture
+        // NL414 from missing evidence. Keep the constructor unset: required-member checking then
+        // cannot accept a SetsRequiredMembers promise from a constructor that was never selected.
+        for argumentType in state.ConstructorArgumentTypes {
+            if BuiltInTypes.IsUnknown(argumentType) {
+                return
+            }
+        }
+
         constructedType := NonNullableType(state.ConstructedType)
         opened := declarationContextValue.ResolveDeclaredAlias(constructedType)
         generic := opened as GenericTypeInfo
