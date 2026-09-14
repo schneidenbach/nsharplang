@@ -1,6 +1,6 @@
 namespace NSharpLang.LanguageServerDiagnostics.Tests
-import System
 
+import System
 
 test "DocumentManager possible null access uses stable compiler code" {
     source := LsdLeadingNewlineSource(

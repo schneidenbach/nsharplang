@@ -2,7 +2,7 @@
 
 ## Test Suite
 
-**Total Tests:** Do not hard-code counts here. Run `dotnet test tests/Tests.csproj` for the current unit count and `./scripts/test-all.sh` for the full product gate.
+**Total Tests:** Do not hard-code counts here. There are two test bodies and no C# unit suite: the ESTATE (`src/NSharpLang.Compiler.Core/*.tests.nl`, run through that project with `-p:NSharpExcludeTests=false`) and the NATIVE PROJECTS (`tests/native/<dir>`, each run by `nlc test`). `./scripts/dev.sh --list` names every slice; `./scripts/test-all.sh` runs the full product gate.
 
 ## Test Organization
 
@@ -816,24 +816,26 @@ public void TestFullCompilation()
 ```
 
 ### 4. Emitted Assemblies Load Into Collectible Scopes
-Tests that reflect over or invoke an emitted assembly (columnar parity programs, compiled
-Compiler Core or CLI outputs, `MultiFileCompiler` outputs) must load it through `CollectibleAssemblyScope`
-(tests/CollectibleAssemblyScope.cs):
+Never `Assembly.Load(bytes)` or `Assembly.LoadFile(path)` from a test that reflects over or invokes
+an emitted assembly: each call pins the assembly in a fresh NON-collectible AssemblyLoadContext for
+the host's lifetime. Load it into a collectible `AssemblyLoadContext` and `Unload()` it instead,
+keeping every `Type`/`MethodInfo`/delegate obtained from it inside that scope.
 
-```text
-using var loadScope = CollectibleAssemblyScope.Load(asm!);                  // emitted byte[]
-using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);    // emitted .dll
-var type = loadScope.Assembly.GetType(typeName!)!;
-```
+WHAT THE RULE'S HOST WAS, AND WHERE IT STANDS NOW. The rule was written for the xunit process that
+ran `tests/Tests.csproj`, where the parity suite loaded hundreds of emitted assemblies per run and
+the pinned pile intermittently OOM-crashed it ("Test host process crashed : Out of memory"). Its
+helper, `tests/CollectibleAssemblyScope.cs`, was retired with that project: every suite that used it
+had already migrated to N#, so the last thing standing was the helper itself.
 
-Never `Assembly.Load(bytes)` or `Assembly.LoadFile(path)`: each call pins the assembly in a fresh
-NON-collectible AssemblyLoadContext for the test host's lifetime. The parity suite loads hundreds of
-emitted assemblies per run and grows every slice — the pinned pile intermittently OOM-crashed the
-xUnit host ("Test host process crashed : Out of memory").
-
-Rules of the scope:
-- Keep every `Type`/`MethodInfo`/delegate obtained from `loadScope.Assembly` inside the `using` scope.
-- `CollectibleAssemblyScopeTests` pins the contract (collectible, non-default, reclaimable after Dispose).
+`tests/native/test-assembly-load-contexts` now holds the three claims that mattered — a context
+created `isCollectible: true` is collectible and is not the default one, an unloaded one becomes
+reclaimable, and no C# under `tests/` calls a static `Assembly.Load*` — plus a row the C# never had,
+which proves the guard's own regex still matches the banned shapes. It also RECORDS a measurement
+worth knowing: `nlc test`'s default xunit runner leaves the emitted test assembly in the DEFAULT,
+non-collectible context (only its NUnit-shaped reflection runner uses a collectible one). That is
+not today's leak, because the gate runs one `nlc test --project <dir>` process per project and the
+single pin dies with the process — but it is the thing to fix before several projects ever share one
+process.
 - The compiler side holds the matching guarantee: external-type/doc resolution enumerates loaded
   assemblies through the N# `ExternalAssemblyScan.Loaded()` owner
   (`src/NSharpLang.Compiler.Core/ExternalAssemblyScan.nl`),
@@ -864,7 +866,8 @@ let a red docs-parity test pass the step cache during finding F9. `--commit`, `-
 self-satisfying); regenerate goldens with plain `dotnet test` in the working tree. When adding a
 gate step, pointing one at new input paths, or making a test read a new repo file, update the
 input-set prefixes next to the step wrappers in test-all-core.sh —
-`tests/GateStepInputSetGuardTests.cs` enforces coverage of repo files tests read, the env-list
+`tests/native/gate-script-contracts/GateStepInputSets.tests.nl` (the N# replacement for the deleted
+`tests/GateStepInputSetGuardTests.cs`) enforces coverage of repo files tests read, the env-list
 sync between the two scripts, and the hash-step behavior itself.
 
 ### 6. Step 3c: The Systems Throughput Gate
@@ -1140,24 +1143,27 @@ another compiler build (for example a historical worktree) is measured over the 
 
 ### Known Testing Limitation
 Raw filtered `dotnet test --filter` invocations can hang in this project because of the
-assembly-loading test topology. Use `./scripts/dev.sh <pattern>` for focused work and plain
-`dotnet test tests/Tests.csproj` for the full unit suite.
+assembly-loading test topology. Use `./scripts/dev.sh <pattern>` for focused work and
+`./scripts/dev.sh --estate` for the whole compiler-service estate.
 
 ## Running Tests
 
-### All Tests
+### Everything the gate's test steps run
 ```bash
-dotnet test tests/Tests.csproj
+./scripts/dev.sh --since          # or, for the real backstop:
+VSCODE_TESTS=skip ./scripts/test-all.sh --commit
 ```
 
-### Specific Test Class
+### One native project
 ```bash
-./scripts/dev.sh SystemsNSharp
+./scripts/dev.sh Columnar         # every native project whose directory name matches
+./scripts/dev.sh --list           # every slice name
 ```
 
-### Specific Test Method
+### The compiler-service estate
 ```bash
-./scripts/dev.sh TestGenericConstraints
+./scripts/dev.sh --estate             # all ~9,200 rows
+./scripts/dev.sh --estate Columnar    # only the rows whose name matches
 ```
 
 ### With Detailed Output

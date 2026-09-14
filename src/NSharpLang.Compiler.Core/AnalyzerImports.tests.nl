@@ -314,6 +314,17 @@ test "the two-assembly rows keep their load ORDER" {
     assert xmlLinq.Length == 2
     assert xmlLinq[0] == "System.Xml.Linq"
     assert xmlLinq[1] == "System.Private.Xml.Linq"
+
+    // ZIP ARCHIVES ARE A TWO-ASSEMBLY ROW FOR THE SAME KIND OF MEASURED REASON. `ZipArchive` and
+    // `ZipArchiveEntry` are exported by `System.IO.Compression`, but the entry points that OPEN one
+    // from a path -- `ZipFile` and `ZipFileExtensions` -- are exported by
+    // `System.IO.Compression.ZipFile`. A one-assembly row resolves the namespace and still leaves
+    // `ZipFile.OpenRead` unbound.
+    compression := harness.Owner.MappedAssemblies("System.IO.Compression")
+    assert compression != null
+    assert compression.Length == 2
+    assert compression[0] == "System.IO.Compression"
+    assert compression[1] == "System.IO.Compression.ZipFile"
 }
 
 test "a namespace the table does not name implies no assemblies at all" {

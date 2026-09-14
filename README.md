@@ -145,7 +145,7 @@ cd nsharplang
 nlc doctor
 ```
 
-For compiler-only debugging before reinstalling launchers, use `dotnet build` and `dotnet test tests/Tests.csproj`. Do not hard-code test totals in docs; they move quickly. Use the current `dotnet test` output for release/talk evidence.
+For compiler-only debugging before reinstalling launchers, use `dotnet build` and `./scripts/dev.sh --since`. Do not hard-code test totals in docs; they move quickly. Use current command output for release/talk evidence.
 
 ### CLI Usage
 
@@ -229,8 +229,9 @@ N# is an active pre-release language/toolchain. Current strengths include a work
 Use exact command output for current counts and evidence:
 
 ```bash
-dotnet test tests/Tests.csproj
-./scripts/test-all.sh
+./scripts/dev.sh --estate     # the compiler-service estate
+./scripts/dev.sh --list       # every native test project
+./scripts/test-all.sh         # the full product gate
 ```
 
 `./scripts/test-all.sh` runs the full gate in an isolated temporary workspace

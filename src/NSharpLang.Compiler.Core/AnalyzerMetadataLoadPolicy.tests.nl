@@ -173,10 +173,10 @@ test "the analyzer pre-loads exactly the table the columnar scan pre-loads — o
     assert JoinNames(AnalyzerMetadataLoadPolicy.CommonAssemblyNames()) == JoinNames(ExternalAssemblyScan.CommonAssemblyNames())
 }
 
-test "the table is the 28 names the drift used to be measured against, and it still opens with the core assembly" {
+test "the table is the 30 names it has grown to, and it still opens with the core assembly" {
     names := AnalyzerMetadataLoadPolicy.CommonAssemblyNames()
 
-    assert names.Length == 28
+    assert names.Length == 30
     assert names[0] == AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName()
     assert names[0] == "System.Runtime"
 
@@ -192,6 +192,28 @@ test "the table is the 28 names the drift used to be measured against, and it st
         index = index + 1
     }
     assert found
+}
+
+test "the zip-archive pair is in the table, both halves, because only the second exports ZipFile" {
+    names := AnalyzerMetadataLoadPolicy.CommonAssemblyNames()
+
+    foundArchive := false
+    foundZipFile := false
+    index := 0
+    while index < names.Length {
+        if names[index] == "System.IO.Compression" {
+            foundArchive = true
+        }
+
+        if names[index] == "System.IO.Compression.ZipFile" {
+            foundZipFile = true
+        }
+
+        index = index + 1
+    }
+
+    assert foundArchive
+    assert foundZipFile
 }
 
 test "the name the analyzer's own copy was missing is IN the table — LINQ-to-XML by its implementation assembly" {

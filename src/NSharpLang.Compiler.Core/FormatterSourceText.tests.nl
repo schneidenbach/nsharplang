@@ -1226,3 +1226,46 @@ test "chip: the type clause keeps its position AFTER the base list, and an uncon
     assert FstReparseErrorsAfterFormat(service) == 0
     assert FstReparseErrorsAfterFormat(two) == 0
 }
+
+// ── THE TAIL OF A BLOCK ──────────────────────────────────────────────────────────────────────────
+//
+// A comment standing between a block's LAST statement and its closing brace has nothing following it
+// inside the block to be the leading comment of, and the walk used to leave it unclaimed: it escaped
+// to the next `EmitCommentsBefore` in an OUTER scope, which put it BELOW the `}`. For an `if` that
+// moved it into the `else` arm, for a `while` below the loop, and — when the block was a `try` whose
+// `catch` ended the file — out of the enclosing function entirely and down to the last line of the
+// file. A relocated comment is a changed program when the comment is an `// nlc:ignore` pragma.
+//
+// The fix is a line, not a heuristic: the recovery parser stamps a block's `EndLine` from the
+// closing brace it already consumes, and `FormatBlock` flushes the comments before that line at the
+// block's own indent. A comment ON the brace's line still belongs to whatever follows the brace,
+// which is what keeps `} else {` and `} catch … {` reading the way the author wrote them.
+test "chip: a comment at the end of a block stays inside that block, at the block's indent" {
+    // The shape that lost a suppression pragma: nothing follows the `try` block inside the function,
+    // so the unclaimed comment used to land after the closing `}` of `Cleanup` itself.
+    tryTail := "func Cleanup(directory: string) {\n    try {\n        Delete(directory)\n    // nlc:ignore NL011\n    } catch error: Exception {\n        return\n    }\n}"
+    assert FstFormatComments(tryTail) == "func Cleanup(directory: string) {|    try {|        Delete(directory)|        // nlc:ignore NL011|    } catch error: Exception {|        return|    }|}", FstFormatComments(tryTail)
+
+    // The `if` shape: the comment used to become the FIRST line of the `else` arm, which reads as a
+    // statement about the wrong branch.
+    ifTail := "func Pick(flag: bool): int {\n    if flag {\n        return 1\n    // the true arm ends here\n    } else {\n        return 2\n    }\n}"
+    assert FstFormatComments(ifTail) == "func Pick(flag: bool): int {|    if flag {|        return 1|        // the true arm ends here|    } else {|        return 2|    }|}", FstFormatComments(ifTail)
+
+    // The loop shape: the comment used to move below the loop, where it describes the wrong code.
+    loopTail := "func Count(): int {\n    total := 0\n    while total < 3 {\n        total = total + 1\n    // one more turn\n    }\n    return total\n}"
+    assert FstFormatComments(loopTail) == "func Count(): int {|    total := 0|    while total < 3 {|        total = total + 1|        // one more turn|    }|    return total|}", FstFormatComments(loopTail)
+
+    // A block whose ONLY content is a comment keeps it: there is no statement to hang it on, so the
+    // tail flush is the only thing that can claim it.
+    onlyComment := "func Swallow() {\n    try {\n        Work()\n    } catch error: Exception {\n        // deliberately ignored\n    }\n}"
+    assert FstFormatComments(onlyComment) == "func Swallow() {|    try {|        Work()|    } catch error: Exception {|        // deliberately ignored|    }|}", FstFormatComments(onlyComment)
+
+    assert FstIdempotentComments(tryTail)
+    assert FstIdempotentComments(ifTail)
+    assert FstIdempotentComments(loopTail)
+    assert FstIdempotentComments(onlyComment)
+    assert FstReparseErrors(FstFormatCommentsRaw(tryTail)) == 0
+    assert FstReparseErrors(FstFormatCommentsRaw(ifTail)) == 0
+    assert FstReparseErrors(FstFormatCommentsRaw(loopTail)) == 0
+    assert FstReparseErrors(FstFormatCommentsRaw(onlyComment)) == 0
+}

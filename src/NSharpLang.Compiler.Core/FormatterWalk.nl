@@ -816,6 +816,19 @@ class FormatterWalk {
             tracker.LastEmittedSourceLine = statement.EndLine
             index = index + 1
         }
+
+        // THE TAIL OF THE BLOCK. A comment standing between the last statement and the closing brace
+        // belongs INSIDE the block, at the block's own indent, and nothing else in the walk will
+        // claim it: every other comment is emitted as the LEADING comment of whatever follows it, and
+        // here nothing follows it inside the block. Left unclaimed it escaped to the next
+        // `EmitCommentsBefore` in an OUTER scope, which moved it below the `}` — into the `else` arm
+        // for an `if`, below the loop for a `while`, and, when the block was a `try` whose `catch`
+        // ended the file, out of the function and down to the last line of the file, silently
+        // destroying an `// nlc:ignore` pragma written there. `EndLine` is the closing brace's line,
+        // so a comment ON that line (the `} else {` shape) is correctly left for the arm that follows.
+        if block.EndLine > block.Line {
+            state.EmitCommentsBefore(block.EndLine, builder)
+        }
     }
 
     // `alloc { … }`, `unsafe { … }` and `allow(…) { … }` differ only in their header text.
