@@ -262,10 +262,18 @@ test "a sibling file of the same namespace contributes its functions, camelCase 
 
     // The model's own entry first, then the sibling's in its source order. The camelCase one is
     // offered exactly like the exported one: inside the namespace they are equally visible.
-    assert CekItemNames(result, "functions") == "UseIt,formatTypeRef,Exported"
-
-    // NOT the other namespace's, whatever its casing.
-    assert CekItemCount(result, "functions") == 3
+    //
+    // THEN THE OTHER NAMESPACE'S EXPORTED ONE, LAST AND WITH AN IMPORT. This row is NEW: the sweep
+    // used to stop at my own namespace, so `AlsoElsewhere` — an ordinary exported helper of the same
+    // project — was offered nowhere at all. It is not in scope as written (NL412 until
+    // `import Y` exists), so it carries `ImportNamespace` and the caller knows the second edit it
+    // owes. `elsewhere` is camelCase and therefore private to `Y`: from here it is an NL308 that no
+    // import can fix, so it is STILL offered nowhere.
+    assert CekItemNames(result, "functions") == "UseIt,formatTypeRef,Exported,AlsoElsewhere"
+    assert CekItemCount(result, "functions") == 4
+    assert CekImportNamespaceOf(result, "AlsoElsewhere") == "Y"
+    assert CekImportNamespaceOf(result, "Exported") == "<none>"
+    assert CekImportNamespaceOf(result, "elsewhere") == null
 
     // The declared-TYPES group stays the current file's alone: it answers "what does THIS file
     // declare", which is a different question.
@@ -285,8 +293,9 @@ test "the namespace sweep skips the current unit, repeats no name, and needs a d
     result := CompletionEngineKernels.GetIdentifierCompletions(current, model, false, 0, 0, CekProjectUnits([current, sibling]))
     assert CekItemNames(result, "functions") == "Shared,Other"
 
-    // A file with NO namespace declaration has no namespace to be private to, so it gains nothing —
-    // the global namespace is not a shared visibility unit here.
+    // A file with NO namespace declaration has no namespace to be private to, so it gains nothing
+    // from EITHER half of the sweep — the global namespace is not a shared visibility unit here, and
+    // a file that declares no namespace of its own is not given the project's importable ones.
     globalUnit := CekNamespacedUnit(null, ["Local"])
     globalModel := new SemanticModel()
     globalFunctions := globalModel.Functions
