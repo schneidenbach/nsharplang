@@ -17,7 +17,6 @@ import System.Collections.Generic
 // the fix-it for an unknown name, a parameter named twice and a parameter left with nothing, and it
 // reports them at the front door. What this owner answers for the same shapes is "no placement", so
 // the backend declines rather than binding a call the front door rejected.
-
 func NamedArgTable(source: string): ColumnarNodeTable {
     probe := new ColumnarNumericLiteralParseProbe(source)
     return new ColumnarNodeTable(probe.NodeKinds, probe.NodeValueStarts, probe.NodeValueLengths, probe.NodeChildStarts, probe.NodeChildCounts, probe.NodeChildren, probe.NodeSpanStarts, probe.NodeSpanLengths)
@@ -35,7 +34,7 @@ func NamedArgNames(first: string, second: string): string[] {
     return names
 }
 
-func NamedArgNames(first: string, second: string, third: string): string[] {
+func NamedArgNames3(first: string, second: string, third: string): string[] {
     names := new string[](3)
     names[0] = first
     names[1] = second
@@ -118,7 +117,7 @@ test "names written out of the declared order place each argument at the paramet
 test "a positional argument claims the next parameter no name has taken" {
     // `Between(5, high: 9, low: 1)` — the positional `5` takes parameter zero, and the two names take
     // the two that are left, in the order the signature declares them rather than the written one.
-    placement := NamedArgPlacement("Between(5, high: 9, low: 1)", NamedArgNames("value", "low", "high"), 3)
+    placement := NamedArgPlacement("Between(5, high: 9, low: 1)", NamedArgNames3("value", "low", "high"), 3)
     assert placement.Length == 3
     assert placement[0] == 0
     assert placement[1] == 2
@@ -289,14 +288,28 @@ test "a type still being emitted answers no reflection question, so it contribut
 }
 
 test "the reflected parameter names of an external member are its declaration's, in order" {
+    // `string.Replace` declares TWO two-parameter overloads, `(string, string)` and `(char, char)`,
+    // and they spell their parameters differently -- which is exactly why a name prunes an overload
+    // set: only one of these two admits `oldValue`/`newValue`.
     candidates := new List<string[]>()
     ColumnarNamedArgumentBinder.CollectReflectedParameterNames(typeof(string), "Replace", 2, false, candidates)
-    assert candidates.Count >= 1
+    assert candidates.Count == 2
 
-    names := candidates[0]
-    assert names.Length == 2
-    assert names[0] == "oldValue"
-    assert names[1] == "newValue"
+    stringOverload := false
+    charOverload := false
+    for names in candidates {
+        assert names.Length == 2
+        if names[0] == "oldValue" && names[1] == "newValue" {
+            stringOverload = true
+        }
+
+        if names[0] == "oldChar" && names[1] == "newChar" {
+            charOverload = true
+        }
+    }
+
+    assert stringOverload
+    assert charOverload
 }
 
 test "an extension method's callable names start one parameter in, past the receiver" {

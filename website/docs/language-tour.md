@@ -91,6 +91,49 @@ func main() {
 }
 ```
 
+### Named arguments
+
+Any argument may be written with the name of the parameter it is for, `name: value`. The name binds
+the argument to that parameter wherever it is written, so a call reads as what it means rather than
+as a row of unlabelled values. This works at every call: a free function, a method, a constructor, a
+static member, and a member of a .NET type.
+
+```n#
+func connect(host: string, port: int = 8080, secure: bool = false): string {
+    return $"{host}:{port}"
+}
+
+func main() {
+    print connect(host: "localhost", port: 9000, secure: true)
+
+    // The names carry the meaning, so the order they are written in is free.
+    print connect(secure: true, port: 9000, host: "localhost")
+
+    // A positional argument fills the next parameter no name has claimed.
+    print connect("localhost", secure: true, port: 9000)
+
+    // A named `out` or `ref` argument keeps its modifier after the name.
+    parsed := 0
+    if Int32.TryParse("42", result: out parsed) {
+        print parsed
+    }
+}
+```
+
+Arguments are evaluated **in the order they are written**, whatever order the parameters are
+declared in. In `Send(body: Build(), to: Lookup())`, `Build()` runs before `Lookup()` even though
+`to` is the earlier parameter.
+
+A name has to be a parameter of the function being called, each parameter may be given a value only
+once, and every parameter without a default has to end up with one. The compiler reports each of
+these by name:
+
+```
+'connect' has no parameter named 'hostname'
+'connect' got multiple values for parameter 'host'
+'connect' needs an argument for parameter 'host'
+```
+
 ### Function Overloading
 
 Declare multiple functions with the same name but different parameter lists. The compiler

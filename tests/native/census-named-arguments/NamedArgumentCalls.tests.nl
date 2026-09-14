@@ -2,7 +2,6 @@ namespace NSharpLang.CensusNamedArguments
 
 import System
 
-
 test "a free function's single parameter can be written by name" {
     assert Gate(flag: true) == 1
     assert Gate(flag: false) == 0

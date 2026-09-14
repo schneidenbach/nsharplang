@@ -1949,10 +1949,8 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-
         return true
     }
-
 
     static func TryAppendTargetTypedIntegerArgument(nodes: ColumnarNodeTable, argumentNode: int, plan: ColumnarCodePlan, parentFragment: int, targetType: Type, value: long): bool {
         candidate := UnwrapParentheses(nodes, argumentNode)

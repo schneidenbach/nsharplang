@@ -4904,3 +4904,55 @@ The emit arm has always known the rule — a REFERENCE left yields the left's ow
 left yields its ELEMENT — and the preflight now states the same one. A widening, a derived reference
 and a `throw` right-hand side stay un-typed rather than guessed: those are the shapes the emit arm
 decides WHILE emitting.
+
+## A named argument names a parameter, and the backend places it (census 2026-09-14, NAMEDARGS)
+
+`G(flag: true)` type-checked and then declined at `parse.function`: the ANALYZER had owned named
+arguments for both source and reflected calls for a long time — `AnalyzerSyntheticCallBinder`
+produces the argument-to-parameter map, and NL402 reports an unknown name, a parameter named twice
+and a parameter left with nothing, each with its own sentence and fix-it — while the columnar backend
+could not so much as parse the `name:` prefix outside a `new <type>(...)` argument list. Six sites in
+the converted Language Server hit it, and converted C# hits it constantly (`new Foo(name: x)`,
+`Log(message, exception: e)`, `Assert.Equal(expected: 1, actual: n)`).
+
+**One placement rule, stated once and applied twice.** A NAMED argument binds to the parameter it
+names, wherever it is written; a POSITIONAL argument fills the next parameter nothing has claimed
+yet. That is `AnalyzerSyntheticCallBinder.BindFunctionArguments`, and it is deliberately what
+`ColumnarNamedArgumentBinder.TryPlace` re-states for the backend — the backend never invents a
+placement the front door rejected, and it declines rather than binding one the front door would not
+have produced. The rule is more permissive than C# §12.6.2.2, which refuses a positional argument
+after an out-of-position named one; N# admits it because the answer is unambiguous either way.
+
+**The backend's whole job is a permutation.** Everything below the planner — overload scoring,
+conversions, the argument walk, IL — reads argument `i` as parameter `i`, so the name is resolved
+once, in `ColumnarDirectCallPlanner.TryAppendCall` and `ColumnarConstructionPlanner`, BEFORE argument
+types are inferred. The candidate parameter-name lists come from the same registries the arms select
+from (`ColumnarSiblingCallFacts.ParameterNames`, `ColumnarInstanceMethodDef`/`ColumnarStaticMethodDef`/
+`ColumnarConstructorDef.ParamNames`, and `ParameterInfo.Name` for a reflected member) and never from a
+second resolution of their own. A placement is accepted only when every candidate that admits the
+written names agrees on it, so two same-arity overloads that both admit them and place them
+differently decline instead of guessing. The five definition records had to start CARRYING the
+parameter names: they were read once to stamp CLR metadata and dropped, and a `MethodBuilder` answers
+no `GetParameters()` before its owner is baked.
+
+**Evaluation order is the written order.** `Send(body: Build(), to: Lookup())` runs `Build()` first
+because it is written first, even though `to` is the earlier parameter. When a placement MOVES an
+argument, `ColumnarDirectCallPlanner.AppendReorderedArguments` evaluates along the written order into
+plan locals and loads them in slot order; when the two orders agree — every call whose names were
+written where the signature keeps them — nothing is spilled. A reordered call carrying a `ref`/`out`
+argument declines: storage cannot be held in a temporary without aliasing something the caller cannot
+see.
+
+**A verified in-position placement is flattened into the node table.** Once the names have been
+checked against a real signature and found to name the parameters they were already written at, the
+kind-60 wrappers carry nothing, so `ColumnarNamedArgumentBinder.FlattenPlacedArguments` removes them.
+A call the planner then declines for some unrelated reason — a lambda argument, say — reaches the
+residual emitter as the ordinary positional call it is. A placement that MOVES an argument is never
+flattened: only the planner can emit the move, because only it spills the written order.
+
+**What is still positional.** A `base(...)` / `this(...)` constructor chain records its arguments as
+source SPANS that are re-parsed as expressions, so a `name:` prefix there still declines at
+`parse.struct`; write the chain positionally. Separately — and independently of names — a source free
+function or method called with a TRAILING optional omitted still declines (`Opt(1)` where `Opt`
+declares `b: int = 5`), because only constructors and reflected members have call-site default
+filling; a named argument reaching a parameter that declares a default is unaffected.
