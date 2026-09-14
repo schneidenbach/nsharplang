@@ -702,11 +702,12 @@ class Analyzer: IDisposable {
             MlcAssemblies
         )
         created.SetImportUsageCredit(ImportUsageCredit)
+        created.SetFriendGrants(FriendGrants)
         return created
     }
 
     private func CreateMemberResolution(): AnalyzerMemberResolution {
-        return new AnalyzerMemberResolution(
+        created := new AnalyzerMemberResolution(
             FunctionTypeFactory,
             DeclarationContext,
             TypeSubstitution,
@@ -715,6 +716,8 @@ class Analyzer: IDisposable {
             ExtensionMethodResolution,
             UsingNamespaces
         )
+        created.SetFriendGrants(FriendGrants)
+        return created
     }
 
     private func CreateAssignability(): AnalyzerAssignability {

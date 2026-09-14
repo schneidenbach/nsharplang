@@ -37,6 +37,10 @@ class AnalyzerExtensionMethodResolution {
     assemblies: List<Assembly>
     importUsageCredit: AnalyzerImportUsageCredit?
 
+    // THE FRIEND GRANTS OF THE COMPILATION BEING ANALYSED, or null for an owner built without a
+    // project behind it — which grants nothing, exactly as before friends existed.
+    friendGrants: InternalsVisibleToGrants?
+
     constructor(types: AnalyzerTypeResolver, assignabilityOwner: AnalyzerAssignability, declarations: AnalyzerDeclarationContext, functionTypes: AnalyzerFunctionTypeFactory, clrConversion: AnalyzerClrTypeConversion, declaredExtensions: List<FunctionDeclaration>, importedNamespaces: List<string>, referenceAssemblies: List<Assembly>) {
         importUsageCredit = null
         typeResolver = types
@@ -47,6 +51,11 @@ class AnalyzerExtensionMethodResolution {
         extensionMethods = declaredExtensions
         usingNamespaces = importedNamespaces
         assemblies = referenceAssemblies
+        friendGrants = null
+    }
+
+    func SetFriendGrants(grants: InternalsVisibleToGrants?) {
+        friendGrants = grants
     }
 
     // SOURCE EXTENSIONS FIRST, AND THE EXTERNAL SCAN IS THE FALLBACK — but only when no source
@@ -219,9 +228,13 @@ class AnalyzerExtensionMethodResolution {
     // closure is present — `System.Reactive` carries signatures over WPF types and `WindowsBase`
     // does not exist on macOS — and materialising such a signature throws. The scan must answer
     // "this host offers no extension of that name", not end the analysis.
+    // A HOST THIS COMPILATION CANNOT NAME OFFERS NOTHING. The scan reads DECLARED types rather than
+    // exported ones because an extension declared on an `internal static class` is a real candidate
+    // — but only for a compilation the declaring assembly named a friend. Without that test the scan
+    // offered every reference's internal hosts to everybody, which is the same unsoundness the
+    // metadata type probe had. `IsNameableType` is the one rule both ask.
     func ScanExternalExtensionMethods(targetClrType: Type, methodName: string): List<MethodInfo> {
         methods := new List<MethodInfo>()
-        memberFlags := BindingFlags.Public | BindingFlags.Static
 
         assemblyIndex := 0
         while assemblyIndex < assemblies.Count {
@@ -231,8 +244,8 @@ class AnalyzerExtensionMethodResolution {
                 hostType := assemblyTypes[typeIndex]
                 hostNamespace := AnalyzerReflectionMemberProbe.NamespaceOrNull(hostType)
                 // A static class is `sealed abstract` in metadata; nothing else may declare one.
-                if hostNamespace != null && usingNamespaces.Contains(hostNamespace) && AnalyzerReflectionMemberProbe.IsStaticHostType(hostType) {
-                    CollectExtensionMethods(hostType, memberFlags, methodName, targetClrType, methods)
+                if hostNamespace != null && usingNamespaces.Contains(hostNamespace) && AnalyzerReflectionMemberProbe.IsStaticHostType(hostType) && IsNameableHost(hostType) {
+                    CollectExtensionMethods(hostType, HostMemberFlags(hostType), methodName, targetClrType, methods, friendGrants)
                 }
                 typeIndex = typeIndex + 1
             }
@@ -242,12 +255,35 @@ class AnalyzerExtensionMethodResolution {
         return methods
     }
 
+    func IsNameableHost(hostType: Type): bool {
+        if friendGrants == null {
+            return hostType.get_IsVisible()
+        }
+
+        return friendGrants.IsNameableType(hostType)
+    }
+
+    // An `internal` extension METHOD of a public host is as reachable as an internal host, and for
+    // the same reason, so the flags widen for a granting assembly and the level filter below decides
+    // what that admits.
+    func HostMemberFlags(hostType: Type): BindingFlags {
+        if friendGrants != null && friendGrants.SameAssemblyOrFriend(hostType) {
+            return BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static
+        }
+
+        return BindingFlags.Public | BindingFlags.Static
+    }
+
     static func CollectExtensionMethods(hostType: Type, memberFlags: BindingFlags, methodName: string, targetClrType: Type, methods: List<MethodInfo>) {
+        CollectExtensionMethods(hostType, memberFlags, methodName, targetClrType, methods, null)
+    }
+
+    static func CollectExtensionMethods(hostType: Type, memberFlags: BindingFlags, methodName: string, targetClrType: Type, methods: List<MethodInfo>, grants: InternalsVisibleToGrants?) {
         hostMethods := AnalyzerReflectionMemberProbe.MethodsOrEmpty(hostType, memberFlags)
         methodIndex := 0
         while methodIndex < hostMethods.Length {
             method := hostMethods[methodIndex]
-            if method.get_Name() == methodName && AnalyzerOverloadFacts.HasExtensionAttribute(method) {
+            if method.get_Name() == methodName && AnalyzerMemberResolution.IsReachableReflectedMethod(method, false, grants) && AnalyzerOverloadFacts.HasExtensionAttribute(method) {
                 // The RECEIVER parameter's type is the read that reaches the missing assembly. A
                 // candidate whose receiver cannot be materialised is not a candidate.
                 parameters := AnalyzerReflectionMemberProbe.ParametersOrNull(method)
