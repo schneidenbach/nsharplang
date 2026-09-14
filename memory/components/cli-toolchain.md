@@ -1,7 +1,7 @@
 # N# CLI Toolchain (`nlc`)
 
 **Status:** Active pre-release CLI with code intelligence, auto-fix, and daemon mode. Verify release claims with current help/completion output and test logs.
-**Test count:** Do not hard-code; run `dotnet test tests/Tests.csproj` or `./scripts/test-all.sh` for current evidence.
+**Test count:** Do not hard-code; run `./scripts/dev.sh --estate` (the compiler-service estate) plus `nlc test --project tests/native/<dir>` for the native projects, or `./scripts/test-all.sh`, for current evidence. There is no C# unit suite — `tests/*.cs` and `tests/Tests.csproj` are retired.
 
 The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. `nlc query`, `nlc check`, `nlc fix`, and `nlc lint` all output structured JSON by default with a versioned envelope. `check`, `fix`, and `lint` use `ok`/`error` at the top level; query failures use the same structured error envelope. Add `--text` for human-readable output. `nlc --version` prints the installed version.
 

@@ -2,7 +2,7 @@
 
 ## Test Suite
 
-**Total Tests:** Do not hard-code counts here. Run `dotnet test tests/Tests.csproj` for the current unit count and `./scripts/test-all.sh` for the full product gate.
+**Total Tests:** Do not hard-code counts here. There are two test bodies and no C# unit suite: the ESTATE (`src/NSharpLang.Compiler.Core/*.tests.nl`, run through that project with `-p:NSharpExcludeTests=false`) and the NATIVE PROJECTS (`tests/native/<dir>`, each run by `nlc test`). `./scripts/dev.sh --list` names every slice; `./scripts/test-all.sh` runs the full product gate.
 
 ## Test Organization
 
@@ -1141,24 +1141,27 @@ another compiler build (for example a historical worktree) is measured over the 
 
 ### Known Testing Limitation
 Raw filtered `dotnet test --filter` invocations can hang in this project because of the
-assembly-loading test topology. Use `./scripts/dev.sh <pattern>` for focused work and plain
-`dotnet test tests/Tests.csproj` for the full unit suite.
+assembly-loading test topology. Use `./scripts/dev.sh <pattern>` for focused work and
+`./scripts/dev.sh --estate` for the whole compiler-service estate.
 
 ## Running Tests
 
-### All Tests
+### Everything the gate's test steps run
 ```bash
-dotnet test tests/Tests.csproj
+./scripts/dev.sh --since          # or, for the real backstop:
+VSCODE_TESTS=skip ./scripts/test-all.sh --commit
 ```
 
-### Specific Test Class
+### One native project
 ```bash
-./scripts/dev.sh SystemsNSharp
+./scripts/dev.sh Columnar         # every native project whose directory name matches
+./scripts/dev.sh --list           # every slice name
 ```
 
-### Specific Test Method
+### The compiler-service estate
 ```bash
-./scripts/dev.sh TestGenericConstraints
+./scripts/dev.sh --estate             # all ~9,200 rows
+./scripts/dev.sh --estate Columnar    # only the rows whose name matches
 ```
 
 ### With Detailed Output

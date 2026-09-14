@@ -183,8 +183,17 @@ binary surfaces) carry no ceiling but an exact reviewed fingerprint, so any drif
 ```bash
 dotnet build src/NSharpLang.Compiler/Compiler.csproj
 dotnet build src/NSharpLang.Cli/Cli.csproj
-dotnet test tests/Tests.csproj
+
+# the compiler-service estate (~9,200 rows beside their owners)
+dotnet restore src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj -p:NSharpExcludeTests=false --force-evaluate
+dotnet test src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj -p:NSharpExcludeTests=false --no-restore
+
+# one native project
+dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll test --project tests/native/<dir> --no-cache
 ```
+
+There is no C# unit suite: `tests/*.cs` and `tests/Tests.csproj` are retired. Every assertion lives
+either in the estate or in a `tests/native/<dir>` project, which is what the gate's Step 3a runs.
 
 Use `./scripts/dev.sh <pattern>` for focused backend/compiler iteration and the appropriate
 `./scripts/test-all.sh --commit` gate at integration checkpoints, as described in `AGENTS.md`.
