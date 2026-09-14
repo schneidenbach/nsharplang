@@ -7376,7 +7376,13 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
             return -1
         }
 
-        yieldValue := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+        // THE LAMBDA LEVEL, not the assignment one — the same choice `return` above makes, and for
+        // the same reason: `yield () => v` and `yield async () => v` are the ordinary bodies of a
+        // generator whose element type is a delegate, and the lambda level falls through to
+        // assignment for everything that is not one. Parsing a yielded value at the assignment level
+        // made `yield x => …` a PARSE failure of the whole function (`parse.function`), which is the
+        // one diagnostic that cannot say what it did not understand.
+        yieldValue := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
         if yieldValue < 0 {
             return -1
         }
