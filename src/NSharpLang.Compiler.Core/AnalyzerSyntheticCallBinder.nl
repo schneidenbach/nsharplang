@@ -326,6 +326,50 @@ class AnalyzerSyntheticCallFacts {
         return cost
     }
 
+    // ONE CANDIDATE'S WRITTEN PARAMETER TYPE PER ARGUMENT POSITION — the signature as the declaration
+    // SPELLED it, with nothing substituted in. This is what the last tie-break
+    // (`AnalyzerOpenTypeSpecificity`) reads: `Pick<T>(f: Func<T>)` and `Pick<T>(f: Func<List<T>>)`
+    // accept the same call with the same score, and the only thing that separates them is that the
+    // second wrote more.
+    //
+    // A position an argument did not reach has no written type to compare and stays null, which the
+    // fold reads as "this position says nothing". A PARAMS tail is read through its element, exactly
+    // as the generic-parameter cost reads it, so a spread argument compares against the type each of
+    // its elements is really converted to.
+    static func GetSourceOpenParameterTypesByArgument(functionType: FunctionTypeInfo, call: CallExpression, argumentCount: int): TypeReference?[] {
+        openParameterTypes := new TypeReference?[](argumentCount)
+        sourceParameterTypes := functionType.SourceParameterTypes
+        if sourceParameterTypes == null || sourceParameterTypes.Count == 0 {
+            return openParameterTypes
+        }
+
+        parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
+        functionName := ResolveSyntheticFunctionName(functionType, call)
+        binding := BindFunctionArguments(functionType, functionName, call, parameterStartIndex)
+        if !binding.Success {
+            return openParameterTypes
+        }
+
+        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, sourceParameterTypes.Count)
+        parameterIndexByArgument := binding.ParameterIndexByArgument
+        argumentIndex := 0
+        while argumentIndex < argumentCount && argumentIndex < parameterIndexByArgument.Length {
+            parameterIndex := parameterIndexByArgument[argumentIndex]
+            if parameterIndex >= 0 && parameterIndex < sourceParameterTypes.Count {
+                sourceParameterType := sourceParameterTypes[parameterIndex]
+                if paramsParameterIndex >= 0 && parameterIndex == paramsParameterIndex {
+                    sourceParameterType = AnalyzerOverloadFacts.GetParamsInferenceTypeReference(sourceParameterType)
+                }
+
+                openParameterTypes[argumentIndex] = sourceParameterType
+            }
+
+            argumentIndex = argumentIndex + 1
+        }
+
+        return openParameterTypes
+    }
+
     // CLOSES an inferred signature. A type parameter reaches the analyzer as a bare NAME — an
     // `ExternalTypeInfo` or a `SimpleTypeInfo` whose name is the parameter's — so substitution is a
     // name lookup at the leaves and a rebuild through every composite shell above them. An unbound

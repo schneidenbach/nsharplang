@@ -77,6 +77,19 @@ class ReflectionCallFinalizeState {
 
     // 0 = phase one (the inferring lambda pre-pass), 1 = phase two (convert and validate), 2 = done.
     Phase: int
+
+    // WHETHER A LAMBDA ARGUMENT MUST EXACTLY MATCH THIS CANDIDATE'S DELEGATE, which is C#'s first
+    // clause of "better conversion from expression" (§12.6.4.4) asked where the answer exists.
+    //
+    // The clause says the delegate whose return type IS the lambda's inferred return type beats one
+    // the lambda merely converts to — `Task.Run(Func<Task<int>>)` over `Task.Run(Func<Task>)` for
+    // `() => Task.FromResult(11)`, since `Task<int>` converts to `Task` and the second would
+    // otherwise accept it. N# cannot ask it where C# does, because a lambda argument is deliberately
+    // left unanalysed until an overload is chosen, so it is asked HERE instead: the call's walk runs
+    // the candidates it could not separate ONCE demanding an exact match and, only if none binds,
+    // AGAIN accepting every conversion. A single-method call never demands it — there is no other
+    // candidate for the clause to prefer.
+    RequireExactLambdaMatch: bool
     PreIndex: int
     MainIndex: int
     ParamsIndex: int
@@ -129,6 +142,7 @@ class ReflectionCallFinalizeState {
         workingBindingsValue = workingBindings
         workingTypeInfoBindingsValue = workingTypeInfoBindings
         parameterTypesValue = new List<TypeInfo>()
+        RequireExactLambdaMatch = false
         Phase = 0
         PreIndex = 0
         MainIndex = 0

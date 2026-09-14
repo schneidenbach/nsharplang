@@ -94,24 +94,35 @@ test "THE FOLD IS ALL-OR-NOTHING: winning one position and losing another is not
 test "THE GENERIC TIE-BREAK IS GATED ON THE PARAMETER TYPES BEING IDENTICAL" {
     // `string.Join(string, IEnumerable<string>)` over `Join<T>(string, IEnumerable<T>)` with
     // `T = string`: the substituted signatures are the same types, so the non-generic one wins.
-    assert AnalyzerOverloadSpecificity.CompareTieBreaks(true, false, true, false, false, 0, 0) == AnalyzerOverloadSpecificity.LeftIsBetter
-    assert AnalyzerOverloadSpecificity.CompareTieBreaks(true, true, false, false, false, 0, 0) == AnalyzerOverloadSpecificity.RightIsBetter
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(true, false, true, false, false, 0, 0, 0) == AnalyzerOverloadSpecificity.LeftIsBetter
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(true, true, false, false, false, 0, 0, 0) == AnalyzerOverloadSpecificity.RightIsBetter
 
     // Signatures the conversions could NOT separate and that are not the same types are left alone:
     // "non-generic wins" is a tie-break, never a way to overturn a conversion that did not happen.
-    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, true, false, false, 0, 0) == AnalyzerOverloadSpecificity.NeitherIsBetter
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, true, false, false, 0, 0, 0) == AnalyzerOverloadSpecificity.NeitherIsBetter
 }
 
 test "NORMAL FORM BEATS AN EXPANDED PARAMS TAIL, AND FEWER DEFAULTS BEATS MORE, IN THAT ORDER" {
-    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, false, true, 0, 0) == AnalyzerOverloadSpecificity.LeftIsBetter
-    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, true, false, 0, 0) == AnalyzerOverloadSpecificity.RightIsBetter
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, false, true, 0, 0, 0) == AnalyzerOverloadSpecificity.LeftIsBetter
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, true, false, 0, 0, 0) == AnalyzerOverloadSpecificity.RightIsBetter
 
     // The params key is read FIRST: a candidate that expands loses even though it fills fewer defaults.
-    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, true, false, 0, 3) == AnalyzerOverloadSpecificity.RightIsBetter
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, true, false, 0, 3, 0) == AnalyzerOverloadSpecificity.RightIsBetter
 
-    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, false, false, 0, 1) == AnalyzerOverloadSpecificity.LeftIsBetter
-    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, false, false, 2, 1) == AnalyzerOverloadSpecificity.RightIsBetter
-    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, false, false, 1, 1) == AnalyzerOverloadSpecificity.NeitherIsBetter
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, false, false, 0, 1, 0) == AnalyzerOverloadSpecificity.LeftIsBetter
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, false, false, 2, 1, 0) == AnalyzerOverloadSpecificity.RightIsBetter
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, false, false, 1, 1, 0) == AnalyzerOverloadSpecificity.NeitherIsBetter
+}
+
+test "THE WRITTEN-SIGNATURE VERDICT IS THE LAST TIE-BREAK AND NEVER OVERTURNS AN EARLIER ONE" {
+    // Nothing else separates the pair: the written signatures decide, and the verdict passes through.
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, false, false, 0, 0, AnalyzerOverloadSpecificity.LeftIsBetter) == AnalyzerOverloadSpecificity.LeftIsBetter
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, false, false, 0, 0, AnalyzerOverloadSpecificity.RightIsBetter) == AnalyzerOverloadSpecificity.RightIsBetter
+
+    // An EARLIER key that answered wins: a candidate expanding a params tail loses even where its
+    // written signature is the more specific one, and so does one that fills more defaults.
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, true, false, 0, 0, AnalyzerOverloadSpecificity.LeftIsBetter) == AnalyzerOverloadSpecificity.RightIsBetter
+    assert AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, false, false, 2, 1, AnalyzerOverloadSpecificity.LeftIsBetter) == AnalyzerOverloadSpecificity.RightIsBetter
 }
 
 test "THE MAXIMAL SET IS WHAT NOTHING BEATS, and it does not depend on the candidate order" {

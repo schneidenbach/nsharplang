@@ -990,6 +990,12 @@ class CallWalkParameterTypes {
     static func NoTypeInfos(count: int): TypeInfo?[] {
         return new TypeInfo?[](count)
     }
+
+    // No position holds an anonymous function. These contracts pin the conversion and tie-break rules
+    // over ordinary arguments; the lambda clause has its own contracts beside the rule that states it.
+    static func NoLambdas(count: int): bool[] {
+        return new bool[count]
+    }
 }
 
 func CallWalkCandidate(score: int, usesParams: bool, defaultsUsed: int): ReflectionPreBoundCandidate {
@@ -1137,11 +1143,12 @@ test "THE SCORE STILL DECIDES FIRST: specificity separates candidates the ladder
     harness := CallWalkHarnessOf(CallWalkErrors())
     empty := CallWalkParameterTypes.Unfilled(0)
     emptyInfos := CallWalkParameterTypes.NoTypeInfos(0)
+    noLambdas := CallWalkParameterTypes.NoLambdas(0)
 
     // The ladder carries facts the type comparison cannot see — the extension penalty, the lambda
     // rules — so a higher score wins outright and nothing else is asked.
-    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(8, false, 0), CallWalkCandidate(4, false, 0), empty, empty, empty, emptyInfos) == AnalyzerOverloadSpecificity.LeftIsBetter
-    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(4, false, 0), CallWalkCandidate(8, false, 0), empty, empty, empty, emptyInfos) == AnalyzerOverloadSpecificity.RightIsBetter
+    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(8, false, 0), CallWalkCandidate(4, false, 0), empty, empty, empty, empty, empty, emptyInfos, noLambdas) == AnalyzerOverloadSpecificity.LeftIsBetter
+    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(4, false, 0), CallWalkCandidate(8, false, 0), empty, empty, empty, empty, empty, emptyInfos, noLambdas) == AnalyzerOverloadSpecificity.RightIsBetter
 }
 
 test "A MORE SPECIFIC PARAMETER BEATS A MORE GENERAL ONE AT AN EQUAL SCORE" {
@@ -1157,8 +1164,11 @@ test "A MORE SPECIFIC PARAMETER BEATS A MORE GENERAL ONE AT AN EQUAL SCORE" {
         right,
         CallWalkParameterTypes.Of1(typeof(IEnumerable<int>)),
         CallWalkParameterTypes.Of1(typeof(object)),
+        CallWalkParameterTypes.Of1(typeof(IEnumerable<int>)),
+        CallWalkParameterTypes.Of1(typeof(object)),
         CallWalkParameterTypes.Of1(typeof(List<int>)),
-        CallWalkParameterTypes.NoTypeInfos(1)
+        CallWalkParameterTypes.NoTypeInfos(1),
+        CallWalkParameterTypes.NoLambdas(1)
     )
     assert specific == AnalyzerOverloadSpecificity.LeftIsBetter
 
@@ -1169,7 +1179,10 @@ test "A MORE SPECIFIC PARAMETER BEATS A MORE GENERAL ONE AT AN EQUAL SCORE" {
         CallWalkParameterTypes.Of1(typeof(List<int>)),
         CallWalkParameterTypes.Of1(typeof(IEnumerable<int>)),
         CallWalkParameterTypes.Of1(typeof(List<int>)),
-        CallWalkParameterTypes.NoTypeInfos(1)
+        CallWalkParameterTypes.Of1(typeof(IEnumerable<int>)),
+        CallWalkParameterTypes.Of1(typeof(List<int>)),
+        CallWalkParameterTypes.NoTypeInfos(1),
+        CallWalkParameterTypes.NoLambdas(1)
     )
     assert identity == AnalyzerOverloadSpecificity.LeftIsBetter
 }
@@ -1183,8 +1196,11 @@ test "A CANDIDATE THAT WINS ONE POSITION AND LOSES ANOTHER IS NOT BETTER — tha
         CallWalkCandidate(12, false, 0),
         CallWalkParameterTypes.Of2(typeof(object), typeof(string)),
         CallWalkParameterTypes.Of2(typeof(string), typeof(object)),
+        CallWalkParameterTypes.Of2(typeof(object), typeof(string)),
+        CallWalkParameterTypes.Of2(typeof(string), typeof(object)),
         CallWalkParameterTypes.Of2(typeof(string), typeof(string)),
-        CallWalkParameterTypes.NoTypeInfos(2)
+        CallWalkParameterTypes.NoTypeInfos(2),
+        CallWalkParameterTypes.NoLambdas(2)
     )
     assert split == AnalyzerOverloadSpecificity.NeitherIsBetter
 }
@@ -1200,8 +1216,11 @@ test "A POSITION WITH NO ARGUMENT TYPE IS SKIPPED, not guessed at" {
         CallWalkCandidate(6, false, 0),
         CallWalkParameterTypes.Of1(typeof(Func<string, string>)),
         CallWalkParameterTypes.Of1(typeof(Func<string, int, string>)),
+        CallWalkParameterTypes.Of1(typeof(Func<string, string>)),
+        CallWalkParameterTypes.Of1(typeof(Func<string, int, string>)),
         CallWalkParameterTypes.Unfilled(1),
-        CallWalkParameterTypes.NoTypeInfos(1)
+        CallWalkParameterTypes.NoTypeInfos(1),
+        CallWalkParameterTypes.NoLambdas(1)
     )
     assert unknownArgument == AnalyzerOverloadSpecificity.NeitherIsBetter
 
@@ -1212,7 +1231,10 @@ test "A POSITION WITH NO ARGUMENT TYPE IS SKIPPED, not guessed at" {
         CallWalkParameterTypes.Of1(typeof(string)),
         CallWalkParameterTypes.Unfilled(1),
         CallWalkParameterTypes.Of1(typeof(string)),
-        CallWalkParameterTypes.NoTypeInfos(1)
+        CallWalkParameterTypes.Unfilled(1),
+        CallWalkParameterTypes.Of1(typeof(string)),
+        CallWalkParameterTypes.NoTypeInfos(1),
+        CallWalkParameterTypes.NoLambdas(1)
     )
     assert unfilled == AnalyzerOverloadSpecificity.NeitherIsBetter
 }
@@ -1221,9 +1243,10 @@ test "THE PARAMS AND DEFAULT KEYS STILL BREAK A TIE THE CONVERSIONS COULD NOT" {
     harness := CallWalkHarnessOf(CallWalkErrors())
     empty := CallWalkParameterTypes.Unfilled(0)
     emptyInfos := CallWalkParameterTypes.NoTypeInfos(0)
+    noLambdas := CallWalkParameterTypes.NoLambdas(0)
 
-    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(4, false, 0), CallWalkCandidate(4, true, 0), empty, empty, empty, emptyInfos) == AnalyzerOverloadSpecificity.LeftIsBetter
-    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(4, false, 2), CallWalkCandidate(4, false, 0), empty, empty, empty, emptyInfos) == AnalyzerOverloadSpecificity.RightIsBetter
+    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(4, false, 0), CallWalkCandidate(4, true, 0), empty, empty, empty, empty, empty, emptyInfos, noLambdas) == AnalyzerOverloadSpecificity.LeftIsBetter
+    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(4, false, 2), CallWalkCandidate(4, false, 0), empty, empty, empty, empty, empty, emptyInfos, noLambdas) == AnalyzerOverloadSpecificity.RightIsBetter
 }
 
 // ── the diagnostic rollback, which is what makes the order matter ─────────────

@@ -1450,7 +1450,6 @@ sealed class ColumnarIlEmitter {
                 _programType,
                 _currentStruct,
                 _lambdaCounter,
-                _isConstructorBody,
                 _typeParameters,
                 delegateReturnType,
                 signatureTypes,
@@ -1547,7 +1546,11 @@ sealed class ColumnarIlEmitter {
             _paramOrdinals,
             _siblings
         )
-        if capturesEnclosingThis && (_currentStruct == null || !_currentStruct.IsReference || _currentStruct.GenericParameters != null || _isConstructorBody) {
+        // A REFERENCE `this` IS CAPTURABLE IN A CONSTRUCTOR TOO: `ldarg.0` there is the object under
+        // construction, the same reference every later method sees. Only a value type's `this` (a
+        // pointer into the constructor's own storage) and a generic type's (whose display class has no
+        // closed owner to name) cannot be captured.
+        if capturesEnclosingThis && (_currentStruct == null || !_currentStruct.IsReference || _currentStruct.GenericParameters != null) {
             return false
         }
         snapshotNames := new List<string>()
@@ -1919,7 +1922,6 @@ sealed class ColumnarIlEmitter {
             _programType,
             _currentStruct,
             _lambdaCounter,
-            _isConstructorBody,
             _typeParameters,
             inferredThisCapture
         )
@@ -2098,6 +2100,45 @@ sealed class ColumnarIlEmitter {
             // generic arguments are two objects for one type — and which also performs the ordinary
             // conversions a parameter position admits. Without them `Changed(this, args)` could not
             // pass its own receiver to an `object` sender.
+            if (!EmitDeclaredCallArgument(Child(callIdx, a), invokeParameterTypes[a - 1], true)) {
+                return false
+            }
+        }
+        _il.Emit(OpCodes.Callvirt, invoke)
+        columnarResolvedType = invokeReturnType
+        return true
+    }
+
+    // A DELEGATE THE CALLEE EXPRESSION PRODUCES, INVOKED WHERE IT STANDS. `Make(prefix)("y")` and
+    // `handlers[0](e)` name no member and no binding: the callee is an ORDINARY EXPRESSION whose
+    // VALUE is the delegate, and the arm above — which reads a delegate out of a local, a parameter,
+    // a capture or a field BY NAME — has no name to read. Without this the whole shape declined as
+    // `emit.call.callee-kind`, which named the node kind rather than anything the reader wrote.
+    //
+    // The signature is settled by PREFLIGHT before a single instruction is emitted, so a callee that
+    // is not a delegate (or whose arity disagrees) declines with nothing on the stack, and the
+    // arguments go through the same declared-argument door every other call uses.
+    private func TryEmitInvokedDelegateValue(callIdx: int, callee: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let calleeType: System.Type? = null
+        if (!TryGetPreflightExpressionType(callee, out calleeType) || calleeType == null || !IsInvocableDelegateType(calleeType)) {
+            return false
+        }
+        let invoke: System.Reflection.MethodInfo = null
+        let invokeParameterTypes: System.Type[] = null
+        let invokeReturnType: System.Type = null
+        if (!TryResolveDelegateInvocation(calleeType, out invoke, out invokeParameterTypes, out invokeReturnType)) {
+            return false
+        }
+        argCount := _nodes.ChildCount(callIdx) - 1
+        if (argCount != invokeParameterTypes.Length) {
+            return false
+        }
+        let emittedCalleeType: System.Type? = null
+        if (!EmitExpression(callee, out emittedCalleeType) || !TypesEquivalent(emittedCalleeType, calleeType)) {
+            return false
+        }
+        for a := 1; a <= argCount; a++ {
             if (!EmitDeclaredCallArgument(Child(callIdx, a), invokeParameterTypes[a - 1], true)) {
                 return false
             }
@@ -11940,6 +11981,12 @@ sealed class ColumnarIlEmitter {
                 // MemberAccess callee -> a BCL instance/static method call.
                 return TryEmitBclMethodCall(idx, callee, legacyWholeSubtreePlanning, out columnarResolvedType)
             }
+            // THE CALLEE MAY SIMPLY BE A DELEGATE-VALUED EXPRESSION. `Make(prefix)("y")` names no
+            // member at all, and asking the delegate-invoke door about it is what the language means
+            // by writing an argument list after any expression that produces one.
+            if (TryEmitInvokedDelegateValue(idx, callee, out columnarResolvedType)) {
+                return true
+            }
             return Decline("emit.call.callee-kind", "call callee (node kind " + _nodes.Kind(callee).ToString() + ") is not a name, a generic name or a member access", callee)
         } else if columnarSwitchValue2 == 8 {
             // MemberAccess [receiver] — an ENUM CONSTANT (e.g. StringComparison.Ordinal), or `.Length` on
@@ -12745,22 +12792,16 @@ sealed class ColumnarIlEmitter {
                             continue
                         }
 
-                        ctorArgNode := Child(idx, 1 + a)
-                        let ctorArgType: System.Type = null
-                        if (TryEmitIntLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType)) {
-                        } else {
-                            // Unsuffixed integer literal adopted to the declared constructor parameter type.
-                            if (TryEmitZeroLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType)) {
-                            } else {
-                                // Null adopted to the declared reference/nullable constructor parameter type.
-                                if (!EmitExpression(ctorArgNode, out ctorArgType)) {
-                                    return false
-                                }
-                            }
-                        }
-                        // exact match, or the INTERFACE upcast (an implementer into an
-                        // interface-typed ctor param — boxes value implementers, IF-1).
-                        if (!TypesEquivalent(ctorArgType, chosenParamTypes[a]) && !TryEmitImplicitWidening(ctorArgType, chosenParamTypes[a]) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(ctorArgType, chosenParamTypes[a], _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(ctorArgType, chosenParamTypes[a], _structRegistry, _il) && !TryEmitSpanConversion(ctorArgType, chosenParamTypes[a]) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(ctorArgType, chosenParamTypes[a]) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(ctorArgType, chosenParamTypes[a], _structRegistry, _il) && !TryEmitAnonymousUnionConversion(ctorArgType, chosenParamTypes[a])) {
+                        // A CONSTRUCTOR ARGUMENT IS A CALL ARGUMENT. It used to be emitted by a
+                        // hand-written subset of the call path's rules, which is why a LAMBDA LITERAL
+                        // written directly at `new Runner(() => "hi")` reached `EmitExpression` with no
+                        // delegate target and declined as an unsupported expression (kind 39) while the
+                        // identical argument at a method call emitted. `EmitDeclaredCallArgument` is the
+                        // one owner of "emit this expression AS this parameter type" — literals adopted
+                        // to the declared type, lambda literals and method groups converted to the
+                        // declared delegate, collection and array literals, and every conversion the
+                        // subset spelled by hand.
+                        if (!EmitDeclaredCallArgument(Child(idx, 1 + a), chosenParamTypes[a], true)) {
                             return false
                         }
                     }
@@ -16541,31 +16582,6 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ldloc, options)
             _il.Emit(OpCodes.Call, method)
             resolvedClrType = typeof(JsonDocument)
-            return true
-        }
-        if (typeName == "Task" && member == nameof(System.Threading.Tasks.Task.Run) && argCount == 1) {
-            // `Task.Run` DECLARES BOTH `Action` AND `Func<Task>` AT THIS ARITY, and which one an
-            // argument means is the argument's own shape: a void lambda is an `Action`, and an
-            // `async` lambda cannot be one at all (it produces a task — see
-            // `AnalyzerLambdaAnalysis.AsyncBodyReturnType`), so it is the `Func<Task>` overload. The
-            // ordinary resolver refuses the pair as ambiguous, which is why the choice is made here.
-            taskRunArgument := Child(callIdx, 1)
-            actionRun := typeof(System.Threading.Tasks.Task).GetMethod(nameof(System.Threading.Tasks.Task.Run), [typeof(Action)])
-            if (actionRun != null && CanDeclaredCallArgumentMatch(taskRunArgument, typeof(Action), true)) {
-                if (!EmitDeclaredCallArgument(taskRunArgument, typeof(Action), true)) {
-                    return false
-                }
-                _il.Emit(OpCodes.Call, actionRun)
-                resolvedClrType = typeof(System.Threading.Tasks.Task)
-                return true
-            }
-            taskFactoryType := typeof(Func<System.Threading.Tasks.Task>)
-            taskFactoryRun := typeof(System.Threading.Tasks.Task).GetMethod(nameof(System.Threading.Tasks.Task.Run), [taskFactoryType])
-            if (taskFactoryRun == null || !CanDeclaredCallArgumentMatch(taskRunArgument, taskFactoryType, true) || !EmitDeclaredCallArgument(taskRunArgument, taskFactoryType, true)) {
-                return false
-            }
-            _il.Emit(OpCodes.Call, taskFactoryRun)
-            resolvedClrType = typeof(System.Threading.Tasks.Task)
             return true
         }
         if (typeName == "Task" && member == nameof(System.Threading.Tasks.Task.WaitAll) && argCount >= 1) {
@@ -21560,7 +21576,8 @@ sealed class ColumnarIlEmitter {
     // selector/predicate body.
     private func TryPreflightContextualLambdaReturnType(lambdaNode: int, parameterTypes: Type[], out returnType: Type): bool {
         returnType = null
-        if (_nodes.Kind(lambdaNode) != 39) {
+        isAsyncLambda := ColumnarLambdaNodeFacts.IsAsyncLambda(_nodes.Kind(lambdaNode))
+        if (_nodes.Kind(lambdaNode) != 39 && !isAsyncLambda) {
             return false
         }
         signature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(
@@ -21623,6 +21640,24 @@ sealed class ColumnarIlEmitter {
             _typeResolutionStructs,
             _typeResolutionUnions
         )
+        // AN `async` LAMBDA'S OWN TYPE IS A TASK OF WHAT ITS BODY ANSWERED, which is the same rule
+        // `AnalyzerLambdaAnalysis.AsyncWrappedReturnType` states for the analyzer: the body produces
+        // the task's RESULT, and what the lambda converts to is the task. Without it the contextual
+        // resolver could not type an `async` argument at all, and `Task.Run(async () => { … })` — the
+        // shape a per-member `Task.Run` row used to answer by hand — reached no candidate.
+        if (isAsyncLambda) {
+            if (_nodes.Kind(signature.BodyNode) == 25) {
+                return subEmitter.TryPreflightAsyncBlockBodyReturnType(signature.BodyNode, out returnType)
+            }
+
+            let asyncBodyType: System.Type? = null
+            if (!subEmitter.TryGetPreflightExpressionType(signature.BodyNode, out asyncBodyType)) {
+                return false
+            }
+
+            return TryWrapAsyncPreflightResult(asyncBodyType, out returnType)
+        }
+
         // A BLOCK BODY HAS NO EXPRESSION TO PREFLIGHT, AND ITS `return` STATEMENTS ARE WHAT IT GIVES.
         // Without this arm `names.Select(name => { … return new Range(…) })` left `TResult` with
         // nothing to bind it and declined at emit after the analyzer had accepted the same program.
@@ -21633,15 +21668,65 @@ sealed class ColumnarIlEmitter {
         return subEmitter.TryGetPreflightExpressionType(signature.BodyNode, out returnType) && returnType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(returnType)
     }
 
+    // THE TASK AN `async` BODY'S VALUE TRAVELS IN. A body that produced NO value converts to the unit
+    // `Task`; anything else to `Task<that>`. `Task<T>` is not unwrapped first — `async () => TaskOf(1)`
+    // really does answer `Task<Task<int>>`, exactly as C# says it does.
+    private static func TryWrapAsyncPreflightResult(bodyResult: Type?, out returnType: Type): bool {
+        returnType = null
+        if (bodyResult == null) {
+            return false
+        }
+        if (bodyResult == ColumnarTypeOfPlanner.RequiredVoidType()) {
+            returnType = typeof(System.Threading.Tasks.Task)
+            return true
+        }
+        if (!ColumnarTypeOfPlanner.IsSupportedType(bodyResult)) {
+            return false
+        }
+        wrapped := typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().MakeGenericType([bodyResult])
+        if (!ColumnarTypeOfPlanner.IsSupportedType(wrapped)) {
+            return false
+        }
+        returnType = wrapped
+        return true
+    }
+
+    // AN `async` BLOCK BODY'S TASK. The block's `return` statements name the RESULT, and a block that
+    // returns no value at all is the unit `Task` rather than a decline — which is the difference
+    // between "this body produces nothing" and "this body's arms disagree", and only the first one is
+    // an answer.
+    private func TryPreflightAsyncBlockBodyReturnType(blockNode: int, out returnType: Type): bool {
+        returnType = null
+        collected := new List<Type>()
+        if (!CollectBlockReturnTypes(blockNode, collected)) {
+            return false
+        }
+        if (collected.Count == 0) {
+            returnType = typeof(System.Threading.Tasks.Task)
+            return true
+        }
+
+        agreed := collected[0]
+        for collectedIndex := 1; collectedIndex < collected.Count; collectedIndex++ {
+            let joined: System.Type? = null
+            if (!TryJoinPreflightReturnTypes(agreed, collected[collectedIndex], out joined)) {
+                return false
+            }
+            agreed = joined
+        }
+
+        return TryWrapAsyncPreflightResult(agreed, out returnType)
+    }
+
     // THE TYPE A BLOCK-BODIED LAMBDA GIVES, read off the `return` statements the block itself
     // executes. This is the block spelling of the preflight above and answers the same question: what
     // does this lambda put in the delegate's return position, so the call's type argument can be
     // bound from it.
     //
-    // EVERY RETURN MUST AGREE, because emission builds ONE delegate signature and has no join to fall
-    // back on: a block whose returns are two different types declines here rather than picking the
-    // first. The analyzer, which does have a join, is what reports such a body when the disagreement
-    // is real.
+    // EVERY RETURN MUST JOIN, because emission builds ONE delegate signature: the arms are folded
+    // through `TryJoinPreflightReturnTypes`, which is the ANALYZER's join stated over the types this
+    // emitter has. A block whose arms join at nothing declines here rather than picking the first, and
+    // that body is the one the analyzer reports.
     private func TryPreflightBlockBodyReturnType(blockNode: int, out returnType: Type): bool {
         returnType = null
         collected := new List<Type>()
@@ -21650,24 +21735,71 @@ sealed class ColumnarIlEmitter {
         }
         agreed := collected[0]
         for collectedIndex := 1; collectedIndex < collected.Count; collectedIndex++ {
-            // TWO ARMS THAT ARE NOT THE SAME TYPE JOIN AT THE ONE THAT CONTAINS THE OTHER, which for
-            // this compilation's own types is a walk of the declared base chain — reflection cannot
-            // answer it while both are still builders. Anything wider than that (a shared interface,
-            // a shared base neither arm names) is the analyzer's join and is not reproduced here:
-            // emission builds ONE delegate signature and declines rather than guessing at it.
-            candidate := collected[collectedIndex]
-            if (!TypesEquivalent(agreed, candidate) && !IsSourceBaseOf(agreed, candidate)) {
-                if (!IsSourceBaseOf(candidate, agreed)) {
-                    return false
-                }
-                agreed = candidate
+            let joined: System.Type? = null
+            if (!TryJoinPreflightReturnTypes(agreed, collected[collectedIndex], out joined)) {
+                return false
             }
+            agreed = joined
         }
         if (agreed == ColumnarTypeOfPlanner.RequiredVoidType() || !ColumnarTypeOfPlanner.IsSupportedType(agreed)) {
             return false
         }
         returnType = agreed
         return true
+    }
+
+    // TWO ARMS' JOIN, STATED THE WAY THE ANALYZER STATES IT (`AnalyzerAmbientContext.JoinInferredReturnType`
+    // over `AnalyzerMatchExpression.FindCommonBaseType`), because emission must accept every body the
+    // analyzer accepted. The analyzer's order is: the arm that already contains the other wins; then a
+    // SHARED INTERFACE; then a shared base neither arm names. `object` is deliberately not an answer —
+    // joining two unrelated types there would hide a disagreement rather than report it.
+    //
+    // ONE OF THIS COMPILATION'S OWN TYPES ANSWERS FIRST AND FROM THE DEFINITION TABLE: reflection
+    // cannot be asked about a pair that is still builders. Everything below it is the reflected half,
+    // and it is the half that was missing — `f => { if c { return new MemoryStream() } return Stream.Null }`
+    // was accepted by the analyzer (which joined at `Stream`) and declined at emission, which knew
+    // only the source base chain and could not see a reflected one.
+    private func TryJoinPreflightReturnTypes(agreed: Type, candidate: Type, out joined: Type): bool {
+        joined = null
+        if (TypesEquivalent(agreed, candidate) || IsSourceBaseOf(agreed, candidate)) {
+            joined = agreed
+            return true
+        }
+        if (IsSourceBaseOf(candidate, agreed)) {
+            joined = candidate
+            return true
+        }
+        if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(agreed) || ColumnarTypeOfPlanner.ContainsBuilderBoundType(candidate)) {
+            return false
+        }
+        if (agreed.IsAssignableFrom(candidate)) {
+            joined = agreed
+            return true
+        }
+        if (candidate.IsAssignableFrom(agreed)) {
+            joined = candidate
+            return true
+        }
+        agreedInterfaces := agreed.GetInterfaces()
+        candidateInterfaces := candidate.GetInterfaces()
+        for agreedInterface in agreedInterfaces {
+            for candidateInterface in candidateInterfaces {
+                if (agreedInterface == candidateInterface) {
+                    joined = agreedInterface
+                    return true
+                }
+            }
+        }
+        objectType := typeof(object)
+        sharedBase: System.Type? = agreed.get_BaseType()
+        while (sharedBase != null && sharedBase != objectType) {
+            if (sharedBase.IsAssignableFrom(candidate)) {
+                joined = sharedBase
+                return true
+            }
+            sharedBase = sharedBase.get_BaseType()
+        }
+        return false
     }
 
     // WHETHER ONE OF THIS COMPILATION'S OWN TYPES DECLARES THE OTHER'S BASE, read off the definition
@@ -21915,6 +22047,7 @@ sealed class ColumnarIlEmitter {
     // signature the less generic one wins (`Max<TSource>` against `Max<TSource, TResult>`).
     private func TrySelectContextualCandidate(callIdx: int, argCount: int, candidateBindings: List<NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding>, receiverType: Type, checkReceiver: bool, out closedCandidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate): bool {
         closedCandidate = null
+        let selectedBinding: NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding? = null
         selectedCount := 0
         selectedTypeParameters := 0
         selectedDiscards := 0
@@ -21933,6 +22066,7 @@ sealed class ColumnarIlEmitter {
             candidateDiscards := binding.DiscardedLambdaResults
             if (selectedCount == 0) {
                 closedCandidate = candidateClosed
+                selectedBinding = binding
                 selectedTypeParameters = candidateTypeParameters
                 selectedDiscards = candidateDiscards
                 selectedCount = 1
@@ -21941,6 +22075,7 @@ sealed class ColumnarIlEmitter {
 
             if (candidateDiscards < selectedDiscards) {
                 closedCandidate = candidateClosed
+                selectedBinding = binding
                 selectedTypeParameters = candidateTypeParameters
                 selectedDiscards = candidateDiscards
                 selectedCount = 1
@@ -21953,10 +22088,28 @@ sealed class ColumnarIlEmitter {
             if (ContextualSignaturesMatch(closedCandidate, candidateClosed)) {
                 if (candidateTypeParameters < selectedTypeParameters) {
                     closedCandidate = candidateClosed
+                    selectedBinding = binding
                     selectedTypeParameters = candidateTypeParameters
                     continue
                 }
                 if (candidateTypeParameters > selectedTypeParameters) {
+                    continue
+                }
+
+                // AND THE LAST TIE-BREAK IS THE WRITTEN SIGNATURES', exactly as it is in the analyzer
+                // (`AnalyzerOpenTypeSpecificity`). Two candidates that close to the SAME signature
+                // and declare the same number of type parameters are what `Task.Run<TResult>(Func<TResult>)`
+                // and `Task.Run<TResult>(Func<Task<TResult>>)` are for `() => Task.FromResult(11)`:
+                // both become `Func<Task<int>>`, and only the UNINSTANTIATED declarations order them.
+                // Without it the pair was an ambiguity and the call declined at emission after the
+                // analyzer had typed it.
+                openVerdict := CompareContextualOpenSignatures(selectedBinding, binding, argCount)
+                if (openVerdict == AnalyzerOverloadSpecificity.RightIsBetter) {
+                    closedCandidate = candidateClosed
+                    selectedBinding = binding
+                    continue
+                }
+                if (openVerdict == AnalyzerOverloadSpecificity.LeftIsBetter) {
                     continue
                 }
             }
@@ -21968,6 +22121,23 @@ sealed class ColumnarIlEmitter {
             return false
         }
         return true
+    }
+
+    // WHICH OF TWO CANDIDATES WROTE THE MORE SPECIFIC PARAMETER TYPES, over the DECLARED (still open)
+    // types each one carries. The relation itself is the analyzer's, spelled once in
+    // `AnalyzerOpenTypeSpecificity`, so the two backends cannot drift: a type parameter is less
+    // specific than anything that is not one, element-wise and recursively, folded all-or-nothing.
+    private static func CompareContextualOpenSignatures(left: NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding?, right: NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding, argCount: int): int {
+        if (left == null) {
+            return AnalyzerOverloadSpecificity.NeitherIsBetter
+        }
+        leftOpen := new Type?[](argCount)
+        rightOpen := new Type?[](argCount)
+        for a := 0; a < argCount; a++ {
+            leftOpen[a] = left.OpenArgumentType(a)
+            rightOpen[a] = right.OpenArgumentType(a)
+        }
+        return AnalyzerOpenTypeSpecificity.CompareReflectionParameterLists(leftOpen, rightOpen)
     }
 
     // THE TWO PHASES, RUN OVER THIS CALL'S ARGUMENT NODES. Phase one folds in every argument that

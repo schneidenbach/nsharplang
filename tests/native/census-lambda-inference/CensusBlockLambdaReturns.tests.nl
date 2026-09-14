@@ -50,6 +50,13 @@ test "two arms that are not the same type join at what they share" {
     assert starts[1] == 0
 }
 
+test "two REFLECTED arms join at their shared base, which emission could not see before" {
+    lengths := StreamLengths(BothFlags())
+    assert lengths.GetType() == typeof(List<long>)
+    assert lengths[0] == 3
+    assert lengths[1] == 0
+}
+
 test "a nested lambda's returns are its own" {
     lengths := NestedInnerLengths(SampleNames())
     assert lengths.GetType() == typeof(List<int>)

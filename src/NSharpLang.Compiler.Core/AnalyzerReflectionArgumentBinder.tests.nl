@@ -2136,7 +2136,7 @@ test "the finalising walk asks once per supplied argument and answers the call's
     )
     assert candidate != null
 
-    state := binder.BeginFinalizeReflectionCall(candidate)
+    state := binder.BeginFinalizeReflectionCall(candidate, false)
     first := binder.NextReflectionAnalysis(state)
     assert first != null
     // A non-lambda position rides the ordinary expected-type entry point, and the expected type is
@@ -2173,7 +2173,7 @@ test "an argument that does not assign ends the walk and no later argument is as
     assert candidate != null
 
     // Both positions are asked for when both answers assign.
-    accepted := binder.BeginFinalizeReflectionCall(candidate)
+    accepted := binder.BeginFinalizeReflectionCall(candidate, false)
     assert binder.NextReflectionAnalysis(accepted) != null
     binder.SupplyReflectionAnalysis(accepted, BuiltInTypes.Int)
     assert binder.NextReflectionAnalysis(accepted) != null
@@ -2183,7 +2183,7 @@ test "an argument that does not assign ends the walk and no later argument is as
 
     // A refused FIRST answer stops the walk where it stands: the second position is never asked
     // for, so the analyzer never analyses it and never reports from inside it.
-    refused := binder.BeginFinalizeReflectionCall(candidate)
+    refused := binder.BeginFinalizeReflectionCall(candidate, false)
     assert binder.NextReflectionAnalysis(refused) != null
     binder.SupplyReflectionAnalysis(refused, BuiltInTypes.String)
     assert binder.NextReflectionAnalysis(refused) == null
@@ -2206,7 +2206,7 @@ test "a defaulted position contributes a parameter type without asking for an an
     )
     assert candidate != null
 
-    state := binder.BeginFinalizeReflectionCall(candidate)
+    state := binder.BeginFinalizeReflectionCall(candidate, false)
     requests := 0
     request := binder.NextReflectionAnalysis(state)
     while request != null {
@@ -2234,7 +2234,7 @@ test "an expanded params tail asks once per element" {
     )
     assert candidate != null
 
-    state := binder.BeginFinalizeReflectionCall(candidate)
+    state := binder.BeginFinalizeReflectionCall(candidate, false)
     requests := 0
     request := binder.NextReflectionAnalysis(state)
     while request != null {
@@ -2268,7 +2268,7 @@ test "a phase-one lambda answer binds the method's one remaining type parameter"
         )
         assert candidate != null
 
-        state := binder.BeginFinalizeReflectionCall(candidate)
+        state := binder.BeginFinalizeReflectionCall(candidate, false)
 
         // PHASE ONE. The lambda is asked for FIRST, ahead of every conversion, and its expected
         // return type is still the OPEN type parameter — nothing has bound it yet.
@@ -2335,7 +2335,7 @@ test "a type parameter the pre-pass never binds is a non-finalisation rather tha
         )
         assert candidate != null
 
-        state := binder.BeginFinalizeReflectionCall(candidate)
+        state := binder.BeginFinalizeReflectionCall(candidate, false)
         first := binder.NextReflectionAnalysis(state)
         assert first != null
 
@@ -2375,7 +2375,7 @@ test "the finalisation leaves the candidate's own recorded inference untouched" 
         bindingsBefore := candidate.Bindings.Count
         typeInfoBindingsBefore := candidate.TypeInfoBindings.Count
 
-        state := binder.BeginFinalizeReflectionCall(candidate)
+        state := binder.BeginFinalizeReflectionCall(candidate, false)
         request := binder.NextReflectionAnalysis(state)
         while request != null {
             if request.Lambda != null {

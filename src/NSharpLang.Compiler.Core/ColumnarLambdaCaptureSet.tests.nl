@@ -313,6 +313,25 @@ func InferredPlacementEnclosing(module: ModuleBuilder, name: string): ColumnarSt
     )
 }
 
+// The same enclosing type declared as a VALUE type, which is the one `this` a delegate cannot bind.
+func InferredPlacementValueEnclosing(module: ModuleBuilder, name: string): ColumnarStructDef {
+    builder := module.DefineType(
+        "InferredPlacementTests." + name,
+        TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit,
+        typeof(ValueType)
+    )
+
+    return new ColumnarStructDef(
+        builder,
+        new string[](0),
+        new Dictionary<string, FieldBuilder>(StringComparer.Ordinal),
+        false,
+        false,
+        false,
+        name
+    )
+}
+
 test "an inferred zero-parameter lambda that reads the instance becomes an instance method on it" {
     module := InferredPlacementModuleBuilder("InferredInstancePlacement")
     programType := module.DefineType("InferredPlacementTests.Program", TypeAttributes.Public | TypeAttributes.Class, typeof(object))
@@ -322,7 +341,6 @@ test "an inferred zero-parameter lambda that reads the instance becomes an insta
         programType,
         enclosing,
         new int[](1),
-        false,
         new Dictionary<string, Type>(StringComparer.Ordinal),
         true
     )
@@ -345,7 +363,6 @@ test "an inferred zero-parameter lambda that reads nothing stays a program-stati
         programType,
         enclosing,
         new int[](1),
-        false,
         new Dictionary<string, Type>(StringComparer.Ordinal),
         false
     )
@@ -358,16 +375,18 @@ test "an inferred zero-parameter lambda that reads nothing stays a program-stati
     assert ColumnarConstructionPlanner.SameObject(placement.OwnerTypeForBody, programType)
 }
 
-// A CONSTRUCTOR BODY'S `this` IS NOT BINDABLE, and neither is a value type's: a delegate over either
-// would carry a copy with different mutation semantics. The targeted path already refuses both, and
-// the inferred one refuses them on exactly the same terms rather than emitting something subtly
-// different.
+// A VALUE TYPE'S `this` IS NOT BINDABLE: it is a pointer into storage the constructor owns, and a
+// delegate over it would carry a copy with different mutation semantics. A CONSTRUCTOR BODY'S `this`
+// used to be refused on the same terms and is not any more: inside a REFERENCE type's constructor
+// `ldarg.0` IS the object being constructed, the same reference every later method sees — which is
+// why `this.handler = () => this.Name` now emits in the constructor that sets the very field it
+// reads. The targeted path and the inferred one refuse on exactly the same terms.
 test "an inferred placement refuses a this-capture it cannot bind" {
     module := InferredPlacementModuleBuilder("InferredRefusedPlacement")
     programType := module.DefineType("InferredPlacementTests.Program", TypeAttributes.Public | TypeAttributes.Class, typeof(object))
-    enclosing := InferredPlacementEnclosing(module, "Holder")
+    valueEnclosing := InferredPlacementValueEnclosing(module, "ValueHolder")
     visible := new Dictionary<string, Type>(StringComparer.Ordinal)
 
-    assert ColumnarLambdaPlacementPlanner.PlanInferredZeroParameterPlacement(programType, enclosing, new int[](1), true, visible, true) == null
-    assert ColumnarLambdaPlacementPlanner.PlanInferredZeroParameterPlacement(programType, null, new int[](1), false, visible, true) == null
+    assert ColumnarLambdaPlacementPlanner.PlanInferredZeroParameterPlacement(programType, valueEnclosing, new int[](1), visible, true) == null
+    assert ColumnarLambdaPlacementPlanner.PlanInferredZeroParameterPlacement(programType, null, new int[](1), visible, true) == null
 }

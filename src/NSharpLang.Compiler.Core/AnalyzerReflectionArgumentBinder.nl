@@ -1436,8 +1436,10 @@ class AnalyzerReflectionArgumentBinder {
     // own dictionaries are COPIED first, exactly as the walk this replaces did: a finalisation that
     // fails must leave the candidate's recorded inference untouched, because the caller may retry a
     // different candidate that shares nothing but them.
-    func BeginFinalizeReflectionCall(candidate: ReflectionPreBoundCandidate): ReflectionCallFinalizeState {
-        return new ReflectionCallFinalizeState(candidate.RuntimeMethod, candidate.SignatureMethod, candidate.SignatureMethod.GetParameters(), candidate.BoundArguments, EnumerateSuppliedReflectionArguments(candidate.BoundArguments), candidate.MethodGroupArguments, CopyBindings(candidate.Bindings), CopyTypeInfoBindings(candidate.TypeInfoBindings))
+    func BeginFinalizeReflectionCall(candidate: ReflectionPreBoundCandidate, requireExactLambdaMatch: bool): ReflectionCallFinalizeState {
+        state := new ReflectionCallFinalizeState(candidate.RuntimeMethod, candidate.SignatureMethod, candidate.SignatureMethod.GetParameters(), candidate.BoundArguments, EnumerateSuppliedReflectionArguments(candidate.BoundArguments), candidate.MethodGroupArguments, CopyBindings(candidate.Bindings), CopyTypeInfoBindings(candidate.TypeInfoBindings))
+        state.RequireExactLambdaMatch = requireExactLambdaMatch
+        return state
     }
 
     // Run the walk until it needs an expression analysed, or until it ends. A null answer means the
@@ -1637,6 +1639,10 @@ class AnalyzerReflectionArgumentBinder {
             if lambdaType != null {
                 FoldLambdaInference(state, lambdaType)
             }
+        } else if state.PendingKind == 2 {
+            if state.RequireExactLambdaMatch && !LambdaExactlyMatchesTarget(state.PendingExpectedType, analyzedType) {
+                state.Failed = true
+            }
         } else if state.PendingKind == 3 {
             expectedType := state.PendingExpectedType
             if expectedType == null || !IsAcceptedReflectionArgument(expectedType, analyzedType, state.PendingConstant) {
@@ -1648,6 +1654,36 @@ class AnalyzerReflectionArgumentBinder {
         state.PendingExpectedType = null
         state.PendingConstant = ConstantOperandFacts.None()
         state.PendingOpenParameterType = null
+    }
+
+    // WHETHER THE LAMBDA'S OWN TYPE *IS* THE DELEGATE IT WAS GIVEN, RETURN POSITION INCLUDED.
+    //
+    // This is "E exactly matches T" from §12.6.4.4, and it is asked of the type the lambda answered
+    // with the candidate's fully bound signature in place — so a delegate whose return position this
+    // very lambda inferred matches by construction, and one that merely ACCEPTS the body's type by a
+    // reference or variance conversion does not. That difference is the whole clause:
+    // `() => Task.FromResult(11)` converts to `Func<Task>` and IS a `Func<Task<int>>`.
+    //
+    // A return position inference never closed is not a match either: there is no type there to be
+    // the lambda's, and the relaxed pass is where such a candidate is allowed to bind.
+    static func LambdaExactlyMatchesTarget(expectedType: TypeInfo?, analyzedType: TypeInfo): bool {
+        expectedSignature := expectedType as FunctionTypeInfo
+        lambdaType := analyzedType as FunctionTypeInfo
+        if expectedSignature == null || lambdaType == null {
+            return true
+        }
+
+        expectedReturn := expectedSignature.ReturnType
+        lambdaReturn := lambdaType.ReturnType
+        if expectedReturn == null || lambdaReturn == null {
+            return true
+        }
+
+        if BuiltInTypes.IsUnknown(expectedReturn) || BuiltInTypes.IsUnknown(lambdaReturn) {
+            return true
+        }
+
+        return TypeInfoIdentityFacts.AreEqual(expectedReturn, lambdaReturn)
     }
 
     // THE CONVERSION THE FINALISING WALK VALIDATES, WITH THE CONSTANT STILL IN HAND.
@@ -1767,6 +1803,7 @@ class AnalyzerReflectionArgumentBinder {
 
             state.ParameterTypes.Add(expectedSignature)
             state.PendingKind = 2
+            state.PendingExpectedType = expectedSignature
             return new ReflectionAnalysisRequest(lambda, lambda, expectedSignature, AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(supplied.OpenParameterType))
         }
 

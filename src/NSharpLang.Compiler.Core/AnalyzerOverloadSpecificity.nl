@@ -41,7 +41,10 @@ import System.Collections.Generic
 // fewer defaults beats more. The generic rule is gated on the substituted parameter types being
 // IDENTICAL, because "non-generic wins" is a tie-break for signatures the conversions could not
 // separate — `string.Join(string, IEnumerable<string>)` over `Join<T>(string, IEnumerable<T>)` with
-// `T = string` — and must never overturn a better conversion.
+// `T = string` — and must never overturn a better conversion. LAST comes "more specific parameter
+// types", the only rule that reads the signatures as WRITTEN rather than as closed; it is spelled in
+// `AnalyzerOpenTypeSpecificity` and arrives here as a verdict, because it is the one question a pair
+// closing to the IDENTICAL parameter types can still answer.
 //
 // SELECTION IS A MAXIMAL-SET SEARCH, NOT A SORT. "Better" is a PARTIAL order: A can beat B, B beat
 // C, and A and C be incomparable. A sort over a partial order has no defined answer and would make
@@ -131,7 +134,14 @@ class AnalyzerOverloadSpecificity {
     // `parameterTypesIdentical` gates the generic rule for the reason stated on the class: a
     // non-generic method beats a generic one only where the two signatures denote the same
     // parameter types, never as a way to overturn a conversion.
-    static func CompareTieBreaks(parameterTypesIdentical: bool, leftIsGeneric: bool, rightIsGeneric: bool, leftUsesParams: bool, rightUsesParams: bool, leftDefaultsUsed: int, rightDefaultsUsed: int): int {
+    //
+    // `openTypeVerdict` IS THE LAST TIE-BREAK AND IT IS ALREADY AN ANSWER. It is the one rule that
+    // does not read the closed parameter types at all — `AnalyzerOpenTypeSpecificity` compares the
+    // signatures as WRITTEN, so a pair that closes to the identical parameter types can still be
+    // ordered by which declaration said more (`Func<Task<TResult>>` over `Func<TResult>`). It runs
+    // last because C# runs it last: a candidate that wins a conversion, or wins in normal form, or
+    // defaults fewer parameters, has already won before the question is asked.
+    static func CompareTieBreaks(parameterTypesIdentical: bool, leftIsGeneric: bool, rightIsGeneric: bool, leftUsesParams: bool, rightUsesParams: bool, leftDefaultsUsed: int, rightDefaultsUsed: int, openTypeVerdict: int): int {
         if parameterTypesIdentical && leftIsGeneric != rightIsGeneric {
             if rightIsGeneric {
                 return LeftIsBetter
@@ -156,7 +166,7 @@ class AnalyzerOverloadSpecificity {
             return RightIsBetter
         }
 
-        return NeitherIsBetter
+        return openTypeVerdict
     }
 
     // WHICH CANDIDATES NOTHING BEATS, read off a square verdict matrix in row-major order:

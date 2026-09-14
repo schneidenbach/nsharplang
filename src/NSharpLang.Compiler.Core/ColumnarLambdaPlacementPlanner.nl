@@ -228,19 +228,25 @@ class ColumnarLambdaPlacementPlanner {
 
     // Select the owning type, generated-method identity, and visibility for one non-capturing lambda
     // body and define the synthesized method. Returns null to decline — an invalid synthesized signature,
-    // or a value-type/constructor-body `this` capture that cannot bind a delegate directly to the current
-    // instance — so the mechanical host reports the standard lambda decline. hasThisCapture is the host's
+    // or a VALUE-TYPE `this` capture that cannot bind a delegate directly to the current instance — so
+    // the mechanical host reports the standard lambda decline. hasThisCapture is the host's
     // resolved fact that the body references the enclosing reference type's member chain (and so needs
     // `this`); when false the lambda is program-static.
-    static func PlanNonCapturingPlacement(programType: TypeBuilder, enclosing: ColumnarStructDef?, lambdaCounter: int[], isConstructorBody: bool, visibleTypeParameters: Dictionary<string, Type>, returnType: Type, parameterTypes: Type[], hasThisCapture: bool): ColumnarLambdaPlacement? {
+    static func PlanNonCapturingPlacement(programType: TypeBuilder, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, returnType: Type, parameterTypes: Type[], hasThisCapture: bool): ColumnarLambdaPlacement? {
         if programType == null || lambdaCounter == null || visibleTypeParameters == null || returnType == null || parameterTypes == null {
             throw new InvalidOperationException("Lambda placement planning requires non-null placement facts.")
         }
 
         if hasThisCapture {
-            // A reference `this` binds the delegate directly to the current instance; a value-type or
-            // constructor-body `this` would bind a copy with different mutation semantics — decline.
-            if enclosing == null || !enclosing.IsReference || isConstructorBody {
+            // A reference `this` binds the delegate directly to the current instance — INCLUDING inside
+            // that type's own constructor, where `ldarg.0` is the very object being constructed and the
+            // delegate that captures it observes every field the rest of the constructor still writes.
+            // A VALUE type is the case the rule exists for: its `this` is a managed pointer to storage
+            // the constructor owns, and a delegate built over it would carry a copy with different
+            // mutation semantics. Refusing the constructor outright also refused the reference case, so
+            // `this.handler = () => this.Name` emitted in a method and declined in the constructor that
+            // set the very same field.
+            if enclosing == null || !enclosing.IsReference {
                 return null
             }
             if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(returnType, parameterTypes, enclosing.Builder) {
@@ -273,13 +279,15 @@ class ColumnarLambdaPlacementPlanner {
     // enclosing reference type, and every other one an assembly-static method on the program type.
     // Asking it only for a lambda with a delegate target is why `f := () => this.Value` declined at
     // `emit.body` while `f: Func<int> = () => this.Value` emitted.
-    static func PlanInferredZeroParameterPlacement(programType: TypeBuilder, enclosing: ColumnarStructDef?, lambdaCounter: int[], isConstructorBody: bool, visibleTypeParameters: Dictionary<string, Type>, hasThisCapture: bool): ColumnarLambdaPlacement? {
+    static func PlanInferredZeroParameterPlacement(programType: TypeBuilder, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, hasThisCapture: bool): ColumnarLambdaPlacement? {
         if programType == null || lambdaCounter == null || visibleTypeParameters == null {
             throw new InvalidOperationException("Lambda placement planning requires non-null placement facts.")
         }
 
         if hasThisCapture {
-            if enclosing == null || !enclosing.IsReference || isConstructorBody {
+            // The same rule as `PlanNonCapturingPlacement`: a reference `this` binds directly, in a
+            // constructor body as much as anywhere else, and only a value type's `this` cannot.
+            if enclosing == null || !enclosing.IsReference {
                 return null
             }
 

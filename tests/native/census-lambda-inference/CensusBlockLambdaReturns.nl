@@ -2,6 +2,7 @@ namespace NSharpLang.CensusLambdaInference.Tests
 
 import System
 import System.Collections.Generic
+import System.IO
 import System.Linq
 
 
@@ -92,6 +93,30 @@ func SpansOrMarkers(names: List<string>): List<int> {
         return new Span2(0, 1)
     }).ToList()
     return spans.Select(span => span.Start).ToList()
+}
+
+// THE SAME JOIN WHEN BOTH ARMS ARE REFLECTED TYPES, which the emitter could not do: it knew only
+// THIS compilation's declared base chain, so `MemoryStream` beside `Stream` — a pair the analyzer
+// joins at `Stream` without hesitating — was accepted by the analyzer and declined at emission. The
+// emit join is now the analyzer's own rule (`AnalyzerAmbientContext` over
+// `AnalyzerMatchExpression.FindCommonBaseType`): the arm that contains the other, else a shared
+// interface, else a shared base, and never `object`.
+func BothFlags(): List<bool> {
+    flags := new List<bool>()
+    flags.Add(true)
+    flags.Add(false)
+    return flags
+}
+
+func StreamLengths(flags: List<bool>): List<long> {
+    streams := flags.Select(flag => {
+        if flag {
+            return new MemoryStream(new byte[](3))
+        }
+
+        return Stream.Null
+    }).ToList()
+    return streams.Select(stream => stream.Length).ToList()
 }
 
 // A NESTED LAMBDA OWNS ITS OWN RETURNS. The inner block returns a `string` and the outer one returns

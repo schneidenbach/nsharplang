@@ -524,6 +524,49 @@ test "an unbreakable tie is reported as an ambiguous call" {
     assert errors[0].Message == "The call to 'f' is ambiguous"
 }
 
+// THE WRITTEN SIGNATURES ARE THE LAST TIE-BREAK, and the only one that can answer a pair whose
+// PARAMETER TYPES the resolver could not tell apart. `Pick<T>(f: Func<T>)` and
+// `Pick<T>(f: Func<List<T>>)` accept `() => new List<int>()` identically, neither writes a BARE `T`
+// at the position (so the generic-parameter cost above says nothing about them), and the call used
+// to be NL414. `Func<List<T>>` says more, so it is the better member.
+test "the more specific WRITTEN signature beats a more general one at an equal score" {
+    errors := WalkErrors()
+    owner := WalkOwner(errors)
+
+    bareReturn := new FunctionTypeReference(new List<TypeReference>(), new SimpleTypeReference("T"))
+    listArguments := new List<TypeReference>()
+    listArguments.Add(new SimpleTypeReference("T"))
+    listReturn := new FunctionTypeReference(new List<TypeReference>(), new GenericTypeReference("List", listArguments))
+
+    bare := WalkSignature(WalkTypes1(BuiltInTypes.String))
+    bare.SourceParameterTypes = WalkReferences1(bareReturn)
+    bare.TypeParameters = WalkTypeParameters("T")
+    specific := WalkSignature(WalkTypes1(BuiltInTypes.String))
+    specific.SourceParameterTypes = WalkReferences1(listReturn)
+    specific.TypeParameters = WalkTypeParameters("T")
+
+    chosen := owner.BindNSharpCall(
+        WalkCandidates2(bare, specific),
+        WalkBareCall(WalkArgs1("a")),
+        WalkTypes1(BuiltInTypes.String),
+        null
+    )
+    assert chosen == specific
+    assert errors.Count == 0
+
+    // And the answer does not depend on which one was declared first.
+    reversedErrors := WalkErrors()
+    reversedOwner := WalkOwner(reversedErrors)
+    reversed := reversedOwner.BindNSharpCall(
+        WalkCandidates2(specific, bare),
+        WalkBareCall(WalkArgs1("a")),
+        WalkTypes1(BuiltInTypes.String),
+        null
+    )
+    assert reversed == specific
+    assert reversedErrors.Count == 0
+}
+
 // A candidate that matched by BINDING a type parameter is less specific than one that matched a
 // written type, and that rule is read before the params and parameter-count rules.
 test "fewer inferred type parameters beats more at an equal score" {
