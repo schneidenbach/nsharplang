@@ -9,16 +9,19 @@ import System.Runtime.InteropServices
 //
 // This project replaces `tests/CompilationBackendTests.cs`. Every row there reached the CLI the
 // same two ways: `CheckCommand.Execute(...)`/`PackCommand.Execute(...)` in process, or a private
-// `Program.Execute` found by reflection — and then read what it printed through `Console.SetOut`.
-// Neither route survives the move to N#: `Console.SetOut` declines at emit
-// (`emit.call.static-member-unmodeled`), and a reflected private entry point proves nothing about
-// the binary the user runs.
+// `Program.Execute` found by reflection — and then read what it printed by swapping the console
+// with `Console.SetOut`.
 //
-// Every row below therefore drives the REAL `nlc` binary as a child process with the fixture
-// directory as its working directory. That is strictly stronger than the deleted C#: the old
-// bodies never proved `nlc build` reaches `BuildCommand` at all, and their
-// `Directory.SetCurrentDirectory` dance (which forced the whole class into the serial
-// "ProcessState" xunit collection) disappears, because a child process carries its own cwd.
+// THE CHILD PROCESS IS A CHOICE ON MERIT, NOT A FORCED ONE, AND THE DIFFERENCE IS MEASURED.
+// `Console.SetOut` emits and works on this tip — a `.tests.nl` that saves `Console.Out`, swaps in a
+// `StringWriter`, writes and restores in a `finally` checks clean and passes. So the in-process
+// route was available and was rejected: calling `BuildCommand.Execute` directly never proves that
+// `nlc build` REACHES `BuildCommand`, and a private entry point found by reflection proves even
+// less about the binary a user runs. Every row below therefore drives the REAL `nlc` binary as a
+// child process with the fixture directory as its working directory, which proves dispatch, exit
+// code and stream routing as well as the answer. `Directory.SetCurrentDirectory` disappears with
+// it — a child process carries its own cwd — and with it the reason this class sat in the serial
+// "ProcessState" xunit collection.
 class ProcessRun {
     ExitCode: int
     Stdout: string

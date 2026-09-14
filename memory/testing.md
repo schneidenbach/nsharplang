@@ -864,7 +864,8 @@ let a red docs-parity test pass the step cache during finding F9. `--commit`, `-
 self-satisfying); regenerate goldens with plain `dotnet test` in the working tree. When adding a
 gate step, pointing one at new input paths, or making a test read a new repo file, update the
 input-set prefixes next to the step wrappers in test-all-core.sh —
-`tests/GateStepInputSetGuardTests.cs` enforces coverage of repo files tests read, the env-list
+`tests/native/gate-script-contracts/GateStepInputSets.tests.nl` (the N# replacement for the deleted
+`tests/GateStepInputSetGuardTests.cs`) enforces coverage of repo files tests read, the env-list
 sync between the two scripts, and the hash-step behavior itself.
 
 ### 6. Step 3c: The Systems Throughput Gate

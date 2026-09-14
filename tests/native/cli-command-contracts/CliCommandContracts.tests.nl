@@ -17,18 +17,19 @@ import System.Text.Json
 // point. The first group went to `src/NSharpLang.Compiler.Core/*.tests.nl`. This
 // project is where the second group's console rows land.
 //
-// WHY THE SPLIT IS FORCED AND NOT A PREFERENCE — THE MEASUREMENT. A `.tests.nl` in the estate can
-// call `TreeCommand.Execute(...)` directly, because it compiles into the same assembly. What it
-// cannot do is SEE what that call printed: `Console.SetOut` declines on this emit path with
+// WHY THE SPLIT STANDS — AND A CORRECTION TO THE REASON IT WAS FIRST GIVEN. This header used to
+// say the split was FORCED, because `Console.SetOut` declined on this emit path with
+// `NL103 ... emit.call.static-member-unmodeled: static call 'Console.SetOut' with 1 argument(s) is
+// not modeled`. That decline is GONE: re-measured on 2026-09-14 against the tip CLI, a `.tests.nl`
+// that saves `Console.Out`, swaps in a `StringWriter`, writes and restores it in a `finally` checks
+// clean and passes. The old sentence is left standing nowhere — a stale "measured" claim is worse
+// than no claim.
 //
-//     NL103 ... Declined at emit.call.static-member-unmodeled: static call 'Console.SetOut'
-//     with 1 argument(s) is not modeled
-//
-// measured out of repository on a two-line probe. Every row below is therefore about something
-// only a process can show — an exit code, or which STREAM a sentence reached — and the route is
-// the SHIPPED CLI rather than an in-process call, which is strictly stronger than the C# had:
-// the deleted bodies invoked `TreeCommand.Execute` directly and so never proved that
-// `nlc tree` REACHES `TreeCommand` at all.
+// The split stands on MERIT instead, which is the stronger reason anyway. Every row below is about
+// something only a process can show — an exit code, or which STREAM a sentence reached — and it
+// goes through the SHIPPED CLI rather than an in-process call. The deleted bodies invoked
+// `TreeCommand.Execute` directly and so never proved that `nlc tree` REACHES `TreeCommand` at all;
+// these rows do.
 //
 // THE STDERR CLAIMS ARE NOT VACUOUS HERE, AND THAT IS CHECKED. Slice 40 found that
 // `nlc check --systems-report` cannot write to stderr at all, which made a whole family of
