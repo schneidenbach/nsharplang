@@ -481,7 +481,7 @@ class AnalyzerPassThroughOperands {
 
         nullable := state.OperandType as NullableTypeInfo
         if nullable != null {
-            _ = RecordMustVerdict(mustNode, false)
+            _ = RecordMustVerdict(mustNode, false, "")
             state.ResultType = nullable.InnerType
             return
         }
@@ -497,12 +497,13 @@ class AnalyzerPassThroughOperands {
         // FROM THE DECLARATION, and it is not something a mechanical translation can know at all: a
         // converted `must` and a human tightening a guard above an existing one both land here, and
         // neither is a reason to refuse to build. `nlc fix` removes the keyword.
-        if !RecordMustVerdict(mustNode, true) {
+        warningMessage := "This 'must' unwrap is redundant — the expression is already known to be '" + TypeText(state.OperandType) + "'"
+        if !RecordMustVerdict(mustNode, true, warningMessage) {
             state.ResultType = state.OperandType
             return
         }
 
-        diagnosticsValue.Warn(ErrorCode.NullabilityWarning, "This 'must' unwrap is redundant — the expression is already known to be '" + TypeText(state.OperandType) + "'", mustNode.Line, mustNode.Column, "Remove the 'must' keyword, or keep the original nullable value until the point where you need to unwrap it.", 4)
+        diagnosticsValue.Warn(ErrorCode.NullabilityWarning, warningMessage, mustNode.Line, mustNode.Column, "Remove the 'must' keyword, or keep the original nullable value until the point where you need to unwrap it.", 4)
         state.ResultType = state.OperandType
     }
 
@@ -516,12 +517,13 @@ class AnalyzerPassThroughOperands {
     // warning advised, became NL402: the advice broke the program it was given about.
     //
     // Nothing here is about calls. One `must` in the source is one decision about one keyword, so the
-    // first walk's answer is the node's answer and every later walk repeats it. `true` means "warn
-    // now"; a node already decided answers `false` however this walk's flow state reads.
-    func RecordMustVerdict(mustNode: MustExpression, redundant: bool): bool {
+    // first walk's answer is the node's answer and every later walk repeats it. A cached redundant
+    // verdict suppresses only a warning that is still in the diagnostic sink. If speculative
+    // overload analysis rolled that report back, the selected candidate must restore it.
+    func RecordMustVerdict(mustNode: MustExpression, redundant: bool, warningMessage: string): bool {
         decided := false
         if mustVerdictsValue.TryGetValue(mustNode, out decided) {
-            return false
+            return decided && !diagnosticsValue.HasReported(ErrorCode.NullabilityWarning, warningMessage, mustNode.Line, mustNode.Column)
         }
 
         mustVerdictsValue[mustNode] = redundant

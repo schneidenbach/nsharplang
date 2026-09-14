@@ -71,8 +71,9 @@ class OperandHarness {
     Escape: AnalyzerSoaEscape
     Model: SemanticModel
     Errors: List<CompilerError>
+    Diagnostics: AnalyzerDiagnosticSink
 
-    constructor(operands: AnalyzerPassThroughOperands, ambient: AnalyzerAmbientContext, context: AnalyzerDeclarationContext, reachability: AnalyzerPatternReachability, escape: AnalyzerSoaEscape, model: SemanticModel, errors: List<CompilerError>) {
+    constructor(operands: AnalyzerPassThroughOperands, ambient: AnalyzerAmbientContext, context: AnalyzerDeclarationContext, reachability: AnalyzerPatternReachability, escape: AnalyzerSoaEscape, model: SemanticModel, errors: List<CompilerError>, diagnostics: AnalyzerDiagnosticSink) {
         Operands = operands
         Ambient = ambient
         Context = context
@@ -80,6 +81,7 @@ class OperandHarness {
         Escape = escape
         Model = model
         Errors = errors
+        Diagnostics = diagnostics
     }
 }
 
@@ -117,7 +119,7 @@ func OperandHarnessWith(sourceText: string?): OperandHarness {
     constantFacts := new AnalyzerConstantExpressionFacts(scopes, context)
     reachability := new AnalyzerPatternReachability(diagnostics, spans, context, assignability)
     operands := new AnalyzerPassThroughOperands(diagnostics, spans, escape, resolver, ambient, context, sequence, constantFacts)
-    return new OperandHarness(operands, ambient, context, reachability, escape, model, errors)
+    return new OperandHarness(operands, ambient, context, reachability, escape, model, errors, diagnostics)
 }
 
 func OperandDefault(): OperandHarness {
@@ -638,6 +640,24 @@ test "A REDUNDANT must REPORTS ONCE PER NODE, NOT ONCE PER WALK" {
 
     assert harness.Errors.Count == 1
     assert OperandTypeText(harness.Operands.Result(secondWalk)) == "string"
+}
+
+test "A REDUNDANT must RESTORES ITS WARNING AFTER SPECULATIVE DIAGNOSTIC ROLLBACK" {
+    harness := OperandDefault()
+    mustNode := new MustExpression(OperandIdentifier("v", 7, 20), 7, 16)
+
+    speculativeWalk := harness.Operands.Begin(mustNode, harness.Reachability)
+    OperandRun(harness, speculativeWalk, OperandOne(BuiltInTypes.String))
+    assert harness.Errors.Count == 1
+
+    harness.Diagnostics.RollbackErrorsTo(0)
+    assert harness.Errors.Count == 0
+
+    selectedWalk := harness.Operands.Begin(mustNode, harness.Reachability)
+    OperandRun(harness, selectedWalk, OperandOne(BuiltInTypes.String))
+
+    assert harness.Errors.Count == 1
+    assert OperandErrorText(harness, 0) == "This 'must' unwrap is redundant — the expression is already known to be 'string'|7:16:4"
 }
 
 // Two DIFFERENT `must` keywords over the same name are two decisions: the second one really is
