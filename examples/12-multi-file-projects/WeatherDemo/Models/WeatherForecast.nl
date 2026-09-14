@@ -1,5 +1,7 @@
 namespace WeatherDemo.Models
 
+import System
+
 
 // Record with computed properties - demonstrates immutable data types
 record WeatherForecast {

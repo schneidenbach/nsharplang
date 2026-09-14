@@ -1,8 +1,5 @@
 // Qualified Attribute Names Example
 // Demonstrates support for fully-qualified attribute names in N#
-import System.Diagnostics.CodeAnalysis
-import System.Runtime.CompilerServices
-
 
 // 1. System.Serializable attribute (fully qualified)
 class Person {
