@@ -3,7 +3,6 @@ namespace NSharpLang.ExternalGenericConstruction.Tests
 import System
 import System.Collections.Generic
 import System.Numerics
-import System.Reflection
 
 // The subject surface: constructing, operating on, indexing and reducing CONSTRUCTED EXTERNAL GENERIC
 // types. `System.Numerics.Vector<T>` is used throughout precisely because the compiler models nothing

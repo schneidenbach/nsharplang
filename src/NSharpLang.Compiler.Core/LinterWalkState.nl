@@ -126,6 +126,11 @@ class LinterWalkState {
     allMemberAccessNames: HashSet<string>
     typeMemberNameScopes: Stack<HashSet<string>>
 
+    // WHAT THE ANALYZER PROVED THIS FILE'S IMPORTS SUPPLIED, read from the unit at `RegisterImports`.
+    // Null when the unit was never analysed, which is exactly what the two import rules need to hear:
+    // an import's use is a binding fact, and a file that was never bound has none.
+    importUsage: ImportUsageFacts?
+
     hasAwaitInFunction: bool
     inAsyncFunction: bool
     currentFunctionParams: List<(string, int, int, bool)>
@@ -151,6 +156,7 @@ class LinterWalkState {
         allCodeIdentifiers = new HashSet<string>()
         allMemberAccessNames = new HashSet<string>()
         typeMemberNameScopes = new Stack<HashSet<string>>()
+        importUsage = null
 
         hasAwaitInFunction = false
         inAsyncFunction = false
@@ -230,6 +236,7 @@ class LinterWalkState {
     // resolved against its source line because the directive's own column points at the keyword rather
     // than at the namespace; a file import already carries its diagnostic span.
     func RegisterImports(unit: CompilationUnit) {
+        importUsage = unit.ImportUsage
         currentNamespace := AnalyzerDeclarationFileFacts.GetUnitNamespace(unit)
         if currentNamespace != null {
             importedNamespaces.Add(currentNamespace)
@@ -253,15 +260,25 @@ class LinterWalkState {
         }
     }
 
-    // NL010, once per file after the whole walk. A file import resolves to a file's exported symbols;
-    // a namespace import resolves to its alias and to the known-namespace table TOGETHER, because an
-    // N# alias does not replace the plain import the way C#'s `using X = N;` does — it adds a name to
-    // it. Both arms are N#.
+    // NL010, once per file after the whole walk.
+    //
+    // A FILE import resolves against the exported symbols of the file it names, which is a syntactic
+    // question this walk answers on its own. A NAMESPACE import is answered by what the analyzer
+    // BOUND: the namespace that supplied each name the file wrote is recorded while the name is being
+    // resolved, so an import is used when it appears among those and dead when it does not. There is
+    // no table of BCL names any more — `LinterNamespaceImportUsage` says why the table could not be
+    // made correct — and no arity, alias or extension-method special case, because all three are the
+    // same recorded fact.
+    //
+    // A FILE THAT WAS NEVER ANALYSED REPORTS NO NAMESPACE IMPORT. NL010 is an ERROR whose `nlc fix`
+    // DELETES the line it names, so a guess here deletes working code. The file arm still answers,
+    // because it needs no binding.
     func CheckUnusedImports() {
         if !config.RuleSeverities.ContainsKey("NL010") {
             return
         }
 
+        namespacesAnswerable := LinterNamespaceImportUsage.HasFacts(importUsage)
         for imported in allImports {
             used := false
             label := "import " + imported.Namespace
@@ -269,7 +286,11 @@ class LinterWalkState {
                 used = LinterFileImportUsage.IsUsed(imported.Namespace, imported.FilePath, filePath, allCodeIdentifiers)
                 label = "import \"" + (imported.FilePath ?? imported.Namespace) + "\""
             } else {
-                used = LinterNamespaceImportUsage.IsImportUsed(imported.Namespace, imported.Alias, allCodeIdentifiers, allMemberAccessNames)
+                if !namespacesAnswerable {
+                    continue
+                }
+
+                used = LinterNamespaceImportUsage.IsImportUsed(imported.Namespace, importUsage)
             }
 
             if !used {
@@ -289,7 +310,7 @@ class LinterWalkState {
     // `.ToString` as well. The resolver is not changed — its chain rule has other callers and its own
     // contracts — it is simply not asked, because this rule already knows the answer.
     func CheckMissingImport(ident: IdentifierExpression) {
-        requiredNamespace := LinterMissingImport.MissingNamespaceForIdentifier(ident.Name, typeMemberNameScopes, importedFileSymbols, importedNamespaces)
+        requiredNamespace := LinterMissingImport.MissingNamespaceForIdentifier(ident.Name, importUsage, typeMemberNameScopes, importedFileSymbols, importedNamespaces)
         if requiredNamespace == null {
             return
         }
@@ -344,7 +365,7 @@ class LinterWalkState {
             return
         }
 
-        requiredNamespace := LinterMissingImport.MissingNamespaceForTypeName(typeName, importedFileSymbols, importedNamespaces)
+        requiredNamespace := LinterMissingImport.MissingNamespaceForTypeName(typeName, importUsage, importedFileSymbols, importedNamespaces)
         if requiredNamespace == null {
             return
         }

@@ -1,6 +1,7 @@
 namespace NSharpLang.ReflectionEmitBootstrap.Tests
 
 import System.Globalization
+import System
 
 
 // These are the three exact static BCL calls the static-field initializer owner needs.  Keeping the

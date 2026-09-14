@@ -160,6 +160,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.RethrowOutsideCatch)
         AddCompiler(descriptors, ErrorCode.SourceEventRequiresOnOff)
         AddCompiler(descriptors, ErrorCode.EventRequiresDelegateType)
+        AddCompiler(descriptors, ErrorCode.TypeDeclaredInAnotherFile)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)

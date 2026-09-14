@@ -1,6 +1,8 @@
 namespace NSharpLang.GenericMemberTypes.Tests
 
 import System.Collections.Generic
+import System
+import System.Threading
 
 
 // AN EXTERNAL GENERIC CLOSED OVER THE DECLARING TYPE'S OWN TYPE PARAMETER.

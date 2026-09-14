@@ -679,7 +679,7 @@ test "020 s41 systems analysis census: a narrow `allow(alloc, reason: …)` bloc
 
 test "020 s41 systems analysis census: a `[boundary]` reports its allocation AND its unknown external call as WARNINGS, and nothing at error severity (was SystemsNSharpTests.BoundaryFunction_ReportsAllocationAndUnknownExternalCallWithoutBlocking)" {
     directory := SacFixture("boundaryfunction-reportsallocationandunknownexternalcallwith", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
-    SacWrite(directory, "Program.nl", "[boundary]\nfunc Load(): int {\n    value := new Box()\n    Console.WriteLine(\"loaded\")\n    return 1\n}\n\nclass Box {}\n")
+    SacWrite(directory, "Program.nl", "import System\n\n[boundary]\nfunc Load(): int {\n    value := new Box()\n    Console.WriteLine(\"loaded\")\n    return 1\n}\n\nclass Box {}\n")
     check := SacCheck(directory)
     exitCode := check.ExitCode
     envelope := SacEnvelope(check.Stdout)
@@ -694,13 +694,13 @@ test "020 s41 systems analysis census: a `[boundary]` reports its allocation AND
     SacCleanup(directory)
     assert exitCode == 1
     assert envelope == "command=check.systemsReport;ok=False;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=1,hotFunctions=0,boundaryFunctions=1,findings=2,errors=0,warnings=2,trustedSites=0}"
-    assert diagnostics == "NL001:error@3:5+5|NSYS001:warning@3:14+1|NSYS050:warning@4:22+9"
+    assert diagnostics == "NL001:error@5:5+5|NSYS001:warning@5:14+1|NSYS050:warning@6:22+9"
     assert findingCount == 2
-    assert finding0 == "code=NSYS001;severity=warning;effect=allocation;message=boundary allocation reported for systems handoff review;file=Program.nl;line=3;column=14;length=1;function=Load;policy=systems:strict;summarySource=sourceInferred;suggestion=Keep allocation inside the [boundary] and hand systems code explicit values, spans, or Result<T,E>.;callPath=[Load]"
-    assert finding1 == "code=NSYS050;severity=warning;effect=unknownExternalCall;message=boundary external call 'Console.WriteLine' reported for systems handoff review;file=Program.nl;line=4;column=22;length=9;function=Load;policy=systems:strict;summarySource=sourceInferred;suggestion=Keep unknown external work inside the [boundary] and expose a systems-safe result.;callPath=[Load]"
+    assert finding0 == "code=NSYS001;severity=warning;effect=allocation;message=boundary allocation reported for systems handoff review;file=Program.nl;line=5;column=14;length=1;function=Load;policy=systems:strict;summarySource=sourceInferred;suggestion=Keep allocation inside the [boundary] and hand systems code explicit values, spans, or Result<T,E>.;callPath=[Load]"
+    assert finding1 == "code=NSYS050;severity=warning;effect=unknownExternalCall;message=boundary external call 'Console.WriteLine' reported for systems handoff review;file=Program.nl;line=6;column=22;length=9;function=Load;policy=systems:strict;summarySource=sourceInferred;suggestion=Keep unknown external work inside the [boundary] and expose a systems-safe result.;callPath=[Load]"
     assert findingPast == "<no-such-row>"
     assert functionCount == 1
-    assert function0 == "name=Load;file=Program.nl;line=2;column=1;isHot=False;isBoundary=True;allocNone=False;summarySource=sourceInferred;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=True,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[Console.WriteLine]"
+    assert function0 == "name=Load;file=Program.nl;line=4;column=1;isHot=False;isBoundary=True;allocNone=False;summarySource=sourceInferred;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=True,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[Console.WriteLine]"
     assert trustedCount == 0
 }
 
@@ -1604,7 +1604,7 @@ test "020 s41 systems analysis census (chip fix): `unknownExternalCalls: allow` 
 
 test "020 s41 systems analysis census: exception control flow in a `[boundary]` is a WARNING and nothing at error severity, so the CLI exits 0 (was SystemsNSharpTests.BoundaryExceptionControlFlow_IsReportedWithoutBlocking)" {
     directory := SacFixture("boundaryexceptioncontrolflow-isreportedwithoutblocking", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
-    SacWrite(directory, "Program.nl", "[boundary]\nfunc Load(): Result<int, string> {\n    try {\n        return Ok(1)\n    } catch ex: Exception {\n        return Err(\"failed\")\n    }\n}\n")
+    SacWrite(directory, "Program.nl", "import System\n\n[boundary]\nfunc Load(): Result<int, string> {\n    try {\n        return Ok(1)\n    } catch ex: Exception {\n        return Err(\"failed\")\n    }\n}\n")
     check := SacCheck(directory)
     exitCode := check.ExitCode
     envelope := SacEnvelope(check.Stdout)
@@ -1618,18 +1618,18 @@ test "020 s41 systems analysis census: exception control flow in a `[boundary]` 
     SacCleanup(directory)
     assert exitCode == 0
     assert envelope == "command=check.systemsReport;ok=True;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=1,hotFunctions=0,boundaryFunctions=1,findings=1,errors=0,warnings=1,trustedSites=0}"
-    assert diagnostics == "NSYS120:warning@3:5+1"
+    assert diagnostics == "NSYS120:warning@5:5+1"
     assert findingCount == 1
-    assert finding0 == "code=NSYS120;severity=warning;effect=throw;message=exception control flow is reported on systems paths;file=Program.nl;line=3;column=5;length=1;function=Load;policy=systems:strict;summarySource=sourceInferred;suggestion=Keep try/catch inside a [boundary] and translate failures into explicit Result/error values.;callPath=[Load]"
+    assert finding0 == "code=NSYS120;severity=warning;effect=throw;message=exception control flow is reported on systems paths;file=Program.nl;line=5;column=5;length=1;function=Load;policy=systems:strict;summarySource=sourceInferred;suggestion=Keep try/catch inside a [boundary] and translate failures into explicit Result/error values.;callPath=[Load]"
     assert findingPast == "<no-such-row>"
     assert functionCount == 1
-    assert function0 == "name=Load;file=Program.nl;line=2;column=1;isHot=False;isBoundary=True;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=True,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
+    assert function0 == "name=Load;file=Program.nl;line=4;column=1;isHot=False;isBoundary=True;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=True,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
     assert trustedCount == 0
 }
 
 test "020 s41 systems analysis census: an unsupported concurrency primitive fails closed in `[hot]` code with NSYS140 (was SystemsNSharpTests.UnsupportedConcurrencyPrimitive_FailsClosedInHotCode)" {
     directory := SacFixture("unsupportedconcurrencyprimitive-failsclosedinhotcode", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
-    SacWrite(directory, "Program.nl", "[hot]\nfunc ReadCounter(value: int): int {\n    return Interlocked.Read(value)\n}\n")
+    SacWrite(directory, "Program.nl", "import System.Threading\n\n[hot]\nfunc ReadCounter(value: int): int {\n    return Interlocked.Read(value)\n}\n")
     check := SacCheck(directory)
     exitCode := check.ExitCode
     envelope := SacEnvelope(check.Stdout)
@@ -1643,12 +1643,12 @@ test "020 s41 systems analysis census: an unsupported concurrency primitive fail
     SacCleanup(directory)
     assert exitCode == 1
     assert envelope == "command=check.systemsReport;ok=False;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=1,hotFunctions=1,boundaryFunctions=0,findings=1,errors=1,warnings=0,trustedSites=0}"
-    assert diagnostics == "NL402:error@3:24+4|NSYS140:error@3:28+1"
+    assert diagnostics == "NL402:error@5:24+4|NSYS140:error@5:28+1"
     assert findingCount == 1
-    assert finding0 == "code=NSYS140;severity=error;effect=concurrency;message=concurrency primitive 'Interlocked.Read' has no v1 HotSummary semantics;file=Program.nl;line=3;column=28;length=1;function=ReadCounter;policy=[hot];summarySource=sourceInferred;suggestion=Use Volatile.Read/Write, Interlocked.Exchange/CompareExchange/Increment/Decrement/Add, or Thread.MemoryBarrier.;callPath=[ReadCounter]"
+    assert finding0 == "code=NSYS140;severity=error;effect=concurrency;message=concurrency primitive 'Interlocked.Read' has no v1 HotSummary semantics;file=Program.nl;line=5;column=28;length=1;function=ReadCounter;policy=[hot];summarySource=sourceInferred;suggestion=Use Volatile.Read/Write, Interlocked.Exchange/CompareExchange/Increment/Decrement/Add, or Thread.MemoryBarrier.;callPath=[ReadCounter]"
     assert findingPast == "<no-such-row>"
     assert functionCount == 1
-    assert function0 == "name=ReadCounter;file=Program.nl;line=2;column=1;isHot=True;isBoundary=False;allocNone=False;summarySource=explicitHot;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=True,requiresWarmup=False,aotSafe=True};calls=[Interlocked.Read]"
+    assert function0 == "name=ReadCounter;file=Program.nl;line=4;column=1;isHot=True;isBoundary=False;allocNone=False;summarySource=explicitHot;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=True,requiresWarmup=False,aotSafe=True};calls=[Interlocked.Read]"
     assert trustedCount == 0
 }
 
@@ -1679,7 +1679,7 @@ test "020 s41 systems analysis census: an `IEnumerable<int>` parameter on a `[ho
 
 test "020 s41 systems analysis census: a struct-constrained generic comparer is NOT a boundary leak (was SystemsNSharpTests.HotBoundarySurface_AcceptsStructConstrainedGenericComparer)" {
     directory := SacFixture("hotboundarysurface-acceptsstructconstrainedgenericcomparer", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
-    SacWrite(directory, "Program.nl", "interface ValueComparer<T> {\n    func Less(a: T, b: T): bool\n}\n\n[hot]\nfunc Sort<T, TComparer>(values: Span<T>, comparer: TComparer): int where T : struct where TComparer : struct, ValueComparer<T> {\n    return values.Length\n}\n")
+    SacWrite(directory, "Program.nl", "import System\n\ninterface ValueComparer<T> {\n    func Less(a: T, b: T): bool\n}\n\n[hot]\nfunc Sort<T, TComparer>(values: Span<T>, comparer: TComparer): int where T : struct where TComparer : struct, ValueComparer<T> {\n    return values.Length\n}\n")
     check := SacCheck(directory)
     exitCode := check.ExitCode
     envelope := SacEnvelope(check.Stdout)
@@ -1693,18 +1693,18 @@ test "020 s41 systems analysis census: a struct-constrained generic comparer is 
     SacCleanup(directory)
     assert exitCode == 1
     assert envelope == "command=check.systemsReport;ok=False;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=2,hotFunctions=1,boundaryFunctions=0,findings=0,errors=0,warnings=0,trustedSites=0}"
-    assert diagnostics == "NL012:error@6:42+8"
+    assert diagnostics == "NL012:error@8:42+8"
     assert findingCount == 0
     assert findingPast == "<no-such-row>"
     assert functionCount == 2
-    assert function0 == "name=ValueComparer.Less;file=Program.nl;line=2;column=5;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
-    assert function1 == "name=Sort;file=Program.nl;line=6;column=1;isHot=True;isBoundary=False;allocNone=False;summarySource=explicitHot;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
+    assert function0 == "name=ValueComparer.Less;file=Program.nl;line=4;column=5;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
+    assert function1 == "name=Sort;file=Program.nl;line=8;column=1;isHot=True;isBoundary=False;allocNone=False;summarySource=explicitHot;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
     assert trustedCount == 0
 }
 
 test "020 s41 systems analysis census: an UNCONSTRAINED generic comparer IS a boundary leak, and the message names the parameter (was SystemsNSharpTests.HotBoundarySurface_RejectsUnconstrainedGenericComparer)" {
     directory := SacFixture("hotboundarysurface-rejectsunconstrainedgenericcomparer", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
-    SacWrite(directory, "Program.nl", "[hot]\nfunc Sort<T, TComparer>(values: Span<T>, comparer: TComparer): int where T : struct {\n    return values.Length\n}\n")
+    SacWrite(directory, "Program.nl", "import System\n\n[hot]\nfunc Sort<T, TComparer>(values: Span<T>, comparer: TComparer): int where T : struct {\n    return values.Length\n}\n")
     check := SacCheck(directory)
     exitCode := check.ExitCode
     envelope := SacEnvelope(check.Stdout)
@@ -1718,12 +1718,12 @@ test "020 s41 systems analysis census: an UNCONSTRAINED generic comparer IS a bo
     SacCleanup(directory)
     assert exitCode == 1
     assert envelope == "command=check.systemsReport;ok=False;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=1,hotFunctions=1,boundaryFunctions=0,findings=1,errors=1,warnings=0,trustedSites=0}"
-    assert diagnostics == "NSYS070:error@2:42+8|NL012:error@2:42+8"
+    assert diagnostics == "NSYS070:error@4:42+8|NL012:error@4:42+8"
     assert findingCount == 1
-    assert finding0 == "code=NSYS070;severity=error;effect=boundaryLeak;message=[hot] parameter 'comparer' exposes a systems-hostile type: managed or unsummarized type 'TComparer';file=Program.nl;line=2;column=42;length=8;function=Sort;policy=[hot];summarySource=sourceInferred;suggestion=Use primitives, spans, readonly/ref structs, Result<T,E>, or an explicit boundary adapter type.;callPath=[Sort]"
+    assert finding0 == "code=NSYS070;severity=error;effect=boundaryLeak;message=[hot] parameter 'comparer' exposes a systems-hostile type: managed or unsummarized type 'TComparer';file=Program.nl;line=4;column=42;length=8;function=Sort;policy=[hot];summarySource=sourceInferred;suggestion=Use primitives, spans, readonly/ref structs, Result<T,E>, or an explicit boundary adapter type.;callPath=[Sort]"
     assert findingPast == "<no-such-row>"
     assert functionCount == 1
-    assert function0 == "name=Sort;file=Program.nl;line=2;column=1;isHot=True;isBoundary=False;allocNone=False;summarySource=explicitHot;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
+    assert function0 == "name=Sort;file=Program.nl;line=4;column=1;isHot=True;isBoundary=False;allocNone=False;summarySource=explicitHot;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
     assert trustedCount == 0
 }
 
@@ -1940,7 +1940,7 @@ test "020 s41 systems analysis census: a sidecar hot summary with no body identi
 
 test "020 s41 systems analysis census: a source-inferred helper that gains an allocation fails its hot caller, and the message names the helper (was SystemsNSharpTests.SourceInferredHelper_GainingAllocationFailsHotCaller)" {
     directory := SacFixture("sourceinferredhelper-gainingallocationfailshotcaller", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: systems\n  systems:\n    mode: strict\n")
-    SacWrite(directory, "Program.nl", "[hot]\nfunc ParseDigits(bytes: ReadOnlySpan<byte>): Result<int, string> {\n    if bytes.Length == 0 {\n        _ = FormatForDebug()\n        return Err(\"empty\")\n    }\n    return Ok(bytes[0])\n}\n\nfunc FormatForDebug(): int[] {\n    return alloc new int[1]\n}\n")
+    SacWrite(directory, "Program.nl", "import System\n\n[hot]\nfunc ParseDigits(bytes: ReadOnlySpan<byte>): Result<int, string> {\n    if bytes.Length == 0 {\n        _ = FormatForDebug()\n        return Err(\"empty\")\n    }\n    return Ok(bytes[0])\n}\n\nfunc FormatForDebug(): int[] {\n    return alloc new int[1]\n}\n")
     check := SacCheck(directory)
     exitCode := check.ExitCode
     envelope := SacEnvelope(check.Stdout)
@@ -1955,13 +1955,13 @@ test "020 s41 systems analysis census: a source-inferred helper that gains an al
     SacCleanup(directory)
     assert exitCode == 1
     assert envelope == "command=check.systemsReport;ok=False;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=2,hotFunctions=1,boundaryFunctions=0,findings=1,errors=1,warnings=0,trustedSites=0}"
-    assert diagnostics == "NSYS010:error@4:27+14"
+    assert diagnostics == "NSYS010:error@6:27+14"
     assert findingCount == 1
-    assert finding0 == "code=NSYS010;severity=error;effect=allocation;message=callee 'FormatForDebug' allocates on a hot/alloc(none) path;file=Program.nl;line=4;column=27;length=14;function=ParseDigits;policy=[hot];summarySource=sourceInferred;suggestion=Move the allocation behind a [boundary], pass caller-owned storage, or return Result<T,E> without formatting diagnostics.;callPath=[ParseDigits,FormatForDebug]"
+    assert finding0 == "code=NSYS010;severity=error;effect=allocation;message=callee 'FormatForDebug' allocates on a hot/alloc(none) path;file=Program.nl;line=6;column=27;length=14;function=ParseDigits;policy=[hot];summarySource=sourceInferred;suggestion=Move the allocation behind a [boundary], pass caller-owned storage, or return Result<T,E> without formatting diagnostics.;callPath=[ParseDigits,FormatForDebug]"
     assert findingPast == "<no-such-row>"
     assert functionCount == 2
-    assert function0 == "name=FormatForDebug;file=Program.nl;line=10;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
-    assert function1 == "name=ParseDigits;file=Program.nl;line=2;column=1;isHot=True;isBoundary=False;allocNone=False;summarySource=explicitHot;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[FormatForDebug]"
+    assert function0 == "name=FormatForDebug;file=Program.nl;line=12;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
+    assert function1 == "name=ParseDigits;file=Program.nl;line=4;column=1;isHot=True;isBoundary=False;allocNone=False;summarySource=explicitHot;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[FormatForDebug]"
     assert trustedCount == 0
 }
 

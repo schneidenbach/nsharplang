@@ -341,6 +341,10 @@ class MultiFileCompiler {
         }
     }
 
+    // Every file the pipeline has not already reported an ERROR for, linted. The skip list is built
+    // from the errors reported SO FAR, which now includes the analysis's: a file that does not analyse
+    // has no binding facts worth judging its imports against, and the diagnostic it already has is the
+    // one its author needs.
     private func AddStrictLintDiagnosticsFromParsedSources(): void {
         filesWithParseErrors := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         for existingError in _allErrors {
@@ -396,9 +400,24 @@ class MultiFileCompiler {
     }
 
     // Shared N# validation pipeline used by analysis and emission.
+    //
+    // THE LINT RUNS AFTER THE ANALYSIS, AND IT HAS TO. Two of the linter's rules — NL010 ("this import
+    // is not used") and NL002 ("this name has no import") — are answered by what each file BOUND, and
+    // those facts are stamped on a compilation unit by the ANALYZER. Linting first produced units with
+    // no facts, so a strict-mode build was the one route that could not report either rule, and the
+    // two most consequential lint fixes in the language — the one that deletes an import line and the
+    // one that adds one — were invisible exactly where a build would have caught them.
+    //
+    // THE GATE IS STILL THE LINT'S. A strict-lint error still ends the pipeline before emission; what
+    // changed is only that the analysis has already run when it does, so its diagnostics are reported
+    // alongside rather than instead. A file the analysis reported an ERROR for is skipped by the lint
+    // pass itself, which is the same rule it already applied to a file with parse errors.
     private func RunLegacyValidationPipeline(validateStrictLint: bool, out strictLintFailed: bool): void {
         strictLintFailed = false
         ParseAllFiles()
+        DetectCircularFileImports()
+        AnalyzeAllFiles()
+
         errorsBeforeLint := 0
         for existingError in _allErrors {
             if existingError.Severity == ErrorSeverity.Error {
@@ -424,9 +443,6 @@ class MultiFileCompiler {
                 return
             }
         }
-
-        DetectCircularFileImports()
-        AnalyzeAllFiles()
     }
 
     func CompileToIlAssembly(assemblyName: string, outputPath: string, validateStrictLint: bool = false, validateWithLegacyAnalysis: bool = true): MultiFileCompilationResult {

@@ -56,6 +56,7 @@ enum ErrorCode {
     RethrowOutsideCatch = 336,
     SourceEventRequiresOnOff = 337,
     EventRequiresDelegateType = 338,
+    TypeDeclaredInAnotherFile = 339,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,

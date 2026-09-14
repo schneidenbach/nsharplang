@@ -2,7 +2,6 @@ namespace NSharpLang.ColumnarEmitFacts.Tests
 
 import System
 import System.Collections
-import System.Reflection
 
 // This source reaches the real product assembly boundary, rather than the new selection helper:
 // only TryEmitColumnarAssembly owns its initialized `out byte[] assembly` slot.  A missing

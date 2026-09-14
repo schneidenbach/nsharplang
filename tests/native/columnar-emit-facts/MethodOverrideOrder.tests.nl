@@ -2,7 +2,6 @@ namespace NSharpLang.ColumnarEmitFacts.Tests
 
 import System
 import System.Collections
-import System.Reflection
 
 // Normal malformed override declarations stop at parsing, before the precedence being tested.
 // Parse one valid input, alter only its metadata fields, and invoke the existing emitter entry

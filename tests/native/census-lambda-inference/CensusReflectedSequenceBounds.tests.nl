@@ -1,7 +1,6 @@
 namespace NSharpLang.CensusLambdaInference.Tests
 
 import System.Collections.Generic
-import System.Collections.ObjectModel
 
 
 // ── a lambda result read off a reflected member fixes the output type parameter ───────────────

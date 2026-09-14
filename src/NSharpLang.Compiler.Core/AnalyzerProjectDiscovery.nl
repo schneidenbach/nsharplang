@@ -312,6 +312,10 @@ class AnalyzerProjectTypeDiscovery {
     // harness with no metadata load context — and then no imported CLR type can exist, which is the
     // same answer a probe over an empty assembly list gives.
     externalTypeProbe: AnalyzerExternalTypeProbe?
+    // NL010's ledger. A SOURCE type is supplied by the namespace the sweep below found it in, and
+    // that namespace is known HERE and nowhere else: the resolved type carries its own name and not
+    // the namespace that answered for it.
+    importUsageCredit: AnalyzerImportUsageCredit?
 
     constructor(sourceProvider: AnalyzerProjectSourceProvider, context: AnalyzerDeclarationContext, usingNamespaceNames: List<string>, declarationFiles: Dictionary<string, string>, externalProbe: AnalyzerExternalTypeProbe? = null) {
         sources = sourceProvider
@@ -319,6 +323,11 @@ class AnalyzerProjectTypeDiscovery {
         usingNamespaces = usingNamespaceNames
         typeDeclarationFiles = declarationFiles
         externalTypeProbe = externalProbe
+        importUsageCredit = null
+    }
+
+    func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
+        importUsageCredit = credit
     }
 
     // THE TYPE CHANNEL, whole. Three outcomes in one call, because their ORDER is the semantics
@@ -337,6 +346,16 @@ class AnalyzerProjectTypeDiscovery {
         while index < visible.Count {
             if TryResolveProjectTypeInNamespace(name, visible[index], currentNamespace, out typeInfo, out declaration) {
                 RecordDeclarationFile(name, declaration)
+                // NL010: THE NAMESPACE THAT ANSWERED IS THE IMPORT THAT SUPPLIED THE NAME. The
+                // sweep walks the file's own namespace, its enclosing ones and its imports in
+                // order, so the entry that answered is exactly the one a reader would point at —
+                // and an `import TaskCli.Services` beside `service: TaskService` is used, even
+                // though the project-wide fallback below would also have found the type.
+                credit := importUsageCredit
+                if credit != null {
+                    credit.CreditNamespaceSupplier(visible[index])
+                }
+
                 return true
             }
 
@@ -584,6 +603,14 @@ class AnalyzerProjectTypeDiscovery {
                             filePath = candidatePath
                             functionDeclaration = candidate as FunctionDeclaration
                             declaration = CreateTopLevelSymbolDeclaration(name, candidatePath, sources.ProjectSourceText(candidatePath), candidate)
+                            // NL010: A FREE FUNCTION IS WHAT ITS NAMESPACE'S IMPORT IS FOR, and the
+                            // call writes no type name at all. A file whose whole use of
+                            // `import Census.Holder` was `Hold(1)` had that import reported dead.
+                            functionCredit := importUsageCredit
+                            if functionCredit != null {
+                                functionCredit.CreditNamespaceSupplier(visibleNamespace)
+                            }
+
                             return true
                         }
 

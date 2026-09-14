@@ -1,6 +1,7 @@
 namespace NSharpLang.ColumnarEmitFacts.Tests
 
 import System
+import System.IO
 
 
 // READING A PROPERTY OFF A CAUGHT EXCEPTION.

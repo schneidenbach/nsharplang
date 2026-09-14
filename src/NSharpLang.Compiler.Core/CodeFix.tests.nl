@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.CodeIntelligence
@@ -41,6 +42,9 @@ import NSharpLang.Compiler.Columnar
 // (4) THE MAYBE-NULL FIX ALWAYS OFFERS THREE SUGGESTIONS AND SOMETIMES A FOURTH EDIT. The three
 // suggestion-only actions are unconditional; the editing action appears only when an unguarded `.`
 // or `[` is found at or before the diagnostic column.
+// THE UNIT CARRIES THE BINDING FACTS AN ANALYSIS WOULD HAVE STAMPED ON IT, because the linter's two
+// import rules read them. `LnieFacts` answers that question by resolving the names the source writes
+// against the runtime this test host runs on; see `LinterNamespaceImportUsage.tests.nl`.
 func CodeFixUnit(source: string): CompilationUnit {
     parsed := ColumnarParserRecovery.ParseFileAst(source, null)
     unit := parsed.CompilationUnit
@@ -48,6 +52,21 @@ func CodeFixUnit(source: string): CompilationUnit {
         return new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, new List<Declaration>(), 1, 1)
     }
 
+    unit.ImportUsage = LnieFacts(source)
+    return unit
+}
+
+// The same unit with one further name credited by hand, for a contract that hands the walk a type
+// reference the source text does not contain.
+func CodeFixUnitCrediting(source: string, name: string, supplier: string): CompilationUnit {
+    unit := CodeFixUnit(source)
+    facts := unit.ImportUsage
+    if facts == null {
+        throw new InvalidOperationException("the unit carries no import-usage facts")
+    }
+
+    ledger := facts ?? new ImportUsageFacts()
+    ledger.CreditName(name, supplier)
     return unit
 }
 

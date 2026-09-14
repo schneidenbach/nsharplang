@@ -3,7 +3,6 @@ namespace NSharpLang.GenericScopeInvalid.Tests
 import System
 import System.Collections
 import System.IO
-import System.Reflection
 
 class GenericScopeCompilationResult {
     Succeeded: bool

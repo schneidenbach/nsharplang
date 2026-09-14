@@ -145,6 +145,10 @@ class AnalyzerImports {
     // WHICH ASSEMBLIES A WRITTEN NAMESPACE IMPLIES. Built once; a pure table.
     assemblyMappings: Dictionary<string, string[]>
 
+    // NL010's ledger, for the one thing this family knows about an import that the rule cannot:
+    // whether the import resolved at all.
+    importUsageCredit: AnalyzerImportUsageCredit?
+
     constructor(diagnosticSink: AnalyzerDiagnosticSink, scopeStack: AnalyzerScopeStack, context: AnalyzerDeclarationContext, sources: AnalyzerProjectSourceProvider, typeProbe: AnalyzerExternalTypeProbe, typeFactory: AnalyzerFunctionTypeFactory, assemblies: List<Assembly>, importedNamespaces: List<string>, aliases: Dictionary<string, string>, symbolsByAlias: Dictionary<string, Dictionary<string, TypeInfo>>, declarationsByAlias: Dictionary<string, Dictionary<string, SymbolDeclaration>>, declarationFiles: Dictionary<string, string>, packageNames: HashSet<string>) {
         diagnostics = diagnosticSink
         scopes = scopeStack
@@ -165,6 +169,11 @@ class AnalyzerImports {
         semanticModel = null
         bindingMap = null
         assemblyMappings = BuildAssemblyMappings()
+        importUsageCredit = null
+    }
+
+    func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
+        importUsageCredit = credit
     }
 
     // One call per analysis, from the reset block, AFTER the semantic model and the binding map have
@@ -336,11 +345,16 @@ class AnalyzerImports {
     // developer actually makes, and reporting "namespace not found" for it would be true and useless.
     // Otherwise the namespace must EXIST: declared by this project's own sources, exported by a loaded
     // reference assembly, or covered by a referenced package whose name the namespace prefixes.
+    // AN IMPORT THAT DOES NOT RESOLVE IS NOT AN UNUSED IMPORT. Both arms below credit the namespace to
+    // the file's import-usage ledger before they report, so NL010 stays quiet about a line NL704
+    // already owns: telling a developer that the namespace they misspelled is also unused is two
+    // diagnostics for one mistake, and the second one is advice to delete the line they meant to fix.
     func ValidateNamespaceImport(namespaceName: string, line: int, column: int): bool {
         diagnosticColumn := FindNamespaceImportColumn(namespaceName, line, column)
 
         importedType := externalTypeProbe.ResolveExactExternalType(namespaceName)
         if importedType != null {
+            CreditUnjudgeableImport(namespaceName)
             typeNamespace := importedType.get_Namespace()
             suggestion := "Import a namespace instead of a type name."
             if !string.IsNullOrWhiteSpace(typeNamespace) {
@@ -359,8 +373,16 @@ class AnalyzerImports {
             return true
         }
 
+        CreditUnjudgeableImport(namespaceName)
         diagnostics.Report(ErrorCode.NamespaceNotFound, "I can't find namespace '" + namespaceName + "' — check the spelling and make sure the assembly is referenced", line, diagnosticColumn, "Check the namespace spelling and project references.", namespaceName.Length)
         return false
+    }
+
+    func CreditUnjudgeableImport(namespaceName: string) {
+        credit := importUsageCredit
+        if credit != null {
+            credit.CreditNamespaceSupplier(namespaceName)
+        }
     }
 
     // WHERE THE SQUIGGLE GOES. The namespace's own start column on the import line, found after the

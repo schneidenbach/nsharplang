@@ -1,9 +1,7 @@
 namespace TaskCli
 
 import System
-import System.Threading.Tasks
 import TaskCli.Commands
-import TaskCli.Models
 import TaskCli.Services
 
 async func Main() {

@@ -1,5 +1,7 @@
 namespace SystemsProofs.TrustedAudit
 
+import System
+
 class UnsafeAuditSurface {
     [memory(safe)]
     [trusted(

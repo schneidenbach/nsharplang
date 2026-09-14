@@ -87,21 +87,6 @@ func LmiNoNamespaces(): List<string> {
     return new List<string>()
 }
 
-// Every name the identifier table carries, in the order the deleted dictionary listed them.
-func LmiAllIdentifierNames(): string[] {
-    return ["List", "Dictionary", "HashSet", "Queue", "Stack", "LinkedList", "StringBuilder", "Regex", "File", "Directory", "Path", "Stream", "HttpClient", "JsonSerializer", "Task", "CancellationToken", "Encoding", "DateTime", "TimeSpan", "Guid", "Uri", "Tuple", "Lazy", "Action", "Func"]
-}
-
-// Every name the type table carries — the first sixteen rows of the other one.
-func LmiAllTypeNames(): string[] {
-    return ["List", "Dictionary", "HashSet", "Queue", "Stack", "LinkedList", "StringBuilder", "Regex", "File", "Directory", "Path", "Stream", "HttpClient", "JsonSerializer", "Task", "CancellationToken"]
-}
-
-// The nine the identifier table carries alone.
-func LmiIdentifierOnlyNames(): string[] {
-    return ["Encoding", "DateTime", "TimeSpan", "Guid", "Uri", "Tuple", "Lazy", "Action", "Func"]
-}
-
 func LmiSimple(name: string): TypeReference {
     return new SimpleTypeReference(name, 1, 1)
 }
@@ -436,442 +421,147 @@ test "the accumulator form and the answering form are the same walk" {
 
 // ── the two tables ───────────────────────────────────────────────────────────────────────────
 
-test "the identifier table carries exactly twenty-five names" {
-    names := LmiAllIdentifierNames()
-    assert names.Length == 25
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// NL002 — THE OTHER READING OF NL010'S FACT
+//
+// These replace 270 lines that pinned two TABLES: a 25-name identifier whitelist, a 16-name type
+// whitelist, the subset relation between them, and the namespace each row mapped to. Every one of
+// those assertions was about a list of BCL spellings that could not be finished, and the census
+// proved the cost: `OperatingSystem.IsWindows()` written with no `import System` was accepted in
+// silence, because the list had never heard of the name — while the same file WITH the import had
+// NL010 report the import dead, for the same reason.
+//
+// The rule now answers from what the analyzer BOUND. `ImportUsageFacts` records the namespace that
+// supplied each name the file wrote; if the file imports it the import is used (NL010 quiet), and if
+// it does not, this rule speaks. What is pinned here is that decision — four independent silencers
+// and nothing else — and the two sentences.
 
-    index := 0
-    while index < names.Length {
-        assert LinterMissingImport.RequiredNamespaceForIdentifier(names[index]) != null
-        index = index + 1
-    }
+func LmiFacts(name: string, supplier: string): ImportUsageFacts {
+    facts := new ImportUsageFacts()
+    facts.CreditName(name, supplier)
+    facts.Analyzed = true
+    return facts
 }
 
-test "the type table carries exactly sixteen names" {
-    names := LmiAllTypeNames()
-    assert names.Length == 16
-
-    index := 0
-    while index < names.Length {
-        assert LinterMissingImport.RequiredNamespaceForTypeName(names[index]) != null
-        index = index + 1
-    }
+func LmiIncompleteFacts(name: string, supplier: string): ImportUsageFacts {
+    facts := new ImportUsageFacts()
+    facts.CreditName(name, supplier)
+    return facts
 }
 
-test "the type table is a SUBSET of the identifier table, and agrees with it everywhere" {
-    names := LmiAllTypeNames()
-    index := 0
-    while index < names.Length {
-        assert LinterMissingImport.RequiredNamespaceForTypeName(names[index]) == LinterMissingImport.RequiredNamespaceForIdentifier(names[index])
-        index = index + 1
-    }
+// ── which namespace the analysis says a name needs ───────────────────────────────────────────
+
+test "the supplier is the namespace the analysis recorded for the name" {
+    assert LinterMissingImport.SupplyingNamespace(LmiFacts("StringBuilder", "System.Text"), "StringBuilder") == "System.Text"
 }
 
-test "the difference between the tables is exactly the nine static-receiver names" {
-    onlyIdentifier := LmiIdentifierOnlyNames()
-    assert onlyIdentifier.Length == 9
-
-    index := 0
-    while index < onlyIdentifier.Length {
-        name := onlyIdentifier[index]
-        assert LinterMissingImport.RequiredNamespaceForIdentifier(name) != null
-        assert LinterMissingImport.RequiredNamespaceForTypeName(name) == null
-        index = index + 1
-    }
+test "NOTHING ABOUT THE NAME MATTERS, which is the whole difference from the table" {
+    // `OperatingSystem` was in neither of the deleted tables, and neither is `Contoso.Widget`.
+    assert LinterMissingImport.SupplyingNamespace(LmiFacts("OperatingSystem", "System"), "OperatingSystem") == "System"
+    assert LinterMissingImport.SupplyingNamespace(LmiFacts("Widget", "Contoso.Widgets"), "Widget") == "Contoso.Widgets"
 }
 
-test "every row of the identifier table is either a type-table row or one of the nine" {
-    all := LmiAllIdentifierNames()
-    shared := LmiAllTypeNames()
-    onlyIdentifier := LmiIdentifierOnlyNames()
-
-    index := 0
-    while index < all.Length {
-        name := all[index]
-        inShared := LinterMissingImport.Contains(shared, name)
-        inOnly := LinterMissingImport.Contains(onlyIdentifier, name)
-
-        // Exactly one of the two, never both and never neither — the partition is total.
-        assert inShared != inOnly
-        index = index + 1
-    }
-
-    assert shared.Length + onlyIdentifier.Length == all.Length
+test "a name the analysis did not record has no supplier, and silence is the answer" {
+    // A local, a member, a type parameter, a source declaration, or a name that did not resolve at
+    // all: none of them needs an import, and none of them is this rule's business.
+    assert LinterMissingImport.SupplyingNamespace(LmiFacts("StringBuilder", "System.Text"), "total") == null
 }
 
-test "each name maps to the namespace the deleted dictionary gave it" {
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("List") == "System.Collections.Generic"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Dictionary") == "System.Collections.Generic"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("HashSet") == "System.Collections.Generic"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Queue") == "System.Collections.Generic"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Stack") == "System.Collections.Generic"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("LinkedList") == "System.Collections.Generic"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("StringBuilder") == "System.Text"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Encoding") == "System.Text"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Regex") == "System.Text.RegularExpressions"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("File") == "System.IO"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Directory") == "System.IO"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Path") == "System.IO"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Stream") == "System.IO"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("HttpClient") == "System.Net.Http"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("JsonSerializer") == "System.Text.Json"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Task") == "System.Threading.Tasks"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("CancellationToken") == "System.Threading"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("DateTime") == "System"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("TimeSpan") == "System"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Guid") == "System"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Uri") == "System"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Tuple") == "System"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Lazy") == "System"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Action") == "System"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Func") == "System"
+test "a file that was NEVER ANALYSED has no supplier for any name" {
+    assert LinterMissingImport.SupplyingNamespace(null, "StringBuilder") == null
 }
 
-test "Task and CancellationToken are DIFFERENT namespaces, which the two neighbouring rows hide" {
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Task") == "System.Threading.Tasks"
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("CancellationToken") == "System.Threading"
-    assert LinterMissingImport.RequiredNamespaceForTypeName("Task") == "System.Threading.Tasks"
-    assert LinterMissingImport.RequiredNamespaceForTypeName("CancellationToken") == "System.Threading"
+test "a file whose analysis did not COMPLETE has none either" {
+    assert LinterMissingImport.SupplyingNamespace(LmiIncompleteFacts("StringBuilder", "System.Text"), "StringBuilder") == null
 }
 
-test "a name no table carries is silent, and silence is the default answer" {
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Widget") == null
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Console") == null
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("StringComparer") == null
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("") == null
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("   ") == null
-    assert LinterMissingImport.RequiredNamespaceForTypeName("Widget") == null
-    assert LinterMissingImport.RequiredNamespaceForTypeName("") == null
+test "the lookup is ORDINAL: a spelling differing in case is a different name" {
+    assert LinterMissingImport.SupplyingNamespace(LmiFacts("StringBuilder", "System.Text"), "stringbuilder") == null
 }
 
-test "the lookup is ORDINAL: a name differing in case is a different name" {
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("list") == null
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("LIST") == null
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("guid") == null
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("task") == null
-    assert LinterMissingImport.RequiredNamespaceForTypeName("file") == null
+test "the FIRST namespace to supply a name keeps it" {
+    // A spelling that resolves through two namespaces in one file is an ambiguity NL209 reports;
+    // this rule does not get a second opinion about which import to suggest.
+    facts := new ImportUsageFacts()
+    facts.CreditName("Widget", "Contoso.Widgets")
+    facts.CreditName("Widget", "Fabrikam.Widgets")
+    facts.Analyzed = true
+    assert LinterMissingImport.SupplyingNamespace(facts, "Widget") == "Contoso.Widgets"
 }
 
-test "a table name with anything appended or prepended is not a table name" {
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("Lists") == null
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("MyList") == null
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("List1") == null
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("List<int>") == null
-    assert LinterMissingImport.RequiredNamespaceForIdentifier("System.IO.File") == null
-}
+// ── the decision ─────────────────────────────────────────────────────────────────────────────
 
-// ── the decision: the three silencers, and the order they apply in ───────────────────────────
-
-test "a table name written with no import at all is reported, with its namespace" {
-    assert LinterMissingImport.MissingNamespaceForIdentifier("List", LmiNoScopes(), LmiNoSymbols(), LmiNoNamespaces()) == "System.Collections.Generic"
-    assert LinterMissingImport.MissingNamespaceForIdentifier("Guid", LmiNoScopes(), LmiNoSymbols(), LmiNoNamespaces()) == "System"
-    assert LinterMissingImport.MissingNamespaceForTypeName("Regex", LmiNoSymbols(), LmiNoNamespaces()) == "System.Text.RegularExpressions"
+test "a name written with no import at all is reported, with the namespace that supplies it" {
+    assert LinterMissingImport.MissingNamespaceForTypeName("StringBuilder", LmiFacts("StringBuilder", "System.Text"), LmiNoSymbols(), LmiNoNamespaces()) == "System.Text"
 }
 
 test "an already-imported namespace silences its own names and nothing else" {
-    imported := LmiNamespaces(["System.Collections.Generic"])
+    facts := new ImportUsageFacts()
+    facts.CreditName("StringBuilder", "System.Text")
+    facts.CreditName("List", "System.Collections.Generic")
+    facts.Analyzed = true
+    imported := LmiOneNamespace("System.Text")
 
-    assert LinterMissingImport.MissingNamespaceForIdentifier("List", LmiNoScopes(), LmiNoSymbols(), imported) == null
-    assert LinterMissingImport.MissingNamespaceForIdentifier("Dictionary", LmiNoScopes(), LmiNoSymbols(), imported) == null
-
-    // A different namespace's name is untouched by it.
-    assert LinterMissingImport.MissingNamespaceForIdentifier("Guid", LmiNoScopes(), LmiNoSymbols(), imported) == "System"
-    assert LinterMissingImport.MissingNamespaceForTypeName("List", LmiNoSymbols(), imported) == null
-    assert LinterMissingImport.MissingNamespaceForTypeName("Task", LmiNoSymbols(), imported) == "System.Threading.Tasks"
+    assert LinterMissingImport.MissingNamespaceForTypeName("StringBuilder", facts, LmiNoSymbols(), imported) == null
+    assert LinterMissingImport.MissingNamespaceForTypeName("List", facts, LmiNoSymbols(), imported) == "System.Collections.Generic"
 }
 
-test "importing System does NOT silence System.Collections.Generic, because the match is exact" {
-    imported := LmiNamespaces(["System"])
-
-    assert LinterMissingImport.MissingNamespaceForIdentifier("Guid", LmiNoScopes(), LmiNoSymbols(), imported) == null
-    assert LinterMissingImport.MissingNamespaceForIdentifier("List", LmiNoScopes(), LmiNoSymbols(), imported) == "System.Collections.Generic"
-    assert LinterMissingImport.MissingNamespaceForIdentifier("Task", LmiNoScopes(), LmiNoSymbols(), imported) == "System.Threading.Tasks"
+test "importing System does NOT silence System.Text, because the match is exact" {
+    assert LinterMissingImport.MissingNamespaceForTypeName("StringBuilder", LmiFacts("StringBuilder", "System.Text"), LmiNoSymbols(), LmiOneNamespace("System")) == "System.Text"
 }
 
 test "a FILE import of the same symbol name silences the rule for that name alone" {
-    symbols := LmiSymbols(["List"])
-
-    assert LinterMissingImport.MissingNamespaceForIdentifier("List", LmiNoScopes(), symbols, LmiNoNamespaces()) == null
-    assert LinterMissingImport.MissingNamespaceForIdentifier("Dictionary", LmiNoScopes(), symbols, LmiNoNamespaces()) == "System.Collections.Generic"
-    assert LinterMissingImport.MissingNamespaceForTypeName("List", symbols, LmiNoNamespaces()) == null
-    assert LinterMissingImport.MissingNamespaceForTypeName("Dictionary", symbols, LmiNoNamespaces()) == "System.Collections.Generic"
+    facts := LmiFacts("StringBuilder", "System.Text")
+    assert LinterMissingImport.MissingNamespaceForTypeName("StringBuilder", facts, LmiOneSymbol("StringBuilder"), LmiNoNamespaces()) == null
+    assert LinterMissingImport.MissingNamespaceForTypeName("StringBuilder", facts, LmiOneSymbol("Helpers"), LmiNoNamespaces()) == "System.Text"
 }
 
 test "an enclosing type's own member silences the IDENTIFIER arm, and only that arm" {
-    scopes := LmiScopes(["Task", "Widget"])
+    facts := LmiFacts("StringBuilder", "System.Text")
+    assert LinterMissingImport.MissingNamespaceForIdentifier("StringBuilder", facts, LmiOneScope("StringBuilder"), LmiNoSymbols(), LmiNoNamespaces()) == null
 
-    assert LinterMissingImport.MissingNamespaceForIdentifier("Task", scopes, LmiNoSymbols(), LmiNoNamespaces()) == null
-
-    // The TYPE arm never consults the member scopes: a member called `Task` cannot shadow the
-    // type written in a `new`.
-    assert LinterMissingImport.MissingNamespaceForTypeName("Task", LmiNoSymbols(), LmiNoNamespaces()) == "System.Threading.Tasks"
-
-    // A member name that no table carries was already silent; the scope check changes nothing.
-    assert LinterMissingImport.MissingNamespaceForIdentifier("Widget", scopes, LmiNoSymbols(), LmiNoNamespaces()) == null
+    // The TYPE arm never consults the member scopes: a `new` names a type, and a member cannot
+    // shadow one.
+    assert LinterMissingImport.MissingNamespaceForTypeName("StringBuilder", facts, LmiNoSymbols(), LmiNoNamespaces()) == "System.Text"
 }
 
-test "the member-scope check runs BEFORE the table lookup, so every enclosing frame is asked" {
-    scopes := new Stack<HashSet<string>>()
-    outer := new HashSet<string>(StringComparer.Ordinal)
-    outer.Add("Guid")
-    scopes.Push(outer)
-    inner := new HashSet<string>(StringComparer.Ordinal)
-    inner.Add("List")
-    scopes.Push(inner)
-
-    // Both frames answer, not just the innermost.
-    assert LinterMissingImport.MissingNamespaceForIdentifier("List", scopes, LmiNoSymbols(), LmiNoNamespaces()) == null
-    assert LinterMissingImport.MissingNamespaceForIdentifier("Guid", scopes, LmiNoSymbols(), LmiNoNamespaces()) == null
-    assert LinterMissingImport.MissingNamespaceForIdentifier("Task", scopes, LmiNoSymbols(), LmiNoNamespaces()) == "System.Threading.Tasks"
+test "the member-scope check asks EVERY enclosing frame, not just the innermost" {
+    facts := LmiFacts("StringBuilder", "System.Text")
+    scopes := LmiScopes(["StringBuilder", "other"])
+    assert LinterMissingImport.MissingNamespaceForIdentifier("StringBuilder", facts, scopes, LmiNoSymbols(), LmiNoNamespaces()) == null
 }
 
-test "no member scopes at all is not the same as a scope that contains nothing, and both stay silent about nothing" {
-    empty := LmiEmptyScope()
-
-    assert LinterMissingImport.MissingNamespaceForIdentifier("List", empty, LmiNoSymbols(), LmiNoNamespaces()) == "System.Collections.Generic"
-    assert LinterMissingImport.MissingNamespaceForIdentifier("List", LmiNoScopes(), LmiNoSymbols(), LmiNoNamespaces()) == "System.Collections.Generic"
+test "no member scopes at all is not the same as a scope containing nothing, and both stay silent about nothing" {
+    facts := LmiFacts("StringBuilder", "System.Text")
+    assert LinterMissingImport.MissingNamespaceForIdentifier("StringBuilder", facts, LmiNoScopes(), LmiNoSymbols(), LmiNoNamespaces()) == "System.Text"
+    assert LinterMissingImport.MissingNamespaceForIdentifier("StringBuilder", facts, LmiEmptyScope(), LmiNoSymbols(), LmiNoNamespaces()) == "System.Text"
 }
 
-test "the silencers compose: any one of the three is enough on its own" {
-    name := "Task"
-    byScope := LinterMissingImport.MissingNamespaceForIdentifier(name, LmiOneScope(name), LmiNoSymbols(), LmiNoNamespaces())
-    bySymbol := LinterMissingImport.MissingNamespaceForIdentifier(name, LmiNoScopes(), LmiOneSymbol(name), LmiNoNamespaces())
-    byNamespace := LinterMissingImport.MissingNamespaceForIdentifier(name, LmiNoScopes(), LmiNoSymbols(), LmiOneNamespace("System.Threading.Tasks"))
+test "the silencers compose: any one of the four is enough on its own" {
+    facts := LmiFacts("StringBuilder", "System.Text")
+    assert LinterMissingImport.MissingNamespaceForIdentifier("StringBuilder", null, LmiNoScopes(), LmiNoSymbols(), LmiNoNamespaces()) == null
+    assert LinterMissingImport.MissingNamespaceForIdentifier("StringBuilder", facts, LmiOneScope("StringBuilder"), LmiNoSymbols(), LmiNoNamespaces()) == null
+    assert LinterMissingImport.MissingNamespaceForIdentifier("StringBuilder", facts, LmiNoScopes(), LmiOneSymbol("StringBuilder"), LmiNoNamespaces()) == null
+    assert LinterMissingImport.MissingNamespaceForIdentifier("StringBuilder", facts, LmiNoScopes(), LmiNoSymbols(), LmiOneNamespace("System.Text")) == null
 
-    assert byScope == null
-    assert bySymbol == null
-    assert byNamespace == null
-    assert LinterMissingImport.MissingNamespaceForIdentifier(name, LmiNoScopes(), LmiNoSymbols(), LmiNoNamespaces()) == "System.Threading.Tasks"
-}
-
-test "every table name is reported when nothing supplies it, so no row is silently unreachable" {
-    names := LmiAllIdentifierNames()
-    reported := 0
-    index := 0
-    while index < names.Length {
-        if LinterMissingImport.MissingNamespaceForIdentifier(names[index], LmiNoScopes(), LmiNoSymbols(), LmiNoNamespaces()) != null {
-            reported = reported + 1
-        }
-
-        index = index + 1
-    }
-
-    assert reported == 25
-}
-
-test "every table name is silenced when its own namespace is imported, so no row names the wrong one" {
-    names := LmiAllIdentifierNames()
-    silenced := 0
-    index := 0
-    while index < names.Length {
-        own := LinterMissingImport.RequiredNamespaceForIdentifier(names[index])
-        if own != null {
-            ownNamespace: string = own
-            imported := LmiOneNamespace(ownNamespace)
-            if LinterMissingImport.MissingNamespaceForIdentifier(names[index], LmiNoScopes(), LmiNoSymbols(), imported) == null {
-                silenced = silenced + 1
-            }
-        }
-
-        index = index + 1
-    }
-
-    assert silenced == 25
+    // Non-vacuity: with none of them, the same call reports.
+    assert LinterMissingImport.MissingNamespaceForIdentifier("StringBuilder", facts, LmiNoScopes(), LmiNoSymbols(), LmiNoNamespaces()) == "System.Text"
 }
 
 // ── what the diagnostic says ─────────────────────────────────────────────────────────────────
 
 test "the message names the identifier and the suggestion names the import to add" {
-    assert LinterMissingImport.Message("Guid") == "'Guid' is used without the import that provides it"
-    assert LinterMissingImport.Message("List") == "'List' is used without the import that provides it"
-    assert LinterMissingImport.Suggestion("System") == "Add 'import System' at the top of the file"
-    assert LinterMissingImport.Suggestion("System.Collections.Generic") == "Add 'import System.Collections.Generic' at the top of the file"
-}
-
-test "the suggestion is composed from the namespace the decision returned, never from the name" {
-    name := "JsonSerializer"
-    requiredNs := LinterMissingImport.MissingNamespaceForIdentifier(name, LmiNoScopes(), LmiNoSymbols(), LmiNoNamespaces())
-
-    assert requiredNs == "System.Text.Json"
-    if requiredNs != null {
-        assert LinterMissingImport.Suggestion(requiredNs) == "Add 'import System.Text.Json' at the top of the file"
-    }
-
-    assert LinterMissingImport.Message(name) == "'JsonSerializer' is used without the import that provides it"
-}
-
-// ══════════════════════════════════════════════════════════════════════════════════════════════
-// END-TO-END NL002 CONTRACTS OVER REAL SOURCE (020 slice 15)
-//
-// These came out of `tests/ExampleLintTests.cs`, which is deleted. That file asked three questions:
-// `List` without `import System.Collections.Generic` reports, `List` with it does not, and
-// `StringBuilder` without `import System.Text` reports.
-//
-// THE MIDDLE ONE WAS THE ONLY NON-VACUOUS HALF OF A PAIR AND IT HAD NO PARTNER. Its census is
-// stated whole below, next to the removal control that makes it mean something, and the two
-// reporting cases now state WHERE the squiggle lands — which turns out to be a fact nothing had
-// ever written down.
-
-func LmieCensus(source: string): string {
-    parsed := ColumnarParserRecovery.ParseFileAst(source, "test.nl")
-    unit := parsed.CompilationUnit
-    if unit == null {
-        throw new InvalidOperationException("the parser answered no compilation unit for: " + source)
-    }
-
-    if parsed.Errors.Count != 0 {
-        throw new InvalidOperationException("the source did not parse cleanly: " + source)
-    }
-
-    linter := new Linter(LinterConfig.Default())
-    diagnostics := linter.Lint(unit, "test.nl", source)
-    census := ""
-    for diagnostic in diagnostics {
-        census = census + diagnostic.Code + "@" + diagnostic.Location.Line.ToString() + ":" + diagnostic.Location.Column.ToString() + "+" + diagnostic.Length.ToString() + ";"
-    }
-
-    return census
-}
-
-func LmieMessages(source: string): string {
-    parsed := ColumnarParserRecovery.ParseFileAst(source, "test.nl")
-    unit := parsed.CompilationUnit
-    if unit == null {
-        throw new InvalidOperationException("the parser answered no compilation unit for: " + source)
-    }
-
-    linter := new Linter(LinterConfig.Default())
-    diagnostics := linter.Lint(unit, "test.nl", source)
-    census := ""
-    for diagnostic in diagnostics {
-        census = census + diagnostic.Code + "|" + diagnostic.Message + ";"
-    }
-
-    return census
-}
-
-test "A CONSTRUCTED TYPE WITH NO IMPORT REPORTS NL002 — AND THE SPAN IS THE TYPE NAME" {
-    // THE PRODUCT DECISION THIS TEST WAS WAITING FOR HAS BEEN TAKEN. Its previous text read: "The
-    // span is stated here, and stating it is what found that the squiggle covers `new` (column 14,
-    // three characters) rather than the type name it is complaining about. That is pinned rather
-    // than corrected: moving a reported span changes what every editor draws and is a product
-    // decision, not a test migration."
-    //
-    // It is corrected now, and what the editor draws is the point of correcting it: VS Code offers a
-    // quick fix only for a diagnostic whose range contains the cursor, so an NL002 anchored on `new`
-    // put the "Add import" fix out of reach of anyone whose cursor was on the name the message
-    // names. The span is now the base name and nothing else — `List`, not `new` and not `List<int>`.
-    //
-    // `tests/fixtures/diagnostics/top25.golden.txt` already rendered this diagnostic with four
-    // carets under `List` at column 18 of the same line of text. The linter now agrees with the
-    // golden the product ships.
-    listSource := "\nfunc main() {\n    items := new List<int>()\n    x := items\n}"
-    assert LmieCensus(listSource) == "NL002@3:18+4;NL001@4:5+1;"
-    assert LmieMessages(listSource) == "NL002|'List' is used without the import that provides it;NL001|Variable 'x' is declared but never read;"
-
-    builderSource := "\nfunc main() {\n    sb := new StringBuilder()\n    x := sb\n}"
-    assert LmieCensus(builderSource) == "NL002@3:15+13;NL001@4:5+1;"
-    assert LmieMessages(builderSource) == "NL002|'StringBuilder' is used without the import that provides it;NL001|Variable 'x' is declared but never read;"
-
-    // THE ANCHOR SURVIVES A WRAPPER. `new StringBuilder[](2)` is an `ArrayTypeReference` around the
-    // simple one, and `Base` unwraps it to answer `StringBuilder`; the span unwraps with it, so the
-    // squiggle covers the element name rather than `StringBuilder[]` or, as before, `new`.
-    arraySource := "\nfunc main() {\n    ys := new StringBuilder[](2)\n    x := ys\n}"
-    assert LmieCensus(arraySource) == "NL002@3:15+13;NL001@4:5+1;"
-
-    // NON-VACUITY FOR THE COLUMN, which no census on its own can give: the same construction moved
-    // four columns to the right reports four columns to the right. A hard-coded anchor would not.
-    indentedSource := "\nfunc main() {\n        items := new List<int>()\n        x := items\n}"
-    assert LmieCensus(indentedSource) == "NL002@3:22+4;NL001@4:9+1;"
-}
-
-test "the import silences NL002, and REMOVING IT BRINGS THE SAME DIAGNOSTIC BACK" {
-    // The absence claim, stated as a whole census so an unrelated diagnostic cannot hide inside it.
-    assert LmieCensus("\nimport System.Collections.Generic\n\nfunc main() {\n    items := new List<int>()\n    x := items\n}") == "NL001@6:5+1;"
-
-    // REMOVAL CONTROL: the identical body with the import line taken out. The NL001 moves up two
-    // lines with the text and the NL002 appears, so the silence above is the import doing its job.
-    assert LmieCensus("\nfunc main() {\n    items := new List<int>()\n    x := items\n}") == "NL002@3:18+4;NL001@4:5+1;"
-
-    // And the same for System.Text, which the deleted file only ever asked in the reporting
-    // direction.
-    assert LmieCensus("\nimport System.Text\n\nfunc main() {\n    sb := new StringBuilder()\n    x := sb\n}") == "NL001@6:5+1;"
-}
-
-// ══════════════════════════════════════════════════════════════════════════════════════════════
-// NL002 AT EVERY POSITION A TYPE CAN BE WRITTEN
-//
-// The rule used to be asked at exactly two places: a bare identifier, and the type of a `new`
-// expression. Every other written type — a parameter, a return, a field, a property, a local's
-// annotation, a base class, an interface, a positional record parameter, and every type argument
-// inside any of them — was silent. `CheckMissingImportForType`'s own comment claimed otherwise
-// ("a generic argument or an array element is reached by the walk in its own right"), and it was
-// never true: the walk descends EXPRESSIONS, and a type argument is a `TypeReference`.
-//
-// MEASURED BEFORE THE CHANGE, because "silent" is a claim about the whole toolchain and not just
-// about this rule: with `System.Text` unimported, `func takes(sb: StringBuilder) { sb.Append("x") }`
-// produced no diagnostic from `nlc check` AND BUILT AND RAN. A genuinely unknown name in the same
-// position is caught — `NotARealTypeAtAll` is NL201 "Type not found", anchored on the name — so the
-// silence was never a resolution hole. NL002 is import HYGIENE, which the `new` position proves
-// from the other side: with NL002 suppressed, `new StringBuilder()` without the import compiles and
-// prints. The defect was that the hygiene rule inspected one syntactic position out of many.
-
-test "NL002 covers a PARAMETER type, and lands on the type name" {
-    assert LmieCensus("\nfunc takes(sb: StringBuilder): int {\n    return sb.Length\n}") == "NL002@2:16+13;"
-}
-
-test "NL002 covers a RETURN type" {
-    assert LmieCensus("\nfunc make(): StringBuilder {\n    return null\n}") == "NL002@2:14+13;"
-}
-
-test "NL002 covers a FIELD type" {
-    assert LmieCensus("\nclass Holder {\n    Buffer: StringBuilder\n}") == "NL002@3:13+13;"
-}
-
-test "NL002 covers a GENERIC ARGUMENT, which is the case the old comment claimed and never did" {
-    // The enclosing generic is imported, so the only finding is the ARGUMENT — and it is anchored
-    // on the argument, not on `List` and not on `new`.
-    assert LmieCensus("\nimport System.Collections.Generic\n\nfunc make(): List<StringBuilder> {\n    return null\n}") == "NL002@4:19+13;"
-
-    // Neither imported: two findings, base name first, each on its own columns.
-    assert LmieCensus("\nfunc make(): List<StringBuilder> {\n    return null\n}") == "NL002@2:14+4;NL002@2:19+13;"
-}
-
-test "the import silences the newly covered positions too, which is the whole point of the rule" {
-    // Non-vacuity for every one of them at once: the same four positions with both imports present
-    // report nothing at all.
-    covered := "\nimport System.Collections.Generic\nimport System.Text\n\nfunc takes(sb: StringBuilder): int {\n    return sb.Length\n}\n\nfunc make(): List<StringBuilder> {\n    return null\n}\n\nclass Holder {\n    Buffer: StringBuilder\n}"
-    assert LmieCensus(covered) == ""
-}
-
-test "NL002's bare-identifier span STOPS AT THE IDENTIFIER, and does not run the member chain in" {
-    // `DiagnosticSpanResolver` covers a whole dotted chain when it is asked to infer an extent, and
-    // that is correct for a diagnostic about the chain — `foo.bar.baz` is one span, and the resolver
-    // has its own contract saying so. It is wrong here: the message names `StringBuilder`, so the
-    // squiggle covered `StringBuilder.ToString` (22 columns) and the import fix was offered on
-    // `.ToString` too. The rule now states the identifier's own length rather than asking.
-    dotted := "\nfunc main() {\n    print(StringBuilder.ToString())\n}"
-    assert LmieCensus(dotted) == "NL002@3:11+13;"
-    assert LmieMessages(dotted) == "NL002|'StringBuilder' is used without the import that provides it;"
-
-    // CONTROL, and it is the one that says the resolver was not broken to get here: an identifier
-    // with nothing after it was always right, and is unchanged at the same thirteen columns.
-    bare := "\nfunc main() {\n    let sb = StringBuilder\n    print(sb)\n}"
-    assert LmieCensus(bare) == "NL002@3:14+13;"
-
-    // And the RESOLVER'S own rule still runs a chain together for the callers that want it, which is
-    // why it was left alone: this is the same source line, asked of the resolver directly.
-    assert DiagnosticSpanContractCovers("StringBuilder.ToString()", 1, "StringBuilder.ToString")
-}
-
-// The native diagnostic-honesty suite builds fifteen parameter-and-boxing shapes both with and
-// without their imports. Former Regex, HttpClient and Queue<int> emission declines now build too;
-// NL002 describes import hygiene independently of which source shapes the backend admits.
-test "NL002's sentence states what is true of EVERY row: the name is used, the import is not there" {
     assert LinterMissingImport.Message("StringBuilder") == "'StringBuilder' is used without the import that provides it"
-    assert LinterMissingImport.Message("List") == "'List' is used without the import that provides it"
-
-    // The claim it no longer makes, and the half that was always true and is unchanged.
-    assert LinterMissingImport.Message("StringBuilder").IndexOf("can't find", StringComparison.Ordinal) < 0
     assert LinterMissingImport.Suggestion("System.Text") == "Add 'import System.Text' at the top of the file"
+}
+
+test "the sentence states what is true of EVERY finding: the name is used, the import is not there" {
+    // NL002 IS IMPORT HYGIENE, not a resolution failure: the name resolved — that is how the
+    // namespace is known — and what is missing is the import that should have provided it.
+    assert LinterMissingImport.Message("OperatingSystem").Contains("is used without the import that provides it")
+    assert !LinterMissingImport.Message("OperatingSystem").Contains("not found")
+}
+
+test "the suggestion is composed from the NAMESPACE the decision returned, never from the name" {
+    assert LinterMissingImport.Suggestion("Contoso.Widgets") == "Add 'import Contoso.Widgets' at the top of the file"
 }

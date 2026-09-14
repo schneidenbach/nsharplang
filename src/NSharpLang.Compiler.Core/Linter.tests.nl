@@ -35,8 +35,13 @@ func LdwConfig(): LinterConfig {
     return LinterConfig.Default()
 }
 
+// The walk state as a file's analysis leaves it: the binding facts registered, no imports written.
+// `RegisterImports` is the one door those facts come through, and a state that never opened it is
+// the "never analysed" shape rather than the default one.
 func LdwState(): LinterWalkState {
-    return new LinterWalkState("test.nl", null, LdwConfig())
+    state := new LinterWalkState("test.nl", null, LdwConfig())
+    state.RegisterImports(LdwUnit(LdwDeclarations()))
+    return state
 }
 
 func LdwCodes(diagnostics: List<Diagnostic>): string {
@@ -120,8 +125,25 @@ func LdwOneMember(member: Declaration): List<Declaration> {
     return members
 }
 
+// EVERY UNIT BUILT HERE CARRIES THE BINDING FACTS AN ANALYSIS WOULD HAVE STAMPED ON IT.
+//
+// NL002 and NL010 are answered by what the file BOUND — which namespace supplied each name it wrote —
+// and these contracts are about the WALK: which positions it asks, where the squiggle lands, and in
+// what order the phases run. So the facts are supplied as a fixture, crediting the two BCL spellings
+// every test below writes, and the walk is then asked the questions it would be asked in production.
+// A test that wants the "never analysed" answer builds its unit with `LdwUnanalyzedUnit`.
+func LdwFacts(): ImportUsageFacts {
+    facts := new ImportUsageFacts()
+    facts.CreditName("StringBuilder", "System.Text")
+    facts.CreditName("List", "System.Collections.Generic")
+    facts.Analyzed = true
+    return facts
+}
+
 func LdwUnit(declarations: List<Declaration>): CompilationUnit {
-    return new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
+    unit := new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
+    unit.ImportUsage = LdwFacts()
+    return unit
 }
 
 func LdwUnitOf(declaration: Declaration): CompilationUnit {
@@ -131,7 +153,25 @@ func LdwUnitOf(declaration: Declaration): CompilationUnit {
 func LdwUnitWithImport(namespaceName: string, declarations: List<Declaration>): CompilationUnit {
     imports := new List<ImportDirective>()
     imports.Add(new ImportDirective(namespaceName, null, 1, 1))
-    return new CompilationUnit(null, imports, new List<Statement>(), null, declarations, 1, 1)
+    unit := new CompilationUnit(null, imports, new List<Statement>(), null, declarations, 1, 1)
+    unit.ImportUsage = LdwFacts()
+    return unit
+}
+
+// The same unit with NO binding facts: what a parse-only caller hands the linter.
+func LdwUnanalyzedUnit(declarations: List<Declaration>): CompilationUnit {
+    return new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
+}
+
+// One import, ANALYSED, and credited by nothing: the shape NL010 exists to report.
+func LdwUnusedImportUnit(namespaceName: string): CompilationUnit {
+    imports := new List<ImportDirective>()
+    imports.Add(new ImportDirective(namespaceName, null, 1, 1))
+    unit := new CompilationUnit(null, imports, new List<Statement>(), null, LdwDeclarations(), 1, 1)
+    facts := new ImportUsageFacts()
+    facts.Analyzed = true
+    unit.ImportUsage = facts
+    return unit
 }
 
 // A tree deeper than the walk's recursion limit. The only shape that makes a member walk THROW, and
@@ -267,7 +307,7 @@ test "an import used only inside a declaration is not an unused import" {
     used := LdwState()
     new LinterDeclarationWalk(used).Visit(LdwUnitWithImport("System.Text", LdwOneMember(LdwFunction("main", LdwReadBlock("StringBuilder", 3, 5)))))
     unused := LdwState()
-    new LinterDeclarationWalk(unused).Visit(LdwUnitWithImport("System.Text", LdwDeclarations()))
+    new LinterDeclarationWalk(unused).Visit(LdwUnusedImportUnit("System.Text"))
     assert used.Diagnostics.Count == 0
     assert LdwStateCodes(unused) == "NL010@1:1;"
 }
@@ -484,10 +524,16 @@ test "(c) non-vacuity: without the throw the same name is silenced inside the ty
 // every "no diagnostic" contract into a contract about nothing.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 
+// THE BINDING FACTS ARE SUPPLIED BY THE FIXTURE, as they are for every source-linting contract in
+// the estate: the two import rules read what the ANALYZER resolved, and `LnieFacts` answers that
+// question by resolving the source's names against the runtime this test host runs on. See
+// `LinterNamespaceImportUsage.tests.nl` for why, and `tests/native/census-import-usage` for the
+// analyzer's own half.
 func LntLint(sourceText: string): List<Diagnostic> {
     parsed := ColumnarParserRecovery.ParseFileAst(sourceText, null)
     unit := parsed.CompilationUnit
     if unit != null {
+        unit.ImportUsage = LnieFacts(sourceText)
         linter := new Linter()
         return linter.Lint(unit, "test.nl", null)
     }
@@ -499,6 +545,7 @@ func LntLintWithSource(sourceText: string): List<Diagnostic> {
     parsed := ColumnarParserRecovery.ParseFileAst(sourceText, "test.nl")
     unit := parsed.CompilationUnit
     if unit != null {
+        unit.ImportUsage = LnieFacts(sourceText)
         linter := new Linter()
         return linter.Lint(unit, "test.nl", sourceText)
     }
@@ -511,6 +558,7 @@ func LntLintFile(filePath: string): List<Diagnostic> {
     parsed := ColumnarParserRecovery.ParseFileAst(sourceText, filePath)
     unit := parsed.CompilationUnit
     if unit != null {
+        unit.ImportUsage = LnieFacts(sourceText)
         linter := new Linter()
         return linter.Lint(unit, filePath, sourceText)
     }
@@ -978,8 +1026,12 @@ test "NL010 counts Char as usage of System" {
     assert !LntHasCode(LntLint("\nimport System\n\nfunc Main(): bool {\n    return Char.IsWhiteSpace(' ')\n}"), "NL010")
 }
 
-test "NL010 stays silent on a namespace it does not track" {
-    assert !LntHasCode(LntLint("\nimport MyCompany.MyLibrary\n\nfunc Main() {\n    x := 5\n    y := x + 1\n}"), "NL010")
+test "NL010 REPORTS A NAMESPACE IT HAS NEVER HEARD OF, which it used to be silent about" {
+    // THE TABLE'S SECOND FAILURE. A namespace with no table row was reported USED no matter what, so
+    // a dead import of any name outside the ten listed rows — a project's own namespace included —
+    // was invisible. The rule now asks what the file BOUND, and an unknown namespace that bound
+    // nothing is dead.
+    assert LntHasCode(LntLint("\nimport MyCompany.MyLibrary\n\nfunc Main() {\n    x := 5\n    y := x + 1\n}"), "NL010")
 }
 
 test "NL010 counts a LINQ extension method call as usage of System.Linq" {
@@ -1394,12 +1446,12 @@ test "a for-loop variable is exempt too" {
 
 // Successor to VariableUsedInLINQChain_ShouldNotBeMarkedUnused.
 test "a variable read through a LINQ chain is read" {
-    assert LnuCensusOf("func main(): void\n    let numbers = [1, 2, 3, 4, 5]\n    let doubled = numbers.Select(x => x * 2).ToList()\n    Console.WriteLine(doubled)") == ""
+    assert LnuCensusOf("import System\nfunc main(): void\n    let numbers = [1, 2, 3, 4, 5]\n    let doubled = numbers.Select(x => x * 2).ToList()\n    Console.WriteLine(doubled)") == ""
 
     // REMOVAL CONTROL: only the final read of `doubled` is dropped. `numbers` stays silent because
     // the chain still reads it, so one source separates the two claims the deleted file made
     // together.
-    assert LnuCensusOf("func main(): void\n    let numbers = [1, 2, 3, 4, 5]\n    let doubled = numbers.Select(x => x * 2).ToList()\n    Console.WriteLine(1)") == "NL001@3:9+7;"
+    assert LnuCensusOf("import System\nfunc main(): void\n    let numbers = [1, 2, 3, 4, 5]\n    let doubled = numbers.Select(x => x * 2).ToList()\n    Console.WriteLine(1)") == "NL001@4:9+7;"
 }
 
 // Successor to VariableUsedInMethodChain_ShouldNotBeMarkedUnused.
@@ -1432,9 +1484,13 @@ test "a variable read by an assert MESSAGE is read" {
 
 // Successor to VariableUsedInAssertThrowsBody_ShouldNotBeMarkedUnused.
 test "a variable read inside an assert throws BODY is read" {
-    assert LnuCensusOf("test \"assert throws reads locals\" {\n    value := \"bad\"\n\n    assert throws InvalidOperationException {\n        ThrowIfInvalid(value)\n    }\n}") == ""
+    // `import System` is written because `InvalidOperationException` needs it: the two import rules
+    // read what the file BOUND, and a name whose namespace is not imported is NL002. That is another
+    // rule's contract, and stating this one whole means not tripping it.
+    assert LnuCensusOf("import System\ntest \"assert throws reads locals\" {\n    value := \"bad\"\n\n    assert throws InvalidOperationException {\n        ThrowIfInvalid(value)\n    }\n}") == ""
 
-    assert LnuCensusOf("test \"assert throws reads locals\" {\n    value := \"bad\"\n\n    assert throws InvalidOperationException {\n        ThrowIfInvalid(\"bad\")\n    }\n}") == "NL001@2:5+5;"
+    // REMOVAL CONTROL: the body no longer reads the local, and it is reported.
+    assert LnuCensusOf("import System\ntest \"assert throws reads locals\" {\n    value := \"bad\"\n\n    assert throws InvalidOperationException {\n        ThrowIfInvalid(\"bad\")\n    }\n}") == "NL001@3:5+5;"
 }
 
 // ── the subtrees the expression walk used to drop ─────────────────────────────────────────────

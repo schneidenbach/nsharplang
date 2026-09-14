@@ -41,6 +41,7 @@ class AnalyzerTypeResolver {
     importedSymbolsByAliasValue: Dictionary<string, Dictionary<string, TypeInfo>>
     importedDeclarationsByAliasValue: Dictionary<string, Dictionary<string, SymbolDeclaration>>
     wellKnownTypesValue: AnalyzerWellKnownTypes?
+    importUsageCreditValue: AnalyzerImportUsageCredit?
     semanticModelValue: SemanticModel
     bindingsValue: BindingMap
     currentFilePathValue: string?
@@ -59,6 +60,7 @@ class AnalyzerTypeResolver {
         importedSymbolsByAliasValue = importedSymbolsByAlias
         importedDeclarationsByAliasValue = importedDeclarationsByAlias
         wellKnownTypesValue = null
+        importUsageCreditValue = null
         semanticModelValue = semanticModel
         bindingsValue = bindings
         currentFilePathValue = null
@@ -81,10 +83,47 @@ class AnalyzerTypeResolver {
         reportedSoaRowTypeRefsValue.Clear()
     }
 
+    // A FUNCTION TYPE IS RESOLVED STRUCTURALLY, SO ITS WRITTEN NAME RESOLVES NOWHERE.
+    //
+    // `f: Func<int, int>` becomes a `FunctionTypeInfo` built from its parts; the spelling `Func` is
+    // never looked up as a name, so no channel credits the import that supplies it and
+    // `import System` beside a file whose only use of it was a delegate annotation read as dead. The
+    // name is resolved here for the credit alone — positionless, so it reports nothing of its own —
+    // and at the ARITY the reference writes, because `Func` exists in metadata only as ``Func`1``
+    // and up.
+    //
+    // A hand-built reference carries no written name and asks nothing.
+    func CreditWrittenDelegateName(functionReference: FunctionTypeReference, parameterCount: int, returnType: TypeInfo) {
+        if importUsageCreditValue == null {
+            return
+        }
+
+        writtenName := functionReference.WrittenName
+        if writtenName.Length == 0 {
+            return
+        }
+
+        arity := parameterCount
+        returnSimple := returnType as SimpleTypeInfo
+        if returnSimple == null || returnSimple.Name != "void" {
+            arity = arity + 1
+        }
+
+        ignored := ResolveTypeNameWithArity(writtenName, arity, 0, 0)
+        _ = ignored
+    }
+
     // The well-known-type bag is rebuilt, never mutated, so the resolver is told about the new bag
     // rather than being rebuilt itself: rebuilding would drop the dedupe sets mid-analysis.
     func SetWellKnownTypes(wellKnownTypes: AnalyzerWellKnownTypes?) {
         wellKnownTypesValue = wellKnownTypes
+    }
+
+    // The import-usage ledger is told about, not constructed here, and it is OPTIONAL: a harness
+    // that builds this resolver to ask what a name resolves to is not answering NL010, and a null
+    // ledger costs it one null test per resolution.
+    func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
+        importUsageCreditValue = credit
     }
 
     // Resolves a type reference at a DECLARED-type position (parameter, return, field, property,
@@ -192,6 +231,7 @@ class AnalyzerTypeResolver {
             functionType := new FunctionTypeInfo()
             functionType.ParameterTypes = parameterTypes
             functionType.ReturnType = ResolveType(functionReference.ReturnType)
+            CreditWrittenDelegateName(functionReference, parameterTypes.Count, functionType.ReturnType)
             return functionType
         }
 
@@ -544,7 +584,28 @@ class AnalyzerTypeResolver {
     // `lookupName` is the IDENTITY every channel is asked for; `writtenName` is what the developer
     // typed, and is what every diagnostic, span length and semantic-model record uses. They differ
     // only on the arity-qualified probe above.
+    // THE EIGHT-CHANNEL WALK, AND THE ONE PLACE THE IMPORT IT USED IS RECORDED.
+    //
+    // Every position in the language where a TYPE may be written reaches this function — an
+    // annotation, a `new`, a type argument, a base class, an interface, a constraint, a `catch`
+    // clause, a `typeof`, an `is`/`as`, an attribute's bracket spelling — so crediting the namespace
+    // that answered HERE credits it for all of them at once. That is the whole reason NL010 no longer
+    // needs a table: the rule is asked of what the file BOUND, and this is where a written name
+    // becomes a binding.
+    //
+    // The walk itself is unchanged and lives below; this is a wrapper so that every one of its ten
+    // return paths is credited without ten copies of the call.
     func ResolveSimpleTypeCore(lookupName: string, writtenName: string, line: int, column: int): TypeInfo {
+        resolved := ResolveSimpleTypeWalk(lookupName, writtenName, line, column)
+        credit := importUsageCreditValue
+        if credit != null {
+            credit.CreditResolvedType(writtenName, resolved)
+        }
+
+        return resolved
+    }
+
+    func ResolveSimpleTypeWalk(lookupName: string, writtenName: string, line: int, column: int): TypeInfo {
         if writtenName == "var" && line > 0 {
             diagnosticsValue.Report(ErrorCode.InvalidSyntax, "'var' is not a type; use ':=' for type inference", line, column, null, 0)
             return BuiltInTypes.Unknown

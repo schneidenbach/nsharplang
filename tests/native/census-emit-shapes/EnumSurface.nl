@@ -1,5 +1,6 @@
 namespace NSharpLang.CensusEmitShapes.Tests
 
+import System
 import System.Collections.Generic
 
 

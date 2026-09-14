@@ -3,7 +3,9 @@ namespace NSharpLang.Cli.Commands
 import System
 import System.Collections.Generic
 import System.IO
+import NSharpLang.Cli
 import NSharpLang.Compiler
+import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.CodeIntelligence
 
 // The fix command owns the complete discovery -> analysis -> safety -> write -> output route.
@@ -78,9 +80,17 @@ class FixCommand {
             pendingWrites := new List<FixPendingWrite>()
             filesModified := 0
 
+            // THE PROJECT IS ANALYSED ONCE, BEFORE ANY FILE IS FIXED, AND TWO RULES DEPEND ON IT.
+            // NL010 ("this import is not used") and NL002 ("this name has no import") are answered by
+            // what a file BOUND, so a unit that was only parsed carries no answer for either — and
+            // those two are exactly the fixes that delete and add import lines. Loading the project
+            // here costs what `nlc check` costs and makes `nlc fix` offer the same set `nlc check`
+            // reports, rather than a strictly smaller one.
+            analyzedUnits := AnalyzedUnitsFor(projectDir)
+
             for filePath in files {
                 source := File.ReadAllText(filePath)
-                fixes := FixApplicator.GetFixesForFile(filePath, source)
+                fixes := FixApplicator.GetFixesForFile(filePath, source, AnalyzedUnitFor(analyzedUnits, filePath))
                 if fixes.Count == 0 {
                     continue
                 }
@@ -149,6 +159,42 @@ class FixCommand {
         } catch ex: Exception {
             return EmitError(useText, FixCommandKernels.GetFailedMessage(ex.Message), projectDir)
         }
+    }
+
+    // Every file of the project, analysed, keyed by full path. A project that cannot be loaded at all
+    // answers with nothing, and the two import rules are then silent for every file — the same answer
+    // a unit with no binding facts already gives, rather than a guess.
+    private static func AnalyzedUnitsFor(projectDir: string): IReadOnlyDictionary<string, CompilationUnit>? {
+        try {
+            projectConfig := ProjectFileParser.ParseFromDirectory(projectDir)
+            if projectConfig != null {
+                CompilationReferenceResolver.AddResolvedDllReferences(projectDir, projectConfig, new ReferenceResolutionOptions("Debug", true, true, true, false))
+            }
+
+            service := new CodeIntelligenceService()
+            snapshot := service.LoadProjectIncludingTests(projectDir, projectConfig, null)
+            return snapshot.CompilationUnits
+        } catch {
+            return null
+        }
+    }
+
+    private static func AnalyzedUnitFor(units: IReadOnlyDictionary<string, CompilationUnit>?, filePath: string): CompilationUnit? {
+        table := units
+        if table == null {
+            return null
+        }
+
+        return LookupAnalyzedUnit(table, filePath)
+    }
+
+    private static func LookupAnalyzedUnit(units: IReadOnlyDictionary<string, CompilationUnit>, filePath: string): CompilationUnit? {
+        let found: CompilationUnit? = null
+        if units.TryGetValue(Path.GetFullPath(filePath), out found) {
+            return found
+        }
+
+        return null
     }
 
     private static func EmitError(useText: bool, message: string, projectRoot: string?): int {

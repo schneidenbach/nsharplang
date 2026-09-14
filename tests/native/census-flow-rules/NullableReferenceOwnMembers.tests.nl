@@ -1,7 +1,6 @@
 namespace NSharpLang.CensusFlowRules.Tests
 
 import System
-import System.Reflection
 
 func MarkupDocumentation(text: string): StringOrMarkupContent {
     return new StringOrMarkupContent(new MarkupContent(text), null)

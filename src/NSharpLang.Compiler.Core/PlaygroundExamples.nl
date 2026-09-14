@@ -148,7 +148,7 @@ class PlaygroundExamples {
     }
 
     static func Code6(): string {
-        return "package Tutorial\n" + "\n" + "func Divide(a: int, b: int): int {\n" + "    if b == 0 {\n" + "        throw new Exception(\"division by zero\")\n" + "    }\n" + "\n" + "    return a / b\n" + "}\n" + "\n" + "func SafeDivide(a: int, b: int): string {\n" + "    result, err := Divide(a, b)\n" + "    if err != null {\n" + "        return err.Message\n" + "    }\n" + "\n" + "    return $\"result: {result}\"\n" + "}\n" + "\n" + "func main() {\n" + "    print SafeDivide(10, 2)\n" + "    print SafeDivide(10, 0)\n" + "}"
+        return "package Tutorial\n" + "\n" + "import System\n" + "\n" + "func Divide(a: int, b: int): int {\n" + "    if b == 0 {\n" + "        throw new Exception(\"division by zero\")\n" + "    }\n" + "\n" + "    return a / b\n" + "}\n" + "\n" + "func SafeDivide(a: int, b: int): string {\n" + "    result, err := Divide(a, b)\n" + "    if err != null {\n" + "        return err.Message\n" + "    }\n" + "\n" + "    return $\"result: {result}\"\n" + "}\n" + "\n" + "func main() {\n" + "    print SafeDivide(10, 2)\n" + "    print SafeDivide(10, 0)\n" + "}"
     }
 
     static func Tests6(): string? {

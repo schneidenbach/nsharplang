@@ -4132,3 +4132,85 @@ one `TryResolveValueTupleConstructor` now. Separately, a tuple literal had no pr
 so a lambda whose body is one had no inferable return type and `xs.Select(d => (d.Code, d.Line))`
 declined at the extension call. Element NAMES still do not survive an `IGrouping.Key` hop
 (`group.Key.Code` declines; `group.Key.Item1` emits) — that is the labelled-context gap, not this one.
+
+## Import usage is a binding fact, and both import rules read it (census 2026-09-13, TOOL3)
+
+`ImportUsageFacts` (`src/NSharpLang.Compiler.Core/ImportUsageFacts.nl`) is a per-file ledger the
+analyzer stamps on the `CompilationUnit` it analyses. It records two things: every namespace some
+written name resolved THROUGH, and, for a name that resolved to a METADATA type, which namespace
+supplied it. The linter's two import rules are that one measurement read from two sides — an import
+the ledger credits is used (NL010 quiet), and a name whose supplying namespace the file does not
+import is NL002.
+
+**The measurement is arithmetic on the resolved identity, not a lookup.** A written spelling `W` that
+resolved to a type whose full name is `F` was supplied by `N` exactly when `F` is `N.W`, so the answer
+is `F` with `"." + W` cut off its end (`AnalyzerImportUsageCredit.SupplyingNamespace`). Two metadata
+spellings are normalised first — the arity suffix (``List`1``) and the nested separator
+(`Outer+Inner`). Three consequences fall out rather than being coded: a FULLY QUALIFIED spelling
+leaves no prefix and credits nothing, a PARTIALLY QUALIFIED one credits the import that supplied its
+ROOT (`import System` + `Collections.Generic.List`), and an ALIAS-qualified one credits the namespace
+it is an alias of after the root is expanded.
+
+**This replaced two hand-written tables and both of their failure modes.** NL010 read a closed-world
+list of the names each of ten namespaces provides (112 spellings for `System`) and NL002 a 25-name
+whitelist. `import System` beside `OperatingSystem.IsWindows()` was reported UNUSED — an ERROR whose
+`nlc fix` deletes the line — while the same file without the import was accepted in silence. A
+namespace with no row was reported USED no matter what, so every dead import outside those ten rows,
+a project's own namespace included, was invisible.
+
+**Every channel a name can reach an import through credits it, and a channel that forgets is a false
+NL010 that deletes working code.** The nine:
+
+| channel | owner | what it credits |
+| --- | --- | --- |
+| a written type, anywhere a type may be written | `AnalyzerTypeResolver.ResolveSimpleTypeCore` | the resolved identity's prefix |
+| a declared member's type | `AnalyzerDeclarationContext.ResolveTypeName` (current file only) | same |
+| a bare static receiver (`Console.WriteLine`) | `AnalyzerIdentifierResolution` step 6 | same |
+| a type-valued receiver (`Encoding.UTF8`) | `AnalyzerMemberAccess.TryResolveTypeValuedMemberAccess` | same |
+| an attribute's bracket spelling | `AnalyzerAttributeValidator.CreditAttributeImport` | either of its two legal spellings |
+| an extension method (`.Where(…)`) | `AnalyzerExtensionMethodResolution.ExternalExtensionMethodType` | the METHOD's declaring namespace |
+| a delegate type (`Func<int, int>`) | `AnalyzerTypeResolver.CreditWrittenDelegateName` | the written name at the arity the reference writes |
+| a project source type | `AnalyzerProjectTypeDiscovery.ResolveVisibleProjectType` | the namespace the sweep answered from |
+| a name declared but not exported (NL308), an ambiguity (NL209), an import that does not resolve (NL704) | `AnalyzerDiagnosticSink`, `AnalyzerImports` | the namespace, so NL010 does not pile a second diagnostic on one mistake |
+
+**A metadata type is the only NL002 finding, and a name the project declares is never one.** A source
+type in another namespace of the same project resolves with no import at all, so it is credited but
+never recorded as needing one. A receiver position resolves through the external probe BEFORE it
+consults a sibling file's declarations, so a source `class Guard` beside a metadata `Guard` answers
+with the metadata one — `AnalyzerDeclarationContext.DeclaresTypeNamed` is what keeps NL002 from
+telling the author to import a namespace their program does not use.
+
+**The ledger is per ANALYSIS, and the rules are gated on it.** `Analyze` replaces it and sets
+`Analyzed` only on the path that walked every declaration. A file with no facts, or with partial
+ones, reports NO namespace import — an import whose use cannot be proven has not been proven dead —
+while NL010's FILE arm answers regardless, because it needs no binding. `MultiFileCompiler` therefore
+analyses before it strict-lints, and `FixCommand` loads the project once and hands the analysed unit
+to `FixApplicator`.
+
+**The cost is two memoised metadata reads.** `Type.get_Namespace` and `get_FullName` are COMPUTED by
+the MetadataLoadContext, and asking them per resolution measured ~60% on top of `nlc check`; they are
+memoised against the `Type`, and the common case (an undotted spelling on a non-nested type) is one
+`Namespace` read rather than the arithmetic.
+
+## One type name in two files of one namespace is NL339 (census 2026-09-13, TOOL3/EMIT4)
+
+A namespace's declaration scope is per FILE, so `class Widget` written in two files each declared into
+an empty table and neither saw the other. Both were emitted: the probe's assembly carried TWO
+`TypeDef` rows called `P2.Widget` — the metadata C# refuses as CS0101 — and a reference to the name
+bound to whichever the loader reached first. `nlc check` said "no errors" and `nlc build` said "Build
+successful".
+
+`AnalyzerDeclarationContext.TryFindFirstDeclaringFile` is the evidence a per-file scope cannot hold:
+every compiled file is registered there, and the walk answers with the ORDINAL-least full path that
+declares the (namespace, arity-name) pair. The order is deliberately NOT the registration order —
+`Reset` empties the owner before every file's analysis and re-adds the file being analysed FIRST, so
+"the file registered first" is always the current one and every file would be its own first
+declaration. `AnalyzerDeclarationPolicy.DeclareType` reports NL339 at the SECOND declaration, naming
+the first's file and line; the first reports nothing, which is what keeps one collision from being
+reported twice.
+
+Different arities are different types (`Widget` and ``Widget`1``), different namespaces are different
+scopes, and two declarations in ONE file are still NL306. A namespace-less project is one namespace:
+two `class Shared` reachable through aliased file imports collide, because
+`ColumnarBindingScopeFacts.ExactTypeNameForFile` gives a namespace-less type its bare name and the
+assembly would carry both.

@@ -22,6 +22,8 @@ class AnalyzerDiagnosticSink {
     projectSourcesValue: AnalyzerProjectSourceProvider
     currentFilePathValue: string?
     sourceTextValue: string?
+    // NL010's ledger, for the one report that is also a USE: a name a namespace declared and refused.
+    importUsageCreditValue: AnalyzerImportUsageCredit?
 
     CurrentFilePath: string? => currentFilePathValue
 
@@ -37,6 +39,11 @@ class AnalyzerDiagnosticSink {
         projectSourcesValue = projectSources
         currentFilePathValue = null
         sourceTextValue = null
+        importUsageCreditValue = null
+    }
+
+    func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
+        importUsageCreditValue = credit
     }
 
     // One call per analysis, from the same reset block that sets the analyzer's current file.
@@ -183,6 +190,16 @@ class AnalyzerDiagnosticSink {
     // namespace correctly; a file that declares none reports the global namespace as `<global>`.
     func ReportInaccessibleMember(memberName: string, declarationFile: string?, line: int, column: int): bool {
         declaringNamespace := projectSourcesValue.GetNamespaceForFile(declarationFile)
+
+        // NL010: A NAME THAT WAS REFUSED IS STILL A NAME THIS FILE ASKED THAT NAMESPACE FOR. The
+        // import supplied the declaration; accessibility is a second question asked after it. Without
+        // this credit a file whose only use of `import X` was a name `X` declines to export was told
+        // its import was dead as well — two diagnostics for one mistake, and the second one wrong.
+        credit := importUsageCreditValue
+        if credit != null {
+            credit.CreditNamespaceSupplier(declaringNamespace)
+        }
+
         if declaringNamespace == null {
             declaringNamespace = "<global>"
         }
@@ -226,13 +243,27 @@ class AnalyzerDiagnosticSink {
     // qualification it suggests is the FIRST, which is the one the old first-import-wins order would
     // silently have chosen.
     func ReportAmbiguousTypeReference(name: string, firstCandidate: string, secondCandidate: string, line: int, column: int): bool {
+        CreditAmbiguousCandidates(firstCandidate, secondCandidate)
         ReportBuilt(ErrorMessageBuilder.AmbiguousTypeReference(currentFilePathValue, line, column, SourceSnippet(line), Math.Max(1, name.Length), name, firstCandidate, secondCandidate))
         return true
     }
 
     func ReportAmbiguousFunctionReference(name: string, firstCandidate: string, secondCandidate: string, line: int, column: int): bool {
+        CreditAmbiguousCandidates(firstCandidate, secondCandidate)
         ReportBuilt(ErrorMessageBuilder.AmbiguousFunctionReference(currentFilePathValue, line, column, SourceSnippet(line), Math.Max(1, name.Length), name, firstCandidate, secondCandidate))
         return true
+    }
+
+    // NL010: BOTH CANDIDATES SUPPLIED THE NAME, WHICH IS WHY THIS IS A TIE. The name does not
+    // resolve, so nothing else credits either import — and without this the file would be told that
+    // both of the imports the tie is ABOUT are also dead, each with a fix that deletes one of the two
+    // lines the report names.
+    func CreditAmbiguousCandidates(firstCandidate: string, secondCandidate: string) {
+        credit := importUsageCreditValue
+        if credit != null {
+            credit.CreditQualifiedCandidate(firstCandidate)
+            credit.CreditQualifiedCandidate(secondCandidate)
+        }
     }
 
     // THE VALUE COULD BE CONVERTED TWO WAYS AND NEITHER IS BETTER. Every position that is

@@ -1,5 +1,6 @@
 namespace NSharpLang.CensusExtensionCalls.Tests
 
+import System
 import System.Collections
 import System.Collections.Generic
 import System.Linq

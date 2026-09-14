@@ -1,6 +1,7 @@
 namespace NSharpLang.CensusIterators.Tests
 
 import System.Collections.Generic
+import System
 
 
 // EXECUTED PROOFS FOR THE ANNOTATED LOOP VARIABLE INSIDE A GENERATOR.

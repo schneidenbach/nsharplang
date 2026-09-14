@@ -1454,6 +1454,84 @@ test "nlc format refuses --stdin beside a file argument through stderr and exits
     assert run.Stderr.Contains("Cannot combine --stdin with file arguments.")
 }
 
+// ═══ `nlc test --json` IS ONE JSON DOCUMENT, OR IT IS NOTHING ════════════════════════════════
+//
+// A caller reading `--json` parses it STRICTLY, so anything on stdout that is not the document makes
+// the whole run unreadable — and a reader that falls back to scraping the summary with a regex has
+// stopped reading a schema. Two facts are pinned here, and the second one is a DEFECT stated as it
+// behaves today so that fixing it fails this row rather than passing silently.
+
+test "a test name carrying quotes and backslashes round-trips through a STRICT parser" {
+    // The writer is `TestCommandKernels.NativeTestJson`, and it escapes per RFC 8259 because it goes
+    // through `JsonSerializer` rather than building the document by hand. That is worth pinning: the
+    // name is the one field in the envelope taken verbatim from user source, and a hand-rolled writer
+    // here would make every test name a possible injection into the schema.
+    directory := NewTempDirectory("nlc-test-json-quoted")
+    try {
+        WriteProjectYml(directory, "name: QuotedNames\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Quoted.tests.nl"),
+            "namespace QuotedNames\n\ntest \"a \\\"quoted\\\" word and a backslash \\\\ survive\" {\n    assert 1 == 1\n}\n"
+        )
+
+        run := NlcIn(directory, "test --no-cache --json")
+
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("schemaVersion").GetInt32() == 1
+        assert TextOf(root.GetProperty("command")) == "test"
+        assert root.GetProperty("summary").GetProperty("total").GetInt32() == 1
+        result := ElementAt(root.GetProperty("results"), 0)
+
+        // The value comes back with its quotes and its backslash INTACT, which is the whole point:
+        // the escaping is the transport's, not a change to the name.
+        assert TextOf(result.GetProperty("displayName")) == "a \"quoted\" word and a backslash \\ survive"
+        assert TextOf(result.GetProperty("nsharpDescription")) == "a \"quoted\" word and a backslash \\ survive"
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "A TEST THAT WRITES TO STDOUT CORRUPTS THE ENVELOPE — a defect, pinned as it behaves" {
+    // THE DOCUMENT IS NOT ALONE ON STDOUT. A native test runs IN PROCESS, so its own
+    // `Console.WriteLine` lands on the same stream the envelope is written to, ahead of the opening
+    // brace — and a strict parser rejects the run outright. Several native projects print from a
+    // test, so a sweep that reads `--json` counts them as "no tests" or as unparseable rather than as
+    // the green runs they are.
+    //
+    // THE FIX IS NOT REACHABLE FROM N#: the run and the write are `src/NSharpLang.Cli/Program.Testing.cs`
+    // (`RunXunitTests` / `RunReflectionTests` and `OutputNativeTestJson`), and redirecting
+    // `Console.Out` around the run is a C# change this stream may not make. This row states the
+    // CURRENT behaviour so the fix flips it rather than landing unnoticed: when stdout carries only
+    // the document, the first assertion below fails and this test is the one to rewrite.
+    directory := NewTempDirectory("nlc-test-json-stdout")
+    try {
+        WriteProjectYml(directory, "name: PrintingTest\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Printing.tests.nl"),
+            "namespace PrintingTest\n\nimport System\n\ntest \"prints while it runs\" {\n    Console.WriteLine(\"stray output\")\n    assert 1 == 1\n}\n"
+        )
+
+        run := NlcIn(directory, "test --no-cache --json")
+
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert !run.Stdout.TrimStart().StartsWith("{"), run.Stdout
+        assert run.Stdout.Contains("stray output")
+
+        // The DOCUMENT itself is well formed once the stray line is cut, so the defect is the stream
+        // and not the writer.
+        brace := run.Stdout.IndexOf("{", StringComparison.Ordinal)
+        assert brace > 0
+        document := JsonDocument.Parse(run.Stdout.Substring(brace))
+        assert document.RootElement.GetProperty("summary").GetProperty("passed").GetInt32() == 1
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
 // ═══ SLICE 43: THE `nlc test` TIMEOUT REFUSAL, ON BOTH OUTPUT ROUTES ═══════════════════════════
 //
 // The one place in this slice where the SAME refusal is proven on two routes, which is what the

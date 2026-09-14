@@ -1,6 +1,5 @@
 namespace NSharpLang.CensusLocalFunctions.Tests
 
-import System.Reflection
 
 
 // RUNTIME contracts for a local function being visible in its whole block.

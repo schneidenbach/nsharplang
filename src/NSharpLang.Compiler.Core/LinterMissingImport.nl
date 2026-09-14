@@ -355,45 +355,70 @@ class LinterTypeReferenceName {
     }
 }
 
-// NL002 — "I can't find this name, and it looks like a missing import."
+// NL002 — "this name is used without the import that provides it."
 //
-// THE RULE IS A WHITELIST, NEVER AN ANALYSIS. It carries a small table of names the BCL is known to
-// provide, and it speaks only when a file writes one of those names without importing the namespace
-// that provides it. A name the table does not carry is never reported, because "I have not heard of
-// this" is not evidence of a missing import — it is evidence of nothing.
+// THE RULE IS AN ANALYSIS, AND IT USED TO BE A WHITELIST. This owner carried two hand-written tables
+// of names the BCL is known to provide — 25 for a bare identifier, 16 for a written type — and spoke
+// only when a file wrote one of those without importing the namespace beside it. That made the rule
+// silent for every other name in the framework: `OperatingSystem.IsWindows()` with no `import System`
+// was accepted without a word, while its mirror — the same file WITH the import — had NL010 report
+// the import dead, because NL010's own table had never heard of the name either. Two tables, two
+// gaps, one name falling through both.
 //
-// IT IS ASKED AT TWO PLACES AND THE TWO TABLES ARE NOT THE SAME, WHICH IS THE POINT OF SPLITTING
-// THEM. A bare IDENTIFIER (`DateTime.Now`, `Guid.NewGuid()`) is answered by the 25-name table; a
-// TYPE written in a `new` (`new List<int>()`) is answered by a 16-name table that is the first
-// sixteen rows of the other one. The nine names that only the identifier table carries — `Encoding`,
-// `DateTime`, `TimeSpan`, `Guid`, `Uri`, `Tuple`, `Lazy`, `Action`, `Func` — are the ones a file
-// nearly always writes as a STATIC receiver rather than constructs, and the type table's silence on
-// them is deliberate: `new Guid()` and `new Action()` are not how those names are used, so demanding
-// an import there would be noise. The subset relationship is asserted rather than assumed.
+// IT IS NOW THE OTHER READING OF NL010'S FACT. When a simple name resolves, the analyzer records the
+// namespace that supplied it (`ImportUsageFacts`). If the file imports that namespace, the import is
+// used and NL010 stays quiet; if it does not, this rule speaks. The two cannot disagree, because
+// there is one measurement and no list anywhere.
 //
-// THREE THINGS SILENCE THE RULE, IN THIS ORDER, AND THE ORDER IS OBSERVABLE. A name declared by an
-// enclosing type's own members is not a BCL name at all; a name brought in by a FILE import is
-// already resolved; and a namespace that is already imported needs no second import. The first
-// check runs before the table lookup, so a member called `Task` is silent even though `Task` is a
-// table row; the other two run after it, so they can only silence a name the table carries.
+// ONLY A METADATA TYPE IS EVER A FINDING, and the analyzer decides that, not this rule. A SOURCE type
+// declared in another namespace of the same project resolves with no import at all — that is the
+// language's rule, proven by `namespace A` writing a type from `namespace B` and building — so it is
+// never recorded as needing one, and demanding `import` for a sibling namespace would be wrong.
+//
+// THE POSITION IS STILL THE LINTER'S. The analyzer records WHICH import a name needs; where the
+// squiggle goes is a span question the walk already answers for every position a type can be written
+// in — a `new`, an annotation, a type argument, a bare identifier — and it answers it better than a
+// re-derivation from the source line could.
+//
+// FOUR THINGS SILENCE IT, IN THIS ORDER, AND THE ORDER IS OBSERVABLE. A file that was never analysed
+// has no answer at all; a name declared by an enclosing type's own members is not a BCL name; a name
+// brought in by a FILE import is already resolved; and a namespace that is already imported needs no
+// second import.
 class LinterMissingImport {
 
     // The identifier arm: a bare name written in code. Answers with the namespace that must be
     // imported, or nothing when the rule stays silent.
-    static func MissingNamespaceForIdentifier(name: string, typeMemberNameScopes: Stack<HashSet<string>>, importedFileSymbols: HashSet<string>, importedNamespaces: List<string>): string? {
+    static func MissingNamespaceForIdentifier(name: string, usage: ImportUsageFacts?, typeMemberNameScopes: Stack<HashSet<string>>, importedFileSymbols: HashSet<string>, importedNamespaces: List<string>): string? {
         for scope in typeMemberNameScopes {
             if scope.Contains(name) {
                 return null
             }
         }
 
-        return MissingNamespace(RequiredNamespaceForIdentifier(name), name, importedFileSymbols, importedNamespaces)
+        return MissingNamespace(SupplyingNamespace(usage, name), name, importedFileSymbols, importedNamespaces)
     }
 
-    // The type arm: a name written as a type. It asks the smaller table and never consults the
-    // member scopes — a `new` names a TYPE, and an enclosing type's member cannot shadow one.
-    static func MissingNamespaceForTypeName(typeName: string, importedFileSymbols: HashSet<string>, importedNamespaces: List<string>): string? {
-        return MissingNamespace(RequiredNamespaceForTypeName(typeName), typeName, importedFileSymbols, importedNamespaces)
+    // The type arm: a name written as a type. It never consults the member scopes — a `new` names a
+    // TYPE, and an enclosing type's member cannot shadow one.
+    static func MissingNamespaceForTypeName(typeName: string, usage: ImportUsageFacts?, importedFileSymbols: HashSet<string>, importedNamespaces: List<string>): string? {
+        return MissingNamespace(SupplyingNamespace(usage, typeName), typeName, importedFileSymbols, importedNamespaces)
+    }
+
+    // WHICH NAMESPACE SUPPLIED THIS SPELLING, according to the analysis of this file. Nothing when the
+    // file was never analysed, when its analysis did not complete, or when the name did not resolve to
+    // a metadata type — a local, a member, a type parameter, a source declaration or a name that did
+    // not resolve at all. Each of those is silence rather than a guess.
+    static func SupplyingNamespace(usage: ImportUsageFacts?, name: string): string? {
+        if usage == null {
+            return null
+        }
+
+        facts := usage ?? new ImportUsageFacts()
+        if !facts.Analyzed {
+            return null
+        }
+
+        return facts.SupplierFor(name)
     }
 
     static func MissingNamespace(requiredNamespace: string?, name: string, importedFileSymbols: HashSet<string>, importedNamespaces: List<string>): string? {
@@ -405,134 +430,19 @@ class LinterMissingImport {
             return null
         }
 
-        if importedNamespaces.Contains(requiredNamespace) {
+        if importedNamespaces.Contains(requiredNamespace ?? "") {
             return null
         }
 
         return requiredNamespace
     }
 
-    // ── the two tables ───────────────────────────────────────────────────────────────────────
-
-    static func RequiredNamespaceForIdentifier(name: string): string? {
-        typeTableAnswer := RequiredNamespaceForTypeName(name)
-        if typeTableAnswer != null {
-            return typeTableAnswer
-        }
-
-        if Contains(TextOnlyIdentifierNames(), name) {
-            return "System.Text"
-        }
-
-        if Contains(SystemIdentifierNames(), name) {
-            return "System"
-        }
-
-        return null
-    }
-
-    static func RequiredNamespaceForTypeName(typeName: string): string? {
-        if Contains(CollectionsGenericNames(), typeName) {
-            return "System.Collections.Generic"
-        }
-
-        if Contains(TextNames(), typeName) {
-            return "System.Text"
-        }
-
-        if Contains(RegularExpressionsNames(), typeName) {
-            return "System.Text.RegularExpressions"
-        }
-
-        if Contains(IoNames(), typeName) {
-            return "System.IO"
-        }
-
-        if Contains(NetHttpNames(), typeName) {
-            return "System.Net.Http"
-        }
-
-        if Contains(TextJsonNames(), typeName) {
-            return "System.Text.Json"
-        }
-
-        if Contains(ThreadingTasksNames(), typeName) {
-            return "System.Threading.Tasks"
-        }
-
-        if Contains(ThreadingNames(), typeName) {
-            return "System.Threading"
-        }
-
-        return null
-    }
-
-    // The sixteen rows both tables carry.
-    static func CollectionsGenericNames(): string[] {
-        return ["List", "Dictionary", "HashSet", "Queue", "Stack", "LinkedList"]
-    }
-
-    static func TextNames(): string[] {
-        return ["StringBuilder"]
-    }
-
-    static func RegularExpressionsNames(): string[] {
-        return ["Regex"]
-    }
-
-    static func IoNames(): string[] {
-        return ["File", "Directory", "Path", "Stream"]
-    }
-
-    static func NetHttpNames(): string[] {
-        return ["HttpClient"]
-    }
-
-    static func TextJsonNames(): string[] {
-        return ["JsonSerializer"]
-    }
-
-    static func ThreadingTasksNames(): string[] {
-        return ["Task"]
-    }
-
-    static func ThreadingNames(): string[] {
-        return ["CancellationToken"]
-    }
-
-    // The nine rows the identifier table carries alone. `Encoding` shares `System.Text` with
-    // `StringBuilder`, which is why it is a row of its own rather than part of `TextNames`.
-    static func TextOnlyIdentifierNames(): string[] {
-        return ["Encoding"]
-    }
-
-    static func SystemIdentifierNames(): string[] {
-        return ["DateTime", "TimeSpan", "Guid", "Uri", "Tuple", "Lazy", "Action", "Func"]
-    }
-
-    static func Contains(names: string[], name: string): bool {
-        index := 0
-        while index < names.Length {
-            if names[index] == name {
-                return true
-            }
-
-            index = index + 1
-        }
-
-        return false
-    }
-
     // ── what the diagnostic says ─────────────────────────────────────────────────────────────
 
-    // The sentence describes the missing import, not a resolution failure. The native diagnostic
-    // honesty contracts build fifteen parameter-and-boxing shapes with and without their imports,
-    // including the formerly declined Regex, HttpClient and Queue<int> shapes. Type admission can
-    // grow without changing this rule's meaning.
-    //
-    // NL002 IS IMPORT HYGIENE. What is true of every row is that the name is written and the import
-    // that provides it is not there, and that is what it now says. The SUGGESTION — the useful half,
-    // and the one the IDE quick fix applies — is unchanged, and is contracted never breaking a build.
+    // The sentence describes the missing import, not a resolution failure. NL002 IS IMPORT HYGIENE:
+    // what is true of every finding is that the name is written and the import that provides it is
+    // not there, and that is what it says. The SUGGESTION — the useful half, and the one the IDE
+    // quick fix applies — is contracted never to break a build.
     static func Message(name: string): string {
         return "'" + name + "' is used without the import that provides it"
     }

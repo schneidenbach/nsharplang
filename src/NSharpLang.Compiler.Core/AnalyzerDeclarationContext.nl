@@ -189,6 +189,16 @@ class AnalyzerDeclarationContext {
     externalTypes: Dictionary<string, TypeInfo>
     missingExternalTypes: HashSet<string>
 
+    // The import-usage ledger and the file it belongs to. This owner resolves names on behalf of
+    // EVERY file in the project — a member's declared type is resolved against the file that declares
+    // it — so a credit is only this file's when the facts being read are this file's.
+    importUsageCredit: AnalyzerImportUsageCredit?
+    importUsageFilePath: string?
+    // Every TOP-LEVEL TYPE NAME the project declares, by arity key, built once per analysis on first
+    // ask. NL002 needs it to answer one question — does this project declare a type of this name —
+    // and answering it by walking every file's declarations per name would be quadratic.
+    declaredTypeNames: HashSet<string>?
+
     constructor() {
         projectRoot = Path.GetFullPath(".")
         assemblies = new List<Assembly>()
@@ -200,6 +210,54 @@ class AnalyzerDeclarationContext {
         soaTypesByDeclaration = new Dictionary<object, SoaRecordTypeInfo>()
         externalTypes = new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
         missingExternalTypes = new HashSet<string>(StringComparer.Ordinal)
+        importUsageCredit = null
+        importUsageFilePath = null
+        declaredTypeNames = null
+    }
+
+    // One call per `Analyze`: which file is being analysed, and where its import-usage facts go.
+    func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?, filePath: string?) {
+        importUsageCredit = credit
+        importUsageFilePath = filePath
+    }
+
+    // WHETHER THE PROJECT ITSELF DECLARES A TYPE OF THIS NAME, at any arity and in any namespace.
+    //
+    // NL002 asks it before it reports: a spelling the project declares is not a missing import, even
+    // when a referenced assembly happens to declare the same name. That case is not hypothetical —
+    // a receiver position resolves through the external probe before it ever consults a SIBLING
+    // FILE's declarations, so `Guard.Fail(...)` beside a source `class Guard` answered with a
+    // metadata `Guard` from a referenced assembly, and NL002 would have told the author to import a
+    // namespace their program does not use.
+    func DeclaresTypeNamed(name: string): bool {
+        cached := declaredTypeNames
+        if cached == null {
+            built := new HashSet<string>(StringComparer.Ordinal)
+            fileIndex := 0
+            while fileIndex < files.Count {
+                declarations := files[fileIndex].Declarations
+                index := 0
+                while index < declarations.Count {
+                    candidate := declarations[index]
+                    if candidate != null && IsTopLevelTypeDeclaration(candidate) {
+                        declaredName := DeclarationFacts.GetDeclarationName(candidate)
+                        if declaredName != null {
+                            built.Add(declaredName ?? "")
+                        }
+                    }
+
+                    index = index + 1
+                }
+
+                fileIndex = fileIndex + 1
+            }
+
+            declaredTypeNames = built
+            return built.Contains(name)
+        }
+
+        names := cached ?? new HashSet<string>(StringComparer.Ordinal)
+        return names.Contains(name)
     }
 
     func Reset(projectRootValue: string, assemblyValues: List<Assembly>) {
@@ -213,9 +271,11 @@ class AnalyzerDeclarationContext {
         soaTypesByDeclaration.Clear()
         externalTypes.Clear()
         missingExternalTypes.Clear()
+        declaredTypeNames = null
     }
 
     func AddCompilationUnit(filePath: string, unit: object) {
+        declaredTypeNames = null
         fullPath := Path.GetFullPath(filePath)
         if filesByPath.ContainsKey(fullPath) {
             return
@@ -435,6 +495,78 @@ class AnalyzerDeclarationContext {
             return null
         }
         return facts.NamespaceName
+    }
+
+    // WHERE A NAMESPACE'S TYPE WAS DECLARED FIRST — the only evidence a per-file scope cannot hold.
+    //
+    // One namespace cannot contain two types with the same name and generic arity: the CLR would
+    // carry two TypeDefs under one full name, and a consumer asking for that name gets whichever the
+    // loader reached first. A duplicate written TWICE IN ONE FILE is caught by the file's own scope
+    // (NL306); a duplicate SPLIT ACROSS TWO FILES is invisible there, and this walk is what sees it.
+    //
+    // THE ANSWER IS THE SAME NO MATTER WHICH FILE IS BEING ANALYSED, AND THAT IS WHY IT IS NOT THE
+    // REGISTRATION ORDER'S. `Reset` empties this owner before every file's analysis and the file
+    // being analysed is re-added FIRST, so "the file registered first" is always the current one —
+    // an answer that would make every file its own first declaration and report nothing. The order
+    // used here is instead the ORDINAL ORDER OF THE FULL PATHS, which is a property of the project
+    // rather than of the analysis, so every file agrees on which declaration came first and the
+    // report lands on the others.
+    //
+    // `arityName` is the identity key (`Widget`, `Widget``1`), never the written spelling: two types
+    // named `Pair` at different arities are two types, and only the asked-for one answers.
+    func TryFindFirstDeclaringFile(namespaceName: string?, arityName: string, out declaringFile: string, out declaringLine: int): bool {
+        firstFile := ""
+        firstLine := 0
+        fileIndex := 0
+        while fileIndex < files.Count {
+            facts := files[fileIndex]
+            if string.Equals(facts.NamespaceName, namespaceName, StringComparison.Ordinal) {
+                foundLine := 0
+                if TryFindDeclarationLine(facts, arityName, out foundLine) {
+                    if firstFile.Length == 0 || string.Compare(facts.FilePath, firstFile, StringComparison.OrdinalIgnoreCase) < 0 {
+                        firstFile = facts.FilePath
+                        firstLine = foundLine
+                    }
+                }
+            }
+            fileIndex = fileIndex + 1
+        }
+
+        declaringFile = firstFile
+        declaringLine = firstLine
+        return firstFile.Length > 0
+    }
+
+    // The first line in one file that declares `arityName` as a top-level type.
+    func TryFindDeclarationLine(facts: AnalyzerDeclarationFileFacts, arityName: string, out declaringLine: int): bool {
+        index := 0
+        while index < facts.Declarations.Count {
+            candidate := facts.Declarations[index]
+            if candidate != null && IsTopLevelTypeDeclaration(candidate) {
+                candidateName := DeclarationFacts.GetDeclarationArityName(candidate)
+                if candidateName != null && string.Equals(candidateName, arityName, StringComparison.Ordinal) {
+                    declaringLine = TypeInfoFactoryReflection.GetRequiredInt(candidate, "Line")
+                    return true
+                }
+            }
+            index = index + 1
+        }
+        declaringLine = 0
+        return false
+    }
+
+    // A declaration file as a reader should see it: relative to the project root when it is inside
+    // one, and the path as given when it is not.
+    func DisplayPathFor(filePath: string): string {
+        try {
+            relative := Path.GetRelativePath(projectRoot, filePath)
+            if relative.Length > 0 && !relative.StartsWith("..", StringComparison.Ordinal) {
+                return relative.Replace('\\', '/')
+            }
+        } catch {
+        }
+
+        return filePath
     }
 
     func TryResolveNestedType(owner: TypeInfo, name: string, requireExported: bool, out nestedType: TypeInfo): bool {
@@ -1092,7 +1224,27 @@ class AnalyzerDeclarationContext {
         return new GenericTypeInfo(generic.Name, arguments, genericDefinition)
     }
 
+    // THE DECLARATION-SIDE NAME WALK, AND THE SECOND PLACE AN IMPORT IS CREDITED.
+    //
+    // A member's DECLARED type — a field's, a property's, a parameter's, a return's — is resolved
+    // here, against the facts of the file that declares it, and not through the analyzer's own type
+    // resolver. So a file whose only mention of an import is `builder: StringBuilder` on a field
+    // reached this walk and nothing else, and NL010 would have read the import as dead.
+    //
+    // ONLY THE FILE BEING ANALYSED IS CREDITED. This owner answers for every file in the project —
+    // resolving a member of a type declared elsewhere resolves that file's spellings — and another
+    // file's imports are not this file's evidence.
     func ResolveTypeName(facts: AnalyzerDeclarationFileFacts, name: string, activeAliases: HashSet<string>, out claimed: bool): TypeInfo {
+        resolved := ResolveTypeNameWalk(facts, name, activeAliases, out claimed)
+        credit := importUsageCredit
+        if credit != null && string.Equals(facts.FilePath, importUsageFilePath, StringComparison.OrdinalIgnoreCase) {
+            credit.CreditResolvedType(name, resolved)
+        }
+
+        return resolved
+    }
+
+    func ResolveTypeNameWalk(facts: AnalyzerDeclarationFileFacts, name: string, activeAliases: HashSet<string>, out claimed: bool): TypeInfo {
         builtIn := BuiltInTypes.Unknown as TypeInfo
         if TryGetBuiltIn(name, out builtIn) {
             claimed = true
@@ -1207,6 +1359,12 @@ class AnalyzerDeclarationContext {
         namespaceImport := FindNamespaceAlias(facts, root)
         if namespaceImport != null {
             expanded := namespaceImport.Namespace + "." + tail
+            // NL010: AN ALIAS-QUALIFIED SPELLING IS A USE OF THE IMPORT IT IS AN ALIAS OF, and this
+            // is the channel that knows which namespace the alias names. The credit-side arithmetic
+            // works on the resolved identity, and a SOURCE type carries only its own name — so
+            // `new RightNamespace.Widget(5)` over a project namespace was credited by nothing and
+            // the import read as dead.
+            CreditAliasNamespace(facts, namespaceImport.Namespace)
             projectType := BuiltInTypes.Unknown as TypeInfo
             projectClaimed := false
             if TryResolveQualifiedProjectType(expanded, facts.NamespaceName, activeAliases, out projectType, out projectClaimed) {
@@ -1361,6 +1519,16 @@ class AnalyzerDeclarationContext {
         return true
     }
 
+    // The namespace an alias names, credited to the file being analysed and to no other. This owner
+    // resolves names on behalf of EVERY file in the project, and another file's alias is not this
+    // file's evidence.
+    func CreditAliasNamespace(facts: AnalyzerDeclarationFileFacts, namespaceName: string) {
+        credit := importUsageCredit
+        if credit != null && string.Equals(facts.FilePath, importUsageFilePath, StringComparison.OrdinalIgnoreCase) {
+            credit.CreditNamespaceSupplier(namespaceName)
+        }
+    }
+
     func TryResolveImportedProjectType(facts: AnalyzerDeclarationFileFacts, name: string, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
         matchedType: TypeInfo? = null
         sawClaim := false
@@ -1372,6 +1540,8 @@ class AnalyzerDeclarationContext {
                 candidate := BuiltInTypes.Unknown as TypeInfo
                 unitClaimed := false
                 if TryResolveDeclarationInNamespace(name, importFacts.Namespace, !string.Equals(importFacts.Namespace, facts.NamespaceName, StringComparison.Ordinal), activeAliases, out candidate, out unitClaimed) {
+                    // NL010: this import supplied the name, whatever the tie below decides.
+                    CreditAliasNamespace(facts, importFacts.Namespace)
                     if matchedType != null {
                         typeInfo = BuiltInTypes.Unknown
                         claimed = true

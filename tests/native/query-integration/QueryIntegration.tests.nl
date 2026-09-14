@@ -6,6 +6,7 @@ import System.Collections.Generic
 import System.Globalization
 import System.IO
 import System.Text.Json
+import NSharpLang.Compiler.CodeIntelligence
 
 
 // THE `nlc query` TOOLCHAIN, IN N#.

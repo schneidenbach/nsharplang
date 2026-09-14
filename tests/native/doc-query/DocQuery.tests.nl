@@ -4,7 +4,6 @@ import System
 import System.Collections
 import System.Diagnostics
 import System.IO
-import System.Reflection
 import System.Text.Json
 
 // THE CANONICAL CONTRACTS FOR `nlc query doc`, IN N#.

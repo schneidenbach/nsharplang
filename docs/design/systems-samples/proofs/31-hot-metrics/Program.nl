@@ -1,5 +1,7 @@
 namespace SystemsProofs.HotMetrics
 
+import System.Threading
+
 struct Metrics {
     packets: long
     errors: long

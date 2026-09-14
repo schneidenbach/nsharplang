@@ -108,8 +108,13 @@ class AnalyzerAttributeValidator {
     literalExpressions: AnalyzerLiteralExpressions
     clrTypeConversion: AnalyzerClrTypeConversion
     wellKnownTypes: AnalyzerWellKnownTypes?
+    // NL010's ledger. An attribute is a TYPE POSITION that is not a `TypeReference`, so it reaches
+    // none of the walks the type resolver credits: a file whose only use of an import was
+    // `[NotNullWhen(true)]` had that import reported dead until this credit existed.
+    importUsageCredit: AnalyzerImportUsageCredit?
 
     constructor(diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, declarations: AnalyzerDeclarationContext, probe: AnalyzerExternalTypeProbe, resolver: AnalyzerTypeResolver, memberAccessOwner: AnalyzerMemberAccess, literals: AnalyzerLiteralExpressions, clrConversion: AnalyzerClrTypeConversion, knownTypes: AnalyzerWellKnownTypes?) {
+        importUsageCredit = null
         diagnostics = diagnosticSink
         spans = spansOwner
         scopes = scopeStack
@@ -556,6 +561,7 @@ class AnalyzerAttributeValidator {
 
             attributeType: Type = typeof(object)
             if TryResolveClrAttributeType(attribute.Name, out attributeType) {
+                CreditAttributeImport(attribute, attributeType)
                 if allConstantsValid {
                     ValidateClrAttributeArguments(attribute, attributeType, argumentInfos)
                 }
@@ -1071,6 +1077,19 @@ class AnalyzerAttributeValidator {
     // ------------------------------------------------------------------------------------------
     // QUESTION TWO — WHICH TYPE IS THIS ATTRIBUTE, AND IS IT AN ATTRIBUTE AT ALL?
     // ------------------------------------------------------------------------------------------
+
+    func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
+        importUsageCredit = credit
+    }
+
+    // The import that supplied this attribute's type. An attribute is a TYPE POSITION that is not a
+    // `TypeReference`, so it reaches none of the walks the type resolver credits.
+    func CreditAttributeImport(attribute: AttributeNode, attributeType: Type) {
+        credit := importUsageCredit
+        if credit != null {
+            credit.CreditAttributeType(attribute.Name, attributeType)
+        }
+    }
 
     func TryResolveClrAttributeType(attributeName: string, out attributeType: Type): bool {
         for candidate in GetClrAttributeNameCandidates(attributeName) {

@@ -3,7 +3,6 @@ namespace NSharpLang.CensusParseShapes.Tests
 import System
 import System.Collections.Generic
 import System.Linq
-import System.Reflection
 import System.Runtime.CompilerServices
 
 

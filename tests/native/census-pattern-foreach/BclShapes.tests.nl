@@ -1,7 +1,6 @@
 namespace NSharpLang.PatternForeach.Tests
 
 import System
-import System.Collections
 import System.Collections.Generic
 
 func ShapesUnderTest(): BclShapes {

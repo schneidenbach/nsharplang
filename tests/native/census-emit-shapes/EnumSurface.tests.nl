@@ -1,5 +1,7 @@
 namespace NSharpLang.CensusEmitShapes.Tests
 
+import System
+
 test "a source enum's ToString is System.Enum's, so it is a non-null string and reads the member name" {
     assert AccessName(Access.Read) == "Read"
     assert AccessName(Access.None) == "None"

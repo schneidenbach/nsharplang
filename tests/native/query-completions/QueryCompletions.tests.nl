@@ -3,7 +3,6 @@ namespace NSharpLang.QueryCompletions.Tests
 import System
 import System.Collections
 import System.IO
-import NSharpLang.Compiler
 
 // End-to-end regression coverage for `nlc query completions`. In 2026-08 the command hung for tens
 // of minutes on multi-file projects: every per-file analysis rebuilt the project-namespace set by

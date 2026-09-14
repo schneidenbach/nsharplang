@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
 
@@ -349,6 +350,8 @@ class AnalyzerDeclarationPolicy {
             return
         }
 
+        ReportTypeDeclaredInAnotherFile(name, key, arity, line, nameColumn)
+
         currentScope.DeclareType(key, resolvedType)
 
         model := semanticModel
@@ -366,6 +369,62 @@ class AnalyzerDeclarationPolicy {
         kind := AnalyzerBindingFacts.TypeInfoToDeclarationKind(resolvedType)
         RecordDeclaration(name, line, nameColumn, kind)
         currentScope.RecordDeclarationLocation(key, currentFilePath, line, nameColumn, kind)
+    }
+
+    // NL339 — THE SAME TYPE DECLARED IN TWO FILES OF ONE NAMESPACE.
+    //
+    // NL306 above is the SAME rule inside one file, and it is the only half a per-file scope can see:
+    // a namespace spread over two files gets a fresh scope per file, so `class Widget` in `First.nl`
+    // and `class Widget` in `Second.nl` each declared into an empty table and neither noticed the
+    // other. Both were then emitted, and the assembly carried TWO TypeDefs called `P2.Widget` — the
+    // shape C# refuses as CS0101 — with every reference resolving to whichever the loader reached
+    // first. This is that report, at the SECOND declaration, naming where the first one is.
+    //
+    // WHICH ONE IS "SECOND" IS THE DECLARATION CONTEXT'S ANSWER, NOT THE ANALYSIS ORDER'S. The
+    // context holds every compiled file in project enumeration order, so it names the same first
+    // declaration no matter which file is being analysed when the question is asked; a file that IS
+    // the first declaration reports nothing, and every later one reports against it. That is what
+    // keeps one collision from being reported twice, once from each side.
+    //
+    // A file with no path — an in-memory unit — is skipped: there is no second file to collide with,
+    // and no location to name if there were.
+    func ReportTypeDeclaredInAnotherFile(name: string, key: string, arity: int, line: int, nameColumn: int) {
+        filePath := currentFilePath
+        if filePath == null || filePath.Length == 0 {
+            return
+        }
+
+        declaringFile := ""
+        declaringLine := 0
+        if !declarationContext.TryFindFirstDeclaringFile(AnalyzerProjectSourceProvider.UnitNamespace(compilationUnit), key, out declaringFile, out declaringLine) {
+            return
+        }
+
+        if SamePath(declaringFile, filePath) {
+            return
+        }
+
+        diagnostics.Report(ErrorCode.TypeDeclaredInAnotherFile, DuplicateAcrossFilesMessage(name, arity, declarationContext.DisplayPathFor(declaringFile), declaringLine), line, nameColumn, DuplicateAcrossFilesSuggestion(name), NameLength(name))
+    }
+
+    static func SamePath(left: string, right: string): bool {
+        if left.Length == 0 || right.Length == 0 {
+            return false
+        }
+
+        return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase)
+    }
+
+    // The sentence names all three facts the reader has to act on: the spelling that collides, the
+    // file that already claimed it, and the line in it. The arity is spelled out for the same reason
+    // NL306 spells it out — `Pair` and `Pair<T, U>` are two identities and only one of them collided.
+    static func DuplicateAcrossFilesMessage(name: string, arity: int, declaringFile: string, declaringLine: int): string {
+        written := TypeArityNames.WrittenForm(name, arity)
+        return "A type named '" + written + "' is already declared in this namespace, at " + declaringFile + ":" + declaringLine.ToString() + " — one namespace cannot contain two types with the same name"
+    }
+
+    static func DuplicateAcrossFilesSuggestion(name: string): string {
+        return "Rename one of the two declarations, move one into a different namespace, or delete the copy if '" + name + "' was pasted into a second file by mistake."
     }
 
     // The duplicate names the ARITY when the name is also declared at another arity, because in that

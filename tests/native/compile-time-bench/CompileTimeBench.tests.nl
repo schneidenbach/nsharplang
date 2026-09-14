@@ -562,10 +562,10 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tests/native/census-free-function-identity; 107 since the test-framework reference set and
 // attributes on `test` blocks added tests/native/census-testrefs; 108 since lifted operators over a
 // nullable value type added tests/native/census-lifted-operators; 109 since `on`/`off` event
-// subscriptions reached the columnar pipeline added tests/native/census-events; 110 since NL209 for a simple name two imports supply added tests/native/census-imports; 111 since one accessibility relation for source and external members added tests/native/census-accessibility; 112 since the using statement added tests/native/census-using-statement; 113 since overload specificity by better conversion added tests/native/census-overload-resolution; 114 since async lambdas and the bare `throw` rethrow added tests/native/census-async-lambdas; 115 since source-declared events added tests/native/census-source-events.
-test "compile-time bench: the corpus is the 115 project.yml projects under examples, tests and templates" {
+// subscriptions reached the columnar pipeline added tests/native/census-events; 110 since NL209 for a simple name two imports supply added tests/native/census-imports; 111 since one accessibility relation for source and external members added tests/native/census-accessibility; 112 since the using statement added tests/native/census-using-statement; 113 since overload specificity by better conversion added tests/native/census-overload-resolution; 114 since async lambdas and the bare `throw` rethrow added tests/native/census-async-lambdas; 115 since source-declared events added tests/native/census-source-events; 116 since one type name declared in two files of one namespace added tests/native/census-duplicate-declarations; 117 since NL010 and NL002 answered from the analyzer's binding facts added tests/native/census-import-usage.
+test "compile-time bench: the corpus is the 117 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 115
+    assert projects.Count == 117
     assert BenchListContains(projects, "tests/native/census-source-events")
     assert BenchListContains(projects, "tests/native/census-async-lambdas")
     assert BenchListContains(projects, "tests/native/census-overload-resolution")
