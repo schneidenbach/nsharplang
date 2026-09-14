@@ -617,40 +617,16 @@ class AnalyzerFunctionBodies {
         return null
     }
 
-    // PHASE 7 — AN EXPRESSION BODY'S THREE RULES, IN ORDER. Both SoA escapes are reported first and
-    // unconditionally — an expression body RETURNS its value, so a row view and a direct column read
-    // are refused there exactly as they are refused from a `return`. The generator report follows,
-    // and it SILENCES the type rule when it fires: a generator that used an expression body has
-    // already been told the shape is wrong, and measuring its expression against the sequence type it
-    // was also told is wrong would be a second complaint about one mistake.
+    // PHASE 7 — A LOCAL FUNCTION'S EXPRESSION BODY, under the SAME rules a top-level declaration's
+    // expression body gets (phase 18). The two arms used to differ: a local function's `void` case
+    // was silent and its mismatch carried a plainer wording. Nothing chose that — an arrow-bodied
+    // local function could not be emitted at all (the statement kernel demanded a `{`), so no program
+    // that reached emit could exercise these reports and the divergence went unnoticed. Now that
+    // `func inner(v: string?): string => v ?? "d"` compiles, a `void` one that hands back a value has
+    // to be TOLD SO, exactly as at the top level, instead of reaching NL103 with nothing said.
     func AdvanceExpressionBodyRules(state: FunctionBodyState): FunctionBodyRequest? {
         state.Phase = 8
-        declaration := state.Declaration
-        expressionBody := declaration.ExpressionBody
-        if expressionBody == null {
-            return null
-        }
-
-        expressionType := state.ExpressionBodyType
-        soaEscapeValue.ReportSoaRowEscapeIfNeeded(expressionBody, expressionType, "returned")
-        soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(expressionBody, "returned")
-        if ReportGeneratorExpressionBodyIfNeeded(declaration) {
-            return null
-        }
-
-        returnType := state.ReturnType
-        if BuiltInTypes.Is(returnType, BuiltInTypes.Void) {
-            return null
-        }
-
-        if state.Assignability.IsAssignable(returnType, expressionType) {
-            return null
-        }
-
-        span := spansValue.GetExpressionDiagnosticSpan(expressionBody)
-        message := "Function '" + declaration.Name + "' should return '" + TypeText(returnType) + "' but the expression body gives '" + TypeText(expressionType) + "'"
-        diagnosticsValue.Report(ErrorCode.TypeMismatch, message, span.Line, span.Column, null, span.Length)
-        return null
+        return ApplyExpressionBodyRules(state)
     }
 
     // PHASE 8 — LEAVING. The ambient body closes BEFORE the scope does, which is the order
@@ -908,13 +884,23 @@ class AnalyzerFunctionBodies {
         diagnosticsValue.Report(ErrorCode.MissingReturn, "This function should return '" + returnTypeName + "', but not all code paths return a value — make sure every branch ends with a 'return'", declaration.Line, declaration.Column, null, 0)
     }
 
-    // PHASE 18 — AN EXPRESSION BODY'S RULES. The two SoA escapes and the generator refusal are shared
-    // with the local-function form and in the same order. WHAT DIFFERS IS THE VOID CASE: a top-level
-    // `func` that declares no return type and hands back a value is TOLD SO, through the ambient
-    // context's own report, whereas a local function is silent. And the mismatch report is the RICH
-    // one, naming the function and both types on the expression's own span.
+    // PHASE 18 — A TOP-LEVEL DECLARATION'S EXPRESSION BODY. Same phase number, same rules: the two
+    // SoA escapes, the generator refusal, then the type question. One owner answers it for both arms.
     func AdvanceDeclarationExpressionBodyRules(state: FunctionBodyState): FunctionBodyRequest? {
         state.Phase = 19
+        return ApplyExpressionBodyRules(state)
+    }
+
+    // AN EXPRESSION BODY'S RULES, IN ORDER. Both SoA escapes are reported first and unconditionally —
+    // an expression body RETURNS its value, so a row view and a direct column read are refused there
+    // exactly as they are refused from a `return`. The generator report follows, and it SILENCES the
+    // type rule when it fires: a generator that used an expression body has already been told the
+    // shape is wrong, and measuring its expression against the sequence type it was also told is
+    // wrong would be a second complaint about one mistake. A `void` return that is handed a value is
+    // the ambient context's report (the same one a `return value` in a `void` body gets); anything
+    // else that does not fit is the RICH mismatch, naming the function and both types on the
+    // expression's own span.
+    func ApplyExpressionBodyRules(state: FunctionBodyState): FunctionBodyRequest? {
         declaration := state.Declaration
         expressionBody := declaration.ExpressionBody
         if expressionBody == null {

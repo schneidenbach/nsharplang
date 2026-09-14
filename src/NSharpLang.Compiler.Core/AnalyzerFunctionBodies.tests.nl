@@ -601,16 +601,29 @@ test "A GENERATOR'S EXPRESSION BODY IS WALKED UNDER NO EXPECTED TYPE EVEN WITH A
     assert steps[3].ExpectedType == "<null>"
 }
 
-test "AN EXPRESSION BODY THAT DOES NOT FIT REPORTS AGAINST THE EXPRESSION, WITH THE LOCAL WORDING" {
+test "AN EXPRESSION BODY THAT DOES NOT FIT REPORTS THE SAME WAY IN BOTH ARMS" {
     harness := BodyDefault()
     declaration := BodyDeclaration("doubled", BodyParameters(), BodyStringType(), null, BodyIntLiteral(), null, Modifiers.None)
 
     BodyRun(harness, BodyBegin(harness, declaration), BuiltInTypes.Int)
 
     assert harness.Errors.Count == 1
-    // The span is the EXPRESSION's, not the declaration's — and the wording is the local function's
-    // own, which differs from the top-level declaration's "This function should return".
-    assert BodyErrorText(harness, 0) == "Function 'doubled' should return 'string' but the expression body gives 'int'|7:30+1"
+    // ONE OWNER ANSWERS THE TYPE QUESTION for a local function and for a top-level declaration. The
+    // local arm used to carry its own plainer wording, which nothing chose: an arrow-bodied local
+    // function could not be emitted at all, so no compiling program ever saw either message.
+    assert BodyErrorText(harness, 0) == BodyTopLevelExpressionBodyErrorText()
+}
+
+// The top-level arm's report for the same declaration, so the contract above is "the two arms agree"
+// rather than a literal both have to be edited in step with.
+func BodyTopLevelExpressionBodyErrorText(): string {
+    harness := BodyDefault()
+    declaration := BodyDeclaration("doubled", BodyParameters(), BodyStringType(), null, BodyIntLiteral(), null, Modifiers.None)
+
+    BodyRun(harness, BodyDeclarationBegin(harness, declaration), BuiltInTypes.Int)
+
+    assert harness.Errors.Count == 1
+    return BodyErrorText(harness, 0)
 }
 
 test "AN EXPRESSION BODY THAT FITS IS SILENT, AND SO IS A void ONE THAT ANSWERS A VALUE" {
@@ -619,11 +632,14 @@ test "AN EXPRESSION BODY THAT FITS IS SILENT, AND SO IS A void ONE THAT ANSWERS 
     BodyRun(harness, BodyBegin(harness, fitting), BuiltInTypes.Int)
     assert harness.Errors.Count == 0
 
-    // A `void` local function with an expression body that produces a value is NOT reported here —
-    // that report belongs to the top-level declaration arm, and this arm never had it.
+    // A `void` local function with an expression body that produces a value IS reported, through the
+    // ambient context's own `void` report — the same one the top-level arm uses. Before arrow-bodied
+    // local functions could be emitted this arm was silent, so `func write(t: string): void =>
+    // log.Append(t)` reached NL103 with the real mistake never named.
+    voidHarness := BodyDefault()
     voided := BodyDeclaration("shout", BodyParameters(), new SimpleTypeReference("void", 7, 20), null, BodyIntLiteral(), null, Modifiers.None)
-    BodyRun(harness, BodyBegin(harness, voided), BuiltInTypes.Int)
-    assert harness.Errors.Count == 0
+    BodyRun(voidHarness, BodyBegin(voidHarness, voided), BuiltInTypes.Int)
+    assert voidHarness.Errors.Count == 1
 }
 
 test "AN UNANSWERED EXPRESSION BODY FOLDS IN AS unknown AND IS NOT REPORTED AGAINST" {
@@ -1424,24 +1440,28 @@ test "AN EXPRESSION BODY THAT DOES NOT FIT ITS RETURN TYPE REPORTS IN BOTH SHAPE
     assert fits.Errors.Count == 0
 }
 
-test "A VOID DECLARATION WHOSE EXPRESSION BODY HANDS BACK A VALUE IS TOLD SO, UNLIKE A LOCAL FUNCTION" {
+test "A VOID EXPRESSION BODY THAT HANDS BACK A VALUE IS TOLD SO IN BOTH ARMS" {
     harness := BodyDefault()
     declaration := BodyDeclaration("Top", BodyParameters(), null, null, BodyIntLiteral(), null, Modifiers.None)
 
     BodyRun(harness, BodyDeclarationBegin(harness, declaration), BuiltInTypes.Int)
 
-    // The nested form is SILENT here; this form reports through the ambient context. That difference
-    // is the reason the two phases are separate.
+    // Both forms report through the ambient context. The two phases stay separate for the phase
+    // NUMBER each body walk is driven by, not for what they say.
     assert harness.Errors.Count == 1
 
     local := BodyDefault()
     BodyRun(local, BodyBegin(local, BodyDeclaration("helper", BodyParameters(), null, null, BodyIntLiteral(), null, Modifiers.None)), BuiltInTypes.Int)
-    assert local.Errors.Count == 0
+    assert local.Errors.Count == 1
 
     // A void declaration whose expression body hands back nothing is silent in both.
     silent := BodyDefault()
     BodyRun(silent, BodyDeclarationBegin(silent, BodyDeclaration("Top", BodyParameters(), null, null, BodyIntLiteral(), null, Modifiers.None)), BuiltInTypes.Void)
     assert silent.Errors.Count == 0
+
+    silentLocal := BodyDefault()
+    BodyRun(silentLocal, BodyBegin(silentLocal, BodyDeclaration("helper", BodyParameters(), null, null, BodyIntLiteral(), null, Modifiers.None)), BuiltInTypes.Void)
+    assert silentLocal.Errors.Count == 0
 }
 
 test "A GENERATOR'S EXPRESSION BODY IS REFUSED ONCE AND SILENCES THE RETURN-TYPE RULE" {

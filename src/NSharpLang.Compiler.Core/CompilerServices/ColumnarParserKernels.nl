@@ -761,12 +761,14 @@ class ParserExpressionNodeTable {
 //                                             (type trees cannot share this table — kind spaces collide), children
 //                                             [name Identifier (kind 6), init root]. Kinds 31-39 belong to the
 //                                             expression/pattern kernel. )
-//   LocalFunctionDeclaration     -> kind 41  ( `func name(...) ... { body }` as a STATEMENT. The kernel records
-//                                             ONLY the `func` keyword's byte span (value slot, no children) and
-//                                             SKIPS the whole declaration (first depth-0 `{`, balanced to its
-//                                             close — the struct kernel's method-skip discipline); the host
-//                                             re-locates the keyword by byte offset and parses the signature +
-//                                             body through the existing kernels. )
+//   LocalFunctionDeclaration     -> kind 41  ( `func name(...) ... { body }` — or `... => expression` — as a
+//                                             STATEMENT. The kernel records ONLY the `func` keyword's byte
+//                                             span (value slot, no children) and
+//                                             SKIPS the whole declaration: to the first depth-0 `{` balanced to
+//                                             its close (the struct kernel's method-skip discipline), or to the
+//                                             end of the expression behind a depth-0 `=>`. The host re-locates
+//                                             the keyword by byte offset and parses the signature + body
+//                                             through the existing kernels. )
 //   ThrowStatement               -> kind 48  ( throw <expr>; 1 child = the exception expression.
 //                                             ZERO children = a bare `throw` — the RETHROW of the
 //                                             exception the enclosing `catch` handler is running for,
@@ -7478,9 +7480,10 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         return EmitExpressionNode(st, nodes, 30, tokens.Starts[deconOperator], tokens.ValueLengths[deconOperator], deconChildRunStart, deconChildCount, deconStart, deconValueEnd - deconStart)
     }
 
-    // LOCAL FUNCTION declaration (kind 41): `[static|async]* func name(...) ... { body }` as a statement.
-    // The VALUE span stays on the `func` keyword because DirectLocalFunctionTokenIndicesCore maps that start
-    // back to the real function token; the SOURCE span covers any modifier prefix.
+    // LOCAL FUNCTION declaration (kind 41): `[static|async]* func name(...) ... { body }` — or
+    // `... => expression` — as a statement. The VALUE span stays on the `func` keyword because
+    // DirectLocalFunctionTokenIndicesCore maps that start back to the real function token; the SOURCE
+    // span covers any modifier prefix.
     if kind == 7 || ((kind == 63 || kind == 68) && start + 1 < count && tokens.Kinds[start + 1] == 7) {
         localFuncSourceStart := tokens.Starts[start]
         funcTokenIndex := start
@@ -7490,13 +7493,63 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
 
         localFuncValueStart := tokens.Starts[funcTokenIndex]
         localFuncValueLength := tokens.ValueLengths[funcTokenIndex]
+        // THE BODY OPENS WITH `{` OR WITH `=>`, and the scan stops at whichever comes first at depth
+        // zero. Depth matters because a parameter DEFAULT may itself be a lambda — `f: Func<int, int>
+        // = x => x + 1` — and that arrow belongs to the signature, not to the body.
         funcScan := funcTokenIndex + 1
-        while funcScan < count && tokens.Kinds[funcScan] != 129 {
-            funcScan = funcScan + 1
+        localFuncParenDepth := 0
+        localFuncBracketDepth := 0
+        localFuncBodyIndex := -1
+        while funcScan < count && localFuncBodyIndex < 0 {
+            scanKind := tokens.Kinds[funcScan]
+            if scanKind == 127 {
+                localFuncParenDepth = localFuncParenDepth + 1
+            } else if scanKind == 128 {
+                if localFuncParenDepth > 0 {
+                    localFuncParenDepth = localFuncParenDepth - 1
+                }
+            } else if scanKind == 131 {
+                localFuncBracketDepth = localFuncBracketDepth + 1
+            } else if scanKind == 132 {
+                if localFuncBracketDepth > 0 {
+                    localFuncBracketDepth = localFuncBracketDepth - 1
+                }
+            } else if localFuncParenDepth == 0 && localFuncBracketDepth == 0 && (scanKind == 129 || scanKind == 120) {
+                localFuncBodyIndex = funcScan
+            }
+
+            if localFuncBodyIndex < 0 {
+                funcScan = funcScan + 1
+            }
         }
 
-        if funcScan >= count {
+        if localFuncBodyIndex < 0 {
             return -1
+        }
+
+        // AN EXPRESSION BODY ENDS WHERE ITS EXPRESSION ENDS, which only the expression parser knows —
+        // the same answer the top-level expression-bodied function scan asks for. Without it a local
+        // function could only ever be written with braces, and `func inner(v: string?): string => v ??
+        // "d"` declined its WHOLE enclosing function at `parse.function`.
+        if tokens.Kinds[localFuncBodyIndex] == 120 {
+            localFuncSource := tokens.Source
+            if localFuncSource == null {
+                return -1
+            }
+
+            localFuncEndIndex := ParseDeclarationExpressionBodyEndCore(
+                localFuncSource,
+                new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths),
+                count,
+                localFuncBodyIndex
+            )
+            if localFuncEndIndex <= localFuncBodyIndex + 1 || localFuncEndIndex > count {
+                return -1
+            }
+
+            st.Pos = localFuncEndIndex
+            localFuncExpressionEnd := tokens.Starts[localFuncEndIndex - 1] + tokens.ValueLengths[localFuncEndIndex - 1]
+            return EmitExpressionNode(st, nodes, 41, localFuncValueStart, localFuncValueLength, -1, 0, localFuncSourceStart, localFuncExpressionEnd - localFuncSourceStart)
         }
 
         localFuncDepth := 1
@@ -13970,7 +14023,12 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
     if tokens.Kinds[bodyBrace] == 129 {
         bodyNodeCount = ParseColumnarFunctionBodyNodesCore(source, tokens, bodyBrace, body, bodyResult)
     } else {
-        bodyNodeCount = ParseColumnarFunctionExpressionBodyNodesCore(source, tokens, bodyBrace, body, bodyResult)
+        // WHAT AN EXPRESSION BODY MEANS DEPENDS ON THE DECLARED RETURN, and only the signature knows
+        // it. A value function's `=> expr` RETURNS the expression; a `void` one's PERFORMS it, so it
+        // is an expression statement. (An omitted return type canonicalizes to `void` above, which is
+        // the same answer.) Lowering both as a return made `func write(t: string): void =>
+        // log.Append(t)` emit `return <value>` from a void method and decline at emit.body.
+        bodyNodeCount = ParseColumnarFunctionExpressionBodyNodesCore(source, tokens, bodyBrace, signatureOutputs.ReturnTypeTexts[0] == "void", body, bodyResult)
     }
 
     if bodyNodeCount <= 0 {
@@ -14019,7 +14077,9 @@ func ParseColumnarFunctionBodyNodesCore(source: string, tokens: ColumnarFunction
     return ParseStatementNodesCore(source, statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
 }
 
-func ParseColumnarFunctionExpressionBodyNodesCore(source: string, tokens: ColumnarFunctionTokenTable, arrowIndex: int, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
+// AN EXPRESSION BODY AS A BODY NODE. `returnsVoid` chooses which statement the expression becomes:
+// a ReturnStatement (kind 20) carrying the value, or an ExpressionStatement (kind 23) performing it.
+func ParseColumnarFunctionExpressionBodyNodesCore(source: string, tokens: ColumnarFunctionTokenTable, arrowIndex: int, returnsVoid: bool, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
     if arrowIndex < 0 || arrowIndex >= tokens.Count || tokens.Kinds[arrowIndex] != 120 || result.Values.Length < 2 {
         return -1
     }
@@ -14037,8 +14097,13 @@ func ParseColumnarFunctionExpressionBodyNodesCore(source: string, tokens: Column
     childRunStart := st.ChildCursor
     AppendExpressionChild(st, children, valueRoot)
     valueEnd := nodes.SpanStarts[valueRoot] + nodes.SpanLengths[valueRoot]
-    returnNode := EmitExpressionNode(st, nodes, 20, -1, 0, childRunStart, 1, tokens.Starts[arrowIndex], valueEnd - tokens.Starts[arrowIndex])
-    result.Values[0] = returnNode
+    bodyStatementKind := 20
+    if returnsVoid {
+        bodyStatementKind = 23
+    }
+
+    bodyStatementNode := EmitExpressionNode(st, nodes, bodyStatementKind, -1, 0, childRunStart, 1, tokens.Starts[arrowIndex], valueEnd - tokens.Starts[arrowIndex])
+    result.Values[0] = bodyStatementNode
     result.Values[1] = st.Pos
     return st.NodeCursor
 }

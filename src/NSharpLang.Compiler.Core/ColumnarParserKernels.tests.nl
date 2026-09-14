@@ -535,6 +535,167 @@ class ColumnarFunctionBodyYieldProbe {
     }
 }
 
+// Parses a whole `func` through the product function ABI and reports the two facts an EXPRESSION or
+// LOCAL-FUNCTION body turns on: the body root's node kind (ReturnStatement 20 for a value expression
+// body, ExpressionStatement 23 for a `void` one) and how many DIRECT local functions the scan found.
+class ColumnarFunctionBodyShapeProbe {
+    Status: int
+    BodyRootKind: int
+    LocalFunctionCount: int
+
+    constructor(source: string) {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        tokenKinds := new int[](capacity)
+        tokenStarts := new int[](capacity)
+        tokenValueLengths := new int[](capacity)
+        tokenCounts := new int[](2)
+        tokenCount := TokenizeColumnarSourceInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts
+        )
+
+        funcIndex := 0
+        while funcIndex < tokenCount && tokenKinds[funcIndex] != 7 {
+            funcIndex = funcIndex + 1
+        }
+
+        functionNameTexts := new string[](1)
+        returnTypeTexts := new string[](1)
+        paramNameTexts := new string[](capacity)
+        paramTypeTexts := new string[](capacity)
+        paramModifierKinds := new int[](capacity)
+        paramDefaultKinds := new int[](capacity)
+        paramDefaultTexts := new string[](capacity)
+        paramTupleNameCounts := new int[](capacity)
+        paramTupleNameTexts := new string[](capacity)
+        returnTupleNameTexts := new string[](capacity)
+        returnLabeledTypeTexts := new string[](capacity)
+        paramLabeledTypeTexts := new string[](capacity)
+        typeParamTexts := new string[](capacity)
+        typeParamSpecials := new int[](capacity)
+        typeParamConstraintCounts := new int[](capacity)
+        typeParamConstraintTypeTexts := new string[](capacity)
+        nodeKinds := new int[](capacity)
+        valueStarts := new int[](capacity)
+        valueLengths := new int[](capacity)
+        childStart := new int[](capacity)
+        childCount := new int[](capacity)
+        childIndices := new int[](capacity)
+        spanStarts := new int[](capacity)
+        spanLengths := new int[](capacity)
+        localFunctionNodeIndices := new int[](capacity)
+        localFunctionTokenIndices := new int[](capacity)
+        result := new int[](9)
+
+        Status = ParseColumnarProductFunctionInfoInto(
+            source,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            funcIndex,
+            0,
+            functionNameTexts,
+            returnTypeTexts,
+            paramNameTexts,
+            paramTypeTexts,
+            paramModifierKinds,
+            paramDefaultKinds,
+            paramDefaultTexts,
+            paramTupleNameCounts,
+            paramTupleNameTexts,
+            returnTupleNameTexts,
+            returnLabeledTypeTexts,
+            paramLabeledTypeTexts,
+            typeParamTexts,
+            typeParamSpecials,
+            typeParamConstraintCounts,
+            typeParamConstraintTypeTexts,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStart,
+            childCount,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            localFunctionNodeIndices,
+            localFunctionTokenIndices,
+            result
+        )
+
+        BodyRootKind = -1
+        LocalFunctionCount = -1
+        if Status >= 0 {
+            bodyRoot := result[6]
+            if bodyRoot >= 0 && bodyRoot < result[7] {
+                BodyRootKind = nodeKinds[bodyRoot]
+            }
+
+            LocalFunctionCount = result[8]
+        }
+    }
+}
+
+test "a local function with an ARROW body parses, and its enclosing function keeps its statements" {
+    // The statement kernel used to scan for `{` and refuse when there was none, which declined the
+    // ENCLOSING function at parse.function — a local function could only ever be written with braces.
+    probe := new ColumnarFunctionBodyShapeProbe(
+        "func Pick(name: string): string {\n    func inner(v: string): string => v\n    return inner(name)\n}"
+    )
+
+    assert probe.Status >= 0
+    assert probe.LocalFunctionCount == 1
+    assert probe.BodyRootKind == 25
+}
+
+test "an arrow-bodied local function's span ends at its expression, not at the next brace" {
+    // A `static` prefix, a body that continues on the next line, and a sibling declaration after it:
+    // the span the kernel records has to cover the modifier and stop at the expression's end.
+    probe := new ColumnarFunctionBodyShapeProbe(
+        "func Two(a: int): int {\n    static func triple(x: int): int =>\n        x * 3\n    func plus(x: int): int { return x + 1 }\n    return plus(triple(a))\n}"
+    )
+
+    assert probe.Status >= 0
+    assert probe.LocalFunctionCount == 2
+}
+
+test "a parameter default that is a lambda does not end the signature at its arrow" {
+    probe := new ColumnarFunctionBodyShapeProbe(
+        "func Apply(a: int): int {\n    func run(x: int, g: Func<int, int>? = null): int => g == null ? x : g(x)\n    return run(a)\n}"
+    )
+
+    assert probe.Status >= 0
+    assert probe.LocalFunctionCount == 1
+}
+
+// WHAT AN EXPRESSION BODY LOWERS TO IS THE DECLARED RETURN'S DECISION. A value function RETURNS the
+// expression (kind 20); a `void` one PERFORMS it (kind 23). Lowering both as a return emitted a value
+// return from a void method, and `func write(t: string): void => log.Append(t)` declined at emit.body.
+test "a value expression body is a return and a void one is an expression statement" {
+    value := new ColumnarFunctionBodyShapeProbe("func Double(x: int): int => x * 2")
+    assert value.Status >= 0
+    assert value.BodyRootKind == 20
+
+    voided := new ColumnarFunctionBodyShapeProbe("func Push(sink: List<int>, x: int): void => sink.Add(x)")
+    assert voided.Status >= 0
+    assert voided.BodyRootKind == 23
+
+    // An OMITTED return type canonicalizes to `void`, so it answers the same way.
+    omitted := new ColumnarFunctionBodyShapeProbe("func Push(sink: List<int>, x: int) => sink.Add(x)")
+    assert omitted.Status >= 0
+    assert omitted.BodyRootKind == 23
+}
+
 // Parses a whole `func` via the product function ABI and reports every IsExpression (kind 46) in the
 // emitted body node table: how many there are, the first one's PATTERN VARIABLE text ("" when the node
 // carries none), and how many statements the body block holds — the last of which is what catches a
