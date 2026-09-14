@@ -2736,6 +2736,39 @@ never exported.
 
 Enum cases are part of the containing enum's value set. Export is controlled by the enum itself, so lowercase enum cases remain visible when the enum is exported; use casing diagnostics as style guidance, not as API hiding.
 
+### A referenced assembly's internals: `InternalsVisibleTo`
+
+Everything above is about *your* code. A **referenced** assembly's `internal` types and members are
+normally invisible to you — they are not names your program can spell. The one exception is the
+CLR's own friend rule: an assembly can declare
+
+```csharp
+[assembly: InternalsVisibleTo("MyLibrary.Tests")]
+```
+
+and a project whose `project.yml` carries `name: MyLibrary.Tests` then sees that assembly's
+`internal` types, and the `internal` members of its public types, exactly as its own code does:
+
+```n#
+namespace MyLibrary.Tests
+
+import MyLibrary.Internals
+
+func Reads(): int {
+    state := new InternalCounter(7)   // an `internal` type of the granting reference
+    return state.Reading()            // ...and an `internal` member of a public one
+}
+```
+
+Nothing about the call changes: the compiler emits the same instruction a public member gets, and
+the CLR re-checks the grant when it loads your assembly. The match is on your assembly's **whole
+simple name**, without regard to case; a strong-name key after a comma is ignored, and a name that
+merely resembles the granted one (`MyLibrary.Tests.Unit`, `MyLibrary.Test`) is not a friend. Without
+a grant those names stay [NL301](errors/NL301.md) / [NL201](errors/NL201.md).
+
+N# cannot yet WRITE such a declaration — an N# library has no way to make another assembly its
+friend — so this rule is about consuming grants from assemblies compiled elsewhere.
+
 ## Next Steps
 
 - **[For Go Developers](for-go-developers.md)** — How Go concepts map to N#

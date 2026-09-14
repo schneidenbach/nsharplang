@@ -473,9 +473,44 @@ class Writer: StringWriter {
 ```
 
 The rule is C#'s (§7.5.4) — the receiver has to be your type or one derived from it, and `base.` is
-always allowed inside the deriving type. `internal`, `private protected` and `private` members of a
-referenced base stay out of reach: the assembly half of those levels is unsatisfiable across a
-reference, and N# models no `InternalsVisibleTo`.
+always allowed inside the deriving type. `private` members of a referenced base are never in reach,
+and neither are its `internal` and `private protected` ones **unless that assembly has made your
+project a friend** — see [Reaching a reference's internals](#reaching-a-references-internals) below.
+
+### Reaching a reference's internals
+
+A referenced assembly can name yours in an `InternalsVisibleTo` attribute:
+
+```csharp
+// in the referenced project, for example MyLibrary.csproj
+[assembly: InternalsVisibleTo("MyLibrary.Tests")]
+```
+
+When it does, a project whose `project.yml` `name:` is `MyLibrary.Tests` sees that assembly the way
+its own code does: its `internal` types are types you can spell, and the `internal` members of its
+public types are members you can reach. Nothing about the call changes — the compiler emits the same
+instruction it emits for a public member, and the CLR re-checks the grant when it loads your
+assembly.
+
+```n#
+namespace MyLibrary.Tests
+
+import MyLibrary.Internals
+
+func Reads(): int {
+    state := new InternalCounter(7)   // an `internal` type of the granting reference
+    return state.Reading()            // ...and an `internal` member of a public one
+}
+```
+
+The grant is matched on your assembly's **whole simple name**, without regard to case. A strong-name
+key after a comma (`"MyLibrary.Tests, PublicKey=0024..."`) is not part of the comparison. A name
+that merely resembles the granted one — `MyLibrary.Tests.Unit`, `MyLibrary.Test` — is not a friend,
+and an `internal` type of an assembly that granted nobody (or granted a different name) stays
+[NL301](./errors/NL301.md) or [NL201](./errors/NL201.md) exactly as before.
+
+N# does not yet EMIT an `InternalsVisibleTo` of its own: an N# library cannot currently make another
+assembly its friend, so this rule is about consuming grants written by assemblies compiled elsewhere.
 
 Those `protected virtual` members are extension points, so you may **override** them, and the same
 three levels are the ones you may take the slot of:
