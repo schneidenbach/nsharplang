@@ -93,7 +93,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
             }
 
             // Dot-qualified call — resolve the receiver as a value first, then as a type.
-            var typeName = callInfo.ReceiverName;
+            var typeName = SignatureHelpArgumentFacts.DeclarationReceiverName(callInfo.ReceiverName);
             var methodName = callInfo.MethodName;
 
             _logger.LogDebug("Method call: {Type}.{Method}", typeName, methodName);

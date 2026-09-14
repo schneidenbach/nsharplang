@@ -172,6 +172,20 @@ test "signature help follows a reordered named argument" {
     assert help.ActiveParameter == 0
 }
 
+test "signature help resolves a named argument on a generic receiver and method" {
+    docs := LshNewDocs()
+    uri := "file:///generic-receiver-signature.nl"
+    source := "\nclass Box<T> {\n    static func Method<U>(first: U, second: int): U { return first }\n}\n\nfunc main(): void\n    Box<int>.Method<int>(second: 2, first: "
+    LshOpen(docs, uri, source)
+
+    help := LshSignatureHelp(docs, uri, 6, 48)
+
+    assert help != null
+    assert LshSignatureCount(help) > 0
+    assert help.ActiveParameter == 0
+    assert LshHasSignatureContaining(help, "Method")
+}
+
 test "signature help keeps the outer call across nested and multiline arguments" {
     docs := LshNewDocs()
     uri := "file:///nested-named-signature.nl"

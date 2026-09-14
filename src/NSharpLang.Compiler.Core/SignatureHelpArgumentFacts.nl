@@ -23,6 +23,19 @@ class SignatureHelpCallContext {
 // lexer and the parser kernel's generic-call/type-receiver lookahead, so comments and every string
 // form are single tokens and `<` is nested only when the language grammar reads type arguments.
 class SignatureHelpArgumentFacts {
+    static func DeclarationReceiverName(receiverName: string): string {
+        if receiverName == null {
+            return ""
+        }
+        generic := receiverName.IndexOf('<')
+        if generic < 0 {
+            return receiverName
+        }
+        separator := receiverName.LastIndexOf('.', generic)
+        start := separator >= 0 ? separator + 1 : 0
+        return receiverName.Substring(start, generic - start).Trim()
+    }
+
     static func ActiveCallAtPosition(source: string, zeroBasedLine: int, character: int): SignatureHelpCallContext? {
         prefixLength := PrefixLengthAtPosition(source, zeroBasedLine, character)
         if prefixLength < 0 {
@@ -68,11 +81,18 @@ class SignatureHelpArgumentFacts {
         if calleeIndex > 0 && tokens[calleeIndex - 1].Type == TokenType.New {
             return new SignatureHelpCallContext(null, methodName, true, argumentText)
         }
-        if calleeIndex < 2 || tokens[calleeIndex - 1].Type != TokenType.Dot || tokens[calleeIndex - 2].Type != TokenType.Identifier {
+        if calleeIndex < 2 || tokens[calleeIndex - 1].Type != TokenType.Dot {
             return new SignatureHelpCallContext(null, methodName, false, argumentText)
         }
 
-        receiverStart := calleeIndex - 2
+        receiverEnd := calleeIndex - 2
+        receiverStart := receiverEnd
+        if tokens[receiverEnd].Type != TokenType.Identifier {
+            receiverStart = CalleeIdentifierIndex(tokens, receiverEnd + 1)
+        }
+        if receiverStart < 0 {
+            return new SignatureHelpCallContext(null, methodName, false, argumentText)
+        }
         while receiverStart >= 2 && tokens[receiverStart - 1].Type == TokenType.Dot && tokens[receiverStart - 2].Type == TokenType.Identifier {
             receiverStart -= 2
         }

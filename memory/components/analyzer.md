@@ -5098,13 +5098,19 @@ those metadata names. Constructors carry source `ref`/`out` modifier facts besid
 builder identity; this lets a reordered sparse `out` initialize an unassigned local while the same
 address passed to `ref` still obeys definite assignment.
 
-An explicit generic sibling call applies its written type arguments before scoring the placed
-arguments. `First<int>(second: 2, first: 40)` therefore uses the same spill-and-reload permutation
-as its non-generic form, then emits the exact constructed method identity.
+An explicit generic call applies its written type arguments before scoring the placed arguments.
+`First<int>(second: 2, first: 40)` therefore uses the same spill-and-reload permutation as its
+non-generic form, then emits the exact constructed method identity. That path also fills optional
+holes, preserves reordered `ref`/`out` addresses, and handles a trailing `params` array in its direct,
+omitted, expanded, and spread forms. A generic method on a generic source receiver substitutes the
+declaring type's parameters and the method's parameters by their distinct live CLR identities; their
+shared ordinal positions never stand in for identity.
 
 Signature help uses the same written names when it selects the highlighted parameter. Its N#
 syntax owner lexes the document through the cursor, finds the innermost unmatched call, and counts
 only top-level argument separators using the parser's generic-call lookahead. A completed nested
 call, a multiline argument list, a comparison expression, a block lambda, or punctuation inside a
 comment or string therefore cannot redirect the request or move the highlight. The language-server
-handler only resolves the resulting call and renders the selected signature.
+handler only resolves the resulting call and renders the selected signature. Explicit generic
+receiver spellings such as `Box<int>.Map<string>(value: ...)` retain the complete receiver while the
+source declaration lookup uses its `Box` head.
