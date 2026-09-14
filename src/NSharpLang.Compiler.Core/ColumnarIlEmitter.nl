@@ -7564,6 +7564,17 @@ sealed class ColumnarIlEmitter {
                 if (!TryEmitInferredZeroParamLambda(Child(idx, 0), out lambdaType)) {
                     return Decline("emit.local.lambda-inference", "local lambda initializer could not be inferred", Child(idx, 0))
                 }
+                // A lifted candidate takes the shared box here for the same reason every other one
+                // does: a local function that captures the name reads it through the display's box,
+                // and a later write must be seen on both sides.
+                if (_liftedCandidates != null && _liftedCandidates.Contains(name) && ColumnarClosureBindingPlanner.IsLiftableValueType(lambdaType)) {
+                    lambdaBoxType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition().MakeGenericType([lambdaType])
+                    lambdaBox := _il.DeclareLocal(lambdaBoxType)
+                    _il.Emit(OpCodes.Newobj, lambdaBoxType.GetConstructor([lambdaType]))
+                    _il.Emit(OpCodes.Stloc, lambdaBox)
+                    _liftedLocals[name] = (lambdaBox, lambdaType)
+                    return HoistCaptureIntoLocalFunctionDisplay(name, lambdaBox, lambdaType)
+                }
                 lambdaLocal := _il.DeclareLocal(lambdaType)
                 _il.Emit(OpCodes.Stloc, lambdaLocal)
                 _locals[name] = lambdaLocal
@@ -7710,9 +7721,12 @@ sealed class ColumnarIlEmitter {
                     }
                 }
             }
-            // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
-            // initializers stay unlifted — a reassigned-and-captured delegate local declines later).
-            if (_nodes.Kind(declaredInit) != 39 && _liftedCandidates != null && _liftedCandidates.Contains(declaredName) && ColumnarClosureBindingPlanner.IsLiftableValueType(declaredType)) {
+            // L3b: a lifted candidate declares as a shared StrongBox<T>. A LAMBDA initializer lifts
+            // like any other value — the delegate is on the stack here exactly as an integer would be,
+            // and a local function that captures the name needs the box whatever produced it. (A
+            // lambda whose own body names the local it initialises still declines: the box does not
+            // exist while that body emits, so the name resolves to nothing.)
+            if (_liftedCandidates != null && _liftedCandidates.Contains(declaredName) && ColumnarClosureBindingPlanner.IsLiftableValueType(declaredType)) {
                 typedBoxType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition().MakeGenericType([declaredType])
                 typedBox := _il.DeclareLocal(typedBoxType)
                 _il.Emit(OpCodes.Newobj, typedBoxType.GetConstructor([declaredType]))

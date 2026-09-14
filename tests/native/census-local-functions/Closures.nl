@@ -252,3 +252,29 @@ struct Reading {
         return read(offset)
     }
 }
+
+// A DELEGATE-TYPED LOCAL IS CAPTURED LIKE ANY OTHER. The lambda that produced it is a value on the
+// stack exactly as an integer would be, so the local takes the same shared box every other capture
+// of a local function takes — before this, a lambda INITIALIZER was excluded from that lift and the
+// capture declined at `emit.local-function.capture` for having no slot to read from.
+func ApplyThroughCapturedDelegate(seed: int, value: int): int {
+    let add: Func<int, int> = x => x + seed
+
+    func apply(v: int): int {
+        return add(v)
+    }
+
+    return apply(value)
+}
+
+// The same capture where the delegate came from a zero-parameter lambda whose return type is
+// INFERRED from its body — the lift happens after that inference, on the type it produced.
+func ReadThroughCapturedZeroArgDelegate(seed: int): int {
+    let read: Func<int> = () => seed * 2
+
+    func twice(): int {
+        return read() + read()
+    }
+
+    return twice()
+}

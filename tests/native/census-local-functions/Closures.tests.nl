@@ -149,7 +149,11 @@ test "a capturing scope gets exactly one display class and a capture-free local 
     // ArrowBodies.nl, whose local functions capture `prefix` and `sink`, and ThrowingLocals there,
     // whose `pick` captures `flag`. An ARROW body is lowered through the same display a block body
     // uses, which is why each adds exactly one.
-    assert displayCount == 15
+    //
+    // Plus TWO each for ApplyThroughCapturedDelegate and ReadThroughCapturedZeroArgDelegate below:
+    // the lambda that makes the delegate captures `seed`, and the local function that calls it
+    // captures the delegate local — two capturing scopes, two displays.
+    assert displayCount == 19
 
     // CountSteps declares two mutually recursive capturing local functions. They share ONE display,
     // which is the whole reason each sees the other's writes to the captured counter.
@@ -219,4 +223,11 @@ test "a local function capturing only `this` is an instance method of the declar
     }
 
     assert found == 1
+}
+
+test "a local function captures a delegate-typed local through the same shared box" {
+    assert ApplyThroughCapturedDelegate(10, 5) == 15
+    assert ApplyThroughCapturedDelegate(0, 5) == 5
+
+    assert ReadThroughCapturedZeroArgDelegate(4) == 16
 }
