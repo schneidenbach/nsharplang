@@ -317,8 +317,8 @@ class Product {
 
 ### Init-only Properties
 
-Mark a property `init` to make it settable in the object initializer but immutable
-afterward.
+Mark a member `init` to make it settable while the object is being created and immutable
+afterwards.
 
 ```n#
 class Configuration {
@@ -332,24 +332,92 @@ config := new Configuration {
     Version: "1.0"
 }
 
-// config.AppName = "NewName"  // Error: init-only property
+config.AppName = "NewName"      // ERROR NL343: it can only be set while the object is being created
 ```
+
+An `init` member is a **property**, not a field: the CLR's only way to say "settable while the
+object is being created" is a setter whose return type carries
+`modreq(System.Runtime.CompilerServices.IsExternalInit)`, and a field has no setter to put it on.
+The storage behind it is a private `[CompilerGenerated]` backing field, exactly as C# emits for
+`public string AppName { get; init; }` — so a C# caller of your assembly is held to the same rule by
+its own compiler, and a C# `init` property you consume is held to it here.
+
+The two places an `init` member may be written are the object initializer that creates the value and
+a **constructor** of the declaring type or of a type derived from it:
+
+```n#
+class Seeded {
+    init Name: string
+
+    constructor(seed: string) {
+        Name = seed             // a constructor writes it
+    }
+}
+```
+
+`init` may also be written in front of an explicit accessor pair, which puts the same marker on the
+declared setter:
+
+```n#
+class Declared {
+    storage: string = ""
+
+    init Managed: string {
+        get { return storage }
+        set { storage = value }
+    }
+}
+```
+
+`static init` is refused (NL311): `init` is a promise about an object being created, and a static
+member belongs to the type.
 
 ### Required Properties
 
+Mark a member `required` and every creation of the type must set it.
+
 ```n#
 class User {
-    required Id: Guid
+    required Id: string
     required Name: string
     Email: string?  // Optional
 }
 
-// Must initialize required properties
+// Must initialize required members
 user := new User {
-    Id: Guid.NewGuid(),
+    Id: "u-1",
     Name: "Alice"
 }
+
+other := new User { Id: "u-2" }   // ERROR NL344: 'Name' is required and this creation never sets it
 ```
+
+`required` keeps the member it was written as — a field or a property — and adds the metadata that
+records the demand: `[RequiredMember]` on the member and on the type, and
+`[CompilerFeatureRequired("RequiredMembers")]` on every constructor. A C# caller sees the same
+demand (CS9035), and a C# type's `required` members are demanded of N# creations.
+
+A constructor may promise to set them itself with `[SetsRequiredMembers]`, which is the one way a
+creation that names nothing is still legal:
+
+```n#
+import System.Diagnostics.CodeAnalysis
+
+class Preset {
+    required Kind: string
+
+    [SetsRequiredMembers]
+    constructor(kind: string) {
+        Kind = kind
+    }
+}
+
+preset := new Preset("fast")
+```
+
+The two words combine — `required init Name: string` demands the creation set it and refuses every
+later write — and a `required` member declared by a base type is demanded of a derived type's
+creations. `static required` is refused (NL311) for the reason `static init` is.
 
 ### Members in any order
 
@@ -1857,6 +1925,12 @@ Two rules the compiler enforces about the type-argument list itself:
   lambda's body) but does not EMIT yet. A generic FREE function with a delegate parameter is
   unaffected, and so is every generic method on an external type; write the type argument out
   (`Match<string>(...)`) or move the call into a free function.
+- An **`init` member of a GENERIC type** can be set by a constructor of that type, but not by an
+  object initializer written against a closed instantiation (`new Holder<string> { Value: … }`). The
+  reference such an initializer needs cannot carry the `IsExternalInit` marker the setter's
+  definition has, so the creation declines rather than emitting IL the runtime would refuse to bind.
+  Give the type a constructor and construct through it. `init` on a non-generic type, and a plain
+  settable property on a generic one, are unaffected.
 - **Null-conditional INDEXING** (`items?[0]`) is not compiled yet; `?.` on a member or a method is
   unaffected, and an explicit null check reads the element.
 - An argument that must be **boxed into an `object` parameter of a GENERIC function**
