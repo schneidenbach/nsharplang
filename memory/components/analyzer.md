@@ -4264,16 +4264,33 @@ What each reader changed:
   everybody. The host is now gated by `IsNameableType`, and an `internal` extension METHOD of a
   public host is admitted for a granting assembly.
 * emission — reaching a friend's internal member emits the ORDINARY instruction; the CLR re-checks
-  the grant at load. `ExternalAssemblyScan.FindExactType` used bare `Assembly.GetType`, so a
-  fully-qualified internal name used to BIND and emit a reference the runtime refuses; it now asks
-  `InternalsVisibleToEmissionScope.CanNameType`.
+  the grant at load. No filter was added to `ExternalAssemblyScan`'s TYPE lookup, and that was
+  measured rather than assumed: gating `FindExactType`/`FindFirstVisibleType` on
+  `InternalsVisibleToEmissionScope.CanNameType` compiled and passed the estate, then took SIX native
+  projects down in the full sweep — `census-emit-shapes`, `qualified-names` and `tuple-names` to
+  ZERO tests, and one test each in `census-import-usage`, `diagnostic-honesty` and `lsp-lifetime`.
+  The back end's type lookup is reached by paths whose answers a nameability filter perturbs, and
+  the shapes that broke (a tuple over a source type, a qualified name, a named tuple) say the
+  perturbation is not about internals at all. The filter was reverted whole; see STILL OPEN.
 
-STILL OPEN, and not this rule's to close: `AnalyzerTypeResolver` deliberately does not report an
-unresolved DOTTED type name (it returns an `ExternalTypeInfo` placeholder and says so), so a
-qualified internal name of a NON-granting reference is refused at emit as NL103 rather than at
-analysis as NL201. `typeof(<unresolved name>)` reports nothing at all, for the same reason. And N#
-cannot WRITE an `InternalsVisibleTo`: `AssemblyBuilder.SetCustomAttribute` is not on the pinned
-stage-0 emit surface, so `project.yml` has no `internalsVisibleTo:` key yet.
+STILL OPEN, and none of it this rule's to close alone:
+
+* `AnalyzerTypeResolver` deliberately does not report an unresolved DOTTED type name (it returns an
+  `ExternalTypeInfo` placeholder and says so), so `new System.TokenType()` and
+  `new <granting-namespace>.<InternalType>()` written with a FULLY QUALIFIED spelling still compile
+  and EMIT for a project no reference befriended. The emitted reference is one the CLR refuses at
+  load. Closing it means either making dotted names non-lenient in the analyzer or finding the one
+  back-end lookup that can carry the filter without the collateral above; the six-project failure
+  is the evidence that the obvious place is not it. `typeof(<unresolved name>)` reports nothing at
+  all, for the same leniency.
+* Member-level COMPLETION (`CompletionReflectionFacts`) still offers only the public surface of a
+  granting reference. That is a missing ADDITION, not an unsound answer, and wiring it means
+  threading the grants through `CompletionReceiverFacts` and the completion engine.
+* N# cannot WRITE an `InternalsVisibleTo`: `AssemblyBuilder.SetCustomAttribute(ConstructorInfo,
+  byte[])` is not on the PINNED stage-0 emit surface (measured: `emit.call.instance-member-unmodeled`
+  when Compiler.Core spells it), so `project.yml` has no `internalsVisibleTo:` key yet and an N#
+  library cannot make another assembly its friend. It becomes possible the moment the bootstrap seed
+  is republished from a tip that models that call.
 
 Contracts: `InternalsVisibleToGrants.tests.nl` (the rule, and the scope's open/closed answers) and
 `tests/native/census-internals-visible-to` (the end of it, RUN: the project is named `Tests`, which
