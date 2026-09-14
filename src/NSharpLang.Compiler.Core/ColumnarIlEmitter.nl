@@ -27548,6 +27548,25 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        // A HOP IS AN ORDINARY MEMBER READ, AND THE ORDINARY RESOLVER ANSWERS IT. The rows above are
+        // the residue of a hand-written table of BCL properties, so a chain that stepped through any
+        // OTHER member a referenced assembly declares had no answer at all: `d.Values.OfType<string>()`
+        // declined at `emit.call.generic-unresolved` while `values := d.Values` followed by
+        // `values.OfType<string>()` — the same two reads, one of them stored — emitted. The selection
+        // below is the same one every instance member access already uses, so a hop reaches exactly
+        // what a direct read of the same member reaches, inherited interface members included.
+        let ordinaryMember: NSharpLang.Compiler.Columnar.ColumnarRuntimeInstanceMemberSelection? = null
+        if (ColumnarRuntimeInstanceMemberResolver.TrySelect(current, member, out ordinaryMember)) {
+            if (ordinaryMember.Field != null) {
+                hop = new ColumnarInterpolationMemberPlan(ordinaryMember.Field, null, ordinaryMember.ResultType)
+                return true
+            }
+            if (ordinaryMember.Getter != null) {
+                hop = new ColumnarInterpolationMemberPlan(null, ordinaryMember.Getter, ordinaryMember.ResultType)
+                return true
+            }
+        }
+
         return false
     }
 
