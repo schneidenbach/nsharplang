@@ -82,7 +82,9 @@ that could not rebuild itself:
 3. evict `nsharplang.sdk` and `nsharplang.runtime` from the NuGet cache — a republished seed keeps its
    version, so the cache serves the OLD bytes forever and the rebuild proves nothing
 4. `scripts/verify-bootstrap.py`
-5. clean self-rebuild of Core (`obj` must go: `project.assets.json` pins the resolved SDK path)
+5. clean self-rebuild of Core (`obj` must go: `project.assets.json` pins the resolved SDK path); each
+   restore hashes the exact lowercased SDK/runtime cache packages against the verified bootstrap bytes
+   before its build can start
 6. **pack AGAIN** — these are the packages a compiler COMPILED BY ITSELF produces, and they are the
    ones that get committed. A one-stage seed cannot carry a change to the MSBuild task surface,
    because stage 1's tasks were built by the OLD SDK

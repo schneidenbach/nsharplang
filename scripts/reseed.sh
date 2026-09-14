@@ -43,8 +43,22 @@ STOP_AFTER="${NSHARP_RESEED_STOP_AFTER:-}"
 CORE_PROJECT="src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
 SEED_PACKAGES=("NSharpLang.Sdk" "NSharpLang.Runtime")
 
+reseed_absolute_path() {
+    local path="$1"
+    if [[ "$path" == /* ]]; then
+        printf '%s\n' "$path"
+    else
+        printf '%s/%s\n' "$NSHARP_REPO_ROOT" "$path"
+    fi
+}
+
+# `dotnet restore` runs from the repository root while verification and eviction run from the
+# caller's shell. Resolve an explicitly supplied relative cache root once so all three use the
+# same directory.
 if [[ -n "${NSHARP_RESEED_PACKAGES_DIR:-}" ]]; then
-    export NUGET_PACKAGES="$NSHARP_RESEED_PACKAGES_DIR"
+    export NUGET_PACKAGES="$(reseed_absolute_path "$NSHARP_RESEED_PACKAGES_DIR")"
+elif [[ -n "${NUGET_PACKAGES:-}" ]]; then
+    export NUGET_PACKAGES="$(reseed_absolute_path "$NUGET_PACKAGES")"
 fi
 
 nsharp_require_command dotnet
@@ -60,6 +74,68 @@ reseed_should_stop() {
 reseed_seed_version() {
     python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["msbuild-sdks"]["NSharpLang.Sdk"])' \
         "$NSHARP_REPO_ROOT/src/NSharpLang.Compiler.Core/global.json"
+}
+
+reseed_packages_root() {
+    printf '%s\n' "${NUGET_PACKAGES:-$HOME/.nuget/packages}"
+}
+
+reseed_sha256() {
+    local output digest ignored
+    if ! output="$(shasum -a 256 "$1")"; then
+        echo "Error: could not calculate SHA256 for $1" >&2
+        return 1
+    fi
+    read -r digest ignored <<< "$output"
+    if [[ ! "$digest" =~ ^[0-9a-fA-F]{64}$ ]]; then
+        echo "Error: SHA256 command returned an invalid digest for $1" >&2
+        return 1
+    fi
+    printf '%s\n' "$digest"
+}
+
+# `reseed_verify` has already authenticated the bootstrap bytes when this runs. Restore must now
+# put those SAME bytes in NuGet's exact lower-cased package paths before the compiler may build;
+# otherwise a same-version cache hit can make the rebuild prove an older seed instead of this one.
+reseed_verify_restored_packages() {
+    local version packages_root package package_lower bootstrap_package cache_package bootstrap_digest cache_digest
+    version="$(reseed_seed_version)"
+    packages_root="$(reseed_packages_root)"
+
+    nsharp_log "Verifying restored seed package bytes in $packages_root"
+    for package in "${SEED_PACKAGES[@]}"; do
+        package_lower="$(nsharp_lowercase "$package")"
+        bootstrap_package="$BOOTSTRAP_DIR/$package.$version.nupkg"
+        cache_package="$packages_root/$package_lower/$version/$package_lower.$version.nupkg"
+
+        if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
+            nsharp_print_command shasum -a 256 "$bootstrap_package"
+            nsharp_print_command shasum -a 256 "$cache_package"
+            continue
+        fi
+
+        if [[ ! -f "$bootstrap_package" ]]; then
+            echo "Error: verified bootstrap package is missing: $bootstrap_package" >&2
+            exit 1
+        fi
+        if [[ ! -f "$cache_package" ]]; then
+            echo "Error: restored NuGet cache package is missing: $cache_package" >&2
+            exit 1
+        fi
+
+        if ! bootstrap_digest="$(reseed_sha256 "$bootstrap_package")"; then
+            return 1
+        fi
+        if ! cache_digest="$(reseed_sha256 "$cache_package")"; then
+            return 1
+        fi
+        if [[ "$cache_digest" != "$bootstrap_digest" ]]; then
+            echo "Error: restored NuGet cache package differs from verified bootstrap:" >&2
+            echo "  cache: $cache_package" >&2
+            echo "  seed:  $bootstrap_package" >&2
+            exit 1
+        fi
+    done
 }
 
 # STEP 1 / 6 -- pack. The package set is `nsharp_pack_package_set`, the same one the release scripts
@@ -110,7 +186,8 @@ reseed_install() {
 # are named in full: a glob that matches nothing aborts the whole `rm` under `set -u` in some shells,
 # and a glob that matches too much would delete a consumer's unrelated NSharpLang packages.
 reseed_evict() {
-    local packages_root="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
+    local packages_root
+    packages_root="$(reseed_packages_root)"
     nsharp_log "Evicting the previous seed from $packages_root"
     nsharp_run rm -rf "$packages_root/nsharplang.sdk"
     nsharp_run rm -rf "$packages_root/nsharplang.runtime"
@@ -130,6 +207,7 @@ reseed_rebuild() {
     nsharp_log "Clean self-rebuild of the compiler ($label)"
     nsharp_run rm -rf "$NSHARP_REPO_ROOT/src/NSharpLang.Compiler.Core/obj" "$NSHARP_REPO_ROOT/src/NSharpLang.Compiler.Core/bin"
     nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet restore "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$CORE_PROJECT" --force-evaluate -v q
+    reseed_verify_restored_packages
     nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet build "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$CORE_PROJECT" --no-restore -v q
 }
 
