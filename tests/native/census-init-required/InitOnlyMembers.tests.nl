@@ -61,6 +61,28 @@ test "an init-only member typed by the declaration's own type parameter round-tr
     assert numbers.Slot == 0
 }
 
+test "closed generic init setters retain their constructed owner and modifier" {
+    first := new GenericInitializable<string> {
+        Value: "closed"
+    }
+    second := new GenericInitializable<string> {
+        Value: "repeated"
+    }
+
+    assert first.Value == "closed"
+    assert second.Value == "repeated"
+
+    measurement := new GenericMeasurement<int> {
+        Value: 42
+    }
+    assert measurement.Value == 42
+
+    nested := new GenericInitOwner.Nested<string> {
+        Value: "nested"
+    }
+    assert nested.Value == "nested"
+}
+
 test "a record's synthesized equality compares its init-only members" {
     first := new Pair {
         Left: 1,
@@ -149,4 +171,12 @@ test "an init-only member on a generic type keeps the declaration's own type par
     setter := property.SetMethod
     assert setter != null
     assert setter.ReturnParameter.GetRequiredCustomModifiers()[0].FullName == "System.Runtime.CompilerServices.IsExternalInit"
+}
+
+test "generic init metadata is shared through a lambda emitter" {
+    assert GenericInitThroughLambda() == 42
+}
+
+test "generic init metadata is shared through a local function emitter" {
+    assert GenericInitThroughLocalFunction() == 42
 }

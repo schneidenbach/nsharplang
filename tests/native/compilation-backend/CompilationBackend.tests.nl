@@ -2,6 +2,11 @@ namespace NSharpLang.CompilationBackend.Tests
 
 import System.IO
 import System.IO.Compression
+import System.Reflection
+import System.Reflection.Metadata
+import System.Reflection.Metadata.Ecma335
+import System.Reflection.PortableExecutable
+import System.Runtime.CompilerServices
 import System.Runtime.InteropServices
 import System.Text.Json
 
@@ -16,6 +21,137 @@ func ProjectYml(name: string, backend: string, outputType: string): string {
     }
 
     return text + "outputType: " + outputType + "\ntargetFramework: net10.0\n"
+}
+
+func ReadBackendCompressedInteger(bytes: byte[], ref cursor: int, out value: int): bool {
+    value = 0
+    if cursor >= bytes.Length {
+        return false
+    }
+    first := (int)bytes[cursor]
+    cursor = cursor + 1
+    if (first & 0x80) == 0 {
+        value = first
+        return true
+    }
+    if (first & 0xc0) == 0x80 {
+        if cursor >= bytes.Length {
+            return false
+        }
+        high := (first & 0x3f) << 8
+        low := (int)bytes[cursor]
+        value = high | low
+        cursor = cursor + 1
+        return true
+    }
+    if (first & 0xe0) != 0xc0 || cursor + 2 >= bytes.Length {
+        return false
+    }
+    firstPart := (first & 0x1f) << 24
+    secondPart := (int)bytes[cursor]
+    secondPart = secondPart << 16
+    thirdPart := (int)bytes[cursor + 1]
+    thirdPart = thirdPart << 8
+    fourthPart := (int)bytes[cursor + 2]
+    value = firstPart | secondPart
+    value = value | thirdPart
+    value = value | fourthPart
+    cursor = cursor + 3
+    return true
+}
+
+func BackendTypeHandle(coded: int): EntityHandle {
+    tag := coded & 3
+    row := coded >> 2
+    if tag == 0 {
+        return MetadataTokens.EntityHandle(0x02000000 | row)
+    }
+    if tag == 1 {
+        return MetadataTokens.EntityHandle(0x01000000 | row)
+    }
+    return MetadataTokens.EntityHandle(0x1b000000 | row)
+}
+
+func BackendTypeReferenceIs(reader: MetadataReader, handle: EntityHandle, namespaceName: string, typeName: string, assemblyName: string): bool {
+    if handle.Kind != HandleKind.TypeReference {
+        return false
+    }
+    reference := reader.GetTypeReference((TypeReferenceHandle)handle)
+    if reader.GetString(reference.Namespace) != namespaceName || reader.GetString(reference.Name) != typeName || reference.ResolutionScope.Kind != HandleKind.AssemblyReference {
+        return false
+    }
+    assembly := reader.GetAssemblyReference((AssemblyReferenceHandle)reference.ResolutionScope)
+    return reader.GetString(assembly.Name) == assemblyName
+}
+
+func BackendTypeSpecificationIsBoxOfInt(reader: MetadataReader, handle: EntityHandle): bool {
+    if handle.Kind != HandleKind.TypeSpecification {
+        return false
+    }
+    specification := reader.GetTypeSpecification((TypeSpecificationHandle)handle)
+    signature := reader.GetBlobBytes(specification.Signature)
+    cursor := 0
+    if signature.Length < 5 || signature[cursor] != 0x15 {
+        return false
+    }
+    cursor = cursor + 1
+    if signature[cursor] != 0x12 {
+        return false
+    }
+    cursor = cursor + 1
+    let definitionToken: int = 0
+    let argumentCount: int = 0
+    if !ReadBackendCompressedInteger(signature, ref cursor, out definitionToken) || !BackendTypeReferenceIs(reader, BackendTypeHandle(definitionToken), "InitSetterFixture", "Box`1", "InitSetterFixture") || !ReadBackendCompressedInteger(signature, ref cursor, out argumentCount) || argumentCount != 1 {
+        return false
+    }
+    return cursor + 1 == signature.Length && signature[cursor] == 0x08
+}
+
+func BackendSignatureIsExactInitSetter(reader: MetadataReader, signature: byte[], module: Module): bool {
+    cursor := 0
+    if signature.Length < 7 || signature[cursor] != 0x20 {
+        return false
+    }
+    cursor = cursor + 1
+    let parameterCount: int = 0
+    if !ReadBackendCompressedInteger(signature, ref cursor, out parameterCount) || parameterCount != 1 || cursor >= signature.Length || signature[cursor] != 0x1f {
+        return false
+    }
+    cursor = cursor + 1
+    let modifierToken: int = 0
+    if !ReadBackendCompressedInteger(signature, ref cursor, out modifierToken) {
+        return false
+    }
+    modifierHandle := BackendTypeHandle(modifierToken)
+    if !BackendTypeReferenceIs(reader, modifierHandle, "System.Runtime.CompilerServices", "IsExternalInit", "System.Private.CoreLib") {
+        return false
+    }
+    resolvedModifier := module.ResolveType(MetadataTokens.GetToken(modifierHandle))
+    if resolvedModifier.get_AssemblyQualifiedName() != typeof(IsExternalInit).get_AssemblyQualifiedName() {
+        return false
+    }
+    return cursor + 3 == signature.Length && signature[cursor] == 0x01 && signature[cursor + 1] == 0x13 && signature[cursor + 2] == 0x00
+}
+
+func HasClosedGenericInitSetterMemberReference(assemblyPath: string): bool {
+    stream := File.OpenRead(assemblyPath)
+    pe := new PEReader(stream)
+    reader := pe.GetMetadataReader()
+    assembly := Assembly.LoadFile(assemblyPath)
+    module := assembly.get_ManifestModule()
+    found := false
+    for handle in reader.MemberReferences {
+        reference := reader.GetMemberReference(handle)
+        if reader.GetString(reference.Name) == "set_Value" && BackendTypeSpecificationIsBoxOfInt(reader, reference.Parent) {
+            signature := reader.GetBlobBytes(reference.Signature)
+            if BackendSignatureIsExactInitSetter(reader, signature, module) {
+                found = true
+            }
+        }
+    }
+    pe.Dispose()
+    stream.Dispose()
+    return found
 }
 
 // ═══ check ════════════════════════════════════════════════════════════════════════════════════
@@ -62,6 +198,43 @@ test "nlc build with the il backend writes a runnable assembly and generates no 
         executed := DotnetApp(assemblyPath, directory)
         assert executed.ExitCode == 0
         assert executed.Stdout.Contains("built with il")
+    } finally {
+        DeleteTempDirectory(directory)
+    }
+}
+
+test "a referenced closed-generic init setter binds from a derived constructor" {
+    directory := NewTempDirectory()
+    try {
+        fixture := Path.Combine(directory, "Fixture")
+        consumer := Path.Combine(directory, "Consumer")
+        Directory.CreateDirectory(fixture)
+        Directory.CreateDirectory(consumer)
+        WriteFile(fixture, "project.yml", ProjectYml("InitSetterFixture", "il", "library"))
+        WriteFile(
+            fixture,
+            "Fixture.nl",
+            "namespace InitSetterFixture\n\nclass Box<T> {\n    init Value: T\n}\n"
+        )
+        fixtureBuild := Nlc("build", fixture)
+        assert fixtureBuild.ExitCode == 0, fixtureBuild.Stdout + fixtureBuild.Stderr
+
+        fixtureAssembly := Path.Combine(fixture, "bin/Debug/net10.0/InitSetterFixture.dll")
+        consumerProject := ProjectYml("InitSetterConsumer", "il", "exe") + "dependencies:\n  - dll: " + fixtureAssembly + "\n"
+        WriteFile(consumer, "project.yml", consumerProject)
+        WriteFile(
+            consumer,
+            "Program.nl",
+            "namespace InitSetterConsumer\n\nimport InitSetterFixture\n\nclass IntBox: Box<int> {\n    constructor() {\n        Value = 42\n    }\n}\n\nfunc main() {\n    fromConstructor := new IntBox()\n    fromInitializer := new Box<int> { Value: 41 }\n    print fromConstructor.Value + fromInitializer.Value\n}\n"
+        )
+        consumerBuild := Nlc("build", consumer)
+        assert consumerBuild.ExitCode == 0, consumerBuild.Stdout + consumerBuild.Stderr
+
+        consumerAssembly := Path.Combine(consumer, "bin/Debug/net10.0/InitSetterConsumer.dll")
+        assert HasClosedGenericInitSetterMemberReference(consumerAssembly), "the emitted setter MemberRef return position did not carry modreq"
+        executed := DotnetApp(consumerAssembly, consumer)
+        assert executed.ExitCode == 0, executed.Stdout + executed.Stderr
+        assert executed.Stdout.Trim() == "83"
     } finally {
         DeleteTempDirectory(directory)
     }

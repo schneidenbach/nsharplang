@@ -1,5 +1,7 @@
 namespace NSharpLang.CensusInitRequired.Tests
 
+import System
+
 
 // The shape the docs promise: an `init` member is set by an object initializer and is a PROPERTY in
 // the emitted metadata, because the CLR's only way to say "settable while the object is being
@@ -53,15 +55,28 @@ struct Measurement {
 }
 
 // An init-only member typed by the declaration's own type parameter. It is written by the
-// declaring type's OWN constructor, which references the open definition's setter directly: a
-// MemberRef to a closed generic type's `init` setter cannot carry `modreq(IsExternalInit)` (see
-// website/docs/types.md "Current limits"), so an object initializer over `Holder<string>` declines.
+// declaring type's OWN constructor and by callers through a closed generic MemberRef. The metadata
+// repair preserves the definition's init modifier while retaining the constructed owner.
 class Holder<T> {
     init Value: T
     Slot: int
 
     constructor(seed: T) {
         Value = seed
+    }
+}
+
+class GenericInitializable<T> {
+    init Value: T
+}
+
+struct GenericMeasurement<T> {
+    init Value: T
+}
+
+class GenericInitOwner {
+    class Nested<T> {
+        init Value: T
     }
 }
 
@@ -92,4 +107,18 @@ class Declared {
             storage = value
         }
     }
+}
+
+func GenericInitThroughLambda(): int {
+    make: Func<GenericInitializable<int>> = () => new GenericInitializable<int> { Value: 42 }
+    result := make()
+    return result.Value
+}
+
+func GenericInitThroughLocalFunction(): int {
+    func Make(value: int): GenericInitializable<int> {
+        return new GenericInitializable<int> { Value: value }
+    }
+    result := Make(42)
+    return result.Value
 }
