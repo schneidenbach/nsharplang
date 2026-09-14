@@ -287,9 +287,15 @@ else
 fi
 
 section "Step 2: Build N# Compiler"
-echo "Building compiler, CLI, Build.Tasks for native tests, and the playground a native test project takes as a dll: dependency..."
+# THE LANGUAGE SERVER IS BUILT HERE ON PURPOSE. Three native projects take
+# src/NSharpLang.LanguageServer/bin/Debug/net10.0/LanguageServer.dll as a `dll:` dependency, and until
+# the C# unit suite was retired that dll arrived as a side effect of the deleted Step 3 building
+# tests/Tests.csproj, which project-referenced it. Naming it here is the difference between a
+# reproducible gate and one that passes only on a machine that happens to have built it.
+echo "Building compiler, CLI, Build.Tasks, the language server three native projects take as a dll: dependency, and the playground a fourth one takes..."
 if dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Cli/Cli.csproj -v q \
     && dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -v q \
+    && dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.LanguageServer/LanguageServer.csproj -v q \
     && dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Playground/NSharpLang.Playground.csproj -v q; then
     handle_success "Compiler built"
 else
@@ -315,27 +321,11 @@ else
 fi
 rm -f "$FORMAT_OUTPUT"
 
-section "Step 3: Run Unit Tests"
-if step_cache_hit "unit-tests" "$UNIT_INPUTS_HASH"; then
-    step_skip_banner "unit-tests" "$UNIT_INPUTS_HASH"
-    handle_success "Unit tests (validated step cache)"
-else
-    echo "Running all unit tests..."
-    dotnet restore $DOTNET_STABLE_FLAGS tests/Tests.csproj --force-evaluate -v q
-    TEST_OUTPUT=$(mktemp)
-    if dotnet test $DOTNET_STABLE_FLAGS tests/Tests.csproj -v q --logger 'console;verbosity=minimal' --nologo --no-restore > "$TEST_OUTPUT" 2>&1; then
-        TEST_RESULT=$(grep -E "Passed!|Failed!" "$TEST_OUTPUT" || echo "")
-        if [ -n "$TEST_RESULT" ]; then
-            echo "$TEST_RESULT"
-        fi
-        handle_success "Unit tests passed"
-        step_cache_store "unit-tests" "$UNIT_INPUTS_HASH"
-    else
-        cat "$TEST_OUTPUT"
-        handle_error "Unit tests"
-    fi
-    rm -f "$TEST_OUTPUT"
-fi
+# STEP 3 WAS THE C# UNIT SUITE AND IS RETIRED. `tests/*.cs` and `tests/Tests.csproj` are gone: every
+# assertion they carried now lives either in the compiler-service estate or in a tests/native project,
+# both of which Step 3a below already runs. Step 3a KEEPS ITS NAME rather than being renumbered —
+# a dozen .nl comments and memory/testing.md cite "Step 3a" by name, and renaming a step to close a
+# numbering gap would invalidate all of them for nothing.
 
 section "Step 3a: Run Native N# Tests"
 if step_cache_hit "native-nsharp-tests" "$UNIT_INPUTS_HASH"; then

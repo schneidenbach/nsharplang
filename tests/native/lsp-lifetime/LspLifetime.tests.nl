@@ -90,8 +90,10 @@ func LspRepositoryRoot(): string {
     throw new InvalidOperationException("Could not locate the repository root above this test tree.")
 }
 
-// The gate's native step runs after the unit step, whose `tests/Tests.csproj` project-references
-// `LanguageServer.csproj` — so this dll is on disk by the time these blocks run.
+// The gate's Step 2 builds `LanguageServer.csproj` by name, so this dll is on disk by the time the
+// native step runs. It used to arrive as a SIDE EFFECT of the C# unit step building
+// tests/Tests.csproj, which project-referenced the server; that step is retired, and the explicit
+// build replaced it in the same commit.
 func LanguageServerDll(): string {
     root := LspRepositoryRoot()
     serverDirectory := Path.Combine(Path.Combine(Path.Combine(root, "src"), "NSharpLang.LanguageServer"), "bin")

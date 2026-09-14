@@ -28,12 +28,10 @@ jobs:
 
     - name: Build portable product and tests
       run: |
-        dotnet build tests/Tests.csproj -c Release
+        dotnet build src/NSharpLang.Cli/Cli.csproj -c Release
+        dotnet build src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release
         dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release
         dotnet build src/NSharpLang.Playground.Wasm/NSharpLang.Playground.Wasm.csproj -c Release
-
-    - name: Unit tests
-      run: dotnet test tests/Tests.csproj --no-build -c Release --verbosity normal
 
     - name: Canonical formatting
       run: |
