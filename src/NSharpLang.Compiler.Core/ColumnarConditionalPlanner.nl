@@ -39,6 +39,14 @@ class ColumnarConditionalPlanner {
         return node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.BinaryExpression() && nodes.ChildCount(node) == 2 && IsShortCircuitOperator(nodes, source, node)
     }
 
+    // Value-position gate for `a ?? b` — a kind-12 binary whose operator text is the two-character
+    // `??`. It is a BRANCH-MERGE like the ternary rather than an arithmetic binary, which is why it
+    // belongs to this owner and not to `ColumnarPrimitiveBinaryPlanner`: the right operand is
+    // evaluated only when the left is absent.
+    static func IsNullCoalesceBinary(nodes: ColumnarNodeTable, source: string, node: int): bool {
+        return node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.BinaryExpression() && nodes.ChildCount(node) == 2 && HasExactOperatorText(nodes, source, node, "??")
+    }
+
     // Root ownership seam consumed by the emitter front door. A planned root claims the whole node;
     // any decline is a NotOwned whole-subtree exit (never terminal) so the legacy arm serves the
     // mixed-type ternary and coalesce forms outside this slice.
@@ -132,7 +140,8 @@ class ColumnarConditionalPlanner {
         kind := nodes.Kind(candidate)
         isTernary := kind == ColumnarExpressionNodeKind.TernaryExpression() && nodes.ChildCount(candidate) == 3
         isShortCircuit := IsShortCircuitBinary(nodes, source, candidate)
-        if !isTernary && !isShortCircuit {
+        isNullCoalesce := IsNullCoalesceBinary(nodes, source, candidate)
+        if !isTernary && !isShortCircuit && !isNullCoalesce {
             return false
         }
 
@@ -143,6 +152,8 @@ class ColumnarConditionalPlanner {
             planned := false
             if isTernary {
                 planned = TryPlanTernary(nodes, source, candidate, bindings, handles, plan, fragment, 0, out resultType, out nestedOwnership)
+            } else if isNullCoalesce {
+                planned = TryPlanNullCoalesce(nodes, source, candidate, bindings, handles, plan, fragment, 0, out resultType, out nestedOwnership)
             } else {
                 planned = TryPlanShortCircuit(nodes, source, candidate, bindings, handles, plan, fragment, 0, out resultType, out nestedOwnership)
             }
@@ -171,6 +182,19 @@ class ColumnarConditionalPlanner {
             return false
         }
 
+        // EITHER ARM MAY BE A `throw` (kind 83), and a throwing arm produces no value at all — the
+        // conditional is then worth the OTHER arm's type, which is C#'s reading and the analyzer's.
+        // A throwing arm also ENDS ITS PATH: `ValidateMethodBodyStack` merges no height into the row
+        // after a `throw`, so the `br` to the merge label is written only when the then arm falls
+        // through, and the merge label is reached from whichever arm still produces a value. Both
+        // arms throwing leaves the merge unreachable and has no type to report, so it declines here
+        // (the analyzer reports it before emission is ever asked).
+        throwWhenTrue := ColumnarThrowExpressionPlanner.IsThrowExpression(nodes, nodes.Child(node, 1))
+        throwWhenFalse := ColumnarThrowExpressionPlanner.IsThrowExpression(nodes, nodes.Child(node, 2))
+        if throwWhenTrue && throwWhenFalse {
+            return false
+        }
+
         conditionType := typeof(bool)
         if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, out conditionType, out nestedOwnership) || conditionType != typeof(bool) {
             return false
@@ -181,21 +205,205 @@ class ColumnarConditionalPlanner {
         plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), falseLabel)
 
         whenTrueType := typeof(int)
-        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(node, 1), bindings, handles, plan, fragment, depth + 1, out whenTrueType, out nestedOwnership) {
-            return false
+        if throwWhenTrue {
+            if !ColumnarThrowExpressionPlanner.TryAppendThrow(nodes, source, nodes.Child(node, 1), bindings, handles, plan, fragment, depth) {
+                return false
+            }
+        } else {
+            if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(node, 1), bindings, handles, plan, fragment, depth + 1, out whenTrueType, out nestedOwnership) {
+                return false
+            }
+            plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), endLabel)
         }
 
-        plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), endLabel)
         plan.AppendMarkLabel(falseLabel)
 
         whenFalseType := typeof(int)
-        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(node, 2), bindings, handles, plan, fragment, depth + 1, out whenFalseType, out nestedOwnership) || whenTrueType != whenFalseType {
+        if throwWhenFalse {
+            if !ColumnarThrowExpressionPlanner.TryAppendThrow(nodes, source, nodes.Child(node, 2), bindings, handles, plan, fragment, depth) {
+                return false
+            }
+            plan.AppendMarkLabel(endLabel)
+            resultType = whenTrueType
+            return true
+        }
+
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(node, 2), bindings, handles, plan, fragment, depth + 1, out whenFalseType, out nestedOwnership) {
+            return false
+        }
+        if !throwWhenTrue && whenTrueType != whenFalseType {
             return false
         }
 
         plan.AppendMarkLabel(endLabel)
-        resultType = whenTrueType
+        resultType = throwWhenTrue ? whenFalseType : whenTrueType
         return true
+    }
+
+    // `a ?? b` — the NULL-COALESCING branch-merge, in the three left-operand shapes the language has
+    // and the legacy `ColumnarIlEmitter` `op == "??"` arm lowers:
+    //
+    //   * a REFERENCE left: `<a>; dup; brtrue end; pop; <b>; end:` — the duplicated reference IS the
+    //     result on the non-null path, so nothing re-evaluates `a`.
+    //   * a `Nullable<T>` left: the value is parked in a plan local, `HasValue` decides, and the
+    //     present path unwraps with `GetValueOrDefault()`. The RESULT is the ELEMENT type `T`, not
+    //     `T?` — `n ?? 0` is an `int`.
+    //   * a GENERIC PARAMETER left: the nullness question is asked of the BOXED value (one `box`,
+    //     never two) while the result stays `T`, so a value-type instantiation always takes the left
+    //     branch and a reference instantiation takes it exactly when the reference is non-null.
+    //
+    // The right operand may be a `throw` (kind 83) in every one of the three, which is the form
+    // `x ?? throw new ArgumentNullException(...)` production code writes constantly: the fallback
+    // path raises instead of producing a value, so no `br` joins the merge from it and the whole
+    // expression is worth the left with its nullability removed.
+    static func TryPlanNullCoalesce(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+        resultType = typeof(int)
+        nestedOwnership = ColumnarDirectCallOwnership.NotOwned
+        if !IsNullCoalesceBinary(nodes, source, node) {
+            return false
+        }
+
+        leftType := typeof(int)
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, out leftType, out nestedOwnership) || leftType == null {
+            return false
+        }
+
+        fallback := nodes.Child(node, 1)
+        if ColumnarTypeOfPlanner.IsSupportedNullable(leftType) {
+            return TryPlanNullableCoalesce(nodes, source, fallback, bindings, handles, plan, fragment, depth, leftType, out resultType, out nestedOwnership)
+        }
+        if leftType.get_IsGenericParameter() {
+            return TryPlanTypeParameterCoalesce(nodes, source, fallback, bindings, handles, plan, fragment, depth, leftType, out resultType, out nestedOwnership)
+        }
+        if leftType.get_IsValueType() {
+            return false
+        }
+        return TryPlanReferenceCoalesce(nodes, source, fallback, bindings, handles, plan, fragment, depth, leftType, out resultType, out nestedOwnership)
+    }
+
+    // REFERENCE LEFT: the duplicated reference survives the test and becomes the result.
+    static func TryPlanReferenceCoalesce(nodes: ColumnarNodeTable, source: string, fallback: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, leftType: Type, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+        resultType = leftType
+        nestedOwnership = ColumnarDirectCallOwnership.NotOwned
+        endLabel := plan.DefineLabel()
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), endLabel)
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+        if !TryAppendCoalesceFallback(nodes, source, fallback, bindings, handles, plan, fragment, depth, leftType, out nestedOwnership) {
+            return false
+        }
+
+        plan.AppendMarkLabel(endLabel)
+        return true
+    }
+
+    // `Nullable<T>` LEFT: park, ask `HasValue`, unwrap on the present path. The result is `T`.
+    static func TryPlanNullableCoalesce(nodes: ColumnarNodeTable, source: string, fallback: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, leftType: Type, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+        elementType := leftType.GetGenericArguments()[0]
+        resultType = elementType
+        nestedOwnership = ColumnarDirectCallOwnership.NotOwned
+
+        let hasValueGetter: System.Reflection.MethodInfo? = null
+        let getValueOrDefault: System.Reflection.MethodInfo? = null
+        if !TryResolveNullableMembers(leftType, out hasValueGetter, out getValueOrDefault) {
+            return false
+        }
+
+        nullableLocal := plan.DeclarePlanLocal(plan.AddType(leftType))
+        hasValuePool := plan.AddMethod(hasValueGetter)
+        unwrapPool := plan.AddMethod(getValueOrDefault)
+        elseLabel := plan.DefineLabel()
+        endLabel := plan.DefineLabel()
+
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), nullableLocal)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), nullableLocal)
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), hasValuePool)
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), elseLabel)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), nullableLocal)
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), unwrapPool)
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), endLabel)
+        plan.AppendMarkLabel(elseLabel)
+        if !TryAppendCoalesceFallback(nodes, source, fallback, bindings, handles, plan, fragment, depth, elementType, out nestedOwnership) {
+            return false
+        }
+
+        plan.AppendMarkLabel(endLabel)
+        return true
+    }
+
+    // GENERIC-PARAMETER LEFT: the box is a TEST, never the result.
+    static func TryPlanTypeParameterCoalesce(nodes: ColumnarNodeTable, source: string, fallback: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, leftType: Type, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+        resultType = leftType
+        nestedOwnership = ColumnarDirectCallOwnership.NotOwned
+        typePool := plan.AddType(leftType)
+        parkedLocal := plan.DeclarePlanLocal(typePool)
+        leftLabel := plan.DefineLabel()
+        endLabel := plan.DefineLabel()
+
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), parkedLocal)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), parkedLocal)
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Box(), typePool)
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), leftLabel)
+        if !TryAppendCoalesceFallback(nodes, source, fallback, bindings, handles, plan, fragment, depth, leftType, out nestedOwnership) {
+            return false
+        }
+
+        if !ColumnarThrowExpressionPlanner.IsThrowExpression(nodes, fallback) {
+            plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), endLabel)
+        }
+        plan.AppendMarkLabel(leftLabel)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), parkedLocal)
+        plan.AppendMarkLabel(endLabel)
+        return true
+    }
+
+    // The FALLBACK operand of a `??`, at the storage type the merge demands: a `throw` raises and
+    // joins nothing, a `null` literal is the one shape the nested value owner does not claim (it
+    // has no type of its own — here the position gives it the left's), and everything else is the
+    // ordinary value plus the ONE argument-conversion owner's conversion to the merge type.
+    static func TryAppendCoalesceFallback(nodes: ColumnarNodeTable, source: string, fallback: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, mergeType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+        nestedOwnership = ColumnarDirectCallOwnership.NotOwned
+        if ColumnarThrowExpressionPlanner.IsThrowExpression(nodes, fallback) {
+            return ColumnarThrowExpressionPlanner.TryAppendThrow(nodes, source, fallback, bindings, handles, plan, fragment, depth)
+        }
+        if nodes.Kind(fallback) == ColumnarExpressionNodeKind.NullLiteralExpression() {
+            if mergeType.get_IsValueType() || mergeType.get_IsGenericParameter() {
+                return false
+            }
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
+            return true
+        }
+
+        fallbackType := typeof(int)
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, fallback, bindings, handles, plan, fragment, depth + 1, out fallbackType, out nestedOwnership) || fallbackType == null {
+            return false
+        }
+        if fallbackType == mergeType {
+            return true
+        }
+        return ColumnarDirectCallPlanner.AppendArgumentConversion(plan, fallbackType, mergeType, bindings.SourceTypeDefinitions)
+    }
+
+    // `Nullable<T>.get_HasValue` and `Nullable<T>.GetValueOrDefault()` closed over this instantiation,
+    // through the ONE closed-generic member resolver the emitter also uses — so an element type that
+    // is itself an emitted source struct resolves the same way here as it does there.
+    static func TryResolveNullableMembers(nullableType: Type, out hasValueGetter: System.Reflection.MethodInfo?, out getValueOrDefault: System.Reflection.MethodInfo?): bool {
+        hasValueGetter = null
+        getValueOrDefault = null
+        openNullable := nullableType.GetGenericTypeDefinition()
+        hasValueProperty := openNullable.GetProperty("HasValue", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+        if hasValueProperty == null {
+            return false
+        }
+        openGetter := hasValueProperty.GetGetMethod()
+        openUnwrap := openNullable.GetMethod("GetValueOrDefault", Type.EmptyTypes)
+        if openGetter == null || openUnwrap == null {
+            return false
+        }
+
+        hasValueGetter = ColumnarClosedGenericMemberResolver.ResolveMethod(nullableType, openGetter)
+        getValueOrDefault = ColumnarClosedGenericMemberResolver.ResolveMethod(nullableType, openUnwrap)
+        return hasValueGetter != null && getValueOrDefault != null
     }
 
     // Short-circuit `a && b` / `a || b` (kind-12 binary). Appends into the already-open fragment,

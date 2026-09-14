@@ -325,3 +325,87 @@ test "the two kind-12 owners partition the operator texts by length" {
     resultType := typeof(int)
     assert !ColumnarPrimitiveBinaryPlanner.TryAppendRoot(andAnd.Nodes, andAnd.Source, andAnd.Root, ColumnarRangePlannerEmptyBindings(), handles, plan, out resultType)
 }
+
+// ---- `??` and the throw expression on the plan side (census ITER3) ----
+
+// Builds `<left> ?? <right>` over string-literal leaves. The `??` token sits in the value span
+// exactly where the parser records a binary operator.
+func ConditionalCoalesceLiteralTree(leftText: string, rightText: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), leftText)
+    operatorStart := builder.AddToken("??")
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), rightText)
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, right))
+    return builder.Build(binary)
+}
+
+// Builds `<left> ?? throw <string>` — the throw arm's operand is a leaf, which is all the gate below
+// needs: the operand's own planning is the nested value owner's business.
+func ConditionalCoalesceThrowTree(leftText: string): ColumnarRangePlannerTestTree {
+    builder := new ColumnarRangePlannerNodeBuilder()
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), leftText)
+    operatorStart := builder.AddToken("??")
+    operand := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), "\"boom\"")
+    throwNode := builder.AddNode(ColumnarExpressionNodeKind.ThrowExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(operand))
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, throwNode))
+    return builder.Build(binary)
+}
+
+// `??` IS THE CONDITIONAL OWNER'S THIRD SHAPE, AND ITS GATE IS THE SAME LENGTH FACT `&&` RESTS ON:
+// a `??` is a kind-12 binary exactly as `?` never is and `&` is, so only the operator text separates
+// it from the primitive-binary owner's claim.
+test "the null-coalesce gate claims ?? and nothing else on kind 12" {
+    coalesce := ConditionalCoalesceLiteralTree("\"a\"", "\"b\"")
+    assert ColumnarConditionalPlanner.IsNullCoalesceBinary(coalesce.Nodes, coalesce.Source, coalesce.Root)
+    assert !ColumnarConditionalPlanner.IsShortCircuitBinary(coalesce.Nodes, coalesce.Source, coalesce.Root)
+    assert !ColumnarPrimitiveBinaryPlanner.MayPlanRoot(coalesce.Nodes, coalesce.Source, coalesce.Root)
+
+    andAnd := ConditionalShortCircuitLiteralTree("&&", "true", "false")
+    assert !ColumnarConditionalPlanner.IsNullCoalesceBinary(andAnd.Nodes, andAnd.Source, andAnd.Root)
+
+    ternary := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+    assert !ColumnarConditionalPlanner.IsNullCoalesceBinary(ternary.Nodes, ternary.Source, ternary.Root)
+}
+
+// ⚠ THE V3 ROOT GATE DELIBERATELY DOES NOT CLAIM `??`. `MayPlanRoot` is what the EMITTER's cascade
+// asks, and the emitter's own `op == "??"` arm still serves a `??` root in a body the plan-IR door
+// declines. Widening `MayPlanRoot` would move that root onto a schema-v3 fragment, where `throw` is
+// not an admissible opcode at all — so the claim stays on the METHOD-BODY door, which reaches
+// `TryAppendRoot` directly.
+test "the v3 root gate leaves a null-coalesce root to the emitter" {
+    coalesce := ConditionalCoalesceLiteralTree("\"a\"", "\"b\"")
+    assert !ColumnarConditionalPlanner.MayPlanRoot(coalesce.Nodes, coalesce.Source, coalesce.Root)
+}
+
+// A `throw` IS A METHOD-BODY (schema v4) SHAPE, and the gate says so before any row is appended: the
+// `throw` opcode is only admissible in a method body, so a v3 expression fragment declines the whole
+// candidate rather than appending a row it cannot execute.
+test "a throw expression declines in a schema-v3 expression fragment" {
+    tree := ConditionalCoalesceThrowTree("\"a\"")
+    throwNode := tree.Nodes.Child(tree.Root, 1)
+    assert ColumnarThrowExpressionPlanner.IsThrowExpression(tree.Nodes, throwNode)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    assert !ColumnarThrowExpressionPlanner.TryAppendThrow(tree.Nodes, tree.Source, throwNode, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), plan, -1, 0)
+    ColumnarRangePlannerAssertEmptyRollback(plan)
+}
+
+// The predicate is a SHAPE test, not a kind test: a kind-83 node with the wrong child count is not a
+// throw expression this owner will plan.
+test "the throw expression predicate demands exactly one operand" {
+    tree := ConditionalCoalesceThrowTree("\"a\"")
+    assert !ColumnarThrowExpressionPlanner.IsThrowExpression(tree.Nodes, tree.Root)
+    assert !ColumnarThrowExpressionPlanner.IsThrowExpression(tree.Nodes, -1)
+}
+
+// A THROW OPERAND THAT IS NOT AN EXCEPTION IS REFUSED. The runtime raises a reference, and a string
+// literal is a reference that is not one — so the owner declines and the plan rolls back empty.
+test "a throw expression declines an operand that is not an exception" {
+    tree := ConditionalCoalesceThrowTree("\"a\"")
+    throwNode := tree.Nodes.Child(tree.Root, 1)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareMethodBody()
+    assert !ColumnarThrowExpressionPlanner.TryAppendThrow(tree.Nodes, tree.Source, throwNode, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), plan, -1, 0)
+}

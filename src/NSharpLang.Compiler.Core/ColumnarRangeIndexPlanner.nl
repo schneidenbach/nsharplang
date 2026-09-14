@@ -471,6 +471,11 @@ class ColumnarRangeIndexPlanner {
             // construction-argument surface that admits them.
             if ColumnarConditionalPlanner.IsShortCircuitBinary(nodes, source, node) {
                 planned = ColumnarConditionalPlanner.TryPlanShortCircuit(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
+            } else if ColumnarConditionalPlanner.IsNullCoalesceBinary(nodes, source, node) {
+                // `??` IS A BRANCH-MERGE, NOT AN ARITHMETIC BINARY, so it takes the conditional
+                // owner's route in every value position exactly as `&&`/`||` do — and for the same
+                // reason: its right operand is evaluated only on one of the two paths.
+                planned = ColumnarConditionalPlanner.TryPlanNullCoalesce(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
             } else if allowPrimitiveBinary {
                 planned = ColumnarPrimitiveBinaryPlanner.TryAppend(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
             }

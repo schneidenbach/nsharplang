@@ -828,7 +828,7 @@ class ColumnarMethodBodyPlanner {
         // binary owner, whose `IsAdmittedSyntax` then refused them — a decline that was correct but
         // final. The door now asks the same question the emitter's cascade asks, in the same order.
         if kind == ColumnarExpressionNodeKind.BinaryExpression() {
-            if ColumnarConditionalPlanner.IsShortCircuitBinary(nodes, source, node) {
+            if ColumnarConditionalPlanner.IsShortCircuitBinary(nodes, source, node) || ColumnarConditionalPlanner.IsNullCoalesceBinary(nodes, source, node) {
                 return ColumnarConditionalPlanner.TryAppendRoot(nodes, source, node, bindings, ColumnarRangeIndexHandles.Resolve(), plan, out resultType)
             }
             return ColumnarPrimitiveBinaryPlanner.TryAppendRoot(nodes, source, node, bindings, ColumnarRangeIndexHandles.Resolve(), plan, out resultType)
