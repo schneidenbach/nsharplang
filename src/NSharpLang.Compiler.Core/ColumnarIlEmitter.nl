@@ -11828,6 +11828,20 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = typeof(bool)
                     return true
                 }
+                // AN OPEN TYPE PARAMETER compares through `EqualityComparer<T>.Default`, the one
+                // comparison the CLR has for a value whose size and kind are not known until the
+                // instantiation is chosen. `!=` is that answer negated below.
+                if (opType.get_IsGenericParameter()) {
+                    if (!EmitOpenTypeParameterEquality(opType)) {
+                        return false
+                    }
+                    if (op == "!=") {
+                        _il.Emit(OpCodes.Ldc_I4_0)
+                        _il.Emit(OpCodes.Ceq)
+                    }
+                    columnarResolvedType = typeof(bool)
+                    return true
+                }
                 // REFERENCE identity on registered user reference types (records AND classes): `==`/`!=`
                 // on user reference values is reference equality (record VALUE equality is in `.Equals`).
                 if (typeof(TypeBuilder).IsInstanceOfType(opType)) {
@@ -18285,6 +18299,9 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ceq)
             return true
         }
+        if (leftElement.get_IsGenericParameter() && TypesEquivalent(leftElement, rightElement)) {
+            return EmitOpenTypeParameterEquality(leftElement)
+        }
         equality := ResolveLiftedEqualityOperator(leftElement, rightElement)
         if (equality == null) {
             return false
@@ -18324,12 +18341,53 @@ sealed class ColumnarIlEmitter {
         return ResolveLiftedEqualityOperator(element, otherElement) != null
     }
 
-    // An operand this lowering can carry: a `ceq` element, or a `Nullable<T>` over one.
+    // An operand this lowering can carry: a `ceq` element, an OPEN TYPE PARAMETER, or a `Nullable<T>`
+    // over either. `T?` over a `struct`-constrained parameter is a real `Nullable<T>`, so its presence
+    // half is the same pair of `HasValue` reads every closed lift performs and only its VALUE half
+    // needs the open comparison below.
     private static func IsLiftedEqualityOperandType(operandType: Type): bool {
         if (ColumnarTypeOfPlanner.IsSupportedNullable(operandType)) {
-            return IsLiftedEqualityElement(operandType.GetGenericArguments()[0])
+            element := operandType.GetGenericArguments()[0]
+            return IsLiftedEqualityElement(element) || element.get_IsGenericParameter()
         }
-        return IsLiftedEqualityElement(operandType)
+        return IsLiftedEqualityElement(operandType) || operandType.get_IsGenericParameter()
+    }
+
+    // `a == b` ON AN OPEN TYPE PARAMETER, WHICH IS THE ONE COMPARISON THE CLR HAS FOR IT.
+    //
+    // `ceq` cannot serve: the instruction compares two stack slots, and `!!T` is a value of unknown
+    // size for a value instantiation and a reference for a class one. `EqualityComparer<T>.Default`
+    // is the CLR's own answer to exactly that question — it dispatches to `IEquatable<T>.Equals` when
+    // the instantiation implements it and to `Object.Equals` otherwise, with no boxing for a value
+    // type that does — and it is what a C# author writes by hand at this site, because C# refuses
+    // `==` here outright.
+    //
+    // THE TWO VALUES ARE ALREADY ON THE STACK when this is reached, and the comparer is an INSTANCE
+    // receiver that has to precede them, so they are parked in locals and re-loaded in the SAME
+    // order. Nothing is re-evaluated: the operands were emitted by the caller and the locals only
+    // move the values, so argument evaluation order is the source's.
+    private func EmitOpenTypeParameterEquality(element: Type): bool {
+        comparerDefinition := typeof(EqualityComparer<int>).GetGenericTypeDefinition()
+        defaultProperty := comparerDefinition.GetProperty("Default", BindingFlags.Public | BindingFlags.Static)
+        if (defaultProperty == null) {
+            return false
+        }
+        openDefaultGetter := defaultProperty.GetGetMethod()
+        openElement := comparerDefinition.GetGenericArguments()[0]
+        openEquals := comparerDefinition.GetMethod("Equals", [openElement, openElement])
+        if (openDefaultGetter == null || openEquals == null) {
+            return false
+        }
+        comparerType := comparerDefinition.MakeGenericType([element])
+        rightLocal := _il.DeclareLocal(element)
+        _il.Emit(OpCodes.Stloc, rightLocal)
+        leftLocal := _il.DeclareLocal(element)
+        _il.Emit(OpCodes.Stloc, leftLocal)
+        _il.Emit(OpCodes.Call, ResolveClosedGenericMethod(comparerType, openDefaultGetter))
+        _il.Emit(OpCodes.Ldloc, leftLocal)
+        _il.Emit(OpCodes.Ldloc, rightLocal)
+        _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(comparerType, openEquals))
+        return true
     }
 
     // The elements `ceq` compares directly: the integral family, `char`, `bool`, the two floating
