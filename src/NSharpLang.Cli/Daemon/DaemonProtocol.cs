@@ -13,7 +13,7 @@ namespace NSharpLang.Cli.Daemon;
 public class DaemonRequest
 {
     [JsonPropertyName("jsonrpc")]
-    public string JsonRpc { get; set; } = "2.0";
+    public string JsonRpc { get; set; } = DaemonProtocolKernels.GetJsonRpcVersion();
 
     [JsonPropertyName("id")]
     public int Id { get; set; }
@@ -31,7 +31,7 @@ public class DaemonRequest
 public class DaemonResponse
 {
     [JsonPropertyName("jsonrpc")]
-    public string JsonRpc { get; set; } = "2.0";
+    public string JsonRpc { get; set; } = DaemonProtocolKernels.GetJsonRpcVersion();
 
     [JsonPropertyName("id")]
     public int Id { get; set; }
@@ -57,72 +57,44 @@ public class DaemonError
 }
 
 /// <summary>
-/// Status info returned by daemon/status.
-/// </summary>
-public class DaemonStatus
-{
-    [JsonPropertyName("pid")]
-    public int Pid { get; set; }
-
-    [JsonPropertyName("uptime")]
-    public string Uptime { get; set; } = "";
-
-    [JsonPropertyName("projectRoot")]
-    public string ProjectRoot { get; set; } = "";
-
-    [JsonPropertyName("cachedFiles")]
-    public int CachedFiles { get; set; }
-
-    [JsonPropertyName("idleTimeout")]
-    public string IdleTimeout { get; set; } = "30m";
-}
-
-/// <summary>
-/// Constants for daemon communication.
+/// The three envelope DTOs above carry only JSON-RPC 2.0's own member names — jsonrpc, id, method,
+/// params, result, error, code, message, data — which the specification fixes and N# does not choose.
+/// A C# attribute argument must be a compile-time constant, so a [JsonPropertyName] cannot be defined
+/// from an N# owner in any case; the daemon/status payload, whose five member names ARE this
+/// product's own vocabulary, is therefore composed by DaemonProtocolKernels.StatusResultJson and has
+/// no DTO here at all. Constants are owned by DaemonProtocolKernels.nl.
 /// </summary>
 public static class DaemonConstants
 {
-    public const string SocketDir = ".nlc";
-    public const string SocketName = "daemon.sock";
-    public const int IdleTimeoutMinutes = 30;
-    public const int ConnectionTimeoutMs = 5000;
-    public const int PingTimeoutMs = 2000;
+    public static string SocketDir => DaemonProtocolKernels.GetSocketDir();
+    public static string SocketName => DaemonProtocolKernels.GetSocketName();
+    public static int IdleTimeoutMinutes => DaemonProtocolKernels.GetIdleTimeoutMinutes();
+    public static int ConnectionTimeoutMs => DaemonProtocolKernels.GetConnectionTimeoutMilliseconds();
+    public static int PingTimeoutMs => DaemonProtocolKernels.GetPingTimeoutMilliseconds();
 
-    public const int ErrorParse = -32700;
-    public const int ErrorInvalidRequest = -32600;
-    public const int ErrorMethodNotFound = -32601;
-    public const int ErrorInvalidParams = -32602;
-    public const int ErrorInternal = -32603;
+    public static int ErrorParse => DaemonProtocolKernels.GetParseErrorCode();
+    public static int ErrorInvalidRequest => DaemonProtocolKernels.GetInvalidRequestErrorCode();
+    public static int ErrorMethodNotFound => DaemonProtocolKernels.GetMethodNotFoundErrorCode();
+    public static int ErrorInvalidParams => DaemonProtocolKernels.GetInvalidParamsErrorCode();
+    public static int ErrorInternal => DaemonProtocolKernels.GetInternalErrorCode();
 
     public static string GetSocketPath(string projectRoot)
     {
-        var canonicalRoot = Path.GetFullPath(projectRoot);
-        var dir = Path.Combine(canonicalRoot, SocketDir);
-        var projectLocalPath = Path.Combine(dir, SocketName);
-
-        if (Encoding.UTF8.GetByteCount(projectLocalPath) <= 100)
-        {
-            Directory.CreateDirectory(dir);
-            return projectLocalPath;
-        }
-
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonicalRoot))).ToLowerInvariant()[..16];
-        var runtimeDir = Path.Combine(Path.GetTempPath(), "nlc-daemon", hash);
-        Directory.CreateDirectory(runtimeDir);
-        return Path.Combine(runtimeDir, SocketName);
+        var canonicalRoot = DaemonProtocolKernels.GetCanonicalProjectRoot(projectRoot);
+        var hashPrefix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonicalRoot))).ToLowerInvariant()[..16];
+        return DaemonProtocolKernels.GetSocketPathForProject(canonicalRoot, Path.GetTempPath(), hashPrefix);
     }
 
-    // JSON-RPC method names
-    public const string MethodPing = "daemon/ping";
-    public const string MethodShutdown = "daemon/shutdown";
-    public const string MethodStatus = "daemon/status";
-    public const string MethodSymbols = "query/symbols";
-    public const string MethodBatch = "query/batch";
-    public const string MethodOutline = "query/outline";
-    public const string MethodDiagnostics = "query/diagnostics";
-    public const string MethodType = "query/type";
-    public const string MethodDefinition = "query/definition";
-    public const string MethodReferences = "query/references";
-    public const string MethodCompletions = "query/completions";
-    public const string MethodInspect = "query/inspect";
+    public static string MethodPing => DaemonProtocolKernels.GetPingMethod();
+    public static string MethodShutdown => DaemonProtocolKernels.GetShutdownMethod();
+    public static string MethodStatus => DaemonProtocolKernels.GetStatusMethod();
+    public static string MethodSymbols => DaemonProtocolKernels.GetSymbolsMethod();
+    public static string MethodBatch => DaemonProtocolKernels.GetBatchMethod();
+    public static string MethodOutline => DaemonProtocolKernels.GetOutlineMethod();
+    public static string MethodDiagnostics => DaemonProtocolKernels.GetDiagnosticsMethod();
+    public static string MethodType => DaemonProtocolKernels.GetTypeMethod();
+    public static string MethodDefinition => DaemonProtocolKernels.GetDefinitionMethod();
+    public static string MethodReferences => DaemonProtocolKernels.GetReferencesMethod();
+    public static string MethodCompletions => DaemonProtocolKernels.GetCompletionsMethod();
+    public static string MethodInspect => DaemonProtocolKernels.GetInspectMethod();
 }

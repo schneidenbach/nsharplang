@@ -1,0 +1,469 @@
+namespace NSharpLang.Compiler.Ast
+
+import System.Collections.Generic
+
+
+// Base class for declarations
+class Declaration: AstNode {
+    constructor(Line: int, Column: int): base(Line, Column) {
+    }
+}
+
+// Compilation unit (file)
+class CompilationUnit: AstNode {
+    Namespace: NamespaceDeclaration?
+    Imports: List<ImportDirective>
+    FileImports: List<Statement>
+    Package: PackageDeclaration?
+    Declarations: List<Declaration>
+
+    // WHAT THIS FILE'S IMPORTS ACTUALLY SUPPLIED, written here by the analyzer when the file is
+    // analysed and read by the linter's two import rules.
+    //
+    // It is stamped on the unit rather than returned beside it because the two owners that need to
+    // agree — the analyzer that resolves the names and the linter that judges the imports — are
+    // handed the SAME unit and nothing else in common. A parse-only caller leaves it null, which is
+    // the honest answer NL010 needs: an import's use is a binding fact, and a file that was never
+    // bound has none.
+    ImportUsage: ImportUsageFacts?
+
+    constructor(Namespace: NamespaceDeclaration?, Imports: List<ImportDirective>, FileImports: List<Statement>, Package: PackageDeclaration?, Declarations: List<Declaration>, Line: int, Column: int): base(Line, Column) {
+        this.Namespace = Namespace
+        this.Imports = Imports
+        this.FileImports = FileImports
+        this.Package = Package
+        this.Declarations = Declarations
+        this.ImportUsage = null
+    }
+}
+
+// Function declaration
+class FunctionDeclaration: Declaration {
+    Name: string
+    Parameters: List<Parameter>
+    ReturnType: TypeReference?
+    Body: BlockStatement?
+    ExpressionBody: Expression?
+    TypeParameters: List<TypeParameter>?
+    Constraints: List<GenericConstraint>?
+    Modifiers: Modifiers
+    Attributes: List<AttributeNode>
+    IsOperatorOverload: bool
+    OperatorSymbol: string?
+    IsConversionOperator: bool
+    IsImplicitConversion: bool
+    OperatorKeywordSpan: SourceSpan
+    OperatorSymbolSpan: SourceSpan
+    ReturnLifetime: string?
+
+    constructor(Name: string, Parameters: List<Parameter>, ReturnType: TypeReference?, Body: BlockStatement?, ExpressionBody: Expression?, TypeParameters: List<TypeParameter>?, Constraints: List<GenericConstraint>?, Modifiers: Modifiers, Attributes: List<AttributeNode>, IsOperatorOverload: bool, OperatorSymbol: string?, IsConversionOperator: bool, IsImplicitConversion: bool, Line: int, Column: int): base(Line, Column) {
+        this.Name = Name
+        this.Parameters = Parameters
+        this.ReturnType = ReturnType
+        this.Body = Body
+        this.ExpressionBody = ExpressionBody
+        this.TypeParameters = TypeParameters
+        this.Constraints = Constraints
+        this.Modifiers = Modifiers
+        this.Attributes = Attributes
+        this.IsOperatorOverload = IsOperatorOverload
+        this.OperatorSymbol = OperatorSymbol
+        this.IsConversionOperator = IsConversionOperator
+        this.IsImplicitConversion = IsImplicitConversion
+    }
+}
+
+class Parameter {
+    Name: string
+    Type: TypeReference
+    DefaultValue: Expression?
+    IsThis: bool
+    Modifier: ParameterModifier
+    Attributes: List<AttributeNode>?
+    Line: int
+    Column: int
+    IsScoped: bool
+    Lifetime: string?
+
+    constructor(Name: string, Type: TypeReference, DefaultValue: Expression?, IsThis: bool, Modifier: ParameterModifier = ParameterModifier.None, Attributes: List<AttributeNode>? = null, Line: int = 0, Column: int = 0, IsScoped: bool = false, Lifetime: string? = null) {
+        this.Name = Name
+        this.Type = Type
+        this.DefaultValue = DefaultValue
+        this.IsThis = IsThis
+        this.Modifier = Modifier
+        this.Attributes = Attributes
+        this.Line = Line
+        this.Column = Column
+        this.IsScoped = IsScoped
+        this.Lifetime = Lifetime
+    }
+}
+
+// Class declaration
+class ClassDeclaration: Declaration {
+    Name: string
+    TypeParameters: List<TypeParameter>?
+    BaseClass: TypeReference?
+    Interfaces: List<TypeReference>
+    Members: List<Declaration>
+    PrimaryConstructorParameters: List<Parameter>?
+    Modifiers: Modifiers
+    Attributes: List<AttributeNode>
+    Constraints: List<GenericConstraint>?
+
+    constructor(Name: string, TypeParameters: List<TypeParameter>?, BaseClass: TypeReference?, Interfaces: List<TypeReference>, Members: List<Declaration>, PrimaryConstructorParameters: List<Parameter>?, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int, Constraints: List<GenericConstraint>? = null): base(Line, Column) {
+        this.Name = Name
+        this.TypeParameters = TypeParameters
+        this.BaseClass = BaseClass
+        this.Interfaces = Interfaces
+        this.Members = Members
+        this.PrimaryConstructorParameters = PrimaryConstructorParameters
+        this.Modifiers = Modifiers
+        this.Attributes = Attributes
+        this.Constraints = Constraints
+    }
+}
+
+// Struct declaration
+class StructDeclaration: Declaration {
+    Name: string
+    TypeParameters: List<TypeParameter>?
+    Interfaces: List<TypeReference>
+    Members: List<Declaration>
+    PrimaryConstructorParameters: List<Parameter>?
+    Modifiers: Modifiers
+    Attributes: List<AttributeNode>
+    IsRefStruct: bool
+    Constraints: List<GenericConstraint>?
+
+    constructor(Name: string, TypeParameters: List<TypeParameter>?, Interfaces: List<TypeReference>, Members: List<Declaration>, PrimaryConstructorParameters: List<Parameter>?, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int, IsRefStruct: bool = false, Constraints: List<GenericConstraint>? = null): base(Line, Column) {
+        this.Name = Name
+        this.TypeParameters = TypeParameters
+        this.Interfaces = Interfaces
+        this.Members = Members
+        this.PrimaryConstructorParameters = PrimaryConstructorParameters
+        this.Modifiers = Modifiers
+        this.Attributes = Attributes
+        this.IsRefStruct = IsRefStruct
+        this.Constraints = Constraints
+    }
+}
+
+// Record declaration (can be record class or record struct - C# 10)
+class RecordDeclaration: Declaration {
+    Name: string
+    TypeParameters: List<TypeParameter>?
+    Interfaces: List<TypeReference>
+    Members: List<Declaration>
+    PrimaryConstructorParameters: List<Parameter>?
+    IsStruct: bool
+    Modifiers: Modifiers
+    Attributes: List<AttributeNode>
+    Constraints: List<GenericConstraint>?
+
+    constructor(Name: string, TypeParameters: List<TypeParameter>?, Interfaces: List<TypeReference>, Members: List<Declaration>, PrimaryConstructorParameters: List<Parameter>?, IsStruct: bool, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int, Constraints: List<GenericConstraint>? = null): base(Line, Column) {
+        this.Name = Name
+        this.TypeParameters = TypeParameters
+        this.Interfaces = Interfaces
+        this.Members = Members
+        this.PrimaryConstructorParameters = PrimaryConstructorParameters
+        this.IsStruct = IsStruct
+        this.Modifiers = Modifiers
+        this.Attributes = Attributes
+        this.Constraints = Constraints
+    }
+}
+
+// Struct-of-arrays record declaration.
+class SoaRecordDeclaration: Declaration {
+    Name: string
+    Columns: List<SoaColumnDeclaration>
+    Modifiers: Modifiers
+    Attributes: List<AttributeNode>
+
+    constructor(Name: string, Columns: List<SoaColumnDeclaration>, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int): base(Line, Column) {
+        this.Name = Name
+        this.Columns = Columns
+        this.Modifiers = Modifiers
+        this.Attributes = Attributes
+    }
+}
+
+// Interface declaration
+class InterfaceDeclaration: Declaration {
+    Name: string
+    TypeParameters: List<TypeParameter>?
+    BaseInterfaces: List<TypeReference>
+    Members: List<Declaration>
+    Modifiers: Modifiers
+    IsDuckInterface: bool
+    Attributes: List<AttributeNode>
+    Constraints: List<GenericConstraint>?
+
+    constructor(Name: string, TypeParameters: List<TypeParameter>?, BaseInterfaces: List<TypeReference>, Members: List<Declaration>, Modifiers: Modifiers, IsDuckInterface: bool, Attributes: List<AttributeNode>, Line: int, Column: int, Constraints: List<GenericConstraint>? = null): base(Line, Column) {
+        this.Name = Name
+        this.TypeParameters = TypeParameters
+        this.BaseInterfaces = BaseInterfaces
+        this.Members = Members
+        this.Modifiers = Modifiers
+        this.IsDuckInterface = IsDuckInterface
+        this.Attributes = Attributes
+        this.Constraints = Constraints
+    }
+}
+
+// Union declaration
+class UnionDeclaration: Declaration {
+    Name: string
+    TypeParameters: List<TypeParameter>?
+    Cases: List<UnionCase>
+    Modifiers: Modifiers
+    Attributes: List<AttributeNode>
+    Constraints: List<GenericConstraint>?
+
+    constructor(Name: string, TypeParameters: List<TypeParameter>?, Cases: List<UnionCase>, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int, Constraints: List<GenericConstraint>? = null): base(Line, Column) {
+        this.Name = Name
+        this.TypeParameters = TypeParameters
+        this.Cases = Cases
+        this.Modifiers = Modifiers
+        this.Attributes = Attributes
+        this.Constraints = Constraints
+    }
+}
+
+// Enum declaration
+class EnumDeclaration: Declaration {
+    Name: string
+    Members: List<EnumMember>
+    Type: EnumType
+    Modifiers: Modifiers
+    Attributes: List<AttributeNode>
+
+    constructor(Name: string, Members: List<EnumMember>, Type: EnumType, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int): base(Line, Column) {
+        this.Name = Name
+        this.Members = Members
+        this.Type = Type
+        this.Modifiers = Modifiers
+        this.Attributes = Attributes
+    }
+}
+
+class EnumMember {
+    Name: string
+    Value: Expression?
+    Line: int
+    Column: int
+
+    constructor(Name: string, Value: Expression?, Line: int = 0, Column: int = 0) {
+        this.Name = Name
+        this.Value = Value
+        this.Line = Line
+        this.Column = Column
+    }
+}
+
+class FieldDeclaration: Declaration {
+    Name: string
+    Type: TypeReference?
+    Initializer: Expression?
+    Modifiers: Modifiers
+    PropertyModifier: PropertyModifier
+    Attributes: List<AttributeNode>
+
+    constructor(Name: string, Type: TypeReference?, Initializer: Expression?, Modifiers: Modifiers, PropertyModifier: PropertyModifier, Attributes: List<AttributeNode>, Line: int, Column: int): base(Line, Column) {
+        this.Name = Name
+        this.Type = Type
+        this.Initializer = Initializer
+        this.Modifiers = Modifiers
+        this.PropertyModifier = PropertyModifier
+        this.Attributes = Attributes
+    }
+}
+
+// Event declaration: `event Name: DelegateType`, C#'s FIELD-LIKE event.
+//
+// It is its own declaration rather than a field with a bit set, because outside the declaring type it
+// is not a field at all: the name may only be subscribed to with `on` and detached with `off`, and
+// reading or invoking it is an error that names the type that declared it. Inside the declaring type
+// the same name IS the backing delegate, which is the one place the two readings meet.
+//
+// `Type` is the delegate type as written; `Modifiers` carries `static` and any accessibility word,
+// and the accessors take that word while the synthesized backing field stays private.
+class EventDeclaration: Declaration {
+    Name: string
+    Type: TypeReference
+    Modifiers: Modifiers
+    Attributes: List<AttributeNode>
+
+    constructor(Name: string, Type: TypeReference, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int): base(Line, Column) {
+        this.Name = Name
+        this.Type = Type
+        this.Modifiers = Modifiers
+        this.Attributes = Attributes
+    }
+}
+
+// Property declaration with custom get/set
+class PropertyDeclaration: Declaration {
+    Name: string
+    Type: TypeReference
+    GetBody: BlockStatement?
+    SetBody: BlockStatement?
+    ExpressionBody: Expression?
+    Modifiers: Modifiers
+    PropertyModifier: PropertyModifier
+    Attributes: List<AttributeNode>
+
+    constructor(Name: string, Type: TypeReference, GetBody: BlockStatement?, SetBody: BlockStatement?, ExpressionBody: Expression?, Modifiers: Modifiers, PropertyModifier: PropertyModifier, Attributes: List<AttributeNode>, Line: int, Column: int): base(Line, Column) {
+        this.Name = Name
+        this.Type = Type
+        this.GetBody = GetBody
+        this.SetBody = SetBody
+        this.ExpressionBody = ExpressionBody
+        this.Modifiers = Modifiers
+        this.PropertyModifier = PropertyModifier
+        this.Attributes = Attributes
+    }
+}
+
+// Constructor declaration
+class ConstructorDeclaration: Declaration {
+    Parameters: List<Parameter>
+    Body: BlockStatement
+    Initializer: Expression?
+    Modifiers: Modifiers
+    Attributes: List<AttributeNode>
+
+    constructor(Parameters: List<Parameter>, Body: BlockStatement, Initializer: Expression?, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int): base(Line, Column) {
+        this.Parameters = Parameters
+        this.Body = Body
+        this.Initializer = Initializer
+        this.Modifiers = Modifiers
+        this.Attributes = Attributes
+    }
+}
+
+// Indexer declaration
+class IndexerDeclaration: Declaration {
+    Parameters: List<Parameter>
+    Type: TypeReference
+    GetBody: BlockStatement?
+    SetBody: BlockStatement?
+    Modifiers: Modifiers
+    Attributes: List<AttributeNode>
+
+    constructor(Parameters: List<Parameter>, Type: TypeReference, GetBody: BlockStatement?, SetBody: BlockStatement?, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int): base(Line, Column) {
+        this.Parameters = Parameters
+        this.Type = Type
+        this.GetBody = GetBody
+        this.SetBody = SetBody
+        this.Modifiers = Modifiers
+        this.Attributes = Attributes
+    }
+}
+
+// Type alias
+class TypeAliasDeclaration: Declaration {
+    Name: string
+    Type: TypeReference
+
+    constructor(Name: string, Type: TypeReference, Line: int, Column: int): base(Line, Column) {
+        this.Name = Name
+        this.Type = Type
+    }
+}
+
+// Newtype declaration (distinct wrapper type)
+class NewtypeDeclaration: Declaration {
+    Name: string
+    UnderlyingType: TypeReference
+
+    constructor(Name: string, UnderlyingType: TypeReference, Line: int, Column: int): base(Line, Column) {
+        this.Name = Name
+        this.UnderlyingType = UnderlyingType
+    }
+}
+
+// Preprocessor directive wrapper (for top-level preprocessor directives)
+class PreprocessorDeclaration: Declaration {
+    Directive: string
+
+    constructor(Directive: string, Line: int, Column: int): base(Line, Column) {
+        this.Directive = Directive
+    }
+}
+
+// Attributes
+// AN ATTRIBUTE, PLUS THE SOURCE TEXT IT WAS WRITTEN AS.
+//
+// `Name` and `Arguments` are what a POLICY READER wants — `SystemsAttributePolicy` and the `trusted`
+// census read them and nothing else. They are not enough to write the attribute back, for two
+// separate reasons, and both of them corrupted real files:
+//
+//   * an argument is stored as an EXPRESSION, so a policy token that merely looks like code comes
+//     back as code. `[aotSafe(mono-wasm)]` parses as a subtraction and re-rendered as
+//     `[aotSafe(mono - wasm)]`;
+//   * an attribute's LINE STRUCTURE is nowhere in the node, so a `[trusted(...)]` the author spread
+//     over five lines was re-joined onto one — and the `trusted` census then found no site at all.
+//
+// `SourceText` is the `[`-to-`]` span, carried whenever the parser could read it and null for a
+// hand-built tree. An attribute is an ANNOTATION, not code the formatter is entitled to
+// canonicalise, so the formatter writes this back verbatim and normalises only the indentation of
+// the line it starts on.
+class AttributeNode {
+    Name: string
+    Arguments: List<Argument>
+    Line: int
+    Column: int
+    SourceText: string?
+
+    constructor(Name: string, Arguments: List<Argument>, Line: int = 1, Column: int = 1, SourceText: string? = null) {
+        this.Name = Name
+        this.Arguments = Arguments
+        this.Line = Line
+        this.Column = Column
+        this.SourceText = SourceText
+    }
+}
+
+// Test declaration (for .tests.nl files)
+class TestDeclaration: Declaration {
+    Description: string
+    Body: BlockStatement
+    TableParameters: List<Parameter>?
+    TableCases: List<List<Expression>>?
+    SkipReason: string?
+
+    // A `test` BLOCK LOWERS TO A METHOD, so an attribute written above it is an attribute on that
+    // method — and it is carried in the same list shape every other declaration carries. An absent
+    // attribute list is an EMPTY list, never null, because every walker that reads it reads it the
+    // same way it reads a function's.
+    Attributes: List<AttributeNode>
+
+    constructor(Description: string, Body: BlockStatement, TableParameters: List<Parameter>?, TableCases: List<List<Expression>>?, SkipReason: string?, Line: int, Column: int, Attributes: List<AttributeNode>? = null): base(Line, Column) {
+        this.Description = Description
+        this.Body = Body
+        this.TableParameters = TableParameters
+        this.TableCases = TableCases
+        this.SkipReason = SkipReason
+        this.Attributes = Attributes ?? new List<AttributeNode>()
+    }
+}
+
+// Setup block declaration (for .tests.nl files) - shared setup for all tests in a file
+class SetupDeclaration: Declaration {
+    Body: BlockStatement
+
+    constructor(Body: BlockStatement, Line: int, Column: int): base(Line, Column) {
+        this.Body = Body
+    }
+}
+
+// Teardown block declaration (for .tests.nl files) - shared cleanup for all tests in a file
+class TeardownDeclaration: Declaration {
+    Body: BlockStatement
+
+    constructor(Body: BlockStatement, Line: int, Column: int): base(Line, Column) {
+        this.Body = Body
+    }
+}

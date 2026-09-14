@@ -1,7 +1,6 @@
 namespace TaskCli.Commands
 
 import System
-import TaskCli.Models
 import TaskCli.Services
 
 

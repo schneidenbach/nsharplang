@@ -89,28 +89,7 @@ public class ReferencesHandler : ReferencesHandlerBase
                     "Save or fix the project files and retry; refusing text-only references to avoid showing unrelated symbols.");
             }
 
-            var documentReferences = _documentManager.FindStrictDocumentReferences(
-                uri,
-                request.Position.Line,
-                request.Position.Character);
-            if (documentReferences == null || documentReferences.Count == 0)
-            {
                 return Task.FromResult<LocationContainer?>(new LocationContainer());
-            }
-
-            var documentLocations = documentReferences
-                .Select(r => new Location
-                {
-                    Uri = DocumentUri.From(uri),
-                    Range = new LspRange(
-                        r.Line - 1,
-                        r.Column - 1,
-                        r.Line - 1,
-                        r.Column - 1 + Math.Max(1, r.Length))
-                })
-                .ToList();
-
-            return Task.FromResult<LocationContainer?>(new LocationContainer(documentLocations));
         }
         catch (RequestFailedException)
         {

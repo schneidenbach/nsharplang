@@ -5,12 +5,13 @@ title: Pattern Matching
 
 # Pattern Matching in N#
 
-N# provides powerful pattern matching inspired by F# and modern C#, with compile-time exhaustiveness checking for discriminated unions.
+N# provides powerful pattern matching with compile-time exhaustiveness checking for discriminated unions.
 
 ## Table of Contents
 
 - [Match Expressions](#match-expressions)
 - [Pattern Types](#pattern-types)
+- [`is` Type Tests and Pattern Variables](#4a-is-type-tests-and-pattern-variables)
 - [Exhaustiveness Checking](#exhaustiveness-checking)
 - [Pattern Guards](#pattern-guards)
 - [Advanced Patterns](#advanced-patterns)
@@ -160,6 +161,72 @@ canProcess := match item {
 }
 ```
 
+### 4a. `is` Type Tests and Pattern Variables
+
+Outside a `match`, `is` asks the same type question as one arm of it: `value is Type` answers `true`
+when the value is of that type, and `false` for anything else — including `null`, which is of no type.
+The target can be a class, an interface, a struct, an array, an enum, one of your own generic types at
+a written instantiation, or a type parameter in scope:
+
+```n#
+func Describe(value: object?): string {
+    if value is int {
+        return "a number"
+    }
+
+    if value is string {
+        return "text"
+    }
+
+    return "something else"
+}
+```
+
+Add a name after the type and the test also **binds** the value at that type, for use wherever the
+test has proved true:
+
+```n#
+func Length(value: object?): int {
+    if value is string text {
+        return text.Length              // `text` is a string here
+    }
+
+    return 0
+}
+
+func Trimmed(value: object?): string =>
+    value is string text && text.Length > 2 ? text.Trim() : ""
+```
+
+The name is a real local from that point on, and the binding is written on the **same line** as the
+type — a name that opens the next line is the start of a new statement, not the pattern variable.
+A name that would shadow a parameter or an existing local is rejected.
+
+The binding works the same way over a type parameter, which is how a generic container reads a value
+back out at its own element type:
+
+```n#
+struct Slot<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    func Or(candidate: object?): T {
+        if candidate is T typed {
+            return typed                 // unboxed for Slot<int>, cast for Slot<string>
+        }
+
+        return Value
+    }
+}
+```
+
+`as` is the other half of the pair and is narrower: it converts and yields `null` on a mismatch, so it
+applies only where `null` is a value of the target type — a class, an interface or an array, never a
+plain struct.
+
 ### 5. Property Patterns
 
 Match based on object properties:
@@ -206,7 +273,7 @@ result := match (statusCode, hasBody) {
 
 ### 7. List Patterns
 
-Match arrays and collections (C# 11):
+Match arrays and collections:
 
 ```n#
 result := match numbers {
@@ -240,8 +307,8 @@ union Result<T> {
 }
 
 message := match result {
-    Result.Success<int> { value: v } => $"Success: {v}",
-    Result.Failure<int> { error: e, code: c } => $"Error {c}: {e}"
+    Result.Success { value: v } => $"Success: {v}",
+    Result.Failure { error: e, code: c } => $"Error {c}: {e}"
 }
 
 // Nested union matching
@@ -256,11 +323,11 @@ union Result<T> {
 }
 
 outcome := match result {
-    Result.Ok<Option<int>> { value: Option.Some<int> { value: x } } =>
+    Result.Ok { value: Option.Some { value: x } } =>
         $"Got value: {x}",
-    Result.Ok<Option<int>> { value: Option.None<int> { } } =>
+    Result.Ok { value: Option.None } =>
         "Got none",
-    Result.Error<Option<int>> { message: m } =>
+    Result.Error { message: m } =>
         $"Error: {m}"
 }
 ```
@@ -288,7 +355,27 @@ message := match status {
 message := match status {
     Status.Active { since: s } => $"Active since {s}",
     Status.Inactive { reason: r } => $"Inactive: {r}"
-    // Compiler error: Missing case for Status.Pending
+    // Compiler error: This match doesn't cover all cases — missing: Pending
+}
+```
+
+Property constraints make a union-case arm partial. For example, `Result.Success { value: 0 }` only covers successes whose value is `0`; the compiler reports the case as partially covered and suggests adding an unconstrained `Result.Success` arm or a wildcard `_` arm. Nested union-property patterns can prove coverage when all nested cases are covered:
+
+```n#
+union Option {
+    Some { value: int }
+    None
+}
+
+union Response {
+    Ok { data: Option }
+    Error { message: string }
+}
+
+value := match response {
+    Response.Ok { data: Option.Some { value: x } } => x,
+    Response.Ok { data: Option.None } => 0,
+    Response.Error { message: _ } => 0
 }
 ```
 
@@ -325,13 +412,13 @@ status := match person {
 
 // With union patterns
 message := match result {
-    Result.Success<int> { value: v } when v > 100 =>
+    Result.Success { value: v } when v > 100 =>
         $"Large success: {v}",
-    Result.Success<int> { value: v } =>
+    Result.Success { value: v } =>
         $"Success: {v}",
-    Result.Failure<int> { code: c } when c >= 500 =>
+    Result.Failure { code: c } when c >= 500 =>
         "Server error",
-    Result.Failure<int> { error: e } =>
+    Result.Failure { error: e } =>
         $"Client error: {e}"
 }
 ```
@@ -363,9 +450,9 @@ union Result<T> {
 }
 
 message := match response {
-    Response.Success { data: Result.Ok<User> { value: u } } =>
+    Response.Success { data: Result.Ok { value: u } } =>
         $"User: {u.Name}",
-    Response.Success { data: Result.Error<User> { message: m } } =>
+    Response.Success { data: Result.Error { message: m } } =>
         $"Data error: {m}",
     Response.Failure { error: e } =>
         $"Response error: {e}"
@@ -408,27 +495,30 @@ union HttpResult<T> {
 
 func handleResponse<T>(result: HttpResult<T>) {
     match result {
-        HttpResult.Ok<T> { body, statusCode: 200 } => {
+        HttpResult.Ok { body, statusCode: 200 } => {
             Console.WriteLine("Success!")
             processBody(body)
         },
-        HttpResult.Ok<T> { body, statusCode: code } => {
+        HttpResult.Ok { body, statusCode: code } => {
             Console.WriteLine($"Success with code {code}")
             processBody(body)
         },
-        HttpResult.Error<T> { message, statusCode: code } when code >= 500 => {
+        HttpResult.Error { message, statusCode: code } when code >= 500 => {
             Console.WriteLine($"Server error: {message}")
             logError(message)
         },
-        HttpResult.Error<T> { message, statusCode: code } => {
+        HttpResult.Error { message, statusCode: code } => {
             Console.WriteLine($"Client error ({code}): {message}")
         },
-        HttpResult.Redirect<T> { url, permanent: true } => {
+        HttpResult.Redirect { url, permanent: true } => {
             Console.WriteLine($"Permanent redirect to {url}")
             followRedirect(url)
         },
-        HttpResult.Redirect<T> { url, permanent: false } => {
+        HttpResult.Redirect { url, permanent: false } => {
             Console.WriteLine($"Temporary redirect to {url}")
+        },
+        HttpResult.Redirect { url, permanent } => {
+            Console.WriteLine($"Redirect to {url}")
         }
     }
 }
@@ -480,9 +570,9 @@ func divide(a: int, b: int): Option<int> {
 
 // Usage with pattern matching
 result := divide(10, 2)
-message := match result {
-    Option.Some<int> { value: v } => $"Result: {v}",
-    Option.None<int> { } => "Cannot divide by zero"
+description := match result {
+    Option.Some { value: v } => $"Result: {v}",
+    Option.None => "Cannot divide by zero"
 }
 ```
 
@@ -570,7 +660,7 @@ result := match status {
 ### Switch (Non-Exhaustive)
 
 ```n#
-// Traditional C# switch - can have missing cases
+// Traditional switch - can have missing cases
 switch (value) {
     case 0:
         Console.WriteLine("zero")
@@ -592,7 +682,7 @@ Use `match` for:
 Use `switch` for:
 - Traditional control flow
 - When you don't need all cases
-- Compatibility with C# patterns
+- Compatibility with existing pattern-heavy control flow
 
 ## Best Practices
 
@@ -624,8 +714,8 @@ if age < 13 {
 ```n#
 // Let the compiler help you
 message := match result {
-    Result.Success<int> { value: v } => $"Got {v}",
-    Result.Failure<int> { error: e } => $"Error: {e}"
+    Result.Success { value: v } => $"Got {v}",
+    Result.Failure { error: e } => $"Error: {e}"
     // Compiler ensures all cases covered
 }
 ```
@@ -662,10 +752,9 @@ city := if person != null and person.Address != null {
 
 - **[Types Guide](types.md)** - Learn about discriminated unions and other types
 - **[Functions Guide](functions.md)** - Combine pattern matching with functions
-- **[Examples](/examples)** - See pattern matching in real code
+- **[Examples](/examples/)** - See pattern matching in real code
 
 ## Resources
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
-- [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)
 - [Pattern Matching Examples](https://github.com/schneidenbach/nsharplang/tree/main/examples/04-pattern-matching)

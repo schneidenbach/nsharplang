@@ -1,5 +1,7 @@
 // Nested Property Patterns Example
 // Demonstrates deep object destructuring in match expressions
+namespace Examples.NestedPropertyPatternsSimple
+
 class Address {
     Street: string
     City: string

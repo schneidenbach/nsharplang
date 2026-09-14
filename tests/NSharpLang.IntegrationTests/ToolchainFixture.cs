@@ -39,6 +39,9 @@ public class ToolchainFixture : IAsyncLifetime
             "build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release --disable-build-servers -v q");
 
         // Pack all distributable NuGet packages used by generated projects
+        await PackProject(repoRoot, "src/NSharpLang.Runtime/NSharpLang.Runtime.csproj", packagesDir);
+        await RunDotnetAsync(repoRoot,
+            $"pack src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj -c Release -o \"{packagesDir}\" --disable-build-servers -p:DebugSymbols=false -p:DebugType=None -v q");
         await PackProject(repoRoot, "src/NSharpLang.Compiler/Compiler.csproj", packagesDir);
         await PackProject(repoRoot, "src/NSharpLang.Sdk/NSharpLang.Sdk.csproj", packagesDir);
         await PackProject(repoRoot, "templates/NSharpLang.Templates.csproj", packagesDir);
@@ -99,6 +102,9 @@ public class ToolchainFixture : IAsyncLifetime
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        // Reused MSBuild nodes inherit redirected pipes and prevent ReadToEndAsync
+        // from completing after the publishing shell exits.
+        psi.Environment["MSBUILDDISABLENODEREUSE"] = "1";
         psi.ArgumentList.Add("-lc");
         psi.ArgumentList.Add(command);
 

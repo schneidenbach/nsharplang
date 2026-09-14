@@ -1,6 +1,8 @@
 // Demonstrates records, with expressions, interfaces, and inheritance
 
 // Record type with value equality
+namespace Examples.RecordsAndInterfaces
+
 record Point {
     X: int
     Y: int
@@ -86,7 +88,7 @@ class Program {
         circle := new Circle(5.0)
         print $"Circle area: {circle.GetArea()}"
 
-        // Default interface implementation (must call through interface in C#)
+        // Default interface implementation
         shape := circle as IShape
         print shape.Describe()
 

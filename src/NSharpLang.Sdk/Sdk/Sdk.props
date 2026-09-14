@@ -6,6 +6,7 @@
 
     <!-- Enable by default -->
     <EnableNSharpCompilation Condition="'$(EnableNSharpCompilation)' == ''">true</EnableNSharpCompilation>
+    <EnableNSharpRuntimePackageReference Condition="'$(EnableNSharpRuntimePackageReference)' == ''">true</EnableNSharpRuntimePackageReference>
     <NSharpLangRuntimeVersion Condition="'$(NSharpLangRuntimeVersion)' == ''">0.1.0</NSharpLangRuntimeVersion>
   </PropertyGroup>
 
@@ -38,9 +39,9 @@
   <Import Project="Sdk.props" Sdk="$(_NSharpBaseSdk)" />
 
   <!-- Runtime-backed language features must restore without users editing the
-       intentionally minimal .csproj. Keeping this in props makes the package
-       visible to NuGet restore and transitive project references. -->
-  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
+       intentionally minimal .csproj. Compiler Core declares its own runtime
+       package through project.yml so the native CLI and MSBuild agree on the edge. -->
+  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(EnableNSharpRuntimePackageReference)' == 'true' And '$(MSBuildProjectName)' != 'NSharpLang.Compiler.Core'">
     <PackageReference Include="NSharpLang.Runtime" Version="$(NSharpLangRuntimeVersion)" />
   </ItemGroup>
 

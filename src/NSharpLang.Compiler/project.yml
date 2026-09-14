@@ -1,0 +1,20 @@
+name: Compiler
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+dependencies:
+  - project: ../NSharpLang.Compiler.Core/project.yml
+  - nuget: System.Reflection.MetadataLoadContext
+    version: 10.0.5
+  - nuget: YamlDotNet
+    version: 16.3.0
+
+package:
+  id: NSharpLang.Compiler
+  author: N# Team
+  description: N# compiler service facade
+  repository: https://github.com/schneidenbach/nsharplang
+  license: MIT
+  readme: ../../README.md

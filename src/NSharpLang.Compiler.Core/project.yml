@@ -1,0 +1,17 @@
+name: NSharpLang.Compiler.Core
+backend: il
+outputType: library
+targetFramework: net10.0
+dependencies:
+  - nuget: Microsoft.Build.Framework
+    version: 18.0.2
+  - nuget: Microsoft.Build.Utilities.Core
+    version: 18.0.2
+  - nuget: Mono.Cecil
+    version: 0.11.6
+  - nuget: YamlDotNet
+    version: 16.3.0
+  - nuget: System.Reflection.MetadataLoadContext
+    version: 10.0.5
+  - nuget: NSharpLang.Runtime
+    version: 0.1.0

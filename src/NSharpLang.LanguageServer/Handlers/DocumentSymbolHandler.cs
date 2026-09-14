@@ -92,6 +92,11 @@ public class DocumentSymbolHandler : DocumentSymbolHandlerBase
                 EstimateEndLine(r, sourceLines), sourceLines, "record",
                 ConvertMembers(r.Members, sourceLines)),
 
+            SoaRecordDeclaration soa => MakeSymbol(
+                soa.Name, LspSymbolKind.Class, soa.Line,
+                EstimateEndLine(soa, sourceLines), sourceLines, "soa",
+                ConvertSoaColumns(soa, sourceLines)),
+
             InterfaceDeclaration i => MakeSymbol(
                 i.Name, LspSymbolKind.Interface, i.Line,
                 EstimateEndLine(i, sourceLines), sourceLines, null,
@@ -192,6 +197,12 @@ public class DocumentSymbolHandler : DocumentSymbolHandlerBase
     {
         return e.Members.Select(m => MakeSymbol(
             m.Name, LspSymbolKind.EnumMember, m.Line, m.Line, sourceLines, null));
+    }
+
+    private static IEnumerable<DocumentSymbol> ConvertSoaColumns(SoaRecordDeclaration soa, string[]? sourceLines)
+    {
+        return soa.Columns.Select(c => MakeSymbol(
+            c.Name, LspSymbolKind.Field, c.Line, c.Line, sourceLines, FormatTypeRef(c.Type)));
     }
 
     private static int EstimateEndLine(Declaration decl, string[]? sourceLines)

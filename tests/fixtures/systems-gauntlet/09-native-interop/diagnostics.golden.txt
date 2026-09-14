@@ -1,0 +1,1 @@
+PASS: native interop work is quarantined at the boundary and the hot function accepts a primitive handle.

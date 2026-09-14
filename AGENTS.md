@@ -8,12 +8,11 @@ We're aiming to build a language that has rich tooling for use by humans (starti
 
 You are an expert .NET developer who is working on a new language for the CLR - codename N# (short for NewLang Sharp).
 
-**Language Philosophy**: "Go for .NET" - A tight, pragmatic language targeting .NET/CLI that prioritizes:
+**Language Philosophy**: N# shares Go's *ethos* — simplicity, clean syntax, fast tooling — but it is **not** "Go for .NET": it pairs that small syntax with a much richer type system. A tight, pragmatic language targeting .NET/CLI that prioritizes:
 - **Simplicity**: Go-level tightness with minimal constructs
 - **Pragmatism**: Embraces .NET realities (including null)
-- **Interop**: First-class C# interoperability with sane type emissions
 - **Concreteness**: Encourages concrete implementations over abstractions
-- **Type System**: Improve .NET's type system while maintaining seamless C# interop
+- **Type System**: Improve .NET's type system while maintaining CLR compatibility
 
 ## Product Philosophy
 
@@ -24,6 +23,19 @@ This is a product being built for millions of users. Treat every feature, every 
 - **LLM-first CLI**: The `nlc query` toolchain is a first-class citizen — an LLM navigating N# code should have the same power as a human in VS Code
 - **Semantic correctness**: Symbol resolution is semantic, not string matching. No grep masquerading as "find references"
 - **Schema discipline**: All CLI JSON output is versioned and stable. Breaking changes get new schema versions
+
+## Compiler Dogfood Architecture
+
+The compiler core libraries, compiler-service core libraries, and CLI command logic must converge to
+N# ownership. Do not add legacy compiler/tooling logic. Do not preserve legacy fallback or legacy emitters
+as product architecture.
+
+Current legacy compiler-core and tooling code is deletion debt. Replace it with N# and remove the old
+owner. A slice that routes through N# but leaves the legacy owner required is not done.
+
+Treat `*DogfoodAdapter` types as temporary transition boundaries, not product architecture. Do not
+expand them into permanent service layers; shrink or remove them as accepted N# slices are routed
+directly into production paths.
 
 ## Memory lookup
 
@@ -49,18 +61,29 @@ This is non-negotiable. Unit tests are necessary but NOT sufficient for IDE tool
 
 ALWAYS: KEEP THE PROJECT CODE REALLY CLEAN. If you have temporary code, DELETE IT AFTER YOU're DONE!
 ALWAYS: Clean up unnecessary code as you go, and run your tests after cleaning up the code.
-ALWAYS: After implementing functionality or solving problems, run the FULL test suite using `./scripts/test-all.sh`. This is MANDATORY. A cached pass is acceptable for local development feedback only.
-ALWAYS: RUN `./scripts/test-all.sh --commit` BEFORE COMMITTING ANY CODE. This forces a fresh isolated full-suite run; cached results are not accepted for commits. If it fails, fix the failures first!
+ALWAYS: For fast iteration, use `./scripts/dev.sh` as the INNER LOOP instead of the full gate. It builds the N# CLI and runs a FOCUSED slice of unit tests, deliberately skipping the benchmark, VS Code, examples, ilverify, and interop steps (seconds, not the ~5-minute gate). Pass a name pattern (`./scripts/dev.sh Columnar`), or use `--since` to auto-select the tests for files you changed via `git diff` (`./scripts/dev.sh --since`, or `--since <ref>`); `--since` is fail-safe — a central or unmapped change runs the full unit suite and tells you why, so it never silently skips coverage. Run this constantly while building, and commit small compiler slices once the relevant focused evidence is green.
+ALWAYS: While the compiler rewrite/dogfood work is in progress, default to the non-VS-Code product gate for backend-only work. Do not spend VS Code test time unless the change affects Language Server, LSP, VS Code extension, or IDE developer-experience behavior.
+ALWAYS: For backend compiler, analyzer, IL lowering, dogfood, and parity-corpus work that does NOT affect the IDE developer experience, do NOT run the full product gate between every small commit. Use the narrowest relevant `./scripts/dev.sh` slice, targeted `dotnet test --filter ...`, or targeted perf/IL-shape test first. Commit the small slice when that focused evidence matches the risk.
+ALWAYS: Run the full non-VS-Code product gate using `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` at integration checkpoints: before merge/push, before handing off a completed multi-commit sequence, after SDK/runtime/build-script/package changes, after broad shared compiler changes, after benchmark-gate changes, or when focused evidence is ambiguous. This forces a fresh isolated product-gate run without VS Code integration tests; cached whole-gate results and cached per-step results are not accepted as integration-checkpoint evidence. If it fails, fix the failures first.
+ALWAYS: If the change touches the Language Server, LSP handlers, VS Code extension, or anything that affects the developer experience in the IDE, do NOT set `VSCODE_TESTS=skip`. Run the appropriate VS Code-enabled gate with `./scripts/test-all.sh` (or `./scripts/test-all.sh --commit` before committing) in addition to the mandatory visual IDE verification below.
 ALWAYS: The test-all.sh script:
   - Runs all unit tests (`dotnet test`)
+  - Runs VS Code smoke tests unless `VSCODE_TESTS=skip` is explicitly set for non-IDE work
   - Rebuilds the compiler and SDK
   - Installs the latest SDK to local NuGet feed
   - Tests dotnet new template creation
   - Builds ALL example projects with `dotnet build`
   - Validates everything works end-to-end
+ALWAYS: Testing strategy is layered, not one-size-fits-all:
+  - Inner-loop while editing: use `./scripts/dev.sh` with a subsystem/test pattern or `--since`. This is for fast feedback only; it deliberately skips benchmark, VS Code, examples, IL verification, and interop gates.
+  - Commit loop for N# compiler work: make a coherent compiler change, run the focused slice that proves it, commit it, and continue. Do not batch unrelated compiler changes behind a full gate, and do not let the gate become the main activity.
+  - Scope selection: prefer the narrowest semantically relevant `dev.sh` slice first, then broaden when touching shared compiler, SDK/runtime, build config, fixtures, or anything unmapped. `dev.sh --since` is fail-safe and will run the full unit suite for central/unmapped changes.
+  - Backend/compiler/SDK/CLI/runtime/docs integration verification: use `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` at the checkpoint boundaries above. This must be fresh; cached whole-gate or per-step results are not integration-checkpoint evidence.
+  - IDE/LSP/VS Code changes: do not skip VS Code tests. Run the VS Code-enabled gate, reload/reinstall the extension, and visually verify the editor behavior with computer-use.
+  - Do not use the full product gate as the daily inner loop. The expensive slices are intentionally reserved for integration checkpoints; see `memory/testing.md` for current profiling data and gate-hotspot evidence.
 ALWAYS: CHECK YOUR OWN WORK
 ALWAYS: CHECK YOUR OWN ASSUMPTIONS
-ALWAYS: `git commit` after you've written any code AND verified `./scripts/test-all.sh --commit` passes!!
+ALWAYS: `git commit` after a coherent code slice is complete and the focused tests for that slice pass. Run the correct `./scripts/test-all.sh --commit` gate at the integration checkpoints described above, not after every small compiler commit.
 
 ## VS Code Extension Development Workflow
 
@@ -81,6 +104,7 @@ Files that require extension reload:
 - `editors/vscode/**/*.ts` (VS Code extension TypeScript code)
 
 IMPORTANT: Always test LSP changes in VS Code to verify the user experience!
+IMPORTANT: Do not spend VS Code integration-test budget on backend-only compiler/SDK/CLI work. Use `VSCODE_TESTS=skip` for those changes, and reserve VS Code tests plus computer-use verification for IDE-affecting changes.
 
 ## Project Configuration Philosophy
 

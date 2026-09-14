@@ -45,6 +45,20 @@
     <Content Include="nsharp-webapi/Program.nl" Pack="true" PackagePath="content/nsharp-webapi/Program.nl" />
     <Content Include="nsharp-webapi/project.yml" Pack="true" PackagePath="content/nsharp-webapi/project.yml" />
 
+    <Content Include="nsharp-systems-cli/.template.config/template.json" Pack="true" PackagePath="content/nsharp-systems-cli/.template.config/template.json" />
+    <Content Include="nsharp-systems-cli/global.json" Pack="true" PackagePath="content/nsharp-systems-cli/global.json" />
+    <Content Include="nsharp-systems-cli/NuGet.config" Pack="true" PackagePath="content/nsharp-systems-cli/NuGet.config" />
+    <Content Include="nsharp-systems-cli/Program.nl" Pack="true" PackagePath="content/nsharp-systems-cli/Program.nl" />
+    <Content Include="nsharp-systems-cli/Systems.tests.nl" Pack="true" PackagePath="content/nsharp-systems-cli/Systems.tests.nl" />
+    <Content Include="nsharp-systems-cli/project.yml" Pack="true" PackagePath="content/nsharp-systems-cli/project.yml" />
+
+    <Content Include="nsharp-systems-lib/.template.config/template.json" Pack="true" PackagePath="content/nsharp-systems-lib/.template.config/template.json" />
+    <Content Include="nsharp-systems-lib/global.json" Pack="true" PackagePath="content/nsharp-systems-lib/global.json" />
+    <Content Include="nsharp-systems-lib/NuGet.config" Pack="true" PackagePath="content/nsharp-systems-lib/NuGet.config" />
+    <Content Include="nsharp-systems-lib/PacketCore.nl" Pack="true" PackagePath="content/nsharp-systems-lib/PacketCore.nl" />
+    <Content Include="nsharp-systems-lib/PacketCore.tests.nl" Pack="true" PackagePath="content/nsharp-systems-lib/PacketCore.tests.nl" />
+    <Content Include="nsharp-systems-lib/project.yml" Pack="true" PackagePath="content/nsharp-systems-lib/project.yml" />
+
     <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 

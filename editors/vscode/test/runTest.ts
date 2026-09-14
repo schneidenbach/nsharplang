@@ -1,12 +1,18 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import { runTests } from '@vscode/test-electron';
+import { runTests, type TestOptions } from '@vscode/test-electron';
 
 async function main() {
     try {
         const extensionDevelopmentPath = path.resolve(__dirname, '../../');
         const extensionTestsPath = path.resolve(__dirname, './suite/index');
+        const vscodeExecutablePath = resolveMachineVSCodeExecutable();
+        const vscodeVersion = getVSCodeTestVersion();
+        const vscodeCachePath = process.env.NSHARP_VSCODE_TEST_CACHE?.trim()
+            ?? process.env.NSHARP_VSCODE_CACHE_PATH
+            ?? path.join(resolveCacheRoot(), 'NSharpLang', 'vscode-test');
+        const profileParent = process.env.NSHARP_VSCODE_PROFILE_ROOT?.trim() || os.tmpdir();
 
         // Default to the simple fixture workspace
         const testWorkspace = process.env.TEST_WORKSPACE
@@ -16,7 +22,8 @@ async function main() {
         // (macOS limits Unix domain sockets to 104 chars) and isolate installed user extensions.
         // Do not pass --disable-extensions: VS Code 1.120 can leave the extension-test host
         // waiting forever before the test entrypoint runs when that global switch is present.
-        const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ns-test-'));
+        fs.mkdirSync(profileParent, { recursive: true });
+        const profileRoot = fs.mkdtempSync(path.join(profileParent, 'ns-test-'));
         const userDataDir = path.join(profileRoot, 'user-data');
         const extensionsDir = path.join(profileRoot, 'extensions');
         fs.mkdirSync(userDataDir, { recursive: true });
@@ -27,6 +34,13 @@ async function main() {
         console.log(`Tests:     ${extensionTestsPath}`);
         console.log(`Workspace: ${testWorkspace}`);
         console.log(`UserData:  ${userDataDir}`);
+        if (vscodeVersion) {
+            console.log(`VS Code:   ${vscodeVersion}`);
+        }
+        if (vscodeCachePath) {
+            console.log(`Cache:     ${vscodeCachePath}`);
+            fs.mkdirSync(vscodeCachePath, { recursive: true });
+        }
 
         // Pass test filtering env vars through to the VS Code instance
         const extensionTestsEnv: Record<string, string> = {};
@@ -39,10 +53,13 @@ async function main() {
             console.log(`Filter:    TEST_GREP=${process.env.TEST_GREP}`);
         }
 
-        await runTests({
+        const testOptions: TestOptions = {
             extensionDevelopmentPath,
             extensionTestsPath,
             extensionTestsEnv,
+            ...(vscodeExecutablePath
+                ? { vscodeExecutablePath, reuseMachineInstall: true }
+                : { version: vscodeVersion, cachePath: vscodeCachePath }),
             launchArgs: [
                 testWorkspace,
                 '--disable-workspace-trust',
@@ -61,10 +78,13 @@ async function main() {
                 'github.copilot',
                 '--disable-extension',
                 'github.copilot-chat',
+                '--disable-gpu',
                 `--user-data-dir=${userDataDir}`,
                 `--extensions-dir=${extensionsDir}`,
             ],
-        });
+        };
+
+        await runTests(testOptions);
 
         // Clean up the temporary profile.
         try {
@@ -78,4 +98,42 @@ async function main() {
     }
 }
 
+function resolveMachineVSCodeExecutable(): string | undefined {
+    const explicit = process.env.NSHARP_VSCODE_EXECUTABLE_PATH;
+    if (explicit && fs.existsSync(explicit)) {
+        return explicit;
+    }
+
+    if (process.platform === 'darwin') {
+        for (const candidate of [
+            '/Applications/Visual Studio Code.app/Contents/MacOS/Code',
+            '/Applications/Visual Studio Code.app/Contents/MacOS/Electron'
+        ]) {
+            if (fs.existsSync(candidate)) {
+                return candidate;
+            }
+        }
+    }
+
+    return undefined;
+}
+
+function resolveCacheRoot(): string {
+    if (process.env.XDG_CACHE_HOME) {
+        return process.env.XDG_CACHE_HOME;
+    }
+    if (process.platform === 'darwin') {
+        return path.join(os.homedir(), 'Library', 'Caches');
+    }
+    if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
+        return process.env.LOCALAPPDATA;
+    }
+    return path.join(os.homedir(), '.cache');
+}
+
 main();
+
+function getVSCodeTestVersion(): TestOptions['version'] {
+    const version = process.env.NSHARP_VSCODE_TEST_VERSION?.trim();
+    return version ? version as TestOptions['version'] : undefined;
+}

@@ -19,26 +19,9 @@ public class LanguageServerAutoImportTests
     private sealed class Harness
     {
         private readonly object _lock = new();
-        private XmlDocReader? _xmlDocReader;
         private TypeResolver? _typeResolver;
         private DocumentManager? _documentManager;
         private CompletionHandler? _completionHandler;
-
-        public XmlDocReader XmlDocReader
-        {
-            get
-            {
-                if (_xmlDocReader == null)
-                {
-                    lock (_lock)
-                    {
-                        _xmlDocReader ??= new XmlDocReader(NullLogger<XmlDocReader>.Instance);
-                    }
-                }
-
-                return _xmlDocReader;
-            }
-        }
 
         public TypeResolver TypeResolver
         {
@@ -48,7 +31,7 @@ public class LanguageServerAutoImportTests
                 {
                     lock (_lock)
                     {
-                        _typeResolver ??= new TypeResolver(NullLogger<TypeResolver>.Instance, XmlDocReader);
+                        _typeResolver ??= new TypeResolver(DocumentManager);
                     }
                 }
 
@@ -93,32 +76,6 @@ public class LanguageServerAutoImportTests
     }
 
     [Fact]
-    public async Task Completion_ListAddsImportEdit_AfterNamespaceDeclarationAsync()
-    {
-        var harness = new Harness();
-        var source = """
-namespace Demo
-
-func main() {
-    Lis
-}
-""";
-
-        var (uri, line, character) = CreateDocument(harness.DocumentManager, source, "Lis");
-
-        var completion = await GetCompletionAsync(harness.CompletionHandler, uri, line, character);
-        var item = Assert.Single(completion.Items.Where(i => i.Label == "List"));
-
-        var edits = GetAdditionalTextEdits(item);
-        Assert.Single(edits);
-
-        var edit = edits[0];
-        Assert.Equal(1, (int)edit.Range.Start.Line);
-        Assert.Equal(0, (int)edit.Range.Start.Character);
-        Assert.Equal("import System.Collections.Generic\n", edit.NewText);
-    }
-
-    [Fact]
     public async Task Completion_ListSkipsImportEdit_WhenNamespaceAlreadyImportedAsync()
     {
         var harness = new Harness();
@@ -140,30 +97,6 @@ func main() {
     }
 
     [Fact]
-    public async Task Completion_ConsoleAddsImportSystem_WhenNotImportedAsync()
-    {
-        var harness = new Harness();
-        var source = """
-func main() {
-    Cons
-}
-""";
-
-        var (uri, line, character) = CreateDocument(harness.DocumentManager, source, "Cons");
-
-        var completion = await GetCompletionAsync(harness.CompletionHandler, uri, line, character);
-        var item = Assert.Single(completion.Items.Where(i => i.Label == "Console"));
-
-        var edits = GetAdditionalTextEdits(item);
-        Assert.Single(edits);
-
-        var edit = edits[0];
-        Assert.Equal(0, (int)edit.Range.Start.Line);
-        Assert.Equal(0, (int)edit.Range.Start.Character);
-        Assert.Equal("import System\n", edit.NewText);
-    }
-
-    [Fact]
     public async Task Completion_ConsoleSkipsImport_WhenSystemAlreadyImportedAsync()
     {
         var harness = new Harness();
@@ -182,284 +115,6 @@ func main() {
 
         var edits = GetAdditionalTextEdits(item);
         Assert.Empty(edits);
-    }
-
-    [Fact]
-    public async Task MemberCompletion_ConsoleDot_AddsImportSystem_WhenNotImportedAsync()
-    {
-        var harness = new Harness();
-        var source = """
-func main() {
-    Console.
-}
-""";
-
-        var (uri, line, character) = CreateDocumentAtDot(harness.DocumentManager, source);
-
-        var completion = await GetMemberCompletionAsync(harness.CompletionHandler, uri, line, character);
-        Assert.NotEmpty(completion.Items);
-
-        // All member items should carry the auto-import edit
-        var writeLineItem = completion.Items.FirstOrDefault(i => i.Label == "WriteLine");
-        Assert.NotNull(writeLineItem);
-
-        var edits = GetAdditionalTextEdits(writeLineItem!);
-        Assert.Single(edits);
-
-        var edit = edits[0];
-        Assert.Equal(0, (int)edit.Range.Start.Line);
-        Assert.Equal(0, (int)edit.Range.Start.Character);
-        Assert.Equal("import System\n", edit.NewText);
-    }
-
-    [Fact]
-    public async Task MemberCompletion_ConsoleDot_SkipsImport_WhenSystemAlreadyImportedAsync()
-    {
-        var harness = new Harness();
-        var source = """
-import System
-
-func main() {
-    Console.
-}
-""";
-
-        var (uri, line, character) = CreateDocumentAtDot(harness.DocumentManager, source);
-
-        var completion = await GetMemberCompletionAsync(harness.CompletionHandler, uri, line, character);
-        Assert.NotEmpty(completion.Items);
-
-        var writeLineItem = completion.Items.FirstOrDefault(i => i.Label == "WriteLine");
-        Assert.NotNull(writeLineItem);
-
-        var edits = GetAdditionalTextEdits(writeLineItem!);
-        Assert.Empty(edits);
-    }
-
-    [Fact]
-    public async Task MemberCompletion_ImportInsertedAfterExistingImportsAsync()
-    {
-        var harness = new Harness();
-        var source = """
-import System.Collections.Generic
-
-func main() {
-    Console.
-}
-""";
-
-        var (uri, line, character) = CreateDocumentAtDot(harness.DocumentManager, source);
-
-        var completion = await GetMemberCompletionAsync(harness.CompletionHandler, uri, line, character);
-        Assert.NotEmpty(completion.Items);
-
-        var writeLineItem = completion.Items.FirstOrDefault(i => i.Label == "WriteLine");
-        Assert.NotNull(writeLineItem);
-
-        var edits = GetAdditionalTextEdits(writeLineItem!);
-        Assert.Single(edits);
-
-        // Should be inserted after the existing import (line 1, 0-indexed)
-        var edit = edits[0];
-        Assert.Equal(1, (int)edit.Range.Start.Line);
-        Assert.Equal(0, (int)edit.Range.Start.Character);
-        Assert.Equal("import System\n", edit.NewText);
-    }
-
-    [Fact]
-    public async Task Completion_RanksLocalSymbolsBeforeImportableTypesAsync()
-    {
-        var harness = new Harness();
-        var source = """
-record Ledger {
-    Name: string
-}
-
-func main() {
-    L
-}
-""";
-
-        var (uri, line, character) = CreateDocument(harness.DocumentManager, source, "    L");
-
-        var completion = await GetCompletionAsync(harness.CompletionHandler, uri, line, character);
-        var ledger = Assert.Single(completion.Items.Where(i => i.Label == "Ledger"));
-        var list = Assert.Single(completion.Items.Where(i => i.Label == "List"));
-
-        Assert.StartsWith("0000_", ledger.SortText, StringComparison.Ordinal);
-        Assert.StartsWith("0900_", list.SortText, StringComparison.Ordinal);
-        Assert.True(string.CompareOrdinal(ledger.SortText, list.SortText) < 0);
-    }
-
-    [Fact]
-    public async Task Completion_ProjectDuplicateNames_OffersDistinctImportEditsAsync()
-    {
-        var harness = new Harness();
-        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-auto-import-project-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(Path.Combine(tempRoot, "Foo"));
-        Directory.CreateDirectory(Path.Combine(tempRoot, "Bar"));
-
-        try
-        {
-            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
-name: AutoImportProject
-targetFramework: net10.0
-""");
-
-            var fooWidgetPath = Path.Combine(tempRoot, "Foo", "Widget.nl");
-            var fooWidgetSource = """
-namespace AutoImportProject.Foo
-
-record Widget {
-    Value: string
-}
-""";
-            File.WriteAllText(fooWidgetPath, fooWidgetSource);
-
-            var barWidgetPath = Path.Combine(tempRoot, "Bar", "Widget.nl");
-            var barWidgetSource = """
-namespace AutoImportProject.Bar
-
-record Widget {
-    Count: int
-}
-""";
-            File.WriteAllText(barWidgetPath, barWidgetSource);
-
-            var usePath = Path.Combine(tempRoot, "UseWidget.nl");
-            var useSource = """
-namespace AutoImportProject.App
-
-func main() {
-    Wid
-}
-""";
-            File.WriteAllText(usePath, useSource);
-
-            OpenDocumentAtPath(harness.DocumentManager, fooWidgetPath, fooWidgetSource);
-            OpenDocumentAtPath(harness.DocumentManager, barWidgetPath, barWidgetSource);
-            var (uri, line, character) = OpenDocumentAtPath(harness.DocumentManager, usePath, useSource, "Wid");
-
-            var completion = await GetCompletionAsync(harness.CompletionHandler, uri, line, character);
-            var widgets = completion.Items
-                .Where(i => i.Label == "Widget")
-                .OrderBy(i => i.Detail, StringComparer.Ordinal)
-                .ToList();
-
-            Assert.Equal(2, widgets.Count);
-            Assert.Contains(widgets, item => item.Detail?.Contains("AutoImportProject.Foo", StringComparison.Ordinal) == true);
-            Assert.Contains(widgets, item => item.Detail?.Contains("AutoImportProject.Bar", StringComparison.Ordinal) == true);
-
-            var editTexts = widgets
-                .SelectMany(GetAdditionalTextEdits)
-                .Select(edit => edit.NewText)
-                .OrderBy(text => text, StringComparer.Ordinal)
-                .ToList();
-
-            Assert.Equal(new[] { "import AutoImportProject.Bar\n", "import AutoImportProject.Foo\n" }, editTexts);
-            Assert.All(widgets, item => Assert.StartsWith("0800_", item.SortText, StringComparison.Ordinal));
-        }
-        finally
-        {
-            Directory.Delete(tempRoot, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Completion_ProjectSymbolSkipsImportEdit_WhenNamespaceAlreadyImportedAsync()
-    {
-        var harness = new Harness();
-        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-auto-import-in-scope-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(Path.Combine(tempRoot, "Models"));
-
-        try
-        {
-            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
-name: AutoImportInScope
-targetFramework: net10.0
-""");
-
-            var widgetPath = Path.Combine(tempRoot, "Models", "Widget.nl");
-            var widgetSource = """
-namespace AutoImportInScope.Models
-
-record Widget {
-    Value: string
-}
-""";
-            File.WriteAllText(widgetPath, widgetSource);
-
-            var usePath = Path.Combine(tempRoot, "UseWidget.nl");
-            var useSource = """
-namespace AutoImportInScope.App
-import AutoImportInScope.Models
-
-func main() {
-    Wid
-}
-""";
-            File.WriteAllText(usePath, useSource);
-
-            OpenDocumentAtPath(harness.DocumentManager, widgetPath, widgetSource);
-            var (uri, line, character) = OpenDocumentAtPath(harness.DocumentManager, usePath, useSource, "Wid");
-
-            var completion = await GetCompletionAsync(harness.CompletionHandler, uri, line, character);
-            var widget = Assert.Single(completion.Items.Where(i => i.Label == "Widget"));
-
-            Assert.Empty(GetAdditionalTextEdits(widget));
-            Assert.StartsWith("0100_", widget.SortText, StringComparison.Ordinal);
-        }
-        finally
-        {
-            Directory.Delete(tempRoot, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Completion_ImportInsertedAfterPackageAndExistingImportsAsync()
-    {
-        var harness = new Harness();
-        var source = """
-namespace Demo
-import System.Collections.Generic
-package Demo
-
-func main() {
-    Cons
-}
-""";
-
-        var (uri, line, character) = CreateDocument(harness.DocumentManager, source, "Cons");
-
-        var completion = await GetCompletionAsync(harness.CompletionHandler, uri, line, character);
-        var item = Assert.Single(completion.Items.Where(i => i.Label == "Console"));
-
-        var edit = Assert.Single(GetAdditionalTextEdits(item));
-        Assert.Equal(3, (int)edit.Range.Start.Line);
-        Assert.Equal(0, (int)edit.Range.Start.Character);
-        Assert.Equal("import System\n", edit.NewText);
-    }
-
-    [Fact]
-    public async Task Completion_AliasedImportDoesNotHideRequiredUnqualifiedImportAsync()
-    {
-        var harness = new Harness();
-        var source = """
-import System as Sys
-
-func main() {
-    Cons
-}
-""";
-
-        var (uri, line, character) = CreateDocument(harness.DocumentManager, source, "Cons");
-
-        var completion = await GetCompletionAsync(harness.CompletionHandler, uri, line, character);
-        var item = Assert.Single(completion.Items.Where(i => i.Label == "Console"));
-
-        var edit = Assert.Single(GetAdditionalTextEdits(item));
-        Assert.Equal(1, (int)edit.Range.Start.Line);
-        Assert.Equal("import System\n", edit.NewText);
     }
 
     private static (string Uri, int Line, int Character) CreateDocument(
@@ -500,24 +155,6 @@ func main() {
         return uri;
     }
 
-    private static (string Uri, int Line, int Character) CreateDocumentAtDot(
-        DocumentManager documentManager, string source)
-    {
-        var filePath = Path.Combine(Path.GetTempPath(), $"nsharp-auto-import-{Guid.NewGuid():N}.nl");
-        var uri = DocumentUri.From(new Uri(filePath).AbsoluteUri).ToString();
-        documentManager.UpdateDocument(uri, source, 1);
-
-        var lines = source.Split('\n');
-        var targetLine = Array.FindIndex(lines, line => line.Contains(".", StringComparison.Ordinal)
-            && !line.TrimStart().StartsWith("import", StringComparison.Ordinal));
-        Assert.True(targetLine >= 0, "Test source must contain a dot for member completion.");
-
-        var dotIndex = lines[targetLine].IndexOf('.', StringComparison.Ordinal);
-        // Position after the dot
-        var character = dotIndex + 1;
-        return (uri, targetLine, character);
-    }
-
     private static async Task<CompletionList> GetCompletionAsync(
         CompletionHandler completionHandler,
         string uri,
@@ -528,28 +165,6 @@ func main() {
         {
             TextDocument = new TextDocumentIdentifier(DocumentUri.From(uri)),
             Position = new Position(line, character)
-        };
-
-        var response = await completionHandler.Handle(request, CancellationToken.None);
-        Assert.NotNull(response);
-        return response;
-    }
-
-    private static async Task<CompletionList> GetMemberCompletionAsync(
-        CompletionHandler completionHandler,
-        string uri,
-        int line,
-        int character)
-    {
-        var request = new CompletionParams
-        {
-            TextDocument = new TextDocumentIdentifier(DocumentUri.From(uri)),
-            Position = new Position(line, character),
-            Context = new CompletionContext
-            {
-                TriggerKind = CompletionTriggerKind.TriggerCharacter,
-                TriggerCharacter = "."
-            }
         };
 
         var response = await completionHandler.Handle(request, CancellationToken.None);

@@ -1,4 +1,4 @@
-// Simple demonstration of file-scoped types (C# 11)
+// Simple demonstration of file-scoped types
 // Types marked with 'file' are only visible within this single file
 
 // File-scoped class - internal helper
@@ -28,7 +28,7 @@ file record Config {
 }
 
 // File-scoped class that uses other file-scoped types internally
-// (C# requires that file-local types only appear in file-local type signatures)
+// File-local types should stay within file-local type signatures.
 file class Application {
     logger: Logger = new Logger()
     readonly config: Config

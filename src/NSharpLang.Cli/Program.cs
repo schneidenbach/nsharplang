@@ -12,158 +12,123 @@ namespace NSharpLang.Cli;
 partial class Program
 {
     static int Main(string[] args)
-        => Execute(args);
+        => InternalErrorBoundary.Execute(() => Execute(args));
 
     internal static int Execute(string[] args)
     {
-        if (args.Length == 0)
+        var commandKind = ProgramCommandKernels.GetCommandKind(args);
+
+        if (commandKind == 29)
         {
-            ShowHelp();
+            Console.WriteLine(ProgramCommandKernels.GetHelpText(GetVersion()));
             return 0;
         }
 
-        // Handle case-sensitive flags before lowercasing
-        var raw = args[0];
-        if (raw == "--version" || raw == "-V")
-            return ShowVersion();
-
-        var command = raw.ToLower();
-
-        return command switch
+        if (commandKind == 30)
         {
-            "build" => BuildCommand(args.Skip(1).ToArray()),
-            "run" => RunCommand(args.Skip(1).ToArray()),
-            "publish" => PublishCommand(args.Skip(1).ToArray()),
-            "new" => NewCommand(args.Skip(1).ToArray()),
-            "test" => TestCommand(args.Skip(1).ToArray()),
-            "format" => FormatCommand(args.Skip(1).ToArray()),
-            "lint" => Commands.LintCommand.Execute(args.Skip(1).ToArray()),
-            "restore" => RestoreCommand.Execute(args.Skip(1).ToArray()),
-            "clean" => CleanCommand.Execute(args.Skip(1).ToArray()),
-            "watch" => WatchCommand.Execute(args.Skip(1).ToArray()),
-            "doc" => DocCommand.Execute(args.Skip(1).ToArray()),
-            "completion" => CompletionCommand.Execute(args.Skip(1).ToArray()),
-            "check" => Commands.CheckCommand.Execute(args.Skip(1).ToArray()),
-            "fix" => FixCommand.Execute(args.Skip(1).ToArray()),
-            "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
-            "daemon" => DaemonCommand.Execute(args.Skip(1).ToArray()),
-            "add" => AddCommand.Execute(args.Skip(1).ToArray()),
-            "tidy" => TidyCommand.Execute(args.Skip(1).ToArray()),
-            "remove" => RemoveCommand.Execute(args.Skip(1).ToArray()),
-            "update" => UpdateCommand.Execute(args.Skip(1).ToArray()),
-            "init" => InitCommand.Execute(args.Skip(1).ToArray()),
-            "env" => EnvCommand.Execute(args.Skip(1).ToArray()),
-            "doctor" => DoctorCommand.Execute(args.Skip(1).ToArray()),
-            "tree" => TreeCommand.Execute(args.Skip(1).ToArray()),
-            "audit" => AuditCommand.Execute(args.Skip(1).ToArray()),
-            "pack" => PackCommand.Execute(args.Skip(1).ToArray()),
-            "export" => Commands.ExportCommand.Execute(args.Skip(1).ToArray()),
-            "help" or "--help" or "-h" => ShowHelp(),
-            "--version" => ShowVersion(),
-            "transpile" => Error("The 'transpile' command has been removed. Use 'nlc export csharp' instead."),
-            _ => Error($"Unknown command: {command}. Run 'nlc help' to see available commands.")
+            Console.WriteLine(ProgramCommandKernels.GetVersionText(GetVersion()));
+            return 0;
+        }
+
+        return commandKind switch
+        {
+            1 => BuildCommand(GetCommandArgs(args)),
+            2 => RunCommand(GetCommandArgs(args)),
+            3 => PublishCommand(GetCommandArgs(args)),
+            4 => NewCommand(GetCommandArgs(args)),
+            5 => TestCommand(GetCommandArgs(args)),
+            6 => FormatCommand(GetCommandArgs(args)),
+            7 => Commands.LintCommand.Execute(GetCommandArgs(args)),
+            8 => RestoreCommand.Execute(GetCommandArgs(args)),
+            9 => CleanCommand.Execute(GetCommandArgs(args)),
+            10 => WatchCommand.Execute(GetCommandArgs(args)),
+            11 => DocCommand.Execute(GetCommandArgs(args)),
+            12 => CompletionCommand.Execute(GetCommandArgs(args)),
+            13 => Commands.CheckCommand.Execute(GetCommandArgs(args)),
+            14 => FixCommand.Execute(GetCommandArgs(args)),
+            15 => QueryCommand.Execute(GetCommandArgs(args)),
+            16 => DaemonCommand.Execute(GetCommandArgs(args)),
+            17 => AddCommand.Execute(GetCommandArgs(args)),
+            18 => TidyCommand.Execute(GetCommandArgs(args)),
+            19 => RemoveCommand.Execute(GetCommandArgs(args)),
+            20 => UpdateCommand.Execute(GetCommandArgs(args)),
+            21 => InitCommand.Execute(GetCommandArgs(args)),
+            22 => EnvCommand.Execute(GetCommandArgs(args)),
+            23 => DoctorCommand.Execute(GetCommandArgs(args)),
+            24 => TreeCommand.Execute(GetCommandArgs(args)),
+            25 => AuditCommand.Execute(GetCommandArgs(args)),
+            26 => PackCommand.Execute(GetCommandArgs(args)),
+            _ => Error(ProgramCommandKernels.GetUnknownCommandMessage(
+                args.Length == 0 ? string.Empty : args[0]))
         };
     }
 
+    private static string[] GetCommandArgs(string[] args)
+        => args.Length <= 1 ? Array.Empty<string>() : args.Skip(1).ToArray();
+
     static int BuildCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var helpOptions = BuildCommandKernels.GetOptionSummary(args);
+        if (helpOptions.ShowHelp)
         {
-            Console.WriteLine(@"N# Build
-
-Usage: nlc build [file.nl] [options]
-
-Build a project or a single N# source file.
-
-When run in a directory with project.yml, compiles directly from project.yml
-through the native IL backend. No user-authored .csproj is needed.
-
-Options:
-  --backend <mode>   Compilation backend: il
-  --project <dir>    Project root directory (default: current directory)
-  --release          Build with Release configuration/output layout (default: Debug)
-  --verbose          Show detailed build output
-  --timings          Emit per-phase timing breakdown after build
-  --perf-report      Emit a versioned JSON performance report after build
-  --aot              Analyze for Native AOT safety; AOT blockers become build errors
-  --output <path>    Output directory for build artifacts (-o shorthand)
-  --help, -h         Show this help text
-
-Examples:
-  nlc build              Build the current project
-  nlc build --backend il Build the current project with the IL backend
-  nlc build --release    Release configuration/output layout
-  nlc build --verbose    Show detailed build output
-  nlc build --timings    Show phase-level timing breakdown
-  nlc build --perf-report Emit a JSON performance report
-  nlc build --aot        Fail the build on Native AOT blockers
-  nlc build -o ./dist    Build to a specific output directory
-  nlc build Program.nl   Build a single file
-
-Exit codes:
-  0  Build succeeded
-  1  Build failed");
+            Console.WriteLine(BuildCommandKernels.GetHelpText());
             return 0;
         }
 
-        // Check for flags
-        var release = args.Contains("--release");
-        var verbose = args.Contains("--verbose");
-        var timings = args.Contains("--timings");
-        var perfReport = args.Contains("--perf-report");
-        var aot = args.Contains("--aot");
-        var outputDir = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
-        var backendOption = GetOptionValue(args, "--backend");
-        var projectOption = GetOptionValue(args, "--project");
-        args = args.Where(a => a is not "--release" and not "--verbose" and not "--timings" and not "--perf-report" and not "--aot").ToArray();
-        // Strip --output/-o and its value from positional args
-        args = StripOptionWithValue(args, "--output");
-        args = StripOptionWithValue(args, "-o");
-        args = StripOptionWithValue(args, "--backend");
-        args = StripOptionWithValue(args, "--project");
+        // Extract --define/-d before operand/flag detection so their values are never
+        // mistaken for source-file operands by the build operand parsers.
+        var cliDefines = ExtractDefineFlags(ref args);
+
+        var buildOptions = BuildCommandKernels.GetOptionSummary(args);
+        var buildOperands = BuildCommandKernels.GetOperandSummary(args);
 
         try
         {
             // Support both single-file and multi-file builds
-            if (args.Length == 0)
+            if (buildOperands.Count == 0)
             {
-                var projectRoot = projectOption != null
-                    ? Path.GetFullPath(projectOption)
-                    : Directory.GetCurrentDirectory();
+                var projectRoot = BuildCommandKernels.GetProjectRoot(buildOptions.ProjectOption, Directory.GetCurrentDirectory());
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-                var backend = ResolveCompilationBackend(backendOption, currentProjectConfig);
-                if (backend != CompilationBackend.Il)
-                {
-                    throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
-                }
+                CompilationBackendSelectionKernels.Validate(buildOptions.BackendOption, currentProjectConfig);
 
                 var buildResult = RunBuildEmittingPerfReport(
-                    perfReport,
+                    buildOptions.PerfReport,
                     projectRoot,
-                    () => BuildWithIlBackend(projectRoot, release, outputDir, timings, verbose, aot),
-                    () => CollectProjectAotBlockers(projectRoot, currentProjectConfig));
+                    () => BuildWithIlBackend(
+                        projectRoot,
+                        buildOptions.Release,
+                        buildOptions.OutputDir,
+                        buildOptions.Timings,
+                        buildOptions.Verbose,
+                        buildOptions.Aot,
+                        cliDefines));
                 return buildResult;
             }
 
-            var sourceFile = args[0];
+            var sourceFile = args[buildOperands.FirstOperandIndex];
             if (!File.Exists(sourceFile))
             {
-                return Error($"File not found: {sourceFile}");
+                return Error(BuildCommandKernels.GetFileNotFoundMessage(sourceFile));
             }
 
-            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
+            var sourceDir = BuildCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory());
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
-            _ = ResolveCompilationBackend(backendOption, sourceProjectConfig);
+            CompilationBackendSelectionKernels.Validate(buildOptions.BackendOption, sourceProjectConfig);
             var singleFileResult = RunBuildEmittingPerfReport(
-                perfReport,
+                buildOptions.PerfReport,
                 sourceDir,
-                () => BuildSingleFileWithIlBackend(sourceFile, sourceProjectConfig, release, outputDir, aot),
-                () => CollectSingleFileAotBlockers(sourceFile, sourceProjectConfig));
+                () => BuildSingleFileWithIlBackend(
+                    sourceFile,
+                    sourceProjectConfig,
+                    buildOptions.Release,
+                    buildOptions.OutputDir,
+                    buildOptions.Aot,
+                    cliDefines));
             return singleFileResult;
         }
         catch (Exception ex)
         {
-            return Error($"Build failed: {ex.Message}");
+            return Error(BuildCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
@@ -176,23 +141,20 @@ Exit codes:
     static int RunBuildEmittingPerfReport(
         bool perfReport,
         string projectRoot,
-        Func<int> build,
-        Func<IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker>> collectAotBlockers)
+        Func<BuildCommandResult> build)
     {
         if (!perfReport)
         {
-            return build();
+            return build().ExitCode;
         }
 
         var originalOut = Console.Out;
-        int exitCode;
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker> aotBlockers;
+        BuildCommandResult result;
         try
         {
             // Keep stdout reserved for the JSON report; send build logs to stderr.
             Console.SetOut(Console.Error);
-            exitCode = build();
-            aotBlockers = SafeCollectAotBlockers(collectAotBlockers);
+            result = build();
         }
         finally
         {
@@ -200,96 +162,26 @@ Exit codes:
         }
 
         Console.WriteLine(
-            NSharpLang.Compiler.CodeIntelligence.OutputFormatter.BuildPerfReportToJson(projectRoot, exitCode == 0, aotBlockers));
-        return exitCode;
-    }
-
-    private static IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker> SafeCollectAotBlockers(
-        Func<IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker>> collect)
-    {
-        try
-        {
-            return collect();
-        }
-        catch
-        {
-            // The perf report is best-effort instrumentation; never fail the build over it.
-            return Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker>();
-        }
-    }
-
-    /// <summary>
-    /// Removes orphaned .g.cs files in obj/**/nsharp/ that no longer have
-    /// a corresponding .nl source file. Prevents stale generated code from
-    /// being compiled after source files are deleted.
-    /// </summary>
-    internal static void CleanStaleGeneratedFiles(string projectRoot)
-    {
-        var objDir = Path.Combine(projectRoot, "obj");
-        if (!Directory.Exists(objDir))
-            return;
-
-        // Collect current .nl source files (relative paths, without extension)
-        var nlRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var nlFile in Directory.GetFiles(projectRoot, "*.nl", SearchOption.AllDirectories))
-        {
-            // Skip files inside obj/ and bin/
-            var rel = Path.GetRelativePath(projectRoot, nlFile);
-            if (rel.StartsWith("obj" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
-                rel.StartsWith("bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            // Strip .nl (or .tests.nl) extension to get the base name with relative dir
-            var basePath = rel.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase)
-                ? rel[..^".tests.nl".Length]
-                : rel[..^".nl".Length];
-            nlRelativePaths.Add(basePath.Replace('\\', '/'));
-        }
-
-        // Find all nsharp/ output directories under obj/
-        // Search for both "nsharp" and "NSharp" to handle case-sensitive filesystems (Linux)
-        var nsharpDirs = Directory.GetDirectories(objDir, "nsharp", SearchOption.AllDirectories)
-            .Concat(Directory.GetDirectories(objDir, "NSharp", SearchOption.AllDirectories))
-            .Distinct(StringComparer.Ordinal);
-        foreach (var nsharpDir in nsharpDirs)
-        {
-            if (!Directory.Exists(nsharpDir))
-                continue;
-
-            foreach (var gcsFile in Directory.GetFiles(nsharpDir, "*.g.cs", SearchOption.AllDirectories))
-            {
-                // Generated files are named like Program.g.cs — strip .g.cs to get base name
-                var relToNsharp = Path.GetRelativePath(nsharpDir, gcsFile).Replace('\\', '/');
-                var basePath = relToNsharp;
-                if (basePath.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase))
-                    basePath = basePath[..^".g.cs".Length];
-
-                if (!nlRelativePaths.Contains(basePath))
-                {
-                    try { File.Delete(gcsFile); } catch { /* ignore cleanup errors */ }
-                }
-            }
-        }
-    }
-
-    static string FindRepoRoot(string startPath)
-    {
-        var current = new DirectoryInfo(startPath);
-        while (current != null)
-        {
-            if (Directory.Exists(Path.Combine(current.FullName, "src/NSharpLang.Sdk")))
-            {
-                return current.FullName;
-            }
-            current = current.Parent;
-        }
-        // Fallback: assume we're in the repo
-        return startPath;
+            NSharpLang.Compiler.CodeIntelligence.OutputFormatter.BuildPerfReportToJson(
+                projectRoot,
+                result.ExitCode == 0,
+                result.PerfFacts.AllocationSites,
+                result.PerfFacts.DelegateSites,
+                result.PerfFacts.BoxingSites,
+                result.PerfFacts.DispatchSites,
+                result.PerfFacts.ClosureCaptures,
+                result.PerfFacts.PoolSites,
+                result.PerfFacts.ResourceSites,
+                result.PerfFacts.BoundaryLeakSites,
+                result.PerfFacts.HotReadinessSites,
+                result.PerfFacts.ImplicitTrapSites,
+                result.PerfFacts.TrustedSites));
+        return result.ExitCode;
     }
 
     static string CreateTempBuildDirectory()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"nlc-build-{Guid.NewGuid():N}");
+        var tempDir = BuildCommandKernels.GetTempBuildDirectory(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         return tempDir;
     }
@@ -313,167 +205,102 @@ Exit codes:
 
     static int RunCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var helpOptions = RunCommandKernels.GetOptionSummary(args);
+        if (helpOptions.ShowHelp)
         {
-            Console.WriteLine(@"N# Run
-
-Usage: nlc run [file.nl]
-
-Build and run either the current project or a single N# source file.
-
-Options:
-  --backend <mode>   Compilation backend: il
-  --help, -h         Show this help text
-
-Examples:
-  nlc run
-  nlc run --backend il
-  nlc run Program.nl
-
-Exit codes:
-  0  Program ran successfully
-  1  Build or execution failed");
+            Console.WriteLine(RunCommandKernels.GetHelpText());
             return 0;
         }
 
-        var backendOption = GetOptionValue(args, "--backend");
-        args = StripOptionWithValue(args, "--backend");
+        // Extract --define/-d before operand detection so their values are never
+        // mistaken for the source-file operand.
+        var cliDefines = ExtractDefineFlags(ref args);
+        var runOptions = RunCommandKernels.GetOptionSummary(args);
+        var backendOption = runOptions.BackendOption;
+        var sourceFile = RunCommandKernels.GetSourceOperand(args);
 
         try
         {
-            if (args.Length == 0)
+            if (sourceFile == null)
             {
-                var projectRoot = Directory.GetCurrentDirectory();
+                var projectRoot = RunCommandKernels.GetProjectRoot(Directory.GetCurrentDirectory());
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-                var backend = ResolveCompilationBackend(backendOption, currentProjectConfig);
-                if (backend != CompilationBackend.Il)
-                {
-                    throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
-                }
+                CompilationBackendSelectionKernels.Validate(backendOption, currentProjectConfig);
 
-                return RunWithIlBackend(projectRoot);
+                return RunWithIlBackend(projectRoot, cliDefines);
             }
 
-            var sourceFile = args[0];
             if (!File.Exists(sourceFile))
             {
-                return Error($"File not found: {sourceFile}");
+                return Error(RunCommandKernels.GetFileNotFoundMessage(sourceFile));
             }
 
-            Console.WriteLine($"Running {sourceFile}...");
+            Console.WriteLine(RunCommandKernels.GetSourceStartingMessage(sourceFile));
 
-            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
+            var sourceDir = RunCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory());
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
-            _ = ResolveCompilationBackend(backendOption, sourceProjectConfig);
-            return RunSingleFileWithIlBackend(sourceFile, sourceProjectConfig);
+            CompilationBackendSelectionKernels.Validate(backendOption, sourceProjectConfig);
+            return RunSingleFileWithIlBackend(sourceFile, sourceProjectConfig, cliDefines);
         }
         catch (Exception ex)
         {
-            return Error($"Run failed: {ex.Message}");
+            return Error(RunCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
     static int PublishCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var publishArguments = PublishCommandKernels.GetArgumentSummary(args);
+        if (publishArguments.ShowHelp)
         {
-            Console.WriteLine(@"N# Publish
-
-Usage: nlc publish [options]
-
-Package the project for distribution.
-
-Options:
-  --project <dir>         Project root directory (default: current directory)
-  --backend <mode>        Compilation backend: il
-  --configuration <cfg>   Build configuration (default: Release)
-  --output <dir>          Output directory for published files
-  --runtime <rid>         Current host runtime only; adds a framework-dependent launcher
-  --self-contained        Planned; currently exits with guidance
-  --aot                   Analysis-only: verify Native AOT safety and annotate public APIs
-  --help, -h              Show this help text
-
-Supported publish shapes:
-  - Portable framework-dependent: nlc publish --output ./dist
-  - Current-runtime launcher: nlc publish --runtime <current-rid>
-
-Native AOT (--aot):
-  Analysis-only this release. Fails the publish on any AOT blocker (reflection,
-  dynamic code, runtime generics, expression trees) and stamps public APIs with
-  [RequiresUnreferencedCode]/[RequiresDynamicCode]. It does NOT emit a native image yet.
-
-Unsupported today:
-  - Cross-runtime publishing, e.g. publishing linux-x64 from osx-arm64
-  - Self-contained apphost/runtime bundles
-  - Native AOT image generation
-
-Examples:
-  nlc publish
-  nlc publish --backend il --output ./dist
-  nlc publish --configuration Release
-  nlc publish --runtime <current-rid> --output ./dist
-  nlc publish --aot
-  nlc publish --output ./dist
-
-Exit codes:
-  0  Publish succeeded
-  1  Publish failed");
+            Console.WriteLine(PublishCommandKernels.GetHelpText());
             return 0;
         }
 
-        var validationError = ValidatePublishArguments(args);
-        if (validationError != null)
+        if (publishArguments.ValidationError != null)
         {
-            return Error(validationError);
+            return Error(publishArguments.ValidationError);
         }
 
-        var projectRoot = Path.GetFullPath(GetOptionValue(args, "--project") ?? Directory.GetCurrentDirectory());
-        var backendOption = GetOptionValue(args, "--backend");
+        var projectRoot = PublishCommandKernels.GetProjectRoot(publishArguments.ProjectOption, Directory.GetCurrentDirectory());
+        var backendOption = publishArguments.BackendOption;
 
         try
         {
-            Console.WriteLine($"Publishing project in {projectRoot}...");
+            Console.WriteLine(PublishCommandKernels.GetStartMessage(projectRoot));
 
-            var projectYmlPath = Path.Combine(projectRoot, "project.yml");
+            var projectYmlPath = CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot);
             if (!File.Exists(projectYmlPath))
             {
-                return Error("No project.yml found in current directory. Run 'nlc new <name>' to create a project.");
+                return Error(PublishCommandKernels.GetMissingProjectFileMessage());
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
-            var backend = ResolveCompilationBackend(backendOption, config);
-            if (backend != CompilationBackend.Il)
+            CompilationBackendSelectionKernels.Validate(backendOption, config);
+
+            var configuration = publishArguments.Configuration;
+            var output = publishArguments.Output;
+            var runtime = publishArguments.Runtime;
+            if (publishArguments.SelfContained)
             {
-                throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
+                return Error(PublishCommandKernels.GetSelfContainedUnsupportedMessage());
             }
 
-            var configuration = GetOptionValue(args, "--configuration") ?? GetOptionValue(args, "-c") ?? "Release";
-            var output = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
-            var runtime = GetOptionValue(args, "--runtime") ?? GetOptionValue(args, "-r");
-            var selfContained = args.Contains("--self-contained");
-            var aot = args.Contains("--aot");
-            if (selfContained)
+            if (publishArguments.Aot)
             {
-                return Error(SelfContainedPublishUnsupportedMessage);
+                Console.WriteLine(PublishCommandKernels.GetAotAnalysisOnlyNotice());
             }
 
-            if (aot)
-            {
-                Console.WriteLine(AotPublishAnalysisOnlyNotice);
-            }
-
-            if (!string.IsNullOrWhiteSpace(runtime))
+            if (PublishCommandKernels.ShouldWriteRuntimeLauncher(runtime))
             {
                 var currentRuntime = RuntimeInformation.RuntimeIdentifier;
-                if (!string.Equals(runtime, currentRuntime, StringComparison.OrdinalIgnoreCase))
+                if (!PublishCommandKernels.RuntimeMatchesRequestedRuntime(runtime, currentRuntime))
                 {
-                    return Error(CrossRuntimePublishUnsupportedMessage(runtime, currentRuntime));
+                    return Error(PublishCommandKernels.GetCrossRuntimeUnsupportedMessage(runtime, currentRuntime));
                 }
             }
 
-            var publishDir = output != null
-                ? Path.GetFullPath(output)
-                : Path.Combine(projectRoot, "bin", configuration, config.TargetFramework, "publish");
+            var publishDir = PublishCommandKernels.GetPublishDirectory(projectRoot, configuration, config.TargetFramework, output);
 
             var outputPath = BuildProjectWithIlBackendForCommand(
                 projectRoot,
@@ -481,25 +308,23 @@ Exit codes:
                 configuration,
                 publishDir,
                 includeTests: false,
-                aotMode: aot);
+                aotMode: publishArguments.Aot);
             if (outputPath == null)
             {
-                return Error(aot
-                    ? "Publish failed: Native AOT blockers were found (see the diagnostics above). Fix them, then publish again."
-                    : "Publish failed");
+                return Error(PublishCommandKernels.GetBuildFailureMessage(publishArguments.Aot));
             }
 
-            if (!string.IsNullOrWhiteSpace(runtime))
+            if (PublishCommandKernels.ShouldWriteRuntimeLauncher(runtime))
             {
                 WriteDotnetLauncher(publishDir, CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config));
             }
 
-            Console.WriteLine("Publish successful!");
+            Console.WriteLine(PublishCommandKernels.GetSuccessMessage());
             return 0;
         }
         catch (Exception ex)
         {
-            return Error($"Publish failed: {ex.Message}");
+            return Error(PublishCommandKernels.GetExceptionFailureMessage(ex.Message));
         }
     }
 
@@ -509,18 +334,13 @@ Exit codes:
         if (OperatingSystem.IsWindows())
         {
             File.WriteAllText(
-                Path.Combine(outputDirectory, $"{assemblyName}.cmd"),
-                $"@echo off\r\ndotnet \"%~dp0{assemblyName}.dll\" %*\r\n");
+                PublishCommandKernels.GetWindowsLauncherPath(outputDirectory, assemblyName),
+                PublishCommandKernels.GetWindowsLauncherText(assemblyName));
             return;
         }
 
-        var launcherPath = Path.Combine(outputDirectory, assemblyName);
-        File.WriteAllText(launcherPath, $"""
-#!/usr/bin/env sh
-set -eu
-DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-exec dotnet "$DIR/{assemblyName}.dll" "$@"
-""");
+        var launcherPath = PublishCommandKernels.GetUnixLauncherPath(outputDirectory, assemblyName);
+        File.WriteAllText(launcherPath, PublishCommandKernels.GetUnixLauncherText(assemblyName));
         try
         {
             File.SetUnixFileMode(
@@ -535,431 +355,161 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         }
     }
 
-    private const string AotPublishAnalysisOnlyNotice =
-        "nlc publish --aot is analysis-only in this release: it verifies your project is Native AOT-safe " +
-        "(failing on any AOT blocker) and stamps [RequiresUnreferencedCode]/[RequiresDynamicCode] on public APIs, " +
-        "but it does NOT produce a native image yet. The output is the usual framework-dependent assembly.";
-
-    private const string SelfContainedPublishUnsupportedMessage =
-        "Self-contained publish is not available in nlc publish yet. " +
-        "Today nlc publish produces framework-dependent artifacts. " +
-        "Omit --self-contained, or use dotnet publish with an MSBuild compatibility project when you need a true apphost/self-contained bundle.";
-
-    private static string CrossRuntimePublishUnsupportedMessage(string requestedRuntime, string currentRuntime)
-        => $"Cross-runtime publish is not available in nlc publish yet. Requested runtime '{requestedRuntime}', but this machine is '{currentRuntime}'. " +
-           "Today --runtime only supports the current host runtime to add a framework-dependent launcher. " +
-           "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime.";
-
-    private static string? ValidatePublishArguments(string[] args)
-    {
-        var optionsWithValues = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "--project",
-            "--backend",
-            "--configuration",
-            "-c",
-            "--output",
-            "-o",
-            "--runtime",
-            "-r"
-        };
-        var switchOptions = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "--self-contained",
-            "--aot"
-        };
-
-        for (var i = 0; i < args.Length; i++)
-        {
-            var arg = args[i];
-            if (optionsWithValues.Contains(arg))
-            {
-                if (i + 1 >= args.Length || args[i + 1].StartsWith("-", StringComparison.Ordinal))
-                {
-                    return $"Option '{arg}' requires a value.";
-                }
-
-                i++;
-                continue;
-            }
-
-            if (switchOptions.Contains(arg))
-            {
-                continue;
-            }
-
-            if (arg is "--target" or "--target-platform")
-            {
-                return "Target-platform publishing is expressed as --runtime <rid>, and nlc publish does not support cross-runtime publishing yet.";
-            }
-
-            if (arg.StartsWith("-", StringComparison.Ordinal))
-            {
-                return $"Unknown publish option '{arg}'. Run 'nlc publish --help' for supported options.";
-            }
-
-            return $"Unexpected publish argument '{arg}'. Run 'nlc publish --help' for usage.";
-        }
-
-        return null;
-    }
-
     static int NewCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var arguments = NewCommandKernels.GetArgumentSummary(args);
+        if (arguments.ShowHelp)
         {
-            Console.WriteLine(@"N# New Project
-
-Usage: nlc new <project-name> [--template <template>]
-
-Create a new csproj-free N# project. Fresh projects are project.yml-first:
-`nlc build`, `nlc run`, and `nlc test` build directly from project.yml.
-Do not hand-author project build settings in .csproj.
-
-Options:
-  --template <template>  Project template: console, library, test, webapi (default: console)
-  --type <template>      Alias for --template
-  --help, -h             Show this help text
-
-Examples:
-  nlc new MyApp
-  nlc new MyLib --template library
-  nlc new MyApi --template webapi
-  cd MyApp && nlc build
-
-Exit codes:
-  0  Project created successfully
-  1  Project creation failed");
+            Console.WriteLine(NewCommandKernels.GetHelpText());
             return 0;
         }
 
-        var positional = GetPositionalArgs(args, "--template", "--type");
-        if (positional.Length == 0)
+        var projectName = NewCommandKernels.GetEffectiveProjectName(
+            arguments.FirstPositional,
+            arguments.SecondPositional);
+        if (projectName == null)
         {
-            return Error("Usage: nlc new <project-name> [--template <template>]");
+            return Error(NewCommandKernels.GetUsageMessage());
         }
 
-        var projectName = positional[0];
-        var template = NormalizeProjectTemplate(GetOptionValue(args, "--template") ?? GetOptionValue(args, "--type") ?? "console");
+        var requestedTemplate = NewCommandKernels.GetEffectiveRequestedTemplate(
+            arguments.TemplateOption,
+            arguments.FirstPositional,
+            arguments.SecondPositional);
+
+        var systemsFlag = arguments.Systems;
+        var template = NewCommandKernels.GetProjectTemplateName(
+            NewCommandKernels.ResolveTemplateKind(requestedTemplate ?? "console", systemsFlag));
         if (template == null)
         {
-            return Error("Invalid template. Expected one of: console, library, test, webapi.");
+            return Error(NewCommandKernels.GetInvalidTemplateMessage());
         }
 
-        var projectDir = Path.Combine(Directory.GetCurrentDirectory(), projectName);
+        var projectDir = NewCommandKernels.GetProjectDirectory(Directory.GetCurrentDirectory(), projectName);
 
         if (Directory.Exists(projectDir))
         {
-            return Error($"Directory already exists: {projectDir}. Use a different name or remove the existing directory.");
+            return Error(NewCommandKernels.GetDirectoryExistsMessage(projectDir));
         }
 
         try
         {
-            Console.WriteLine($"Creating new {template} project: {projectName}");
+            Console.WriteLine(NewCommandKernels.GetCreatingProjectMessage(template, projectName));
 
             Directory.CreateDirectory(projectDir);
             WriteCanonicalProject(projectDir, projectName, template);
 
-            Console.WriteLine($"Created: {projectName}/project.yml");
-            Console.WriteLine($"Created: {projectName}/global.json");
-            Console.WriteLine($"Created: {projectName}/NuGet.config");
-            foreach (var file in GetTemplateSourceFiles(template))
+            Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, "project.yml"));
+            Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, "global.json"));
+            Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, "NuGet.config"));
+            foreach (var sourceFileKind in NewCommandKernels.GetTemplateSourceFileKinds(template))
             {
-                Console.WriteLine($"Created: {projectName}/{file}");
+                var file = NewCommandKernels.GetTemplateSourceFileName(sourceFileKind);
+                Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, file));
             }
 
             Console.WriteLine();
-            Console.WriteLine("Project shape: csproj-free source tree; nlc builds directly from project.yml.");
-            var nextCommand = template switch
+            Console.WriteLine(NewCommandKernels.GetProjectShapeMessage());
+            Console.WriteLine(NewCommandKernels.GetNextStepsIntroMessage(template));
+            Console.WriteLine(NewCommandKernels.GetCdCommandMessage(projectName));
+            if (NewCommandKernels.ShouldShowSystemsCommands(template))
             {
-                "test" => "  nlc test",
-                "library" => null,
-                _ => "  nlc run",
-            };
-            Console.WriteLine(template switch
+                Console.WriteLine(NewCommandKernels.GetSystemsReportCommandMessage());
+                Console.WriteLine(NewCommandKernels.GetSystemsBuildCommandMessage());
+            }
+            else
             {
-                "test" => "To build and test your project:",
-                "library" => "To build your project:",
-                _ => "To build and run your project:",
-            });
-            Console.WriteLine($"  cd {projectName}");
-            Console.WriteLine("  nlc build");
-            if (nextCommand != null)
-                Console.WriteLine(nextCommand);
+                Console.WriteLine(NewCommandKernels.GetBuildCommandMessage());
+                if (NewCommandKernels.ShouldShowTestCommand(template))
+                    Console.WriteLine(NewCommandKernels.GetTestCommandMessage());
+                else if (NewCommandKernels.ShouldShowRunCommand(template))
+                    Console.WriteLine(NewCommandKernels.GetRunCommandMessage());
+            }
             Console.WriteLine();
 
             return 0;
         }
         catch (Exception ex)
         {
-            return Error($"Failed to create project: {ex.Message}");
+            return Error(NewCommandKernels.GetFailedMessage(ex.Message));
         }
-    }
-
-    static string[] GetTemplateSourceFiles(string template) => template switch
-    {
-        "console" => new[] { "Program.nl" },
-        "library" => new[] { "Calculator.nl" },
-        "test" => new[] { "Calculator.nl", "Calculator.tests.nl" },
-        "webapi" => new[] { "Program.nl", "Controllers/WeatherController.nl" },
-        _ => Array.Empty<string>(),
-    };
-
-    static string? NormalizeProjectTemplate(string value)
-    {
-        return value.Trim().ToLowerInvariant() switch
-        {
-            "console" or "exe" or "app" => "console",
-            "library" or "lib" => "library",
-            "test" or "tests" => "test",
-            "webapi" or "web-api" or "web" => "webapi",
-            _ => null,
-        };
     }
 
     static void WriteCanonicalProject(string projectDir, string projectName, string template)
     {
-        File.WriteAllText(Path.Combine(projectDir, "project.yml"), GenerateProjectYaml(projectName, template));
+        File.WriteAllText(NewCommandKernels.GetProjectYamlPath(projectDir), NewCommandKernels.GetProjectYamlText(projectName, template));
         WriteSdkSupportFiles(projectDir);
 
-        switch (template)
-        {
-            case "console":
-                File.WriteAllText(Path.Combine(projectDir, "Program.nl"), ConsoleProgramSource);
-                break;
-            case "library":
-                File.WriteAllText(Path.Combine(projectDir, "Calculator.nl"), CalculatorSource);
-                break;
-            case "test":
-                File.WriteAllText(Path.Combine(projectDir, "Calculator.nl"), CalculatorSource);
-                File.WriteAllText(Path.Combine(projectDir, "Calculator.tests.nl"), CalculatorTestsSource);
-                break;
-            case "webapi":
-                Directory.CreateDirectory(Path.Combine(projectDir, "Controllers"));
-                File.WriteAllText(Path.Combine(projectDir, "Program.nl"), WebApiProgramSource);
-                File.WriteAllText(Path.Combine(projectDir, "Controllers", "WeatherController.nl"), WebApiControllerSource);
-                break;
-        }
+        foreach (var sourceFileKind in NewCommandKernels.GetTemplateSourceFileKinds(template))
+            WriteTemplateSourceFile(projectDir, template, sourceFileKind);
+    }
+
+    static void WriteTemplateSourceFile(
+        string projectDir,
+        string template,
+        NewTemplateSourceFileKind sourceFileKind)
+    {
+        var path = NewCommandKernels.GetTemplateSourceFilePath(projectDir, sourceFileKind);
+        var directory = NewCommandKernels.GetTemplateSourceFileDirectory(projectDir, sourceFileKind);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        File.WriteAllText(path, NewCommandKernels.GetTemplateSourceText(template, sourceFileKind));
     }
 
     static void WriteSdkSupportFiles(string projectDir)
     {
-        File.WriteAllText(Path.Combine(projectDir, "global.json"), GlobalJsonContent);
-        File.WriteAllText(Path.Combine(projectDir, "NuGet.config"), NuGetConfigContent);
+        File.WriteAllText(NewCommandKernels.GetGlobalJsonPath(projectDir), NewCommandKernels.GetGlobalJsonText());
+        File.WriteAllText(
+            NewCommandKernels.GetNuGetConfigPath(projectDir),
+            NewCommandKernels.GetNuGetConfigText(NSharpInstallRoot.ProjectFeedValue()));
     }
-
-    static string GenerateProjectYaml(string projectName, string template)
-    {
-        return template switch
-        {
-            "library" or "test" => $@"name: {projectName}
-version: 1.0.0
-backend: il
-outputType: library
-targetFramework: net10.0
-
-# Test framework: xunit (default) or nunit
-# testFramework: xunit
-
-language:
-  asyncDefaultType: ValueTask
-",
-            "webapi" => $@"name: {projectName}
-version: 1.0.0
-entry: Program.nl
-backend: il
-outputType: exe
-targetFramework: net10.0
-sdk: Microsoft.NET.Sdk.Web
-
-dependencies:
-  - framework: Microsoft.AspNetCore.App
-  - nuget: Swashbuckle.AspNetCore
-    version: 7.2.0
-  - nuget: Microsoft.AspNetCore.OpenApi
-    version: 9.0.0
-
-language:
-  asyncDefaultType: ValueTask
-",
-            _ => ProjectFileParser.GenerateTemplate(projectName),
-        };
-    }
-
-    const string GlobalJsonContent = @"{
-  ""sdk"": {
-    ""version"": ""10.0.100"",
-    ""rollForward"": ""latestFeature""
-  },
-  ""msbuild-sdks"": {
-    ""NSharpLang.Sdk"": ""0.1.0""
-  }
-}
-";
-
-    const string NuGetConfigContent = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<configuration>
-  <packageSources>
-    <clear />
-    <add key=""nuget.org"" value=""https://api.nuget.org/v3/index.json"" />
-    <add key=""nsharp-local"" value=""%HOME%/.nsharp/packages"" />
-  </packageSources>
-</configuration>
-";
-
-    const string ConsoleProgramSource = @"func main() {
-    print ""Hello, N#!""
-}
-";
-
-    const string CalculatorSource = @"class Calculator {
-    static func Add(a: int, b: int): int {
-        return a + b
-    }
-
-    static func Subtract(a: int, b: int): int {
-        return a - b
-    }
-}
-";
-
-    const string CalculatorTestsSource = @"test ""adds two numbers"" {
-    result := Calculator.Add(2, 3)
-    assert result == 5
-}
-
-test ""subtracts two numbers"" {
-    result := Calculator.Subtract(7, 4)
-    assert result == 3
-}
-";
-
-    const string WebApiProgramSource = @"import Microsoft.AspNetCore.Builder
-import Microsoft.Extensions.DependencyInjection
-
-func main(args: string[]) {
-    builder := WebApplication.CreateBuilder(args)
-
-    builder.Services.AddControllers()
-    builder.Services.AddEndpointsApiExplorer()
-    builder.Services.AddSwaggerGen()
-
-    app := builder.Build()
-
-    app.UseSwagger()
-    app.UseSwaggerUI()
-    app.UseHttpsRedirection()
-    app.UseAuthorization()
-    app.MapControllers()
-
-    app.Run()
-}
-";
-
-    const string WebApiControllerSource = @"import Microsoft.AspNetCore.Mvc
-
-[ApiController]
-[Route(""api/weather"")]
-class WeatherController: ControllerBase {
-    [HttpGet]
-    func Get(): IActionResult {
-        data := [""Sunny"", ""Cloudy"", ""Rainy""]
-        return Ok(data)
-    }
-
-    [HttpGet(""{id}"")]
-    func GetById([FromRoute] id: int): IActionResult {
-        return Ok(id)
-    }
-
-    [HttpPost]
-    func Create([FromBody] request: CreateWeatherRequest): IActionResult {
-        return Ok(request)
-    }
-}
-
-class CreateWeatherRequest {
-    Summary: string
-    TemperatureC: int
-}
-";
 
     static int TestCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var testOptions = TestCommandKernels.GetOptionSummary(args);
+        if (testOptions.ShowHelp)
         {
-            Console.WriteLine(@"N# Test
-
-Usage: nlc test [options]
-
-Run `.tests.nl` suites through the IL compilation backend.
-
-Options:
-  --project <dir>       Project root directory (default: current directory)
-  --backend <mode>      Compilation backend: il
-  --filter <name>       Run only tests whose display name or fully-qualified name matches
-  --verbose             Show individual test results
-  --json                Output results as structured JSON (schemaVersion 1 envelope)
-  --timeout <duration>  Test timeout per assembly (e.g., 30s, 5m, 1h). Default: no timeout
-  --no-cache            Force clean rebuild before running tests (bypass incremental build)
-  --coverage            Planned; currently exits with unsupported-feature guidance
-  --coverage-report     Planned; currently exits with unsupported-feature guidance
-  --help, -h            Show this help text
-
-The test framework is configured in project.yml via the `testFramework` field.
-Supported values: xunit (default), nunit
-
-Coverage collection is not available in the native nlc test runner yet.
-When --coverage or --coverage-report is requested, nlc exits 1 and emits
-a structured JSON error if --json was also requested.
-
-Examples:
-  nlc test
-  nlc test --backend il
-  nlc test --filter AddPerson
-  nlc test --project examples/16-task-cli --verbose
-  nlc test --json
-
-Exit codes:
-  0  Tests passed
-  1  Compilation or test execution failed");
+            Console.WriteLine(TestCommandKernels.GetHelpText());
             return 0;
         }
 
-        var projectRoot = GetOptionValue(args, "--project") ?? Directory.GetCurrentDirectory();
-        projectRoot = Path.GetFullPath(projectRoot);
-        var filter = GetOptionValue(args, "--filter");
-        var verbose = args.Contains("--verbose");
-        var jsonOutput = args.Contains("--json");
-        var coverageReport = args.Contains("--coverage-report");
-        var collectCoverage = args.Contains("--coverage") || coverageReport;
-        var timeoutStr = GetOptionValue(args, "--timeout");
-        var noCache = args.Contains("--no-cache");
-        var backendOption = GetOptionValue(args, "--backend");
+        var projectRoot = TestCommandKernels.GetProjectRoot(testOptions.ProjectOption, Directory.GetCurrentDirectory());
+        var outputMode = TestCommandKernels.GetOutputMode(testOptions.JsonOutput);
 
         // Parse timeout to milliseconds
         int? timeoutMs = null;
-        if (timeoutStr != null)
+        if (testOptions.Timeout != null)
         {
-            timeoutMs = ParseDurationToMs(timeoutStr);
+            timeoutMs = TestCommandKernels.GetDurationMilliseconds(testOptions.Timeout);
             if (timeoutMs == null)
-                return Error($"Invalid timeout format '{timeoutStr}'. Expected a duration like 30s, 5m, or 1h.");
+            {
+                var message = TestCommandKernels.GetInvalidTimeoutMessage(testOptions.Timeout);
+                if (outputMode == 1)
+                {
+                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, message);
+                    return 1;
+                }
+
+                return Error(message);
+            }
         }
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            if (!jsonOutput) Console.WriteLine($"Testing project in {projectRoot}...");
+            if (outputMode == 2) Console.WriteLine(TestCommandKernels.GetProjectStartMessage(projectRoot));
 
-            if (collectCoverage || coverageReport)
+            if (testOptions.CollectCoverage || testOptions.CoverageReport)
             {
-                if (jsonOutput)
+                var message = TestCommandKernels.GetCoverageUnsupportedMessage();
+                if (outputMode == 1)
                 {
-                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), CoverageUnsupportedMessage);
+                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, message);
                     return 1;
                 }
 
-                return Error(CoverageUnsupportedMessage);
+                return Error(message);
             }
 
             // Find all .tests.nl files
@@ -967,81 +517,61 @@ Exit codes:
 
             if (testFiles.Length == 0)
             {
-                if (jsonOutput)
+                if (outputMode == 1)
                 {
-                    OutputNativeTestJson(projectRoot, true, Array.Empty<NativeTestResult>());
+                    OutputNativeTestJson(projectRoot, true, Array.Empty<NativeTestResult>(), new NativeTestSummary(true, 0, 0, 0, 0));
                     return 0;
                 }
-                Console.WriteLine("No test files (*.tests.nl) found.");
+                Console.WriteLine(TestCommandKernels.GetNoTestFilesMessage());
                 return 0;
             }
 
-            if (!jsonOutput) Console.WriteLine($"Found {testFiles.Length} test file(s)");
+            if (outputMode == 2) Console.WriteLine(TestCommandKernels.GetFoundTestFilesMessage(testFiles.Length));
 
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-            _ = ResolveCompilationBackend(backendOption, projectConfig);
+            CompilationBackendSelectionKernels.Validate(testOptions.BackendOption, projectConfig);
 
             return TestWithIlBackend(
                 projectRoot,
                 projectConfig,
-                filter,
-                verbose,
-                jsonOutput,
+                testOptions.Filter,
+                testOptions.Verbose,
+                outputMode,
                 timeoutMs,
-                noCache,
-                collectCoverage,
-                coverageReport,
+                testOptions.NoCache,
+                testOptions.CollectCoverage,
+                testOptions.CoverageReport,
                 sw);
         }
         catch (Exception ex)
         {
-            if (!jsonOutput) Console.WriteLine($"  Tests failed in {FormatElapsed(sw.Elapsed)}");
-            if (jsonOutput) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message); return 1; }
-            return Error($"Test failed: {ex.Message}");
+            if (outputMode == 2)
+                Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)));
+            if (outputMode == 1) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, ex.Message); return 1; }
+            return Error(TestCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
     static int FormatCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var formatOptions = FormatCommandKernels.GetOptionSummary(args);
+        if (formatOptions.ShowHelp)
         {
-            Console.WriteLine(@"N# Format
-
-Usage: nlc format [options] [files...]
-
-Format N# source files with the canonical formatter.
-
-Options:
-  --project <dir>         Project root directory (default: current directory)
-  --check                 Exit with code 1 if any file needs formatting
-  --verify-no-changes     Back-compat alias for --check
-  --diff                  Print unified diffs instead of writing files
-  --stdin                 Read source from stdin and write the formatted result to stdout
-  --help, -h              Show this help text
-
-Examples:
-  nlc format
-  nlc format --check
-  nlc format --diff Program.nl
-  nlc format --stdin < Program.nl
-
-Exit codes:
-  0  Formatting succeeded
-  1  Formatting failed or --check found unformatted files");
+            Console.WriteLine(FormatCommandKernels.GetHelpText());
             return 0;
         }
 
         try
         {
-            var verifyOnly = args.Contains("--check") || args.Contains("--verify-no-changes");
-            var diffOnly = args.Contains("--diff");
-            var stdinMode = args.Contains("--stdin");
-            var projectRoot = Path.GetFullPath(GetOptionValue(args, "--project") ?? Directory.GetCurrentDirectory());
-            var positionalFiles = GetPositionalArgs(args, "--project");
+            var verifyOnly = formatOptions.VerifyOnly;
+            var diffOnly = formatOptions.DiffOnly;
+            var stdinMode = formatOptions.StdinMode;
+            var projectRoot = FormatCommandKernels.GetProjectRoot(formatOptions.ProjectOption, Directory.GetCurrentDirectory());
+            var positionalFiles = PositionalArgumentKernels.GetArgs(args, ["--project"]);
 
             if (stdinMode && positionalFiles.Length > 0)
             {
-                Console.Error.WriteLine("Cannot combine --stdin with file arguments.");
+                Console.Error.WriteLine(FormatCommandKernels.GetStdinWithFilesMessage());
                 return 1;
             }
 
@@ -1055,7 +585,7 @@ Exit codes:
                 else
                     Console.Write(formatted);
 
-                return verifyOnly && source != formatted ? 1 : 0;
+                return FormatCommandKernels.GetStdinExitCode(verifyOnly, source, formatted);
             }
 
             string[] files;
@@ -1066,13 +596,13 @@ Exit codes:
             else
             {
                 files = positionalFiles
-                    .Select(file => Path.GetFullPath(Path.IsPathRooted(file) ? file : Path.Combine(projectRoot, file)))
+                    .Select(file => FormatCommandKernels.ResolveFilePath(projectRoot, file))
                     .ToArray();
             }
 
             if (files.Length == 0)
             {
-                Console.WriteLine("No .nl files found to format.");
+                Console.WriteLine(FormatCommandKernels.GetNoFilesFoundMessage());
                 return 0;
             }
 
@@ -1084,7 +614,7 @@ Exit codes:
             {
                 if (!File.Exists(file))
                 {
-                    Console.Error.WriteLine($"File not found: {file}");
+                    Console.Error.WriteLine(FormatCommandKernels.GetFileNotFoundMessage(file));
                     failed = true;
                     continue;
                 }
@@ -1093,9 +623,9 @@ Exit codes:
                 {
                     var source = File.ReadAllText(file);
                     var formatted = FormatSource(source, file, projectRoot);
-                    var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
+                    var relativePath = FormatCommandKernels.GetRelativePath(projectRoot, file);
 
-                    if (!string.Equals(source, formatted, StringComparison.Ordinal))
+                    if (FormatCommandKernels.ShouldEmitFormattedFile(source, formatted))
                     {
                         filesNeedingFormatting.Add(relativePath);
 
@@ -1111,69 +641,74 @@ Exit codes:
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"Error formatting {file}: {ex.Message}");
+                    Console.Error.WriteLine(FormatCommandKernels.GetErrorFormattingMessage(file, ex.Message));
                     failed = true;
                 }
             }
 
-            if (failed)
+            var completionKind = FormatCommandKernels.GetCompletionKind(failed, verifyOnly, diffOnly, filesNeedingFormatting.Count);
+
+            if (completionKind == 1)
                 return 1;
 
-            if (verifyOnly && filesNeedingFormatting.Count > 0)
+            if (completionKind == 2)
             {
-                Console.Error.WriteLine($"Formatting check failed for {filesNeedingFormatting.Count} file(s):");
+                Console.Error.WriteLine(FormatCommandKernels.GetCheckFailedHeader(filesNeedingFormatting.Count));
                 foreach (var file in filesNeedingFormatting)
-                    Console.Error.WriteLine($"  {file}");
+                    Console.Error.WriteLine(FormatCommandKernels.GetCheckFailedPathLine(file));
                 return 1;
             }
 
-            if (diffOnly)
+            if (completionKind == 3 || completionKind == 4)
             {
-                if (filesNeedingFormatting.Count == 0)
-                    Console.WriteLine("All files are properly formatted.");
+                if (completionKind == 3)
+                    Console.WriteLine(FormatCommandKernels.GetAllFilesFormattedMessage());
                 return 0;
             }
 
-            if (verifyOnly)
+            if (completionKind == 5)
             {
-                Console.WriteLine("All files are properly formatted.");
+                Console.WriteLine(FormatCommandKernels.GetAllFilesFormattedMessage());
                 return 0;
             }
 
-            Console.WriteLine($"Formatted {formattedCount} file(s).");
+            Console.WriteLine(FormatCommandKernels.GetFormattedCountMessage(formattedCount));
             return 0;
         }
         catch (Exception ex)
         {
-            return Error($"Format failed: {ex.Message}");
+            return Error(FormatCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
     static string FormatSource(string source, string file, string projectRoot)
     {
         var lexer = new Lexer(source, file);
-        var tokens = lexer.Tokenize();
-        var parser = new Parser(tokens, file, source);
-        var parseResult = parser.ParseCompilationUnit();
+        lexer.Tokenize();   // populates lexer.Comments for the formatter below
+        var parseResult = NSharpLang.Compiler.Columnar.ColumnarParserRecovery.ParseFileAst(source, file);
 
         if (parseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
         {
-            throw new Exception($"Parse errors in {NormalizePath(Path.GetRelativePath(projectRoot, file))}: {string.Join(", ", parseResult.Errors.Select(e => e.Message))}");
+            throw new Exception(FormatCommandKernels.GetParseErrorsMessage(
+                FormatCommandKernels.GetRelativePath(projectRoot, file),
+                string.Join(", ", parseResult.Errors.Select(e => e.Message))));
         }
 
-        var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? projectRoot;
+        var fileDir = FormatCommandKernels.GetFileDirectory(projectRoot, file);
         var config = FormatterConfig.FromEditorConfig(fileDir);
         var formatter = new Formatter(config);
         var result = formatter.FormatSafe(source, parseResult.CompilationUnit!, lexer.Comments, file);
 
+        var relativePath = FormatCommandKernels.GetRelativePath(projectRoot, file);
         foreach (var warning in result.Warnings)
         {
-            Console.Error.WriteLine($"Warning [{NormalizePath(Path.GetRelativePath(projectRoot, file))}]: {warning}");
+            Console.Error.WriteLine(FormatCommandKernels.GetWarningLine(relativePath, warning));
         }
 
         if (!result.Success)
         {
-            throw new Exception($"Formatter safety check failed: {string.Join("; ", result.Warnings)}");
+            throw new Exception(FormatCommandKernels.GetSafetyCheckFailedMessage(
+                string.Join("; ", result.Warnings)));
         }
 
         return result.Text;
@@ -1202,14 +737,17 @@ Exit codes:
 
             foreach (var childDirectory in childDirectories)
             {
-                if (!ShouldSkipDiscoveredDirectory(childDirectory))
+                var name = FormatCommandKernels.GetDiscoveredDirectoryName(childDirectory);
+                if (!FormatCommandKernels.ShouldSkipDiscoveredDirectoryName(name))
+                {
                     pending.Push(childDirectory);
+                }
             }
 
             foreach (var file in childFiles)
             {
-                if (!file.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase)
-                    && ShouldFormatDiscoveredFile(projectRoot, file))
+                var relativePath = FormatCommandKernels.GetRelativePath(projectRoot, file);
+                if (FormatCommandKernels.ShouldFormatDiscoveredPath(relativePath))
                 {
                     yield return file;
                 }
@@ -1217,124 +755,18 @@ Exit codes:
         }
     }
 
-    static bool ShouldSkipDiscoveredDirectory(string directory)
+    /// <summary>
+    /// Extracts conditional-compilation symbols from <c>--define</c>/<c>-d</c> flags
+    /// (space form <c>--define FOO</c>, equals form <c>--define=FOO</c>, and
+    /// comma/semicolon lists <c>--define FOO,BAR</c>), removing them from
+    /// <paramref name="args"/> so operand/flag detection never sees them. Returns the
+    /// collected symbols in first-seen order.
+    /// </summary>
+    static List<string> ExtractDefineFlags(ref string[] args)
     {
-        var name = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        return name.Equals(".git", StringComparison.OrdinalIgnoreCase)
-            || name.Equals(".hg", StringComparison.OrdinalIgnoreCase)
-            || name.Equals(".svn", StringComparison.OrdinalIgnoreCase)
-            || name.Equals(".worktrees", StringComparison.OrdinalIgnoreCase)
-            || name.Equals(".hermes", StringComparison.OrdinalIgnoreCase)
-            || name.Equals(".nlc", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("bin", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("obj", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("node_modules", StringComparison.OrdinalIgnoreCase);
-    }
-
-    static bool ShouldFormatDiscoveredFile(string projectRoot, string file)
-    {
-        var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
-        var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Any(segment => segment.Equals(".git", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals(".hg", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals(".svn", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals(".worktrees", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals(".hermes", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals(".nlc", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals("bin", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals("obj", StringComparison.OrdinalIgnoreCase)
-            || segment.Equals("node_modules", StringComparison.OrdinalIgnoreCase)))
-            return false;
-
-        for (var i = 0; i <= segments.Length - 2; i++)
-        {
-            var isFixtureRoot = string.Equals(segments[i], "test", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(segments[i], "tests", StringComparison.OrdinalIgnoreCase);
-            if (isFixtureRoot && string.Equals(segments[i + 1], "fixtures", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    static string? GetOptionValue(string[] args, string flag)
-    {
-        for (var i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == flag)
-                return args[i + 1];
-        }
-
-        return null;
-    }
-
-    static string[] GetPositionalArgs(string[] args, params string[] optionsWithValues)
-    {
-        var positional = new List<string>();
-        var options = new HashSet<string>(optionsWithValues, StringComparer.Ordinal);
-
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (options.Contains(args[i]))
-            {
-                i++;
-                continue;
-            }
-
-            if (args[i] is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose")
-                continue;
-
-            if (!args[i].StartsWith("-", StringComparison.Ordinal))
-                positional.Add(args[i]);
-        }
-
-        return positional.ToArray();
-    }
-
-    static int? ParseDurationToMs(string duration)
-    {
-        if (string.IsNullOrWhiteSpace(duration)) return null;
-
-        var trimmed = duration.Trim();
-        if (trimmed.Length < 2) return null;
-
-        var unit = trimmed[^1];
-        if (!int.TryParse(trimmed[..^1], out var value) || value <= 0)
-            return null;
-
-        return unit switch
-        {
-            's' => value * 1000,
-            'm' => value * 60 * 1000,
-            'h' => value * 60 * 60 * 1000,
-            _ => null
-        };
-    }
-
-    static string[] StripOptionWithValue(string[] args, string flag)
-    {
-        var result = new List<string>();
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (args[i] == flag && i + 1 < args.Length)
-            {
-                i++; // Skip the value too
-                continue;
-            }
-            result.Add(args[i]);
-        }
-        return result.ToArray();
-    }
-
-    static string NormalizePath(string path) => path.Replace('\\', '/');
-
-    static string FormatElapsed(TimeSpan elapsed)
-    {
-        if (elapsed.TotalMinutes >= 1)
-            return $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds:D2}s";
-        return $"{elapsed.TotalSeconds:F1}s";
+        var extraction = DefineArgumentKernels.Extract(args);
+        args = extraction.RemainingArgs;
+        return extraction.Defines.ToList();
     }
 
     internal static string GetVersion()
@@ -1346,84 +778,9 @@ Exit codes:
             ?? "unknown";
     }
 
-    static int ShowVersion()
-    {
-        Console.WriteLine($"nlc {GetVersion()}");
-        return 0;
-    }
-
-    static int ShowHelp()
-    {
-        Console.WriteLine($@"N# Compiler (nlc) {GetVersion()}
-
-Usage: nlc <command> [options]
-
-Build & Run:
-  build [file]         Compile a project or single .nl file (--release, --verbose)
-  run [file]           Build and run a project or single file
-  restore              Generate MSBuild compatibility config from project.yml
-  publish              Publish project for deployment
-  pack                 Create a NuGet package from project.yml metadata
-  clean                Remove build artifacts
-
-Analysis & Fix:
-  check                Fast type-check (JSON by default)
-  fix                  Auto-apply compiler suggestions
-  query <cmd>          Code intelligence for LLMs and terminals
-  daemon <cmd>         Background analysis daemon
-Code Quality:
-  format [files...]    Format .nl source files
-  lint [files...]      Run static analysis rules
-  test                 Run .tests.nl test suites (--filter, --verbose)
-
-Dependencies:
-  add <package>        Add a NuGet dependency to project.yml
-  tidy                 Identify and remove unused dependencies
-  remove <package>     Remove a dependency from project.yml
-  update [package]     Update dependencies to latest versions
-  tree                 Show dependency tree
-  audit                Check for known vulnerabilities
-
-Project:
-  new <name>           Create a new N# project
-  init                 Initialize N# in the current directory
-  export <target>      Export N# sources without changing the IL toolchain
-  watch <cmd>          Re-run check/build/test/lint/format on file changes
-  doc                  Generate HTML API documentation
-  env                  Show environment and toolchain info
-  doctor               Verify N# CLI, SDK/templates, LSP, and VS Code tooling
-  completion <shell>   Generate shell completion scripts
-Options:
-  --version, -V        Show nlc version
-  --text               Human-readable output for check/fix/query/lint
-  --json               Structured JSON output (default for check/fix/query/lint)
-  --help, -h           Show this help message
-
-Common Workflows:
-  nlc new MyApp && cd MyApp    Create and enter a new project
-  nlc build                    Compile the project
-  nlc run                      Build and run
-  nlc test                     Run tests
-  nlc add Serilog@3.1.0        Add a dependency
-  nlc check                    Fast feedback loop
-  nlc doctor                   Verify the installed toolchain
-  nlc fix && nlc check         Auto-fix then verify
-  nlc build --release          Release configuration/output layout
-  nlc export csharp --project . -o ./myapp-csharp
-                               Export C# for inspection
-  nlc format --check           CI formatting gate
-  nlc test --filter AddPerson  Run specific tests
-  nlc watch check              Re-check on every save
-  nlc publish -c Release       Publish for deployment
-
-Run 'nlc <command> --help' for command-specific options.");
-
-        return 0;
-    }
-
     static int Error(string message)
     {
-        Console.Error.WriteLine($"Error: {message}");
+        Console.Error.WriteLine(ProgramCommandKernels.GetErrorLine(message));
         return 1;
     }
 }

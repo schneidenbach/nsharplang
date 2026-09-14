@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.IO.Pipelines;
 using System.Linq;
 using System.Threading.Tasks;
 using NSharpLang.LanguageServer.Handlers;
@@ -15,24 +17,32 @@ namespace NSharpLang.LanguageServer;
 
 class Program
 {
+    // THE SERVER MUST NOT OUTLIVE ITS CLIENT — the second of two event-driven ends (the first is the
+    // stdin pump in `Main`). A client already gone when it introduces itself is the same answer, sooner.
+    static void WatchClientProcess(long? clientProcessId)
+    {
+        if (clientProcessId is not long clientPid) return;
+        try { _ = Process.GetProcessById((int)clientPid).WaitForExitAsync().ContinueWith(_ => Environment.Exit(0), TaskScheduler.Default); }
+        catch (ArgumentException) { Environment.Exit(0); }
+    }
+
     static async Task Main(string[] args)
     {
-        // Setup logging
-        var logPath = System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".nsharp",
-            "lsp.log"
-        );
-
+        var logPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nsharp", "lsp.log");
         System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(logPath)!);
 
         await Console.Error.WriteLineAsync($"N# Language Server starting... (log: {logPath})");
+
+        // stdin is PUMPED into a pipe instead of being handed to the server, because only this end can
+        // see the client close it: the copy completes at EOF and the process leaves instead of orphaning.
+        var clientInput = new Pipe();
+        _ = Console.OpenStandardInput().CopyToAsync(clientInput.Writer.AsStream()).ContinueWith(_ => Environment.Exit(0), TaskScheduler.Default);
 
         try
         {
             var server = await OmniSharp.Extensions.LanguageServer.Server.LanguageServer.From(options =>
                 options
-                    .WithInput(Console.OpenStandardInput())
+                    .WithInput(clientInput.Reader)
                     .WithOutput(Console.OpenStandardOutput())
                     .ConfigureLogging(builder =>
                     {
@@ -43,7 +53,6 @@ class Program
                     .WithServices(services =>
                     {
                         services.AddSingleton<DocumentManager>();
-                        services.AddSingleton<XmlDocReader>();
                         services.AddSingleton<TypeResolver>();
                     })
                     .WithHandler<TextDocumentHandler>()
@@ -72,15 +81,12 @@ class Program
                     .WithHandler<TypeHierarchySupertypesHandler>()
                     .WithHandler<TypeHierarchySubtypesHandler>()
                     .WithHandler<DocumentLinkHandler>()
-                    .WithHandler<CodeLensHandler>()
                     .WithHandler<OnTypeFormattingHandler>()
                     .OnInitialize((server, request, cancellationToken) =>
                     {
                         var logger = server.Services.GetRequiredService<ILogger<Program>>();
-                        logger.LogInformation("N# Language Server initialized");
-                        logger.LogInformation("Client: {ClientName} {ClientVersion}",
-                            request.ClientInfo?.Name,
-                            request.ClientInfo?.Version);
+                        logger.LogInformation("N# Language Server initialized for client {ClientName} {ClientVersion}", request.ClientInfo?.Name, request.ClientInfo?.Version);
+                        WatchClientProcess(request.ProcessId);
                         return Task.CompletedTask;
                     })
                     .OnInitialized((server, request, response, cancellationToken) =>
@@ -109,23 +115,13 @@ class Program
                             logger.LogInformation("Scanning workspace for .nl files: {Root}", workspaceRoot);
                             var loadedUris = documentManager.ScanWorkspaceDirectory(workspaceRoot);
 
-                            // Publish diagnostics for all loaded files
                             foreach (var uri in loadedUris)
                             {
                                 var publications = documentManager.GetDiagnosticsToPublish(uri);
                                 foreach (var publication in publications)
                                 {
-                                    var diagnostics = new System.Collections.Generic.List<LspDiagnostic>();
-
-                                    foreach (var error in publication.CompilerDiagnostics)
-                                    {
-                                        diagnostics.Add(LspDiagnosticConverter.FromCompilerError(error));
-                                    }
-
-                                    foreach (var linterDiag in publication.LinterDiagnostics)
-                                    {
-                                        diagnostics.Add(LspDiagnosticConverter.FromLinterDiagnostic(linterDiag));
-                                    }
+                                    var diagnostics = publication.CompilerDiagnostics.Select(LspDiagnosticConverter.FromCompilerError)
+                                        .Concat(publication.LinterDiagnostics.Select(LspDiagnosticConverter.FromLinterDiagnostic));
 
                                     server.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
                                     {

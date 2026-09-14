@@ -9,7 +9,7 @@ Welcome to N#! This guide covers the fundamental syntax and features of the N# p
 
 ## What is N#?
 
-N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. Think of it as "Go for .NET" - it combines Go's simplicity and clean syntax with the power of the .NET ecosystem.
+N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It shares Go's ethos of simplicity and clean syntax, but it is **not** "Go for .NET": N# pairs that small syntax with a much richer type system (discriminated unions, exhaustive pattern matching, structural typing) and an opt-in high-performance "systems" lane.
 
 **Key Features:**
 - Clean, minimal syntax (no semicolons!)
@@ -128,12 +128,99 @@ for item in items {
     Console.WriteLine(item)
 }
 
-// With index
-numbers := [10, 20, 30]
-foreach num in numbers {
-    Console.WriteLine(num)
+// Counted loop
+for i := 0; i < numbers.Length; i++ {
+    Console.WriteLine(numbers[i])
 }
 ```
+
+`foreach` is accepted as a synonym for the `for x in e` form.
+
+#### What `for x in e` can iterate
+
+`for x in e` follows the same rules as C#'s `foreach`, and they are structural: N# looks at what the
+collection's type *has*, never at what it is called. In order:
+
+1. An **array** — an index loop over its length, with `x` typed as the element type.
+2. A **`string`** — an index loop over its characters, with `x` typed as `char`. No enumerator is
+   allocated.
+3. The **enumerator pattern** — an accessible parameterless `GetEnumerator()` whose result has a
+   readable `Current` and a parameterless `bool MoveNext()`. `x` is typed as `Current`'s type.
+4. **`IEnumerable<T>`**, and then the non-generic **`IEnumerable`** (where `x` is `object`).
+
+The pattern is why `List<T>`, `Dictionary<K, V>` (which iterates `KeyValuePair<K, V>`),
+`Span<T>`, `Stack<T>`, `Dictionary<K, V>.Keys`, `JsonElement.EnumerateArray()` and a type you wrote
+yourself all iterate without implementing anything:
+
+```n#
+class Countdown {
+    Start: int
+
+    func GetEnumerator(): CountdownEnumerator {
+        return new CountdownEnumerator(Start)
+    }
+}
+
+for value in new Countdown(3) {   // 3, 2, 1 — Countdown implements no interface
+    print value
+}
+```
+
+When the enumerator is a **struct** it stays a struct: the loop keeps it in a local of its own type
+and steps it in place, so iterating a `List<int>` allocates nothing. When the enumerator is
+**disposable**, the loop body runs inside a `try`/`finally` and the enumerator is disposed on every
+way out — falling off the end, `break`, `return`, or an exception.
+
+A value that has none of the four shapes is an error at the collection:
+
+```text
+foreach collection must be enumerable, but this collection is 'int'
+
+Suggestion: A foreach collection needs an accessible parameterless GetEnumerator() whose result
+has a readable Current and a bool MoveNext(), or it must be an array, a string, an IEnumerable<T>
+or an IEnumerable.
+```
+
+#### Writing the loop variable's type
+
+The loop variable may carry a type, `for x: T in e`, and each element is then converted to `T` once
+per iteration:
+
+```n#
+for m: Match in Regex.Matches(text, "a") {   // MatchCollection's elements are `object`
+    total += m.Length
+}
+```
+
+This is what makes a sequence typed by an interface *wider* than its contents usable at the type its
+elements actually have. `MatchCollection` and `ArrayList` are plain `IEnumerable`s, so without the
+annotation `m` would be an `object` and `.Length` could not be spelled.
+
+The conversion is the one a **cast** performs, not the one an assignment performs — which is exactly
+why the downcast above is allowed. All of these are legal:
+
+```n#
+for m: Match in Regex.Matches(text, "a") { }   // a downcast out of `object`
+for v: int in boxedValues { }                  // an unboxing, from List<object>
+for n: long in numbers { }                     // a numeric widening, from int[]
+for value: object in numbers { }               // a boxing widening
+```
+
+Because it is a cast, the compiler checks only that the conversion *could* apply. An element whose
+runtime type does not satisfy it throws `InvalidCastException` at the loop, exactly as the cast
+written by hand would. A pair of types that convert in **neither** direction is refused outright:
+
+```text
+A 'int' cannot be read as a 'string'
+
+Hint: An annotated loop variable converts each element the way a cast does — a downcast, an
+unboxing, or a numeric conversion. There is no conversion between `int` and `string` in either
+direction, so no element could ever take that type.
+```
+
+See [`NL330`](./errors/NL330.md). The annotated type is what the variable *is* for the rest of the
+loop — hover, completion and the body all read it — so drop the annotation whenever the inferred
+element type is already what you want.
 
 ## Collections
 
@@ -265,6 +352,10 @@ message := $"Hello, {name}! You are {age} years old."
 Console.WriteLine(message)
 ```
 
+Backslash escapes (`\n`, `\t`, `\e`, `\x1b`, `\u0041`, ...) are listed in the
+[language tour](./language-tour.md#escape-sequences). A backslash that starts no escape is an error
+([NL105](./errors/NL105.md)), so double it or use a raw `"""..."""` string.
+
 ## Imports and Packages
 
 ### Import Statements
@@ -339,7 +430,204 @@ func Create([FromBody] [Required] user: CreateUserRequest): IActionResult {
 }
 ```
 
-Parameter attributes are emitted as real CLR parameter metadata, so ASP.NET model-binding attributes such as `[FromBody]` and `[FromRoute]`, plus xUnit-style parameter attributes from referenced packages, are visible to the framework at runtime.
+Attribute names resolve in the declaring file's scope, with or without the `Attribute` suffix —
+`[Mark]` and `[MarkAttribute]` name the same type. Attributes are emitted on classes, structs,
+records, interfaces, functions, methods, constructors, properties, **fields**, and parameters. A
+property's attributes go on the **property** itself, which is where `PropertyInfo.GetCustomAttributes`
+— and so every model-binding, serialization and validation framework — looks for them.
+
+A field carries its own attributes, whatever shape the field has — instance, `static`, `const`, and a
+field of a `struct` alike:
+
+```n#
+class Order {
+    [Required]
+    Customer: string
+
+    [Obsolete("use Total")]
+    static Legacy: int = 0
+
+    [Mark("limit")]
+    const Max: int = 100
+}
+```
+
+Parameter attributes are emitted as real CLR parameter metadata, so ASP.NET model-binding attributes
+such as `[FromBody]` and `[FromRoute]`, plus xUnit-style parameter attributes from referenced
+packages, are visible to the framework at runtime. A **constructor's** parameters carry them exactly
+the way a function's do.
+
+### An attribute on a positional constructor parameter
+
+A **primary constructor's** parameter is one declaration that becomes two things: the constructor's
+parameter, and the field that parameter stores into.
+
+```n#
+record Options([JsonIgnore] Summary: bool = false, [FromRoute] Id: int = 0) {
+}
+```
+
+C# chooses between the two with a target prefix — `[property: JsonIgnore]`. N# has no target prefix
+at any position, so the **attribute's own `[AttributeUsage]`** chooses:
+
+| The attribute allows | It is written on |
+|---|---|
+| parameters | the **parameter** — what the source literally wrote |
+| fields but not parameters | the **field** that parameter declares |
+| neither | nothing; [`NL933`](./errors/NL933.md) names both rows |
+
+So `[JsonIgnore]` — declared for properties and fields — reaches the member a serializer reads, and
+`[FromRoute]` — declared for parameters — stays on the parameter a model binder reads, without either
+one being spelled differently. The rule is the same for a `record`, a `record struct`, and a `class`
+or `struct` with a primary constructor.
+
+An **ordinary** parameter is not a member, so nothing changes there: an attribute declared only for
+fields is still refused on a `func`'s parameter, and a constructor parameter never routes to a field
+that happens to share its name.
+
+### Attribute arguments
+
+An attribute argument must be a **compile-time constant**. Every shape the CLR can store in a
+custom-attribute blob is written:
+
+```n#
+[Mark("text", 42)]                                  // strings and numbers
+[Mark(true, 'x', 1.5f, 2.25)]                       // bool, char, float, double
+[Mark(Level.High)]                                  // an enum member
+[Mark(AttributeTargets.Method | AttributeTargets.Class)]   // a `|` combination of them
+[Mark(typeof(Order))]                               // a type
+[Mark(["a", "b"])]                                  // an array of constants
+[Mark(null)]                                        // a null reference
+[Mark("text", Count = 42, Note = "named")]          // named arguments
+```
+
+A named argument binds to a **public settable property** or a **public mutable field** of the
+attribute, declared by it or inherited. Named arguments come after the positional ones.
+
+An integer constant fills any numeric parameter whose range contains it, so a `byte` parameter takes
+`[Mark(5)]` and refuses `[Mark(300)]`. A `long` or `ulong` constant that does not fit in an `int`
+carries its suffix (`3L`, `18446744073709551615UL`), and a `float` argument carries `f`. An **array**
+argument converts the same way, one element at a time: `[Bytes([1, 2])]` fills a `byte[]` parameter
+because each element is a constant a `byte` holds, and `[Bytes([1, 300])]` is refused.
+
+An argument the constructor gives a **default** may be left off, and the default is what the metadata
+carries — a custom-attribute blob has no notion of an omitted argument, so N# writes the declared
+value exactly as the C# compiler does:
+
+```n#
+class MarkAttribute: Attribute {
+    Level: int
+    constructor(level: int = 1) {
+        Level = level
+    }
+}
+
+[Mark]            // the emitted row carries Level = 1
+[Mark(3)]         // the emitted row carries Level = 3
+```
+
+This holds for an attribute from a referenced assembly too: its parameter defaults are read from its
+own metadata.
+
+Anything that is not a constant — a call, a variable, a `new` expression — is refused by
+[`NL310`](./errors/NL310.md) rather than silently dropped.
+
+### Declaring your own attribute
+
+An attribute is an ordinary class that derives from `System.Attribute`, and it may be applied
+anywhere in the same program that declares it:
+
+```n#
+import System
+
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
+class RetryAttribute: Attribute {
+    Attempts: int
+    Reason: string
+
+    constructor(attempts: int) {
+        Attempts = attempts
+        Reason = ""
+    }
+}
+
+class Client {
+    [Retry(3)]
+    [Retry(5, Reason = "flaky endpoint")]
+    func Fetch() {
+    }
+}
+```
+
+The constructor is chosen by ordinary overload resolution over the constructors the class declares;
+named arguments bind to its own or its base's settable members. An attribute may derive from another
+attribute, in this program or in a referenced assembly, and its constructor may chain to the base's
+with arguments (`constructor(text: string): base(text) {}`) in either world.
+
+`[AttributeUsage(...)]` on the declaration is honored, and it is inherited by derived attributes:
+
+- applying the attribute to a declaration its targets exclude reports
+  [`NL933`](./errors/NL933.md);
+- applying it twice without `AllowMultiple = true` reports [`NL934`](./errors/NL934.md).
+
+Because N# has no attribute position inside accessor braces, a **property** offers both the
+`Property` and the `Method` target: an attribute declared for either may be written on a property,
+and it reaches the property's accessors.
+
+### Positions N# has no attribute for
+
+N# has no attribute **target** prefix — `[assembly: ...]`, `[return: ...]`, `[field: ...]` — and no
+attribute position on an **enum member**. Writing one reports [`NL935`](./errors/NL935.md), which
+names the position and stops there: the rest of the declaration still parses, so one refused attribute
+does not cascade into a page of syntax errors. Generic attributes (`class Mark<T>: Attribute`) are not
+supported either.
+
+### `[MethodImpl]` — the attribute that is not stored as an attribute
+
+`System.Runtime.CompilerServices.MethodImplAttribute` is a **pseudo-custom attribute**. The CLR does
+not keep a custom-attribute row for it. What it says goes into the implementation-flags column of the
+method definition row — the column the JIT reads when it decides whether a call may be inlined, and
+the one `MethodBase.GetMethodImplementationFlags()` reads back. N# writes it there, exactly as the C#
+compiler does, so it never appears in `GetCustomAttributes()` or `GetCustomAttributesData()`.
+
+```n#
+import System.Runtime.CompilerServices
+
+readonly struct Result {
+    state: byte
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    constructor(state: byte) {
+        this.state = state
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    IsOk: bool => state == 1
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    func Describe(): string {
+        return IsOk ? "ok" : "err"
+    }
+}
+```
+
+It may be written on a **method**, a **free function**, an **operator**, a **generic method**, a
+**constructor**, a **property** and an **indexer**. N# has no attribute position inside accessor
+braces, so a property's or indexer's attributes are its **accessors'** attributes: the declaration
+above marks `get_IsOk`, and a property with both accessors marks both. That is N#'s spelling of what
+C# writes as a per-accessor `[MethodImpl]`.
+
+The option may be written as a single member, as a `|` combination, or fully qualified as
+`System.Runtime.CompilerServices.MethodImplOptions.NoInlining`. There is no way to name a constant of
+enum type at type scope in N# — `const` is a local-variable keyword, not a field modifier — so where
+C# would declare `private const MethodImplOptions HotPathImpl = ...` and reuse it, N# writes the
+combination at each member.
+
+Three mistakes are refused rather than dropped: the attribute on a declaration that has no
+implementation flags ([`NL930`](./errors/NL930.md)), a value with a bit no `MethodImplOptions` member
+defines ([`NL931`](./errors/NL931.md)), and a combination the CLR's type loader would reject —
+`Synchronized` on a value type's member, `InternalCall` or `Unmanaged` on a member with a body
+([`NL932`](./errors/NL932.md)).
 
 ## Example: Complete Program
 

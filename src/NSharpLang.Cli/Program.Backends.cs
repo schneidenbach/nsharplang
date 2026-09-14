@@ -4,21 +4,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler;
-using NSharpLang.Compiler.CodeIntelligence;
-using NSharpLang.Compiler.Performance;
 
 namespace NSharpLang.Cli;
 
 partial class Program
 {
-    private static CompilationBackend ResolveCompilationBackend(string? backendOption, ProjectConfig? config)
-    {
-        return !string.IsNullOrWhiteSpace(backendOption)
-            ? CompilationBackendExtensions.Parse(backendOption)
-            : config?.EffectiveBackend ?? CompilationBackend.Il;
-    }
-
-    private static int BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings, bool verbose = false, bool aot = false)
+    private static BuildCommandResult BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings, bool verbose = false, bool aot = false, IReadOnlyList<string>? cliDefines = null)
     {
         var totalSw = Stopwatch.StartNew();
         var resolveSw = new Stopwatch();
@@ -26,151 +17,166 @@ partial class Program
 
         try
         {
-            Console.WriteLine($"Building project in {projectRoot} with the IL backend...");
+            Console.WriteLine(BuildCommandKernels.GetProjectStartMessage(projectRoot));
 
-            var projectYmlPath = Path.Combine(projectRoot, "project.yml");
+            var projectYmlPath = CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot);
             if (!File.Exists(projectYmlPath))
             {
-                return Error("No project.yml found in current directory. Run 'nlc new <name>' to create a project, or use 'nlc build <file.nl>' for a single file.");
+                return BuildCommandResult.Failure(
+                    Error(BuildCommandKernels.GetMissingProjectFileMessage()));
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
-            var configuration = release ? "Release" : "Debug";
-            var resolvedOutputDir = outputDir != null
-                ? Path.GetFullPath(outputDir)
-                : CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
+            var configuration = BuildCommandKernels.GetConfigurationName(release);
+            BuildCommandKernels.ApplyEffectiveDefines(config, debug: !release, cliDefines);
+            var resolvedOutputDir = BuildCommandKernels.GetOutputDirectory(projectRoot, configuration, config.TargetFramework, outputDir);
 
             resolveSw.Start();
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 projectRoot,
                 config,
-                new ReferenceResolutionOptions(Configuration: configuration, Quiet: !verbose));
+                new ReferenceResolutionOptions
+                {
+                    Configuration = configuration,
+                    Quiet = !verbose,
+                    AotMode = aot
+                });
             resolveSw.Stop();
 
             compileSw.Start();
-            var outputPath = CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references, aotMode: aot);
+            var outputPath = CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references, out var perfFacts, aotMode: aot);
             compileSw.Stop();
             if (outputPath == null)
             {
-                Console.WriteLine($"  Build failed in {FormatElapsed(totalSw.Elapsed)}");
-                return 1;
+                Console.WriteLine(BuildCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(totalSw.ElapsedMilliseconds)));
+                return BuildCommandResult.Failure(perfFacts: perfFacts);
             }
 
-            Console.WriteLine($"Build successful! (il, {(release ? "release" : "debug")}) [{FormatElapsed(totalSw.Elapsed)}]");
-            Console.WriteLine($"Output: {outputPath}");
+            Console.WriteLine(BuildCommandKernels.GetSuccessElapsedMessage(release, ProgramCommandKernels.FormatElapsedMilliseconds(totalSw.ElapsedMilliseconds)));
+            Console.WriteLine(BuildCommandKernels.GetOutputPathMessage(outputPath));
 
             if (timings)
             {
-                Console.Error.WriteLine($"""
-Build timings:
-  Resolve:    {FormatElapsed(resolveSw.Elapsed)}
-  Emit IL:    {FormatElapsed(compileSw.Elapsed)}
-  Total:      {FormatElapsed(totalSw.Elapsed)}
-""");
+                Console.Error.WriteLine(BuildCommandKernels.GetTimingsMessage(
+                    ProgramCommandKernels.FormatElapsedMilliseconds(resolveSw.ElapsedMilliseconds),
+                    ProgramCommandKernels.FormatElapsedMilliseconds(compileSw.ElapsedMilliseconds),
+                    ProgramCommandKernels.FormatElapsedMilliseconds(totalSw.ElapsedMilliseconds)));
             }
 
-            return 0;
+            return new BuildCommandResult(0, perfFacts);
         }
         catch (Exception ex)
         {
-            return Error($"Build failed: {ex.Message}");
+            return BuildCommandResult.Failure(Error(BuildCommandKernels.GetFailedMessage(ex.Message)));
         }
     }
 
-    private static int BuildSingleFileWithIlBackend(string sourceFile, ProjectConfig? projectConfig, bool release, string? outputDir, bool aot = false)
+    private static BuildCommandResult BuildSingleFileWithIlBackend(string sourceFile, ProjectConfig? projectConfig, bool release, string? outputDir, bool aot = false, IReadOnlyList<string>? cliDefines = null)
     {
         try
         {
-            Console.WriteLine($"Building {sourceFile} with the IL backend...");
+            Console.WriteLine(BuildCommandKernels.GetSingleFileStartMessage(sourceFile));
 
-            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
-            var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
-            var resolvedOutputDir = outputDir != null
-                ? Path.GetFullPath(outputDir)
-                : Path.Combine(sourceDir, "bin", release ? "Release" : "Debug", config.TargetFramework);
+            var sourceDir = BuildCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory());
+            var config = GetEffectiveCompilationConfig(projectConfig, BuildCommandKernels.GetSourceFileAssemblyName(sourceFile));
+            var configuration = BuildCommandKernels.GetConfigurationName(release);
+            BuildCommandKernels.ApplyEffectiveDefines(config, debug: !release, cliDefines);
+            var resolvedOutputDir = BuildCommandKernels.GetOutputDirectory(sourceDir, configuration, config.TargetFramework, outputDir);
 
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 sourceDir,
                 config,
-                new ReferenceResolutionOptions(Configuration: release ? "Release" : "Debug", BuildProjectReferences: false));
-            var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, resolvedOutputDir, references, aotMode: aot);
+                new ReferenceResolutionOptions
+                {
+                    Configuration = configuration,
+                    BuildProjectReferences = false
+                });
+            var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, resolvedOutputDir, references, out var perfFacts, aotMode: aot);
             if (outputPath == null)
             {
-                return 1;
+                return BuildCommandResult.Failure(perfFacts: perfFacts);
             }
 
-            Console.WriteLine($"Build successful! (il, {(release ? "release" : "debug")})");
-            Console.WriteLine($"Output: {outputPath}");
-            return 0;
+            Console.WriteLine(BuildCommandKernels.GetSuccessMessage(release));
+            Console.WriteLine(BuildCommandKernels.GetOutputPathMessage(outputPath));
+            return new BuildCommandResult(0, perfFacts);
         }
         catch (Exception ex)
         {
-            return Error($"Build failed: {ex.Message}");
+            return BuildCommandResult.Failure(Error(BuildCommandKernels.GetFailedMessage(ex.Message)));
         }
     }
 
-    private static int RunWithIlBackend(string projectRoot)
+    private static int RunWithIlBackend(string projectRoot, IReadOnlyList<string>? cliDefines = null)
     {
         try
         {
-            projectRoot = Path.GetFullPath(projectRoot);
-            var projectYmlPath = Path.Combine(projectRoot, "project.yml");
+            projectRoot = BuildCommandKernels.NormalizeProjectRoot(projectRoot);
+            var projectYmlPath = CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot);
             if (!File.Exists(projectYmlPath))
             {
-                return Error("No project.yml found in current directory. Run 'nlc new <name>' to create a project.");
+                return Error(RunCommandKernels.GetMissingProjectFileMessage());
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
-            if (!string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
+            if (!CompilationReferenceResolverKernels.IsExecutableOutputType(config.OutputType))
             {
-                return Error("Cannot run a library project.");
+                return Error(RunCommandKernels.GetLibraryProjectMessage());
             }
 
-            var configuration = "Debug";
-            var outputDir = CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
+            var configuration = BuildCommandKernels.GetConfigurationName(release: false);
+            BuildCommandKernels.ApplyEffectiveDefines(config, debug: true, cliDefines);
+            var outputDir = BuildCommandKernels.GetOutputDirectory(projectRoot, configuration, config.TargetFramework, outputDir: null);
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 projectRoot,
                 config,
-                new ReferenceResolutionOptions(Configuration: configuration));
+                new ReferenceResolutionOptions
+                {
+                    Configuration = configuration
+                });
             var outputPath = CompileProjectWithIlBackend(projectRoot, config, outputDir, references);
             if (outputPath == null)
             {
-                return 1;
+                return BuildCommandKernels.GetExitCode(built: false);
             }
 
             Console.WriteLine();
-            Console.WriteLine("Running...");
+            Console.WriteLine(RunCommandKernels.GetProjectStartingMessage());
             Console.WriteLine();
             return DotnetRunner.RunPassthrough($"\"{outputPath}\"", workingDirectory: projectRoot);
         }
         catch (Exception ex)
         {
-            return Error($"Run failed: {ex.Message}");
+            return Error(RunCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
-    private static int RunSingleFileWithIlBackend(string sourceFile, ProjectConfig? projectConfig)
+    private static int RunSingleFileWithIlBackend(string sourceFile, ProjectConfig? projectConfig, IReadOnlyList<string>? cliDefines = null)
     {
         var tempDir = CreateTempBuildDirectory();
         try
         {
-            Console.WriteLine($"Running {sourceFile} with the IL backend...");
+            Console.WriteLine(RunCommandKernels.GetSingleFileBackendStartMessage(sourceFile));
 
-            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
-            var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
-            if (!string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
+            var sourceDir = RunCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory());
+            var config = GetEffectiveCompilationConfig(projectConfig, BuildCommandKernels.GetSourceFileAssemblyName(sourceFile));
+            BuildCommandKernels.ApplyEffectiveDefines(config, debug: true, cliDefines);
+            if (!CompilationReferenceResolverKernels.IsExecutableOutputType(config.OutputType))
             {
-                return Error("Cannot run a library source file.");
+                return Error(RunCommandKernels.GetLibrarySourceFileMessage());
             }
 
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 sourceDir,
                 config,
-                new ReferenceResolutionOptions(BuildProjectReferences: false));
+                new ReferenceResolutionOptions
+                {
+                    BuildProjectReferences = false
+                });
             var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, tempDir, references);
             if (outputPath == null)
             {
-                return 1;
+                return BuildCommandKernels.GetExitCode(built: false);
             }
 
             Console.WriteLine();
@@ -178,7 +184,7 @@ Build timings:
         }
         catch (Exception ex)
         {
-            return Error($"Run failed: {ex.Message}");
+            return Error(RunCommandKernels.GetFailedMessage(ex.Message));
         }
         finally
         {
@@ -195,16 +201,27 @@ Build timings:
         bool verbose = false,
         bool aotMode = false)
     {
-        projectRoot = Path.GetFullPath(projectRoot);
-        var resolvedOutputDir = outputDir != null
-            ? Path.GetFullPath(outputDir)
-            : CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
+        projectRoot = BuildCommandKernels.NormalizeProjectRoot(projectRoot);
+        BuildCommandKernels.ApplyEffectiveDefines(config, debug: BuildCommandKernels.ShouldApplyDebugDefine(configuration), cliDefines: null);
+        var resolvedOutputDir = BuildCommandKernels.GetOutputDirectory(projectRoot, configuration, config.TargetFramework, outputDir);
         var references = CompilationReferenceResolver.AddResolvedDllReferences(
             projectRoot,
             config,
-            new ReferenceResolutionOptions(Configuration: configuration, IncludeTests: includeTests, Quiet: !verbose));
+            new ReferenceResolutionOptions
+            {
+                Configuration = configuration,
+                IncludeTests = includeTests,
+                Quiet = !verbose,
+                AotMode = aotMode
+            });
 
-        return CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references, includeTests, aotMode);
+        return CompileProjectWithIlBackend(
+            projectRoot,
+            config,
+            resolvedOutputDir,
+            references,
+            includeTests,
+            aotMode);
     }
 
     private static string? CompileProjectWithIlBackend(
@@ -214,13 +231,26 @@ Build timings:
         ReferenceResolutionResult? references = null,
         bool includeTests = false,
         bool aotMode = false)
-    {
-        var sourceFiles = config.GetSourceFiles(projectRoot, includeTests).ToArray();
-        if (!ValidateStrictLintDiagnostics(projectRoot, sourceFiles))
-        {
-            return null;
-        }
+        => CompileProjectWithIlBackend(
+            projectRoot,
+            config,
+            outputDir,
+            references,
+            out _,
+            includeTests,
+            aotMode);
 
+    private static string? CompileProjectWithIlBackend(
+        string projectRoot,
+        ProjectConfig config,
+        string outputDir,
+        ReferenceResolutionResult? references,
+        out BuildPerfReportFacts perfFacts,
+        bool includeTests = false,
+        bool aotMode = false)
+    {
+        perfFacts = BuildPerfReportFacts.Empty;
+        var sourceFiles = config.GetSourceFiles(projectRoot, includeTests).ToArray();
         var compiler = new MultiFileCompiler(sourceFiles, projectRoot, config);
         return CompileWithIlBackend(
             compiler,
@@ -228,6 +258,7 @@ Build timings:
             CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config),
             config,
             references,
+            out perfFacts,
             aotMode);
     }
 
@@ -238,12 +269,25 @@ Build timings:
         string outputDir,
         ReferenceResolutionResult? references = null,
         bool aotMode = false)
-    {
-        if (!ValidateStrictLintDiagnostics(projectRoot, sourceFiles))
-        {
-            return null;
-        }
+        => CompileSourceFilesWithIlBackend(
+            sourceFiles,
+            projectRoot,
+            config,
+            outputDir,
+            references,
+            out _,
+            aotMode);
 
+    private static string? CompileSourceFilesWithIlBackend(
+        string[] sourceFiles,
+        string projectRoot,
+        ProjectConfig config,
+        string outputDir,
+        ReferenceResolutionResult? references,
+        out BuildPerfReportFacts perfFacts,
+        bool aotMode = false)
+    {
+        perfFacts = BuildPerfReportFacts.Empty;
         var compiler = new MultiFileCompiler(sourceFiles, projectRoot, config);
         return CompileWithIlBackend(
             compiler,
@@ -251,6 +295,7 @@ Build timings:
             CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config),
             config,
             references,
+            out perfFacts,
             aotMode);
     }
 
@@ -261,20 +306,39 @@ Build timings:
         ProjectConfig config,
         ReferenceResolutionResult? references,
         bool aotMode = false)
+        => CompileWithIlBackend(
+            compiler,
+            outputDir,
+            assemblyName,
+            config,
+            references,
+            out _,
+            aotMode);
+
+    private static string? CompileWithIlBackend(
+        MultiFileCompiler compiler,
+        string outputDir,
+        string assemblyName,
+        ProjectConfig config,
+        ReferenceResolutionResult? references,
+        out BuildPerfReportFacts perfFacts,
+        bool aotMode = false)
     {
+        perfFacts = BuildPerfReportFacts.Empty;
         Directory.CreateDirectory(outputDir);
 
         compiler.AotMode = aotMode;
-        var outputPath = Path.Combine(outputDir, $"{assemblyName}.dll");
-        var result = compiler.CompileToIlAssembly(assemblyName, outputPath);
+        var outputPath = CompilationReferenceResolverKernels.GetProjectOutputAssemblyPath(outputDir, assemblyName);
+        var result = compiler.CompileToIlAssembly(assemblyName, outputPath, validateStrictLint: true);
+        perfFacts = BuildCommandKernels.ToPerfReportFacts(compiler.SystemsReport);
         EmitCompilationDiagnostics(result);
 
-        if (!result.Success || string.IsNullOrWhiteSpace(result.OutputAssemblyPath))
+        if (CompilationReferenceResolverKernels.ShouldTreatProjectReferenceBuildAsFailed(result.Success, result.OutputAssemblyPath))
         {
             return null;
         }
 
-        if (string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
+        if (CompilationReferenceResolverKernels.IsExecutableOutputType(config.OutputType))
         {
             CompilationArtifacts.WriteRuntimeConfig(config, result.OutputAssemblyPath);
         }
@@ -284,31 +348,11 @@ Build timings:
         return result.OutputAssemblyPath;
     }
 
-    private static bool ValidateStrictLintDiagnostics(string projectRoot, IReadOnlyList<string> sourceFiles)
-    {
-        var diagnostics = CodeIntelligenceService.GetLintDiagnostics(projectRoot, sourceFiles)
-            .Where(diagnostic => diagnostic.Severity == "error")
-            .GroupBy(diagnostic => (diagnostic.Code, diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message))
-            .Select(group => group.First())
-            .OrderBy(diagnostic => diagnostic.File)
-            .ThenBy(diagnostic => diagnostic.Line)
-            .ThenBy(diagnostic => diagnostic.Column)
-            .ToList();
-
-        if (diagnostics.Count == 0)
-        {
-            return true;
-        }
-
-        Console.Error.Write(OutputFormatter.DiagnosticsToText(diagnostics));
-        return false;
-    }
-
     private static void EmitCompilationDiagnostics(MultiFileCompilationResult result)
     {
         foreach (var error in result.Errors)
         {
-            Console.Error.WriteLine(error.Format());
+            Console.Error.WriteLine(error.Format(DiagnosticColorPolicy.ShouldColorizeStandardError()));
         }
     }
 
@@ -319,39 +363,4 @@ Build timings:
         return config;
     }
 
-    /// <summary>
-    /// Run the AOT-blocker analysis pass over a project and project the blockers into the
-    /// stable perf-report shape. Analysis-only: emits no IL and never blocks the build.
-    /// </summary>
-    private static IReadOnlyList<OutputFormatter.PerfReportAotBlocker> CollectProjectAotBlockers(string projectRoot, ProjectConfig? config)
-    {
-        var compiler = new MultiFileCompiler(projectRoot, config);
-        compiler.CompileForAnalysis();
-        return ToPerfReportBlockers(compiler.AotBlockers);
-    }
-
-    private static IReadOnlyList<OutputFormatter.PerfReportAotBlocker> CollectSingleFileAotBlockers(string sourceFile, ProjectConfig? projectConfig)
-    {
-        var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
-        var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
-        var compiler = new MultiFileCompiler(new[] { sourceFile }, sourceDir, config);
-        compiler.CompileForAnalysis();
-        return ToPerfReportBlockers(compiler.AotBlockers);
-    }
-
-    private static IReadOnlyList<OutputFormatter.PerfReportAotBlocker> ToPerfReportBlockers(IReadOnlyList<AotBlocker> blockers)
-    {
-        return blockers
-            .Select(blocker => new OutputFormatter.PerfReportAotBlocker(
-                Code: $"NL{(int)blocker.DiagnosticCode:D3}",
-                Kind: blocker.Kind.ToString(),
-                File: blocker.File,
-                Line: blocker.Line,
-                Column: blocker.Column,
-                Construct: blocker.Construct,
-                EnclosingBoundary: blocker.EnclosingBoundary.ToString(),
-                EnclosingDeclaration: blocker.EnclosingDeclaration,
-                OnPublicSurface: blocker.IsOnPublicSurface))
-            .ToList();
-    }
 }

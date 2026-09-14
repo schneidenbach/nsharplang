@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
@@ -43,14 +42,6 @@ public class DocumentHighlightHandler : DocumentHighlightHandlerBase
             var line = request.Position.Line;
             var character = request.Position.Character;
 
-            var word = EditorUtilities.GetWordAtPosition(doc.Text, line, character);
-            if (string.IsNullOrWhiteSpace(word))
-            {
-                return Task.FromResult<DocumentHighlightContainer?>(new DocumentHighlightContainer());
-            }
-
-            _logger.LogDebug("Document highlight for: {Word} at {Line}:{Character}", word, line, character);
-
             // Tier 1: Semantic highlights via BindingMap
             if (doc.Bindings != null)
             {
@@ -59,21 +50,6 @@ public class DocumentHighlightHandler : DocumentHighlightHandlerBase
                 {
                     return Task.FromResult<DocumentHighlightContainer?>(new DocumentHighlightContainer(highlights));
                 }
-            }
-
-            // Tier 2: Text-based fallback
-            var textReferences = _documentManager.FindAllReferences(uri, word);
-            if (textReferences.Count > 0)
-            {
-                var textHighlights = textReferences
-                    .Select(r => new DocumentHighlight
-                    {
-                        Kind = DocumentHighlightKind.Text,
-                        Range = new LspRange(r.Line, r.Column, r.Line, r.Column + r.Length)
-                    })
-                    .ToList();
-
-                return Task.FromResult<DocumentHighlightContainer?>(new DocumentHighlightContainer(textHighlights));
             }
 
             return Task.FromResult<DocumentHighlightContainer?>(new DocumentHighlightContainer());

@@ -1,0 +1,6 @@
+name: NSharpLang.NativeComparisonRunner
+version: 0.1.0
+targetFramework: net10.0
+backend: il
+outputType: exe
+entry: Program.nl

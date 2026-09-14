@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli;
@@ -26,28 +27,8 @@ internal sealed record BatchQueryRequest(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     bool Clusters = false);
 
-internal sealed record BatchQueryItemResult(
-    int Index,
-    BatchQueryRequest Request,
-    bool Ok,
-    JsonElement Response);
-
-internal sealed record BatchQueryExecutionResult(
-    string Json,
-    bool Ok,
-    int RequestCount,
-    int SuccessCount,
-    int FailureCount);
-
 internal static class BatchQueryRunner
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-    };
-
     private static readonly JsonSerializerOptions RequestJsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -64,58 +45,60 @@ internal static class BatchQueryRunner
     {
         if (!File.Exists(path))
         {
-            throw new FileNotFoundException($"Requests file not found: {path}");
+            throw new FileNotFoundException(BatchQueryKernels.GetRequestsFileNotFoundMessage(path));
         }
 
         using var document = JsonDocument.Parse(File.ReadAllText(path));
 
+        var rootElement = document.RootElement;
+        JsonElement nestedRequests = default;
+        var hasNestedRequests = rootElement.ValueKind == JsonValueKind.Object &&
+                                rootElement.TryGetProperty("requests", out nestedRequests);
+        var payloadShape = BatchQueryValidationKernels.GetPayloadShapeKind(
+            rootElement.ValueKind == JsonValueKind.Array,
+            rootElement.ValueKind == JsonValueKind.Object,
+            hasNestedRequests,
+            hasNestedRequests && nestedRequests.ValueKind == JsonValueKind.Array);
+
         JsonElement requestsElement;
-        if (document.RootElement.ValueKind == JsonValueKind.Array)
+        if (payloadShape == BatchQueryPayloadShapeKind.RootArray)
         {
-            requestsElement = document.RootElement;
+            requestsElement = rootElement;
         }
-        else if (document.RootElement.ValueKind == JsonValueKind.Object &&
-                 document.RootElement.TryGetProperty("requests", out var nestedRequests) &&
-                 nestedRequests.ValueKind == JsonValueKind.Array)
+        else if (payloadShape == BatchQueryPayloadShapeKind.NestedRequestsArray)
         {
             requestsElement = nestedRequests;
         }
         else
         {
-            throw new InvalidDataException("Batch requests must be a JSON array or an object with a 'requests' array.");
+            throw new InvalidDataException(BatchQueryKernels.GetPayloadShapeMessage());
         }
 
         var requests = new List<BatchQueryRequest>();
         foreach (var item in requestsElement.EnumerateArray())
         {
-            if (item.ValueKind != JsonValueKind.Object)
+            if (!BatchQueryValidationKernels.IsRequestItemObject(item.ValueKind == JsonValueKind.Object))
             {
-                throw new InvalidDataException("Each batch request must be a JSON object.");
+                throw new InvalidDataException(BatchQueryKernels.GetRequestObjectRequiredMessage());
             }
 
             var request = item.Deserialize<BatchQueryRequest>(RequestJsonOptions);
             if (request == null)
             {
-                throw new InvalidDataException("Failed to deserialize a batch request.");
+                throw new InvalidDataException(BatchQueryKernels.GetRequestDeserializeFailedMessage());
             }
 
             requests.Add(request with
             {
-                Command = NormalizeCommand(request.Command)
+                Command = BatchQueryKernels.NormalizeCommand(request.Command)
             });
         }
 
-        var duplicateIds = requests
-            .Where(request => !string.IsNullOrWhiteSpace(request.Id))
-            .GroupBy(request => request.Id, StringComparer.Ordinal)
-            .Where(group => group.Count() > 1)
-            .Select(group => group.Key)
-            .OrderBy(id => id, StringComparer.Ordinal)
-            .ToArray();
+        var duplicateIds = BatchQueryKernels.FindDuplicateRequestIds(requests);
 
         if (duplicateIds.Length > 0)
         {
-            throw new InvalidDataException($"Duplicate batch request ids are not allowed: {string.Join(", ", duplicateIds)}");
+            throw new InvalidDataException(BatchQueryKernels.GetDuplicateRequestIdsMessage(string.Join(", ", duplicateIds)));
         }
 
         return requests;
@@ -128,7 +111,8 @@ internal static class BatchQueryRunner
         CodeIntelligenceService service,
         CompletionEngine completionEngine)
     {
-        var items = new List<BatchQueryItemResult>(requests.Count);
+        var items = new List<BatchQueryOutputItem>(requests.Count);
+        var okWords = new ulong[(requests.Count + 63) >> 6];
 
         for (int i = 0; i < requests.Count; i++)
         {
@@ -138,37 +122,20 @@ internal static class BatchQueryRunner
             var response = responseDocument.RootElement.Clone();
             var ok = response.TryGetProperty("ok", out var okElement) &&
                      okElement.ValueKind == JsonValueKind.True;
+            if (ok)
+                okWords[i >> 6] |= 1UL << (i & 63);
 
-            items.Add(new BatchQueryItemResult(i, request, ok, response));
+            items.Add(new BatchQueryOutputItem(i, request.Id, NormalizeForOutput(request), ok, response));
         }
 
-        var successCount = items.Count(item => item.Ok);
-        var failureCount = items.Count - successCount;
-        var envelope = new
-        {
-            schemaVersion = 1,
-            command = "batch",
-            ok = failureCount == 0,
-            projectRoot = NormalizePath(projectRoot),
-            requestCount = items.Count,
-            successCount,
-            failureCount,
-            results = items.Select(item => new
-            {
-                index = item.Index,
-                id = item.Request.Id,
-                request = NormalizeForOutput(item.Request),
-                ok = item.Ok,
-                response = item.Response
-            }).ToArray()
-        };
+        var summary = BatchQueryKernels.SummarizeExecutionResults(okWords, items.Count);
 
         return new BatchQueryExecutionResult(
-            JsonSerializer.Serialize(envelope, JsonOptions),
-            failureCount == 0,
+            BatchQueryOutputKernels.BuildExecutionResultJson(projectRoot, items, summary.SuccessCount, summary.FailureCount),
+            summary.Ok,
             items.Count,
-            successCount,
-            failureCount);
+            summary.SuccessCount,
+            summary.FailureCount);
     }
 
     private static string ExecuteSingle(
@@ -178,22 +145,24 @@ internal static class BatchQueryRunner
         CodeIntelligenceService service,
         CompletionEngine completionEngine)
     {
+        var normalizedCommand = BatchQueryKernels.NormalizeCommand(request.Command);
+        var commandKind = BatchQueryKernels.GetCommandKind(normalizedCommand);
         try
         {
-            return request.Command switch
+            return commandKind switch
             {
-                "symbols" => ExecuteSymbols(request, projectRoot, getSnapshot, service),
-                "outline" => ExecuteOutline(request, projectRoot, getSnapshot, service),
-                "diagnostics" => ExecuteDiagnostics(request, projectRoot, getSnapshot, service),
-                "type" => ExecuteType(request, projectRoot, getSnapshot, service),
-                "inspect" => ExecuteInspect(request, projectRoot, getSnapshot, service, completionEngine),
-                "definition" => ExecuteDefinition(request, projectRoot, getSnapshot, service),
-                "references" => ExecuteReferences(request, projectRoot, getSnapshot, service),
-                "completions" => ExecuteCompletions(request, projectRoot, getSnapshot, completionEngine),
-                "doc" => ExecuteDoc(request),
+                BatchQueryCommandKind.Symbols => ExecuteSymbols(request, projectRoot, getSnapshot, service),
+                BatchQueryCommandKind.Outline => ExecuteOutline(request, projectRoot, getSnapshot, service),
+                BatchQueryCommandKind.Diagnostics => ExecuteDiagnostics(request, projectRoot, getSnapshot, service),
+                BatchQueryCommandKind.Type => ExecuteType(request, projectRoot, getSnapshot, service),
+                BatchQueryCommandKind.Inspect => ExecuteInspect(request, projectRoot, getSnapshot, service, completionEngine),
+                BatchQueryCommandKind.Definition => ExecuteDefinition(request, projectRoot, getSnapshot, service),
+                BatchQueryCommandKind.References => ExecuteReferences(request, projectRoot, getSnapshot, service),
+                BatchQueryCommandKind.Completions => ExecuteCompletions(request, projectRoot, getSnapshot, completionEngine),
+                BatchQueryCommandKind.Doc => ExecuteDoc(request),
                 _ => OutputFormatter.ErrorToJson(
-                    request.Command,
-                    $"Unsupported batch query command '{request.Command}'.",
+                    normalizedCommand,
+                    BatchQueryKernels.GetUnsupportedCommandMessage(normalizedCommand),
                     projectRoot,
                     "unsupportedCommand")
             };
@@ -201,7 +170,7 @@ internal static class BatchQueryRunner
         catch (Exception ex)
         {
             return OutputFormatter.ErrorToJson(
-                request.Command,
+                normalizedCommand,
                 ex.Message,
                 projectRoot,
                 "executionFailed");
@@ -215,10 +184,11 @@ internal static class BatchQueryRunner
         CodeIntelligenceService service)
     {
         SymbolKind? kindFilter = null;
-        if (!string.IsNullOrWhiteSpace(request.Kind) &&
-            Enum.TryParse<SymbolKind>(request.Kind, ignoreCase: true, out var parsedKind))
+        if (!string.IsNullOrWhiteSpace(request.Kind))
         {
-            kindFilter = parsedKind;
+            var parsedKind = QueryCommandKernels.ParseSymbolKind(request.Kind);
+            if (parsedKind.HasValue)
+                kindFilter = parsedKind.GetValueOrDefault();
         }
 
         var snapshot = getSnapshot();
@@ -232,13 +202,17 @@ internal static class BatchQueryRunner
         Func<ProjectSnapshot> getSnapshot,
         CodeIntelligenceService service)
     {
-        if (string.IsNullOrWhiteSpace(request.File))
+        if (!BatchQueryValidationKernels.HasRequiredInput(
+                BatchQueryCommandKind.Outline,
+                request.File,
+                request.Pos,
+                request.Query))
         {
-            return InvalidRequest("outline", "file is required for outline requests.", projectRoot, request);
+            return InvalidMissingRequiredInput(BatchQueryCommandKind.Outline, projectRoot, request);
         }
 
         var snapshot = getSnapshot();
-        var result = service.GetOutline(snapshot, request.File);
+        var result = service.GetOutline(snapshot, request.File!);
         return OutputFormatter.OutlineToJson(result);
     }
 
@@ -252,9 +226,7 @@ internal static class BatchQueryRunner
         var results = service.GetDiagnostics(snapshot, request.File);
         if (!string.IsNullOrWhiteSpace(request.Severity))
         {
-            results = results
-                .Where(diagnostic => diagnostic.Severity.Equals(request.Severity, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            results = OutputFormatter.FilterDiagnosticsBySeverity(results, request.Severity);
         }
 
         return request.Clusters
@@ -268,7 +240,7 @@ internal static class BatchQueryRunner
         Func<ProjectSnapshot> getSnapshot,
         CodeIntelligenceService service)
     {
-        if (!TryGetFileAndPosition(request, projectRoot, "type", out var file, out var line, out var column, out var invalid))
+        if (!TryGetFileAndPosition(request, projectRoot, BatchQueryCommandKind.Type, out var file, out var line, out var column, out var invalid))
         {
             return invalid;
         }
@@ -280,14 +252,10 @@ internal static class BatchQueryRunner
         {
             return OutputFormatter.ErrorToJson(
                 "type",
-                $"No symbol found at {resolvedFile}:{line}:{column}",
+                QueryCommandKernels.GetNoSymbolAtPositionMessage(resolvedFile, line, column),
                 snapshot.ProjectRoot,
                 "noSymbol",
-                new
-                {
-                    file = NormalizePath(resolvedFile),
-                    position = new { line, column }
-                });
+                QueryErrorDetailKernels.Position(resolvedFile, line, column));
         }
 
         return OutputFormatter.TypeToJson(result, resolvedFile, line, column);
@@ -300,7 +268,7 @@ internal static class BatchQueryRunner
         CodeIntelligenceService service,
         CompletionEngine completionEngine)
     {
-        if (!TryGetFileAndPosition(request, projectRoot, "inspect", out var file, out var line, out var column, out var invalid))
+        if (!TryGetFileAndPosition(request, projectRoot, BatchQueryCommandKind.Inspect, out var file, out var line, out var column, out var invalid))
         {
             return invalid;
         }
@@ -318,14 +286,10 @@ internal static class BatchQueryRunner
         {
             return OutputFormatter.ErrorToJson(
                 "inspect",
-                $"No symbol found at {resolvedFile}:{line}:{column}",
+                QueryCommandKernels.GetNoSymbolAtPositionMessage(resolvedFile, line, column),
                 snapshot.ProjectRoot,
                 "noSymbol",
-                new
-                {
-                    file = NormalizePath(resolvedFile),
-                    position = new { line, column }
-                });
+                QueryErrorDetailKernels.Position(resolvedFile, line, column));
         }
 
         InspectSymbolResult? symbol = null;
@@ -363,13 +327,8 @@ internal static class BatchQueryRunner
         CodeIntelligenceService service)
     {
         var snapshot = getSnapshot();
-        if (!string.IsNullOrWhiteSpace(request.Name))
-        {
-            var results = service.FindDefinitionByName(snapshot, request.Name);
-            return OutputFormatter.DefinitionSearchToJson(request.Name, results);
-        }
 
-        if (!TryGetFileAndPosition(request, projectRoot, "definition", out var file, out var line, out var column, out var invalid))
+        if (!TryGetFileAndPosition(request, projectRoot, BatchQueryCommandKind.Definition, out var file, out var line, out var column, out var invalid))
         {
             return invalid;
         }
@@ -380,14 +339,10 @@ internal static class BatchQueryRunner
         {
             return OutputFormatter.ErrorToJson(
                 "definition",
-                $"No symbol found at {resolvedFile}:{line}:{column}",
+                QueryCommandKernels.GetNoSymbolAtPositionMessage(resolvedFile, line, column),
                 snapshot.ProjectRoot,
                 "noSymbol",
-                new
-                {
-                    file = NormalizePath(resolvedFile),
-                    position = new { line, column }
-                });
+                QueryErrorDetailKernels.Position(resolvedFile, line, column));
         }
 
         return OutputFormatter.DefinitionToJson(result);
@@ -399,7 +354,7 @@ internal static class BatchQueryRunner
         Func<ProjectSnapshot> getSnapshot,
         CodeIntelligenceService service)
     {
-        if (!TryGetFileAndPosition(request, projectRoot, "references", out var file, out var line, out var column, out var invalid))
+        if (!TryGetFileAndPosition(request, projectRoot, BatchQueryCommandKind.References, out var file, out var line, out var column, out var invalid))
         {
             return invalid;
         }
@@ -411,14 +366,10 @@ internal static class BatchQueryRunner
         {
             return OutputFormatter.ErrorToJson(
                 "references",
-                $"No symbol found at {resolvedFile}:{line}:{column}",
+                QueryCommandKernels.GetNoSymbolAtPositionMessage(resolvedFile, line, column),
                 snapshot.ProjectRoot,
                 "noSymbol",
-                new
-                {
-                    file = NormalizePath(resolvedFile),
-                    position = new { line, column }
-                });
+                QueryErrorDetailKernels.Position(resolvedFile, line, column));
         }
 
         var definedAt = new LocationResult(definition.File, definition.Line, definition.Column);
@@ -427,15 +378,16 @@ internal static class BatchQueryRunner
         {
             return OutputFormatter.ErrorToJson(
                 "references",
-                "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. No name-based or text-based fallback was used.",
+                QueryCommandKernels.GetSemanticReferencesUnavailableMessage(),
                 snapshot.ProjectRoot,
                 "semanticReferencesUnavailable",
-                new
-                {
-                    file = NormalizePath(resolvedFile),
-                    position = new { line, column },
-                    symbol = new { name = definition.Name, kind = definition.Kind, definedAt }
-                });
+                QueryErrorDetailKernels.SemanticReferencesUnavailable(
+                    resolvedFile,
+                    line,
+                    column,
+                    definition.Name,
+                    definition.Kind,
+                    definedAt));
         }
 
         return OutputFormatter.ReferencesToJson(definition.Name, definition.Kind, definedAt, results);
@@ -447,7 +399,7 @@ internal static class BatchQueryRunner
         Func<ProjectSnapshot> getSnapshot,
         CompletionEngine completionEngine)
     {
-        if (!TryGetFileAndPosition(request, projectRoot, "completions", out var file, out var line, out var column, out var invalid))
+        if (!TryGetFileAndPosition(request, projectRoot, BatchQueryCommandKind.Completions, out var file, out var line, out var column, out var invalid))
         {
             return invalid;
         }
@@ -460,24 +412,29 @@ internal static class BatchQueryRunner
 
     private static string ExecuteDoc(BatchQueryRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Query))
+        if (!BatchQueryValidationKernels.HasRequiredInput(
+                BatchQueryCommandKind.Doc,
+                request.File,
+                request.Pos,
+                request.Query))
         {
-            return InvalidRequest("doc", "query is required for doc requests.", null, request);
+            return InvalidMissingRequiredInput(BatchQueryCommandKind.Doc, null, request);
         }
 
-        var result = DocQuery.Value.Lookup(request.Query);
+        var query = request.Query!;
+        var result = DocQuery.Value.Lookup(query);
         if (result == null)
         {
-            return OutputFormatter.ErrorToJson("doc", $"No documentation found for '{request.Query}'.");
+            return OutputFormatter.ErrorToJson("doc", QueryCommandKernels.GetNoDocumentationMessage(query, DocQuery.Value.DescribeLookupMiss(query)));
         }
 
-        return OutputFormatter.DocToJson(result, request.Query);
+        return OutputFormatter.DocToJson(result, query);
     }
 
     private static bool TryGetFileAndPosition(
         BatchQueryRequest request,
         string? projectRoot,
-        string command,
+        BatchQueryCommandKind commandKind,
         out string? file,
         out int line,
         out int column,
@@ -488,20 +445,17 @@ internal static class BatchQueryRunner
         column = 0;
         invalid = string.Empty;
 
-        if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(request.Pos))
+        if (!BatchQueryValidationKernels.HasRequiredInput(commandKind, file, request.Pos, request.Query))
         {
-            invalid = InvalidRequest(command, "file and pos are required.", projectRoot, request);
+            invalid = InvalidMissingRequiredInput(commandKind, projectRoot, request);
             return false;
         }
 
-        var parts = request.Pos.Split(':');
-        if (parts.Length != 2 ||
-            !int.TryParse(parts[0], out line) ||
-            !int.TryParse(parts[1], out column))
+        if (!QueryCommandKernels.ParsePosition(request.Pos, out line, out column))
         {
             invalid = InvalidRequest(
-                command,
-                $"Invalid position format '{request.Pos}'. Expected <line>:<col>.",
+                BatchQueryValidationKernels.GetCommandName(commandKind),
+                BatchQueryKernels.GetInvalidPositionMessage(request.Pos),
                 projectRoot,
                 request);
             return false;
@@ -511,40 +465,41 @@ internal static class BatchQueryRunner
     }
 
     private static string InvalidRequest(string command, string message, string? projectRoot, BatchQueryRequest request)
-        => OutputFormatter.ErrorToJson(command, message, projectRoot, "invalidRequest", Normalize(request));
+        => OutputFormatter.ErrorToJson(command, message, projectRoot, "invalidRequest", NormalizeForErrorDetails(request));
 
-    private static BatchQueryRequest Normalize(BatchQueryRequest request) => request with
-    {
-        Command = NormalizeCommand(request.Command),
-        File = NormalizePath(request.File)
-    };
+    private static string InvalidMissingRequiredInput(BatchQueryCommandKind commandKind, string? projectRoot, BatchQueryRequest request)
+        => InvalidRequest(
+            BatchQueryValidationKernels.GetCommandName(commandKind),
+            BatchQueryValidationKernels.GetRequiredInputMessage(commandKind),
+            projectRoot,
+            request);
 
-    private static object NormalizeForOutput(BatchQueryRequest request)
-    {
-        var normalized = Normalize(request);
-        return new
-        {
-            command = normalized.Command,
-            file = normalized.File,
-            pos = normalized.Pos,
-            name = normalized.Name,
-            query = normalized.Query,
-            kind = normalized.Kind,
-            severity = normalized.Severity,
-            includeKeywords = normalized.IncludeKeywords ? true : (bool?)null,
-            summary = normalized.Summary ? true : (bool?)null,
-            compact = normalized.Compact ? true : (bool?)null,
-            clusters = normalized.Clusters ? true : (bool?)null
-        };
-    }
+    private static object NormalizeForErrorDetails(BatchQueryRequest request)
+        => BatchQueryOutputKernels.NormalizeForErrorDetails(
+            request.Command,
+            request.Id,
+            request.File,
+            request.Pos,
+            request.Name,
+            request.Query,
+            request.Kind,
+            request.Severity,
+            request.IncludeKeywords,
+            request.Summary,
+            request.Compact,
+            request.Clusters);
 
-    private static string NormalizeCommand(string? command) => command?.Trim().ToLowerInvariant() switch
-    {
-        "def" => "definition",
-        "refs" => "references",
-        "" or null => "",
-        var normalized => normalized
-    };
-
-    private static string? NormalizePath(string? path) => path?.Replace('\\', '/');
+    private static BatchQueryOutputRequest NormalizeForOutput(BatchQueryRequest request)
+        => BatchQueryOutputKernels.NormalizeForOutput(
+            request.Command,
+            request.File,
+            request.Pos,
+            request.Name,
+            request.Query,
+            request.Kind,
+            request.Severity,
+            request.IncludeKeywords,
+            request.Summary,
+            request.Compact,
+            request.Clusters);
 }
