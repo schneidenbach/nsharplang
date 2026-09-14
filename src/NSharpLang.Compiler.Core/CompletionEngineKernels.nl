@@ -892,12 +892,14 @@ class CompletionEngineKernels {
     // namespace name and casing plays no part in it.
     //
     // THEN EVERY OTHER NAMESPACE OF THE PROJECT, EXPORTED FUNCTIONS ONLY, EACH CARRYING THE IMPORT IT
-    // NEEDS. These were offered NOWHERE: a project with `NsProbe.Helpers.ComputeTotal` and a caret in
+    // STILL NEEDS. These were offered NOWHERE: a project with `NsProbe.Helpers.ComputeTotal` and a caret in
     // `NsProbe.App` listed the caret's own file and nothing else, so the one command an LLM has for
     // "what can I call here" could not see the project's own helpers. They are not in scope as
     // written — `ComputeTotal(1, 2)` from another namespace is NL412 until `import NsProbe.Helpers`
     // exists — so each such item carries `ImportNamespace`, which is what makes the offer honest
-    // rather than a trap: a reader that accepts it knows the second edit it owes. An UNEXPORTED
+    // rather than a trap: a reader that accepts it knows the second edit it owes. A namespace the
+    // file ALREADY imports owes nothing, so its functions carry no key at all: they are in scope
+    // exactly like a sibling file's. An UNEXPORTED
     // (camelCase, no `pub`) function is still skipped, because from another namespace that name is an
     // NL308 that no import can fix.
     //
@@ -961,7 +963,11 @@ class CompletionEngineKernels {
                     continue
                 }
 
-                if sameNamespace {
+                // A NAMESPACE THE FILE ALREADY IMPORTS NEEDS NO SECOND EDIT. `ImportEditPlanner`
+                // owns that question for `nlc fix` and the editor's auto-import already, and asking
+                // it here is what keeps `importNamespace` meaning "you still owe this import"
+                // rather than "this name came from over there".
+                if sameNamespace || ImportEditPlanner.IsNamespaceInScope(unit, candidateNamespace ?? "") {
                     items.Add(item)
                 } else {
                     items.Add(WithImportNamespace(item, candidateNamespace ?? ""))

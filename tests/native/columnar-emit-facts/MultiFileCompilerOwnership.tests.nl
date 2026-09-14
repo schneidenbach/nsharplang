@@ -265,8 +265,12 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     assert privateConstructors.Length == 1
     assert privateConstructors[0].GetParameters().Length == 3
 
-    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 9
-    propertyNames := new string[](9)
+    // THE TENTH READING IS `FriendGrants`, and it is a reading of the compilation like the other
+    // nine: which referenced assemblies named this project in an `InternalsVisibleTo`. It is carried
+    // out of here so the read-only queries — completion, first — can ask the SAME
+    // `InternalsVisibleToGrants` the analyzer asked instead of answering the public surface only.
+    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 10
+    propertyNames := new string[](10)
     propertyNames[0] = "CompilationUnits"
     propertyNames[1] = "SemanticModels"
     propertyNames[2] = "AllErrors"
@@ -276,6 +280,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     propertyNames[6] = "PerformanceFacts"
     propertyNames[7] = "SystemsReport"
     propertyNames[8] = "AotMode"
+    propertyNames[9] = "FriendGrants"
     propertyIndex := 0
     while propertyIndex < propertyNames.Length {
         property := MultiFileOwnerRequiredProperty(

@@ -347,7 +347,9 @@ top-level `func` is private to its namespace, not to its file, so a caret in one
 write another file's helper. Names the current file's model already supplied are not repeated.
 
 Then it carries the **EXPORTED** top-level functions of every OTHER namespace of the project, each
-row carrying `"importNamespace"`. These are not in scope as written — `ComputeTotal(1, 2)` from
+row carrying `"importNamespace"` when the file does not already import that namespace (a namespace
+the file already writes an `import` for owes nothing, so its functions carry no key at all —
+`ImportEditPlanner.IsNamespaceInScope` is the one owner of that question). These are not in scope as written — `ComputeTotal(1, 2)` from
 `NsProbe.App` with `NsProbe.Helpers` unimported is `NL412` — so the key names the `import` line a
 caller has to add, which is what makes the offer an answer rather than a trap. `importNamespace` is
 additive and appears only on a row that needs it, so `schemaVersion` stays at 1. An UNEXPORTED
