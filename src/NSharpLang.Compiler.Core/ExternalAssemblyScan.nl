@@ -969,7 +969,11 @@ class ExternalAssemblyScan {
 
             try {
                 candidate := entry.MetadataAssembly.GetType(fullName)
-                if candidate != null {
+                // `Assembly.GetType` answers for INTERNAL types too, so a fully-qualified spelling
+                // used to bind one and EMIT a reference the CLR would refuse at load. A type is bound
+                // only when the assembly being emitted can name it: visible, or internal in an
+                // assembly that named this one in an `InternalsVisibleTo`.
+                if candidate != null && InternalsVisibleToEmissionScope.CanNameType(candidate) {
                     return FoundResolution(entry, candidate)
                 }
             } catch {
@@ -1031,7 +1035,15 @@ class ExternalAssemblyScan {
             }
 
             try {
+                // The public surface for an ordinary reference; the DECLARED surface for one that
+                // named the assembly being emitted a friend, since only `GetTypes()` returns its
+                // internals. `CanNameType` filters either list, so the wider read can never admit
+                // more than the friend rule allows.
                 types := entry.MetadataAssembly.GetExportedTypes()
+                if InternalsVisibleToEmissionScope.GrantsAccess(entry.MetadataAssembly) {
+                    types = entry.MetadataAssembly.GetTypes()
+                }
+
                 typeIndex := 0
                 while typeIndex < types.Length {
                     candidate := types[typeIndex]
@@ -1039,7 +1051,7 @@ class ExternalAssemblyScan {
                         return UnknownResolution()
                     }
 
-                    if candidate.Name == name || candidate.FullName == name {
+                    if (candidate.Name == name || candidate.FullName == name) && InternalsVisibleToEmissionScope.CanNameType(candidate) {
                         return FoundResolution(entry, candidate)
                     }
 

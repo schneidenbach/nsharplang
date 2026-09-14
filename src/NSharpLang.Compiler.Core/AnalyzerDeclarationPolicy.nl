@@ -802,11 +802,17 @@ class AnalyzerDeclarationPolicy {
         }
 
         runtimeType: Type = null
-        if ExternalQualifiedTypeResolver.TryResolve(mlcAssemblies, name, out runtimeType) {
+        if ExternalQualifiedTypeResolver.TryResolve(mlcAssemblies, name, FriendGrants(), out runtimeType) {
             return new ReflectionTypeInfo(runtimeType)
         }
 
         return typeResolver.ResolveSimpleType(name, 0, 0)
+    }
+
+    // The grants the DECLARATION CONTEXT holds: both owners resolve external spellings for the same
+    // compilation, so there is one object and this one does not hold a second copy of it.
+    func FriendGrants(): InternalsVisibleToGrants? {
+        return declarationContext.GetFriendGrants()
     }
 
     func ResolveThroughNamespaceAlias(namespaceName: string, remainder: string): TypeInfo {
@@ -819,7 +825,7 @@ class AnalyzerDeclarationPolicy {
 
         expandedName := namespaceName + "." + remainder
         aliasedRuntimeType: Type = null
-        if ExternalQualifiedTypeResolver.TryResolve(mlcAssemblies, expandedName, out aliasedRuntimeType) {
+        if ExternalQualifiedTypeResolver.TryResolve(mlcAssemblies, expandedName, FriendGrants(), out aliasedRuntimeType) {
             return new ReflectionTypeInfo(aliasedRuntimeType)
         }
 

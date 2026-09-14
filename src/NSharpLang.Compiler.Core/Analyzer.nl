@@ -154,6 +154,7 @@ class Analyzer: IDisposable {
         CallableReferenceReportLog = new AnalyzerCallableReferenceReportLog()
 
         FriendGrants = new InternalsVisibleToGrants()
+        DeclarationContext.SetFriendGrants(FriendGrants)
         ExternalTypeProbe = new AnalyzerExternalTypeProbe(MlcAssemblies, UsingNamespaces, FriendGrants)
         ProjectDiscovery = new AnalyzerProjectTypeDiscovery(
             ProjectSources,
@@ -2192,6 +2193,6 @@ class Analyzer: IDisposable {
     }
 
     func CreateEditorTypeCatalog(): EditorTypeCatalog {
-        return MetadataLoadSurface.CreateEditorTypeCatalog()
+        return MetadataLoadSurface.CreateEditorTypeCatalog(FriendGrants)
     }
 }

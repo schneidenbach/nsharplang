@@ -67,12 +67,40 @@ class EditorTypeCatalog {
     // THE IDENTITY KEY. Every cache above is valid only while the universe has this many assemblies.
     cachedAssemblyCount: int
 
+    // The editing project's friend grants, or null when the catalog was built without one. Which
+    // internal types the editor may resolve is the same question the compiler answers, so it is the
+    // same object — a catalog with none sees exactly the visible surface.
+    friendGrants: InternalsVisibleToGrants?
+
     constructor(metadataAssemblies: List<Assembly>) {
         assemblies = metadataAssemblies
         typeCache = new Dictionary<string, Type>(StringComparer.Ordinal)
         exportedTypes = new List<Type[]>()
         namespaceCache = null
         cachedAssemblyCount = -1
+        friendGrants = null
+    }
+
+    func SetFriendGrants(grants: InternalsVisibleToGrants?) {
+        friendGrants = grants
+        typeCache.Clear()
+        exportedTypes.Clear()
+        namespaceCache = null
+        cachedAssemblyCount = -1
+    }
+
+    // The rule, asked once: a type the editing project can SPELL. Without grants that is
+    // `Type.IsVisible`, which is what every caller here saw before friends existed.
+    func IsNameable(candidate: Type?): bool {
+        if candidate == null {
+            return false
+        }
+
+        if friendGrants == null {
+            return candidate.get_IsVisible()
+        }
+
+        return friendGrants.IsNameableType(candidate)
     }
 
     // One call at the top of every entry point. A universe that has grown invalidates everything
@@ -101,7 +129,14 @@ class EditorTypeCatalog {
 
         loaded := new Type[](0)
         try {
-            loaded = assemblies[index].GetExportedTypes()
+            // A reference that made the editing project a friend offers its internals too, and only
+            // `GetTypes()` returns them. Every reader below filters with `IsNameable`, so the wider
+            // read can admit nothing the rule does not.
+            if friendGrants != null && friendGrants.GrantsAccess(assemblies[index]) {
+                loaded = assemblies[index].GetTypes()
+            } else {
+                loaded = assemblies[index].GetExportedTypes()
+            }
         } catch scanError: Exception {
         }
 
@@ -117,7 +152,9 @@ class EditorTypeCatalog {
         while index < assemblies.Count {
             try {
                 found := assemblies[index].GetType(fullName)
-                if found != null {
+                // `Assembly.GetType` answers for internal types too; only a nameable one is a type
+                // the editing project could have written.
+                if found != null && IsNameable(found) {
                     return found
                 }
             } catch lookupError: Exception {
@@ -136,7 +173,7 @@ class EditorTypeCatalog {
             exported := ExportedTypesAt(index)
             typeIndex := 0
             while typeIndex < exported.Length {
-                if exported[typeIndex].get_Name() == simpleName {
+                if exported[typeIndex].get_Name() == simpleName && IsNameable(exported[typeIndex]) {
                     return exported[typeIndex]
                 }
 
