@@ -984,6 +984,38 @@ print next()    // 1
 print next()    // 2
 ```
 
+**A zero-parameter lambda needs no target to take a shape from.** Its return type is whatever the body
+answers, so `:=` is enough — and the body reads the scope around it exactly as any other lambda's
+does:
+
+```n#
+func adder(seed: int): int {
+    zero := () => seed             // Func<int>, inferred from the body
+    log := () => print seed        // Action — the body answers nothing
+    log()
+    return zero() + zero()
+}
+```
+
+A lambda with parameters needs a target, because nothing else can say what its parameter types are;
+writing one at a `:=` is [`NL203`](./errors/NL203.md).
+
+**Storage that already exists is a target too.** A lambda or a method group assigned to a local, a
+parameter or a field takes that storage's declared type, exactly as one written at the declaration
+does:
+
+```n#
+import System
+
+func pick(scale: bool): int {
+    let step: Func<int, int> = x => x * 2
+    if scale {
+        step = x => x * 10         // the local's declared type shapes it
+    }
+    return step(4)
+}
+```
+
 **A binding declared inside a loop is a new binding each time round**, so a delegate collected in the
 loop closes over its own copy — the same rule C# has:
 

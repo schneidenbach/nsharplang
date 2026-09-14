@@ -1532,6 +1532,190 @@ sealed class ColumnarIlEmitter {
         // nested chains decline (block-bodied sub-emitters set it via EmitBody). The capture scan reads
         // kind-6 nodes positionally, so kinds whose children are NOT ordinary expressions (match arms,
         // object initializers) decline the capturing branch outright.
+        let displayBuild: ColumnarLambdaDisplayBuild? = null
+        if (!TryBuildLambdaDisplay(bodyNode, ordinals, captures, out displayBuild)) {
+            return false
+        }
+        display := displayBuild.Display
+        if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(delegateReturnType, signatureTypes, display)) {
+            return false
+        }
+        // The lambda becomes an INSTANCE method on the display class: arg 0 is the closure, so parameter
+        // ordinals shift +1; snapshot names fall through the sub-emitter's locals/params to the
+        // `_currentStruct` field chain, boxed names resolve through _boxedCaptures.
+        shiftedOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+        for pair in ordinals {
+            shiftedOrdinals[pair.Key] = pair.Value + 1
+        }
+        closureMethod := display.DefineMethod(
+            "<Lambda>",
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            delegateReturnType,
+            signatureTypes
+        )
+        closureIl := closureMethod.GetILGenerator()
+        closureBoxedCaptures := displayBuild.BoxedCapturesOrNull()
+        let closureEnclosingType: ColumnarStructDef? = null
+        if displayBuild.CapturesEnclosingThis {
+            closureEnclosingType = _currentStruct
+        }
+        closureEmitter := new ColumnarIlEmitter(
+            _nodes,
+            _source,
+            shiftedOrdinals,
+            paramTypeMap,
+            bodyReturnType,
+            closureIl,
+            _siblings,
+            _enumRegistry,
+            _structRegistry,
+            _unionRegistry,
+            _unionCaseRegistry,
+            displayBuild.DisplayDef,
+            closureEnclosingType,
+            false,
+            false,
+            _programType,
+            _lambdaCounter,
+            _displayClasses,
+            closureBoxedCaptures,
+            null,
+            null,
+            null,
+            null,
+            null,
+            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
+            asyncReturnType,
+            false,
+            _referenceAssemblyPaths,
+            _genericInterfaceConstraints,
+            null,
+            _typeResolutionEnums.ForSynthesizedMethod(display),
+            _typeResolutionStructs.ForSynthesizedMethod(display),
+            _typeResolutionUnions.ForSynthesizedMethod(display)
+        )
+        if (!closureEmitter.EmitLambdaBody(closureIl, bodyNode, bodyReturnType)) {
+            return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda")
+        }
+        _displayClasses.Add(display)
+        if (!TryEmitLambdaDisplayConstruction(displayBuild)) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldftn, closureMethod)
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
+    }
+
+    // A CAPTURING ZERO-PARAMETER LAMBDA AT AN INFERRING POSITION (`zero := () => seed`).
+    //
+    // The display class, the capture copies and the body are the TARGETED arm's; what differs is the
+    // order. A targeted lambda knows its delegate's return type before the body runs, so the
+    // synthesized method is defined with its full signature. Here the return type IS the body's, so
+    // the method is defined signature-less, the body emits into it, and `SetReturnType` /
+    // `SetParameters` follow — the same order the capture-LESS inferred arm already proved on
+    // `PersistedAssemblyBuilder`. A void body yields `Action`, any other `Func<bodyType>`.
+    private func TryEmitCapturingInferredZeroParamLambda(bodyNode: int, captures: SortedSet<string>, out delegateType: Type): bool {
+        delegateType = null
+        let displayBuild: ColumnarLambdaDisplayBuild? = null
+        if (!TryBuildLambdaDisplay(bodyNode, new Dictionary<string, int>(StringComparer.Ordinal), captures, out displayBuild)) {
+            return false
+        }
+        display := displayBuild.Display
+        let inferredInitialReturnType: System.Type? = null
+        let inferredInitialParameterTypes: System.Type[]? = null
+        closureMethod := display.DefineMethod(
+            "<Lambda>",
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            inferredInitialReturnType,
+            inferredInitialParameterTypes
+        )
+        closureIl := closureMethod.GetILGenerator()
+        let closureEnclosingType: ColumnarStructDef? = null
+        if displayBuild.CapturesEnclosingThis {
+            closureEnclosingType = _currentStruct
+        }
+        closureEmitter := new ColumnarIlEmitter(
+            _nodes,
+            _source,
+            new Dictionary<string, int>(StringComparer.Ordinal),
+            new Dictionary<string, Type>(StringComparer.Ordinal),
+            ColumnarTypeOfPlanner.RequiredVoidType(),
+            closureIl,
+            _siblings,
+            _enumRegistry,
+            _structRegistry,
+            _unionRegistry,
+            _unionCaseRegistry,
+            displayBuild.DisplayDef,
+            closureEnclosingType,
+            false,
+            false,
+            _programType,
+            _lambdaCounter,
+            _displayClasses,
+            displayBuild.BoxedCapturesOrNull(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
+            null,
+            false,
+            _referenceAssemblyPaths,
+            _genericInterfaceConstraints,
+            null,
+            _typeResolutionEnums.ForSynthesizedMethod(display),
+            _typeResolutionStructs.ForSynthesizedMethod(display),
+            _typeResolutionUnions.ForSynthesizedMethod(display)
+        )
+        let bodyType: System.Type? = null
+        if (!closureEmitter.EmitExpression(bodyNode, out bodyType)) {
+            return DeclineMember("emit.body", "capturing inferred zero-parameter lambda body emission declined", bodyNode, "lambda")
+        }
+        emptyLambdaParameterTypes: Type[] = Type.EmptyTypes
+        if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(bodyType, emptyLambdaParameterTypes, display)) {
+            return false
+        }
+        closureIl.Emit(OpCodes.Ret)
+        delegateType = bodyType == ColumnarTypeOfPlanner.RequiredVoidType() ? typeof(Action) : typeof(Func<int>).GetGenericTypeDefinition().MakeGenericType([bodyType])
+        if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(delegateType)) {
+            return false
+        }
+        closureMethod.SetReturnType(bodyType)
+        closureMethodForParameters := closureMethod
+        closureMethodForParameters.SetParameters(emptyLambdaParameterTypes)
+        delegateCtor := delegateType.GetConstructor([typeof(object), typeof(IntPtr)])
+        if (delegateCtor == null) {
+            return false
+        }
+        _displayClasses.Add(display)
+        if (!TryEmitLambdaDisplayConstruction(displayBuild)) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldftn, closureMethod)
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
+    }
+
+    // THE DISPLAY CLASS A CAPTURING LAMBDA RUNS ON, built once for both arms that need one.
+    //
+    // Each capture is either LIFTED (its name lives in a shared StrongBox — the display snapshots the
+    // BOX reference, so mutation is shared in both directions, the legacy emitter's box-lift model) or
+    // NEVER-WRITTEN (a by-value snapshot is then semantics-identical to the legacy emitter, which only
+    // box-lifts mutated captures). A written-but-unlifted capture declines (structural writes,
+    // unliftable types, use-before-declaration). The whole-body write scan needs the body root — unset
+    // inside an EXPRESSION-bodied lambda's sub-emitter, so those nested chains decline (block-bodied
+    // sub-emitters set it via EmitBody). The capture scan reads kind-6 nodes positionally, so kinds
+    // whose children are NOT ordinary expressions (match arms, object initializers) decline outright.
+    //
+    // WHAT IT DELIBERATELY DOES NOT DO is define the lambda's own method or check its signature: the
+    // TARGETED arm knows the delegate's return and parameter types before the body runs, and the
+    // INFERRED zero-parameter arm learns its return type FROM the body and sets the signature after.
+    // Those two orders are the only difference between them, and keeping the display construction here
+    // is what stopped the second arm from having to grow a second copy of it.
+    private func TryBuildLambdaDisplay(bodyNode: int, ordinals: Dictionary<string, int>, captures: SortedSet<string>, out build: ColumnarLambdaDisplayBuild): bool {
+        build = null
         if (_displayClasses == null || ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(_nodes, bodyNode)) {
             return false
         }
@@ -1640,9 +1824,6 @@ sealed class ColumnarIlEmitter {
                 TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
             )
         }
-        if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(delegateReturnType, signatureTypes, display)) {
-            return false
-        }
         displayCtor := display.DefineDefaultConstructor(MethodAttributes.Public)
         // SNAPSHOT fields go into the synthetic def (the closure's `_currentStruct` field-chain fallback IS
         // the snapshot-read emission); BOX fields are deliberately kept OUT of it — boxed names route
@@ -1708,108 +1889,64 @@ sealed class ColumnarIlEmitter {
         if enclosingThisField != null {
             displayDef.ClosureEnclosingDef = _currentStruct
         }
-        // The lambda becomes an INSTANCE method on the display class: arg 0 is the closure, so parameter
-        // ordinals shift +1; snapshot names fall through the sub-emitter's locals/params to the
-        // `_currentStruct` field chain, boxed names resolve through _boxedCaptures.
-        shiftedOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
-        for pair in ordinals {
-            shiftedOrdinals[pair.Key] = pair.Value + 1
-        }
-        closureMethod := display.DefineMethod(
-            "<Lambda>",
-            MethodAttributes.Public | MethodAttributes.HideBySig,
-            delegateReturnType,
-            signatureTypes
-        )
-        closureIl := closureMethod.GetILGenerator()
-        closureBoxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null
-        if (boxedCaptureMap.Count > 0) {
-            closureBoxedCaptures = boxedCaptureMap
-        }
-        let closureEnclosingType: ColumnarStructDef? = null
-        if capturesEnclosingThis {
-            closureEnclosingType = _currentStruct
-        }
-        closureEmitter := new ColumnarIlEmitter(
-            _nodes,
-            _source,
-            shiftedOrdinals,
-            paramTypeMap,
-            bodyReturnType,
-            closureIl,
-            _siblings,
-            _enumRegistry,
-            _structRegistry,
-            _unionRegistry,
-            _unionCaseRegistry,
+        build = new ColumnarLambdaDisplayBuild(
+            display,
+            displayCtor,
             displayDef,
-            closureEnclosingType,
-            false,
-            false,
-            _programType,
-            _lambdaCounter,
-            _displayClasses,
-            closureBoxedCaptures,
-            null,
-            null,
-            null,
-            null,
-            null,
-            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
-            asyncReturnType,
-            false,
-            _referenceAssemblyPaths,
-            _genericInterfaceConstraints,
-            null,
-            _typeResolutionEnums.ForSynthesizedMethod(display),
-            _typeResolutionStructs.ForSynthesizedMethod(display),
-            _typeResolutionUnions.ForSynthesizedMethod(display)
+            displayFields,
+            enclosingThisField,
+            snapshotNames,
+            boxedNames,
+            boxedSourceLocals,
+            boxedSourceFields,
+            boxedFields,
+            boxedCaptureMap,
+            capturesEnclosingThis
         )
-        if (!closureEmitter.EmitLambdaBody(closureIl, bodyNode, bodyReturnType)) {
-            return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda")
-        }
-        _displayClasses.Add(display)
-        // Use site: construct the closure; snapshot captures copy the VALUE, boxed captures copy the BOX
-        // reference; bind the delegate to the closure.
-        _il.Emit(OpCodes.Newobj, displayCtor)
-        if enclosingThisField != null {
+        return true
+    }
+
+    // THE USE SITE: construct the closure, copy each capture into it, and leave the instance on the
+    // stack for the delegate constructor. Snapshot captures copy the VALUE; boxed captures copy the BOX
+    // reference, so a write from either depth is seen at every other.
+    private func TryEmitLambdaDisplayConstruction(build: ColumnarLambdaDisplayBuild): bool {
+        _il.Emit(OpCodes.Newobj, build.DisplayCtor)
+        if build.EnclosingThisField != null {
             _il.Emit(OpCodes.Dup)
             _il.Emit(OpCodes.Ldarg_0)
-            _il.Emit(OpCodes.Stfld, enclosingThisField)
+            _il.Emit(OpCodes.Stfld, build.EnclosingThisField)
         }
-        for f := 0; f < snapshotNames.Count; f++ {
+        for f := 0; f < build.SnapshotNames.Count; f++ {
             _il.Emit(OpCodes.Dup)
             let sourceLocal: System.Reflection.Emit.LocalBuilder? = null
-            if (_locals.TryGetValue(snapshotNames[f], out sourceLocal)) {
+            if (_locals.TryGetValue(build.SnapshotNames[f], out sourceLocal)) {
                 _il.Emit(OpCodes.Ldloc, sourceLocal)
             } else {
-                ColumnarArgumentInstructionEmitter.EmitLoad(_il, _paramOrdinals[snapshotNames[f]])
+                ColumnarArgumentInstructionEmitter.EmitLoad(_il, _paramOrdinals[build.SnapshotNames[f]])
             }
             snapshotStoreIl := _il
             snapshotStoreOpcode := OpCodes.Stfld
-            snapshotStoreName := snapshotNames[f]
-            snapshotStoreField: FieldInfo = displayFields[snapshotStoreName]
+            snapshotStoreName := build.SnapshotNames[f]
+            snapshotStoreField: FieldInfo = build.DisplayFields[snapshotStoreName]
             snapshotStoreIl.Emit(snapshotStoreOpcode, snapshotStoreField)
         }
-        for b := 0; b < boxedNames.Count; b++ {
+        for b := 0; b < build.BoxedNames.Count; b++ {
             _il.Emit(OpCodes.Dup)
-            boxedSourceLocal := boxedSourceLocals[b]
+            boxedSourceLocal := build.BoxedSourceLocals[b]
             if (boxedSourceLocal != null) {
                 _il.Emit(OpCodes.Ldloc, boxedSourceLocal)
             } else {
                 // The box rides a field of the display this body is running on, so argument zero is
                 // where it is read from — the only difference from the local case above.
-                boxedSourceField := boxedSourceFields[b]
+                boxedSourceField := build.BoxedSourceFields[b]
                 if (boxedSourceField == null) {
                     return false
                 }
                 _il.Emit(OpCodes.Ldarg_0)
                 _il.Emit(OpCodes.Ldfld, boxedSourceField)
             }
-            _il.Emit(OpCodes.Stfld, boxedFields[b])
+            _il.Emit(OpCodes.Stfld, build.BoxedFields[b])
         }
-        _il.Emit(OpCodes.Ldftn, closureMethod)
-        _il.Emit(OpCodes.Newobj, delegateCtor)
         return true
     }
 
@@ -1985,6 +2122,25 @@ sealed class ColumnarIlEmitter {
         // Only the targeted path used to ask, so `f := () => this.Value` declined at `emit.body` while
         // `f: Func<int> = () => this.Value` emitted the same lambda without complaint.
         inferredBodyNode := Child(lambdaIdx, 0)
+        // A CAPTURING ONE TAKES THE DISPLAY CLASS, exactly as a TARGETED lambda with the same body
+        // does. `zero := () => seed` reads an enclosing parameter and had no arm for it at all: the
+        // sub-emitter below is built with EMPTY local and parameter maps, so the read reached the
+        // untyped expression door and declined at `emit.body`. The only difference from the targeted
+        // arm is WHEN the synthesized method's signature is known — here it comes from the body — and
+        // `MethodBuilder` takes it afterwards, which is the order the capture-less arm already uses.
+        inferredCaptures := ColumnarClosureBindingPlanner.PlanOrderedCaptureSet(
+            _nodes,
+            _source,
+            inferredBodyNode,
+            new Dictionary<string, int>(StringComparer.Ordinal),
+            _locals,
+            _paramOrdinals,
+            _liftedLocals,
+            _boxedCaptures
+        )
+        if (inferredCaptures.Count > 0) {
+            return TryEmitCapturingInferredZeroParamLambda(inferredBodyNode, inferredCaptures, out delegateType)
+        }
         inferredThisCapture := _currentStruct != null && ColumnarClosureBindingPlanner.BodyReferencesEnclosingChain(
             _nodes,
             _source,
@@ -8730,6 +8886,13 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Ldarg_0)
                 _il.Emit(OpCodes.Ldfld, boxedWrite.BoxField)
                 let boxedValueType: System.Type? = null
+                if (IsContextualDelegateValueNode(Child(expr, 1))) {
+                    if (!EmitDeclaredCallArgument(Child(expr, 1), boxedWrite.ValueType, true)) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Stfld, ColumnarClosureBindingPlanner.StrongBoxValueField(boxedWrite.ValueType))
+                    return true
+                }
                 if (!EmitExpression(Child(expr, 1), out boxedValueType) || boxedValueType != boxedWrite.ValueType) {
                     return false
                 }
@@ -8742,6 +8905,13 @@ sealed class ColumnarIlEmitter {
             if (_liftedLocals.TryGetValue(targetName, out liftedWrite)) {
                 _il.Emit(OpCodes.Ldloc, liftedWrite.Box)
                 let liftedValueType: System.Type? = null
+                if (IsContextualDelegateValueNode(Child(expr, 1))) {
+                    if (!EmitDeclaredCallArgument(Child(expr, 1), liftedWrite.ValueType, true)) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Stfld, ColumnarClosureBindingPlanner.StrongBoxValueField(liftedWrite.ValueType))
+                    return true
+                }
                 if (!EmitExpression(Child(expr, 1), out liftedValueType) || liftedValueType != liftedWrite.ValueType) {
                     return false
                 }
@@ -8755,6 +8925,13 @@ sealed class ColumnarIlEmitter {
                 // generic-union case construction with no type args ADOPTS the local's declared type
                 // (`o = new Opt.None` on an Opt<int> local — probe-pinned).
                 let valueType: System.Type = null
+                if (IsContextualDelegateValueNode(Child(expr, 1))) {
+                    if (!EmitDeclaredCallArgument(Child(expr, 1), assignTarget.get_LocalType(), true)) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Stloc, assignTarget)
+                    return true
+                }
                 if (IsAdoptableUnionConstruction(Child(expr, 1), assignTarget.get_LocalType())) {
                     if (!EmitAdoptedUnionConstruction(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
                         return false
@@ -8849,6 +9026,13 @@ sealed class ColumnarIlEmitter {
                 // (value params have value semantics, so the mutation is method-local, matching the N# backend path).
                 // The value's type must match the parameter's declared type; adoption applies as for locals.
                 let paramValueType: System.Type = null
+                if (IsContextualDelegateValueNode(Child(expr, 1))) {
+                    if (!EmitDeclaredCallArgument(Child(expr, 1), _paramTypes[targetName], true)) {
+                        return false
+                    }
+                    ColumnarArgumentInstructionEmitter.EmitStore(_il, paramOrdinal)
+                    return true
+                }
                 if (IsAdoptableUnionConstruction(Child(expr, 1), _paramTypes[targetName])) {
                     if (!EmitAdoptedUnionConstruction(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {
                         return false

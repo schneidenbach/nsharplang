@@ -86,6 +86,76 @@ class ColumnarLambdaSignature {
     }
 }
 
+// THE DISPLAY CLASS ONE CAPTURING LAMBDA RUNS ON, and the facts its use site needs to fill it.
+//
+// Two arms of the emitter build one of these: the TARGETED arm, which knows its delegate's return and
+// parameter types before the body runs, and the INFERRED zero-parameter arm, which learns its return
+// type FROM the body and sets the synthesized method's signature afterwards. The display itself is the
+// same object in both — the same fields, the same box copies, the same `<>4__this` — so it is built
+// once here rather than twice at the two call sites.
+class ColumnarLambdaDisplayBuild {
+
+    // The generated `<>c__DisplayClass<n>` and its parameterless constructor.
+    Display: TypeBuilder
+    DisplayCtor: ConstructorBuilder
+    // The display as a member-resolution shape, so a snapshot read inside the body falls through to
+    // the display's own field chain.
+    DisplayDef: ColumnarStructDef
+    DisplayFields: Dictionary<string, FieldBuilder>
+    // The `<>4__this` field, when the body reads the enclosing instance; null otherwise.
+    EnclosingThisField: FieldBuilder?
+    // Captures copied BY VALUE, in the order their fields were defined.
+    SnapshotNames: List<string>
+    // Captures copied as a shared `StrongBox<T>` REFERENCE: the names, where each box is read from at
+    // the use site (a local, or a field of the display this body itself runs on), and the display
+    // fields they are stored into.
+    BoxedNames: List<string>
+    BoxedSourceLocals: List<LocalBuilder?>
+    BoxedSourceFields: List<FieldInfo?>
+    BoxedFields: FieldBuilder[]
+    // The boxed captures as the body sub-emitter reads them: name -> (field, value type).
+    BoxedCaptureMap: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>
+    CapturesEnclosingThis: bool
+
+    constructor(
+        display: TypeBuilder,
+        displayCtor: ConstructorBuilder,
+        displayDef: ColumnarStructDef,
+        displayFields: Dictionary<string, FieldBuilder>,
+        enclosingThisField: FieldBuilder?,
+        snapshotNames: List<string>,
+        boxedNames: List<string>,
+        boxedSourceLocals: List<LocalBuilder?>,
+        boxedSourceFields: List<FieldInfo?>,
+        boxedFields: FieldBuilder[],
+        boxedCaptureMap: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>,
+        capturesEnclosingThis: bool
+    ) {
+        Display = display
+        DisplayCtor = displayCtor
+        DisplayDef = displayDef
+        DisplayFields = displayFields
+        EnclosingThisField = enclosingThisField
+        SnapshotNames = snapshotNames
+        BoxedNames = boxedNames
+        BoxedSourceLocals = boxedSourceLocals
+        BoxedSourceFields = boxedSourceFields
+        BoxedFields = boxedFields
+        BoxedCaptureMap = boxedCaptureMap
+        CapturesEnclosingThis = capturesEnclosingThis
+    }
+
+    // The boxed-capture map the body sub-emitter takes, or NOTHING when there are no boxed captures:
+    // an empty map and no map mean the same thing to the sub-emitter, and it expects the second.
+    func BoxedCapturesOrNull(): Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? {
+        if BoxedCaptureMap.Count == 0 {
+            return null
+        }
+
+        return BoxedCaptureMap
+    }
+}
+
 class ColumnarLambdaPlacementPlanner {
 
     // Bind a lambda literal's parameters to the target delegate's parameter types, or decline. The host
