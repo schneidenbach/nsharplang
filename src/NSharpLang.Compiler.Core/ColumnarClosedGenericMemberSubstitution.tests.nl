@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Collections.ObjectModel
 import System.Reflection
 import System.Reflection.Emit
 
@@ -252,4 +253,65 @@ test "closed generic member resolver preserves the raw incompatible runtime owne
     assert throws ArgumentException {
         ColumnarClosedGenericMemberResolver.ResolveMethod(incompatibleClosed, openAdd)
     }
+}
+
+test "closed generic member resolver normalises a method declared on a constructed owner to its definition" {
+    // `ObservableCollection<T>` inherits `GetEnumerator` from `Collection<T>`, so reflection answers a
+    // method whose declaring type is `Collection<T>` CONSTRUCTED over the derived type's own parameter --
+    // not the `Collection<>` definition `TypeBuilder.GetMethod` demands.
+    observableDefinition := typeof(ObservableCollection<int>).GetGenericTypeDefinition()
+    inherited := ClosedGenericMemberRequiredOpenMethod(observableDefinition, "GetEnumerator", 0)
+    inheritedDeclaring := inherited.get_DeclaringType()
+    assert inheritedDeclaring != null
+    assert (must inheritedDeclaring).get_IsGenericType()
+    assert !(must inheritedDeclaring).get_IsGenericTypeDefinition()
+    assert (must inheritedDeclaring).get_ContainsGenericParameters()
+
+    collectionDefinition := typeof(Collection<int>).GetGenericTypeDefinition()
+    builderOwner := TypeOfCreateBuilder(
+        "ClosedGenericMemberRebindOwner",
+        "ColumnarClosedGenericMember.RebindOwner",
+        0
+    )
+    builderOwnerType: Type = builderOwner
+    closedOverBuilder := collectionDefinition.MakeGenericType(
+        ClosedGenericMemberSingleType(builderOwnerType)
+    )
+    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(closedOverBuilder)
+
+    normalised := ColumnarClosedGenericMemberResolver.OpenDefinitionDeclaration(
+        closedOverBuilder,
+        inherited
+    )
+    assert !Object.ReferenceEquals(normalised, inherited)
+    assert normalised.get_MetadataToken() == inherited.get_MetadataToken()
+    assert normalised.get_Name() == "GetEnumerator"
+    normalisedDeclaring := normalised.get_DeclaringType()
+    assert normalisedDeclaring != null
+    assert (must normalisedDeclaring).get_IsGenericTypeDefinition()
+    assert (must normalisedDeclaring) == collectionDefinition
+
+    // The whole point: the rebind that used to throw
+    // "The specified method cannot be dynamic or global and must be declared on a generic type
+    // definition" now answers a handle on the builder-bound closed owner.
+    rebound := ColumnarClosedGenericMemberResolver.ResolveMethod(closedOverBuilder, inherited)
+    assert rebound.get_Name() == "GetEnumerator"
+    assert rebound.get_DeclaringType() == closedOverBuilder
+}
+
+test "closed generic member resolver leaves a definition-declared method and a non-generic owner alone" {
+    listDefinition := typeof(List<int>).GetGenericTypeDefinition()
+    openAdd := ClosedGenericMemberRequiredOpenMethod(listDefinition, "Add", 1)
+    closedList := typeof(List<string>)
+    assert Object.ReferenceEquals(
+        ColumnarClosedGenericMemberResolver.OpenDefinitionDeclaration(closedList, openAdd),
+        openAdd
+    )
+
+    nonGenericOwner := typeof(string)
+    trim := ClosedGenericMemberRequiredOpenMethod(nonGenericOwner, "TrimStart", 0)
+    assert Object.ReferenceEquals(
+        ColumnarClosedGenericMemberResolver.OpenDefinitionDeclaration(nonGenericOwner, trim),
+        trim
+    )
 }

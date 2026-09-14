@@ -445,17 +445,7 @@ class ColumnarForeachLoopPlanner {
     }
 
     static func RebindMember(openMethod: MethodInfo, closedOwner: Type): MethodInfo {
-        declaring := openMethod.get_DeclaringType()
-        if declaring == null || !declaring.get_ContainsGenericParameters() {
-            return openMethod
-        }
-
-        closedDeclaring := Substitute(declaring, closedOwner)
-        if closedDeclaring == declaring || closedDeclaring.get_ContainsGenericParameters() {
-            return openMethod
-        }
-
-        return ColumnarClosedGenericMemberResolver.ResolveMethod(closedDeclaring, openMethod)
+        return ColumnarClosedGenericMemberResolver.RebindOntoClosedOwner(openMethod, closedOwner)
     }
 
     static func RequiredDisposeMethod(): MethodInfo {
