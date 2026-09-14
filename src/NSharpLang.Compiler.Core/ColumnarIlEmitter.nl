@@ -21737,6 +21737,37 @@ sealed class ColumnarIlEmitter {
     // the scoped sub-emitter below performs the expression-type preflight in the selected binding context.
     // An empty parameterTypes serves a zero-parameter handler body; a single type serves a single-parameter
     // selector/predicate body.
+    // COPY THE CALLER'S FRAME INTO A PREFLIGHT SUB-EMITTER. Only a TYPE comes back out of one, so
+    // the handles are shared rather than rebuilt: the sub-emitter reads them to answer what a name
+    // is, and emits nothing through them.
+    private func SeedPreflightFrame(
+        locals: Dictionary<string, LocalBuilder>,
+        liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>,
+        tupleNames: Dictionary<string, string[]>,
+        labeledTypes: Dictionary<string, string>
+    ) {
+        for local in locals {
+            if (!_paramOrdinals.ContainsKey(local.Key)) {
+                _locals[local.Key] = local.Value
+            }
+        }
+        for lifted in liftedLocals {
+            if (!_paramOrdinals.ContainsKey(lifted.Key)) {
+                _liftedLocals[lifted.Key] = lifted.Value
+            }
+        }
+        for tupleName in tupleNames {
+            if (!_tupleNamesByVariable.ContainsKey(tupleName.Key)) {
+                _tupleNamesByVariable[tupleName.Key] = tupleName.Value
+            }
+        }
+        for labeled in labeledTypes {
+            if (!_labeledTypeByVariable.ContainsKey(labeled.Key)) {
+                _labeledTypeByVariable[labeled.Key] = labeled.Value
+            }
+        }
+    }
+
     private func TryPreflightContextualLambdaReturnType(lambdaNode: int, parameterTypes: Type[], out returnType: Type): bool {
         returnType = null
         isAsyncLambda := ColumnarLambdaNodeFacts.IsAsyncLambda(_nodes.Kind(lambdaNode))
@@ -21753,26 +21784,49 @@ sealed class ColumnarIlEmitter {
         if (signature == null) {
             return false
         }
-        // ARGUMENT ZERO OF AN INSTANCE BODY IS `this`, AND THE LAMBDA'S OWN PARAMETERS CANNOT SIT ON
-        // TOP OF IT. This inference runs inside the ENCLOSING method's frame, so a body that reads
-        // both its own parameter and the enclosing instance — `items.FindAll(x => x == this.Value)` —
-        // planned `x` at ordinal 0 as an `int` and `this` at ordinal 0 as the enclosing type, and the
-        // plan refused the contradiction by throwing: "One argument ordinal cannot carry conflicting
-        // bound-identifier facts" escaped `nlc check` as an unhandled exception. The real lowering
-        // already shifts a lambda's ordinals by one when its method has a receiver; this inference
-        // shifts them for the same reason, and only the TYPE it computes outlives the plan.
-        inferenceOrdinals := signature.Ordinals
+        // THE BODY IS TYPED IN THE ENCLOSING FRAME PLUS ITS OWN PARAMETERS, because that is what it
+        // can see. A lambda body reads its own parameters AND whatever the scope around it binds, and
+        // the type this preflight answers is wrong — or, before this, not answerable at all — if half
+        // of that is missing: `xs.ConvertAll(x => x + bump)` could not type `bump`, so `TOutput` had
+        // nothing to bind it and the whole call declined after the analyzer had accepted it. The
+        // enclosing instance was already in reach through `_currentStruct`, which is why the same
+        // lambda reading a FIELD inferred fine while one reading a parameter or a local did not.
+        //
+        // THE LAMBDA'S OWN ORDINALS MOVE PAST THE ENCLOSING FRAME'S. Two bindings at one argument
+        // ordinal is a contradiction the plan refuses by throwing ("One argument ordinal cannot carry
+        // conflicting bound-identifier facts" once escaped `nlc check` as an unhandled exception), and
+        // argument zero of an instance body is `this`. Only the TYPE outlives this plan, so the
+        // ordinals need only be distinct — the real lowering assigns the ones that reach IL.
+        inferenceShift := 0
         if (_currentStruct != null) {
-            inferenceOrdinals = new Dictionary<string, int>(StringComparer.Ordinal)
-            for pair in signature.Ordinals {
-                inferenceOrdinals[pair.Key] = pair.Value + 1
+            inferenceShift = 1
+        }
+        for enclosingOrdinal in _paramOrdinals {
+            if (enclosingOrdinal.Value >= inferenceShift) {
+                inferenceShift = enclosingOrdinal.Value + 1
             }
+        }
+        inferenceOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+        inferenceParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
+        for enclosingOrdinal in _paramOrdinals {
+            inferenceOrdinals[enclosingOrdinal.Key] = enclosingOrdinal.Value
+        }
+        for enclosingParamType in _paramTypes {
+            inferenceParamTypes[enclosingParamType.Key] = enclosingParamType.Value
+        }
+        // The lambda's own parameters SHADOW an enclosing binding of the same name, so they are
+        // written second and win both maps.
+        for pair in signature.Ordinals {
+            inferenceOrdinals[pair.Key] = pair.Value + inferenceShift
+        }
+        for pair in signature.ParameterTypesByName {
+            inferenceParamTypes[pair.Key] = pair.Value
         }
         subEmitter := new ColumnarIlEmitter(
             _nodes,
             _source,
             inferenceOrdinals,
-            signature.ParameterTypesByName,
+            inferenceParamTypes,
             ColumnarTypeOfPlanner.RequiredVoidType(),
             _il,
             _siblings,
@@ -21787,7 +21841,7 @@ sealed class ColumnarIlEmitter {
             _programType,
             _lambdaCounter,
             _displayClasses,
-            null,
+            _boxedCaptures,
             _localFuncs,
             _declaredLocalFuncNodes,
             _visibleLocalFuncs,
@@ -21803,6 +21857,10 @@ sealed class ColumnarIlEmitter {
             _typeResolutionStructs,
             _typeResolutionUnions
         )
+        // THE ENCLOSING FRAME'S LOCALS, for the same reason its parameters are there: a lambda body
+        // may read one, and this is the only place a preflight can learn its type. The slots are the
+        // caller's live handles — nothing is emitted here, so nothing stores through them.
+        subEmitter.SeedPreflightFrame(_locals, _liftedLocals, _tupleNamesByVariable, _labeledTypeByVariable)
         // AN `async` LAMBDA'S OWN TYPE IS A TASK OF WHAT ITS BODY ANSWERED, which is the same rule
         // `AnalyzerLambdaAnalysis.AsyncWrappedReturnType` states for the analyzer: the body produces
         // the task's RESULT, and what the lambda converts to is the task. Without it the contextual
