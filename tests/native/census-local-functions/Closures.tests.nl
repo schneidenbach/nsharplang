@@ -153,7 +153,11 @@ test "a capturing scope gets exactly one display class and a capture-free local 
     // Plus TWO each for ApplyThroughCapturedDelegate and ReadThroughCapturedZeroArgDelegate below:
     // the lambda that makes the delegate captures `seed`, and the local function that calls it
     // captures the delegate local — two capturing scopes, two displays.
-    assert displayCount == 19
+    //
+    // Plus ShiftedLength in GenericLocals.nl, whose GENERIC local function captures `bump`: a
+    // generic local function is lowered through the same display a non-generic one is, because its
+    // captures are the enclosing scope's and never name its own type parameters.
+    assert displayCount == 20
 
     // CountSteps declares two mutually recursive capturing local functions. They share ONE display,
     // which is the whole reason each sees the other's writes to the captured counter.

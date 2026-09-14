@@ -134,6 +134,10 @@ sealed class ColumnarIlEmitter {
     private _liftedCandidates: HashSet<string>?
     private readonly _liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>
     private readonly _localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>?
+    // The GENERIC local functions this body can see. They are kept apart from the map above because an
+    // open generic method has no handle a call site dispatches directly: it carries the same record a
+    // generic top-level `func` carries, and the call site closes it by the same inference.
+    private readonly _genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>?
     private readonly _declaredLocalFuncNodes: Dictionary<int, string>?
     private readonly _visibleLocalFuncs: HashSet<string>
     private readonly _boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?
@@ -512,7 +516,7 @@ sealed class ColumnarIlEmitter {
     // generated assignments are `Field = parameter`; when the field and parameter share a name, the left side
     // must bind to the field even though ordinary explicit-constructor assignments keep parameter shadowing.
 
-    private constructor(nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>, unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, programType: TypeBuilder? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, siblingReturnLabeledCanonicals: IReadOnlyDictionary<string, string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>? = null, typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>? = null, typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null) {
+    private constructor(nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>, unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, programType: TypeBuilder? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, siblingReturnLabeledCanonicals: IReadOnlyDictionary<string, string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>? = null, typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>? = null, typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null, genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null) {
         // CLR object storage starts zeroed before instance field initializers run. Spell the non-nullable
         // fields explicitly so N# constructor validation sees the same initial state on every path.
         _protectedDone = new Label()
@@ -615,6 +619,7 @@ sealed class ColumnarIlEmitter {
         _displayClasses = displayClasses
         _boxedCaptures = boxedCaptures
         _localFuncs = localFuncs
+        _genericLocalFuncs = genericLocalFuncs
         _localFunctionDisplay = localFunctionDisplay
         _declaredLocalFuncNodes = declaredLocalFuncNodes
         if (visibleLocalFuncs != null) {
@@ -6055,6 +6060,7 @@ sealed class ColumnarIlEmitter {
             // resolvable signatures only, duplicate names decline. A local function SHADOWS a same-named
             // sibling at call sites (probe-pinned), so the map is its own resolution tier.
             localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null
+            genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null
             declaredLocalFuncNodes: Dictionary<int, string>? = null
             // Every local function this body declares, visible from the body's FIRST statement — the
             // block-wide scoping rule, so a forward call and a mutually recursive pair both resolve.
@@ -6068,6 +6074,7 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 localFuncs = localFunctionLowering.LocalFuncs
+                genericLocalFuncs = localFunctionLowering.GenericLocalFuncs
                 declaredLocalFuncNodes = localFunctionLowering.DeclaredNodes
                 visibleLocalFuncNames = localFunctionLowering.VisibleNames
                 localFunctionDisplay = localFunctionLowering.Closure
@@ -6130,7 +6137,8 @@ sealed class ColumnarIlEmitter {
                 typeResolution.Enums,
                 typeResolution.Structs,
                 typeResolution.Unions,
-                localFunctionDisplay
+                localFunctionDisplay,
+                genericLocalFuncs
             )
             ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId)
             try {
@@ -6331,6 +6339,7 @@ sealed class ColumnarIlEmitter {
             memberLocalFunctionLowering: ColumnarLocalFunctionLowering? = null
             memberLocalFunctionClosure: ColumnarLocalFunctionDisplay? = null
             memberLocalFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null
+            memberGenericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null
             memberDeclaredLocalFuncNodes: Dictionary<int, string>? = null
             memberVisibleLocalFuncNames: List<string>? = null
             if (job.Item2.LocalFunctions != null) {
@@ -6344,6 +6353,7 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic("emit.local-function.declaration", "a local function of this member could not be declared", job.Item1.DeclaredTypeName + "." + job.Item2.Name, -1, 0)
                 }
                 memberLocalFuncs = memberLocalFunctionLowering.LocalFuncs
+                memberGenericLocalFuncs = memberLocalFunctionLowering.GenericLocalFuncs
                 memberDeclaredLocalFuncNodes = memberLocalFunctionLowering.DeclaredNodes
                 memberVisibleLocalFuncNames = memberLocalFunctionLowering.VisibleNames
                 memberLocalFunctionClosure = memberLocalFunctionLowering.Closure
@@ -6386,7 +6396,8 @@ sealed class ColumnarIlEmitter {
                 bodyTypeResolution.Enums,
                 bodyTypeResolution.Structs,
                 bodyTypeResolution.Unions,
-                memberLocalFunctionClosure
+                memberLocalFunctionClosure,
+                memberGenericLocalFuncs
             )
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
             // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
@@ -6886,6 +6897,7 @@ sealed class ColumnarIlEmitter {
     ): bool {
         lowering = null
         localFuncs := new Dictionary<string, (MethodBuilder, Type[], Type)>(StringComparer.Ordinal)
+        genericLocalFuncs := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
         declaredLocalFuncNodes := new Dictionary<int, string>()
         visibleLocalFuncNames := new List<string>()
         declaringScopeBindings := new HashSet<string>(parameterOrdinals.Keys, StringComparer.Ordinal)
@@ -6908,6 +6920,17 @@ sealed class ColumnarIlEmitter {
         }
         for localFunction in fn.LocalFunctions {
             localFn := localFunction.Function
+            // A GENERIC LOCAL FUNCTION'S TYPE PARAMETERS ARE ITS OWN, and the order its declaration
+            // takes is the one a generic top-level `func` takes: the method is defined signature-LESS,
+            // `DefineGenericParameters` runs, and only then can the parameter and return types — which
+            // may name those parameters — be resolved and set. It is therefore declared by its own arm
+            // rather than by the fixed-signature one below.
+            if (localFn.TypeParamNames.Length > 0) {
+                if (!TryDeclareGenericLocalFunction(fn, localFn, localFunction.NodeIndex, staticOwner, enclosingDefinition, closure, typeResolution, lambdaCounter, sourceAttributeQueue, genericLocalFuncs, declaredLocalFuncNodes, visibleLocalFuncNames)) {
+                    return false
+                }
+                continue
+            }
             // AN ASYNC LOCAL FUNCTION DECLARES ITS INNER TYPE AND ITS METHOD RETURNS THE WRAP, exactly
             // as a top-level `async func` does: `async func inner(): int` is a method returning
             // `ValueTask<int>`, and every call site sees that. The body is routed through the async
@@ -6975,7 +6998,156 @@ sealed class ColumnarIlEmitter {
             declaredLocalFuncNodes[localFunction.NodeIndex] = localFn.Name
             visibleLocalFuncNames.Add(localFn.Name)
         }
-        lowering = new ColumnarLocalFunctionLowering(localFuncs, declaredLocalFuncNodes, visibleLocalFuncNames, closure, declaringScopeBindings)
+        lowering = new ColumnarLocalFunctionLowering(localFuncs, genericLocalFuncs, declaredLocalFuncNodes, visibleLocalFuncNames, closure, declaringScopeBindings)
+        return true
+    }
+
+    // ONE GENERIC LOCAL FUNCTION'S DECLARATION.
+    //
+    // Everything about it that is not the type parameters is the non-generic arm's: the same placement
+    // decision (a static on the holder, an instance method of the display, or one of the enclosing
+    // type), the same synthesized name, the same parameter metadata. What differs is the ORDER — the
+    // method is defined with no signature, its parameters are declared, and the declared types are
+    // resolved IN THEIR SCOPE and set afterwards — and what is recorded: a generic method has no
+    // handle a call site can dispatch directly, so it goes into the lowering's generic map as the same
+    // record a generic top-level `func` publishes, and the call site closes it by the same inference.
+    //
+    // AN `async` GENERIC LOCAL FUNCTION IS REFUSED, exactly as a generic `async func` is at top level.
+    private static func TryDeclareGenericLocalFunction(
+        fn: ColumnarFunctionInput,
+        localFn: ColumnarFunctionInput,
+        declarationNodeIndex: int,
+        staticOwner: TypeBuilder,
+        enclosingDefinition: ColumnarStructDef?,
+        closure: ColumnarLocalFunctionDisplay?,
+        typeResolution: ColumnarSemanticTypeResolution,
+        lambdaCounter: int[],
+        sourceAttributeQueue: ColumnarSourceAttributeQueue,
+        genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>,
+        declaredLocalFuncNodes: Dictionary<int, string>,
+        visibleLocalFuncNames: List<string>
+    ): bool {
+        if (localFn.IsAsync) {
+            return DeclineStatic("emit.local-function.generic-async", "a generic local function cannot be `async` — the state machine has no type arguments to carry", fn.Name + "." + localFn.Name, -1, 0)
+        }
+        runsOnDisplay := closure != null && closure.IsDisplayMethod(localFn.Name)
+        runsOnEnclosingInstance := closure != null && closure.IsInstanceMethod(localFn.Name)
+        let localMethodOwner: TypeBuilder = staticOwner
+        if (runsOnDisplay) {
+            localMethodOwner = closure.Builder
+        } else if (runsOnEnclosingInstance) {
+            if (enclosingDefinition == null) {
+                return false
+            }
+            localMethodOwner = enclosingDefinition.Builder
+        }
+        localMethodOrdinal := lambdaCounter[0]
+        lambdaCounter[0] = localMethodOrdinal + 1
+        localMethodName := "<" + fn.Name + ">g__" + localMethodOrdinal.ToString()
+        localMethodAttributes := MethodAttributes.Private | MethodAttributes.Static
+        if (runsOnDisplay) {
+            localMethodAttributes = MethodAttributes.Public | MethodAttributes.HideBySig
+        } else if (runsOnEnclosingInstance) {
+            localMethodAttributes = MethodAttributes.Private | MethodAttributes.HideBySig
+        }
+        let genericInitialReturnType: System.Type? = null
+        let genericInitialParameterTypes: System.Type[]? = null
+        localMethod := localMethodOwner.DefineMethod(localMethodName, localMethodAttributes, genericInitialReturnType, genericInitialParameterTypes)
+        gpBuilders := localMethod.DefineGenericParameters(localFn.TypeParamNames)
+        typeParamMap := new Dictionary<string, Type>(StringComparer.Ordinal)
+        localTypeParams := new Type[gpBuilders.Length]
+        for g := 0; g < gpBuilders.Length; g++ {
+            genericParameterForMap := gpBuilders[g]
+            genericParameterAsType: Type = genericParameterForMap
+            typeParamMap[localFn.TypeParamNames[g]] = genericParameterAsType
+            localTypeParams[g] = genericParameterAsType
+        }
+        // THE PARAMETERS ARE REGISTERED AGAINST AN OWNER, exactly as a generic top-level `func`'s are
+        // through `ForSourceMethod`. The structural type-reference registry keys every generic
+        // parameter by its owner, and one that reaches selection unregistered is refused outright —
+        // which is what a generic local function's `T` did. The owner is a METHOD owner (its
+        // parameters are MVARs) named by the enclosing function and the synthesized method's ordinal,
+        // which is unique across the assembly being emitted.
+        typeResolution.Structs.StructuralTypeReferences.RegisterGenericParameters(
+            typeParamMap,
+            ColumnarStructuralGenericOwnerIdentity.SourceTypeMethod(localFn.SourceFileId, fn.Name + "." + localFn.Name, localMethodOrdinal)
+        )
+        // Applied AFTER the whole map exists, so a constraint may name another of this local
+        // function's own parameters (`where T: U`) — the same reason the top-level arm waits.
+        localSpecialConstraints := System.Array.Empty<int>()
+        localBaseConstraints := System.Array.Empty<Type?>()
+        localInterfaceConstraints := System.Array.Empty<Type[]>()
+        if (!ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(gpBuilders, localFn.TypeParamSpecialConstraints, localFn.TypeParamTypeConstraints, typeParamMap, localTypeParams, typeResolution, out localSpecialConstraints, out localBaseConstraints, out localInterfaceConstraints)) {
+            return false
+        }
+        let localReturn: System.Type = null
+        if (localFn.ReturnCanonical == "void") {
+            localReturn = ColumnarTypeOfPlanner.RequiredVoidType()
+        } else {
+            if (!ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(localFn.ReturnCanonical, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localReturn) || !IsValidGenericLocalFunctionSignatureType(localReturn, localMethodOwner, localTypeParams)) {
+                return DeclineStatic("emit.local-function.generic-return", "generic local function return type '" + localFn.ReturnCanonical + "' could not be resolved for '" + localFn.Name + "'", fn.Name + "." + localFn.Name, -1, 0)
+            }
+        }
+        localParams := new Type[localFn.ParamNames.Length]
+        for lp := 0; lp < localParams.Length; lp++ {
+            let localParamType: Type = null
+            if (!ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(localFn.ParamCanonicals[lp], typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localParamType) || !IsValidGenericLocalFunctionSignatureType(localParamType, localMethodOwner, localTypeParams)) {
+                return DeclineStatic("emit.local-function.generic-parameter", "generic local function parameter type '" + localFn.ParamCanonicals[lp] + "' could not be resolved for '" + localFn.Name + "'", fn.Name + "." + localFn.Name, -1, 0)
+            }
+            localParams[lp] = localParamType
+        }
+        localMethod.SetReturnType(localReturn)
+        localMethodForParameters := localMethod
+        localMethodForParameters.SetParameters(localParams)
+        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums, null, null, localFn.ParamLabeledCanonicals, sourceAttributeQueue)) {
+            return false
+        }
+        ColumnarTupleElementNameEmitter.ApplyToReturn(localMethod, localFn.ReturnLabeledCanonical)
+        localMethodAsInfo: MethodInfo = localMethod
+        genericLocalFuncs[localFn.Name] = new ColumnarSiblingMethodDefinition(
+            localMethodAsInfo,
+            localParams,
+            localFn.ParamModifierKinds,
+            localReturn,
+            localTypeParams,
+            localSpecialConstraints,
+            localBaseConstraints,
+            localInterfaceConstraints
+        )
+        declaredLocalFuncNodes[declarationNodeIndex] = localFn.Name
+        visibleLocalFuncNames.Add(localFn.Name)
+        return true
+    }
+
+    // THE SIGNATURE RULE A GENERIC LOCAL FUNCTION KEEPS. The synthesized-method rule beside it refuses
+    // EVERY method-level generic parameter, because the shapes it guards — a display class's fields, a
+    // lambda's method — have no type parameters of their own to put one in context. A generic local
+    // function DOES: its own parameters are exactly the ones its signature may name, and any OTHER
+    // method's are still out of context.
+    private static func IsValidGenericLocalFunctionSignatureType(valueType: Type, declaringType: TypeBuilder, ownTypeParameters: Type[]): bool {
+        if valueType == null {
+            return false
+        }
+        if valueType.get_IsGenericParameter() {
+            for ownTypeParameter in ownTypeParameters {
+                if Object.ReferenceEquals(ownTypeParameter, valueType) {
+                    return true
+                }
+            }
+            return ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(valueType, declaringType)
+        }
+        if valueType.get_HasElementType() {
+            elementType := valueType.GetElementType()
+            return elementType != null && IsValidGenericLocalFunctionSignatureType(elementType, declaringType, ownTypeParameters)
+        }
+        if !valueType.get_IsGenericType() {
+            return true
+        }
+        for argument in valueType.GetGenericArguments() {
+            if !IsValidGenericLocalFunctionSignatureType(argument, declaringType, ownTypeParameters) {
+                return false
+            }
+        }
         return true
     }
 
@@ -7011,7 +7183,34 @@ sealed class ColumnarIlEmitter {
         declaringScopeBindings := lowering.DeclaringScopeBindings
         for localFunction in fn.LocalFunctions {
             localFn := localFunction.Function
-            target := lowering.LocalFuncs[localFn.Name]
+            // A GENERIC local function's facts come from the generic map, because its open handle is
+            // not one a call site can dispatch and it is therefore not in the direct one. Everything
+            // the body needs is the same three things either way — the method to fill, the declared
+            // parameter types and the body's return type — plus, for the generic one, the map from
+            // its written type-parameter names to the builders its signature was resolved against.
+            let localMethodBuilder: System.Reflection.Emit.MethodBuilder? = null
+            let localDeclaredParamTypes: System.Type[]? = null
+            let localDeclaredReturn: System.Type? = null
+            localTypeParamMap: Dictionary<string, Type>? = null
+            let genericTarget: ColumnarSiblingMethodDefinition? = null
+            if (lowering.GenericLocalFuncs.TryGetValue(localFn.Name, out genericTarget) && genericTarget != null) {
+                genericTargetMethod := genericTarget.Method as System.Reflection.Emit.MethodBuilder
+                if (genericTargetMethod == null) {
+                    return false
+                }
+                localMethodBuilder = genericTargetMethod
+                localDeclaredParamTypes = genericTarget.ParamTypes
+                localDeclaredReturn = genericTarget.ReturnType
+                localTypeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal)
+                for tp := 0; tp < localFn.TypeParamNames.Length && tp < genericTarget.TypeParams.Length; tp++ {
+                    localTypeParamMap[localFn.TypeParamNames[tp]] = genericTarget.TypeParams[tp]
+                }
+            } else {
+                directTarget := lowering.LocalFuncs[localFn.Name]
+                localMethodBuilder = directTarget.Item1
+                localDeclaredParamTypes = directTarget.Item2
+                localDeclaredReturn = directTarget.Item3
+            }
             // An instance method's arg 0 is its receiver — the display or the enclosing instance — so
             // every declared parameter sits one ordinal further along, as a lambda's body does.
             localOrdinalShift := lowering.PlacementShift(localFn.Name)
@@ -7022,9 +7221,9 @@ sealed class ColumnarIlEmitter {
                 if (declaringScopeBindings.Contains(localFn.ParamNames[lp])) {
                     return false
                 }
-                localParamTypes[localFn.ParamNames[lp]] = target.Item2[lp]
+                localParamTypes[localFn.ParamNames[lp]] = localDeclaredParamTypes[lp]
             }
-            localIl := target.Item1.GetILGenerator()
+            localIl := localMethodBuilder.GetILGenerator()
             // The local body shares the SAME local-function map (self and mutual recursion, plus the
             // parent's other local functions). A CAPTURED enclosing binding reaches it through the
             // display's boxes — the `_boxedCaptures` route a capturing lambda body already reads and
@@ -7048,7 +7247,7 @@ sealed class ColumnarIlEmitter {
             // facts a top-level `async func`'s body is given. The declaration pass already put the
             // WRAPPED type on the method (and therefore on every call site), so the shape is
             // recomputed here rather than carried: one owner answers it, twice.
-            localBodyReturn := target.Item3
+            localBodyReturn := localDeclaredReturn
             let localAsyncReturn: System.Type? = null
             if (localFn.IsAsync) {
                 let localAsyncInner: System.Type? = null
@@ -7093,11 +7292,12 @@ sealed class ColumnarIlEmitter {
                 },
                 referenceAssemblyPaths,
                 null,
-                null,
+                localTypeParamMap,
                 typeResolution.Enums.ForSynthesizedMethod(synthesizedMethodOwner),
                 typeResolution.Structs.ForSynthesizedMethod(synthesizedMethodOwner),
                 typeResolution.Unions.ForSynthesizedMethod(synthesizedMethodOwner),
-                localClosureView
+                localClosureView,
+                lowering.GenericLocalFuncs
             )
             ColumnarDeclineTrace.SetSourceFileId(localFn.SourceFileId)
             try {
@@ -12547,6 +12747,17 @@ sealed class ColumnarIlEmitter {
                     }
                     return TryEmitDelegateInvoke(idx, name, out columnarResolvedType)
                 }
+                // A GENERIC local function is closed by the same inference a generic top-level `func`
+                // is closed by: the record it carries is the same one, and the argument walk that
+                // binds each type parameter is the same walk. Its RECEIVER — the display, or the
+                // enclosing instance — is pushed first, exactly as a non-generic one's is.
+                let genericLocalTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+                if (_genericLocalFuncs != null && _visibleLocalFuncs.Contains(name) && _genericLocalFuncs.TryGetValue(name, out genericLocalTarget) && genericLocalTarget != null) {
+                    if (!EmitLocalFunctionCallReceiver(name)) {
+                        return false
+                    }
+                    return TryEmitGenericSiblingCall(idx, genericLocalTarget, new Type[genericLocalTarget.TypeParams.Length], out columnarResolvedType)
+                }
                 let localTargetMethod: System.Reflection.Emit.MethodBuilder? = null
                 let localTargetParamTypes: System.Type[]? = null
                 let localTargetReturnType: System.Type? = null
@@ -12715,6 +12926,28 @@ sealed class ColumnarIlEmitter {
                 // GENERIC top-level sibling binds (explicit type args on a non-generic are pipeline-rejected).
                 if (_locals.ContainsKey(gName) || _paramOrdinals.ContainsKey(gName)) {
                     return Decline("emit.call.generic-shadowed", "generic call '" + gName + "' is shadowed by a value binding", idx)
+                }
+                // A LOCAL FUNCTION SHADOWS A SAME-NAMED SIBLING, which is why it is asked first here
+                // exactly as it is at the bare-name arm.
+                let gLocalTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+                if (_genericLocalFuncs != null && _visibleLocalFuncs.Contains(gName) && _genericLocalFuncs.TryGetValue(gName, out gLocalTarget) && gLocalTarget != null) {
+                    if (_nodes.ChildCount(callee) != gLocalTarget.TypeParams.Length) {
+                        return Decline("emit.call.generic-arity", "generic local function '" + gName + "' takes " + gLocalTarget.TypeParams.Length.ToString() + " type argument(s)", idx)
+                    }
+                    localExplicitBinding := new Type[gLocalTarget.TypeParams.Length]
+                    for lta := 0; lta < gLocalTarget.TypeParams.Length; lta++ {
+                        localTypeArgNode := Child(callee, lta)
+                        let localCanonicalTypeArg: string? = null
+                        let localTaType: System.Type? = null
+                        if (!TryBuildTypeNodeCanonical(localTypeArgNode, out localCanonicalTypeArg) || !TryResolveBodyType(localCanonicalTypeArg, out localTaType) || !ColumnarTypeOfPlanner.IsSupportedType(localTaType)) {
+                            return false
+                        }
+                        localExplicitBinding[lta] = localTaType
+                    }
+                    if (!EmitLocalFunctionCallReceiver(gName)) {
+                        return false
+                    }
+                    return TryEmitGenericSiblingCall(idx, gLocalTarget, localExplicitBinding, out columnarResolvedType)
                 }
                 let gTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
                 if (!_siblings.TryGetValue(gName, out gTarget) || gTarget.TypeParams.Length == 0) {

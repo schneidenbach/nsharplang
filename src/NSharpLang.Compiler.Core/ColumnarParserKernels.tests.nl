@@ -669,6 +669,30 @@ test "an arrow-bodied local function's span ends at its expression, not at the n
     assert probe.LocalFunctionCount == 2
 }
 
+test "a local function may declare its OWN type parameters" {
+    // The statement kernel refused a local function that declared any at all
+    // (`isLocalFunction != 0 && typeParamCount > 0`), which declined the ENCLOSING function at
+    // parse.function — so `func id<T>(v: T): T` inside a function was reported against the whole
+    // function that contained it. A local function's type parameters are its own, exactly as a
+    // top-level `func`'s are, and the signature scan already read them.
+    probe := new ColumnarFunctionBodyShapeProbe(
+        "func Pick(value: int): int {\n    func id<T>(v: T): T {\n        return v\n    }\n    return id<int>(value)\n}"
+    )
+
+    assert probe.Status >= 0
+    assert probe.LocalFunctionCount == 1
+    assert probe.BodyRootKind == 25
+}
+
+test "a local function with a CONSTRAINED type parameter parses with its enclosing function" {
+    probe := new ColumnarFunctionBodyShapeProbe(
+        "func Pick(values: List<int>): int {\n    func first<T>(items: List<T>): T where T : struct {\n        return items[0]\n    }\n    return first(values)\n}"
+    )
+
+    assert probe.Status >= 0
+    assert probe.LocalFunctionCount == 1
+}
+
 test "a parameter default that is a lambda does not end the signature at its arrow" {
     probe := new ColumnarFunctionBodyShapeProbe(
         "func Apply(a: int): int {\n    func run(x: int, g: Func<int, int>? = null): int => g == null ? x : g(x)\n    return run(a)\n}"

@@ -1785,16 +1785,42 @@ async func orchestrate(): Task<int> {
 
 ### Generic Local Functions
 
+A local function may declare its own type parameters, with constraints, exactly as a top-level `func`
+does. The type argument is written out or inferred from the call:
+
 ```n#
-func createProcessor() {
-    func process<T>(value: T): string {
-        return value.ToString()
+func pick(values: List<int>): int {
+    func id<T>(v: T): T {
+        return v
     }
 
-    x := process<int>(42)
-    y := process<string>("hello")
+    func first<T>(items: List<T>): T where T : struct {
+        return items[0]
+    }
+
+    print id<string>("hello")     // written out
+    print id(42)                  // inferred
+    return first(values)
 }
 ```
+
+The type parameters are the local function's **own**. A local function may be written inside a
+generic function, and the enclosing function's type parameter can be the *argument* at the call:
+
+```n#
+func passThrough<T>(value: T): T {
+    func id<U>(v: U): U {
+        return v
+    }
+
+    return id(value)              // U is the enclosing T
+}
+```
+
+**Two shapes are not supported.** A local function whose *signature* names the enclosing function's
+type parameter (`func echo(v: T): T` inside `func outer<T>`) does not compile — those parameters
+belong to a different method. Neither does an `async` generic local function, for the same reason a
+generic `async func` does not.
 
 ### Scope: a local function is visible in its whole block
 

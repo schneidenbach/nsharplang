@@ -14284,10 +14284,6 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
         return -1
     }
 
-    if isLocalFunction != 0 && signatureResult.Values[2] > 0 {
-        return -1
-    }
-
     bodyBrace := signatureResult.Values[1]
     if bodyBrace < 0 || bodyBrace >= tokens.Count || (tokens.Kinds[bodyBrace] != 129 && tokens.Kinds[bodyBrace] != 120) {
         return -1

@@ -1405,6 +1405,25 @@ public-only flags. `System.Object`'s own `protected` methods (`MemberwiseClone`,
 listed on such a receiver, which is honest — they ARE reachable — and is what a name-based filter
 would have to be invented to suppress. A VS Code visual pass over this list is OWED.
 
+**A LOCAL FUNCTION MAY DECLARE ITS OWN TYPE PARAMETERS** (2026-09-14, stream CAPTURE3). The statement
+kernel refused any local function that declared one (`ParseColumnarFunctionInfoCore`'s
+`isLocalFunction != 0 && signatureResult.Values[2] > 0`), so the whole ENCLOSING function failed at
+`parse.function`. Lifting it needed no new lowering: `TryDeclareGenericLocalFunction` declares the
+method in the order a generic top-level `func` is declared (define with no signature,
+`DefineGenericParameters`, resolve the declared types through `TryResolveTypeWithTypeParams` in that
+scope, `SetReturnType`/`SetParameters`), registers the parameters against a METHOD owner
+(`ColumnarStructuralGenericOwnerIdentity.SourceTypeMethod`, keyed by the enclosing function's name
+plus the synthesized ordinal — an unregistered parameter is refused outright by
+`ColumnarStructuralTypeReferences`), and publishes the same `ColumnarSiblingMethodDefinition` a
+generic top-level `func` publishes. Both call arms — the bare name and the explicit `id<int>(…)` —
+then reach `TryEmitGenericSiblingCall`, which is where the inference, the constraint check and
+`MakeGenericMethod` already live; a capturing one pushes its display receiver first, exactly as a
+non-generic one does. The generic ones ride a SEPARATE map on `ColumnarLocalFunctionLowering`
+(`GenericLocalFuncs`) because the direct map's entries are handles a call site dispatches without
+closing. Still refused: a local function whose SIGNATURE names the enclosing method's type parameter
+(pre-existing — C# lowers it by COPYING those parameters onto the generated method), and an `async`
+generic local function (`emit.local-function.generic-async`).
+
 **THE CONTEXTUAL-TIER GATE ASKS ALL THREE METHOD-GROUP SHAPES** (2026-09-14, stream CAPTURE3).
 `ColumnarIlEmitter.IsContextualDelegateValueNode` — the predicate `HasContextualDelegateArgument`
 uses to decide whether the contextual walk runs at all — recognised an OVERLOADED group written as a
