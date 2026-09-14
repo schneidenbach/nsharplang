@@ -13,6 +13,7 @@ enum ColumnarBoundIdentifierKind {
     None,
     BoxedCapture,
     CapturedInstanceField,
+    CapturedInstanceProperty,
     LiftedLocal,
     Local,
     PlanLocal,
@@ -121,7 +122,7 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         selection := EmptySelection()
-        return TryResolveCurrentInstance(name, bindings, out selection)
+        return TryResolveCurrentInstance(name, bindings, out selection) || TryResolveCapturedEnclosingInstance(name, bindings, out selection)
     }
 
     static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, il: ILGenerator, out resultType: Type): bool {
@@ -225,6 +226,25 @@ class ColumnarBoundIdentifierPlanner {
             memberFieldIndex := plan.AddField(RequiredField(selection.ValueField, "Captured-instance-field selection has no member field."))
 
             plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), memberFieldIndex)
+        } else if selection.Kind == ColumnarBoundIdentifierKind.CapturedInstanceProperty {
+            // THE SAME RECEIVER HOP, ENDING IN A PROPERTY GETTER. The enclosing instance a display
+            // captured is a reference, so the accessor dispatches virtually exactly as it would on a
+            // written receiver of that type — there is no address and no `constrained` prefix.
+            currentInstanceType := RequiredType(selection.CurrentInstanceType, "Captured-instance-property selection has no current-instance type.")
+
+            argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, false)
+
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+            capturedReceiverFieldIndex := plan.AddField(RequiredField(selection.FirstField, "Captured-instance-property selection has no receiver field."))
+
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), capturedReceiverFieldIndex)
+            capturedGetter := RequiredMethod(selection.Getter, "Captured-instance-property selection has no exact getter handle.")
+
+            capturedDeclaringType := RequiredType(selection.DeclaringType, "Captured-instance-property selection has no exact declaring type.")
+
+            capturedMethodIndex := plan.AddMethodWithSignature(capturedGetter, capturedDeclaringType, new Type[](0), selection.ResultType, false, capturedGetter.get_IsAbstract())
+
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), capturedMethodIndex)
         } else if selection.Kind == ColumnarBoundIdentifierKind.LiftedLocal {
             localIndex := plan.AddAmbientLocal(RequiredLocal(selection.Local, "Lifted selection has no box local."))
 
@@ -622,7 +642,9 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         if ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, node) {
-            return TryResolveCurrentInstance(name, bindings, out selection)
+            // Written `this.Member` names the LEXICAL owner's member, which inside a display is the
+            // captured receiver's — the same answer the bare name gets, by the same two hops.
+            return TryResolveCurrentInstance(name, bindings, out selection) || TryResolveCapturedEnclosingInstance(name, bindings, out selection)
         }
 
         hasBoxed := bindings.BoxedCaptures.ContainsKey(name)
@@ -796,7 +818,10 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        return TryResolveCurrentInstance(name, bindings, out selection)
+        // The captured-receiver read is LAST, after the blocked gate: an enclosing LOCAL of the same
+        // name shadows the member in the source the display was made from, so a name the outer scope
+        // binds must decline here rather than quietly resolve to a field of the enclosing type.
+        return TryResolveCurrentInstance(name, bindings, out selection) || TryResolveCapturedEnclosingInstance(name, bindings, out selection)
     }
 
     // `base.Name` AS A VALUE — the field or property the BASE declares.
@@ -927,6 +952,99 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         selection = new ColumnarBoundIdentifierSelection(propertyKind, runtimeSelection.ResultType, 0, -1, null, null, null, runtimeGetter, runtimeSelection.DeclaringType, receiverType, false)
+
+        return true
+    }
+
+    // THE ENCLOSING INSTANCE'S OWN MEMBERS, READ FROM INSIDE A DISPLAY THAT CAPTURED IT.
+    //
+    // A lambda that captures BOTH `this` and a local runs as an instance method on a synthesized
+    // display class, and that display holds the enclosing receiver in one field of its own —
+    // `<>4__this`. Argument zero there is the DISPLAY, not the object the source wrote `Factor`
+    // about, so the current-instance walk above finds nothing and the read declined even though the
+    // receiver was sitting in a field the same body could reach.
+    //
+    // A bare member name written inside such a body means `this.<>4__this.<member>`: one `ldfld` to
+    // the captured receiver, then the ordinary member read on it. That is the same two-hop shape an
+    // instance iterator's state machine already takes through `CapturedInstanceFields`, and the same
+    // receiver `EmitCapturedEnclosingThisCall` loads before a bare call on the lexical owner — so a
+    // READ and a CALL on the captured instance now agree instead of one working and the other not.
+    //
+    // Only a REFERENCE enclosing instance can be captured at all (a value type's `this` is a pointer
+    // into its own storage), which is why the hop is a plain reference load with no address and no
+    // `constrained` prefix, and why an inherited EXTERNAL member answers here by the same ordinary
+    // resolution `this.Member` uses on a written receiver.
+    static func TryResolveCapturedEnclosingInstance(name: string, bindings: ColumnarFragmentBindings, out selection: ColumnarBoundIdentifierSelection): bool {
+        selection = EmptySelection()
+        display := bindings.CurrentInstance
+        enclosingDefinition := bindings.EnclosingTypeDefinition
+        if display == null || !display.IsClosureDisplay || enclosingDefinition == null || !enclosingDefinition.IsReference {
+            return false
+        }
+
+        capturedReceiverField: FieldInfo? = null
+        capturedReceiverDeclaringType := typeof(object)
+        if !ColumnarCurrentInstanceFacts.TryFindField(display, ColumnarClosureBindingPlanner.CapturedEnclosingInstanceFieldName(), out capturedReceiverField, out capturedReceiverDeclaringType) {
+            return false
+        }
+
+        if capturedReceiverField == null || capturedReceiverField.get_IsStatic() {
+            throw new InvalidOperationException("A captured enclosing receiver must be exact instance storage on the display.")
+        }
+
+        enclosingFacts := ColumnarCurrentInstanceFacts.FromSourceDefinition(enclosingDefinition)
+        receiverType := capturedReceiverField.get_FieldType()
+        if receiverType == null || receiverType != enclosingFacts.ExactType {
+            return false
+        }
+
+        displayType := display.ExactType
+        field: FieldInfo? = null
+        declaringType := typeof(object)
+        if ColumnarCurrentInstanceFacts.TryFindField(enclosingFacts, name, out field, out declaringType) {
+            if field == null || field.get_IsStatic() || field.get_DeclaringType() != declaringType {
+                throw new InvalidOperationException("Captured enclosing-instance field facts do not identify exact instance storage.")
+            }
+
+            fieldType := field.get_FieldType()
+            RequireStorableValueType(fieldType, "Captured enclosing-instance field facts must identify a storable value type.")
+
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, fieldType, -1, -1, null, capturedReceiverField, field, null, declaringType, displayType, false)
+
+            return true
+        }
+
+        getter: MethodInfo? = null
+        propertyType := typeof(object)
+        if ColumnarCurrentInstanceFacts.TryFindProperty(enclosingFacts, name, out getter, out propertyType, out declaringType) {
+            if getter == null || propertyType == null || getter.get_IsStatic() || getter.get_DeclaringType() != declaringType || getter.get_ReturnType() != propertyType {
+                throw new InvalidOperationException("Captured enclosing-instance property facts do not identify an exact getter.")
+            }
+
+            RequireStorableValueType(propertyType, "Captured enclosing-instance property facts must identify a storable value type.")
+
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceProperty, propertyType, -1, -1, null, capturedReceiverField, null, getter, declaringType, displayType, false)
+
+            return true
+        }
+
+        inheritedBase := ColumnarInheritedExternalBase.Resolve(enclosingDefinition, receiverType)
+        if inheritedBase == null {
+            return false
+        }
+
+        inherited := EmptySelection()
+        if !TryResolveInheritedExternalMember(inheritedBase, name, ColumnarBoundIdentifierKind.CapturedInstanceField, ColumnarBoundIdentifierKind.CapturedInstanceProperty, receiverType, out inherited) {
+            return false
+        }
+
+        if inherited.Kind == ColumnarBoundIdentifierKind.CapturedInstanceField {
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, inherited.ResultType, -1, -1, null, capturedReceiverField, inherited.FirstField, null, inherited.DeclaringType, displayType, false)
+
+            return true
+        }
+
+        selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceProperty, inherited.ResultType, -1, -1, null, capturedReceiverField, null, inherited.Getter, inherited.DeclaringType, displayType, false)
 
         return true
     }

@@ -1535,7 +1535,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         lambdaBoundNames := new HashSet<string>(ordinals.Keys, StringComparer.Ordinal)
-        capturesEnclosingThis := _currentStruct != null && ColumnarClosureBindingPlanner.BodyReferencesEnclosingInstanceMethodChain(
+        capturesEnclosingThis := _currentStruct != null && ColumnarClosureBindingPlanner.BodyReferencesEnclosingInstanceMemberChain(
             _nodes,
             _source,
             bodyNode,

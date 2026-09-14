@@ -211,13 +211,13 @@ func ClosureBindingControlsReferences(
     )
 }
 
-func ClosureBindingControlsReferencesInstanceMethod(
+func ClosureBindingControlsReferencesInstanceMember(
     definition: ColumnarStructDef?,
     name: string,
     locals: Dictionary<string, LocalBuilder>
 ): bool {
     tree := ClosureBindingControlsIdentifierTree(name)
-    return ColumnarClosureBindingPlanner.BodyReferencesEnclosingInstanceMethodChain(
+    return ColumnarClosureBindingPlanner.BodyReferencesEnclosingInstanceMemberChain(
         tree.Nodes,
         tree.Source,
         tree.Root,
@@ -499,6 +499,15 @@ test "enclosing member references use source base chains and live binding preced
         (MethodAttributes)22
     )
     baseDefinition.StaticProperties["StaticProperty"] = staticProperty
+    instanceProperty := ColumnarPropertyDef.Define(
+        baseDefinition.Builder,
+        "get_InstanceProperty",
+        (MethodAttributes)6,
+        typeof(int),
+        "set_InstanceProperty",
+        (MethodAttributes)6
+    )
+    baseDefinition.Properties["InstanceProperty"] = instanceProperty
 
     foundOwner: ColumnarStructDef? = null
     foundField: FieldBuilder? = null
@@ -525,19 +534,34 @@ test "enclosing member references use source base chains and live binding preced
     assert ClosureBindingControlsReferences(derivedDefinition, "StaticField", emptyLocals)
     assert ClosureBindingControlsReferences(derivedDefinition, "StaticProperty", emptyLocals)
 
-    assert ClosureBindingControlsReferencesInstanceMethod(
+    // The instance-member walk answers "does this lambda need the enclosing receiver?". A field, a
+    // property and a method of the INSTANCE all say yes; a STATIC member belongs to the type and is
+    // reached with no receiver, so it says no. The field and property arms are the contract this
+    // walk took on when the captured-receiver read landed — before it, an instance field said no,
+    // because there was no route through `<>4__this` to emit the read it would have admitted.
+    assert ClosureBindingControlsReferencesInstanceMember(
         derivedDefinition,
         "InstanceMethod",
         emptyLocals
     )
-    assert !ClosureBindingControlsReferencesInstanceMethod(
+    assert ClosureBindingControlsReferencesInstanceMember(
         derivedDefinition,
         "InstanceField",
         emptyLocals
     )
-    assert !ClosureBindingControlsReferencesInstanceMethod(
+    assert ClosureBindingControlsReferencesInstanceMember(
+        derivedDefinition,
+        "InstanceProperty",
+        emptyLocals
+    )
+    assert !ClosureBindingControlsReferencesInstanceMember(
         derivedDefinition,
         "StaticField",
+        emptyLocals
+    )
+    assert !ClosureBindingControlsReferencesInstanceMember(
+        derivedDefinition,
+        "StaticProperty",
         emptyLocals
     )
 
