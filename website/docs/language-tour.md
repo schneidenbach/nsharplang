@@ -615,9 +615,10 @@ demanded a setter would refuse implementers that every reader of the interface i
 a `func` when an interface needs to hand the caller a way to change the value.
 
 A value member is matched by NAME, like every other interface member: an implementer that does not
-declare one reports [NL325](./errors/NL325.md) under the member's own name. The three inheritance
-words are redundant on one — every member an interface declares is a slot already — and are reported
-with [NL311](./errors/NL311.md).
+declare one reports [NL325](./errors/NL325.md) under the member's own name. Writing to one through
+the interface reports [NL342](./errors/NL342.md) — the slot has no setter to store into. The three
+inheritance words are redundant on a value member — every member an interface declares is a slot
+already — and are reported with [NL311](./errors/NL311.md).
 
 An interface may declare an event and a value member together; each emits its own metadata row, and
 one class fills both:
@@ -650,6 +651,10 @@ class Channel: IChannel {
 ### Duck Interfaces
 
 Duck interfaces use structural typing — any type that has the right methods automatically satisfies the interface, without declaring it.
+
+A duck interface's **value members** count in the match too. `duck interface IShaped { Size: int }`
+is satisfied only by a type that can be read for a `Size` of that type — a field or a get-only
+property — and the reader its slot needs is synthesized the same way a declared interface's is.
 
 ```n#
 duck interface IReader {
