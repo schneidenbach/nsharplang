@@ -250,7 +250,7 @@ test "dictionary Values enumerator admission retains dictionary argument and sib
     )
     valueRejected := DictionaryValueEnumeratorControlExactType(
         typeof(string),
-        sourceBuilder.MakeArrayType()
+        typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceBuilder))
     )
     genericOwner := TypeOfCreateBuilder(
         "DictionaryValueEnumeratorControls.Generic",
@@ -391,9 +391,9 @@ test "dictionary live Values and entry enumerators require the exact closed BCL 
         typeof(string),
         sourceBuilder
     )
-    sourceArray := sourceBuilder.MakeArrayType()
-    rejectedValues := DictionaryValueCollectionControlExactType(typeof(string), sourceArray)
-    rejectedEntryEnumerator := DictionaryEntryEnumeratorControlExactType(typeof(string), sourceArray)
+    sourceSequence := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceBuilder))
+    rejectedValues := DictionaryValueCollectionControlExactType(typeof(string), sourceSequence)
+    rejectedEntryEnumerator := DictionaryEntryEnumeratorControlExactType(typeof(string), sourceSequence)
     enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
     enumerableArguments := new Type[](1)
     sourceBuilderType: Type = sourceBuilder

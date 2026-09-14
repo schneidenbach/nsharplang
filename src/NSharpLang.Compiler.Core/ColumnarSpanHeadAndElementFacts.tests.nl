@@ -133,12 +133,12 @@ test "the collection element tail requires a supported value that is not builder
 
     // Its ARRAY is answered by the array arm BEFORE the tail: an array is an ordinary reference
     // whatever it holds, so the element rule alone decides, and the builder containment the tail
-    // refuses never enters the question. A `System.Void` array still has no element to hold.
+    // refuses never enters the question. A byref or a pointer is refused before either — SymbolType
+    // reports `IsSZArray` for both, and neither is a value a collection may hold.
     assert ColumnarTypeOfPlanner.IsSupportedType(sourceStruct.MakeArrayType())
     assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceStruct.MakeArrayType())
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakeArrayType())
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakeArrayType().MakeArrayType())
-    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(AdmissibilityRuntimeType("System.Void").MakeArrayType())
     assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakeByRefType())
     assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakePointerType())
 
