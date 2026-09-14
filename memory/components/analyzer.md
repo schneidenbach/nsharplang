@@ -2689,6 +2689,27 @@ negative case before the emitter could express the positive ones. No new codes w
 | `new` on an abstract class | `NL803` | `AnalyzerConstruction.nl` |
 | `override` with no base member of that name | `NL311` | `AnalyzerTypeDeclarations.nl` |
 | `override` of a base member that is not `virtual`/`abstract`/`override` | `NL311` | `AnalyzerTypeDeclarations.nl` |
+| an `override` that NARROWS the accessibility of the slot it takes | `NL311` | `AnalyzerTypeDeclarations.nl` |
+
+**WHAT A SLOT IS WORTH DEPENDS ON WHO IS ASKING.** `AnalyzerTypeDeclarations.InheritedAccessibilityLevel`
+is the one owner of that relation, and `ReflectionSlotAccessibility` is the only caller that has to
+apply it — a SOURCE slot is in this compilation by construction, so the boundary never moves it.
+`protected internal` (`FamORAssem`, level 5) is a UNION of a family half and an assembly half; read
+from another assembly the assembly half is gone, so what an override inherits is `protected`
+(level 4). `private protected` (`FamANDAssem`, level 2) is an INTERSECTION, so the same boundary
+erases it entirely and the walk answers -1 ("cannot tell") rather than comparing against a level no
+type outside the declaring assembly can reach. `InternalsVisibleToGrants` is the one owner of the
+friend question and is asked through `IsFriendOfDeclaringAssembly`; with a grant every level reads
+back exactly as its metadata says.
+
+This is measured against the runtime, not copied from C#. `Reflection.Emit`-ing an override of
+`ExpressionVisitor.VisitExtension` (`protected internal virtual`, System.Linq.Expressions) and
+loading it shows `Family` LOADS, `FamORAssem` LOADS, and only `Assembly` and `FamANDAssem` raise
+`TypeLoadException: … cannot reduce access.` So `protected override` there is an exact match (Roslyn
+accepts only that spelling, via CS0507) and `protected internal override` is an ordinary widening
+N# honours, consistent with every other widening the family permits. Before this rule the analyzer
+read the raw metadata level and reported `protected override` as a NARROWING — the shape every
+converted OmniSharp handler has, 22 sites in one converter census.
 
 The EMISSION side has three owners worth knowing about:
 

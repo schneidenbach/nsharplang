@@ -2,6 +2,7 @@ namespace NSharpLang.CensusAccessibility.Tests
 
 import System.Collections.ObjectModel
 import System.IO
+import System.Linq.Expressions
 
 
 // WHAT A SOURCE TYPE INHERITS FROM AN EXTERNAL BASE INCLUDES ITS `protected` SURFACE.
@@ -128,5 +129,39 @@ class ObservedCollection: Collection<string> {
     public override func InsertItem(index: int, item: string) {
         Inserts = Inserts + 1
         base.InsertItem(index, item)
+    }
+}
+
+// A `protected internal` SLOT READ ACROSS THE ASSEMBLY BOUNDARY THAT DECLARED IT.
+//
+// `ExpressionVisitor.VisitExtension` and `ExpressionVisitor.VisitConstant` are `protected internal
+// virtual` in System.Linq.Expressions. `protected internal` is a UNION — the family half reaches
+// every derived type, the assembly half only the assembly that declared the member — so from HERE,
+// outside that assembly, what the slot is worth is the family half alone: plain `protected`.
+//
+// MEASURED. `protected override func VisitExtension(...)` — the shape every converted OmniSharp
+// handler has, 22 sites in one converter census — was reported NL311 "the slot it takes is
+// 'protected internal' — an override cannot narrow the accessibility it inherits", which is the
+// rule INVERTED: `protected` IS the accessibility inherited here, so there is nothing to narrow.
+// Emitting the pair through `Reflection.Emit` and loading it settles which words the runtime takes:
+// `Family` loads, `FamORAssem` loads, and only `Assembly` and `FamANDAssem` raise
+// `TypeLoadException: … cannot reduce access.`
+//
+// BOTH ACCEPTED WORDS ARE WRITTEN BELOW, because both are statements the compiler honours and the
+// runtime keeps: `VisitExtension` says `protected` and is emitted `family`, `VisitConstant` says
+// `protected internal` — a widening, which adds the assembly half back on THIS side — and is
+// emitted `famorassem`.
+class RecordingVisitor: ExpressionVisitor {
+    Extensions: int = 0
+    Constants: int = 0
+
+    protected override func VisitExtension(node: Expression): Expression {
+        Extensions = Extensions + 1
+        return base.VisitExtension(node)
+    }
+
+    internal protected override func VisitConstant(node: ConstantExpression): Expression {
+        Constants = Constants + 1
+        return base.VisitConstant(node)
     }
 }

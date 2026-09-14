@@ -2310,10 +2310,77 @@ test "THE ACCESSIBILITY LADDER IS THE CLR'S, AND AN UNANNOTATED MEMBER IS READ F
 
     // METADATA ANSWERS THE SAME LADDER. `object.ToString` is public and `object.MemberwiseClone` is
     // protected, so both ends of the walk are pinned against the runtime itself.
-    assert AnalyzerTypeDeclarations.ReflectionSlotAccessibility(typeof(object), "ToString", 0) == 6
-    assert AnalyzerTypeDeclarations.ReflectionSlotAccessibility(typeof(object), "NotThere", 0) == -1
-    assert AnalyzerTypeDeclarations.ReflectionSlotAccessibility(typeof(Exception), "Message", 1) == 6
-    assert AnalyzerTypeDeclarations.ReflectionSlotAccessibility(typeof(Exception), "NotThere", 1) == -1
+    assert AnalyzerTypeDeclarations.ReflectionSlotAccessibility(typeof(object), "ToString", 0, null) == 6
+    assert AnalyzerTypeDeclarations.ReflectionSlotAccessibility(typeof(object), "NotThere", 0, null) == -1
+    assert AnalyzerTypeDeclarations.ReflectionSlotAccessibility(typeof(Exception), "Message", 1, null) == 6
+    assert AnalyzerTypeDeclarations.ReflectionSlotAccessibility(typeof(Exception), "NotThere", 1, null) == -1
+}
+
+test "ACROSS AN ASSEMBLY BOUNDARY A `protected internal` SLOT IS WORTH `protected`, AND A FRIEND GRANT PUTS THE OTHER HALF BACK" {
+    // `protected internal` (`FamORAssem`, 5) is a UNION: the family half reaches every derived type,
+    // the assembly half only the assembly that DECLARED the member. Across an assembly boundary the
+    // assembly half is unreachable, so what an override inherits is `protected` (4) alone. This is
+    // the 22-site OmniSharp handler shape the converter census hit — `protected override` over
+    // `ExpressionVisitor.VisitExtension` was reported as narrowing a slot it does not narrow, and
+    // the end-to-end proof (source, emitted metadata, dispatch) is in
+    // `tests/native/census-accessibility`.
+    assert AnalyzerTypeDeclarations.InheritedAccessibilityLevel(5, false) == 4
+
+    // `private protected` (`FamANDAssem`, 2) is an INTERSECTION, so the same boundary erases it:
+    // nothing outside the declaring assembly can reach the member, and there is no accessibility for
+    // an override to match. -1 is "cannot tell", which leaves the report to the arm that decides
+    // whether the member is an override target at all.
+    assert AnalyzerTypeDeclarations.InheritedAccessibilityLevel(2, false) == -1
+
+    // THE OTHER FOUR LEVELS DO NOT DEPEND ON WHICH ASSEMBLY IS ASKING.
+    assert AnalyzerTypeDeclarations.InheritedAccessibilityLevel(6, false) == 6
+    assert AnalyzerTypeDeclarations.InheritedAccessibilityLevel(4, false) == 4
+    assert AnalyzerTypeDeclarations.InheritedAccessibilityLevel(3, false) == 3
+    assert AnalyzerTypeDeclarations.InheritedAccessibilityLevel(1, false) == 1
+
+    // A FRIEND GRANT RESTORES BOTH HALVES, so every level reads back as its metadata says and
+    // `protected override` narrows a `protected internal` slot exactly as it does within one
+    // assembly. Which assemblies actually grant is `InternalsVisibleToGrants`' own contract.
+    assert AnalyzerTypeDeclarations.InheritedAccessibilityLevel(5, true) == 5
+    assert AnalyzerTypeDeclarations.InheritedAccessibilityLevel(2, true) == 2
+    assert AnalyzerTypeDeclarations.InheritedAccessibilityLevel(6, true) == 6
+    assert AnalyzerTypeDeclarations.InheritedAccessibilityLevel(4, true) == 4
+
+    // THE METHOD ARM READS THE LADDER FROM METADATA AND THEN APPLIES THE RULE, pinned against the
+    // core library itself: `object.ToString` is `public`, and `object.MemberwiseClone` — which C#
+    // documents as `protected` — is `FamORAssem` in metadata, so it is exactly the shape the rule is
+    // about and it moves to `protected` when it is read from outside CoreLib.
+    toString := typeof(object).GetMethod("ToString", BindingFlags.Instance | BindingFlags.Public)
+    assert AnalyzerTypeDeclarations.MethodAccessibilityLevel(toString) == 6
+    assert AnalyzerTypeDeclarations.InheritedMethodAccessibilityLevel(toString, false) == 6
+
+    memberwiseClone := typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic)
+    assert memberwiseClone != null, "object.MemberwiseClone must be readable for this contract"
+    assert AnalyzerTypeDeclarations.MethodAccessibilityLevel(memberwiseClone) == 5
+    assert AnalyzerTypeDeclarations.InheritedMethodAccessibilityLevel(memberwiseClone, false) == 4
+    assert AnalyzerTypeDeclarations.InheritedMethodAccessibilityLevel(memberwiseClone, true) == 5
+
+    // A WALK WITH NO GRANTS OBJECT IS THE FRIEND OF NOTHING, which is the answer every planner unit
+    // test and every bare `new Analyzer()` gets; an UNNAMED compilation is granted nothing either.
+    assert AnalyzerTypeDeclarations.IsFriendOfDeclaringAssembly(null, memberwiseClone) == false
+    assert AnalyzerTypeDeclarations.IsFriendOfDeclaringAssembly(new InternalsVisibleToGrants(), memberwiseClone) == false
+}
+
+// SOURCE-TO-SOURCE IS UNCHANGED. Within one assembly both halves of `protected internal` are
+// reachable, so `protected override` over a source base's `protected internal` slot IS a narrowing
+// and stays the report it has always been. The boundary rule is about the boundary and nothing else.
+test "a `protected internal` SLOT DECLARED IN THIS COMPILATION KEEPS BOTH HALVES" {
+    harness := TypeDeclDefault()
+    familyOrAssembly := TypeDeclVirtualBits() | Convert.ToInt32(Modifiers.Protected) | Convert.ToInt32(Modifiers.Internal)
+    sourceBase := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", familyOrAssembly)))
+
+    assert AnalyzerTypeDeclarations.DeclaredSlotAccessibility(TypeDeclMemberInfos(TypeDeclMemberInfo("Speak", familyOrAssembly)), "Speak", 0) == 5
+    assert harness.Declarations.OverrideSlotAccessibility(sourceBase, "Speak", 0, 0) == 5
+
+    // …so `protected` (4) is below it and `protected internal` (5) matches, which is the comparison
+    // `ValidateOverrideAccessibility` makes against exactly this number.
+    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Override) | Convert.ToInt32(Modifiers.Protected)) == 4
+    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Override) | Convert.ToInt32(Modifiers.Protected) | Convert.ToInt32(Modifiers.Internal)) == 5
 }
 
 test "A FIELD DECLARED `override`, `virtual` OR `abstract` IS `NL311` — it can be none of them" {

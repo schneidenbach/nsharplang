@@ -1598,7 +1598,7 @@ class AnalyzerTypeDeclarations {
         }
 
         if candidate == null {
-            return ReflectionSlotAccessibility(typeof(object), name, memberKind)
+            return ReflectionSlotAccessibility(typeof(object), name, memberKind, declarationContextValue.GetFriendGrants())
         }
 
         if BuiltInTypes.IsUnknown(candidate) {
@@ -1607,7 +1607,7 @@ class AnalyzerTypeDeclarations {
 
         reflectionType := candidate as ReflectionTypeInfo
         if reflectionType != null {
-            return ReflectionSlotAccessibility(reflectionType.Type, name, memberKind)
+            return ReflectionSlotAccessibility(reflectionType.Type, name, memberKind, declarationContextValue.GetFriendGrants())
         }
 
         shape := new AnalyzerSourceMemberShape()
@@ -1649,7 +1649,7 @@ class AnalyzerTypeDeclarations {
 
     // METADATA'S ANSWER. A property's accessibility is its ACCESSORS' — the getter decides, and a
     // set-only property is read from its setter — exactly as virtual-ness is read from them.
-    static func ReflectionSlotAccessibility(clrType: Type, name: string, memberKind: int): int {
+    static func ReflectionSlotAccessibility(clrType: Type, name: string, memberKind: int, grants: InternalsVisibleToGrants?): int {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         if memberKind == 1 {
             properties := clrType.GetProperties(flags)
@@ -1659,12 +1659,12 @@ class AnalyzerTypeDeclarations {
                 if property.get_Name() == name {
                     getter := property.GetGetMethod(true)
                     if getter != null {
-                        return MethodAccessibilityLevel(getter)
+                        return InheritedMethodAccessibilityLevel(getter, IsFriendOfDeclaringAssembly(grants, getter))
                     }
 
                     setter := property.GetSetMethod(true)
                     if setter != null {
-                        return MethodAccessibilityLevel(setter)
+                        return InheritedMethodAccessibilityLevel(setter, IsFriendOfDeclaringAssembly(grants, setter))
                     }
 
                     return -1
@@ -1681,13 +1681,71 @@ class AnalyzerTypeDeclarations {
         while index < methods.Length {
             method := methods[index]
             if method.get_Name() == name && !method.get_IsSpecialName() && method.get_IsVirtual() && !method.get_IsFinal() {
-                return MethodAccessibilityLevel(method)
+                return InheritedMethodAccessibilityLevel(method, IsFriendOfDeclaringAssembly(grants, method))
             }
 
             index = index + 1
         }
 
         return -1
+    }
+
+    // WHAT A SLOT DECLARED IN ANOTHER ASSEMBLY IS WORTH HERE, which is not always what its metadata
+    // says. `protected internal` (`FamORAssem`) is a UNION: the family half reaches every derived
+    // type, the assembly half reaches only the assembly that DECLARED it. Across an assembly
+    // boundary the assembly half is unreachable, so what an override inherits is the family half
+    // alone — plain `protected`.
+    //
+    // MEASURED, because the answer decides the rule and C# is not the arbiter here.
+    // `System.Linq.Expressions.ExpressionVisitor.VisitExtension` is `protected internal virtual`, and
+    // `class Marker: ExpressionVisitor { protected override func VisitExtension(...) }` — the shape
+    // every converted OmniSharp handler has, 22 sites in one census — was reported as NARROWING a
+    // slot it does not narrow. Emitting the same pair through `Reflection.Emit` and loading it proves
+    // the point: `Family` LOADS, `FamORAssem` LOADS, and only `Assembly` and `FamANDAssem` raise
+    // `TypeLoadException: … cannot reduce access.` So `protected` is the floor, and this walk stops
+    // calling the floor a narrowing.
+    //
+    // A FRIEND GRANT PUTS THE ASSEMBLY HALF BACK. If the declaring assembly names this compilation in
+    // an `InternalsVisibleTo`, its internals ARE reachable from here, the union is whole again, and
+    // `protected internal` is what the slot is worth — so `protected override` narrows it, exactly as
+    // it does within one assembly. `InternalsVisibleToGrants` is the one owner of that question.
+    //
+    // `private protected` (`FamANDAssem`) is an INTERSECTION, so the same boundary erases it
+    // entirely: without a grant no type outside the declaring assembly can reach the member at all,
+    // and there is no accessibility for an override to match. -1 — "cannot tell" — is the honest
+    // answer, and it leaves the report to the arm that decides whether the member is an override
+    // target in the first place.
+    static func InheritedMethodAccessibilityLevel(method: MethodInfo, friendOfDeclaringAssembly: bool): int {
+        return InheritedAccessibilityLevel(MethodAccessibilityLevel(method), friendOfDeclaringAssembly)
+    }
+
+    // The rule itself, over the ladder alone: `protected internal` loses its assembly half, `private
+    // protected` loses everything, and the other four levels do not depend on which assembly asks.
+    static func InheritedAccessibilityLevel(level: int, friendOfDeclaringAssembly: bool): int {
+        if friendOfDeclaringAssembly {
+            return level
+        }
+
+        if level == 5 {
+            return 4
+        }
+
+        if level == 2 {
+            return -1
+        }
+
+        return level
+    }
+
+    // THE FRIEND HALF, ASKED OF THE ONE OWNER OF THE QUESTION. A walk with no grants object behind
+    // it — a planner unit test, a bare `new Analyzer()` — is the friend of nothing, which is the
+    // same answer `InternalsVisibleToGrants` itself gives an unnamed compilation.
+    static func IsFriendOfDeclaringAssembly(grants: InternalsVisibleToGrants?, method: MethodInfo): bool {
+        if grants == null {
+            return false
+        }
+
+        return grants.GrantsAccessToDeclaringAssemblyOf(method)
     }
 
     // ECMA-335's `MemberAccess` ordering, which is the order the loader itself compares in: 1 private,
