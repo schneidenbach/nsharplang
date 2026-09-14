@@ -4383,7 +4383,7 @@ class ColumnarParserRecovery {
         if statements == null {
             return null
         }
-        return new BlockStatement(statements, line, column)
+        return FinishBlock(statements, line, column)
     }
 
     // Parser.cs ParseBlock (:2143): Consume the opening '{' FIRST (reporting a missing '{' through the
@@ -4401,7 +4401,27 @@ class ColumnarParserRecovery {
         if statements == null {
             return null
         }
-        return new BlockStatement(statements, line, column)
+        return FinishBlock(statements, line, column)
+    }
+
+    // THE BLOCK'S CLOSING LINE, STAMPED THE WAY EVERY STATEMENT'S IS. `ParseBlockStatementsLoop`
+    // consumes the closing '}' itself, so `Previous()` is that brace by the time it returns and its
+    // line is where the block ENDS. Without this stamp a block's `EndLine` defaults to its OPENING
+    // brace, and the formatter has no line to measure the tail of the block against: a comment
+    // standing between the last statement and the '}' falls outside every range it asks for and
+    // gets emitted at the next `EmitCommentsBefore` in an OUTER scope. For a `try` whose `catch` is
+    // the last thing in the file that moved the comment out of the function entirely, which
+    // silently destroys an `// nlc:ignore` pragma. The guard keeps the error paths well formed: on
+    // the missing-'}' and found-declaration exits `Previous()` is not a brace, and a line that did
+    // not advance past the opener leaves `EndLine` at its default.
+    func FinishBlock(statements: List<Statement>, line: int, column: int): BlockStatement {
+        block := new BlockStatement(statements, line, column)
+        closingLine := Previous().Line
+        if closingLine > line {
+            block.EndLine = closingLine
+        }
+
+        return block
     }
 
     // The shared block-statements loop (Parser.cs ParseBlock's while body, :2151-2214): the
