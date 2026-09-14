@@ -525,6 +525,17 @@ that hover, completion and every diagnostic that prints a CLR member signature r
   `AnalyzerNullFlow.NarrowedNullableOrigin` is the ONE owner of both halves — asked by
   `AnalyzerMemberAccess`'s two nullable arms and by `AnalyzerCallAnalysis`'s
   `TryRestoreNarrowedNullableReceiver`.
+- **A TYPE PARAMETER IS A VALUE TYPE WHEN ITS OWN `where` CLAUSE SAYS SO, AND THAT FACT NOW LIVES ON
+  THE SCOPE** (census NULLABLE3). `T` is a `SimpleTypeInfo` carrying nothing but its spelling, so
+  `AnalyzerConversionFacts.IsReferenceType` answers YES of every bare name — and the `T?` of
+  `func F<T>(a: T?) where T : struct` therefore lost its own surface INSIDE its own body:
+  `a.HasValue` reported NL905 on a read that cannot throw, `a.GetValueOrDefault()` reported NL303 for
+  a member `T` certainly does not declare, while `if a == null` and the narrowed `a.Value` beside
+  them were already fine. `where T : struct` names no TYPE, so `Scope.TypeParameterConstraints` could
+  not hold it; `Scope.StructConstrainedTypeParameters` does, written by
+  `AnalyzerFunctionBodies.RecordTypeParameterConstraints` and read by
+  `AnalyzerScopeStack.IsStructConstrainedTypeParameter`. `NullabilityGenericSubstitution.IsStructConstrained`
+  is the ONE reading of the `struct` bit, shared with `LiftedTypeParameterNames`.
 - **WHICH OF A `T?`'S TWO CANDIDATE TYPES A NAME BINDS ON IS DECIDED BY WHAT `Nullable<T>` DECLARES**
   (census NULLABLE3), read off the definition with `BindingFlags.DeclaredOnly`. The rule used to be
   "ask `T` first, fall through only for a name `T` cannot answer", which gave `T`'s answer for the

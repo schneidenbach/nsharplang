@@ -77,3 +77,29 @@ test "an external generic's lambda-taking instance member binds over a source el
     assert AnyOver(weights, 200)
     assert !AnyOver(weights, 900)
 }
+
+test "`Nullable<T>`'s own surface answers inside the declaration that spells `T?`" {
+    present: int? = 5
+    absent: int? = null
+
+    assert PresenceOf(present)
+    assert !PresenceOf(absent)
+
+    assert ValueOrDefaultOf(present) == 5
+    assert ValueOrDefaultOf(absent) == 0
+
+    assert ValueOrFallbackOf(present, 9) == 5
+    assert ValueOrFallbackOf(absent, 9) == 9
+
+    assert GuardedValueOf(present, 9) == 5
+    assert GuardedValueOf(absent, 9) == 9
+
+    // The same over a struct THIS COMPILATION declares, so the rule is about the `where` clause and
+    // not about `int`.
+    heavy: Weight? = new Weight { Grams: 51 }
+    none: Weight? = null
+    assert PresenceOf(heavy)
+    assert !PresenceOf(none)
+    assert ValueOrDefaultOf(heavy).Grams == 51
+    assert ValueOrDefaultOf(none).Grams == 0
+}

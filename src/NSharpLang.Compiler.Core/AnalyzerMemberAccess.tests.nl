@@ -989,3 +989,23 @@ test "the did-you-mean list for a nullable offers the nullable's own names first
     assert available[0] == "HasValue" || available[0] == "Value"
     assert available.Contains("GetValueOrDefault")
 }
+
+test "a `struct`-constrained type parameter is the one bare name whose `T?` has the nullable's surface" {
+    harness := MemberArmOf()
+    harness.Scopes.Push(new SemanticModel(), new Scope(ScopeKind.Function), 3, 1)
+    harness.Scopes.DeclareTypeParameter("T")
+    harness.Scopes.DeclareStructConstrainedTypeParameter("T")
+
+    parameter: TypeInfo = new SimpleTypeInfo("T")
+    assert harness.Arm.IsStructConstrainedTypeParameter(parameter)
+    assert harness.Arm.IsLiftedValueReceiver(parameter)
+
+    // An UNCONSTRAINED parameter's `T?` is a reference annotation and has no surface of its own.
+    assert !harness.Arm.IsStructConstrainedTypeParameter(new SimpleTypeInfo("U"))
+    assert !harness.Arm.IsLiftedValueReceiver(new SimpleTypeInfo("U"))
+
+    MemberDeclare(harness, "a", new NullableTypeInfo(parameter))
+    presence := MemberDriveWith(harness, MemberAccessOf("a", "HasValue", false), new NullableTypeInfo(parameter))
+    assert presence.Answer == "simple:bool"
+    assert harness.Errors.Count == 0
+}

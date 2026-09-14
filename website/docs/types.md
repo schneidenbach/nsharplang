@@ -1922,9 +1922,10 @@ ways to say what you mean.
 
 **A name `Nullable<T>` declares binds on the nullable; every other name binds on `T`.** The two
 types share three names — `ToString`, `Equals` and `GetHashCode`, which `Nullable<T>` overrides —
-and those are the nullable's, exactly as they are in C#. All three are null-safe: `v.ToString()` on
-an absent value is `""`, `v.GetHashCode()` is `0`, and `v.Equals(other)` is true only when `other`
-is null too. Nothing else is on that surface, so `v.CompareTo(3)` is `int`'s, and `v.GetType()` is
+and those are the nullable's, exactly as they are in C#. All three are null-safe — for an ABSENT
+value `v.ToString()` is `""`, `v.GetHashCode()` is `0`, and `v.Equals(other)` is true only when
+`other` is null as well; none of them throws. Nothing else is on that surface, so `v.CompareTo(3)`
+reads `int`'s own overloads, and `v.GetType()` is
 `object`'s — it boxes, and boxing an absent nullable produces a null reference, so the compiler
 reports the dereference ([NL905](./errors/NL905.md)) the program really would hit.
 
@@ -2335,6 +2336,15 @@ func firstNumber(values: int[]): int {
 
     return found.Value
 }
+
+Inside such a declaration the parameter's own `T?` has `Nullable<T>`'s full surface, because the
+`where` clause is what says it is one:
+
+```n#
+func presenceOf<T>(a: T?): bool where T : struct {
+    return a.HasValue                    // and `a.GetValueOrDefault()`, and `a.Value` past a guard
+}
+```
 
 func Count(values: int[]): int {
     return FirstOrDefaultOf(values)      // int — the annotation erased

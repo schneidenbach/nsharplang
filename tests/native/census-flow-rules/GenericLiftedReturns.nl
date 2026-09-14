@@ -117,3 +117,32 @@ func IndexOfFirstOver(weights: List<Weight>, limit: int): int {
 func AnyOver(weights: List<Weight>, limit: int): bool {
     return weights.Exists(weight => weight.Grams > limit)
 }
+
+// ── `Nullable<T>`'S OWN SURFACE INSIDE THE DECLARATION THAT SPELLS `T?` ──────────────────────────
+//
+// The same `Nullable<T>` read from the other side. A type parameter is a bare name carrying nothing
+// but its spelling, so every reader that asks "is this a reference type?" of `T` answers YES — and
+// the `T?` of a `where T : struct` declaration therefore lost its own surface inside its own body:
+// `a.HasValue` reported NL905 on a read that cannot throw and `a.GetValueOrDefault()` reported NL303
+// for a member `T` certainly does not declare, while `if a == null` and the narrowed `a.Value`
+// beside them were already fine. The `where` clause is the answer, and it is recorded on the scope
+// that declared the parameter.
+func PresenceOf<T>(a: T?): bool where T: struct {
+    return a.HasValue
+}
+
+func ValueOrDefaultOf<T>(a: T?): T where T: struct {
+    return a.GetValueOrDefault()
+}
+
+func ValueOrFallbackOf<T>(a: T?, fallback: T): T where T: struct {
+    return a.GetValueOrDefault(fallback)
+}
+
+func GuardedValueOf<T>(a: T?, fallback: T): T where T: struct {
+    if a == null {
+        return fallback
+    }
+
+    return a.Value
+}

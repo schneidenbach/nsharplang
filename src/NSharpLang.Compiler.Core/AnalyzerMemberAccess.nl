@@ -510,7 +510,12 @@ class AnalyzerMemberAccess {
         // neither has no such member at all. Answering them from here read
         // `documentation.MarkupContent?.Value` as the unwrap and typed it `MarkupContent`, when the
         // class's own `Value: string` is what the reader wrote.
-        if AnalyzerConversionFacts.IsReferenceType(nullableType.InnerType) {
+        //
+        // A `struct`-CONSTRAINED TYPE PARAMETER IS THE ONE BARE NAME THAT IS NOT A REFERENCE. `T` is a
+        // `SimpleTypeInfo` carrying nothing but its spelling, so the reference question answers YES of
+        // it — and the `T?` of `func F<T>(a: T?) where T : struct` is a real `Nullable<T>`, whose
+        // `.HasValue` inside the declaration was therefore read as a class member that does not exist.
+        if AnalyzerConversionFacts.IsReferenceType(nullableType.InnerType) && !IsStructConstrainedTypeParameter(nullableType.InnerType) {
             return false
         }
 
@@ -588,6 +593,15 @@ class AnalyzerMemberAccess {
         return TryResolveOpenNullableDefinitionMember(nullableType.InnerType, member.MemberName, out memberType)
     }
 
+    // A BARE NAME THAT A `where` CLAUSE CONSTRAINED TO `struct`. The clause is recorded on the scope
+    // that declared the parameter — the same fact `NullabilityGenericSubstitution`'s
+    // `LiftedTypeParameterNames` reads off a signature — because a type parameter is a
+    // `SimpleTypeInfo` and carries nothing else.
+    func IsStructConstrainedTypeParameter(candidate: TypeInfo): bool {
+        typeParameter := declarationContextValue.ResolveDeclaredAlias(candidate) as SimpleTypeInfo
+        return typeParameter != null && scopesValue.IsStructConstrainedTypeParameter(typeParameter.Name)
+    }
+
     // IS `T` IN THIS `T?` A VALUE TYPE? That is what decides whether `Nullable<T>` exists at all here.
     //
     // The CLR answers for every type it has a handle for, and it is asked of the INNER type rather
@@ -600,6 +614,14 @@ class AnalyzerMemberAccess {
         clrInnerType := clrTypeConversionValue.TryConvertTypeInfoToClrType(innerType)
         if clrInnerType != null {
             return clrInnerType.get_IsValueType()
+        }
+
+        // A TYPE PARAMETER IS A VALUE WHEN ITS OWN `where` CLAUSE SAYS SO, and it has no CLR handle to
+        // ask instead: `a.GetValueOrDefault()` inside `func F<T>(a: T?) where T : struct` reported
+        // NL303 for a member `T` certainly does not declare, while `if a == null` and the narrowed
+        // `a.Value` beside it were fine.
+        if IsStructConstrainedTypeParameter(innerType) {
+            return true
         }
 
         resolved := declarationContextValue.ResolveDeclaredAlias(innerType)
