@@ -1405,6 +1405,18 @@ public-only flags. `System.Object`'s own `protected` methods (`MemberwiseClone`,
 listed on such a receiver, which is honest — they ARE reachable — and is what a name-based filter
 would have to be invented to suppress. A VS Code visual pass over this list is OWED.
 
+**A PREFLIGHTED BLOCK LAMBDA'S OWN LOCALS ARE PART OF ITS FRAME** (2026-09-14, stream CAPTURE3).
+`ColumnarIlEmitter.CollectBlockReturnTypes` typed each `return` in a frame carrying the lambda's
+parameters and the enclosing scope and nothing the BLOCK declared, so
+`xs.ConvertAll(x => { s := x * f; return s + 1 })` could type no arm at all and the call declined at
+`emit.call.instance-member` after the analyzer had accepted it. `SeedPreflightBlockDeclaration` now
+seeds a `:=` from its initializer's preflighted type and a `let name: T = …` from its written
+annotation, as the walk reaches each statement in source order. The seeding rule is the one
+`TryPreflightContextualLambdaReturnType` already states for the lambda's own parameters: only the
+TYPE outlives this plan, so the ordinal need only be DISTINCT — the real lowering declares a local
+and assigns the slot that reaches IL. A name the frame can already see is refused rather than
+rebound, which is the emitter's own shadowing rule (NL316) restated.
+
 **A MEMBER DECLARED IN A MORE DERIVED TYPE HIDES ONE OF THE SAME SIGNATURE IN A BASE** (2026-09-14,
 stream CAPTURE3). `Type.GetMethods()` returns BOTH declarations of a `new`-hidden member, and both
 candidate paths of `ColumnarOrdinaryRuntimeDirectCallResolver` counted that as an ambiguity:

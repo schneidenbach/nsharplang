@@ -22562,6 +22562,60 @@ sealed class ColumnarIlEmitter {
         }
     }
 
+    // A LOCAL THE PREFLIGHTED BLOCK ITSELF DECLARES, typed into the same frame the lambda's own
+    // parameters were typed into.
+    //
+    // `xs.ConvertAll(x => { s := x * f; return s + 1 })` left `TOutput` with nothing to bind it: the
+    // block-return walk typed `return s + 1` in a frame that held the lambda's parameters and the
+    // enclosing scope but NOTHING the block declared, so no arm could be typed and the whole call
+    // declined after the analyzer had accepted it. The seeding rule is the one the parameter frame
+    // above already states: only the TYPE outlives this plan, so the ordinal need only be DISTINCT —
+    // the real lowering declares a local and assigns the slot that reaches IL.
+    //
+    // It is refused for a name the frame can already see, which is the emitter's own shadowing rule
+    // (NL316) restated: a declaration that shadows is not a program this preflight has to type.
+    private func SeedPreflightBlockLocal(name: string, valueType: Type) {
+        if (name == null || name.Length == 0 || valueType == null) {
+            return
+        }
+        if (_paramOrdinals.ContainsKey(name) || _paramTypes.ContainsKey(name) || _locals.ContainsKey(name) || _liftedLocals.ContainsKey(name)) {
+            return
+        }
+        nextOrdinal := 0
+        for existingOrdinal in _paramOrdinals {
+            if (existingOrdinal.Value >= nextOrdinal) {
+                nextOrdinal = existingOrdinal.Value + 1
+            }
+        }
+        _paramOrdinals[name] = nextOrdinal
+        _paramTypes[name] = valueType
+    }
+
+    // THE DECLARATION STATEMENTS A PREFLIGHTED BLOCK CARRIES, seeded as the walk reaches them. A `:=`
+    // takes its type from its initializer and a `let name: T = …` from its written annotation, which
+    // is exactly what the two emission arms do with the same nodes.
+    private func SeedPreflightBlockDeclaration(node: int) {
+        kind := _nodes.Kind(node)
+        if (kind == 24) {
+            if (_nodes.ChildCount(node) != 1) {
+                return
+            }
+            let inferredType: System.Type? = null
+            if (TryGetPreflightExpressionType(Child(node, 0), out inferredType) && inferredType != null && inferredType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(inferredType)) {
+                SeedPreflightBlockLocal(ColumnarNodeTextFacts.Text(_nodes, _source, node), inferredType)
+            }
+            return
+        }
+        if (kind != 40 || _nodes.ChildCount(node) != 2 || _nodes.Kind(Child(node, 0)) != 6) {
+            return
+        }
+        declaredCanonical := ColumnarTypeCanonicalizer.RemoveWhitespace(ColumnarNodeTextFacts.Text(_nodes, _source, node))
+        let declaredType: System.Type? = null
+        if (TryResolveBodyType(declaredCanonical, out declaredType) && declaredType != null && ColumnarTypeOfPlanner.IsSupportedType(declaredType)) {
+            SeedPreflightBlockLocal(ColumnarNodeTextFacts.Text(_nodes, _source, Child(node, 0)), declaredType)
+        }
+    }
+
     private func TryPreflightContextualLambdaReturnType(lambdaNode: int, parameterTypes: Type[], out returnType: Type): bool {
         returnType = null
         isAsyncLambda := ColumnarLambdaNodeFacts.IsAsyncLambda(_nodes.Kind(lambdaNode))
@@ -22844,6 +22898,9 @@ sealed class ColumnarIlEmitter {
         if (ColumnarLambdaNodeFacts.IsLambda(kind) || kind == 41) {
             return true
         }
+        // A DECLARATION SEEDS THE FRAME THE `return`s AFTER IT ARE TYPED IN. The walk reaches
+        // statements in source order, so a name is in scope for exactly the arms that could read it.
+        SeedPreflightBlockDeclaration(node)
         if (kind == 20) {
             if (_nodes.ChildCount(node) != 1) {
                 return false
