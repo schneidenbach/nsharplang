@@ -101,7 +101,7 @@ class CompletionEngineKernels {
                 existing := collapsed[existingIndex]
                 if existing.Kind == item.Kind && !seenSignatures.Contains(signature) {
                     seenSignatures.Add(signature)
-                    collapsed[existingIndex] = new CompletionItem(existing.Name, existing.Kind, existing.Type, existing.Parameters, existing.Documentation, existing.IsStatic, existing.Overloads + item.Overloads)
+                    collapsed[existingIndex] = new CompletionItem(existing.Name, existing.Kind, existing.Type, existing.Parameters, existing.Documentation, existing.IsStatic, existing.Overloads + item.Overloads, existing.ImportNamespace, existing.ModifierWords)
                 }
             } else {
                 seenSignatures.Add(signature)
@@ -980,7 +980,7 @@ class CompletionEngineKernels {
     // rewritten copy is the only way to add the field without giving every completion shape a
     // mutable one.
     static func WithImportNamespace(item: CompletionItem, importNamespace: string): CompletionItem {
-        return new CompletionItem(item.Name, item.Kind, item.Type, item.Parameters, item.Documentation, item.IsStatic, item.Overloads, importNamespace)
+        return new CompletionItem(item.Name, item.Kind, item.Type, item.Parameters, item.Documentation, item.IsStatic, item.Overloads, importNamespace, item.ModifierWords)
     }
 
     // The types this file declares, in source order. A declaration with no completion shape is

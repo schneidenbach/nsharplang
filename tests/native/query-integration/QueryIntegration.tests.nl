@@ -206,6 +206,27 @@ func QueryText(owner: object, propertyName: string): string {
     return value.ToString() ?? ""
 }
 
+func QueryWords(owner: object, propertyName: string): string {
+    words := QueryRequireList(QueryProperty(owner, propertyName), propertyName)
+    text := ""
+    index := 0
+    while index < words.Count {
+        if index > 0 {
+            text = text + " "
+        }
+
+        word := words[index]
+        if word == null {
+            throw new InvalidOperationException("The production query answered an empty " + propertyName + " word.")
+        }
+
+        text = text + (word.ToString() ?? "")
+        index = index + 1
+    }
+
+    return text
+}
+
 func QueryInt(owner: object, propertyName: string): int {
     value := QueryProperty(owner, propertyName)
     if value == null {
@@ -2555,7 +2576,8 @@ test "EDITOR PROJECTIONS: source member hover and completion preserve required i
     if valueCompletion == null {
         throw new InvalidOperationException("The constructed inherited field was absent from completion.")
     }
-    assert QueryText(valueCompletion, "Type") == "required init string"
+    assert QueryText(valueCompletion, "Type") == "string"
+    assert QueryWords(valueCompletion, "ModifierWords") == "required init"
 
     plainUseLine := FindLineInFile(programPath, "return box.Plain")
     plainUseColumn := FindColumnInFile(programPath, plainUseLine, "Plain")
@@ -2566,7 +2588,8 @@ test "EDITOR PROJECTIONS: source member hover and completion preserve required i
     if plainCompletion == null {
         throw new InvalidOperationException("The direct source field was absent from completion.")
     }
-    assert QueryText(plainCompletion, "Type") == "required init int"
+    assert QueryText(plainCompletion, "Type") == "int"
+    assert QueryWords(plainCompletion, "ModifierWords") == "required init"
 
     managedDeclarationLine := FindLineInFile(programPath, "required init Managed")
     managedDeclarationColumn := FindColumnInFile(programPath, managedDeclarationLine, "Managed")
@@ -2585,7 +2608,8 @@ test "EDITOR PROJECTIONS: source member hover and completion preserve required i
     if managedCompletion == null {
         throw new InvalidOperationException("The constructed explicit property was absent from completion.")
     }
-    assert QueryText(managedCompletion, "Type") == "required init string"
+    assert QueryText(managedCompletion, "Type") == "string"
+    assert QueryWords(managedCompletion, "ModifierWords") == "required init"
 
     QueryDeleteTemp(projectRoot)
 }

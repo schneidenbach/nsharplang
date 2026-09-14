@@ -37,7 +37,12 @@ class CompletionDeclarationFacts {
 
         if typeName == "FieldDeclaration" || typeName == "PropertyDeclaration" {
             memberType := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Type") as TypeReference
-            return new CompletionItem(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), "property", FormatMemberDetailType(TypeReferenceFacts.GetDisplayNameOrVoid(memberType), DeclarationFacts.GetDeclarationModifiers(declaration)), null, null, false)
+            return ValueMemberItem(
+                TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
+                TypeReferenceFacts.GetDisplayNameOrVoid(memberType),
+                DeclarationFacts.GetDeclarationModifiers(declaration),
+                false
+            )
         }
 
         // AN EVENT IS ITS OWN OFFER. It is the one member a completion must NOT call a property:
@@ -132,7 +137,7 @@ class CompletionDeclarationFacts {
         // A field and a property are the same offer to whoever is typing: a named value with a
         // type. The completion says `"property"` for both.
         if kind == DeclaredMemberKind.Field || kind == DeclaredMemberKind.Property {
-            return new CompletionItem(member.Name, "property", FormatMemberDetailType(TypeReferenceFacts.GetDisplayNameOrVoid(member.Type), member.DeclaredModifiers), null, null, member.IsStatic)
+            return ValueMemberItem(member.Name, TypeReferenceFacts.GetDisplayNameOrVoid(member.Type), member.DeclaredModifiers, member.IsStatic)
         }
 
         // An event is NOT that same offer: `on`/`off` is all a caller may write against it.
@@ -189,7 +194,7 @@ class CompletionDeclarationFacts {
         }
 
         if kind == DeclaredMemberKind.Field || kind == DeclaredMemberKind.Property {
-            return new CompletionItem(member.Name, "property", FormatMemberDetailType(FormatSubstitutedMemberType(member.Type, semanticModels, declarationOwner, effectiveSubstitution), member.DeclaredModifiers), null, null, member.IsStatic)
+            return ValueMemberItem(member.Name, FormatSubstitutedMemberType(member.Type, semanticModels, declarationOwner, effectiveSubstitution), member.DeclaredModifiers, member.IsStatic)
         }
 
         if kind == DeclaredMemberKind.Event {
@@ -205,34 +210,12 @@ class CompletionDeclarationFacts {
         return new CompletionItem(member.Name, kind, null, null, null, false)
     }
 
-    // Completion's detail column is the source member's signature fragment. `CompletionItem.Name`
-    // already carries the member name and its icon carries the kind, so the remaining facts are the
-    // ordered modifier words followed by the effective type. The raw modifier bits travel on
-    // `DeclaredMemberInfo` for inherited and constructed receivers; parsed declarations use the same
-    // formatter at file scope, which keeps the two completion paths in lockstep.
-    static func FormatMemberDetailType(typeText: string, modifiers: object): string {
-        modifierWords := CodeIntelligenceDisplayText.FormatModifiers(modifiers)
-        if modifierWords == null {
-            return typeText
-        }
-
-        builder := new StringBuilder()
-        index := 0
-        while index < modifierWords.Length {
-            if index > 0 {
-                builder.Append(" ")
-            }
-
-            builder.Append(modifierWords[index])
-            index = index + 1
-        }
-
-        if builder.Length > 0 {
-            builder.Append(" ")
-        }
-
-        builder.Append(typeText)
-        return builder.ToString()
+    // A value completion has two parallel facts: its raw type, which is part of the CLI contract,
+    // and its modifier words, which only the editor detail column composes into source-shaped text.
+    // Keeping them apart means a required field stays `type: "string"` in JSON while VS Code can
+    // still show `required init string` beside the label.
+    static func ValueMemberItem(name: string, typeText: string, modifiers: object, isStatic: bool): CompletionItem {
+        return new CompletionItem(name, "property", typeText, null, null, isStatic, 1, null, CodeIntelligenceDisplayText.FormatModifiers(modifiers))
     }
 
     // The parameter list a declared member shows. A parameter past the required count carries
