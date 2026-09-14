@@ -331,7 +331,11 @@ class ColumnarExactTypeResolver {
             }
             exactHeadName := ""
             sourceClaimed := false
-            sourceResolved := TryResolveSourceDeclarationName(head, out exactHeadName, out sourceClaimed)
+            argumentCount := 0
+            for _argument in arguments {
+                argumentCount += 1
+            }
+            sourceResolved := TryResolveSourceDeclarationName(TypeArityNames.Key(head, argumentCount), out exactHeadName, out sourceClaimed)
             if IsCollectionSyntaxHead(head) {
                 if sourceResolved || sourceClaimed {
                     terminalRejection = true
@@ -368,6 +372,11 @@ class ColumnarExactTypeResolver {
                     return true
                 }
             }
+            // The retained selector owns source-generic construction because it preserves the
+            // source definition and every selected argument in the structural reference table.
+            // The exact CLR resolver can identify the lexical head, but reducing the complete
+            // construction there would discard that source identity before declaration emit.
+            return true
         }
         return deferToRetainedShape
     }
@@ -743,12 +752,16 @@ class ColumnarExactTypeResolver {
         if genericOpen > 0 && canonical.EndsWith(">", StringComparison.Ordinal) {
             exactGenericHead := canonical.Substring(0, genericOpen)
             lexicalGenericHead := ""
-            if TryResolveLexicalSourceDeclarationName(exactGenericHead, out lexicalGenericHead) {
-                exactGenericHead = program.FileRelativeExactTypeName(sourceFileId, lexicalGenericHead)
-            }
             argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
                 canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
             )
+            argumentCount := 0
+            for _argument in argumentCanonicals {
+                argumentCount += 1
+            }
+            if TryResolveLexicalSourceDeclarationName(TypeArityNames.Key(exactGenericHead, argumentCount), out lexicalGenericHead) {
+                exactGenericHead = program.FileRelativeExactTypeName(sourceFileId, lexicalGenericHead)
+            }
             rewrittenArguments := new string[](argumentCanonicals.Count)
             argumentIndex := 0
             while argumentIndex < argumentCanonicals.Count {

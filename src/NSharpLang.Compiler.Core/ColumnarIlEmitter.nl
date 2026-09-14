@@ -4395,17 +4395,17 @@ sealed class ColumnarIlEmitter {
             // C# only resolves each spelling to a live handle and reports the outcome.
             basePlanner := new ColumnarBaseTypePlanner(def, typeResolution.Structs.Values)
             for baseName in structs[s].BaseNames {
-                let resolvedBaseType: System.Type? = null
-                baseTypeResolved := def.GenericParameters != null ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(baseName, def.GenericParameters, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out resolvedBaseType) : ColumnarCanonicalTypeResolver.TryResolveType(baseName, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out resolvedBaseType)
+                selectedBaseType := ColumnarSelectedTypeReference.Missing(typeResolution.StructuralTypeReferences)
+                baseTypeResolved := ColumnarCanonicalTypeResolver.TrySelectMemberType(baseName, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out selectedBaseType)
                 if (!baseTypeResolved) {
                     return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + structs[s].Name + "'", structs[s].Name, -1, 0)
                 }
-                baseOutcome := basePlanner.Apply(resolvedBaseType)
+                baseOutcome := basePlanner.Apply(selectedBaseType)
                 if (baseOutcome == ColumnarBaseTypeApplyOutcome.Reject) {
                     return false
                 }
                 if (baseOutcome == ColumnarBaseTypeApplyOutcome.Unresolvable) {
-                    return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + structs[s].Name + "'", structs[s].Name, -1, 0)
+                    return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + def.DeclaredTypeName + "'", structs[s].Name, -1, 0)
                 }
             }
         }

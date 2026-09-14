@@ -17,7 +17,7 @@ import System.Reflection.Emit
 // own file instead of holding a global name to the export rule.
 func LexicalArgumentSources(): string[] {
     sources := new string[](1)
-    sources[0] = "namespace LexicalArguments\nimport System\nimport System.Collections.Generic\nclass Outer {\n    private class Cached {}\n    class Mid {\n        class Leaf {}\n    }\n}\nclass Other {}\n"
+    sources[0] = "namespace LexicalArguments\nimport System\nimport System.Collections.Generic\nclass Outer {\n    private class Cached {}\n    class Slot<T> {}\n    class Mid {\n        class Leaf {}\n    }\n}\nclass Other {}\n"
     return sources
 }
 
@@ -38,6 +38,17 @@ func LexicalArgumentResolution(enclosingSourceDeclarationName: string): Columnar
         TypeOfCreateSourceBuilder("LexicalArguments.Outer.Cached", false),
         "LexicalArguments.Outer.Cached"
     )
+    nestedConsumer := ExactTypeDefinition(
+        TypeOfCreateSourceBuilder("LexicalArguments.Outer.CachedList", false),
+        "LexicalArguments.Outer.CachedList"
+    )
+    nestedGeneric := ExactTypeDefinition(
+        TypeOfCreateBuilder("LexicalArguments.Outer.Slot`1", "LexicalArgumentNestedGeneric", 1),
+        "LexicalArguments.Outer.Slot`1"
+    )
+    nestedGenericParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
+    nestedGenericParameters["T"] = nestedGeneric.Builder.GetGenericArguments()[0]
+    nestedGeneric.GenericParameters = nestedGenericParameters
     deep := ExactTypeDefinition(
         TypeOfCreateSourceBuilder("LexicalArguments.Outer.Mid.Leaf", false),
         "LexicalArguments.Outer.Mid.Leaf"
@@ -47,11 +58,13 @@ func LexicalArgumentResolution(enclosingSourceDeclarationName: string): Columnar
     structs[middle.DeclaredTypeName] = middle
     structs[other.DeclaredTypeName] = other
     structs[nested.DeclaredTypeName] = nested
+    structs[nestedConsumer.DeclaredTypeName] = nestedConsumer
+    structs[nestedGeneric.DeclaredTypeName] = nestedGeneric
     structs[deep.DeclaredTypeName] = deep
 
     fileNames := new string[](1)
     fileNames[0] = "lexical-arguments/owner.nl"
-    return SemanticTypeResolution(
+    resolution := SemanticTypeResolution(
         ExactTypeProgram(LexicalArgumentSources(), fileNames),
         0,
         SemanticEmptyEnums(),
@@ -60,6 +73,10 @@ func LexicalArgumentResolution(enclosingSourceDeclarationName: string): Columnar
         null,
         enclosingSourceDeclarationName
     )
+    genericParameterNames := new string[](1)
+    genericParameterNames[0] = "T"
+    resolution.StructuralTypeReferences.RegisterTypeGenericParameters(0, nestedGeneric.DeclaredTypeName, genericParameterNames, nestedGeneric.Builder)
+    return resolution
 }
 
 func LexicalArgumentSelects(
@@ -90,6 +107,21 @@ test "a nested declaration is the generic argument of a modelled head from insid
     assert LexicalArgumentSelects("List<Cached>", "LexicalArguments.Outer", out resolved)
     assert resolved.GetGenericTypeDefinition() == typeof(List<int>).GetGenericTypeDefinition()
     assert LexicalArgumentSingleArgument(resolved).FullName == "LexicalArguments.Outer.Cached"
+}
+
+test "a nested declaration sees a sibling type through its enclosing owner" {
+    resolved: Type = null
+    assert LexicalArgumentSelects("List<Cached>", "LexicalArguments.Outer.CachedList", out resolved)
+    assert resolved.GetGenericTypeDefinition() == typeof(List<int>).GetGenericTypeDefinition()
+    assert LexicalArgumentSingleArgument(resolved).FullName == "LexicalArguments.Outer.Cached"
+}
+
+test "a nested source generic closes over its sibling source type" {
+    resolved: Type = null
+    assert LexicalArgumentSelects("List<Slot<Cached>>", "LexicalArguments.Outer", out resolved), "selection"
+    slot := LexicalArgumentSingleArgument(resolved)
+    assert slot.GetGenericTypeDefinition().FullName == "LexicalArguments.Outer.Slot`1", slot.GetGenericTypeDefinition().FullName ?? "<null>"
+    assert LexicalArgumentSingleArgument(slot).FullName == "LexicalArguments.Outer.Cached", LexicalArgumentSingleArgument(slot).FullName ?? "<null>"
 }
 
 test "a nested declaration is a delegate argument from inside its owner" {

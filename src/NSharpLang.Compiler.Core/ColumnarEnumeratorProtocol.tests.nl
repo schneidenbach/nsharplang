@@ -77,12 +77,12 @@ test "exact typed enumerators are admitted only as storable protocol state" {
     // one is this predicate's. `IEnumerator<Box<int>>` over a closed SOURCE generic stores like any
     // other interface reference — the general external-construction arm says so — but the
     // enumerator PROTOCOL (acquire, MoveNext, typed Current, dispose) is driven by lowerings whose
-    // element rule is `IsAdmissibleCollectionElement`, and that rule still refuses this element.
-    // A foreach or a `for-in` over it therefore still declines at the site that would drive it.
+    // element rule is `IsAdmissibleCollectionElement`. A closed source generic is now an ordinary
+    // element because its definition and arguments have already resolved structurally.
     assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(unsupportedEnumerator)
-    assert !ColumnarTypeOfPlanner.IsSupportedEnumeratorType(unsupportedEnumerator)
+    assert ColumnarTypeOfPlanner.IsSupportedEnumeratorType(unsupportedEnumerator)
     assert ColumnarTypeOfPlanner.IsSupportedType(unsupportedEnumerator)
-    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(unsupportedElement)
+    assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(unsupportedElement)
 
     foreignDefinition := IdentityBake(
         TypeOfCreateBuilder(

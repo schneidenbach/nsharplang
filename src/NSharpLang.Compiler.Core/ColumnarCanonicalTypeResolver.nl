@@ -101,6 +101,34 @@ class ColumnarCanonicalTypeResolver {
         )
     }
 
+    static func TrySelectMemberType(
+        canonical: string,
+        def: ColumnarStructDef,
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        out selected: ColumnarSelectedTypeReference
+    ): bool {
+        typeParameters := def.GenericParameters
+        if typeParameters != null {
+            return TrySelectRuntimeTypeWithTypeParams(
+                canonical,
+                typeParameters,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                out selected
+            )
+        }
+        return TrySelectRuntimeType(
+            canonical,
+            enumRegistry,
+            structRegistry,
+            unionRegistry,
+            out selected
+        )
+    }
+
     static func TryResolveExactRuntimeType(
         fullName: string,
         out resolvedType: Type
@@ -1227,16 +1255,20 @@ class ColumnarCanonicalTypeResolver {
         table := structRegistry.StructuralTypeReferences
         selected = ColumnarSelectedTypeReference.Missing(table)
         headName := canonical.Substring(0, genericOpen)
+        argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
+            canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
+        )
+        lookupHeadName := TypeArityNames.Key(headName, argumentCanonicals.Count)
         openDefinition: Type? = null
         exactSourceName := ""
 
         structDefinition: ColumnarStructDef = null
-        if structRegistry.TryGetValue(headName, out structDefinition) && structDefinition != null && structDefinition.Builder.get_IsGenericTypeDefinition() {
+        if structRegistry.TryGetValue(lookupHeadName, out structDefinition) && structDefinition != null && structDefinition.Builder.get_IsGenericTypeDefinition() {
             openDefinition = structDefinition.Builder
             exactSourceName = structDefinition.DeclaredTypeName
         } else {
             unionDefinition: ColumnarUnionDef = null
-            if unionRegistry.TryGetValue(headName, out unionDefinition) && unionDefinition != null && unionDefinition.Base.get_IsGenericTypeDefinition() {
+            if unionRegistry.TryGetValue(lookupHeadName, out unionDefinition) && unionDefinition != null && unionDefinition.Base.get_IsGenericTypeDefinition() {
                 openDefinition = unionDefinition.Base
                 exactSourceName = unionDefinition.DeclaredTypeName
             }
@@ -1246,9 +1278,6 @@ class ColumnarCanonicalTypeResolver {
             return false
         }
 
-        argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
-            canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
-        )
         if argumentCanonicals.Count != openDefinition.GetGenericArguments().Length {
             return false
         }

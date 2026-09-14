@@ -161,5 +161,5 @@ test "list enumerator admission retains the existing list element boundary" {
     assert ColumnarTypeOfPlanner.IsSupportedType(runtimeEnumerator)
     assert !ColumnarTypeOfPlanner.IsSupportedListEnumeratorType(rankTwoEnumerator)
     assert !ColumnarTypeOfPlanner.IsSupportedListEnumeratorType(openEnumerator)
-    assert !ColumnarTypeOfPlanner.IsSupportedListEnumeratorType(sourceGenericEnumerator)
+    assert ColumnarTypeOfPlanner.IsSupportedListEnumeratorType(sourceGenericEnumerator)
 }

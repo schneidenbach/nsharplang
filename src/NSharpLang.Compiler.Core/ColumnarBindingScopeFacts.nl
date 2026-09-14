@@ -676,10 +676,19 @@ class ColumnarBindingScopeFacts {
 
         genericOpen := canonical.IndexOf("<", StringComparison.Ordinal)
         if genericOpen > 0 && canonical.EndsWith(">", StringComparison.Ordinal) {
-            rewrittenHead := RewriteLexicalCanonicalInContext(enclosingTypeName, canonical.Substring(0, genericOpen), depth + 1)
             argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
                 canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
             )
+            writtenHead := canonical.Substring(0, genericOpen)
+            rewrittenHead := writtenHead
+            exactGenericHead := ""
+            argumentCount := 0
+            for _argument in argumentCanonicals {
+                argumentCount += 1
+            }
+            if TryFindLexicalOwnedSourceTypeName(enclosingTypeName, TypeArityNames.Key(writtenHead, argumentCount), out exactGenericHead) {
+                rewrittenHead = FileRelativeExactTypeName(activeSourceFileId, exactGenericHead)
+            }
             rewrittenArguments := new string[](argumentCanonicals.Count)
             argumentIndex := 0
             while argumentIndex < argumentCanonicals.Count {

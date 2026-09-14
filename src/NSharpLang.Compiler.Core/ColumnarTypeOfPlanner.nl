@@ -1805,9 +1805,9 @@ class ColumnarTypeOfPlanner {
     // - the BAKED surface (scalars/string/enums/baked closed generics), through the supported-value tail.
     // A POINTER OR BYREF is not a value a collection may hold at all, and it is refused first because
     // SymbolType reports `IsSZArray` for both.
-    // PINNED DECLINE (flip with the construction path, not before it): a user-headed closed generic
-    // (`List<Box<int>>`). A signature could name it, but no `new List<Box<int>>()` emits yet, so
-    // admitting it here alone would publish a shape this compilation cannot produce.
+    // A closed source generic is an ordinary constructed value type here. Its definition and every
+    // argument were resolved before this admission question, and construction/member planning
+    // rebinds the definition's handles onto the exact instantiation.
     static func IsAdmissibleCollectionElement(valueType: Type): bool {
         if IsEnumBuilder(valueType) {
             return false
@@ -1826,6 +1826,9 @@ class ColumnarTypeOfPlanner {
             return element != null && IsSupportedElementType(element)
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
+            if IsClosedSourceGeneric(valueType) {
+                return true
+            }
             name := valueType.GetGenericTypeDefinition().FullName ?? ""
             if name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1" || name == "System.Collections.Generic.Stack`1" {
                 return true

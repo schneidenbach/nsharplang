@@ -39,16 +39,21 @@ class ColumnarBaseTypePlanner {
     // builder; Reject is a terminal invalid-inheritance shape (the C# owner returns false, matching
     // the historical silent declines); Unresolvable means the handle resolved but is not an
     // admissible base or interface (the C# owner emits emit.declaration.base-type).
-    func Apply(resolvedBaseType: Type): ColumnarBaseTypeApplyOutcome {
+    func Apply(selectedBaseType: ColumnarSelectedTypeReference): ColumnarBaseTypeApplyOutcome {
+        if selectedBaseType == null || !selectedBaseType.HasRuntimeType {
+            return ColumnarBaseTypeApplyOutcome.Unresolvable
+        }
+        resolvedBaseType := selectedBaseType.RuntimeType
         if resolvedBaseType == null {
             return ColumnarBaseTypeApplyOutcome.Unresolvable
         }
 
-        userDef := FindUserDef(resolvedBaseType)
+        classificationType := selectedBaseType.ConstructedGenericDefinition ?? resolvedBaseType
+        userDef := FindUserDef(classificationType)
         if userDef != null && userDef.IsInterface {
             return ApplyUserInterface(userDef, resolvedBaseType)
         }
-        if IsRuntimeInterfaceType(resolvedBaseType) {
+        if IsRuntimeInterfaceType(classificationType) {
             def.ExternalInterfaces.Add(resolvedBaseType)
             def.Builder.AddInterfaceImplementation(resolvedBaseType)
             return ColumnarBaseTypeApplyOutcome.Applied
@@ -56,7 +61,7 @@ class ColumnarBaseTypePlanner {
         if userDef != null {
             return ApplyUserBase(userDef, resolvedBaseType)
         }
-        return ApplyExternalBase(resolvedBaseType)
+        return ApplyExternalBase(resolvedBaseType, classificationType)
     }
 
     func ApplyUserInterface(implementedInterfaceDef: ColumnarStructDef, resolvedBaseType: Type): ColumnarBaseTypeApplyOutcome {
@@ -120,8 +125,8 @@ class ColumnarBaseTypePlanner {
     // class. Value types, records, and multi-parent shapes reject; anything that is not an
     // inheritable, verifiable external class is unresolvable. Constructor chaining is validated later,
     // when the constructor planner knows whether this source type needs an implicit base call.
-    func ApplyExternalBase(resolvedBaseType: Type): ColumnarBaseTypeApplyOutcome {
-        if !IsInheritableExternalClass(resolvedBaseType) {
+    func ApplyExternalBase(resolvedBaseType: Type, classificationType: Type): ColumnarBaseTypeApplyOutcome {
+        if !IsInheritableExternalClass(classificationType) {
             return ColumnarBaseTypeApplyOutcome.Unresolvable
         }
         if !def.IsReference {
