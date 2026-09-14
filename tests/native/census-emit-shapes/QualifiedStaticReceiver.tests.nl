@@ -23,7 +23,7 @@ test "a must unwrap that fails inside a qualified static call throws the pipelin
     caught: InvalidOperationException? = null
     try {
         _ = QualifiedStatics.DirectoryExists(null)
-    } catch (failure: InvalidOperationException) {
+    } catch failure: InvalidOperationException {
         caught = failure
     }
     assert caught != null

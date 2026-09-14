@@ -29,6 +29,7 @@ class ColumnarDeclineReason {
 }
 
 class ColumnarDeclineReasonFacts {
+
     // THE SUBJECT OF A CALL DECLINE IS THE MEMBER BEING CALLED, NOT THE EXPRESSION THAT REACHES IT.
     //
     // A callee written with an explicit type argument list carries its WHOLE dotted spelling as its

@@ -19,6 +19,7 @@ import System.Linq
 // once the receiver was classified. A `must` is a null assert, not a conversion — it produces its
 // operand's type, and a `Nullable<T>` operand produces `T`.
 class QualifiedStatics {
+
     // The census reproduction, exactly: a fully-qualified static receiver and a `must`-unwrapped
     // argument in the same call.
     static func MakeDirectory(path: string?): string {
