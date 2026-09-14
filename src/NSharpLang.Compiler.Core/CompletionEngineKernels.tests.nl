@@ -262,10 +262,18 @@ test "a sibling file of the same namespace contributes its functions, camelCase 
 
     // The model's own entry first, then the sibling's in its source order. The camelCase one is
     // offered exactly like the exported one: inside the namespace they are equally visible.
-    assert CekItemNames(result, "functions") == "UseIt,formatTypeRef,Exported"
-
-    // NOT the other namespace's, whatever its casing.
-    assert CekItemCount(result, "functions") == 3
+    //
+    // THEN THE OTHER NAMESPACE'S EXPORTED ONE, LAST AND WITH AN IMPORT. This row is NEW: the sweep
+    // used to stop at my own namespace, so `AlsoElsewhere` — an ordinary exported helper of the same
+    // project — was offered nowhere at all. It is not in scope as written (NL412 until
+    // `import Y` exists), so it carries `ImportNamespace` and the caller knows the second edit it
+    // owes. `elsewhere` is camelCase and therefore private to `Y`: from here it is an NL308 that no
+    // import can fix, so it is STILL offered nowhere.
+    assert CekItemNames(result, "functions") == "UseIt,formatTypeRef,Exported,AlsoElsewhere"
+    assert CekItemCount(result, "functions") == 4
+    assert CekImportNamespaceOf(result, "AlsoElsewhere") == "Y"
+    assert CekImportNamespaceOf(result, "Exported") == "<none>"
+    assert CekImportNamespaceOf(result, "elsewhere") == null
 
     // The declared-TYPES group stays the current file's alone: it answers "what does THIS file
     // declare", which is a different question.
@@ -285,8 +293,9 @@ test "the namespace sweep skips the current unit, repeats no name, and needs a d
     result := CompletionEngineKernels.GetIdentifierCompletions(current, model, false, 0, 0, CekProjectUnits([current, sibling]))
     assert CekItemNames(result, "functions") == "Shared,Other"
 
-    // A file with NO namespace declaration has no namespace to be private to, so it gains nothing —
-    // the global namespace is not a shared visibility unit here.
+    // A file with NO namespace declaration has no namespace to be private to, so it gains nothing
+    // from EITHER half of the sweep — the global namespace is not a shared visibility unit here, and
+    // a file that declares no namespace of its own is not given the project's importable ones.
     globalUnit := CekNamespacedUnit(null, ["Local"])
     globalModel := new SemanticModel()
     globalFunctions := globalModel.Functions
@@ -518,4 +527,98 @@ func CekGroupOrder(completions: Dictionary<string, List<CompletionItem>>): strin
     }
 
     return order
+}
+
+// ── THE PROJECT'S OWN FUNCTIONS, IN BOTH HALVES OF THE SWEEP ──────────────────────────────────
+//
+// The semantic model knows one FILE. Everything else the project declares has to be swept in, and
+// the sweep is two rules rather than one: my own namespace's helpers are already in scope and need
+// no import, while ANOTHER namespace's helpers are reachable only after an `import` line exists —
+// `ComputeTotal(1, 2)` written from `NsProbe.App` with `NsProbe.Helpers` unimported is NL412, and
+// measured as such against the tip CLI. So the second half offers only EXPORTED functions and every
+// item it offers carries the namespace to import, which is what makes the offer honest. Before this,
+// the second half offered NOTHING: a caret in `NsProbe.App` saw its own file and no other.
+func CekNamespaceUnit(namespaceName: string, functionNames: string[]): CompilationUnit {
+    declarations := new List<Declaration>()
+    index := 0
+    while index < functionNames.Length {
+        declaration: Declaration = new FunctionDeclaration(functionNames[index], new List<Parameter>(), null, null, null, null, null, Modifiers.None, new List<AttributeNode>(), false, null, false, false, 1, 1)
+        declarations.Add(declaration)
+        index = index + 1
+    }
+
+    return new CompilationUnit(new NamespaceDeclaration(namespaceName, 1, 1), new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
+}
+
+func CekImportNamespaceOf(result: CompletionResult, name: string): string? {
+    completions := result.Completions
+    functions := new List<CompletionItem>()
+    if !completions.TryGetValue("functions", out functions) {
+        return null
+    }
+
+    for item in functions {
+        if item.Name == name {
+            return item.ImportNamespace ?? "<none>"
+        }
+    }
+
+    return null
+}
+
+test "a sibling file of MY namespace is offered with no import, exported or not" {
+    unit := CekNamespaceUnit("NsProbe.App", ["Run"])
+    sibling := CekNamespaceUnit("NsProbe.App", ["SiblingExported", "siblingUnexported"])
+    units := new List<CompilationUnit>()
+    units.Add(unit)
+    units.Add(sibling)
+
+    result := CompletionEngineKernels.GetIdentifierCompletions(unit, new SemanticModel(), false, 0, 0, units)
+
+    assert CekImportNamespaceOf(result, "SiblingExported") == "<none>"
+    assert CekImportNamespaceOf(result, "siblingUnexported") == "<none>"
+}
+
+test "an EXPORTED function of another namespace is offered, carrying the namespace to import" {
+    unit := CekNamespaceUnit("NsProbe.App", ["Run"])
+    other := CekNamespaceUnit("NsProbe.Helpers", ["ComputeTotal"])
+    units := new List<CompilationUnit>()
+    units.Add(unit)
+    units.Add(other)
+
+    result := CompletionEngineKernels.GetIdentifierCompletions(unit, new SemanticModel(), false, 0, 0, units)
+
+    assert CekImportNamespaceOf(result, "ComputeTotal") == "NsProbe.Helpers"
+}
+
+test "an UNEXPORTED function of another namespace is offered NOWHERE, because no import can reach it" {
+    // A camelCase `func` is private to its namespace: from another one the name is an NL308, and an
+    // import line does not change that. The export gate is therefore on the cross-namespace half
+    // only — the same-namespace half above offers both spellings.
+    unit := CekNamespaceUnit("NsProbe.App", ["Run"])
+    other := CekNamespaceUnit("NsProbe.Helpers", ["computeSecret"])
+    units := new List<CompilationUnit>()
+    units.Add(unit)
+    units.Add(other)
+
+    result := CompletionEngineKernels.GetIdentifierCompletions(unit, new SemanticModel(), false, 0, 0, units)
+
+    assert CekImportNamespaceOf(result, "computeSecret") == null
+}
+
+test "a name my own namespace already offers is not offered again by another namespace" {
+    // Both halves share one offered-name set and my own namespace runs FIRST, which is the order the
+    // language resolves in: the in-scope helper wins and the importable one is dropped rather than
+    // shown twice.
+    unit := CekNamespaceUnit("NsProbe.App", ["Run"])
+    sibling := CekNamespaceUnit("NsProbe.App", ["ComputeTotal"])
+    other := CekNamespaceUnit("NsProbe.Helpers", ["ComputeTotal"])
+    units := new List<CompilationUnit>()
+    units.Add(unit)
+    units.Add(sibling)
+    units.Add(other)
+
+    result := CompletionEngineKernels.GetIdentifierCompletions(unit, new SemanticModel(), false, 0, 0, units)
+
+    assert CekImportNamespaceOf(result, "ComputeTotal") == "<none>"
 }

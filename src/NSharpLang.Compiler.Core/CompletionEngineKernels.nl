@@ -882,15 +882,31 @@ class CompletionEngineKernels {
         return items
     }
 
-    // THE OTHER FILES OF MY NAMESPACE, APPENDED TO THE FUNCTION GROUP. The semantic model above knows
-    // only the file it was built for, so without this a caret sees a namespace's helpers only if they
-    // happen to live in the same file — while the resolver, go-to-definition and find-references all
-    // see the whole namespace. A camelCase `func` is private to its NAMESPACE, so the unit of the
-    // sweep is the declared namespace name and casing plays no part in it; a file of ANOTHER namespace
-    // is skipped, because from there the same name is an NL308 rather than an offer.
+    // THE OTHER FILES OF THE PROJECT, APPENDED TO THE FUNCTION GROUP, IN TWO PASSES THAT ARE NOT THE
+    // SAME RULE.
     //
-    // ALREADY-OFFERED NAMES WIN. The model's entry carries the resolved type, so a sibling that
-    // repeats a name the model already filed adds nothing and is dropped rather than shown twice.
+    // MY OWN NAMESPACE FIRST. The semantic model above knows only the file it was built for, so
+    // without this a caret sees a namespace's helpers only if they happen to live in the same file —
+    // while the resolver, go-to-definition and find-references all see the whole namespace. A
+    // camelCase `func` is private to its NAMESPACE, so the unit of the sweep is the declared
+    // namespace name and casing plays no part in it.
+    //
+    // THEN EVERY OTHER NAMESPACE OF THE PROJECT, EXPORTED FUNCTIONS ONLY, EACH CARRYING THE IMPORT IT
+    // STILL NEEDS. These were offered NOWHERE: a project with `NsProbe.Helpers.ComputeTotal` and a caret in
+    // `NsProbe.App` listed the caret's own file and nothing else, so the one command an LLM has for
+    // "what can I call here" could not see the project's own helpers. They are not in scope as
+    // written — `ComputeTotal(1, 2)` from another namespace is NL412 until `import NsProbe.Helpers`
+    // exists — so each such item carries `ImportNamespace`, which is what makes the offer honest
+    // rather than a trap: a reader that accepts it knows the second edit it owes. A namespace the
+    // file ALREADY imports owes nothing, so its functions carry no key at all: they are in scope
+    // exactly like a sibling file's. An UNEXPORTED
+    // (camelCase, no `pub`) function is still skipped, because from another namespace that name is an
+    // NL308 that no import can fix.
+    //
+    // ALREADY-OFFERED NAMES WIN, ACROSS BOTH PASSES. The model's entry carries the resolved type, so a
+    // sibling that repeats a name the model already filed adds nothing and is dropped rather than
+    // shown twice — and a same-namespace helper always beats a cross-namespace one of the same name,
+    // because that is the order the language resolves in.
     static func AppendNamespaceVisibleFunctionItems(items: List<CompletionItem>, unit: CompilationUnit, projectUnits: IEnumerable<CompilationUnit>) {
         currentNamespace := AnalyzerProjectSourceProvider.UnitNamespace(unit)
         if currentNamespace == null {
@@ -902,12 +918,26 @@ class CompletionEngineKernels {
             offered.Add(offeredItem.Name)
         }
 
+        AppendProjectFunctionItems(items, offered, unit, projectUnits, currentNamespace, true)
+        AppendProjectFunctionItems(items, offered, unit, projectUnits, currentNamespace, false)
+    }
+
+    // One pass of the sweep above. `sameNamespace` picks which half it is, and it decides BOTH which
+    // files are read and which of their functions are offerable: a file of my own namespace offers
+    // every top-level `func` it declares and needs no import, while a file of another namespace
+    // offers only its EXPORTED ones and every offer carries the namespace to import.
+    static func AppendProjectFunctionItems(items: List<CompletionItem>, offered: HashSet<string>, unit: CompilationUnit, projectUnits: IEnumerable<CompilationUnit>, currentNamespace: string, sameNamespace: bool) {
         for candidateUnit in projectUnits {
             if Object.ReferenceEquals(candidateUnit, unit) {
                 continue
             }
 
-            if !string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(candidateUnit), currentNamespace, StringComparison.Ordinal) {
+            candidateNamespace := AnalyzerProjectSourceProvider.UnitNamespace(candidateUnit)
+            if candidateNamespace == null {
+                continue
+            }
+
+            if string.Equals(candidateNamespace, currentNamespace, StringComparison.Ordinal) != sameNamespace {
                 continue
             }
 
@@ -916,16 +946,41 @@ class CompletionEngineKernels {
             while index < declarations.Count {
                 declaration := declarations[index] as FunctionDeclaration
                 index = index + 1
-                if declaration == null || !offered.Add(declaration.Name) {
+                if declaration == null {
+                    continue
+                }
+
+                if !sameNamespace && !DeclarationFacts.IsExportedDeclaration(declaration, declaration.Name) {
+                    continue
+                }
+
+                if !offered.Add(declaration.Name) {
                     continue
                 }
 
                 item := CompletionDeclarationFacts.ToCompletionItem(declaration)
-                if item != null {
+                if item == null {
+                    continue
+                }
+
+                // A NAMESPACE THE FILE ALREADY IMPORTS NEEDS NO SECOND EDIT. `ImportEditPlanner`
+                // owns that question for `nlc fix` and the editor's auto-import already, and asking
+                // it here is what keeps `importNamespace` meaning "you still owe this import"
+                // rather than "this name came from over there".
+                if sameNamespace || ImportEditPlanner.IsNamespaceInScope(unit, candidateNamespace ?? "") {
                     items.Add(item)
+                } else {
+                    items.Add(WithImportNamespace(item, candidateNamespace ?? ""))
                 }
             }
         }
+    }
+
+    // The same item, said again with the import it needs. `CompletionItem` carries no setters, so a
+    // rewritten copy is the only way to add the field without giving every completion shape a
+    // mutable one.
+    static func WithImportNamespace(item: CompletionItem, importNamespace: string): CompletionItem {
+        return new CompletionItem(item.Name, item.Kind, item.Type, item.Parameters, item.Documentation, item.IsStatic, item.Overloads, importNamespace)
     }
 
     // The types this file declares, in source order. A declaration with no completion shape is

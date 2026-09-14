@@ -1,5 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
+import System
 import System.IO
 import NSharpLang.Compiler
 import NSharpLang.Compiler.CodeIntelligence
@@ -159,6 +160,76 @@ class LintCommandKernels {
 
     static func JoinParseErrorMessages(messages: string[]): string {
         return string.Join(", ", messages)
+    }
+
+    // ── THE THREE ROW SHAPES `nlc lint --json` CAN PRINT ──────────────────────
+    //
+    // All three carry the command's NORMALIZED relative path, which is the one field that separates
+    // a lint row from the identical row `nlc check` prints: `lint` has always answered `a/b.nl` on
+    // every platform, and that is its published schema. Everything else about a RULE row is exactly
+    // `CodeIntelligenceDiagnostics.FromLintDiagnostic`'s shape — a widened span so a zero-width
+    // squiggle is still visible, no explanation, hint or type pair, and the docs URL off the catalog
+    // — so the same rule reads the same way through both commands.
+    static func ToLintDiagnosticResult(diagnostic: Diagnostic, relativePath: string, sourceSnippet: string?): DiagnosticResult {
+        return new DiagnosticResult(
+            diagnostic.Code,
+            GetSeverityText(diagnostic.Severity),
+            diagnostic.Message,
+            relativePath,
+            diagnostic.Location.Line,
+            diagnostic.Location.Column,
+            Math.Max(diagnostic.Length, 1),
+            sourceSnippet,
+            null,
+            diagnostic.Suggestion,
+            null,
+            null,
+            null,
+            DiagnosticCatalog.DocsUrlFor(diagnostic.Code)
+        )
+    }
+
+    // A PARSE row: the parser refused the file, so no rule ever ran on it. The span is the parser's
+    // own, widened the same way, and the code is the invented `PARSE` rather than the parser's own
+    // id because the row is reporting that linting did not happen.
+    static func ToParseDiagnosticResult(parseError: CompilerError, relativePath: string, sourceSnippet: string?): DiagnosticResult {
+        return new DiagnosticResult(
+            GetParseDiagnosticCode(),
+            GetErrorSeverityText(),
+            parseError.Message,
+            relativePath,
+            parseError.Line,
+            parseError.Column,
+            Math.Max(parseError.Length, 1),
+            sourceSnippet,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        )
+    }
+
+    // A COMMAND row: the file could not be read at all. It has no position, because there is no text
+    // to point into, and its length is zero for the same reason.
+    static func ToCommandDiagnosticResult(code: string, message: string, relativePath: string): DiagnosticResult {
+        return new DiagnosticResult(
+            code,
+            GetErrorSeverityText(),
+            message,
+            relativePath,
+            0,
+            0,
+            0,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        )
     }
 
     static func GetSeverityText(severity: DiagnosticSeverity): string {

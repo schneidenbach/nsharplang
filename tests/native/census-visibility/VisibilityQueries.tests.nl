@@ -285,6 +285,64 @@ func VisibilityCompletionGroupNames(snapshot: object, sourceFile: string, line: 
     return text
 }
 
+// The `ImportNamespace` one named row carries, through the SAME production engine call: `<none>` for
+// a name already in scope, `<absent>` for a name the list does not offer at all.
+func VisibilityCompletionImportNamespace(snapshot: object, sourceFile: string, line: int, col: int, groupKey: string, itemName: string): string {
+    engineType := VisibilityCompletionEngineType()
+    engineConstructor := engineType.GetConstructor(new Type[](0))
+    if engineConstructor == null {
+        throw new InvalidOperationException("The production completion engine was not constructible.")
+    }
+
+    method := engineType.GetMethod("GetCompletions")
+    if method == null {
+        throw new InvalidOperationException("The production GetCompletions entry point was not found.")
+    }
+
+    args := new object?[](5)
+    SetVisibilityObject(args, 0, snapshot)
+    SetVisibilityObject(args, 1, sourceFile)
+    SetVisibilityInt(args, 2, line)
+    SetVisibilityInt(args, 3, col)
+    falseValue: object = false
+    args[4] = falseValue
+    answer := VisibilityRequire(method.Invoke(engineConstructor.Invoke(new object?[](0)), args), "GetCompletions")
+
+    groups := VisibilityRequire(VisibilityProperty(answer, "Completions"), "Completions") as IDictionary
+    if groups == null {
+        throw new InvalidOperationException("The production completion answer carried no groups.")
+    }
+
+    if !groups.Contains(groupKey) {
+        return "<absent>"
+    }
+
+    items := groups[groupKey] as IList
+    if items == null {
+        return "<absent>"
+    }
+
+    index := 0
+    while index < items.Count {
+        item := items[index]
+        index = index + 1
+        if item == null {
+            continue
+        }
+
+        if VisibilityText(item, "Name") == itemName {
+            importNamespace := VisibilityProperty(item, "ImportNamespace")
+            if importNamespace == null {
+                return "<none>"
+            }
+
+            return importNamespace.ToString() ?? "<none>"
+        }
+    }
+
+    return "<absent>"
+}
+
 test "go-to-definition crosses a file boundary to a camelCase function of the same namespace" {
     projectRoot := VisibilityTempRoot()
     try {
@@ -385,8 +443,11 @@ test "completion at an identifier position offers the namespace's other files, c
         VisibilityDeleteTemp(projectRoot)
     }
 
-    // From ANOTHER namespace the same sweep offers nothing: naming one of those functions there is
-    // an NL308, so offering it would be an offer to write an error.
+    // FROM ANOTHER NAMESPACE THE CAMELCASE ONE IS STILL OFFERED NOWHERE: naming it there is an
+    // NL308, and no import line fixes that. The EXPORTED one IS offered — it used not to be, which
+    // left the project's own helpers invisible to the one command an LLM has for "what can I call
+    // here" — and because `C.nl` already writes `import X`, it is in scope as written and carries no
+    // `ImportNamespace` at all.
     strangerRoot := VisibilityTempRoot()
     try {
         VisibilityWriteProject(strangerRoot)
@@ -394,8 +455,26 @@ test "completion at an identifier position offers the namespace's other files, c
         VisibilityWriteSource(strangerRoot, "C.nl", "namespace Y\n\nimport X\n\nfunc UseIt(t: string): string {\n    return for\n}\n")
         strangerSnapshot := VisibilityLoadProject(strangerRoot)
 
-        assert VisibilityCompletionGroupNames(strangerSnapshot, "C.nl", 6, 15, "functions") == "UseIt"
+        assert VisibilityCompletionGroupNames(strangerSnapshot, "C.nl", 6, 15, "functions") == "UseIt,Exported"
     } finally {
         VisibilityDeleteTemp(strangerRoot)
+    }
+
+    // AND WITHOUT THE IMPORT LINE, THE SAME EXPORTED FUNCTION CARRIES THE IMPORT IT OWES. `D.nl` is
+    // `C.nl` with `import X` removed: writing `Exported(...)` there is NL412 until the line exists,
+    // so the offer names the namespace to add rather than silently handing over a broken call.
+    unimportedRoot := VisibilityTempRoot()
+    try {
+        VisibilityWriteProject(unimportedRoot)
+        VisibilityWriteSource(unimportedRoot, "A.nl", VisibilityDeclaringSource())
+        VisibilityWriteSource(unimportedRoot, "D.nl", "namespace Y\n\nfunc UseIt(t: string): string {\n    return for\n}\n")
+        unimportedSnapshot := VisibilityLoadProject(unimportedRoot)
+
+        assert VisibilityCompletionGroupNames(unimportedSnapshot, "D.nl", 4, 15, "functions") == "UseIt,Exported"
+        assert VisibilityCompletionImportNamespace(unimportedSnapshot, "D.nl", 4, 15, "functions", "Exported") == "X"
+        assert VisibilityCompletionImportNamespace(unimportedSnapshot, "D.nl", 4, 15, "functions", "UseIt") == "<none>"
+        assert VisibilityCompletionImportNamespace(unimportedSnapshot, "D.nl", 4, 15, "functions", "formatTypeRef") == "<absent>"
+    } finally {
+        VisibilityDeleteTemp(unimportedRoot)
     }
 }

@@ -1,6 +1,7 @@
 namespace NSharpLang.Cli.Commands
 
 import NSharpLang.Compiler
+import NSharpLang.Compiler.CodeIntelligence
 
 // THE `nlc lint` OPTION, FILE-SELECTION, OUTPUT-MODE AND MESSAGE KERNELS.
 //
@@ -146,4 +147,85 @@ test "parse error messages join with a comma and a space" {
     assert LintCommandKernels.JoinParseErrorMessages(["expected expression"]) == "expected expression"
     assert LintCommandKernels.JoinParseErrorMessages(["expected expression", "unexpected }"]) == "expected expression, unexpected }"
     assert LintCommandKernels.JoinParseErrorMessages(new string[](0)) == ""
+}
+
+// ── the three row shapes ──────────────────────────────────────────────────────
+//
+// `nlc lint --json` prints results from THREE sources and only one of them is a rule. The other two
+// are the command's own: a source it could not read at all, and a source the parser refused. All
+// three carry the command's normalized relative path, and the rule row is otherwise field-for-field
+// the row `nlc check` prints for the same diagnostic — the docs URL off the catalog included, which
+// is what lets a reader follow the same link from either command.
+test "a rule row carries the catalog docs URL, the rule's own suggestion, and a widened span" {
+    diagnostic := new Diagnostic("NL010", "The import 'import System' is not used by any code in this file", new Location(3, 8, "Program.nl"), DiagnosticSeverity.Error, "Remove 'import System' to keep your imports clean", 6)
+
+    result := LintCommandKernels.ToLintDiagnosticResult(diagnostic, "src/Program.nl", "import System")
+
+    assert result.Code == "NL010"
+    assert result.Severity == "error"
+    assert result.File == "src/Program.nl"
+    assert result.Line == 3
+    assert result.Column == 8
+    assert result.Length == 6
+    assert result.SourceSnippet == "import System"
+    assert result.Suggestion == "Remove 'import System' to keep your imports clean"
+    assert result.DocsUrl == DiagnosticCatalog.DocsUrlFor("NL010")
+
+    // A rule row states the rule and nothing more: the three fields a COMPILER error fills are
+    // empty here, which is how a reader tells the two sources apart in one envelope.
+    assert result.Explanation == null
+    assert result.Hint == null
+    assert result.ExpectedType == null
+    assert result.ActualType == null
+}
+
+test "a zero-width rule span is widened to one column so the squiggle is visible" {
+    diagnostic := new Diagnostic("NL001", "unused", new Location(1, 1, "Program.nl"), DiagnosticSeverity.Warning, null, 0)
+
+    result := LintCommandKernels.ToLintDiagnosticResult(diagnostic, "Program.nl", null)
+
+    assert result.Length == 1
+    assert result.Severity == "warning"
+    assert result.Suggestion == null
+    assert result.SourceSnippet == null
+}
+
+test "a PARSE row reports the parser's own span under the command's invented code" {
+    parseError := new CompilerError(ErrorCode.UnexpectedToken, "expected expression", 7, 12, ErrorSeverity.Error) {
+        FileName: "Program.nl",
+        Length: 3
+    }
+
+    result := LintCommandKernels.ToParseDiagnosticResult(parseError, "Program.nl", "    foo(")
+
+    assert result.Code == LintCommandKernels.GetParseDiagnosticCode()
+    assert result.Code == "PARSE"
+    assert result.Severity == "error"
+    assert result.Message == "expected expression"
+    assert result.Line == 7
+    assert result.Column == 12
+    assert result.Length == 3
+    assert result.SourceSnippet == "    foo("
+
+    // The parser refused the source, so no rule ran on it and there is no rule to link to.
+    assert result.DocsUrl == null
+    assert result.Suggestion == null
+}
+
+test "a command row has no position because there is no text to point into" {
+    result := LintCommandKernels.ToCommandDiagnosticResult(
+        LintCommandKernels.GetLintDiagnosticCode(),
+        LintCommandKernels.GetFileNotFoundMessage("Missing.nl"),
+        "Missing.nl"
+    )
+
+    assert result.Code == "LINT"
+    assert result.Severity == "error"
+    assert result.Message == "File not found: Missing.nl"
+    assert result.File == "Missing.nl"
+    assert result.Line == 0
+    assert result.Column == 0
+    assert result.Length == 0
+    assert result.SourceSnippet == null
+    assert result.DocsUrl == null
 }

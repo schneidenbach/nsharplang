@@ -857,3 +857,49 @@ func CrfDuplicateName(items: List<CompletionItem>): string {
 
     return ""
 }
+
+// ── THE FRIEND GRANT, WHICH IS A DIFFERENT RELATION FROM THE INHERITED ONE ────────────────────
+//
+// A referenced assembly that declares `[assembly: InternalsVisibleTo("Tests")]` has made the project
+// compiled under that name a friend, and the analyzer has bound its `internal` members for that
+// project since friends landed — `nlc check` accepts `WorkspaceSymbolHandler.MatchesQuery(...)`, an
+// `internal static` method of a public type, from `tests/native/census-internals-visible-to`. The
+// completion list asked only for the PUBLIC surface, so the editor hid exactly the members the
+// compiler was willing to bind. Both halves of the answer are one owner each:
+// `InternalsVisibleToGrants` for the grant and `MemberAccessibility.IsAccessible` for the relation.
+test "a friend grant asks for NonPublic too, and it is not the inherited-protected reason" {
+    ordinary := CompletionReflectionFacts.GetReflectionBindingFlags(CompletionMemberFilter.InstanceOnly, false, false)
+    friend := CompletionReflectionFacts.GetReflectionBindingFlags(CompletionMemberFilter.InstanceOnly, false, true)
+
+    assert (ordinary & BindingFlags.NonPublic) == BindingFlags.Default
+    assert (friend & BindingFlags.NonPublic) == BindingFlags.NonPublic
+    assert (friend & BindingFlags.Instance) == BindingFlags.Instance
+    assert (friend & BindingFlags.Public) == BindingFlags.Public
+}
+
+test "a friend reaches the assembly levels and still never reaches private" {
+    // `internal` is exactly the level a friend grant answers, and `protected internal` is reachable
+    // through EITHER half — so a friend reaches it without deriving from anything.
+    assert CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.Assembly, false, true)
+    assert !CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.Assembly, false, false)
+    assert CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.FamilyOrAssembly, false, true)
+
+    // `private` is nobody's, and `protected` is still the DERIVED type's question rather than the
+    // friend's: a friend that does not derive reaches neither.
+    assert !CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.Private, false, true)
+    assert !CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.Family, false, true)
+
+    // `private protected` needs BOTH, which is the one level that separates a friend from a derived
+    // type and the reason the two flags are not collapsed into one.
+    assert !CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.PrivateProtected, false, true)
+    assert CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.PrivateProtected, true, true)
+    assert !CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.PrivateProtected, true, false)
+}
+
+test "with no grants behind it, the friend question answers no" {
+    // A completion with no project behind it — and a snapshot built without a compilation — grants
+    // nothing, which is the behaviour that existed before friends did.
+    assert !CompletionReflectionFacts.FriendAdmits(null, typeof(string))
+    assert !CompletionReflectionFacts.FriendAdmits(new InternalsVisibleToGrants(), typeof(string))
+    assert !CompletionReflectionFacts.FriendAdmits(new InternalsVisibleToGrants(), null)
+}

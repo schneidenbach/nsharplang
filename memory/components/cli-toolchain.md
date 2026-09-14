@@ -296,7 +296,7 @@ Compiler diagnostics also include error `NL905` for possible null dereference/in
 | NL001 | Remove unused variable declaration line | `ReviewNeeded` | Uses string matching (may match inside comments/strings) |
 | NL002 | Add missing `import` statement | `Safe` | |
 | NL003 | Remove unnecessary `== null` / `!= null` clause | `Safe` | |
-| NL010 | Remove unused import line | `ReviewNeeded` | Answered from binding facts, so `nlc fix` loads and analyses the project before it lints |
+| NL010 | Remove unused import line | `ReviewNeeded` | Answered from binding facts, so `nlc fix` AND `nlc lint` both load and analyse the project before they lint |
 | NL011 | Insert `// TODO: handle exception` in empty catch | `Safe` | |
 | NL905 | Use null-conditional member/index access | `ReviewNeeded` | Changes result nullability; guard/fallback/assertion alternatives are exposed as suggestion-only actions. |
 
@@ -340,12 +340,28 @@ $ nlc query completions --file Program.nl --pos 15:4
 }
 ```
 
-The `functions` group is **namespace-wide, not file-wide**: it carries the current file's functions
-(from its semantic model) followed by the top-level functions declared by every OTHER file of the
-SAME namespace, in source order, camelCase ones included — because a camelCase top-level `func` is
-private to its namespace, not to its file, so a caret in one file may legitimately write another
-file's helper. A file of a different namespace contributes nothing; naming one of its camelCase
-functions would be NL308. Names the current file's model already supplied are not repeated.
+The `functions` group is **project-wide, in two halves that are not the same rule.** It carries the
+current file's functions (from its semantic model), then the top-level functions declared by every
+OTHER file of the SAME namespace, in source order, camelCase ones included — because a camelCase
+top-level `func` is private to its namespace, not to its file, so a caret in one file may legitimately
+write another file's helper. Names the current file's model already supplied are not repeated.
+
+Then it carries the **EXPORTED** top-level functions of every OTHER namespace of the project, each
+row carrying `"importNamespace"` when the file does not already import that namespace (a namespace
+the file already writes an `import` for owes nothing, so its functions carry no key at all —
+`ImportEditPlanner.IsNamespaceInScope` is the one owner of that question). These are not in scope as written — `ComputeTotal(1, 2)` from
+`NsProbe.App` with `NsProbe.Helpers` unimported is `NL412` — so the key names the `import` line a
+caller has to add, which is what makes the offer an answer rather than a trap. `importNamespace` is
+additive and appears only on a row that needs it, so `schemaVersion` stays at 1. An UNEXPORTED
+(camelCase, no `pub`) function of another namespace is offered nowhere, because from there the name
+is `NL308` and no import line can fix it. A same-namespace helper of the same name always wins, which
+is the order the language resolves in.
+
+**The LSP identifier list is a separate C#-owned path** (`CompletionHandler.AddSemanticCompletionItems`
+reads `semanticModel.Functions` directly rather than asking `CompletionEngine`), so the cross-namespace
+half reaches `nlc query completions`, `nlc query inspect`, `query batch` and the daemon today and NOT
+the editor. Teaching the editor half means mapping `importNamespace` to an `additionalTextEdits`
+import insertion the way `AddExternalImportableCompletionItems` already does for external types.
 
 **Member access context** (what members does this type have):
 ```bash
@@ -367,6 +383,18 @@ $ nlc query completions --file PersonService.nl --pos 15:15
 Member access completion resolves the receiver expression semantically, including chained calls and properties such as `message.ToUpper().` or `factory.Create().`. CLI query results and LSP completion/hover use the analyzer's recorded expression types as the source of truth, so duplicate member names on unrelated receiver types do not collapse into name-only matches.
 
 **One row per member name, ordered.** A member access answers one row per NAME, not one per overload: `string` reflects 105 methods under 39 names, and eleven `Split` declarations are one row carrying `"overloads": 11`. The `overloads` key is additive and appears only when a name has more than one declaration, so `schemaVersion` stays at 1; the editor renders the same fact as `(+10 overloads)` in the item's detail. Rows are ordered by kind rank — keyword, variable, function/method, property/field, type, everything else — and then by name, case-insensitively, so the JSON's group order and the editor's row order are the same order. A name listed under two different kinds (`async` as both a keyword and a modifier) collapses to one row but is not counted as an overload.
+
+**A granting reference's internals are offered.** A referenced assembly that declares
+`[assembly: InternalsVisibleTo("<this project>")]` has made this compilation a friend, and the
+analyzer has bound its `internal` members for that project since friends landed — `nlc check` accepts
+`WorkspaceSymbolHandler.MatchesQuery(...)`, an `internal static` method of a public type, from
+`tests/native/census-internals-visible-to`. The completion list asked metadata for `BindingFlags.Public`
+alone, so the editor offered strictly less than the compiler would accept. The snapshot now carries the
+project's `InternalsVisibleToGrants` (the ONE owner of the grant) out of the analysis, and the
+reflected-member walk asks it alongside `MemberAccessibility.IsAccessible` (the ONE owner of the
+relation): a friend reaches `internal` and `protected internal`, never `private`, and `private
+protected` still needs the derived-type half as well. A project the reference does not name sees the
+public surface only.
 
 **Visibility is package-scoped, and the list obeys it.** N# spells visibility the way Go does — PascalCase (or a written `public`) exports, camelCase does not — and an unexported member stays readable from any file in the *same* namespace. A member access completion therefore offers an unexported member only when the caret shares the declaring package; asking from another package drops it, because the analyzer answers `NL308` on that read. When the declaring package cannot be established (no project behind the buffer, a receiver that is not source-declared, two files declaring the same simple name in different namespaces with nothing to tell them apart) the list fails open and offers everything, since a hidden legal member is a defect the developer cannot see past while an offered illegal one is explained by the very next diagnostic.
 
@@ -915,6 +943,17 @@ All `nlc check`, `nlc fix`, `nlc lint`, and `nlc tree --json` commands output JS
 - `ok`
 - `results`
 - `summary`
+
+**`nlc lint` analyses the project before it lints** (`src/NSharpLang.Compiler/LintCommand.nl`, N#-owned
+since the C# `LintCommand.cs` was deleted). NL010 and NL002 are answered from BINDING facts, so a lint
+run that only parsed reported neither: `nlc check` printed two NL010 rows for a file with two dead
+imports while `nlc lint` on the same file said "no issues". Lint now loads the project through
+`CodeIntelligenceService.LoadProjectIncludingTests` exactly as `nlc fix` does and hands the ANALYSED
+unit to the linter, falling back to the parsed unit for a source the project does not list. The parse
+gate stays in front: a file the parser refuses is a `PARSE` row and is never linted, and that answer
+does not depend on whether the snapshot loaded (analysis is best-effort and a project that fails to
+load simply leaves every file on its parsed unit). No schema version change: rule rows now carry the
+`docsUrl` the catalog already gave `nlc check`'s copy of the same row.
 
 `tree` envelope (`schemaVersion: 2`):
 - `command`

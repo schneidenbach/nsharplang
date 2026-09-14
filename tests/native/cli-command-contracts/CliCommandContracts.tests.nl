@@ -1401,6 +1401,117 @@ test "nlc lint over a missing project writes Directory not found to STDERR and e
     assert run.Stderr.Contains("Directory not found: " + missingDirectory)
 }
 
+// ═══ `nlc lint` REPORTS THE BINDING RULES, BECAUSE IT ANALYSES BEFORE IT LINTS ════════════════
+//
+// `nlc lint` used to PARSE each file and lint the parsed tree, and two rules are not answerable that
+// way at all: NL010 ("this import is not used") and NL002 ("this name has no import") are read off
+// what a file BOUND. So `nlc check` printed two NL010 errors for a file with two dead imports while
+// `nlc lint --text` on the SAME file printed "Linted 1 file — no issues" and exited 0. These rows
+// spawn the shipped binary, so they hold whatever implements the command.
+
+func WriteLintProject(directory: string, fileName: string, source: string) {
+    WriteProjectYml(directory, "name: LintContract\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+    File.WriteAllText(Path.Combine(directory, fileName), source)
+}
+
+test "nlc lint reports the unused-import rule that only binding facts can answer" {
+    directory := NewTempDirectory("nlc-lint-nl010")
+    try {
+        WriteLintProject(directory, "Program.nl", "namespace LintContract\n\nimport System\nimport System.Text\n\nclass Widget {\n    static func Describe(): string {\n        return \"widget\"\n    }\n}\n")
+
+        run := NlcIn(directory, "lint --json")
+
+        assert run.ExitCode == 1, run.Stdout + run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("schemaVersion").GetInt32() == 1
+        assert TextOf(root.GetProperty("command")) == "lint"
+        assert root.GetProperty("lintedFiles").GetInt32() == 1
+        assert !root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("summary").GetProperty("errors").GetInt32() == 2
+
+        // BOTH dead imports are reported, and the row carries the catalog docs URL `nlc check`
+        // prints for the same rule — the two commands answer with one row shape.
+        first := ElementAt(root.GetProperty("results"), 0)
+        assert TextOf(first.GetProperty("code")) == "NL010"
+        assert TextOf(first.GetProperty("severity")) == "error"
+        assert TextOf(first.GetProperty("file")) == "Program.nl"
+        assert first.GetProperty("line").GetInt32() == 3
+        assert TextOf(first.GetProperty("docsUrl")).Contains("NL010")
+        assert TextOf(ElementAt(root.GetProperty("results"), 1).GetProperty("code")) == "NL010"
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc lint reports the missing-import rule, and agrees with nlc check on the same project" {
+    directory := NewTempDirectory("nlc-lint-nl002")
+    try {
+        WriteLintProject(directory, "Program.nl", "namespace LintContract\n\nclass Widget {\n    static func Describe(): string {\n        builder := new StringBuilder()\n        builder.Append(\"widget\")\n        return builder.ToString()\n    }\n}\n")
+
+        lintRun := NlcIn(directory, "lint --json")
+        assert lintRun.ExitCode == 1, lintRun.Stdout + lintRun.Stderr
+        lintDocument := JsonDocument.Parse(lintRun.Stdout)
+        lintResult := ElementAt(lintDocument.RootElement.GetProperty("results"), 0)
+        assert TextOf(lintResult.GetProperty("code")) == "NL002"
+        lintLine := lintResult.GetProperty("line").GetInt32()
+        lintDocument.Dispose()
+
+        checkRun := NlcIn(directory, "check --json")
+        checkDocument := JsonDocument.Parse(checkRun.Stdout)
+        checkResult := ElementAt(checkDocument.RootElement.GetProperty("results"), 0)
+        assert TextOf(checkResult.GetProperty("code")) == "NL002"
+        assert checkResult.GetProperty("line").GetInt32() == lintLine
+        checkDocument.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc lint on a clean project lints every source file and exits 0" {
+    directory := NewTempDirectory("nlc-lint-clean")
+    try {
+        WriteLintProject(directory, "Program.nl", "namespace LintContract\n\nclass Widget {\n    static func Describe(): string {\n        return \"widget\"\n    }\n}\n")
+
+        run := NlcIn(directory, "lint --json")
+
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("lintedFiles").GetInt32() == 1
+        assert root.GetProperty("summary").GetProperty("errors").GetInt32() == 0
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "a file nlc lint cannot read is a LINT row with no position, not a crash" {
+    directory := NewTempDirectory("nlc-lint-missing-file")
+    try {
+        WriteLintProject(directory, "Program.nl", "namespace LintContract\n\nclass Widget {\n}\n")
+
+        run := NlcIn(directory, "lint Missing.nl")
+
+        assert run.ExitCode == 1, run.Stdout + run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("lintedFiles").GetInt32() == 0
+        result := ElementAt(root.GetProperty("results"), 0)
+        assert TextOf(result.GetProperty("code")) == "LINT"
+        assert TextOf(result.GetProperty("severity")) == "error"
+        assert TextOf(result.GetProperty("message")) == "File not found: Missing.nl"
+        assert result.GetProperty("line").GetInt32() == 0
+        assert result.GetProperty("column").GetInt32() == 0
+        assert result.GetProperty("length").GetInt32() == 0
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
 test "nlc doc over a missing project writes Project directory not found to STDERR and exits 1" {
     missingDirectory := MissingDirectoryPath("nsharp-doc-missing")
 

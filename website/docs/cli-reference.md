@@ -234,21 +234,35 @@ does not identify an internal compiler failure: NL924 on stderr supplies that di
   "lintedFiles": 3,
   "results": [
     {
-      "code": "NL001",
-      "severity": "warning",
-      "message": "Unused variable 'value'",
+      "code": "NL010",
+      "severity": "error",
+      "message": "The import 'import System' is not used by any code in this file",
       "file": "Program.nl",
-      "line": 2,
-      "column": 5
+      "line": 3,
+      "column": 8,
+      "length": 6,
+      "sourceSnippet": "import System",
+      "suggestion": "Remove 'import System' to keep your imports clean",
+      "docsUrl": "https://schneidenbach.github.io/nsharplang/docs/errors/NL010"
     }
   ],
   "summary": {
-    "errors": 0,
-    "warnings": 1,
+    "errors": 1,
+    "warnings": 0,
     "info": 0
   }
 }
 ```
+
+`nlc lint` **analyses the project before it lints**, the same way `nlc fix` does. Two rules are
+answered by what a source file BOUND rather than by what it parsed to — `NL010` (this import is not
+used) and `NL002` (this name has no import) — so a lint run that only parsed reported neither, and
+`nlc lint` said "no issues" about a file `nlc check` reported two `NL010` errors on. The three
+commands now read one set of analysed units and report one set of rules.
+
+Two result codes are the command's own rather than a rule: `PARSE` (the parser refused the file, so
+no rule ran on it) and `LINT` (the file could not be read at all). Both carry `severity: "error"`.
+Rule rows carry `docsUrl` from the diagnostic catalog, the same link `nlc check` prints.
 
 `nlc tree --json`:
 

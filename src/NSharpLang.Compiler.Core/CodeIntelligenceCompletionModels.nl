@@ -10,6 +10,7 @@ class CompletionItem {
     documentationValue: string?
     isStaticValue: bool
     overloadsValue: int
+    importNamespaceValue: string?
 
     Name: string => nameValue
     Kind: string => kindValue
@@ -24,7 +25,15 @@ class CompletionItem {
     // reader lost when the duplicates went can still be said.
     Overloads: int => overloadsValue
 
-    constructor(Name: string, Kind: string, Type: string?, Parameters: string?, Documentation: string?, IsStatic: bool, Overloads: int = 1) {
+    // THE NAMESPACE A CALLER MUST IMPORT TO WRITE THIS NAME FROM WHERE THEY ARE, or null when the
+    // name is already reachable. It is null for everything in scope, and it is the whole reason a
+    // cross-namespace offer is honest rather than a trap: an exported free function of another
+    // namespace of the same project is NL412 until its `import` line exists, so an offer that did
+    // not carry the namespace would be an offer the very next diagnostic underlines.
+    ImportNamespace: string? => importNamespaceValue
+
+    constructor(Name: string, Kind: string, Type: string?, Parameters: string?, Documentation: string?, IsStatic: bool, Overloads: int = 1, ImportNamespace: string? = null) {
+        importNamespaceValue = ImportNamespace
         nameValue = Name
         kindValue = Kind
         typeValue = Type

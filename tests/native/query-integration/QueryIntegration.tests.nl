@@ -1776,6 +1776,47 @@ test "020 s39 query integration: Definition MultiFile ImportedMemberUseSite Reso
     assert QueryInt(result, "Line") == 18
 }
 
+// ONE VOCABULARY FOR ONE MEMBER. `nlc query inspect` printed BOTH words for an interface's value
+// member in ONE document: `symbol.kind: "field"` beside `completions.properties[0].kind: "property"`,
+// and `nlc query def` printed the losing half on its own. An interface has no INSTANCE fields — the
+// CLR forbids them — so the member is a property, which is what `query outline`, `query symbols` and
+// the completion list already said. The analyzer's member lookup now says it too.
+test "an interface's value member is a property to definition, the way it already was to outline" {
+    projectRoot := QueryTempRoot()
+    try {
+        QueryWriteProjectYaml(
+            projectRoot,
+            "name: InterfaceVocabulary\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n"
+        )
+        QueryWriteSource(
+            projectRoot,
+            "Program.nl",
+            "namespace InterfaceVocabulary\n\ninterface Shape {\n    Area: double\n    func Describe(): string\n}\n\nclass Consumer {\n    static func Report(shape: Shape): double {\n        return shape.Area\n    }\n}\n"
+        )
+
+        snapshot := QueryLoadProject(projectRoot)
+        result := QueryFindDefinition(snapshot, "Program.nl", 10, 22)
+        if result == null {
+            throw new InvalidOperationException("The production definition query answered nothing.")
+        }
+
+        assert QueryText(result, "Name") == "Area"
+        assert QueryText(result, "Kind") == "property"
+        assert QueryInt(result, "Line") == 4
+
+        // The SIBLING word is unchanged: a method is still a function, so the rule narrowed the
+        // value member and nothing else.
+        methodResult := QueryFindDefinition(snapshot, "Program.nl", 5, 10)
+        if methodResult == null {
+            throw new InvalidOperationException("The production definition query answered nothing for the method.")
+        }
+
+        assert QueryText(methodResult, "Kind") == "function"
+    } finally {
+        QueryDeleteTemp(projectRoot)
+    }
+}
+
 test "020 s39 query integration: Definition IssueTracker RecordDeclaration Resolves — Issue is a record at Models.nl line 35 (was QueryIntegrationTests.Definition_IssueTracker_RecordDeclaration_Resolves)" {
     result := QueryFindDefinition(QueryIssueTracker(), "Models.nl", 35, 8)
     if result == null {

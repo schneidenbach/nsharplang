@@ -74,7 +74,8 @@ static class OutputFormatter {
         boundaryLeakSites: IReadOnlyList<PerfReportSite>? = null,
         hotReadinessSites: IReadOnlyList<PerfReportSite>? = null,
         implicitTrapSites: IReadOnlyList<PerfReportSite>? = null,
-        trustedSites: IReadOnlyList<PerfReportTrustedSite>? = null): string {
+        trustedSites: IReadOnlyList<PerfReportTrustedSite>? = null
+    ): string {
         return BuildPerfReportWithDispatchFirst(
             dispatchSites,
             projectRoot,
@@ -88,7 +89,8 @@ static class OutputFormatter {
             boundaryLeakSites,
             hotReadinessSites,
             implicitTrapSites,
-            trustedSites)
+            trustedSites
+        )
     }
 
     static func CheckSystemsReportToJson(diagnostics: List<DiagnosticResult>, projectRoot: string?, checkedFiles: int, report: SystemsReport): string {
@@ -226,7 +228,8 @@ static class OutputFormatter {
         boundaryLeakSites: IReadOnlyList<PerfReportSite>?,
         hotReadinessSites: IReadOnlyList<PerfReportSite>?,
         implicitTrapSites: IReadOnlyList<PerfReportSite>?,
-        trustedSites: IReadOnlyList<PerfReportTrustedSite>?): string {
+        trustedSites: IReadOnlyList<PerfReportTrustedSite>?
+    ): string {
         allocation := NormalizePerfReportSites(allocationSites)
         delegates := NormalizePerfReportSites(delegateSites)
         boxing := NormalizePerfReportSites(boxingSites)
@@ -251,7 +254,8 @@ static class OutputFormatter {
             boundaryLeaks,
             hotReadiness,
             implicitTraps,
-            trusted)
+            trusted
+        )
     }
 
     private static func NormalizePerfReportSites(sites: IReadOnlyList<PerfReportSite>?): IReadOnlyList<PerfReportSite> {

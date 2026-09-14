@@ -109,8 +109,21 @@ class CompletionReflectionFacts {
     // walk; `IsReachableInheritedMember` below then decides what of it is actually reachable, so a
     // `private` or `internal` member of the base is still never offered.
     static func GetReflectionBindingFlags(filter: CompletionMemberFilter, inheritedProtected: bool): BindingFlags {
+        return GetReflectionBindingFlags(filter, inheritedProtected, false)
+    }
+
+    // `friendAdmits` IS THE OTHER REASON TO ASK FOR NON-PUBLIC MEMBERS, and it is a DIFFERENT
+    // relation from the inherited-protected one. A referenced assembly that declares
+    // `[assembly: InternalsVisibleTo("Tests")]` has made this compilation a friend, and the analyzer
+    // has resolved its `internal` members for that project since friends landed — `nlc check` accepts
+    // `WorkspaceSymbolHandler.MatchesQuery(...)`, an `internal static` method of a public type, from
+    // the project that assembly names. The completion list offered only the public surface, so the
+    // editor hid exactly the members the compiler was willing to bind. `InternalsVisibleToGrants` is
+    // the one owner of the grant and `MemberAccessibility.IsAccessible` the one owner of the relation;
+    // this arm asks both rather than inventing a third answer.
+    static func GetReflectionBindingFlags(filter: CompletionMemberFilter, inheritedProtected: bool, friendAdmits: bool): BindingFlags {
         flags := BindingFlags.Public
-        if inheritedProtected {
+        if inheritedProtected || friendAdmits {
             flags = flags | BindingFlags.NonPublic
         }
 
@@ -127,11 +140,19 @@ class CompletionReflectionFacts {
 
     // WHICH LEVELS A DERIVED TYPE IN THIS ASSEMBLY MAY REACH ON A REFERENCED BASE. The same relation
     // the analyzer's member resolution and the emitter's candidate enumeration ask, with the same
-    // answer: `public`, `protected` and `protected internal`, never the three whose reach depends on
-    // being in the same assembly — the base is in a REFERENCED one and N# models no
-    // `InternalsVisibleTo`.
+    // answer: `public`, `protected` and `protected internal` — and the three whose reach depends on
+    // being in the same assembly ONLY when that referenced assembly has named this compilation a
+    // friend, which is the second arity below.
     static func IsReachableInheritedMember(level: int, inheritedProtected: bool): bool {
-        return MemberAccessibility.IsAccessible(level, false, inheritedProtected, inheritedProtected, false)
+        return IsReachableInheritedMember(level, inheritedProtected, false)
+    }
+
+    // The same relation with the friend grant answered. `sameAssembly` is what an `internal` member
+    // asks, and a friend grant is precisely the CLR's answer that this compilation counts as the
+    // declaring assembly for that question — so it is passed there rather than widened into a fourth
+    // arm of the relation.
+    static func IsReachableInheritedMember(level: int, inheritedProtected: bool, friendAdmits: bool): bool {
+        return MemberAccessibility.IsAccessible(level, false, inheritedProtected, inheritedProtected, friendAdmits)
     }
 
     // A property has no accessibility of its own: its accessors do, and the more visible of the two
@@ -144,6 +165,18 @@ class CompletionReflectionFacts {
         }
 
         return getterLevel
+    }
+
+    // DOES THE ASSEMBLY THAT DECLARES THIS TYPE MAKE THIS COMPILATION A FRIEND? The same one-line
+    // question `AnalyzerMemberResolution.FriendAdmits` asks, against the same owner: a completion
+    // with no grants behind it (no project, or a snapshot built without a compilation) answers no,
+    // which is the behaviour that existed before friends did.
+    static func FriendAdmits(grants: InternalsVisibleToGrants?, owner: Type?): bool {
+        if grants == null || owner == null {
+            return false
+        }
+
+        return grants.SameAssemblyOrFriend(owner)
     }
 
     // The CLR type a receiver's `TypeInfo` should be reflected over, or null when there is none.
@@ -456,6 +489,10 @@ class CompletionReflectionFacts {
     }
 
     static func BuildReflectionMemberItems(clrType: Type, flags: BindingFlags, inheritedProtected: bool): List<CompletionItem> {
+        return BuildReflectionMemberItems(clrType, flags, inheritedProtected, false)
+    }
+
+    static func BuildReflectionMemberItems(clrType: Type, flags: BindingFlags, inheritedProtected: bool, friendAdmits: bool): List<CompletionItem> {
         names := new List<string>()
         kinds := new List<string>()
         typeTexts := new List<string>()
@@ -473,7 +510,7 @@ class CompletionReflectionFacts {
         indexByName := new Dictionary<string, int>(StringComparer.Ordinal)
         methods := clrType.GetMethods(flags)
         for method in methods {
-            if IsOfferableMethod(method) && IsReachableInheritedMember(MemberAccessibility.LevelOfMethod(method), inheritedProtected) {
+            if IsOfferableMethod(method) && IsReachableInheritedMember(MemberAccessibility.LevelOfMethod(method), inheritedProtected, friendAdmits) {
                 methodName := method.get_Name()
                 existingIndex := 0
                 if indexByName.TryGetValue(methodName, out existingIndex) {
@@ -491,7 +528,7 @@ class CompletionReflectionFacts {
 
         properties := clrType.GetProperties(flags)
         for property in properties {
-            if !DeclaredBySystemObject(property.get_DeclaringType()) && IsReachableInheritedMember(PropertyAccessibilityLevel(property), inheritedProtected) {
+            if !DeclaredBySystemObject(property.get_DeclaringType()) && IsReachableInheritedMember(PropertyAccessibilityLevel(property), inheritedProtected, friendAdmits) {
                 names.Add(property.get_Name())
                 kinds.Add("property")
                 typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(property.get_PropertyType()))
@@ -502,7 +539,7 @@ class CompletionReflectionFacts {
 
         fields := clrType.GetFields(flags)
         for field in fields {
-            if !DeclaredBySystemObject(field.get_DeclaringType()) && IsReachableInheritedMember(MemberAccessibility.LevelOfField(field), inheritedProtected) {
+            if !DeclaredBySystemObject(field.get_DeclaringType()) && IsReachableInheritedMember(MemberAccessibility.LevelOfField(field), inheritedProtected, friendAdmits) {
                 names.Add(field.get_Name())
                 kinds.Add("field")
                 typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(field.get_FieldType()))

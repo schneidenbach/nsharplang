@@ -15,6 +15,7 @@ import NSharpLang.Compiler.Columnar
 // deletes an import and the one that adds one. `FixCommand` loads the project once and hands the
 // analysed unit down, so the fix list is the same list `nlc check` reports.
 static class FixApplicator {
+
     // TWO EXPLICIT ARITIES RATHER THAN ONE DEFAULTED PARAMETER: omitting a defaulted argument on a
     // static call is a recorded columnar emit decline, and this owner is called from a product path.
     static func GetFixesForFile(filePath: string, source: string): List<CodeAction> {

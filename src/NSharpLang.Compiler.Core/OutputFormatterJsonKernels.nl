@@ -1002,6 +1002,13 @@ class OutputFormatterJsonKernels {
             payload["overloads"] = item.Overloads
         }
 
+        // ALSO ADDITIVE, AND FOR THE SAME REASON. A name already reachable from the caret carries no
+        // key; one that needs an `import` line first carries the namespace to import, so a reader
+        // that accepts the offer knows the second edit it owes. `schemaVersion` does not move.
+        if item.ImportNamespace != null {
+            payload["importNamespace"] = item.ImportNamespace ?? ""
+        }
+
         return payload
     }
 

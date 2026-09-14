@@ -1296,7 +1296,7 @@ class AnalyzerMemberAccess {
         selection := new AnalyzerMemberSelection()
         if declarationContextValue.TryFindMember(resolvedOwner, memberName, out selection) {
             if selection.Member != null {
-                declaration = CreateSymbolDeclaration(selection.Member, selection.FilePath)
+                declaration = CreateSymbolDeclaration(selection.Member, selection.FilePath, selection.KindName)
             } else {
                 declaration = new SymbolDeclaration(memberName, selection.FilePath, selection.Line, selection.Column, selection.KindName)
             }
@@ -1322,9 +1322,12 @@ class AnalyzerMemberAccess {
     // The declaration's own column is re-derived from the declaring file's TEXT rather than trusted
     // from the parsed node, so go-to-definition lands on the NAME and not on the modifier that
     // precedes it.
-    func CreateSymbolDeclaration(member: DeclaredMemberInfo, filePath: string?): SymbolDeclaration {
+    // The KIND WORD comes from the selection rather than off the member, because the word depends on
+    // the OWNER the member was found on: an interface's instance value member is a property, and only
+    // the lookup that walked the owner knows that.
+    func CreateSymbolDeclaration(member: DeclaredMemberInfo, filePath: string?, kindName: string): SymbolDeclaration {
         sourceText := projectSourcesValue.TryGetProjectSourceText(filePath)
-        return new SymbolDeclaration(member.Name, filePath, member.Line, AnalyzerDiagnosticSpanFacts.FindIdentifierNameColumn(sourceText, member.Name, member.Line, member.Column), member.KindName)
+        return new SymbolDeclaration(member.Name, filePath, member.Line, AnalyzerDiagnosticSpanFacts.FindIdentifierNameColumn(sourceText, member.Name, member.Line, member.Column), kindName)
     }
 
     // WHETHER A MISS IS WORTH REPORTING, which is a question about the RECEIVER and not about the
