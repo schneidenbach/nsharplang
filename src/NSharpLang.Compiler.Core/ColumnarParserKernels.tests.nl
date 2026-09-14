@@ -2829,3 +2829,25 @@ test "a lambda's expression body may be a throw" {
     assert probe.NodeChildCounts[root] == 2
     assert probe.NodeKinds[probe.NodeChildren[probe.NodeChildStarts[root] + 1]] == ColumnarExpressionNodeKind.ThrowExpression()
 }
+
+test "a typed lambda parameter keeps the parameter node and starts its body after the annotation" {
+    probe := ThrowExpressionProbe("(value: Dictionary<string, List<int>>, pair: (Head: int, Tail: string), format: Func<int, string>) => value.Count")
+    assert probe.NodeCount > 0
+
+    root := probe.ParseResult[0]
+    assert ColumnarLambdaNodeFacts.IsLambda(probe.NodeKinds[root])
+    assert probe.NodeChildCounts[root] == 4
+
+    parameter := probe.NodeChildren[probe.NodeChildStarts[root]]
+    assert probe.NodeKinds[parameter] == ColumnarExpressionNodeKind.IdentifierExpression()
+    assert probe.Source.Substring(probe.NodeValueStarts[parameter], probe.NodeValueLengths[parameter]) == "value"
+
+    pair := probe.NodeChildren[probe.NodeChildStarts[root] + 1]
+    assert probe.Source.Substring(probe.NodeValueStarts[pair], probe.NodeValueLengths[pair]) == "pair"
+    format := probe.NodeChildren[probe.NodeChildStarts[root] + 2]
+    assert probe.Source.Substring(probe.NodeValueStarts[format], probe.NodeValueLengths[format]) == "format"
+
+    body := probe.NodeChildren[probe.NodeChildStarts[root] + 3]
+    assert probe.NodeKinds[body] == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert probe.Source.Substring(probe.NodeValueStarts[body], probe.NodeValueLengths[body]) == "Count"
+}

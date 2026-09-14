@@ -647,6 +647,13 @@ class ColumnarProgramInput {
         return bindingScope.ExactRelativeTypeNameForFile(name, sourceFileId)
     }
 
+    // The spelling a file writes for one of its own exact declaration identities — the namespace
+    // prefix removed when it is this file's own. A lexical rewrite hands the per-file walk a name it
+    // recognises as locally declared instead of a global identity it would hold to the export rule.
+    func FileRelativeExactTypeName(sourceFileId: int, exactName: string): string {
+        return bindingScope.FileRelativeExactTypeName(sourceFileId, exactName)
+    }
+
     // Metadata declaration sites do not own a node-table view, so select the same immutable
     // per-file semantic scope explicitly before resolving a live type handle.
     func TryResolveExactExplicitTypeForFile(sourceFileId: int, canonical: string, bindings: ColumnarFragmentBindings, out result: Type): bool {

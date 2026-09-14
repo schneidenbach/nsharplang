@@ -719,54 +719,54 @@ test "semantic resolver keeps syntax-owned generic shapes ahead of exact source 
     assert resolver.TryClassifySyntaxOwnedShape(
         "Func<int,string>",
         out funcTerminal
-    )
-    assert !funcTerminal
+    ), "Func classified"
+    assert !funcTerminal, "Func nonterminal"
     nestedFuncTerminal := true
     assert resolver.TryClassifySyntaxOwnedShape(
         "Dictionary<string,(callback:Func<int,string>,count:int)>[]",
         out nestedFuncTerminal
-    )
-    assert !nestedFuncTerminal
+    ), "nested Func classified"
+    assert !nestedFuncTerminal, "nested Func nonterminal"
     funcType := typeof(object)
     funcClaimed := true
     assert !resolver.TryResolve(
         "Func<int,string>",
         out funcType,
         out funcClaimed
-    )
-    assert !funcClaimed
-    assert funcType == typeof(object)
+    ), "exact resolver defers Func"
+    assert !funcClaimed, "Func unclaimed"
+    assert funcType == typeof(object), "Func missing runtime"
 
     listTerminal := false
     assert resolver.TryClassifySyntaxOwnedShape(
         "List<int>",
         out listTerminal
-    )
-    assert listTerminal
+    ), "List classified"
+    assert listTerminal, "source List terminal"
     nestedListTerminal := false
     assert resolver.TryClassifySyntaxOwnedShape(
         "Dictionary<string,(items:List<int>?,fallback:int|string)>[]",
         out nestedListTerminal
-    )
-    assert nestedListTerminal
+    ), "nested List classified"
+    assert nestedListTerminal, "nested source List terminal"
     listType := typeof(object)
     listClaimed := false
-    assert !resolver.TryResolve("List<int>", out listType, out listClaimed)
-    assert listClaimed
-    assert listType == typeof(object)
+    assert !resolver.TryResolve("List<int>", out listType, out listClaimed), "exact resolver rejects source List"
+    assert listClaimed, "source List claimed"
+    assert listType == typeof(object), "source List missing runtime"
 
     importedTerminal := true
     assert resolver.TryClassifySyntaxOwnedShape(
         "Dictionary<SemanticPoint,int>",
         out importedTerminal
-    )
-    assert !importedTerminal
+    ), "imported Dictionary classified"
+    assert !importedTerminal, "imported Dictionary nonterminal"
     qualifiedTerminal := true
     assert resolver.TryClassifySyntaxOwnedShape(
         "System.Collections.Generic.Dictionary<SemanticPoint,int>",
         out qualifiedTerminal
-    )
-    assert !qualifiedTerminal
+    ), "qualified Dictionary classified"
+    assert !qualifiedTerminal, "qualified Dictionary nonterminal"
     importedDirectType := typeof(object)
     importedDirectClaimed := true
     assert !resolver.TryResolve(
@@ -849,22 +849,33 @@ test "semantic resolver keeps syntax-owned generic shapes ahead of exact source 
     assert nestedPoolClaimed
     assert resolver.RuntimeGenericValidationCanonical(nestedPoolType) == "List<System.Buffers.ArrayPool<byte>>"
 
-    actionTerminal := false
-    assert !resolver.TryClassifySyntaxOwnedShape(
+    actionTerminal := true
+    assert resolver.TryClassifySyntaxOwnedShape(
         "Action<int>",
         out actionTerminal
     )
+    assert !actionTerminal
     actionType := typeof(object)
-    actionClaimed := false
-    assert resolver.TryResolve(
+    actionClaimed := true
+    assert !resolver.TryResolve(
         "Action<int>",
         out actionType,
         out actionClaimed
     )
-    assert actionClaimed
-    assert actionType.get_IsGenericType()
+    assert !actionClaimed
+    assert actionType == typeof(object)
+
+    selectedActionType := typeof(object)
+    assert ColumnarCanonicalTypeResolver.TryResolveType(
+        "Action<int>",
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out selectedActionType
+    )
+    assert selectedActionType.get_IsGenericType()
     assert ColumnarConstructionPlanner.SameObject(
-        actionType.GetGenericTypeDefinition(),
+        selectedActionType.GetGenericTypeDefinition(),
         actionBuilder
     )
 }

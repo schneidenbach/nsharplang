@@ -337,11 +337,12 @@ test "an inferred zero-parameter lambda that reads the instance becomes an insta
     programType := module.DefineType("InferredPlacementTests.Program", TypeAttributes.Public | TypeAttributes.Class, typeof(object))
     enclosing := InferredPlacementEnclosing(module, "Holder")
 
-    placement := ColumnarLambdaPlacementPlanner.PlanInferredZeroParameterPlacement(
+    placement := ColumnarLambdaPlacementPlanner.PlanInferredPlacement(
         programType,
         enclosing,
         new int[](1),
         new Dictionary<string, Type>(StringComparer.Ordinal),
+        Type.EmptyTypes,
         true
     )
 
@@ -354,25 +355,52 @@ test "an inferred zero-parameter lambda that reads the instance becomes an insta
     assert ColumnarConstructionPlanner.SameObject(placement.CurrentStructForBody, enclosing)
 }
 
-test "an inferred zero-parameter lambda that reads nothing stays a program-static method" {
+test "an inferred zero-parameter lambda inside a type stays a static method on that type" {
     module := InferredPlacementModuleBuilder("InferredStaticPlacement")
     programType := module.DefineType("InferredPlacementTests.Program", TypeAttributes.Public | TypeAttributes.Class, typeof(object))
     enclosing := InferredPlacementEnclosing(module, "Holder")
 
-    placement := ColumnarLambdaPlacementPlanner.PlanInferredZeroParameterPlacement(
+    placement := ColumnarLambdaPlacementPlanner.PlanInferredPlacement(
         programType,
         enclosing,
         new int[](1),
         new Dictionary<string, Type>(StringComparer.Ordinal),
+        Type.EmptyTypes,
         false
     )
 
     assert placement != null
-    assert placement.Mode == ColumnarLambdaPlacementMode.StaticProgram
+    assert placement.Mode == ColumnarLambdaPlacementMode.StaticEnclosing
     assert placement.OrdinalShift == 0
     assert placement.Method.get_IsStatic()
-    assert placement.CurrentStructForBody == null
-    assert ColumnarConstructionPlanner.SameObject(placement.OwnerTypeForBody, programType)
+    assert ColumnarConstructionPlanner.SameObject(placement.CurrentStructForBody, enclosing)
+    assert ColumnarConstructionPlanner.SameObject(placement.OwnerTypeForBody, enclosing.Builder)
+}
+
+test "a noncapturing lambda whose signature names a nested type stays on its enclosing declaration" {
+    module := InferredPlacementModuleBuilder("NestedSignaturePlacement")
+    programType := module.DefineType("InferredPlacementTests.Program", TypeAttributes.Public | TypeAttributes.Class, typeof(object))
+    enclosing := InferredPlacementEnclosing(module, "Holder")
+    nested: Type = ListEnumeratorControlDefineNested(enclosing.Builder, "Cached", 0)
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = nested
+
+    placement := ColumnarLambdaPlacementPlanner.PlanNonCapturingPlacement(
+        programType,
+        enclosing,
+        new int[](1),
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        typeof(string),
+        parameterTypes,
+        false
+    )
+
+    assert placement != null
+    assert placement.Mode == ColumnarLambdaPlacementMode.StaticEnclosing
+    assert placement.OrdinalShift == 0
+    assert placement.Method.get_IsStatic()
+    assert ColumnarConstructionPlanner.SameObject(placement.CurrentStructForBody, enclosing)
+    assert ColumnarConstructionPlanner.SameObject(placement.OwnerTypeForBody, enclosing.Builder)
 }
 
 // A VALUE TYPE'S `this` IS NOT BINDABLE: it is a pointer into storage the constructor owns, and a
@@ -387,6 +415,8 @@ test "an inferred placement refuses a this-capture it cannot bind" {
     valueEnclosing := InferredPlacementValueEnclosing(module, "ValueHolder")
     visible := new Dictionary<string, Type>(StringComparer.Ordinal)
 
-    assert ColumnarLambdaPlacementPlanner.PlanInferredZeroParameterPlacement(programType, valueEnclosing, new int[](1), visible, true) == null
-    assert ColumnarLambdaPlacementPlanner.PlanInferredZeroParameterPlacement(programType, null, new int[](1), visible, true) == null
+    refused := ColumnarLambdaPlacementPlanner.PlanInferredPlacement(programType, valueEnclosing, new int[](1), visible, Type.EmptyTypes, true)
+    assert refused == null
+    noEnclosing := ColumnarLambdaPlacementPlanner.PlanInferredPlacement(programType, null, new int[](1), visible, Type.EmptyTypes, true)
+    assert noEnclosing == null
 }

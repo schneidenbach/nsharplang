@@ -101,6 +101,34 @@ class ColumnarCanonicalTypeResolver {
         )
     }
 
+    static func TrySelectMemberType(
+        canonical: string,
+        def: ColumnarStructDef,
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        out selected: ColumnarSelectedTypeReference
+    ): bool {
+        typeParameters := def.GenericParameters
+        if typeParameters != null {
+            return TrySelectRuntimeTypeWithTypeParams(
+                canonical,
+                typeParameters,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                out selected
+            )
+        }
+        return TrySelectRuntimeType(
+            canonical,
+            enumRegistry,
+            structRegistry,
+            unionRegistry,
+            out selected
+        )
+    }
+
     static func TryResolveExactRuntimeType(
         fullName: string,
         out resolvedType: Type
@@ -749,7 +777,7 @@ class ColumnarCanonicalTypeResolver {
         if genericOpen == 19 && canonical.StartsWith("IReadOnlyDictionary<", StringComparison.Ordinal) {
             claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectTypeParameterArguments(canonical.Substring(20, canonical.Length - 21), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceReferenceKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
+            if TrySelectTypeParameterArguments(canonical.Substring(20, canonical.Length - 21), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceDeclarationKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
                 definition := ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
@@ -761,7 +789,7 @@ class ColumnarCanonicalTypeResolver {
         if genericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal) {
             claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectTypeParameterArguments(canonical.Substring(11, canonical.Length - 12), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceReferenceKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
+            if TrySelectTypeParameterArguments(canonical.Substring(11, canonical.Length - 12), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceDeclarationKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
                 definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
@@ -1128,38 +1156,57 @@ class ColumnarCanonicalTypeResolver {
     // result and `Action` reads them all as parameters, which is the same reading every other
     // delegate surface in this compiler gives those two names.
     static func OpenDelegateDefinition(isFunc: bool, arity: int): Type? {
-        if isFunc {
-            if arity == 1 {
-                return typeof(Func<int>).GetGenericTypeDefinition()
-            }
-            if arity == 2 {
-                return typeof(Func<int, int>).GetGenericTypeDefinition()
-            }
-            if arity == 3 {
-                return typeof(Func<int, int, int>).GetGenericTypeDefinition()
-            }
-            if arity == 4 {
-                return typeof(Func<int, int, int, int>).GetGenericTypeDefinition()
-            }
-            if arity == 5 {
-                return typeof(Func<int, int, int, int, int>).GetGenericTypeDefinition()
-            }
+        if arity <= 0 {
             return null
         }
+        family := isFunc ? "System.Func`" : "System.Action`"
+        definition := Type.GetType(family + arity.ToString())
+        if definition == null || !definition.get_IsGenericTypeDefinition() {
+            return null
+        }
+        return definition
+    }
 
-        if arity == 1 {
-            return typeof(Action<int>).GetGenericTypeDefinition()
+    static func SupportsInferredDelegateParameterCount(parameterCount: int): bool {
+        if parameterCount < 0 {
+            return false
         }
-        if arity == 2 {
-            return typeof(Action<int, int>).GetGenericTypeDefinition()
+        if parameterCount == 0 {
+            return true
         }
-        if arity == 3 {
-            return typeof(Action<int, int, int>).GetGenericTypeDefinition()
+        return OpenDelegateDefinition(false, parameterCount) != null && OpenDelegateDefinition(true, parameterCount + 1) != null
+    }
+
+    static func TryConstructInferredDelegate(parameterTypes: Type[], returnType: Type, out delegateType: Type): bool {
+        delegateType = null
+        if parameterTypes == null || returnType == null || !SupportsInferredDelegateParameterCount(parameterTypes.Length) {
+            return false
         }
-        if arity == 4 {
-            return typeof(Action<int, int, int, int>).GetGenericTypeDefinition()
+        if returnType == ColumnarTypeOfPlanner.RequiredVoidType() {
+            if parameterTypes.Length == 0 {
+                delegateType = typeof(Action)
+                return true
+            }
+            actionDefinition := OpenDelegateDefinition(false, parameterTypes.Length)
+            if actionDefinition == null {
+                return false
+            }
+            delegateType = actionDefinition.MakeGenericType(parameterTypes)
+            return true
         }
-        return null
+        funcDefinition := OpenDelegateDefinition(true, parameterTypes.Length + 1)
+        if funcDefinition == null {
+            return false
+        }
+        arguments := new Type[](parameterTypes.Length + 1)
+        i := 0
+        while i < parameterTypes.Length {
+            arguments[i] = parameterTypes[i]
+            i += 1
+        }
+        arguments[parameterTypes.Length] = returnType
+        delegateType = funcDefinition.MakeGenericType(arguments)
+        return true
     }
 
     static func TrySelectDelegateWithTypeParams(
@@ -1227,16 +1274,20 @@ class ColumnarCanonicalTypeResolver {
         table := structRegistry.StructuralTypeReferences
         selected = ColumnarSelectedTypeReference.Missing(table)
         headName := canonical.Substring(0, genericOpen)
+        argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
+            canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
+        )
+        lookupHeadName := TypeArityNames.Key(headName, argumentCanonicals.Count)
         openDefinition: Type? = null
         exactSourceName := ""
 
         structDefinition: ColumnarStructDef = null
-        if structRegistry.TryGetValue(headName, out structDefinition) && structDefinition != null && structDefinition.Builder.get_IsGenericTypeDefinition() {
+        if structRegistry.TryGetValue(lookupHeadName, out structDefinition) && structDefinition != null && structDefinition.Builder.get_IsGenericTypeDefinition() {
             openDefinition = structDefinition.Builder
             exactSourceName = structDefinition.DeclaredTypeName
         } else {
             unionDefinition: ColumnarUnionDef = null
-            if unionRegistry.TryGetValue(headName, out unionDefinition) && unionDefinition != null && unionDefinition.Base.get_IsGenericTypeDefinition() {
+            if unionRegistry.TryGetValue(lookupHeadName, out unionDefinition) && unionDefinition != null && unionDefinition.Base.get_IsGenericTypeDefinition() {
                 openDefinition = unionDefinition.Base
                 exactSourceName = unionDefinition.DeclaredTypeName
             }
@@ -1246,9 +1297,6 @@ class ColumnarCanonicalTypeResolver {
             return false
         }
 
-        argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
-            canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
-        )
         if argumentCanonicals.Count != openDefinition.GetGenericArguments().Length {
             return false
         }
@@ -1600,7 +1648,7 @@ class ColumnarCanonicalTypeResolver {
         if genericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal) {
             claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectOrdinaryArguments(canonical.Substring(11, canonical.Length - 12), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(arguments[0].RuntimeType, structRegistry.Values) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
+            if TrySelectOrdinaryArguments(canonical.Substring(11, canonical.Length - 12), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(arguments[0].RuntimeType) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
                 definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
@@ -1612,7 +1660,7 @@ class ColumnarCanonicalTypeResolver {
         if genericOpen == 19 && canonical.StartsWith("IReadOnlyDictionary<", StringComparison.Ordinal) {
             claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectOrdinaryArguments(canonical.Substring(20, canonical.Length - 21), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(arguments[0].RuntimeType, structRegistry.Values) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
+            if TrySelectOrdinaryArguments(canonical.Substring(20, canonical.Length - 21), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(arguments[0].RuntimeType) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
                 definition := ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)

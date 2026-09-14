@@ -6694,8 +6694,8 @@ class ColumnarParserRecovery {
         return AssignmentOperator.Assign
     }
 
-    // Parser.cs IsLambdaExpression (:5535): a bounded lookahead over `( ident (, ident)* ) =>` (or the empty
-    // `() =>`), returning true only when the parenthesized list is a well-formed lambda parameter list. A pure
+    // Parser.cs IsLambdaExpression (:5535): a bounded lookahead over `( ident (, ident)* ) =>`, typed
+    // `(ident: Type, ...) =>`, or the empty `() =>`, returning true only when the parenthesized list is a well-formed lambda parameter list. A pure
     // token scan (no cursor mutation), the IsGenericMethodCall idiom. Because this admits ONLY a well-formed
     // parameter list, ParseMultiParameterLambda's ConsumeIdentifier / Consume(RightParen) / Consume(Arrow)
     // sites never report — the reachable error is only the missing lambda body.
@@ -6740,6 +6740,14 @@ class ColumnarParserRecovery {
                 return false
             }
             pos = pos + 1
+            if pos < Tokens.Count && Tokens[pos].Type == TokenType.Colon {
+                ScanPosition = pos + 1
+                ScanSplit = 0
+                if !ScanTypeReference() || ScanSplit != 0 {
+                    return false
+                }
+                pos = ScanPosition
+            }
             if pos < Tokens.Count && Tokens[pos].Type == TokenType.RightParen {
                 return pos + 1 < Tokens.Count && Tokens[pos + 1].Type == TokenType.Arrow
             }
@@ -6751,7 +6759,8 @@ class ColumnarParserRecovery {
         return false
     }
 
-    // Parser.cs ParseMultiParameterLambda (:5494): `( ident, … ) => body`. IsLambdaExpression guards the entry,
+    // Parser.cs ParseMultiParameterLambda (:5494): `( ident, … ) => body` or `(ident: Type, ...) => body`.
+    // IsLambdaExpression guards the entry,
     // so the parameter list is always well-formed and only the missing-body error (via ParseRequiredExpressionAfter,
     // span DiagnosticSpanFromTokenRange(leftParen, arrow)) is reachable. A LambdaExpression is anchored on the
     // opening `(`, so its DiagnosticSpanFromExpression falls to the (line, column, 1) default (:5960).
@@ -6776,9 +6785,16 @@ class ColumnarParserRecovery {
                     firstParamColumn = paramToken.Column
                     firstParamLength = MaxInt(1, name.Length)
                 }
-                // Parser.cs :5520 `new Parameter(paramName, new SimpleTypeReference("var"), null, false,
-                // Line: paramLine, Column: paramColumn)` — unconditional, an `<error>` name included.
-                lambdaParameters.Add(ImplicitLambdaParameter(name, paramToken.Line, paramToken.Column))
+                parameterType: TypeReference? = null
+                if Check(TokenType.Colon) {
+                    Advance()
+                    parameterType = ParseMaterializedTypeReference()
+                }
+                if parameterType == null {
+                    lambdaParameters.Add(ImplicitLambdaParameter(name, paramToken.Line, paramToken.Column))
+                } else {
+                    lambdaParameters.Add(new Parameter(name, parameterType, null, false, ParameterModifier.None, null, paramToken.Line, paramToken.Column, false, null))
+                }
                 if Check(TokenType.Comma) {
                     Advance()
                 } else {

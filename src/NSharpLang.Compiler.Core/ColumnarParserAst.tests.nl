@@ -4344,6 +4344,18 @@ test "016 N+1c tranche 9c: a multi-parameter lambda ((x, y) => 1) materializes b
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
+test "016 lambda: an explicitly typed parameter materializes its declared type" {
+    actual := RunAst("enum E {\n    A = (value: Cached) => 1\n}\n")
+    parameters := Golden.NoParams()
+    Golden.AddParam(parameters, "value", "Cached", 2, 17, 2, 10)
+    members := new List<EnumMember>()
+    Golden.AddEMemV(members, "A", Golden.Lambda(parameters, Golden.IntLit("1", 2, 28), 2, 9), 2, 5)
+    decls := new List<Declaration>()
+    Golden.AddEnumM(decls, "E", members, EnumType.Int, Modifiers.None, 1, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
 test "016 N+1c tranche 9c: an empty-parameter lambda (() => 1) materializes an empty Parameters list" {
     actual := RunAst("enum E {\n    A = () => 1\n}\n")
     members := new List<EnumMember>()

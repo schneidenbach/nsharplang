@@ -13,7 +13,7 @@ class ColumnarSemanticTypeRegistryBridge {
         owned: Dictionary<string, Type>? = null
         for pair in visibleTypeParameters {
             typeParameter := pair.Value
-            if !typeParameter.get_IsGenericParameter() || typeParameter.get_DeclaringMethod() != null || !Object.ReferenceEquals(typeParameter.get_DeclaringType(), declaringType) {
+            if !IsTypeParameterOwnedByType(typeParameter, declaringType) {
                 continue
             }
             if owned == null {
@@ -26,7 +26,7 @@ class ColumnarSemanticTypeRegistryBridge {
 
     static func IsValidSynthesizedMethodSignatureType(valueType: Type, declaringType: TypeBuilder): bool {
         if valueType.get_IsGenericParameter() {
-            return valueType.get_DeclaringMethod() == null && Object.ReferenceEquals(valueType.get_DeclaringType(), declaringType)
+            return IsTypeParameterOwnedByType(valueType, declaringType)
         }
         if valueType.get_HasElementType() {
             elementType := valueType.GetElementType()
@@ -41,6 +41,18 @@ class ColumnarSemanticTypeRegistryBridge {
             }
         }
         return true
+    }
+
+    // A generic parameter selected through a synthesized semantic view can be a distinct reflection
+    // wrapper for the same unbaked declaring-type slot. Position and declared name are the stable CLR
+    // identity available before bake; method parameters are always excluded.
+    static func IsTypeParameterOwnedByType(valueType: Type, declaringType: TypeBuilder): bool {
+        if !valueType.get_IsGenericParameter() || valueType.get_DeclaringMethod() != null {
+            return false
+        }
+        position := valueType.get_GenericParameterPosition()
+        declared := declaringType.GetGenericArguments()
+        return position >= 0 && position < declared.Length && declared[position].Name == valueType.Name
     }
 
     static func IsValidSynthesizedMethodSignature(returnType: Type, parameterTypes: Type[], declaringType: TypeBuilder): bool {
@@ -331,7 +343,11 @@ class ColumnarExactTypeResolver {
             }
             exactHeadName := ""
             sourceClaimed := false
-            sourceResolved := TryResolveSourceDeclarationName(head, out exactHeadName, out sourceClaimed)
+            argumentCount := 0
+            for _argument in arguments {
+                argumentCount += 1
+            }
+            sourceResolved := TryResolveSourceDeclarationName(TypeArityNames.Key(head, argumentCount), out exactHeadName, out sourceClaimed)
             if IsCollectionSyntaxHead(head) {
                 if sourceResolved || sourceClaimed {
                     terminalRejection = true
@@ -368,6 +384,11 @@ class ColumnarExactTypeResolver {
                     return true
                 }
             }
+            // The retained selector owns source-generic construction because it preserves the
+            // source definition and every selected argument in the structural reference table.
+            // The exact CLR resolver can identify the lexical head, but reducing the complete
+            // construction there would discard that source identity before declaration emit.
+            return true
         }
         return deferToRetainedShape
     }
@@ -683,8 +704,9 @@ class ColumnarExactTypeResolver {
     }
 
     // Constructed lexical source types still flow through the binding scope's CLR-shape owner.
-    // Replace only the source head with its exact dotted identity, then let the existing recursive
-    // resolver assemble and validate arguments. File aliases/imports remain unchanged fallbacks.
+    // Replace every source spelling the lexical owner walk claims with its exact dotted identity,
+    // then let the existing recursive resolver assemble and validate the shape. File
+    // aliases/imports remain unchanged fallbacks.
     func TryResolveExactExplicitType(canonical: string, out selectedType: Type, out claimed: bool): bool {
         contextualCanonical := ""
         if TryBuildLexicalExplicitCanonical(canonical, out contextualCanonical) {
@@ -706,19 +728,89 @@ class ColumnarExactTypeResolver {
         if canonical == null || canonical.Length == 0 {
             return false
         }
-        head := canonical
-        suffix := ""
-        genericOpen := canonical.IndexOf('<')
-        if genericOpen > 0 && canonical.EndsWith(">", StringComparison.Ordinal) {
-            head = canonical.Substring(0, genericOpen)
-            suffix = canonical.Substring(genericOpen)
-        }
-        exactHead := ""
-        if !TryResolveLexicalSourceDeclarationName(head, out exactHead) {
+        rewritten := RewriteLexicalTypeCanonical(canonical, 0)
+        if rewritten == canonical {
             return false
         }
-        contextualCanonical = exactHead + suffix
+        contextualCanonical = rewritten
         return true
+    }
+
+    // THE LEXICAL SCOPE OWNS EVERY POSITION IN A TYPE SPELLING, NOT ONLY ITS HEAD.
+    //
+    // `Cached` written inside `Outer` names `Outer.Cached` whether it is spelled alone, as an
+    // argument (`ConcurrentDictionary<string, Cached>`), under a suffix (`Cached[]`, `Cached?`) or
+    // inside a tuple (`(Left: Cached, Right: int)`). The per-file walk that assembles the CLR shape
+    // sees only file-level and import scope, so each position is rewritten to its exact source
+    // identity here, before that walk runs. A position the lexical owner walk does not claim is left
+    // exactly as written, and a spelling in which nothing is rewritten produces no contextual
+    // attempt at all — the file/import fallback keeps its established precedence.
+    func RewriteLexicalTypeCanonical(canonical: string, depth: int): string {
+        if canonical == null || canonical.Length == 0 || depth > 200 {
+            return canonical
+        }
+
+        if canonical.EndsWith("[]", StringComparison.Ordinal) {
+            return RewriteLexicalTypeCanonical(canonical.Substring(0, canonical.Length - 2), depth + 1) + "[]"
+        }
+        if canonical.EndsWith("?", StringComparison.Ordinal) {
+            return RewriteLexicalTypeCanonical(canonical.Substring(0, canonical.Length - 1), depth + 1) + "?"
+        }
+        if canonical.StartsWith("&", StringComparison.Ordinal) {
+            return "&" + RewriteLexicalTypeCanonical(canonical.Substring(1), depth + 1)
+        }
+
+        genericOpen := canonical.IndexOf('<')
+        if genericOpen > 0 && canonical.EndsWith(">", StringComparison.Ordinal) {
+            exactGenericHead := canonical.Substring(0, genericOpen)
+            lexicalGenericHead := ""
+            argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
+                canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
+            )
+            argumentCount := 0
+            for _argument in argumentCanonicals {
+                argumentCount += 1
+            }
+            if TryResolveLexicalSourceDeclarationName(TypeArityNames.Key(exactGenericHead, argumentCount), out lexicalGenericHead) {
+                exactGenericHead = program.FileRelativeExactTypeName(sourceFileId, lexicalGenericHead)
+            }
+            rewrittenArguments := new string[](argumentCanonicals.Count)
+            argumentIndex := 0
+            while argumentIndex < argumentCanonicals.Count {
+                rewrittenArguments[argumentIndex] = RewriteLexicalTypeCanonical(argumentCanonicals[argumentIndex], depth + 1)
+                argumentIndex = argumentIndex + 1
+            }
+            return exactGenericHead + "<" + string.Join(",", rewrittenArguments) + ">"
+        }
+
+        if canonical.Length >= 2 && canonical[0] == '(' && canonical[canonical.Length - 1] == ')' {
+            elementCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
+                canonical.Substring(1, canonical.Length - 2)
+            )
+            rewrittenElements := new string[](elementCanonicals.Count)
+            elementIndex := 0
+            while elementIndex < elementCanonicals.Count {
+                rewrittenElements[elementIndex] = RewriteLexicalTupleElement(elementCanonicals[elementIndex], depth + 1)
+                elementIndex = elementIndex + 1
+            }
+            return "(" + string.Join(",", rewrittenElements) + ")"
+        }
+
+        exactName := ""
+        if TryResolveLexicalSourceDeclarationName(canonical, out exactName) {
+            return program.FileRelativeExactTypeName(sourceFileId, exactName)
+        }
+        return canonical
+    }
+
+    // A tuple element keeps the name it was written with; only the type after the colon is a
+    // spelling the lexical owner walk may claim.
+    func RewriteLexicalTupleElement(element: string, depth: int): string {
+        colon := element.IndexOf(':')
+        if colon > 0 && ColumnarTypeCanonicalizer.IsBareIdentifier(element.Substring(0, colon)) {
+            return element.Substring(0, colon + 1) + RewriteLexicalTypeCanonical(element.Substring(colon + 1), depth)
+        }
+        return RewriteLexicalTypeCanonical(element, depth)
     }
 
     func HasVisibleTypeParameterRoot(canonical: string): bool {

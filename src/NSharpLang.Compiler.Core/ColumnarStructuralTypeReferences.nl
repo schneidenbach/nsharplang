@@ -246,6 +246,11 @@ class ColumnarSelectedTypeReference {
     readonly hasRuntimeTypeValue: bool
     readonly sourceProvenanceEmissionValue: ColumnarStructuralTypeEmissionIdentity?
     readonly sourceProvenanceNameValue: string
+    // A constructed generic keeps the exact definition handle that created its runtime companion.
+    // Reflection.Emit's TypeBuilderInstantiation cannot reliably answer IsClass/IsInterface before
+    // its source arguments are baked, while the open definition can. Declaration planners consume
+    // this carried fact instead of rediscovering the definition through reflection.
+    readonly constructedGenericDefinitionValue: Type?
 
     EmissionIdentity: ColumnarStructuralTypeEmissionIdentity => emissionIdentityValue
     Key: ColumnarStructuralTypeKey? => keyValue
@@ -253,8 +258,9 @@ class ColumnarSelectedTypeReference {
     HasRuntimeType: bool => hasRuntimeTypeValue
     SourceProvenanceEmission: ColumnarStructuralTypeEmissionIdentity? => sourceProvenanceEmissionValue
     SourceProvenanceName: string => sourceProvenanceNameValue
+    ConstructedGenericDefinition: Type? => constructedGenericDefinitionValue
 
-    constructor(emissionIdentity: ColumnarStructuralTypeEmissionIdentity, key: ColumnarStructuralTypeKey?, runtimeType: Type, hasRuntimeType: bool, sourceProvenanceEmission: ColumnarStructuralTypeEmissionIdentity?, sourceProvenanceName: string) {
+    constructor(emissionIdentity: ColumnarStructuralTypeEmissionIdentity, key: ColumnarStructuralTypeKey?, runtimeType: Type, hasRuntimeType: bool, sourceProvenanceEmission: ColumnarStructuralTypeEmissionIdentity?, sourceProvenanceName: string, constructedGenericDefinition: Type? = null) {
         if emissionIdentity == null || sourceProvenanceName == null {
             throw new InvalidOperationException("A selected structural reference requires non-null identity values.")
         }
@@ -264,6 +270,7 @@ class ColumnarSelectedTypeReference {
         hasRuntimeTypeValue = hasRuntimeType
         sourceProvenanceEmissionValue = sourceProvenanceEmission
         sourceProvenanceNameValue = sourceProvenanceName
+        constructedGenericDefinitionValue = constructedGenericDefinition
     }
 
     static func Missing(table: ColumnarStructuralTypeReferenceTable): ColumnarSelectedTypeReference {
@@ -559,7 +566,8 @@ class ColumnarStructuralTypeReferenceTable {
             children[i + 1] = ColumnarStructuralTypeKeyFacts.RequiredKey(identityValue, arguments[i])
             i += 1
         }
-        return Selected(ColumnarStructuralTypeKeyFacts.CompositeKey(ColumnarStructuralTypeReferenceKind.ConstructedGeneric, children), runtimeType)
+        key := Intern(ColumnarStructuralTypeKeyFacts.CompositeKey(ColumnarStructuralTypeReferenceKind.ConstructedGeneric, children))
+        return new ColumnarSelectedTypeReference(identityValue, key, runtimeType, true, null, "", definition.RuntimeType)
     }
 
     func SelectSzArray(runtimeType: Type, element: ColumnarSelectedTypeReference): ColumnarSelectedTypeReference {

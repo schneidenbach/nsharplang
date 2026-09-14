@@ -250,7 +250,7 @@ test "dictionary Values enumerator admission retains dictionary argument and sib
     )
     valueRejected := DictionaryValueEnumeratorControlExactType(
         typeof(string),
-        sourceBuilder.MakeArrayType()
+        typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceBuilder))
     )
     genericOwner := TypeOfCreateBuilder(
         "DictionaryValueEnumeratorControls.Generic",
@@ -332,7 +332,7 @@ test "dictionary Values enumerator admission retains dictionary argument and sib
     assert ColumnarTypeOfPlanner.IsSupportedType(sourceKeyDictionary)
 }
 
-test "source reference types are direct Dictionary keys and HashSet elements only at the builder leaf" {
+test "source declarations are direct Dictionary keys and HashSet elements only at the builder leaf" {
     sourceBuilder := TypeOfCreateBuilder(
         "SourceCollectionIdentityControls.Source",
         "ColumnarSourceCollectionIdentityControls.Source",
@@ -357,10 +357,14 @@ test "source reference types are direct Dictionary keys and HashSet elements onl
 
     assert ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(sourceBuilder)
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceBuilder)
+    // A SOURCE VALUE DECLARATION IS A KEY TOO: `System.ValueType` gives every one of them equality
+    // and hashing the moment it exists, which is the same answer C# gives.
+    assert ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(sourceStruct)
+    assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceStruct)
+    // The leaf is where the admission stops. An OPEN definition names no single type, and an array
+    // or a constructed source generic is a builder-bound shape, not a declaration.
     assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(sourceGenericDefinition)
     assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceGenericDefinition)
-    assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(sourceStruct)
-    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceStruct)
     assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(sourceArray)
     assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceArray)
     assert !ColumnarTypeOfPlanner.IsAdmissibleDictionaryKey(sourceGeneric)
@@ -387,9 +391,9 @@ test "dictionary live Values and entry enumerators require the exact closed BCL 
         typeof(string),
         sourceBuilder
     )
-    sourceArray := sourceBuilder.MakeArrayType()
-    rejectedValues := DictionaryValueCollectionControlExactType(typeof(string), sourceArray)
-    rejectedEntryEnumerator := DictionaryEntryEnumeratorControlExactType(typeof(string), sourceArray)
+    sourceSequence := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceBuilder))
+    rejectedValues := DictionaryValueCollectionControlExactType(typeof(string), sourceSequence)
+    rejectedEntryEnumerator := DictionaryEntryEnumeratorControlExactType(typeof(string), sourceSequence)
     enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
     enumerableArguments := new Type[](1)
     sourceBuilderType: Type = sourceBuilder

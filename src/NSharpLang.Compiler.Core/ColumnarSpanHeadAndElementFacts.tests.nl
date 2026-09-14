@@ -131,11 +131,16 @@ test "the collection element tail requires a supported value that is not builder
     // A bare source TypeBuilder is admitted by its own arm, BEFORE the tail is reached.
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct)
 
-    // Its ARRAY reaches the tail instead, is a supported value, and is rejected by the second
-    // conjunct alone. Deleting `!ContainsBuilderBoundType` would admit it.
+    // Its ARRAY is answered by the array arm BEFORE the tail: an array is an ordinary reference
+    // whatever it holds, so the element rule alone decides, and the builder containment the tail
+    // refuses never enters the question. A byref or a pointer is refused before either — SymbolType
+    // reports `IsSZArray` for both, and neither is a value a collection may hold.
     assert ColumnarTypeOfPlanner.IsSupportedType(sourceStruct.MakeArrayType())
     assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceStruct.MakeArrayType())
-    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakeArrayType())
+    assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakeArrayType())
+    assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakeArrayType().MakeArrayType())
+    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakeByRefType())
+    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakePointerType())
 
     // The exact supported ValueTuple surface is admitted before the generic builder-containment arm.
     // It remains both supported and builder-bound, distinguishing this explicit prerequisite from the tail.
@@ -160,14 +165,16 @@ test "the hash set element admits direct source references while narrowing const
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(typeof(int[]))
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(AdmissibilityQueueOfInt())
 
-    // A direct closed source reference now has stable key identity. The five-head early return also
+    // A direct closed source declaration has stable key identity. The six-head early return also
     // admits `List<sourceClass>` as a collection element, while the set-key narrowing takes that
-    // constructed builder-bound shape back out.
+    // constructed builder-bound shape back out — and so it does for an array of one.
     listOfSource := typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceClass))
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(listOfSource)
     assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(listOfSource)
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceClass)
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceClass)
+    assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceClass.MakeArrayType())
+    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceClass.MakeArrayType())
 
     // A source ENUM is the exception the second walk exists for: builder-bound, still a set element.
     sourceEnum := ConeEnumParentedBuilder()

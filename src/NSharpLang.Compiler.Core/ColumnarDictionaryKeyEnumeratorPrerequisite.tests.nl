@@ -109,19 +109,28 @@ test "dictionary Keys concrete enumerator retains the collection element boundar
         "ColumnarDictionaryKeyEnumeratorControls.RejectedSource",
         0
     )
-    sourceArray := sourceBuilder.MakeArrayType()
+    sourceSequence := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceBuilder))
     rejected := DictionaryKeyEnumeratorControlExactType(
+        typeof(string),
+        sourceSequence
+    )
+    sourceArray := sourceBuilder.MakeArrayType()
+    admitted := DictionaryKeyEnumeratorControlExactType(
         typeof(string),
         sourceArray
     )
 
     // THE COLLECTION-ELEMENT BOUNDARY IS THIS PREREQUISITE'S, AND IT HOLDS: the acquisition,
     // movement, `Current` and disposal lowerings below are written for an element this compilation
-    // can yield, and an array of a source builder is not one. Storing the enumerator STRUCT itself
-    // is a different question with a different answer — it is an ordinary value whose CLR handle
-    // exists — so `IsSupportedType` admits it while nothing will drive its protocol.
-    assert !ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(rejected), "an array-of-source element is outside the key-enumerator prerequisite"
+    // can yield, and a constructed builder-bound sequence is not one. Storing the enumerator STRUCT
+    // itself is a different question with a different answer — it is an ordinary value whose CLR
+    // handle exists — so `IsSupportedType` admits it while nothing will drive its protocol.
+    assert !ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(rejected), "a constructed builder-bound element is outside the key-enumerator prerequisite"
     assert ColumnarTypeOfPlanner.IsSupportedType(rejected), "the enumerator struct itself is an ordinary storable value"
+
+    // An ARRAY of a source declaration is on the other side of that boundary: the array is an
+    // ordinary reference whatever it holds, so the element rule admits it and the protocol runs.
+    assert ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(admitted), "an array-of-source element is an ordinary key-enumerator element"
 }
 
 test "dictionary Keys concrete enumerator selects exact acquisition movement Current and disposal" {

@@ -13,6 +13,8 @@ import System.Reflection.Emit
 //   * StaticProgram — no captures and no enclosing-instance reference: an assembly-visible static
 //     method on the program type. It is ldftn'd cross-type from any sibling body, so its visibility
 //     MUST be assembly (internal); a private static method here throws MethodAccessException at JIT.
+//   * StaticEnclosing — no value capture, and the lambda is written inside a source declaration. The
+//     helper stays on that declaration so its body retains the lexical scope's CLR private access.
 //   * InstanceThis — no local/parameter captures but a bare reference to the enclosing reference type's
 //     member chain: a private instance method on that type, bound directly to `this` at the use site.
 // N# resolves the contextual signature, ordered capture set, mutation/liftability facts, and enclosing
@@ -21,23 +23,23 @@ import System.Reflection.Emit
 // from the method N# selected. That recursive body/display-class emission remains a fenced host residual.
 enum ColumnarLambdaPlacementMode {
     StaticProgram,
+    StaticEnclosing,
     InstanceThis
 }
 
 // The resolved placement for one non-capturing lambda body. The host consumes the synthesized method
 // and the body-scope facts to run its recursive sub-emitter, then constructs the delegate over Method:
-// a StaticProgram placement uses `ldnull; ldftn Method`, an InstanceThis placement uses
+// a static placement uses `ldnull; ldftn Method`, while an InstanceThis placement uses
 // `ldarg.0; ldftn <Method bound to the enclosing generic context>`.
 class ColumnarLambdaPlacement {
     Mode: ColumnarLambdaPlacementMode
     // The synthesized method whose IL stream the host fills with the lambda body and whose exact handle
     // is the ldftn target.
     Method: MethodBuilder
-    // The type whose generic/type-resolution context the body sub-emitter binds to (the program type for
-    // a static method, the enclosing type for a this-capture).
+    // The type whose generic/type-resolution context the body sub-emitter binds to.
     OwnerTypeForBody: TypeBuilder
-    // The current-instance definition the body sub-emitter runs under: null for the static program
-    // method, the enclosing type for a this-capture.
+    // The lexical source definition the body sub-emitter resolves under: null at file scope, the
+    // enclosing type for either a type-owned static helper or a this-capture.
     CurrentStructForBody: ColumnarStructDef?
     // Argument-ordinal shift for the body: 0 for the static method, 1 for the this-capture instance
     // method whose arg 0 is the receiver.
@@ -59,9 +61,9 @@ class ColumnarLambdaPlacement {
     }
 }
 
-// The contextual-lambda parameter-signature binding for one lambda literal. A lambda's parameter
-// types are not written in source; they are the TARGET delegate's parameter types, bound positionally
-// to the lambda's parameter NAMES. N# owns that binding and the language rules it enforces — the
+// The parameter-signature binding for one lambda literal. A contextual lambda takes its parameter
+// types positionally from the target delegate; an untargeted typed lambda supplies the resolved types
+// from its annotations. N# owns the shared binding and the language rules it enforces — the
 // parameter count must match the delegate arity, each parameter node must be an identifier, a repeated
 // parameter name is malformed, and a parameter that shadows a name already visible in the enclosing
 // scope is the pipeline's NL316. The C# host supplies the delegate's decomposed parameter types (its
@@ -231,7 +233,8 @@ class ColumnarLambdaPlacementPlanner {
     // or a VALUE-TYPE `this` capture that cannot bind a delegate directly to the current instance — so
     // the mechanical host reports the standard lambda decline. hasThisCapture is the host's
     // resolved fact that the body references the enclosing reference type's member chain (and so needs
-    // `this`); when false the lambda is program-static.
+    // `this`); when false a type-owned lambda remains a static method on that type, while a file-level
+    // lambda is program-static.
     static func PlanNonCapturingPlacement(programType: TypeBuilder, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, returnType: Type, parameterTypes: Type[], hasThisCapture: bool): ColumnarLambdaPlacement? {
         if programType == null || lambdaCounter == null || visibleTypeParameters == null || returnType == null || parameterTypes == null {
             throw new InvalidOperationException("Lambda placement planning requires non-null placement facts.")
@@ -262,6 +265,17 @@ class ColumnarLambdaPlacementPlanner {
             return placement
         }
 
+        if enclosing != null {
+            if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(returnType, parameterTypes, enclosing.Builder) {
+                return null
+            }
+            enclosingMethod := enclosing.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes(), returnType, parameterTypes)
+            placement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticEnclosing, enclosingMethod, enclosing.Builder)
+            placement.CurrentStructForBody = enclosing
+            placement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, enclosing.Builder)
+            return placement
+        }
+
         if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(returnType, parameterTypes, programType) {
             return null
         }
@@ -276,11 +290,12 @@ class ColumnarLambdaPlacementPlanner {
     // method is defined SIGNATURE-LESS and gets `SetReturnType`/`SetParameters` after its body has
     // been emitted. That is the only difference: WHERE the method goes is the same question, with the
     // same answer — a body that needs the enclosing instance becomes a private instance method on the
-    // enclosing reference type, and every other one an assembly-static method on the program type.
+    // enclosing reference type. A capture-free type body keeps a static helper on its lexical owner;
+    // only a file-level lambda uses the program type.
     // Asking it only for a lambda with a delegate target is why `f := () => this.Value` declined at
     // `emit.body` while `f: Func<int> = () => this.Value` emitted.
-    static func PlanInferredZeroParameterPlacement(programType: TypeBuilder, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, hasThisCapture: bool): ColumnarLambdaPlacement? {
-        if programType == null || lambdaCounter == null || visibleTypeParameters == null {
+    static func PlanInferredPlacement(programType: TypeBuilder, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, parameterTypes: Type[], hasThisCapture: bool): ColumnarLambdaPlacement? {
+        if programType == null || lambdaCounter == null || visibleTypeParameters == null || parameterTypes == null {
             throw new InvalidOperationException("Lambda placement planning requires non-null placement facts.")
         }
 
@@ -290,13 +305,20 @@ class ColumnarLambdaPlacementPlanner {
             if enclosing == null || !enclosing.IsReference {
                 return null
             }
-
             instanceMethod := enclosing.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), (MethodAttributes)129)
             placement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.InstanceThis, instanceMethod, enclosing.Builder)
             placement.CurrentStructForBody = enclosing
             placement.OrdinalShift = 1
             placement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, enclosing.Builder)
 
+            return placement
+        }
+
+        if enclosing != null {
+            enclosingMethod := enclosing.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes())
+            placement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticEnclosing, enclosingMethod, enclosing.Builder)
+            placement.CurrentStructForBody = enclosing
+            placement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, enclosing.Builder)
             return placement
         }
 

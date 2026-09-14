@@ -1002,6 +1002,12 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
             }
+            if arg.get_IsGenericParameter() {
+                if !allowBuilderBoundArguments {
+                    return false
+                }
+                continue
+            }
             if (!ColumnarTypeOfPlanner.IsSupportedType(arg)) {
                 return false
             }
@@ -1431,7 +1437,22 @@ sealed class ColumnarIlEmitter {
         }
         ordinals := lambdaSignature.Ordinals
         paramTypeMap := lambdaSignature.ParameterTypesByName
-        signatureTypes := delegateParamTypes
+        let signatureTypes: System.Type[]? = null
+        if !TryResolveLambdaParameterTypes(lambdaIdx, delegateParamTypes, false, out signatureTypes) {
+            return false
+        }
+        lambdaSignature = ColumnarLambdaPlacementPlanner.PlanContextualSignature(
+            _nodes,
+            _source,
+            lambdaIdx,
+            signatureTypes,
+            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures)
+        )
+        if lambdaSignature == null {
+            return false
+        }
+        ordinals = lambdaSignature.Ordinals
+        paramTypeMap = lambdaSignature.ParameterTypesByName
         bodyNode := lambdaSignature.BodyNode
 
         // CAPTURE SET (L3a): N# reads the live local/parameter/lifted maps, builds the exact enclosing union,
@@ -1539,7 +1560,17 @@ sealed class ColumnarIlEmitter {
                 )
             } else {
                 _il.Emit(OpCodes.Ldnull)
-                _il.Emit(OpCodes.Ldftn, placement.Method)
+                if placement.Mode == ColumnarLambdaPlacementMode.StaticEnclosing {
+                    _il.Emit(
+                        OpCodes.Ldftn,
+                        ColumnarSemanticTypeRegistryBridge.BindMethodToDeclaringTypeGenericContext(
+                            placement.OwnerTypeForBody,
+                            placement.Method
+                        )
+                    )
+                } else {
+                    _il.Emit(OpCodes.Ldftn, placement.Method)
+                }
             }
             _il.Emit(OpCodes.Newobj, delegateCtor)
             return true
@@ -2012,14 +2043,42 @@ sealed class ColumnarIlEmitter {
         return ColumnarTypeOfPlanner.IsSupportedType(resultType)
     }
 
-    // Emit a ZERO-PARAM expression-bodied lambda with a BODY-INFERRED return type (`zero := () => 99` —
-    // L1c): no expected delegate type exists at a `:=` declaration, but a zero-param lambda has no
-    // inference gap — the synthesized method is defined signature-LESS, its body emits first (yielding the
-    // return type), and SetReturnType/SetParameters run AFTER (spike-proven on PersistedAssemblyBuilder).
-    // A void body yields Action; otherwise Func<bodyType> — which must be a modeled delegate (a
-    // builder-typed body would produce a builder-arg delegate; IsSupportedDelegateType refuses it).
-    // Param-ful `:=` lambdas have no inference source and are pipeline-rejected (NL203) — decline.
-    private func TryEmitInferredZeroParamLambda(lambdaIdx: int, out delegateType: Type): bool {
+    private func TryResolveLambdaParameterTypes(lambdaIdx: int, contextualTypes: Type[]?, requireWritten: bool, out resolvedTypes: Type[]): bool {
+        parameterCount := _nodes.ChildCount(lambdaIdx) - 1
+        resolvedTypes = new Type[](parameterCount)
+        if contextualTypes != null && contextualTypes.Length != parameterCount {
+            return false
+        }
+        p := 0
+        while p < parameterCount {
+            parameterNode := Child(lambdaIdx, p)
+            parameterSpan := _source.Substring(_nodes.SpanStart(parameterNode), _nodes.SpanLength(parameterNode))
+            colon := parameterSpan.IndexOf(":", StringComparison.Ordinal)
+            if colon < 0 {
+                if requireWritten || contextualTypes == null {
+                    return false
+                }
+                resolvedTypes[p] = contextualTypes[p]
+            } else {
+                canonical := ColumnarTypeCanonicalizer.RemoveWhitespace(parameterSpan.Substring(colon + 1))
+                let resolvedParameterType: System.Type? = null
+                if canonical.Length == 0 || !TryResolveBodyType(canonical, out resolvedParameterType) {
+                    return false
+                }
+                resolvedTypes[p] = resolvedParameterType
+            }
+            p += 1
+        }
+        return true
+    }
+
+    // Emit an expression-bodied lambda whose delegate is inferred at a `:=` declaration. `() => 99`
+    // has no input types to infer; `(x: int) => x + 1` supplies every input type explicitly. In both
+    // cases the synthesized method is defined signature-less, its body emits first to determine the
+    // return, and SetReturnType/SetParameters run afterwards (spike-proven on
+    // PersistedAssemblyBuilder). A parameter without an annotation still has no inference source and
+    // is rejected by analysis with NL203. Capturing inference remains on the contextual path.
+    private func TryEmitInferredLambda(lambdaIdx: int, out delegateType: Type): bool {
         delegateType = null
         // An `async` lambda has nothing to infer from: what it produces is the TASK its target
         // returns, and a `:=` declaration names no target at all. The analyzer reports NL334 for
@@ -2027,7 +2086,39 @@ sealed class ColumnarIlEmitter {
         if (ColumnarLambdaNodeFacts.IsAsyncLambda(_nodes.Kind(lambdaIdx))) {
             return false
         }
-        if (_programType == null || _lambdaCounter == null || _nodes.ChildCount(lambdaIdx) != 1) {
+        if (_programType == null || _lambdaCounter == null || _nodes.ChildCount(lambdaIdx) < 1) {
+            return false
+        }
+        parameterCount := _nodes.ChildCount(lambdaIdx) - 1
+        let signatureTypes: System.Type[]? = null
+        if !TryResolveLambdaParameterTypes(lambdaIdx, null, true, out signatureTypes) {
+            return DeclineMember("emit.lambda.inferred-parameter-types", "written lambda parameter types could not form a synthesized signature", lambdaIdx, "lambda")
+        }
+        if !ColumnarCanonicalTypeResolver.SupportsInferredDelegateParameterCount(signatureTypes.Length) {
+            return false
+        }
+        lambdaSignature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(
+            _nodes,
+            _source,
+            lambdaIdx,
+            signatureTypes,
+            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures)
+        )
+        if lambdaSignature == null {
+            return false
+        }
+        inferredBodyNode := lambdaSignature.BodyNode
+        captures := ColumnarClosureBindingPlanner.PlanOrderedCaptureSet(
+            _nodes,
+            _source,
+            inferredBodyNode,
+            lambdaSignature.Ordinals,
+            _locals,
+            _paramOrdinals,
+            _liftedLocals,
+            _boxedCaptures
+        )
+        if captures.Count != 0 {
             return false
         }
         // WHERE THE SYNTHESIZED METHOD GOES IS THE SAME QUESTION A TARGETED LAMBDA ASKS. A body that
@@ -2036,35 +2127,46 @@ sealed class ColumnarIlEmitter {
         // the current instance; every other body stays an assembly-static method on the program type.
         // Only the targeted path used to ask, so `f := () => this.Value` declined at `emit.body` while
         // `f: Func<int> = () => this.Value` emitted the same lambda without complaint.
-        inferredBodyNode := Child(lambdaIdx, 0)
+        inferredBoundNames := new HashSet<string>(StringComparer.Ordinal)
+        for ordinalPair in lambdaSignature.Ordinals {
+            inferredBoundNames.Add(ordinalPair.Key)
+        }
         inferredThisCapture := _currentStruct != null && ColumnarClosureBindingPlanner.BodyReferencesEnclosingChain(
             _nodes,
             _source,
             inferredBodyNode,
-            new HashSet<string>(StringComparer.Ordinal),
+            inferredBoundNames,
             _currentStruct,
             _locals,
             _liftedLocals,
             _paramOrdinals,
             _siblings
         )
-        placement := ColumnarLambdaPlacementPlanner.PlanInferredZeroParameterPlacement(
+        placement := ColumnarLambdaPlacementPlanner.PlanInferredPlacement(
             _programType,
             _currentStruct,
             _lambdaCounter,
             _typeParameters,
+            signatureTypes,
             inferredThisCapture
         )
         if (placement == null) {
-            return false
+            return DeclineMember("emit.lambda.inferred-placement", "inferred lambda helper placement could not be selected", lambdaIdx, "lambda")
         }
         lambdaMethod := placement.Method
         lambdaIl := lambdaMethod.GetILGenerator()
+        bodyOrdinals := lambdaSignature.Ordinals
+        if placement.OrdinalShift != 0 {
+            bodyOrdinals = new Dictionary<string, int>(StringComparer.Ordinal)
+            for ordinalPair in lambdaSignature.Ordinals {
+                bodyOrdinals[ordinalPair.Key] = ordinalPair.Value + placement.OrdinalShift
+            }
+        }
         subEmitter := new ColumnarIlEmitter(
             _nodes,
             _source,
-            new Dictionary<string, int>(StringComparer.Ordinal),
-            new Dictionary<string, Type>(StringComparer.Ordinal),
+            bodyOrdinals,
+            lambdaSignature.ParameterTypesByName,
             ColumnarTypeOfPlanner.RequiredVoidType(),
             lambdaIl,
             _siblings,
@@ -2097,23 +2199,23 @@ sealed class ColumnarIlEmitter {
         )
         let bodyType: System.Type? = null
         if (!subEmitter.EmitExpression(inferredBodyNode, out bodyType)) {
-            return DeclineMember("emit.body", "inferred zero-parameter lambda body emission declined", inferredBodyNode, "lambda")
+            return DeclineMember("emit.body", "inferred lambda body emission declined", inferredBodyNode, "lambda")
         }
-        if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(bodyType, _programType)) {
-            return false
+        if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(bodyType, placement.OwnerTypeForBody)) {
+            return DeclineMember("emit.lambda.inferred-return-type", "inferred lambda return type '" + bodyType.ToString() + "' is not valid on lexical owner '" + placement.OwnerTypeForBody.ToString() + "'", inferredBodyNode, "lambda")
         }
         lambdaIl.Emit(OpCodes.Ret)
-        delegateType = bodyType == ColumnarTypeOfPlanner.RequiredVoidType() ? typeof(Action) : typeof(Func<int>).GetGenericTypeDefinition().MakeGenericType([bodyType])
-        if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(delegateType)) {
-            return false
+        if !ColumnarCanonicalTypeResolver.TryConstructInferredDelegate(signatureTypes, bodyType, out delegateType) {
+            return DeclineMember("emit.lambda.inferred-delegate", "inferred lambda signature has no CLR delegate family", lambdaIdx, "lambda")
         }
         lambdaMethod.SetReturnType(bodyType)
         lambdaMethodForParameters := lambdaMethod
-        emptyLambdaParameterTypes: Type[] = Type.EmptyTypes
-        lambdaMethodForParameters.SetParameters(emptyLambdaParameterTypes)
-        delegateCtor := delegateType.GetConstructor([typeof(object), typeof(IntPtr)])
-        if (delegateCtor == null) {
-            return false
+        lambdaMethodForParameters.SetParameters(signatureTypes)
+        let inferredReturnType: System.Type? = null
+        let inferredParameterTypes: System.Type[]? = null
+        let delegateCtor: System.Reflection.ConstructorInfo? = null
+        if !TryGetSupportedDelegateSignature(delegateType, true, out inferredReturnType, out inferredParameterTypes, out delegateCtor) || delegateCtor == null {
+            return DeclineMember("emit.lambda.inferred-delegate-construction", "inferred lambda delegate construction could not be resolved", lambdaIdx, "lambda")
         }
         if (placement.Mode == ColumnarLambdaPlacementMode.InstanceThis) {
             _il.Emit(OpCodes.Ldarg_0)
@@ -2126,7 +2228,17 @@ sealed class ColumnarIlEmitter {
             )
         } else {
             _il.Emit(OpCodes.Ldnull)
-            _il.Emit(OpCodes.Ldftn, lambdaMethod)
+            if placement.Mode == ColumnarLambdaPlacementMode.StaticEnclosing {
+                _il.Emit(
+                    OpCodes.Ldftn,
+                    ColumnarSemanticTypeRegistryBridge.BindMethodToDeclaringTypeGenericContext(
+                        placement.OwnerTypeForBody,
+                        lambdaMethod
+                    )
+                )
+            } else {
+                _il.Emit(OpCodes.Ldftn, lambdaMethod)
+            }
         }
         _il.Emit(OpCodes.Newobj, delegateCtor)
         return true
@@ -4470,17 +4582,17 @@ sealed class ColumnarIlEmitter {
             // C# only resolves each spelling to a live handle and reports the outcome.
             basePlanner := new ColumnarBaseTypePlanner(def, typeResolution.Structs.Values)
             for baseName in structs[s].BaseNames {
-                let resolvedBaseType: System.Type? = null
-                baseTypeResolved := def.GenericParameters != null ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(baseName, def.GenericParameters, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out resolvedBaseType) : ColumnarCanonicalTypeResolver.TryResolveType(baseName, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out resolvedBaseType)
+                selectedBaseType := ColumnarSelectedTypeReference.Missing(typeResolution.StructuralTypeReferences)
+                baseTypeResolved := ColumnarCanonicalTypeResolver.TrySelectMemberType(baseName, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out selectedBaseType)
                 if (!baseTypeResolved) {
                     return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + structs[s].Name + "'", structs[s].Name, -1, 0)
                 }
-                baseOutcome := basePlanner.Apply(resolvedBaseType)
+                baseOutcome := basePlanner.Apply(selectedBaseType)
                 if (baseOutcome == ColumnarBaseTypeApplyOutcome.Reject) {
                     return false
                 }
                 if (baseOutcome == ColumnarBaseTypeApplyOutcome.Unresolvable) {
-                    return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + structs[s].Name + "'", structs[s].Name, -1, 0)
+                    return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + def.DeclaredTypeName + "'", structs[s].Name, -1, 0)
                 }
             }
         }
@@ -8041,13 +8153,12 @@ sealed class ColumnarIlEmitter {
             if (_nodes.ChildCount(idx) == 0) {
                 return Decline("emit.local.missing-initializer", "local declaration has no modeled initializer", idx)
             }
-            // A ZERO-PARAM lambda initializer (`zero := () => 99` — L1c): the only `:=` lambda shape with
-            // no inference gap (param-ful `:=` lambdas are pipeline-rejected with NL203). The return type
-            // is INFERRED from the body, so the synthesized method's signature is set AFTER the body emits
-            // (spike-proven order); the local's type is Func<bodyType> (or Action for a void body).
+            // An inferred lambda initializer: `zero := () => 99` has no parameter gap, while
+            // `next := (x: int) => x + 1` writes the input type. The return type is inferred from the
+            // body, so the synthesized method's signature is set after the body emits.
             if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(Child(idx, 0)))) {
                 let lambdaType: System.Type? = null
-                if (!TryEmitInferredZeroParamLambda(Child(idx, 0), out lambdaType)) {
+                if (!TryEmitInferredLambda(Child(idx, 0), out lambdaType)) {
                     return Decline("emit.local.lambda-inference", "local lambda initializer could not be inferred", Child(idx, 0))
                 }
                 // A lifted candidate takes the shared box here for the same reason every other one
