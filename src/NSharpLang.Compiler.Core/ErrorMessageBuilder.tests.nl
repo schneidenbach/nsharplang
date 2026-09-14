@@ -326,3 +326,25 @@ test "the switched builders answer differently on each arm" {
     assert ErrorMessageBuilder.UnexpectedToken("f.nl", 1, 1, "}", 1, "}", null).Message == "Unexpected token: }"
     assert ErrorMessageBuilder.UnexpectedToken("f.nl", 1, 1, "}", 1, "}", "';'").Message == "Expected ';' but found }"
 }
+
+// THE CENSUS'S `getParam` ROW, WHICH IS A TRUE POSITIVE AND HAS TO STAY ONE.
+//
+// `out/cli/Daemon/DaemonServer.nl:417` returns a `T?`-typed expression from a function declared to
+// return `T`. C# warns CS8603 at exactly that line, so N#'s NL202 is right — what was wrong was the
+// hint, which offered C#'s spellings (`if (x != null)`) and never named the two things an N# author
+// would reach for here: `must` (N# has no postfix `!`) and a `default` for a generic position whose
+// element has no obvious fallback.
+test "a T? returned from a T function keeps its NL202 and names the N# ways out" {
+    error := ErrorMessageBuilder.ReturnTypeMismatch("Probe.nl", 5, 12, "return value", 5, "getParam", "T?", "T")
+
+    assert error.Code == ErrorCode.TypeMismatch
+    assert error.Message == "Function 'getParam' should return T but returns T?"
+    assert error.ActualType == "T?"
+    assert error.ExpectedType == "T"
+
+    hint := error.ContextualHint ?? ""
+    assert hint.Contains("must x")
+    assert hint.Contains("?? default")
+    assert hint.Contains("if x != null { ... }")
+    assert !hint.Contains("(x != null)")
+}
