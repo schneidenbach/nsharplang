@@ -244,7 +244,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         }
 
         // Direct N# type access, e.g. Person.Create(
-        var nsharpMemberSignatures = BuildNSharpMemberSignatures(doc, receiverName, methodName);
+        var nsharpMemberSignatures = BuildNSharpMemberSignatures(doc, SignatureHelpArgumentFacts.DeclarationReceiverName(receiverName, doc.CompilationUnit?.Namespace?.Name), methodName);
         if (nsharpMemberSignatures.Count > 0)
         {
             return nsharpMemberSignatures;
