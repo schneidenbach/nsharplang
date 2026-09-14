@@ -605,11 +605,11 @@ you would otherwise have to `import` for can be written out in full:
 ```n#
 func WriteInto(path: string?) {
     System.IO.Directory.CreateDirectory(must path)          // a namespace-qualified receiver
-    System.Console.WriteLine(System.String.Concat("in ", must path))
+    System.Console.WriteLine(System.String.Concat("wrote ", path))
 }
 
 func EmptyInts(): int[] {
-    return System.Linq.Enumerable.Empty<int>().ToArray()    // a qualified GENERIC static
+    return System.Linq.Enumerable.ToArray<int>(System.Linq.Enumerable.Empty<int>())
 }
 ```
 
