@@ -8,6 +8,7 @@ import System.Reflection
 import System.Reflection.Emit
 import NSharpLang.Cli
 import NSharpLang.Compiler
+import NSharpLang.Compiler.Columnar
 
 func ResolverRepositoryRoot(): string {
     current: string? = AppContext.BaseDirectory

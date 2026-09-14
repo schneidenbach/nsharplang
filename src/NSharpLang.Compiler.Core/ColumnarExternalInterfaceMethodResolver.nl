@@ -575,14 +575,28 @@ class ColumnarExternalMethodDescriptor {
     // again — "The external method's open MethodDef could not be recovered from its declaring type"
     // was the whole answer a program overriding one received.
     static func RecoverOpenMethod(target: MethodInfo, openDeclaringType: Type): MethodInfo {
+        recovered: MethodInfo? = null
+        if !TryRecoverOpenMethod(target, openDeclaringType, out recovered) || recovered == null {
+            throw new InvalidOperationException("The external method's open MethodDef could not be recovered from its declaring type.")
+        }
+        return recovered
+    }
+
+    // THE SAME RECOVERY FOR A CALLER THAT HAS A FALLBACK. A rebinder asking whether a handle it is
+    // about to hand to `TypeBuilder.GetMethod` has a definition-declared twin is asking a QUESTION,
+    // not making a demand: it keeps the handle it already has when the answer is no. The throwing
+    // form above is this one plus the demand, so the match rule has a single spelling.
+    static func TryRecoverOpenMethod(target: MethodInfo, openDeclaringType: Type, out recovered: MethodInfo?): bool {
+        recovered = null
         targetToken := target.get_MetadataToken()
         targetModuleVersionId := ReadModuleVersionId(target)
         for candidate in openDeclaringType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static) {
             if candidate.get_MetadataToken() == targetToken && ReadModuleVersionId(candidate) == targetModuleVersionId {
-                return candidate
+                recovered = candidate
+                return true
             }
         }
-        throw new InvalidOperationException("The external method's open MethodDef could not be recovered from its declaring type.")
+        return false
     }
 
     static func ReadModuleVersionId(method: MethodInfo): string {

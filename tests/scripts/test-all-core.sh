@@ -315,6 +315,112 @@ else
 fi
 rm -f "$FORMAT_OUTPUT"
 
+section "Step 2c: Self-Host Front Door"
+# THE COMPILER'S OWN SOURCE, THROUGH THE COMPILER'S OWN FRONT DOOR.
+#
+# Everything else in this gate compiles `src/NSharpLang.Compiler.Core` with the PINNED stage-0 seed
+# in `bootstrap/`, through the SDK's emit-only path -- which does not run analysis at all. So the
+# compiler at tip could stop being able to compile its own source and nothing here would notice. It
+# happened: four `while true { ... return ... }` loops carried a dead trailing `return` that the old
+# seed accepted and the tip refuses, and the failure surfaced only when the seed was being
+# republished by hand.
+#
+# This step closes that blind spot by running `nlc check` -- the real front door, analysis, lint and
+# all -- over the compiler's own projects with the CLI this gate just built, and refusing any
+# INCREASE in what it reports.
+#
+# IT IS A RATCHET, NOT A ZERO. The front door currently reports a large, classified backlog on Core's
+# own source (unused and missing imports, nullable arguments passed where non-nullable is declared,
+# definite-assignment holes) that the emit-only path never asked about. The ceilings below are that
+# backlog, measured; they exist to go DOWN and must never be raised to accommodate new source. A
+# change that adds a front-door diagnostic to the compiler's own source fails here, which is exactly
+# the event nothing could catch before.
+#
+# `src/NSharpLang.Build.Tasks` has no N# sources yet (it is MSBuild targets plus C# tasks), so it is
+# listed and checked rather than assumed: the day it grows one, this step covers it.
+#
+# COST: the whole step is dominated by Core, whose front door walks 819 files. It sits inside the
+# validated step cache on the UNIT input set, so it runs only when the compiler's own sources move.
+if step_cache_hit "self-host-front-door" "$UNIT_INPUTS_HASH"; then
+    step_skip_banner "self-host-front-door" "$UNIT_INPUTS_HASH"
+    handle_success "Self-host front door (validated step cache)"
+else
+    echo "Checking the compiler's own projects with the CLI this gate built..."
+    SELF_HOST_PROJECTS=(
+        "src/NSharpLang.Compiler.Core"
+        "src/NSharpLang.Compiler"
+        "src/NSharpLang.Playground"
+        "src/NSharpLang.Build.Tasks"
+    )
+    # Measured on the tip CLI; the classification behind each number is in memory/README.md.
+    #
+    # -1 means BLOCKED, not clean. `check` on a project that REFERENCES Compiler.Core builds that
+    # reference first, and that build fails while Core's own front door is not clean -- so those two
+    # produce an error envelope instead of a diagnostic list and there is nothing to count yet. The
+    # step prints the reason and moves on; the day Core reaches 0 their ceilings become real numbers
+    # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
+    SELF_HOST_CEILINGS=(
+        1374
+        -1
+        -1
+        0
+    )
+    # The count and the per-code breakdown are read out of the check document here rather than from a
+    # helper script: a new Python file is a CODE row in the ownership ratchet and would need a new
+    # epoch, not a repin. A crashed check leaves an unreadable document, which prints a reason and
+    # fails the step rather than counting as zero.
+    SELF_HOST_READ_COUNT='
+import collections, json, sys
+try:
+    document = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as error:
+    print(f"unreadable: {type(error).__name__}: {error}")
+    raise SystemExit(0)
+failure = document.get("error")
+if failure is not None:
+    print("failed: " + str(failure.get("message", failure)).splitlines()[0])
+    raise SystemExit(0)
+results = document.get("results") or []
+if "--by-code" in sys.argv[2:]:
+    counts = collections.Counter(str(entry.get("code", "?")) for entry in results)
+    for code, total in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])):
+        print(f"    {total:5} {code}")
+else:
+    print(len(results))
+'
+    SELF_HOST_OK=1
+    for ((self_host_index = 0; self_host_index < ${#SELF_HOST_PROJECTS[@]}; self_host_index++)); do
+        SELF_HOST_PROJECT="${SELF_HOST_PROJECTS[$self_host_index]}"
+        SELF_HOST_CEILING="${SELF_HOST_CEILINGS[$self_host_index]}"
+        SELF_HOST_OUTPUT=$(mktemp)
+        dotnet "$CLI_DLL" check --project "$SELF_HOST_PROJECT" --json > "$SELF_HOST_OUTPUT" 2>&1 || true
+        SELF_HOST_COUNT=$(python3 -c "$SELF_HOST_READ_COUNT" "$SELF_HOST_OUTPUT")
+        if [ "$SELF_HOST_CEILING" -lt 0 ]; then
+            echo "  $SELF_HOST_PROJECT: BLOCKED behind Compiler.Core's own front door; not counted yet ($SELF_HOST_COUNT)."
+        elif [[ ! "$SELF_HOST_COUNT" =~ ^[0-9]+$ ]]; then
+            echo "  $SELF_HOST_PROJECT: check produced no readable JSON ($SELF_HOST_COUNT)"
+            head -c 2000 "$SELF_HOST_OUTPUT"
+            SELF_HOST_OK=0
+        elif [ "$SELF_HOST_COUNT" -gt "$SELF_HOST_CEILING" ]; then
+            echo "  $SELF_HOST_PROJECT: $SELF_HOST_COUNT diagnostics, ceiling $SELF_HOST_CEILING - the compiler's own source got WORSE through its own front door."
+            python3 -c "$SELF_HOST_READ_COUNT" "$SELF_HOST_OUTPUT" --by-code
+            SELF_HOST_OK=0
+        elif [ "$SELF_HOST_COUNT" -lt "$SELF_HOST_CEILING" ]; then
+            echo "  $SELF_HOST_PROJECT: $SELF_HOST_COUNT diagnostics, below the ceiling of $SELF_HOST_CEILING - lower the ceiling in tests/scripts/test-all-core.sh."
+        else
+            echo "  $SELF_HOST_PROJECT: $SELF_HOST_COUNT diagnostics (at the ceiling)."
+        fi
+        rm -f "$SELF_HOST_OUTPUT"
+    done
+
+    if [ "$SELF_HOST_OK" -eq 1 ]; then
+        handle_success "Self-host front door"
+        step_cache_store "self-host-front-door" "$UNIT_INPUTS_HASH"
+    else
+        handle_error "Self-host front door"
+    fi
+fi
+
 section "Step 3: Run Unit Tests"
 if step_cache_hit "unit-tests" "$UNIT_INPUTS_HASH"; then
     step_skip_banner "unit-tests" "$UNIT_INPUTS_HASH"

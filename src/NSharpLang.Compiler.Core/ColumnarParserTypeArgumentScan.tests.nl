@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 
 // THE `<` DISAMBIGUATION AND PER-ELEMENT TUPLE NAMING, STATED AS SHAPES (census wave 3, PARSE2).

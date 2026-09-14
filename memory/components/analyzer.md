@@ -4921,3 +4921,24 @@ The emit arm has always known the rule — a REFERENCE left yields the left's ow
 left yields its ELEMENT — and the preflight now states the same one. A widening, a derived reference
 and a `throw` right-hand side stay un-typed rather than guessed: those are the shapes the emit arm
 decides WHILE emitting.
+
+## `nameof` names something; it does not read it (census 2026-09-14, SELFHOST)
+
+`nameof`'s target is walked by the ORDINARY expression walk — the answer has to know what the target
+resolved to, and a second name binder for one keyword is how a compiler ends up with two that
+disagree. But that walk's tail refuses, correctly, the shapes that are not VALUES: a bare method
+group (NL411, "Method 'X' must be called or passed to a delegate") and a bare event. Inside `nameof`
+those are exactly the shapes a developer means, and **192 of the compiler's own `nameof`s were that
+diagnostic** — every NL411 the front door reported on `src/NSharpLang.Compiler.Core`.
+
+`Analyzer.AnalyzeNameofTarget` opens the two existing ambient suppressions
+(`EnterAllowUnboundCallableReference`, `EnterAllowEventReference`) for the target and nothing else,
+the same way a call's own callee already opens them. The SoA row escape, the identifier-or-member
+shape rule and every resolution diagnostic the target produces still report. Pinned by
+`tests/native/self-host-front-door/NameofTargets.*`.
+
+**Still open in `nameof`** (both reproduce standalone, both reported on Core's own source):
+`nameof(ToString)` — a bare inherited member by simple name — is NL301 "Variable 'ToString' not
+found"; and `nameof(JsonElement.ArrayEnumerator.Current)` is NL303, because a member access does not
+resolve a NESTED TYPE segment. Neither is a `nameof` rule: they are simple-name and member-access
+resolution gaps that `nameof` is simply the most common way to hit.

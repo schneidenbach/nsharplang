@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import System.Runtime.InteropServices
+import NSharpLang.Compiler.Columnar
 
 
 // The resolver owns the small reflection path that still decides which runtime Type the columnar

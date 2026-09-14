@@ -5,7 +5,6 @@ import System.Collections
 import System.Collections.Generic
 import System.IO
 import System.Linq
-import System.Runtime.ExceptionServices
 import System.Threading
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.CodeIntelligence
@@ -22,12 +21,10 @@ class MultiFileCompiler {
     private class MultiFileCompilerEmissionThreadState {
         Emitted: bool
         Diagnostic: ColumnarDeclineDiagnostic?
-        Captured: ExceptionDispatchInfo?
 
         constructor() {
             Emitted = false
             Diagnostic = null
-            Captured = null
         }
     }
 
@@ -617,10 +614,6 @@ class MultiFileCompiler {
         thread.Name = "nsharp-columnar-emit"
         thread.Start()
         thread.Join()
-        capturedValue := state.Captured
-        if capturedValue != null {
-            capturedValue.Throw()
-        }
         decline = state.Diagnostic ?? ColumnarDeclineDiagnostic.Empty
         return state.Emitted
     }
@@ -638,7 +631,21 @@ class MultiFileCompiler {
                 state.Diagnostic = BuildColumnarDeclineDiagnostic()
             }
         } catch ex: Exception {
-            state.Captured = ExceptionDispatchInfo.Capture(ex)
+            // A FAULT IN THE CODE GENERATOR IS A DECLINE THAT NAMES A MEMBER, NEVER A STACK TRACE.
+            // The walk that threw has already unwound by the time this frame runs, so the only thing
+            // left that says WHERE in the program the compiler gave up is the member scope the emission
+            // thread was inside. A reader handed "The specified method cannot be dynamic or global and
+            // must be declared on a generic type definition" with no member cannot find the shape that
+            // produced it; a decline carrying the member and its source span can be reduced in minutes.
+            ColumnarDeclineTrace.Record(
+                "emit.internal-error",
+                "the code generator failed on this member: " + ex.Message,
+                -1,
+                0,
+                ColumnarDeclineTrace.CurrentMemberName()
+            )
+            state.Emitted = false
+            state.Diagnostic = BuildColumnarDeclineDiagnostic()
         } finally {
             InternalsVisibleToEmissionScope.End()
         }

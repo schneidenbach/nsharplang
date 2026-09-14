@@ -1695,13 +1695,39 @@ class Analyzer: IDisposable {
         return LiteralExpressions.Result(state)
     }
 
+    // `nameof` NAMES SOMETHING; IT DOES NOT READ IT. The walk below is the ordinary expression walk —
+    // the `nameof` answer has to know what its target resolved to, and re-implementing resolution for
+    // one keyword is how a compiler ends up with two name binders that disagree. But the walk's tail
+    // refuses, correctly, the shapes that are not VALUES: a bare method group ("Method 'X' must be
+    // called or passed to a delegate", NL411) and a bare event. Inside `nameof` those are exactly the
+    // shapes a developer means — `nameof(SimdReductions.SumInt32)` and `nameof(Changed)` are the
+    // spellings that survive a rename — so the two value-side refusals step aside here, the same way
+    // they step aside for a call's own callee. Nothing else is suppressed: the SoA row escape, the
+    // shape rule and every resolution diagnostic the target produces are reported as before.
     private func DriveCompileTimeConstant(state: CompileTimeConstantState): TypeInfo {
         step := CompileTimeConstants.NextStep(state)
         while step != null {
-            CompileTimeConstants.Supply(state, AnalyzeExpression(step.Node))
+            CompileTimeConstants.Supply(state, AnalyzeNameofTarget(step.Node))
             step = CompileTimeConstants.NextStep(state)
         }
         return CompileTimeConstants.Result(state)
+    }
+
+    private func AnalyzeNameofTarget(target: Expression?): TypeInfo {
+        if target == null {
+            return BuiltInTypes.Unknown
+        }
+
+        previousAllowUnboundCallableReference := Ambient.EnterAllowUnboundCallableReference()
+        previousAllowEventReference := Ambient.EnterAllowEventReference()
+        result: TypeInfo = null
+        try {
+            result = AnalyzeExpression(target)
+        } finally {
+            Ambient.ExitAllowEventReference(previousAllowEventReference)
+            Ambient.ExitAllowUnboundCallableReference(previousAllowUnboundCallableReference)
+        }
+        return result
     }
 
     private func DrivePassThroughOperand(state: PassThroughOperandState): TypeInfo {

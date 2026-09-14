@@ -12,13 +12,88 @@ import System.Reflection.Emit
 class ColumnarClosedGenericMemberResolver {
     static func ResolveMethod(closedType: Type, openMethod: MethodInfo): MethodInfo {
         if ColumnarTypeOfPlanner.ContainsBuilderBoundType(closedType) {
-            rebound := TypeBuilder.GetMethod(closedType, openMethod)
+            rebound := TypeBuilder.GetMethod(closedType, OpenDefinitionDeclaration(closedType, openMethod))
             return rebound
         }
 
         resolved := MethodBase.GetMethodFromHandle(openMethod.get_MethodHandle(), closedType.get_TypeHandle())
         resolvedObject: object? = resolved
         return (MethodInfo)resolvedObject
+    }
+
+    // THE MEMBER OF A CLOSED OWNER, GIVEN THE OPEN DECLARATION A MEMBER WALK ANSWERED.
+    //
+    // A walk over a generic type DEFINITION answers members whose signatures still mention that
+    // definition's parameters, and an INHERITED one is declared on a different type again:
+    // `GetEnumerator` reached through `ObservableCollection<>` is `Collection<T>::GetEnumerator`. The
+    // handle an emitted call needs is that declaration rebound onto the owner the parameters stand
+    // for -- `Collection<Row>`, not `ObservableCollection<Row>`, because `TypeBuilder.GetMethod`
+    // binds a member to the instantiation of ITS OWN declaring type, and a `callvirt` on the base is
+    // what a derived receiver dispatches through anyway.
+    //
+    // A declaration that mentions no parameter, or one whose substitution leaves parameters behind
+    // (an owner that is itself still open), is returned untouched: there is no closed owner to bind
+    // it to and the caller keeps the handle it had. The `foreach` lowering is the caller today; every
+    // other builder-bound rebinder still calls `TypeBuilder.GetMethod` on the receiver's own
+    // instantiation and therefore still refuses an inherited member.
+    static func RebindOntoClosedOwner(openMethod: MethodInfo, closedOwner: Type): MethodInfo {
+        declaring := openMethod.get_DeclaringType()
+        if declaring == null || !declaring.get_ContainsGenericParameters() {
+            return openMethod
+        }
+
+        closedDeclaring := SubstituteInterfaceMemberType(declaring, closedOwner)
+        if closedDeclaring == declaring || closedDeclaring.get_ContainsGenericParameters() {
+            return openMethod
+        }
+
+        return ResolveMethod(closedDeclaring, openMethod)
+    }
+
+    // WHAT `TypeBuilder.GetMethod` ACTUALLY DEMANDS, and the one shape a member walk does not hand it.
+    //
+    // The API takes a method "declared on a generic type definition" and refuses everything else with
+    // "The specified method cannot be dynamic or global and must be declared on a generic type
+    // definition". A lookup that walked an inheritance or interface chain answers a method whose
+    // declaring type is CONSTRUCTED OVER GENERIC PARAMETERS instead of the definition: `IEnumerator<T>`
+    // for the owner's `T`, or a base `Bar<T>` reached from `class Foo<T>: Bar<T>`. Reflection says those
+    // are different `MethodInfo`s; metadata says they are the SAME `MethodDef` row, which is why the
+    // definition's member carrying the same token and module identity IS the declaration the API wants.
+    //
+    // A handle that already satisfies the demand — a `MethodBuilder` on a source `TypeBuilder`, or any
+    // method whose declaring type IS a definition — is returned untouched, and so is one whose twin
+    // cannot be recovered, so the API keeps reporting for shapes this normalisation does not cover.
+    static func OpenDefinitionDeclaration(closedType: Type, openMethod: MethodInfo): MethodInfo {
+        declaring := openMethod.get_DeclaringType()
+        if declaring == null || !declaring.get_IsGenericType() || declaring.get_IsGenericTypeDefinition() {
+            return openMethod
+        }
+
+        if !closedType.get_IsGenericType() || closedType.get_IsGenericTypeDefinition() {
+            return openMethod
+        }
+
+        definition: Type? = null
+        try {
+            definition = declaring.GetGenericTypeDefinition()
+        } catch {
+            return openMethod
+        }
+
+        if definition == null || definition is TypeBuilder {
+            return openMethod
+        }
+
+        recovered: MethodInfo? = null
+        try {
+            if !ColumnarExternalMethodDescriptor.TryRecoverOpenMethod(openMethod, definition, out recovered) || recovered == null {
+                return openMethod
+            }
+        } catch {
+            return openMethod
+        }
+
+        return recovered
     }
 
     static func SubstituteInterfaceMemberType(memberType: Type, closedInterfaceType: Type): Type {
