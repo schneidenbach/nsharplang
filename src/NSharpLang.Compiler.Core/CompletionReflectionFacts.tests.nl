@@ -82,6 +82,20 @@ func CrfCountOfKind(items: List<CompletionItem>, kind: string): int {
     return total
 }
 
+func CrfReflectionNameOccurrences(items: List<CompletionItem>, name: string): int {
+    total := 0
+    index := 0
+    while index < items.Count {
+        if items[index].Name == name {
+            total = total + 1
+        }
+
+        index = index + 1
+    }
+
+    return total
+}
+
 func CrfInstanceFlags(): BindingFlags {
     return CompletionReflectionFacts.GetReflectionBindingFlags(CompletionMemberFilter.InstanceOnly)
 }
@@ -392,6 +406,27 @@ test "the ARGUMENT table is wider than the RECEIVER table, and everything else i
 }
 
 // ── the member read ──────────────────────────────────────────────────────────────────────────
+
+test "a reflected interface includes its inherited closed members once" {
+    items := CompletionReflectionFacts.BuildReflectionMemberItems(typeof(IReadOnlyList<string>), CrfInstanceFlags())
+
+    // `Item` is declared directly by IReadOnlyList<T>; `Count` comes from
+    // IReadOnlyCollection<T>, and IEnumerable<T> supplies GetEnumerator. The reflection APIs give
+    // an interface only its declared property list, so the completion walk must close and visit its
+    // base-interface graph itself.
+    item := CrfFind(items, "Item")
+    count := CrfFind(items, "Count")
+    enumerator := CrfFind(items, "GetEnumerator")
+    assert item != null
+    assert count != null
+    assert enumerator != null
+    assert item.Type == "string"
+    assert count.Type == "int"
+
+    // IReadOnlyList<T> reaches IEnumerable<T> both through IReadOnlyCollection<T> and directly in
+    // some runtime metadata views. The exact closed identity makes that diamond one completion.
+    assert CrfReflectionNameOccurrences(items, "GetEnumerator") == 1
+}
 
 test "methods come first, then properties, then fields, and each carries its kind and type text" {
     items := CompletionReflectionFacts.BuildReflectionMemberItems(typeof(CrfShape), CrfInstanceFlags())

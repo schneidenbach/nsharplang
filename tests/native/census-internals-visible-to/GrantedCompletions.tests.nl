@@ -27,7 +27,7 @@ func GrantedCompletionGrants(): InternalsVisibleToGrants {
 func GrantedCompletionItems(grants: InternalsVisibleToGrants?, owner: Type): bool {
     friendAdmits := CompletionReflectionFacts.FriendAdmits(grants, owner)
     flags := CompletionReflectionFacts.GetReflectionBindingFlags(CompletionMemberFilter.All, false, friendAdmits)
-    items := CompletionReflectionFacts.BuildReflectionMemberItems(owner, flags, false, friendAdmits)
+    items := CompletionReflectionFacts.BuildReflectionMemberItems(owner, flags, false, friendAdmits, grants)
 
     index := 0
     while index < items.Count {
@@ -67,7 +67,7 @@ test "the public surface of the same type is offered either way" {
     grants := GrantedCompletionGrants()
     friendAdmits := CompletionReflectionFacts.FriendAdmits(grants, typeof(WorkspaceSymbolHandler))
     flags := CompletionReflectionFacts.GetReflectionBindingFlags(CompletionMemberFilter.All, false, friendAdmits)
-    items := CompletionReflectionFacts.BuildReflectionMemberItems(typeof(WorkspaceSymbolHandler), flags, false, friendAdmits)
+    items := CompletionReflectionFacts.BuildReflectionMemberItems(typeof(WorkspaceSymbolHandler), flags, false, friendAdmits, grants)
 
     found := false
     index := 0

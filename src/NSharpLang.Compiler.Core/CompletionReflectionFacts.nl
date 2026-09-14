@@ -493,6 +493,154 @@ class CompletionReflectionFacts {
     }
 
     static func BuildReflectionMemberItems(clrType: Type, flags: BindingFlags, inheritedProtected: bool, friendAdmits: bool): List<CompletionItem> {
+        return BuildReflectionMemberItems(clrType, flags, inheritedProtected, friendAdmits, null)
+    }
+
+    // CLR reflection walks a class hierarchy for these three APIs but deliberately does not walk an
+    // interface hierarchy. An `IReadOnlyList<string>` read therefore returned `Item` and omitted the
+    // inherited `IReadOnlyCollection<string>.Count`. Read each direct interface edge explicitly,
+    // preserving the closed CLR type at every hop and using the same accessibility relation for the
+    // declaring interface that supplied the member.
+    static func BuildReflectionMemberItems(clrType: Type, flags: BindingFlags, inheritedProtected: bool, friendAdmits: bool, friendGrants: InternalsVisibleToGrants?): List<CompletionItem> {
+        items := new List<CompletionItem>()
+        seen := new List<Type>()
+        AppendReflectionInterfaceClosure(clrType, flags, inheritedProtected, friendAdmits, friendGrants, items, seen)
+        return items
+    }
+
+    static func AppendReflectionInterfaceClosure(clrType: Type, flags: BindingFlags, inheritedProtected: bool, friendAdmits: bool, friendGrants: InternalsVisibleToGrants?, items: List<CompletionItem>, seen: List<Type>) {
+        if ContainsExactReflectionType(seen, clrType) {
+            return
+        }
+
+        seen.Add(clrType)
+        AppendNewReflectionMemberItems(items, BuildDeclaredReflectionMemberItems(clrType, flags, inheritedProtected, friendAdmits))
+        if !clrType.get_IsInterface() {
+            return
+        }
+
+        interfaces := DirectReflectionInterfaces(clrType)
+        filter := ReflectionFilterFromFlags(flags)
+        index := 0
+        while index < interfaces.Count {
+            baseInterface := interfaces[index]
+            baseFriendAdmits := friendAdmits
+            if friendGrants != null {
+                baseFriendAdmits = FriendAdmits(friendGrants, baseInterface)
+            }
+
+            baseFlags := GetReflectionBindingFlags(filter, inheritedProtected, baseFriendAdmits)
+            AppendReflectionInterfaceClosure(baseInterface, baseFlags, inheritedProtected, baseFriendAdmits, friendGrants, items, seen)
+            index = index + 1
+        }
+    }
+
+    // The immediate parents of an interface are the closure returned by `GetInterfaces` minus every
+    // interface another closure member already reaches. This preserves nearest-first hiding without
+    // assigning meaning to reflection's transitive enumeration order.
+    static func DirectReflectionInterfaces(clrType: Type): List<Type> {
+        direct := new List<Type>()
+        interfaces: Type[] = new Type[](0)
+        try {
+            interfaces = clrType.GetInterfaces()
+        } catch {
+            return direct
+        }
+
+        candidateIndex := 0
+        while candidateIndex < interfaces.Length {
+            candidate := interfaces[candidateIndex]
+            indirect := false
+            otherIndex := 0
+            while otherIndex < interfaces.Length && !indirect {
+                if otherIndex != candidateIndex {
+                    inheritedByOther: Type[] = new Type[](0)
+                    try {
+                        inheritedByOther = interfaces[otherIndex].GetInterfaces()
+                    } catch {
+                        inheritedByOther = new Type[](0)
+                    }
+
+                    inheritedIndex := 0
+                    while inheritedIndex < inheritedByOther.Length {
+                        if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(candidate, inheritedByOther[inheritedIndex]) {
+                            indirect = true
+                            inheritedIndex = inheritedByOther.Length
+                        } else {
+                            inheritedIndex = inheritedIndex + 1
+                        }
+                    }
+                }
+
+                otherIndex = otherIndex + 1
+            }
+
+            if !indirect {
+                direct.Add(candidate)
+            }
+
+            candidateIndex = candidateIndex + 1
+        }
+
+        return direct
+    }
+
+    static func ContainsExactReflectionType(seen: List<Type>, candidate: Type): bool {
+        index := 0
+        while index < seen.Count {
+            if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(seen[index], candidate) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func ReflectionFilterFromFlags(flags: BindingFlags): CompletionMemberFilter {
+        hasStatic := (flags & BindingFlags.Static) == BindingFlags.Static
+        hasInstance := (flags & BindingFlags.Instance) == BindingFlags.Instance
+        if hasStatic && hasInstance {
+            return CompletionMemberFilter.All
+        }
+
+        if hasStatic {
+            return CompletionMemberFilter.StaticOnly
+        }
+
+        return CompletionMemberFilter.InstanceOnly
+    }
+
+    // A derived interface's declaration wins over a member it inherits, and a shared diamond base
+    // wins once. Do not de-duplicate candidates from the SAME declaring interface here: overload
+    // accounting remains the direct reader's existing responsibility.
+    static func AppendNewReflectionMemberItems(items: List<CompletionItem>, candidates: List<CompletionItem>) {
+        seen := new HashSet<string>(StringComparer.Ordinal)
+        existingIndex := 0
+        while existingIndex < items.Count {
+            seen.Add(items[existingIndex].Name)
+            existingIndex = existingIndex + 1
+        }
+
+        candidateIndex := 0
+        while candidateIndex < candidates.Count {
+            candidate := candidates[candidateIndex]
+            if !seen.Contains(candidate.Name) {
+                items.Add(candidate)
+            }
+
+            candidateIndex = candidateIndex + 1
+        }
+    }
+
+    // THE DIRECT READ. Methods, then properties, then fields — that order is what the caller groups
+    // by kind, so it is the order a completion list comes out in.
+    //
+    // The `System.Object` skip is ASYMMETRIC ON PURPOSE: a property or field that `System.Object`
+    // declares is dropped, a METHOD is not. That is why `GetType` appears in a `string` receiver's
+    // methods; dropping it would silently narrow what the completion offers.
+    static func BuildDeclaredReflectionMemberItems(clrType: Type, flags: BindingFlags, inheritedProtected: bool, friendAdmits: bool): List<CompletionItem> {
         names := new List<string>()
         kinds := new List<string>()
         typeTexts := new List<string>()

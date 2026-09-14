@@ -19,6 +19,7 @@ This file is the current public-facing limitations register for N# docs. Keep it
 - **Type alias emission has CLR metadata restrictions.** Same-namespace aliases and nullable reference aliases can hit backend limitations.
 - **Attribute support is scenario-based, not blanket parity.** Declaration and parameter attributes are parsed/formatted and current targeted tests cover IL parameter metadata. Verify framework-specific attribute scenarios, especially ASP.NET controllers/model binding and xUnit discovery, with focused tests before using them as release evidence.
 - **Null-forgiving `!` should not become an escape hatch.** Prefer explicit null checks or null-coalescing. Diagnostics for null/default-forgiving syntax should come from token/parser/AST/semantic analysis, not source-only scans.
+- **Sibling interface declarations do not form an overload set.** Source member lookup is depth-first in declared base-interface order and the first matching declaration wins. For `IC: IA, IB`, an `IA.F(int)` declaration therefore selects `F` before a later `IB.F(string)` declaration; `F("x")` is rejected. A broader interface-overload design would need a coordinated language change across analysis, completion, navigation, and planning/emission.
 
 ## Build and Performance
 

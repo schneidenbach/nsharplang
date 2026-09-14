@@ -60,6 +60,10 @@ func CrfColumnText(columns: List<int>): string {
 
 func CrfMember(name: string): DeclaredMemberInfo {
     memberType: TypeReference = new SimpleTypeReference("int")
+    return CrfMemberWithType(name, memberType)
+}
+
+func CrfMemberWithType(name: string, memberType: TypeReference): DeclaredMemberInfo {
     parameterNames := new string[](0)
     parameterTypes := new TypeReference[](0)
     parameterModifiers := new ParameterModifier[](0)
@@ -136,6 +140,29 @@ func CrfItemNames(result: CompletionResult?, group: string): string {
     }
 
     return text
+}
+
+func CrfCompletionItem(result: CompletionResult?, group: string, name: string): CompletionItem? {
+    if result == null {
+        return null
+    }
+
+    items := new List<CompletionItem>()
+    if !result.Completions.TryGetValue(group, out items) {
+        return null
+    }
+
+    index := 0
+    while index < items.Count {
+        candidate := items[index]
+        if candidate.Name == name {
+            return candidate
+        }
+
+        index = index + 1
+    }
+
+    return null
 }
 
 test "the column search runs nearest first, alternates outward, and never proposes a column at or below zero on the left" {
@@ -406,6 +433,24 @@ class CrfTypes {
         classType: TypeInfo = new ClassTypeInfo(name, 1, 1, false, baseClass, interfaces, typeParameters, constructorParameters, members, nestedTypes, true)
         return classType
     }
+
+    static func ClassWithInterfaces(name: string, members: DeclaredMemberInfo[], interfaces: TypeReference[]): TypeInfo {
+        typeParameters := new TypeParameter[](0)
+        constructorParameters := new ParameterDeclarationInfo[](0)
+        nestedTypes := new NestedTypeInfo[](0)
+        classType: TypeInfo = new ClassTypeInfo(name, 1, 1, false, null, interfaces, typeParameters, constructorParameters, members, nestedTypes, true)
+        return classType
+    }
+
+    static func Interface(name: string, members: DeclaredMemberInfo[]): TypeInfo {
+        return InterfaceWithBases(name, members, new TypeReference[](0), new TypeParameter[](0))
+    }
+
+    static func InterfaceWithBases(name: string, members: DeclaredMemberInfo[], bases: TypeReference[], typeParameters: TypeParameter[]): TypeInfo {
+        nestedTypes := new NestedTypeInfo[](0)
+        interfaceType: TypeInfo = new InterfaceTypeInfo(name, 1, 1, false, bases, typeParameters, members, nestedTypes)
+        return interfaceType
+    }
 }
 
 // INHERIT — WHAT A RECEIVER INHERITS IS OFFERED TOO.
@@ -427,6 +472,7 @@ test "a receiver offers what its external base declares, and its own members win
     unit := CrfUnitWithExpression(access, 3, 5)
 
     model := new SemanticModel()
+    model.Types["Names"] = declared
     model.Variables["names"] = declared
     model.RecordTypeReference(7, 13, CrfListOfStringType())
 
@@ -464,6 +510,8 @@ test "a base two source links up still contributes the external base's members" 
     unit := CrfUnitWithExpression(access, 3, 5)
 
     model := new SemanticModel()
+    model.Types["Names"] = names
+    model.Types["Deeper"] = deeper
     model.Variables["deeper"] = deeper
     model.RecordTypeReference(11, 15, names)
     model.RecordTypeReference(7, 13, CrfListOfStringType())
@@ -477,6 +525,119 @@ test "a base two source links up still contributes the external base's members" 
     assert propertyNames.Contains("Tag")
     assert propertyNames.Contains("Count")
     assert CrfItemNames(answer, "methods").Contains("Add")
+}
+
+// Interface inheritance is a graph. The two parents reach IRoot through distinct edges, so this
+// direct fact proves that source declarations take both edges while the shared ancestor contributes
+// only once. It also gives the class-receiver control: a class's declared interface surface joins its
+// own declaration without turning the class into a base-interface receiver.
+test "source interface inheritance reaches a diamond once for interfaces and classes" {
+    rootMembers := new DeclaredMemberInfo[](2)
+    rootMembers[0] = CrfMember("Root")
+    rootMembers[1] = CrfMemberWithType("Shared", new SimpleTypeReference("bool"))
+    root: TypeInfo = CrfTypes.Interface("IRoot", rootMembers)
+
+    leftMembers := new DeclaredMemberInfo[](1)
+    leftMembers[0] = CrfMember("Left")
+    leftBases := new TypeReference[](1)
+    leftBases[0] = CrfSimpleReference("IRoot", 31, 5)
+    left: TypeInfo = CrfTypes.InterfaceWithBases("ILeft", leftMembers, leftBases, new TypeParameter[](0))
+
+    rightMembers := new DeclaredMemberInfo[](2)
+    rightMembers[0] = CrfMember("Right")
+    rightMembers[1] = CrfMemberWithType("Shared", new SimpleTypeReference("string"))
+    rightBases := new TypeReference[](1)
+    rightBases[0] = CrfSimpleReference("IRoot", 35, 5)
+    right: TypeInfo = CrfTypes.InterfaceWithBases("IRight", rightMembers, rightBases, new TypeParameter[](0))
+
+    diamondMembers := new DeclaredMemberInfo[](1)
+    diamondMembers[0] = CrfMember("Own")
+    diamondBases := new TypeReference[](2)
+    diamondBases[0] = CrfSimpleReference("ILeft", 39, 5)
+    diamondBases[1] = CrfSimpleReference("IRight", 39, 13)
+    diamond: TypeInfo = CrfTypes.InterfaceWithBases("IDiamond", diamondMembers, diamondBases, new TypeParameter[](0))
+
+    classMembers := new DeclaredMemberInfo[](1)
+    classMembers[0] = CrfMember("ClassOwn")
+    classInterfaces := new TypeReference[](1)
+    classInterfaces[0] = CrfSimpleReference("IDiamond", 43, 5)
+    declaredClass: TypeInfo = CrfTypes.ClassWithInterfaces("DiamondCarrier", classMembers, classInterfaces)
+
+    model := new SemanticModel()
+    model.Types["IRoot"] = root
+    model.Types["ILeft"] = left
+    model.Types["IRight"] = right
+    model.Types["IDiamond"] = diamond
+    model.Types["DiamondCarrier"] = declaredClass
+    model.Variables["diamond"] = diamond
+    model.Variables["carrier"] = declaredClass
+    model.RecordTypeReference(31, 5, root)
+    model.RecordTypeReference(35, 5, root)
+    model.RecordTypeReference(39, 5, left)
+    model.RecordTypeReference(39, 13, right)
+    model.RecordTypeReference(43, 5, diamond)
+
+    models := new List<SemanticModel>()
+    models.Add(model)
+
+    access: Expression = CrfAccess(CrfName("diamond", 3, 5), "", 3, 5)
+    interfaceAnswer := CompletionReceiverFacts.GetMemberAccessCompletions(CrfUnitWithExpression(access, 3, 5), model, "diamond", 3, 5, models)
+    interfaceNames := CrfItemNames(interfaceAnswer, "properties")
+    assert interfaceNames.Contains("Own")
+    assert interfaceNames.Contains("Left")
+    assert interfaceNames.Contains("Right")
+    assert interfaceNames.Contains("Root")
+    assert CrfNameOccurrences(interfaceAnswer, "properties", "Root") == 1
+
+    // The source resolver visits ILeft and then its IRoot before it reaches the later IRight
+    // sibling. The first declaration of Shared is therefore the bool member on IRoot; IRight's
+    // string member is not a second callable candidate. Completion keeps that exact DFS policy.
+    shared := CrfCompletionItem(interfaceAnswer, "properties", "Shared")
+    assert shared != null
+    assert shared.Type == "bool"
+    assert shared.Overloads == 1
+
+    classAccess: Expression = CrfAccess(CrfName("carrier", 7, 5), "", 7, 5)
+    classAnswer := CompletionReceiverFacts.GetMemberAccessCompletions(CrfUnitWithExpression(classAccess, 7, 5), model, "carrier", 7, 5, models)
+    classNames := CrfItemNames(classAnswer, "properties")
+    assert classNames.Contains("ClassOwn")
+    assert classNames.Contains("Own")
+    assert classNames.Contains("Root")
+    assert CrfNameOccurrences(classAnswer, "properties", "Root") == 1
+}
+
+// Invalid source is still a completion input while the user is typing it. A malformed interface
+// cycle must therefore answer the finite surface it has, rather than consuming the completion
+// request until the editor gives up.
+test "a malformed source interface cycle terminates and keeps each member once" {
+    firstMembers := new DeclaredMemberInfo[](1)
+    firstMembers[0] = CrfMember("First")
+    firstBases := new TypeReference[](1)
+    firstBases[0] = CrfSimpleReference("ISecond", 51, 5)
+    first: TypeInfo = CrfTypes.InterfaceWithBases("IFirst", firstMembers, firstBases, new TypeParameter[](0))
+
+    secondMembers := new DeclaredMemberInfo[](1)
+    secondMembers[0] = CrfMember("Second")
+    secondBases := new TypeReference[](1)
+    secondBases[0] = CrfSimpleReference("IFirst", 55, 5)
+    second: TypeInfo = CrfTypes.InterfaceWithBases("ISecond", secondMembers, secondBases, new TypeParameter[](0))
+
+    model := new SemanticModel()
+    model.Types["IFirst"] = first
+    model.Types["ISecond"] = second
+    model.Variables["first"] = first
+    model.RecordTypeReference(51, 5, second)
+    model.RecordTypeReference(55, 5, first)
+
+    models := new List<SemanticModel>()
+    models.Add(model)
+    access: Expression = CrfAccess(CrfName("first", 3, 5), "", 3, 5)
+    answer := CompletionReceiverFacts.GetMemberAccessCompletions(CrfUnitWithExpression(access, 3, 5), model, "first", 3, 5, models)
+    names := CrfItemNames(answer, "properties")
+    assert names.Contains("First")
+    assert names.Contains("Second")
+    assert CrfNameOccurrences(answer, "properties", "First") == 1
+    assert CrfNameOccurrences(answer, "properties", "Second") == 1
 }
 
 // A class with no `:` clause is unchanged: its own members and nothing else.
