@@ -113,3 +113,33 @@ test "a loop that writes nothing keeps the fact it was given" {
     assert MessagesWithoutResetting(PathResponse("x"), 3) == "xxx"
     assert MessagesWithoutResetting(EmptyResponse(), 3) == ""
 }
+
+// ── a narrowed property path is a narrowed nullable ─────────────────────────────────────────────
+
+func PathSample(slot: int?): Sample {
+    return new Sample(slot, new DateTime(2027, 4, 5))
+}
+
+test "a narrowed property path answers `.Value` as the unwrap, not as a member of the element" {
+    assert SlotValueOrMinusOne(PathSample(7)) == 7
+    assert SlotValueOrMinusOne(PathSample(null)) == -1
+
+    assert SlotDoubledOrMinusOne(PathSample(7)) == 14
+    assert SlotDoubledOrMinusOne(PathSample(null)) == -1
+
+    assert SlotAfterMust(PathSample(6)) == 12
+}
+
+test "`Nullable<T>`'s own surface answers through a narrowed path too" {
+    assert SlotOrDefaultThroughPath(PathSample(9)) == 9
+    assert SlotOrDefaultThroughPath(PathSample(null)) == -1
+
+    assert MomentYearThroughPath(PathSample(1)) == 2027
+}
+
+test "writing the path still drops its state, and the unwrap after the write is the declared one" {
+    // The second read goes through `GetValueOrDefault`, which is legal whatever the state is — so
+    // what this pins is that the WRITE is what the second read sees.
+    assert SlotAfterOverwrite(PathSample(4), 10) == 14
+    assert SlotAfterOverwrite(PathSample(4), null) == 4
+}

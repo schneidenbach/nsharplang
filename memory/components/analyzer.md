@@ -513,6 +513,26 @@ that hover, completion and every diagnostic that prints a CLR member signature r
   `times.OrderBy(kvp => kvp.Value).FirstOrDefault()` over a `Dictionary<string, DateTime>`: the
   result read as `KeyValuePair<string, DateTime>?`, so `.Value` bound as the nullable UNWRAP instead
   of as the pair's own property.
+- **THE NARROWED-ORIGIN LOOKUP HAS TWO HALVES, BECAUSE A LOCAL AND A PATH ARE NARROWED BY DIFFERENT
+  MACHINERY** (census NULLABLE3). A narrowed LOCAL is rebound in the branch scope's symbol table, so
+  nothing collapses at the read and `AnalyzerScopeStack.FindEnclosingNullableSymbol` walks OUT to the
+  declaration. A member PATH's declared type belongs to its owning class and is not the scope's to
+  rebind, so a path carries a null FACT alone and `ApplyNullabilityFlowType` collapses `int?` to
+  `int` at the read — which left the member lookup nothing to see, and `h.Slot.Value` past a guard
+  reported NL303 "Member 'Value' not found on type 'int'". The collapse now records what it
+  collapsed (`AnalyzerNullFlow.RecordNarrowedNullableOrigin`, keyed by AST NODE identity because a
+  line/column is not unique across the files of one analysis), and
+  `AnalyzerNullFlow.NarrowedNullableOrigin` is the ONE owner of both halves — asked by
+  `AnalyzerMemberAccess`'s two nullable arms and by `AnalyzerCallAnalysis`'s
+  `TryRestoreNarrowedNullableReceiver`.
+- **WHICH OF A `T?`'S TWO CANDIDATE TYPES A NAME BINDS ON IS DECIDED BY WHAT `Nullable<T>` DECLARES**
+  (census NULLABLE3), read off the definition with `BindingFlags.DeclaredOnly`. The rule used to be
+  "ask `T` first, fall through only for a name `T` cannot answer", which gave `T`'s answer for the
+  three names `Nullable<T>` OVERRIDES — `ToString`, `Equals`, `GetHashCode` — so `v.ToString()` on an
+  `int?` bound `int.ToString` and read the receiver as a DEREFERENCE (NL905 for a call that cannot
+  throw). Both readings are metadata questions and neither is a name list; this one is the reading
+  C# has. `GetType` is deliberately on the OTHER side: `Nullable<T>` does not override it, it boxes,
+  and boxing an absent nullable is a null reference — the dereference report is the right answer.
 - **A CONSTRUCTED GENERIC'S VALUE/REFERENCE KIND LIVES ON ITS DEFINITION.**
   `CanConvertedTypeCarryReferenceNullability` answered from the outer shape, so a non-generic
   external struct (a `ReflectionTypeInfo`) was read correctly and a constructed one (a

@@ -7,8 +7,9 @@ import System.Reflection.Emit
 
 // Generic sibling-call inference and result-shape ownership. Inference mutates the caller-supplied
 // binding array as each parameter is learned; a later mismatch deliberately retains those earlier
-// writes. Return substitution is a separate, narrower model whose source-generic and admitted BCL
-// collection rules must not inherit the broader constraint-substitution behavior.
+// writes. Return substitution is a separate, narrower model: a source-generic head recloses on its
+// own definition, and every other constructed head is admitted by the backend's type-admissibility
+// question rather than by the broader constraint-substitution behavior.
 class ColumnarGenericCallBindingPlanner {
     static func TryUnifyTypeParam(
         typeParams: Type[],
@@ -198,7 +199,16 @@ class ColumnarGenericCallBindingPlanner {
                 argumentIndex = argumentIndex + 1
             }
 
-            candidate := returnDefinition.MakeGenericType(substitutedConstructedArguments)
+            // A CONSTRUCTION THAT CANNOT EXIST IS A DECLINE, NOT A THROW. `MakeGenericType` validates
+            // the definition's own constraints for a complete runtime identity, so a binding that
+            // violates one — `Nullable<T>` over a reference — raises rather than answering.
+            candidate: Type = null
+            try {
+                candidate = returnDefinition.MakeGenericType(substitutedConstructedArguments)
+            } catch ex: ArgumentException {
+                return false
+            }
+
             // WHICH SUBSTITUTED CONSTRUCTIONS MAY COME BACK IS THE BACKEND'S OWN TYPE-ADMISSIBILITY
             // QUESTION, and it used to be a list of four collection definitions instead. `Nullable<>`
             // was not on that list, so `func Pick<T>(…): T? where T : struct` emitted its DECLARATION

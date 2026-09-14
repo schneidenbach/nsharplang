@@ -484,26 +484,19 @@ class AnalyzerMemberAccess {
     // and it must NOT be warned about, because the narrowing already proved it safe. That is the
     // whole of `isNarrowedNullableOrigin`.
     //
-    // THE NARROWED RECEIVER IS RECOGNISED BY TYPE IDENTITY WITH THE ORIGIN'S INNER TYPE, not by the
-    // receiver belonging to some family of types. The gate used to admit only a `SimpleTypeInfo` or a
-    // `ReflectionTypeInfo`, which is why a narrowed `(Uri: string, Line: int)?` — a `TupleTypeInfo`,
-    // and by construction not "primitive-like" — reported NL303 "Member 'Value' not found on type
-    // '(Uri: string, Line: int)'" for the same `.Value` an `int?` answered. Identity with the origin
-    // is the question the second nullable arm below already asked, and it is the only one that
-    // matters: this receiver IS the narrowed form of that nullable symbol, whatever family it is in.
+    // WHICH RECEIVERS COUNT AS NARROWED IS `AnalyzerNullFlow.NarrowedNullableOrigin`'S RULE — a
+    // narrowed local found by walking out of the scopes, and a narrowed member PATH read back from
+    // the collapse that produced the inner type. The arm below asks it identically.
     func TryResolveNullableMemberAccess(member: MemberAccessExpression, objectType: TypeInfo, out memberType: TypeInfo): bool {
         memberType = BuiltInTypes.Unknown
 
         nullableType := objectType as NullableTypeInfo
         isNarrowedNullableOrigin := false
         if nullableType == null {
-            identifier := member.Object as IdentifierExpression
-            if identifier != null {
-                origin := scopesValue.FindEnclosingNullableSymbol(identifier.Name)
-                if origin != null && TypeInfoIdentityFacts.AreEqual(origin.InnerType, objectType) {
-                    nullableType = origin
-                    isNarrowedNullableOrigin = true
-                }
+            origin := nullFlowValue.NarrowedNullableOrigin(member.Object, objectType)
+            if origin != null {
+                nullableType = origin
+                isNarrowedNullableOrigin = true
             }
         }
 
@@ -538,19 +531,24 @@ class AnalyzerMemberAccess {
         return false
     }
 
-    // `Nullable<T>`'s OWN SURFACE, WHICH T DOES NOT HAVE — `GetValueOrDefault()` and its one-argument
-    // overload are the members a developer reaches for and the ones the receiver-unwrapping walk above
-    // could never find, because it looks on `int` and they are declared on `Nullable<int>`.
+    // `Nullable<T>`'S OWN SURFACE — every member the DEFINITION declares, and nothing else.
     //
-    // IT IS ASKED LAST OF THE TWO NULLABLE ARMS AND ONLY WHEN T CANNOT ANSWER, which is what keeps it
-    // from being a name list. A name `int` declares — `ToString`, `CompareTo`, `Equals` — still binds
-    // on `int` with `int`'s overloads; only a name `int` does NOT declare falls through to here, and
-    // metadata decides whether `Nullable<int>` has it. There is no allowlist and no special case: the
-    // receiver's two candidate types are tried in the order the language reads them.
+    // THE SPLIT IS DECIDED BY WHAT `Nullable<T>` DECLARES, NOT BY WHAT `T` CANNOT ANSWER. Both are
+    // metadata questions and neither is a name list, but they give different answers for the three
+    // names both types have — `ToString`, `Equals` and `GetHashCode` — and C# gives `Nullable<T>`'s.
+    // `v.ToString()` on an `int?` is `Nullable<int>.ToString()`: null-safe, "" when the value is
+    // absent, and no warning. Asking `T` first bound `int.ToString` and read the receiver as a
+    // DEREFERENCE, so the same expression reported NL905 for a call that cannot throw.
     //
-    // AND IT IS ASKED BEFORE NL905, because none of these members dereferences anything. `Nullable<T>`
-    // is a struct; `v.GetValueOrDefault()` on an absent value returns `default` and `v.HasValue`
-    // returns false. C# warns about neither, and neither does this.
+    // A NAME `Nullable<T>` DOES NOT DECLARE STAYS `T`-FIRST, which is the other half of the same
+    // rule and is what keeps `v.CompareTo(3)` on `int`'s own overloads. `GetType` is the sharp case:
+    // `Nullable<T>` does not override it, so it is `object`'s, it BOXES the receiver, and boxing an
+    // absent nullable yields a null reference — the NL905 a `T`-first read produces is the correct
+    // answer there, and C# throws at run time for the same program.
+    //
+    // AND IT IS ASKED BEFORE NL905, because nothing on this surface dereferences anything.
+    // `Nullable<T>` is a struct; `v.GetValueOrDefault()` on an absent value returns `default` and
+    // `v.HasValue` returns false. C# warns about neither, and neither does this.
     func TryResolveNullableValueTypeOwnMember(member: MemberAccessExpression, objectType: TypeInfo, out memberType: TypeInfo): bool {
         memberType = BuiltInTypes.Unknown
         if IsStaticMemberAccessTarget(member.Object) {
@@ -559,13 +557,8 @@ class AnalyzerMemberAccess {
 
         nullableType := declarationContextValue.ResolveDeclaredAlias(objectType) as NullableTypeInfo
         if nullableType == null {
-            identifier := member.Object as IdentifierExpression
-            if identifier == null {
-                return false
-            }
-
-            origin := scopesValue.FindEnclosingNullableSymbol(identifier.Name)
-            if origin == null || !TypeInfoIdentityFacts.AreEqual(origin.InnerType, objectType) {
+            origin := nullFlowValue.NarrowedNullableOrigin(member.Object, objectType)
+            if origin == null {
                 return false
             }
 
@@ -577,7 +570,7 @@ class AnalyzerMemberAccess {
             return false
         }
 
-        if !BuiltInTypes.IsUnknown(memberResolutionValue.ResolveMember(nullableType.InnerType, member.MemberName, false, ambientValue.CurrentTypeName)) {
+        if !NullableDefinitionDeclares(member.MemberName) {
             return false
         }
 
@@ -618,6 +611,54 @@ class AnalyzerMemberAccess {
         return recordType != null && recordType.IsStruct
     }
 
+    // WHETHER `Nullable<T>` ITSELF DECLARES A NAME, asked of the DEFINITION'S OWN metadata.
+    //
+    // `DeclaredOnly` is what makes this a question about `Nullable<T>` rather than about every type:
+    // `ToString`, `Equals` and `GetHashCode` are overrides `Nullable<T>` declares, and `GetType`,
+    // which it inherits from `object` unchanged, is not on this surface and stays `T`-first. No name
+    // is written down here — the definition is read, and whatever it declares is what a `T?`
+    // receiver answers first.
+    func NullableDefinitionDeclares(memberName: string): bool {
+        return NullableDefinitionNames(true).Contains(memberName)
+    }
+
+    // The names a `T?` receiver offers a READER — the same surface with the accessor methods left
+    // out, because `HasValue` is what a developer writes and `get_HasValue` is what the binder also
+    // has to accept.
+    func NullableDefinitionMemberNames(): List<string> {
+        return NullableDefinitionNames(false)
+    }
+
+    // The definition's declared names, in declaration order.
+    func NullableDefinitionNames(includeAccessors: bool): List<string> {
+        names := new List<string>()
+        definition: Type = typeof(object)
+        if !TryGetNullableDefinition(out definition) {
+            return names
+        }
+
+        declaredFlags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly
+        properties := definition.GetProperties(declaredFlags)
+        propertyIndex := 0
+        while propertyIndex < properties.Length {
+            names.Add(properties[propertyIndex].get_Name())
+            propertyIndex = propertyIndex + 1
+        }
+
+        methods := definition.GetMethods(declaredFlags)
+        methodIndex := 0
+        while methodIndex < methods.Length {
+            method := methods[methodIndex]
+            if includeAccessors || !method.get_IsSpecialName() {
+                names.Add(method.get_Name())
+            }
+
+            methodIndex = methodIndex + 1
+        }
+
+        return names
+    }
+
     // ONE SURFACE FOR EVERY `Nullable<T>`, WHATEVER `T` IS — read off the DEFINITION, with the
     // element substituted.
     //
@@ -649,7 +690,7 @@ class AnalyzerMemberAccess {
         overrides := new Dictionary<Type, TypeInfo>()
         overrides[parameters[0]] = innerType
         answering := AnalyzerReflectionTypeOverride.Direct(overrides, null)
-        memberFlags := BindingFlags.Public | BindingFlags.Instance
+        memberFlags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly
 
         property := definition.GetProperty(memberName, memberFlags)
         if property != null {
@@ -1533,8 +1574,10 @@ class AnalyzerMemberAccess {
         return suggester.SuggestSimilarNames(memberName, 3)
     }
 
-    // WHICH NAMES A RECEIVER OFFERS. A NULLABLE offers `HasValue` and `Value` AHEAD of its inner
-    // type's names, which is what makes `count.Vaule` suggest `Value` rather than an `int` member. A
+    // WHICH NAMES A RECEIVER OFFERS. A NULLABLE offers `Nullable<T>`'S OWN DECLARED NAMES ahead of
+    // its inner type's, which is what makes `count.Vaule` suggest `Value` rather than an `int`
+    // member — and it is the same order, read off the same metadata, that decides which of the two
+    // types a name actually BINDS on, so the suggestion and the binding cannot disagree. A
     // built-in, generic or array receiver is converted to a CLR type and reflected; a reflected
     // receiver is reflected directly; and a SOURCE receiver answers from the declaration context —
     // plus `object`'s four members when the receiver is one that inherits them.
@@ -1542,9 +1585,7 @@ class AnalyzerMemberAccess {
         receiverType := ResolveAliasAndMetadata(receiver)
         nullableType := receiverType as NullableTypeInfo
         if nullableType != null {
-            nullableMembers := new List<string>()
-            nullableMembers.Add("HasValue")
-            nullableMembers.Add("Value")
+            nullableMembers := NullableDefinitionMemberNames()
             innerMembers := GetAvailableMemberNames(nullableType.InnerType, includeStaticMembers)
             for innerMember in innerMembers {
                 nullableMembers.Add(innerMember)

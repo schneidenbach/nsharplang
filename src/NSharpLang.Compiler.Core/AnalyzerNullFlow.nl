@@ -42,6 +42,7 @@ class AnalyzerNullFlow {
     scopesValue: AnalyzerScopeStack
     declarationContextValue: AnalyzerDeclarationContext
     reportedDiagnostics: HashSet<ValueTuple<int, int, string, string>>
+    narrowedNullableOrigins: Dictionary<object, NullableTypeInfo>
     suppressFlowTypeValue: bool
 
     constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext) {
@@ -50,6 +51,7 @@ class AnalyzerNullFlow {
         scopesValue = scopes
         declarationContextValue = declarationContext
         reportedDiagnostics = new HashSet<ValueTuple<int, int, string, string>>()
+        narrowedNullableOrigins = new Dictionary<object, NullableTypeInfo>()
         suppressFlowTypeValue = false
     }
 
@@ -66,6 +68,81 @@ class AnalyzerNullFlow {
     func BeginAnalysis() {
         suppressFlowTypeValue = false
         reportedDiagnostics.Clear()
+        narrowedNullableOrigins.Clear()
+    }
+
+    // WHAT THE COLLAPSE COLLAPSED, WRITTEN DOWN AT THE ONE POINT BOTH TYPES EXIST.
+    //
+    // `ApplyNullabilityFlowType` is the only place a proved-not-null `T?` becomes its `T`, and after
+    // it has run the narrower type is all a later reader has. A reader that needs to know it is
+    // looking at a NULLABLE — `.Value` is the unwrap and not a member of `int`, `.GetValueOrDefault`
+    // is declared on `Nullable<int>` and not on `int` — therefore cannot reconstruct the question
+    // from the type alone, so the collapse records its own input.
+    //
+    // THIS IS THE MEMBER-PATH HALF OF THE NARROWED-ORIGIN RULE, and it exists because a member path
+    // is narrowed differently from a local. A local is narrowed in the SYMBOL TABLE — the branch
+    // scope rebinds the name to the inner type — so nothing collapses at the read and the
+    // declaration is found by walking out of the scopes. `h.Slot`'s declared member type belongs to
+    // `Holder` and is not the scope's to rebind, so a path is narrowed by a null FACT alone and the
+    // collapse at the read is the only trace of what it used to be.
+    //
+    // THE KEY IS THE NODE'S IDENTITY, not its position: a line and column are not unique across the
+    // files of one analysis, and an AST node is. No AST type overrides `Equals`, so `object`'s
+    // reference identity is what the dictionary calls — the same substitution `LinterWalk`'s
+    // recursion guard makes for the same reason.
+    func RecordNarrowedNullableOrigin(expr: Expression, declaredType: TypeInfo, flowType: TypeInfo) {
+        declaredNullable := declaredType as NullableTypeInfo
+        if declaredNullable == null || Object.ReferenceEquals(declaredType, flowType) {
+            return
+        }
+
+        narrowedNullableOrigins[expr] = declaredNullable
+    }
+
+    // THE NULLABLE A RECEIVER WAS DECLARED WITH, WHEN THE FLOW IS READING IT NARROWER — asked two
+    // ways, because a narrowed LOCAL and a narrowed member PATH are narrowed by different machinery
+    // and leave their evidence in different places.
+    //
+    // A LOCAL is narrowed in the SYMBOL TABLE: the branch scope rebinds the name to the inner type,
+    // so the read collapses nothing and the DECLARATION has to be walked out to. A scope that binds
+    // the name to something not nullable does not stop that walk — that binding IS the narrowing,
+    // and what is wanted is what was narrowed.
+    //
+    // A MEMBER PATH is not the scope's to rebind, so it carries a null FACT instead and the flow
+    // type collapses at the read; the collapse recorded what it collapsed, and that is the trace
+    // read back here. Without the second way `h.Slot.Value` inside `if h.Slot != null` reported
+    // NL303 "Member 'Value' not found on type 'int'" for the same `.Value` a narrowed local
+    // answered, and `h.Slot.GetValueOrDefault()` reported it for a member `int` never declares.
+    //
+    // EITHER WAY THE ANSWER IS CHECKED BY TYPE IDENTITY WITH THE ORIGIN'S INNER TYPE, and not by the
+    // receiver belonging to some family of types: this receiver IS the narrowed form of that
+    // nullable, whatever family it is in. A narrowed `(Uri: string, Line: int)?` is a `TupleTypeInfo`
+    // and is not "primitive-like", and its `.Value` means the unwrap exactly as an `int?`'s does.
+    func NarrowedNullableOrigin(receiver: Expression?, receiverType: TypeInfo): NullableTypeInfo? {
+        if receiver == null {
+            return null
+        }
+
+        identifier := receiver as IdentifierExpression
+        if identifier != null {
+            declared := scopesValue.FindEnclosingNullableSymbol(identifier.Name)
+            if declared != null && TypeInfoIdentityFacts.AreEqual(declared.InnerType, receiverType) {
+                return declared
+            }
+
+            return null
+        }
+
+        collapsed: NullableTypeInfo? = null
+        if !narrowedNullableOrigins.TryGetValue(receiver, out collapsed) || collapsed == null {
+            return null
+        }
+
+        if !TypeInfoIdentityFacts.AreEqual(collapsed.InnerType, receiverType) {
+            return null
+        }
+
+        return collapsed
     }
 
     // THE FLOW TYPE. A nullable the flow has proved not-null reads as its inner type; everything

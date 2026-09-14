@@ -137,3 +137,43 @@ class NullableSurfaceSignatures {
 
     func SumMoney(a: Money?, b: Money?): Money? => a + b
 }
+
+// ── WHICH OF THE TWO TYPES A NAME BINDS ON, WHEN BOTH DECLARE IT ────────────────────────────────
+//
+// A `T?` receiver has two candidate types and three names belong to both: `ToString`, `Equals` and
+// `GetHashCode`, which `Nullable<T>` OVERRIDES. The split used to be "ask `T` first, and fall
+// through to the nullable only for a name `T` cannot answer" — which gave `T`'s answer for all
+// three, so `v.ToString()` on an `int?` bound `int.ToString` and read the receiver as a
+// DEREFERENCE: NL905 "Possible null dereference" for a call that cannot throw.
+//
+// The split is now what `Nullable<T>` DECLARES, read off the definition with `DeclaredOnly`. That
+// is the same metadata question, asked the way C# asks it, and it is still not a name list: nothing
+// below is written down anywhere in the compiler.
+//
+// `GetType` IS THE SHARP EDGE AND IT IS ON THE OTHER SIDE. `Nullable<T>` does not override it, so
+// it is `object`'s, it BOXES the receiver, and boxing an absent nullable produces a null reference —
+// a dereference report is the correct answer there, and C# throws at run time for the same program.
+// `CompareTo` is on the other side for the plain reason that `Nullable<T>` does not declare it.
+func TextOfAbsentNumber(v: int?): string? {
+    return v.ToString()
+}
+
+func TextOfNarrowedNumber(v: int?): string? {
+    if v != null {
+        return v.ToString()
+    }
+
+    return "<absent>"
+}
+
+func SameHash(a: int?, b: int?): bool {
+    return a.GetHashCode() == b.GetHashCode()
+}
+
+func MatchesBoxed(v: int?, other: object): bool {
+    return v.Equals(other)
+}
+
+func TextOfAbsentMoney(m: Money?): string? {
+    return m.ToString()
+}

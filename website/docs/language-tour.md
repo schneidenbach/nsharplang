@@ -1963,7 +1963,14 @@ sees whatever the last one left.
 
 The four shapes that lower the nullable *themselves* — `value == null`, `value ?? 0`,
 `value.HasValue` and `value.Value` — keep the `Nullable<T>` and stay legal on a narrowed name, which
-is why the example above still reads `value.Value` after the guard.
+is why the example above still reads `value.Value` after the guard. So does a narrowed property
+PATH: past `if h.Slot != null`, `h.Slot.Value` is the unwrap and `h.Slot + 1` is the narrowed read,
+exactly as they are for a local.
+
+Every name `Nullable<T>` itself declares binds on the nullable rather than on `T` — `HasValue`,
+`Value`, `GetValueOrDefault`, and the three it overrides: `ToString`, `Equals` and `GetHashCode`.
+All of those are null-safe, so `value.ToString()` on an absent value is `""` and never throws. Any
+other name is `T`'s. See [Types](types.md#nullable-value-types).
 
 Three more things narrow the surviving flow for the same reason a guard clause does: `assert cond`
 (an assert that fails throws), a call to a `[DoesNotReturnIf(bool)]` parameter, and a guard branch

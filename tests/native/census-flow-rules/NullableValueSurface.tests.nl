@@ -110,3 +110,34 @@ test "the emitted metadata carries a real `Nullable<T>` for every element" {
 
     assert NullableSurfaceElement(heldField.FieldType).Name == "Money"
 }
+
+// ── which of the two types a name binds on, when both declare it ────────────────────────────────
+
+test "a name `Nullable<T>` declares binds on the NULLABLE, and is null-safe there" {
+    // `Nullable<T>.ToString()` answers "" for an absent value and never throws — which is exactly
+    // why binding `int.ToString` here and reporting NL905 was wrong.
+    assert TextOfAbsentNumber(12) == "12"
+    assert TextOfAbsentNumber(null) == ""
+
+    assert TextOfNarrowedNumber(12) == "12"
+    assert TextOfNarrowedNumber(null) == "<absent>"
+
+    // The same surface over a struct THIS COMPILATION declares.
+    assert TextOfAbsentMoney(null) == ""
+}
+
+test "`GetHashCode` and `Equals` are the nullable's too, and answer for the absent value" {
+    assert SameHash(4, 4)
+    assert !SameHash(4, 5)
+
+    // `Nullable<T>.GetHashCode()` is 0 for an absent value rather than a throw — which is also
+    // `(0).GetHashCode()`, so the absent hash collides with zero's exactly as it does in C#.
+    assert SameHash(null, null)
+    assert SameHash(null, 0)
+
+    // `Nullable<T>.Equals(object)` boxes: an absent nullable equals null and nothing else.
+    boxed: object = 4
+    assert MatchesBoxed(4, boxed)
+    assert !MatchesBoxed(5, boxed)
+    assert !MatchesBoxed(null, boxed)
+}

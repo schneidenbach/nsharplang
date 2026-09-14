@@ -246,8 +246,9 @@ class AnalyzerCallAnalysis {
     declarationContext: AnalyzerDeclarationContext
     postconditions: AnalyzerNullabilityPostconditions
     terminatingCalls: AnalyzerTerminatingCalls
+    nullFlow: AnalyzerNullFlow
 
-    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution, declarationContextOwner: AnalyzerDeclarationContext, postconditionOwner: AnalyzerNullabilityPostconditions, terminatingCallOwner: AnalyzerTerminatingCalls) {
+    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution, declarationContextOwner: AnalyzerDeclarationContext, postconditionOwner: AnalyzerNullabilityPostconditions, terminatingCallOwner: AnalyzerTerminatingCalls, nullFlowOwner: AnalyzerNullFlow) {
         syntheticCallReporter = callReporter
         syntheticCallWalk = callWalk
         syntheticCallValidator = callValidator
@@ -265,6 +266,7 @@ class AnalyzerCallAnalysis {
         declarationContext = declarationContextOwner
         postconditions = postconditionOwner
         terminatingCalls = terminatingCallOwner
+        nullFlow = nullFlowOwner
     }
 
     func BeginCall(call: CallExpression): CallAnalysisState {
@@ -584,13 +586,12 @@ class AnalyzerCallAnalysis {
             return null
         }
 
-        identifier := memberAccess.Object as IdentifierExpression
-        if identifier == null || !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(receiverTypeInfo) {
+        if !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(receiverTypeInfo) {
             return null
         }
 
-        origin := scopes.FindEnclosingNullableSymbol(identifier.Name)
-        if origin == null || !TypeInfoIdentityFacts.AreEqual(origin.InnerType, receiverTypeInfo) {
+        origin := nullFlow.NarrowedNullableOrigin(memberAccess.Object, receiverTypeInfo)
+        if origin == null {
             return null
         }
 

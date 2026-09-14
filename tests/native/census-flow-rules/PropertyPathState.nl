@@ -235,3 +235,76 @@ func MessagesWithoutResetting(response: DaemonResponse, turns: int): string {
 
     return total
 }
+
+// ── A NARROWED PROPERTY PATH IS A NARROWED NULLABLE, INCLUDING FOR `Nullable<T>`'S OWN SURFACE ───
+//
+// The paths above are all REFERENCE nullables, where the narrowed read and the declared type are
+// the same CLR type and nothing has to be unwrapped. A VALUE nullable is where the two halves of
+// the narrowing machinery part company: a narrowed LOCAL is narrowed in the symbol table, so
+// `count.Value` finds the declaration by walking out of the scopes, while a narrowed PATH is
+// narrowed by a null FACT alone — the declared member type belongs to the class, not to the scope —
+// so the read COLLAPSES `int?` to `int` and there was nothing left for the member lookup to see.
+//
+// `slot.Value` on a narrowed `h.Slot` therefore reported NL303 "Member 'Value' not found on type
+// 'int'", and `h.Slot.GetValueOrDefault()` reported it for a member `int` never declares at all,
+// for the same guard that made `h.Slot + 1` legal one line earlier.
+class Sample {
+    Slot: int?
+    Moment: DateTime?
+
+    constructor(slot: int?, moment: DateTime?) {
+        Slot = slot
+        Moment = moment
+    }
+}
+
+func SlotValueOrMinusOne(sample: Sample): int {
+    if sample.Slot != null {
+        return sample.Slot.Value
+    }
+
+    return -1
+}
+
+func SlotDoubledOrMinusOne(sample: Sample): int {
+    if sample.Slot == null {
+        return -1
+    }
+
+    return sample.Slot.Value * 2
+}
+
+// `Nullable<T>`'s OWN surface on the narrowed path — the member the unwrapped `int` cannot answer.
+func SlotOrDefaultThroughPath(sample: Sample): int {
+    if sample.Slot != null {
+        return sample.Slot.GetValueOrDefault()
+    }
+
+    return -1
+}
+
+// A `must` on the path proves it exactly as a guard does, and the unwrap is still an unwrap.
+func SlotAfterMust(sample: Sample): int {
+    ignored := must sample.Slot
+    return sample.Slot.Value + ignored
+}
+
+// An EXTERNAL element through the same path, so the rule is about the narrowing and not about `int`.
+func MomentYearThroughPath(sample: Sample): int {
+    if sample.Moment != null {
+        return sample.Moment.Value.Year
+    }
+
+    return -1
+}
+
+// The path's state still dies when a prefix is written, and `.Value` is not exempt from that.
+func SlotAfterOverwrite(sample: Sample, replacement: int?): int {
+    if sample.Slot == null {
+        return -1
+    }
+
+    first := sample.Slot.Value
+    sample.Slot = replacement
+    return first + sample.Slot.GetValueOrDefault()
+}
