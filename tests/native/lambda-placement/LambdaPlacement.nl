@@ -1,5 +1,6 @@
 namespace NSharpLang.LambdaPlacement.Tests
 
+import System
 import System.Collections.Generic
 import System.Linq
 
@@ -106,5 +107,50 @@ class Holder {
         method := read.get_Method()
 
         return method.get_IsStatic().ToString() + "|" + method.get_DeclaringType().get_Name() + "|" + read().ToString()
+    }
+}
+
+// AN EXPRESSION-STATEMENT LAMBDA: the body is a call whose value nothing wants, because the delegate
+// it fills returns nothing. C# admits exactly the expressions that may stand as a statement here, and
+// drops the value; matching the body's type against `void` instead declined every `Action<T>`
+// configuration callback written the way fluent .NET APIs expect one.
+class Ledger {
+    readonly Entries: List<string> = new List<string>()
+
+    // Returns the running count, which an `Action<Ledger>` caller has no use for.
+    func Record(entry: string): int {
+        Entries.Add(entry)
+        return Entries.Count
+    }
+}
+
+class LedgerRuns {
+    static func Configure(ledger: Ledger, configure: Action<Ledger>) {
+        configure(ledger)
+    }
+
+    // The lambda's body is a value-returning call and the delegate returns nothing: the value is
+    // dropped and the side effect stands.
+    static func RecordThroughVoidDelegate(ledger: Ledger, entry: string) {
+        Configure(ledger, target => target.Record(entry))
+    }
+
+    // The same shape written as a block, which always worked — both must reach the same state.
+    static func RecordThroughBlockLambda(ledger: Ledger, entry: string) {
+        Configure(ledger, target => {
+            target.Record(entry)
+        })
+    }
+
+    // An object creation is a statement expression too: the instance is built for its effect on the
+    // ledger the constructor writes to, and the reference is dropped.
+    static func RecordThroughObjectCreation(ledger: Ledger) {
+        Configure(ledger, target => new LedgerStamp(target))
+    }
+}
+
+class LedgerStamp {
+    constructor(ledger: Ledger) {
+        ledger.Record("stamp")
     }
 }

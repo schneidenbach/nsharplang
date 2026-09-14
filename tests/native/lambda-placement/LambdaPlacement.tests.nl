@@ -294,3 +294,26 @@ test "a lambda argument reads its own parameter and the enclosing instance toget
 
     assert holder.CountMatching(values) == 2
 }
+
+test "an expression-statement lambda body fills a void delegate and drops the value" {
+    ledger := new Ledger()
+    LedgerRuns.RecordThroughVoidDelegate(ledger, "first")
+    assert ledger.Entries.Count == 1
+    assert ledger.Entries[0] == "first"
+}
+
+test "the expression body and the block body reach the same state" {
+    expression := new Ledger()
+    block := new Ledger()
+    LedgerRuns.RecordThroughVoidDelegate(expression, "same")
+    LedgerRuns.RecordThroughBlockLambda(block, "same")
+    assert expression.Entries.Count == block.Entries.Count
+    assert expression.Entries[0] == block.Entries[0]
+}
+
+test "an object creation is a statement expression a void delegate accepts" {
+    ledger := new Ledger()
+    LedgerRuns.RecordThroughObjectCreation(ledger)
+    assert ledger.Entries.Count == 1
+    assert ledger.Entries[0] == "stamp"
+}

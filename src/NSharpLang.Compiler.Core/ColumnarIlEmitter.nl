@@ -1848,6 +1848,27 @@ sealed class ColumnarIlEmitter {
             lambdaIl.Emit(OpCodes.Ret)
             return true
         }
+        // `x => x.Append(s)` AGAINST A VOID DELEGATE. C# calls this an expression-STATEMENT lambda:
+        // the expression is evaluated for its effect and the value it produces, if any, is discarded —
+        // the same reading `x => { x.Append(s) }` already gets through the block arm above. Without
+        // this the body's type was matched against `void`, nothing converts to `void`, and the whole
+        // lambda declined at `emit.body`; an `Action<T>` configuration callback written the way every
+        // fluent .NET API expects could not be compiled.
+        //
+        // Only an expression that may STAND AS A STATEMENT qualifies, which is C#'s own rule (CS0201):
+        // a call, an object creation, an assignment or a step. `x => 42` still declines, because the
+        // value it produces has nowhere to go and dropping it silently would hide a real mistake.
+        if (returnType == ColumnarTypeOfPlanner.RequiredVoidType() && IsDiscardableStatementExpressionKind(_nodes.Kind(UnwrapParenthesizedNode(bodyNode)))) {
+            let discardedType: System.Type? = null
+            if (!EmitExpression(UnwrapParenthesizedNode(bodyNode), out discardedType)) {
+                return false
+            }
+            if (discardedType != ColumnarTypeOfPlanner.RequiredVoidType()) {
+                _il.Emit(OpCodes.Pop)
+            }
+            lambdaIl.Emit(OpCodes.Ret)
+            return true
+        }
         let bodyType: System.Type? = null
         if (!EmitExpression(bodyNode, out bodyType)) {
             return false
@@ -1857,6 +1878,15 @@ sealed class ColumnarIlEmitter {
         }
         lambdaIl.Emit(OpCodes.Ret)
         return true
+    }
+
+    // THE EXPRESSION KINDS THAT MAY STAND AS A STATEMENT, and therefore the ones a void-returning
+    // lambda may use as its whole expression body with the value dropped: a call (9), an assignment
+    // (14), an object creation (15) and a postfix step (44). This is the same set C# accepts in
+    // statement position (CS0201), and the same set the ExpressionStatement arm of the statement
+    // emitter already claims.
+    private static func IsDiscardableStatementExpressionKind(kind: int): bool {
+        return kind == 9 || kind == 14 || kind == 15 || kind == 44
     }
 
     // AN `async` LAMBDA'S EXPRESSION BODY, which is a one-statement async body: the value is the
