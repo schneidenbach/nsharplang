@@ -2,6 +2,7 @@ namespace NSharpLang.CensusLocalFunctions.Tests
 
 import System
 import System.Collections.Generic
+import System.Threading.Tasks
 
 
 // A LOCAL FUNCTION'S ARROW BODY — the same body every other function is allowed to have.
@@ -109,4 +110,22 @@ func CountNonZero(values: int[]): int {
     }
 
     return count(values)
+}
+
+// AN ARROW BODY INSIDE A METHOD, reading the enclosing instance's member — the arrow body and the
+// `this` capture at once.
+class ArrowScaler {
+    Factor: int = 3
+
+    func Scale(v: int): int {
+        func scaled(x: int): int => x * Factor
+        return scaled(v)
+    }
+}
+
+// AN `async` LOCAL FUNCTION WITH AN ARROW BODY declares its INNER type exactly as a block-bodied one
+// does; the method it lowers to returns the wrap.
+async func AwaitInner(v: int): int {
+    async func inner(x: int): int => await Task.FromResult(x + 1)
+    return await inner(v)
 }

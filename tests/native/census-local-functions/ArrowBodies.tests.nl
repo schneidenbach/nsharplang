@@ -91,3 +91,13 @@ test "a `continue` inside a `for` in a local function's body runs the loop it be
     assert CountNonZero([0, 0]) == 0
     assert CountNonZero([]) == 0
 }
+
+test "an arrow body inside a method reads the enclosing instance" {
+    scaler := new ArrowScaler()
+    scaler.Factor = 7
+    assert scaler.Scale(6) == 42
+}
+
+test "an async local function's arrow body answers the task's result" {
+    assert await AwaitInner(41) == 42
+}
