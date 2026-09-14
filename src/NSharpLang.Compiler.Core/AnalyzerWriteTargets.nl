@@ -346,19 +346,102 @@ class AnalyzerWriteTargets {
     // property, everything else "assigns" it, and the sentence a developer reads should describe what
     // they wrote.
     func ReportReadOnlyPropertyWriteTargetIfNeeded(target: Expression, opText: string, expressionTypes: Dictionary<object, TypeInfo>?): bool {
-        propertyName := ""
-        if !TryFindReadOnlyPropertyWriteTarget(target, expressionTypes, out propertyName) {
-            return false
-        }
-
         action := "assigned with '" + opText + "'"
         if opText == "++" || opText == "--" {
             action = "changed with '" + opText + "'"
         }
 
+        // AN INTERFACE'S VALUE MEMBER IS A READ SLOT, and it needs its own sentence because the
+        // reader cannot see why: the declaration in front of them is `Uri: string`, which in a CLASS
+        // is a mutable field. The slot an interface opens for it is `get_Uri` and nothing else — N#
+        // has no body-less accessor with which to spell a settable one — so the fix is a `func` on
+        // the interface or a write through the implementing type, not a modifier on the member.
+        interfaceMemberName := ""
+        interfaceOwnerName := ""
+        if TryFindInterfaceValueMemberWriteTarget(target, expressionTypes, out interfaceMemberName, out interfaceOwnerName) {
+            interfaceSpan := spansValue.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column)
+            diagnosticsValue.Report(ErrorCode.InterfaceValueMemberWrite, "'" + interfaceMemberName + "' is a value member of the interface '" + interfaceOwnerName + "' — it is a read slot, so it can't be " + action, interfaceSpan.Line, interfaceSpan.Column, "An interface's value member declares a 'get' accessor and nothing else. Give '" + interfaceOwnerName + "' a 'func' the caller changes the value through, or write through the implementing type instead of the interface.", interfaceSpan.Length)
+            return true
+        }
+
+        propertyName := ""
+        if !TryFindReadOnlyPropertyWriteTarget(target, expressionTypes, out propertyName) {
+            return false
+        }
+
         span := spansValue.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column)
         diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Property '" + propertyName + "' is read-only — it can't be " + action, span.Line, span.Column, "Use a variable, field, settable property, or indexed element as the target.", span.Length)
         return true
+    }
+
+    // A WRITE THROUGH A SOURCE INTERFACE, TO A MEMBER THE INTERFACE DECLARES AS A VALUE. Only a
+    // MEMBER ACCESS answers — a bare name inside the interface's own default method is not a write
+    // through a receiver — and only a SOURCE interface: an external one's property carries its own
+    // `set` accessor in metadata, which rule 4 below already reads.
+    func TryFindInterfaceValueMemberWriteTarget(target: Expression, expressionTypes: Dictionary<object, TypeInfo>?, out memberName: string, out ownerName: string): bool {
+        memberName = ""
+        ownerName = ""
+
+        parenthesized := target as ParenthesizedExpression
+        if parenthesized != null {
+            return TryFindInterfaceValueMemberWriteTarget(parenthesized.Inner, expressionTypes, out memberName, out ownerName)
+        }
+
+        memberAccess := target as MemberAccessExpression
+        if memberAccess == null || expressionTypes == null {
+            return false
+        }
+
+        receiverType: TypeInfo = BuiltInTypes.Unknown
+        if !expressionTypes.TryGetValue(memberAccess.Object, out receiverType) {
+            return false
+        }
+
+        resolvedReceiver := declarationContextValue.ResolveDeclaredAlias(receiverType)
+        byRefReceiver := resolvedReceiver as ByRefTypeInfo
+        if byRefReceiver != null {
+            resolvedReceiver = declarationContextValue.ResolveDeclaredAlias(byRefReceiver.InnerType)
+        }
+
+        ownerType := NonNullableType(resolvedReceiver)
+        sourceInterface := SourceInterfaceDeclarationOf(ownerType)
+        if sourceInterface == null {
+            return false
+        }
+
+        selection: AnalyzerMemberSelection = new AnalyzerMemberSelection()
+        if !declarationContextValue.TryFindMember(ownerType, memberAccess.MemberName, out selection) {
+            return false
+        }
+
+        member := selection.Member
+        if member == null || member.IsStatic {
+            return false
+        }
+
+        if member.Kind != DeclaredMemberKind.Field && member.Kind != DeclaredMemberKind.Property {
+            return false
+        }
+
+        memberName = memberAccess.MemberName
+        ownerName = sourceInterface.Name
+        return true
+    }
+
+    // The SOURCE interface a receiver type is, opened through a closed generic wrapper. Nothing else
+    // answers: a class, a struct, a record and an external CLR interface are all somebody else's rule.
+    func SourceInterfaceDeclarationOf(candidate: TypeInfo?): InterfaceTypeInfo? {
+        if candidate == null {
+            return null
+        }
+
+        resolved := declarationContextValue.ResolveDeclaredAlias(candidate)
+        generic := resolved as GenericTypeInfo
+        if generic != null && generic.GenericDefinition != null {
+            resolved = generic.GenericDefinition
+        }
+
+        return resolved as InterfaceTypeInfo
     }
 
     // TWO SHAPES ANSWER: a bare name that is a member of the enclosing type, and a member access whose

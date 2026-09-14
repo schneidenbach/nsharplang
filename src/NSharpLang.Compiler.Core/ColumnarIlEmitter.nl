@@ -4064,6 +4064,34 @@ sealed class ColumnarIlEmitter {
                 ColumnarEventMemberEmitter.Define(interfaceDef, iface.EventNames[ev], interfaceEventHandler, false, ColumnarDeclarationPlanner.PublicFieldAttribute(), ColumnarEventMemberEmitter.AbstractEvent(), false)
                 interfaceDef.MemberLabeledCanonicals[iface.EventNames[ev]] = iface.EventHandlerCanonicals[ev]
             }
+
+            // A VALUE MEMBER AN INTERFACE DECLARES IS ONE ABSTRACT `get_Name` SLOT plus the
+            // `PropertyInfo` row naming it — the same rows a class's computed property emits, minus
+            // the body and minus the setter. It is GET-ONLY on purpose: an implementer fills the slot
+            // with anything it can READ, a plain field included, and a slot that also demanded a
+            // setter would refuse a get-only property that every reader of the interface is satisfied
+            // by. Writing through the interface is reported by the analyzer rather than emitted.
+            for pv := 0; pv < iface.PropertyNames.Length; pv++ {
+                let interfacePropertyType: System.Type = null
+                interfacePropertyResolved := interfaceDef.GenericParameters != null ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(iface.PropertyTypeCanonicals[pv], interfaceDef.GenericParameters, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out interfacePropertyType) : ColumnarCanonicalTypeResolver.TryResolveType(iface.PropertyTypeCanonicals[pv], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out interfacePropertyType)
+                if (!interfacePropertyResolved || !ColumnarTypeOfPlanner.IsSupportedType(interfacePropertyType)) {
+                    return DeclineStatic("emit.declaration.interface-property-type", "value member '" + iface.Name + "." + iface.PropertyNames[pv] + "' needs a type that can be emitted; '" + iface.PropertyTypeCanonicals[pv] + "' could not be resolved", iface.Name, -1, 0)
+                }
+                interfaceAccessorAttributes := (MethodAttributes)ColumnarDeclarationPlanner.InterfaceMethodAttributes(false)
+                interfacePropertyAccessors := ColumnarPropertyDef.Define(
+                    interfaceDef.Builder,
+                    ColumnarDeclarationPlanner.PropertyGetterName(iface.PropertyNames[pv]),
+                    interfaceAccessorAttributes,
+                    interfacePropertyType,
+                    null,
+                    interfaceAccessorAttributes
+                )
+                interfacePropertyRow := interfaceDef.Builder.DefineProperty(iface.PropertyNames[pv], PropertyAttributes.None, interfacePropertyType, Type.EmptyTypes)
+                ColumnarTupleElementNameEmitter.ApplyToProperty(interfacePropertyRow, iface.PropertyTypeCanonicals[pv])
+                interfacePropertyRow.SetGetMethod(interfacePropertyAccessors.Getter)
+                interfaceDef.Properties[iface.PropertyNames[pv]] = interfacePropertyAccessors
+                interfaceDef.MemberLabeledCanonicals[iface.PropertyNames[pv]] = iface.PropertyTypeCanonicals[pv]
+            }
         }
         let interfaceDepths: int[]? = null
         if (!ColumnarInterfaceRealization.TryComputeInterfaceDepths(interfaceDefsInOrder, out interfaceDepths)) {
@@ -4655,7 +4683,19 @@ sealed class ColumnarIlEmitter {
                 accessorAttributes := (MethodAttributes)declarationPlan.Properties.AccessorWords[s][pi]
                 propertyOwner := def.Builder
                 propertyGetterName := declarationPlan.Properties.GetterNames[s][pi]
+                // A DECLARED INTERFACE THAT NAMES THIS VALUE MEMBER MAKES THE GETTER A SLOT FILL,
+                // exactly as it does for an event's accessors: Virtual|Final|NewSlot, which is what
+                // C# emits for an implicit implementation. The SETTER is untouched — an interface's
+                // value member is a read slot, so nothing asks a setter to be virtual.
                 propertyGetterAttributes := accessorAttributes
+                propertyOwnerBaseNames := structs[s].BaseNames
+                let propertySlotType: System.Type? = null
+                if (TryFindDeclaredInterfaceValueMember(propertyOwnerBaseNames, typeResolution, prop.Name, out propertySlotType) || TryFindImplementedInterfaceValueMember(def, prop.Name, out propertySlotType)) {
+                    if (!InterfaceValueSlotAccepts(propertySlotType, propType)) {
+                        return DeclineStatic("emit.declaration.interface-value-member", "'" + structs[s].Name + "." + prop.Name + "' fills an interface value slot, so it must have the slot's own type", structs[s].Name, -1, 0)
+                    }
+                    propertyGetterAttributes = (MethodAttributes)((int)accessorAttributes | ColumnarInterfaceSlotFillMethodAttributes())
+                }
                 propertyType := propType
                 let propertySetterName: string? = null
                 if (declarationPlan.Properties.HasSetter[s][pi]) {
@@ -4716,6 +4756,49 @@ sealed class ColumnarIlEmitter {
                     property.SetSetMethod(exactSetter)
                 }
                 def.Properties[prop.Name] = accessors
+            }
+        }
+
+        // PASS 0b''' (interface value slots filled by a plain field): N# writes a type's value
+        // members bare, so the commonest way to fill an interface's `Name: Type` slot is a FIELD of
+        // that name — and a CLR field cannot fill a property slot. The reader the slot needs is
+        // synthesized here: `get_Name` over the field, Virtual|Final|NewSlot so interface dispatch
+        // finds it, and nothing else. NO `PropertyInfo` row is added to the implementer: the class's
+        // own `Name` is a field, which is what its source says and what its own readers use, and a
+        // second row of the same name would make `Name` ambiguous to every other language.
+        for s := 0; s < structs.Count; s++ {
+            st := structs[s]
+            def := structDefsInOrder[s]
+            if (st.BaseNames.Length == 0 && def.ImplementedInterfaces.Count == 0 && def.ExternalInterfaces.Count == 0) {
+                continue
+            }
+            typeResolution := structTypeResolutions[s]
+            fieldRows := declarationPlan.Fields
+            for fi := 0; fi < st.FieldNames.Length; fi++ {
+                if (st.FieldEventFlags[fi] || fieldRows.FieldIsStatic[s][fi]) {
+                    continue
+                }
+                fieldName := fieldRows.FieldNames[s][fi]
+                if (def.Properties.ContainsKey(fieldName)) {
+                    continue
+                }
+                let fieldSlotType: System.Type? = null
+                if (!TryFindDeclaredInterfaceValueMember(st.BaseNames, typeResolution, fieldName, out fieldSlotType) && !TryFindImplementedInterfaceValueMember(def, fieldName, out fieldSlotType)) {
+                    continue
+                }
+                let slotBackingField: System.Reflection.Emit.FieldBuilder? = null
+                if (!def.Fields.TryGetValue(fieldName, out slotBackingField)) {
+                    continue
+                }
+                if (!InterfaceValueSlotAccepts(fieldSlotType, slotBackingField.FieldType)) {
+                    return DeclineStatic("emit.declaration.interface-value-member", "'" + st.Name + "." + fieldName + "' fills an interface value slot, so it must have the slot's own type", st.Name, -1, 0)
+                }
+                slotGetterAttributes := (MethodAttributes)(ColumnarDeclarationPlanner.InstanceAccessorAttributes() | ColumnarInterfaceSlotFillMethodAttributes())
+                slotGetter := def.Builder.DefineMethod(ColumnarDeclarationPlanner.PropertyGetterName(fieldName), slotGetterAttributes, slotBackingField.FieldType, Type.EmptyTypes)
+                slotGetterIl := slotGetter.GetILGenerator()
+                slotGetterIl.Emit(OpCodes.Ldarg_0)
+                slotGetterIl.Emit(OpCodes.Ldfld, slotBackingField)
+                slotGetterIl.Emit(OpCodes.Ret)
             }
         }
 
@@ -26908,6 +26991,12 @@ sealed class ColumnarIlEmitter {
             if (!ColumnarCanonicalTypeResolver.TryResolveType(baseName, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out externalInterface) || externalInterface == null || !externalInterface.get_IsInterface()) {
                 continue
             }
+            // The same guard the value-member walk beside this one carries: a generic interface
+            // closed over a type still being emitted answers every member query with
+            // `NotSupportedException`.
+            if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(externalInterface)) {
+                continue
+            }
             if (externalInterface.GetEvent(eventName) != null) {
                 return true
             }
@@ -26918,6 +27007,119 @@ sealed class ColumnarIlEmitter {
             }
         }
         return false
+    }
+
+    // THE SAME QUESTION FOR A VALUE MEMBER. An interface's `Name: Type` is one abstract `get_Name`
+    // slot, and a class that declares the interface fills it with whatever it spells `Name` — a
+    // computed property's getter, or the synthesized reader over a plain field. External interfaces
+    // answer from metadata, where `GetProperty` reaches only the interface's own rows, so the
+    // inherited set is walked beside it exactly as the event question walks it.
+    private static func DeclaredInterfaceDeclaresValueMember(baseNames: string[], typeResolution: ColumnarSemanticTypeResolution, memberName: string): bool {
+        let unusedSlotType: System.Type? = null
+        return TryFindDeclaredInterfaceValueMember(baseNames, typeResolution, memberName, out unusedSlotType)
+    }
+
+    private static func TryFindDeclaredInterfaceValueMember(baseNames: string[], typeResolution: ColumnarSemanticTypeResolution, memberName: string, out slotType: System.Type?): bool {
+        slotType = null
+        for baseName in baseNames {
+            let baseDefinition: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            if (typeResolution.Structs.TryGetValue(baseName, out baseDefinition)) {
+                if (!baseDefinition.IsInterface) {
+                    continue
+                }
+                closure := new List<ColumnarStructDef>()
+                ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(baseDefinition, closure)
+                for implemented in closure {
+                    let sourceSlot: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                    if (implemented.Properties.TryGetValue(memberName, out sourceSlot)) {
+                        slotType = sourceSlot.PropertyType
+                        return true
+                    }
+                }
+                continue
+            }
+            let externalInterface: System.Type? = null
+            if (!ColumnarCanonicalTypeResolver.TryResolveType(baseName, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out externalInterface) || externalInterface == null || !externalInterface.get_IsInterface()) {
+                continue
+            }
+            // A GENERIC INTERFACE CLOSED OVER A TYPE THIS COMPILATION IS WRITING is a
+            // `TypeBuilderInstantiation`, and EVERY member query on one throws
+            // `NotSupportedException` — `readonly struct Box<T>: IEquatable<Box<T>>` crashed the
+            // whole check with "Specified method is not supported." before this guard. Such a base
+            // declares no value slot this pass can read, and its own source definition (when it has
+            // one) was already answered above.
+            if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(externalInterface)) {
+                continue
+            }
+            externalSlot := externalInterface.GetProperty(memberName)
+            if (externalSlot != null) {
+                slotType = externalSlot.PropertyType
+                return true
+            }
+            for inheritedInterface in externalInterface.GetInterfaces() {
+                inheritedSlot := inheritedInterface.GetProperty(memberName)
+                if (inheritedSlot != null) {
+                    slotType = inheritedSlot.PropertyType
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    // THE SAME QUESTION ASKED OF THE RESOLVED INTERFACE SET rather than of the written base names.
+    // A DUCK interface is never written in a base list — the type matches it structurally, and the
+    // match is computed in the duck pass — so a walk over `st.BaseNames` cannot see it, and the
+    // accessors that fill its slots were emitted as ordinary methods. The CLR then refused to load
+    // the type ("Method 'get_Name' in type 'FileReader' does not have an implementation"). Both
+    // collections are populated by the time any accessor is declared.
+    private static func TryFindImplementedInterfaceValueMember(definition: ColumnarStructDef, memberName: string, out slotType: System.Type?): bool {
+        slotType = null
+        for implementedInterface in definition.ImplementedInterfaces {
+            closure := new List<ColumnarStructDef>()
+            ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(implementedInterface, closure)
+            for implemented in closure {
+                let sourceSlot: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (implemented.Properties.TryGetValue(memberName, out sourceSlot)) {
+                    slotType = sourceSlot.PropertyType
+                    return true
+                }
+            }
+        }
+        for externalInterface in definition.ExternalInterfaces {
+            if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(externalInterface)) {
+                continue
+            }
+            externalSlot := externalInterface.GetProperty(memberName)
+            if (externalSlot != null) {
+                slotType = externalSlot.PropertyType
+                return true
+            }
+        }
+        return false
+    }
+
+    // WHETHER A MEMBER OF THIS TYPE CAN FILL THAT SLOT. The CLR matches an implicit implementation by
+    // EXACT signature, so a `Uri: int` beside an interface's `Uri: string` produces a type the loader
+    // refuses — the same failure mode a narrowing override has, caught here instead. A slot typed by
+    // a GENERIC PARAMETER cannot be compared at all: the interface definition holds `T` while the
+    // implementer holds whatever closed it, so those are accepted and left to the interface map.
+    private static func InterfaceValueSlotAccepts(slotType: Type?, memberType: Type?): bool {
+        if (slotType == null || memberType == null) {
+            return true
+        }
+        if (slotType.get_IsGenericParameter() || ColumnarTypeOfPlanner.ContainsBuilderBoundType(slotType) || slotType.get_ContainsGenericParameters()) {
+            return true
+        }
+        return slotType == memberType
+    }
+
+    // ECMA-335 MethodAttributes Virtual 0x0040, Final 0x0020, NewSlot 0x0100 — the three bits that
+    // make a class member fill an interface slot: virtual so interface dispatch finds it, final so
+    // nothing else may override it, new-slot because it takes the interface's slot rather than a
+    // base class's. The same word `ColumnarEventMemberEmitter` gives an event's accessors.
+    private static func ColumnarInterfaceSlotFillMethodAttributes(): int {
+        return 0x0040 | 0x0020 | 0x0100
     }
 
     // WHETHER THIS NAME IS AN `override` EVENT'S OWN STORAGE STANDING OVER THE BASE EVENT'S. Both

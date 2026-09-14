@@ -1929,6 +1929,8 @@ class ColumnarInterfaceModifierParseProbe {
     MethodBodyFlags: int[]
     EventNames: string[]
     EventTypes: string[]
+    PropertyNames: string[]
+    PropertyTypes: string[]
     Result: int[]
 
     constructor(source: string) {
@@ -1959,7 +1961,9 @@ class ColumnarInterfaceModifierParseProbe {
         Result = new int[](9)
         EventNames = new string[](capacity)
         EventTypes = new string[](capacity)
-        MethodCount = ParseColumnarInterfaceInfoInto(source, tokenKinds, tokenStarts, tokenValueLengths, tokenCount, 0, methodFuncIndices, baseNames, interfaceNames, MethodNames, methodReturns, MethodParamCounts, MethodBodyFlags, MethodParamNames, MethodParamTypes, MethodParamModifierKinds, typeParams, WhereOwnerTexts, WhereItemCodes, WhereTypeTexts, Result, EventNames, EventTypes)
+        PropertyNames = new string[](capacity)
+        PropertyTypes = new string[](capacity)
+        MethodCount = ParseColumnarInterfaceInfoInto(source, tokenKinds, tokenStarts, tokenValueLengths, tokenCount, 0, methodFuncIndices, baseNames, interfaceNames, MethodNames, methodReturns, MethodParamCounts, MethodBodyFlags, MethodParamNames, MethodParamTypes, MethodParamModifierKinds, typeParams, WhereOwnerTexts, WhereItemCodes, WhereTypeTexts, Result, EventNames, EventTypes, PropertyNames, PropertyTypes)
     }
 }
 
@@ -1978,6 +1982,61 @@ test "columnar interface parser reads event members beside methods" {
     assert probe.EventTypes[0] == "EventHandler"
     assert probe.EventNames[1] == "Ticked"
     assert probe.EventTypes[1] == "Action"
+}
+
+// AN INTERFACE MAY DECLARE A VALUE MEMBER, written bare exactly as a class body writes one. The row
+// it produces is the two facts the slot is: the name and the member type's canonical text. The
+// contextual test is `identifier :` — one identifier fewer than an event — so the two arms cannot be
+// confused and a `func` between them still parses as itself.
+test "columnar interface parser reads value members beside methods and events" {
+    source := "interface IChannel {\n    Name: string\n    event Changed: EventHandler\n    func Touch()\n    Ordinal: int\n}\n"
+    probe := new ColumnarInterfaceModifierParseProbe(source)
+
+    assert probe.MethodCount == 1
+    assert probe.MethodNames[0] == "Touch"
+    assert probe.Result[7] == 1
+    assert probe.EventNames[0] == "Changed"
+    assert probe.Result[8] == 2
+    assert probe.PropertyNames[0] == "Name"
+    assert probe.PropertyTypes[0] == "string"
+    assert probe.PropertyNames[1] == "Ordinal"
+    assert probe.PropertyTypes[1] == "int"
+}
+
+test "a value member after a BODILESS func is still a value member, and the func is still a slot" {
+    source := "interface IState {\n    func Touch()\n    Uri: string\n}\n"
+    probe := new ColumnarInterfaceModifierParseProbe(source)
+
+    assert probe.MethodCount == 1
+    assert probe.MethodBodyFlags[0] == 0
+    assert probe.Result[8] == 1
+    assert probe.PropertyNames[0] == "Uri"
+    assert probe.PropertyTypes[0] == "string"
+}
+
+test "a value member's type is canonicalised exactly as a return type is" {
+    source := "interface IBag {\n    Items: List<string>\n    Names: string[]\n    Maybe: int?\n}\n"
+    probe := new ColumnarInterfaceModifierParseProbe(source)
+
+    assert probe.MethodCount == 0
+    assert probe.Result[8] == 3
+    assert probe.PropertyTypes[0] == "List<string>"
+    assert probe.PropertyTypes[1] == "string[]"
+    assert probe.PropertyTypes[2] == "int?"
+}
+
+// ONE MEMBER NAMESPACE. A `func`, an `event` and a value member all lower to methods on one type, so
+// two of one name would collide in metadata rather than overload — the kernel refuses the whole
+// declaration rather than emitting something the CLR would reject.
+test "a value member colliding with another member of the interface is refused" {
+    twice := new ColumnarInterfaceModifierParseProbe("interface IBad {\n    Name: string\n    Name: int\n}\n")
+    assert twice.MethodCount == -1
+
+    overFunc := new ColumnarInterfaceModifierParseProbe("interface IBad {\n    func Name(): int\n    Name: string\n}\n")
+    assert overFunc.MethodCount == -1
+
+    overEvent := new ColumnarInterfaceModifierParseProbe("interface IBad {\n    event Name: EventHandler\n    Name: string\n}\n")
+    assert overEvent.MethodCount == -1
 }
 
 test "columnar interface parser flattens ref out and params modifier facts" {

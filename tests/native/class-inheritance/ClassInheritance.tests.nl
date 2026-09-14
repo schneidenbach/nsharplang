@@ -415,3 +415,36 @@ test "an explicit base chain into a base closed over a source type passes its ar
     assert catalogue.Count == 1
     assert catalogue[0].Title == "seeded"
 }
+
+// ---- an override's accessibility ---------------------------------------------------------------
+
+// `GetMethod(name)` is public-only, and the whole point here is a PROTECTED slot.
+func DeclaredNonPublicMethod(owner: Type, name: string): MethodInfo {
+    method := owner.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+    if method == null {
+        throw new InvalidOperationException("'" + owner.Name + "' declares no method named '" + name + "'.")
+    }
+    return method
+}
+
+test "an override that MATCHES its slot's accessibility loads and dispatches" {
+    matched: Guarded = new MatchedGuard()
+    assert matched.Read() == "matched"
+
+    label := DeclaredNonPublicMethod(typeof(MatchedGuard), "Label")
+    assert label.get_IsFamily()
+    assert label.get_IsVirtual()
+    assert label.GetBaseDefinition() == DeclaredNonPublicMethod(typeof(Guarded), "Label")
+}
+
+test "an override that WIDENS its slot's accessibility loads too — only reducing is refused" {
+    widened: Guarded = new WidenedGuard()
+    assert widened.Read() == "widened"
+
+    label := DeclaredNonPublicMethod(typeof(WidenedGuard), "Label")
+    assert label.get_IsPublic()
+    assert label.get_IsVirtual()
+    // WIDENING STILL REUSES THE SLOT. If it had taken a new one the base receiver above would have
+    // answered "guarded", and `GetBaseDefinition` would answer itself.
+    assert label.GetBaseDefinition() == DeclaredNonPublicMethod(typeof(Guarded), "Label")
+}

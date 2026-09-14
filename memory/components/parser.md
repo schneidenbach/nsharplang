@@ -472,7 +472,14 @@ ONE layer, as of task 020 slice 22: the parser's assertion layer is entirely N#.
   into result slot 7. The contextual test is the same three-token shape the struct body uses
   (`ParseInterfaceDeclarationMemberIsEvent`), and it is asked in THREE places: at the member loop's
   head, in the scan that skips a method's tokens, and at the signature core's has-a-body test — that
-  last one because a bodiless `func` followed by an event otherwise read as a malformed declaration. That slice also gave the kernels a bare `this`
+  last one because a bodiless `func` followed by an event otherwise read as a malformed declaration.
+  IFACE added the fourth interface member on exactly that pattern: a **VALUE member**, `Name: Type`,
+  the bare spelling a class body uses. `ParseInterfaceDeclarationMemberIsValue` is the contextual
+  test — an identifier followed by a `:`, a shape no other interface member has, read AFTER the event
+  arm because an event carries one identifier more — and it is asked in the same THREE places. The
+  row goes into `InterfaceDeclarationTable`'s four property columns and the count into result slot 8;
+  `ColumnarInterfaceMemberNamesDistinct` then enforces ONE member namespace across `func`, `event`
+  and value members, because all three lower to methods on one type. That slice also gave the kernels a bare `this`
   (expression kind 82, no children and no value span) — `this.Member` is still collapsed into a bare
   identifier one level up, so kind 82 means the keyword stood alone. And
   `ColumnarParserErrorHandling.tests.nl` pins whole trees over the ERROR-HANDLING corpus — 24

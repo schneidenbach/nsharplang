@@ -420,7 +420,140 @@ class ColumnarInterfaceRealization {
         } finally {
             memberEnumerator.Dispose()
         }
+
+        // A SLOT THAT IS NOT A METHOD IS STILL A SLOT. An interface's VALUE members and EVENTS lower
+        // to abstract accessors exactly as its `func`s do, and a structural match that only counted
+        // `Methods` said YES to every type in the program for an interface that declares none —
+        // registering the interface on a type with nothing to fill its accessors, which the CLR then
+        // refuses to load ("Method 'get_X' in type 'Y' does not have an implementation").
+        propertyEnumerator := requiredInterface.Properties.GetEnumerator()
+        try {
+            while propertyEnumerator.MoveNext() {
+                propertyEntry := propertyEnumerator.get_Current()
+                if !StructInputHasDuckValueMember(
+                    source,
+                    sourceDefinition,
+                    propertyEntry.get_Key(),
+                    propertyEntry.get_Value().PropertyType,
+                    enumRegistry,
+                    structRegistry,
+                    unionRegistry
+                ) {
+                    return false
+                }
+            }
+        } finally {
+            propertyEnumerator.Dispose()
+        }
+
+        eventEnumerator := requiredInterface.Events.GetEnumerator()
+        try {
+            while eventEnumerator.MoveNext() {
+                eventEntry := eventEnumerator.get_Current()
+                if !StructInputHasDuckEvent(
+                    source,
+                    sourceDefinition,
+                    eventEntry.get_Key(),
+                    eventEntry.get_Value().HandlerType,
+                    enumRegistry,
+                    structRegistry,
+                    unionRegistry
+                ) {
+                    return false
+                }
+            }
+        } finally {
+            eventEnumerator.Dispose()
+        }
+
         return true
+    }
+
+    // A VALUE SLOT IS FILLED BY ANYTHING OF THAT NAME THE TYPE CAN READ: an instance field written
+    // bare, or a computed property. Both are the spellings the emitter fills a value slot from, so
+    // the structural question asks exactly what the emitter can deliver.
+    static func StructInputHasDuckValueMember(
+        source: ColumnarStructInput,
+        sourceDefinition: ColumnarStructDef,
+        name: string,
+        memberType: Type,
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>
+    ): bool {
+        fieldIndex := 0
+        while fieldIndex < source.FieldNames.Length {
+            if source.FieldNames[fieldIndex] == name && !source.FieldStaticFlags[fieldIndex] && !source.FieldEventFlags[fieldIndex] {
+                candidate: Type = null
+                if ColumnarCanonicalTypeResolver.TryResolveMemberType(
+                    source.FieldTypeCanonicals[fieldIndex],
+                    sourceDefinition,
+                    enumRegistry,
+                    structRegistry,
+                    unionRegistry,
+                    out candidate
+                ) && ColumnarTypeEquivalenceFacts.TypesEquivalent(candidate, memberType) {
+                    return true
+                }
+            }
+
+            fieldIndex = fieldIndex + 1
+        }
+
+        propertyIndex := 0
+        while propertyIndex < source.Properties.Count {
+            property := source.Properties[propertyIndex]
+            if property.Name == name && !property.IsStatic {
+                candidate: Type = null
+                if ColumnarCanonicalTypeResolver.TryResolveMemberType(
+                    property.TypeCanonical,
+                    sourceDefinition,
+                    enumRegistry,
+                    structRegistry,
+                    unionRegistry,
+                    out candidate
+                ) && ColumnarTypeEquivalenceFacts.TypesEquivalent(candidate, memberType) {
+                    return true
+                }
+            }
+
+            propertyIndex = propertyIndex + 1
+        }
+
+        return false
+    }
+
+    // AN EVENT SLOT IS FILLED BY A DECLARED EVENT OF THAT NAME AND HANDLER TYPE — the field row with
+    // the event bit set, which is what the source spells `event Name: Handler`.
+    static func StructInputHasDuckEvent(
+        source: ColumnarStructInput,
+        sourceDefinition: ColumnarStructDef,
+        name: string,
+        handlerType: Type,
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>
+    ): bool {
+        fieldIndex := 0
+        while fieldIndex < source.FieldNames.Length {
+            if source.FieldNames[fieldIndex] == name && source.FieldEventFlags[fieldIndex] && !source.FieldStaticFlags[fieldIndex] {
+                candidate: Type = null
+                if ColumnarCanonicalTypeResolver.TryResolveMemberType(
+                    source.FieldTypeCanonicals[fieldIndex],
+                    sourceDefinition,
+                    enumRegistry,
+                    structRegistry,
+                    unionRegistry,
+                    out candidate
+                ) && ColumnarTypeEquivalenceFacts.TypesEquivalent(candidate, handlerType) {
+                    return true
+                }
+            }
+
+            fieldIndex = fieldIndex + 1
+        }
+
+        return false
     }
 
     static func StructInputHasDuckMethod(

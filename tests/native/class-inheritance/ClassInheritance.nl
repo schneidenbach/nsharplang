@@ -421,3 +421,33 @@ class SeededCatalogue: System.Collections.ObjectModel.Collection<Catalogued> {
     constructor(seed: System.Collections.Generic.IList<Catalogued>): base(seed) {
     }
 }
+
+// AN OVERRIDE'S ACCESSIBILITY, AT BOTH ENDS OF WHAT THE CLR PERMITS.
+//
+// The loader refuses a type whose override REDUCES access ("cannot reduce access"), which N# now
+// reports as NL311 before emission. What it does NOT refuse is an override that matches the slot or
+// WIDENS it, and these three types are the evidence for that silence: a rule that reported them would
+// refuse programs the runtime runs.
+class Guarded {
+    protected virtual func Label(): string {
+        return "guarded"
+    }
+
+    func Read(): string {
+        return Label()
+    }
+}
+
+// Same word as the slot: the ordinary shape.
+class MatchedGuard: Guarded {
+    protected override func Label(): string {
+        return "matched"
+    }
+}
+
+// WIDER than the slot. The CLR loads this: only reduction is refused.
+class WidenedGuard: Guarded {
+    public override func Label(): string {
+        return "widened"
+    }
+}

@@ -388,6 +388,108 @@ test "a reflected property with no public setter is read-only and a settable one
     assert harness.Errors.Count == 1
 }
 
+// ---- an interface's value member is a READ slot ------------------------------------------------
+//
+// `Uri: string` inside an interface opens ONE accessor — `get_Uri` — because N# has no body-less
+// accessor with which to spell a settable one, and a read slot is the one every implementer can
+// fill. The write through it used to reach the emitter and decline there as an unmodelled statement
+// (`emit.statement.block-child`, node kind 23), which told the reader nothing about the member.
+
+func WriteTargetValueMemberInfo(name: string): DeclaredMemberInfo {
+    return new DeclaredMemberInfo(
+        name,
+        "IDocumentState",
+        DeclaredMemberKind.Field,
+        "field",
+        new SimpleTypeReference("string", 2, 5),
+        false,
+        false,
+        false,
+        true,
+        0,
+        new string[](0),
+        new TypeReference[](0),
+        new Ast.ParameterModifier[](0),
+        0,
+        false,
+        false,
+        null,
+        0,
+        new TypeParameter[](0),
+        new GenericConstraint[](0),
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        2,
+        5,
+        0
+    )
+}
+
+func WriteTargetInterface(name: string, memberName: string): TypeInfo {
+    members := new DeclaredMemberInfo[](1)
+    members[0] = WriteTargetValueMemberInfo(memberName)
+    owner: TypeInfo = new InterfaceTypeInfo(name, 1, 1, false, new TypeReference[](0), new TypeParameter[](0), members, new NestedTypeInfo[](0))
+    return owner
+}
+
+test "a write through an INTERFACE to its value member is NL342, naming the interface" {
+    harness := WriteTargetHarnessOf()
+    receiver := WriteTargetName("state")
+    types := WriteTargetTypes()
+    owner := WriteTargetInterface("IDocumentState", "Uri")
+    types[receiver] = owner
+    WriteTargetDeclare(harness, "state", owner)
+
+    assert harness.Targets.ReportReadOnlyPropertyWriteTargetIfNeeded(WriteTargetMember(receiver, "Uri", false), "=", types)
+    assert harness.Errors[0].Code == ErrorCode.InterfaceValueMemberWrite
+    assert harness.Errors[0].Message == "'Uri' is a value member of the interface 'IDocumentState' — it is a read slot, so it can't be assigned with '='"
+    assert harness.Errors[0].Suggestion == "An interface's value member declares a 'get' accessor and nothing else. Give 'IDocumentState' a 'func' the caller changes the value through, or write through the implementing type instead of the interface."
+
+    // The operator decides the verb, exactly as rule 4's does.
+    assert harness.Targets.ReportReadOnlyPropertyWriteTargetIfNeeded(WriteTargetMember(receiver, "Uri", false), "++", types)
+    assert harness.Errors[1].Message == "'Uri' is a value member of the interface 'IDocumentState' — it is a read slot, so it can't be changed with '++'"
+}
+
+test "the interface rule answers only for a member access to a value member of a SOURCE interface" {
+    harness := WriteTargetHarnessOf()
+    owner := WriteTargetInterface("IDocumentState", "Uri")
+
+    memberName := ""
+    ownerName := ""
+
+    // A name the interface does not declare is not its slot.
+    receiver := WriteTargetName("state")
+    types := WriteTargetTypes()
+    types[receiver] = owner
+    WriteTargetDeclare(harness, "state", owner)
+    assert !harness.Targets.TryFindInterfaceValueMemberWriteTarget(WriteTargetMember(receiver, "Missing", false), types, out memberName, out ownerName)
+
+    // A receiver with no capture-table entry, and a target that is not a member access at all.
+    assert !harness.Targets.TryFindInterfaceValueMemberWriteTarget(WriteTargetMember(WriteTargetName("other"), "Uri", false), types, out memberName, out ownerName)
+    assert !harness.Targets.TryFindInterfaceValueMemberWriteTarget(receiver, types, out memberName, out ownerName)
+    assert !harness.Targets.TryFindInterfaceValueMemberWriteTarget(WriteTargetMember(receiver, "Uri", false), null, out memberName, out ownerName)
+
+    // A CLASS receiver is somebody else's rule — an ordinary field write, refused by nothing here.
+    classReceiver := WriteTargetName("document")
+    classTypes := WriteTargetTypes()
+    classType: TypeInfo = new ReflectionTypeInfo(typeof(WriteTargetReadonlyProbe))
+    classTypes[classReceiver] = classType
+    assert !harness.Targets.TryFindInterfaceValueMemberWriteTarget(WriteTargetMember(classReceiver, "Mutable", false), classTypes, out memberName, out ownerName)
+
+    assert harness.Errors.Count == 0
+
+    // The opener answers the interface it was given, opened through a closed generic wrapper.
+    assert harness.Targets.SourceInterfaceDeclarationOf(owner) != null
+    assert harness.Targets.SourceInterfaceDeclarationOf(classType) == null
+    assert harness.Targets.SourceInterfaceDeclarationOf(null) == null
+}
+
 test "a SoA table and a row view are never read-only property targets" {
     harness := WriteTargetHarnessOf()
     receiver := WriteTargetName("table")

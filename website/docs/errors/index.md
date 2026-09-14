@@ -16,7 +16,7 @@ error NL324: `Circle` does not implement 2 inherited abstract members: `Perimete
 Read more: https://schneidenbach.github.io/nsharplang/docs/errors/NL324
 ```
 
-There are seventy-eight **`NL` codes**, produced by the compiler and the linter, and nineteen **`NSYS`
+There are seventy-nine **`NL` codes**, produced by the compiler and the linter, and nineteen **`NSYS`
 codes**, produced by the systems analyzer when a project opts into a systems policy. The compiler
 codes are grouped by the stage that reports them: the first digit tells you how far your program
 got before something went wrong.
@@ -127,6 +127,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL338`](./NL338.md) | An event declared over a type that is not a delegate. |
 | [`NL339`](./NL339.md) | One type name declared in two files of one namespace. |
 | [`NL340`](./NL340.md) | A `throw` written as a value where nothing can say what the expression is worth. |
+| [`NL342`](./NL342.md) | A write to an interface's value member, which is a read slot. |
 
 ## Calls — `NL4xx`
 

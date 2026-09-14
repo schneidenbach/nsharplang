@@ -547,9 +547,114 @@ class Circle : IShape {
 }
 ```
 
+### Value Members in an Interface
+
+An interface may declare a **value member** — the same bare `Name: Type` spelling a class uses for
+its own value members. What it declares is a **get-only abstract property slot**: one `get_Name`
+accessor with no body, plus the `PropertyInfo` row naming it. Every implementer fills the slot, and
+callers read it through the interface exactly as they call a `func`.
+
+```n#
+interface IDocumentState {
+    Uri: string
+
+    func Touch(): int
+}
+
+class DocumentState: IDocumentState {
+    Uri: string          // a field — and the reader the slot needs is synthesized over it
+    touches: int
+
+    constructor(uri: string) {
+        Uri = uri
+        touches = 0
+    }
+
+    func Touch(): int {
+        touches = touches + 1
+        return touches
+    }
+}
+
+func describe(state: IDocumentState): string {
+    return state.Uri        // callvirt get_Uri — the implementer's own reader
+}
+```
+
+**Either spelling fills the slot.** A class writes its value members bare, so the commonest filler is
+a plain field of that name; an accessor block works just as well, and the caller cannot tell them
+apart:
+
+```n#
+class ComputedState: IDocumentState {
+    scheme: string
+    host: string
+
+    constructor(scheme: string, host: string) {
+        this.scheme = scheme
+        this.host = host
+    }
+
+    Uri: string {
+        get { return scheme + "://" + host }
+    }
+
+    func Touch(): int {
+        return 0
+    }
+}
+```
+
+A struct may implement one too — the receiver is boxed at the interface, which is where the copy is
+taken.
+
+**The slot is get-only, on purpose.** N# has no body-less accessor to write, so a bare
+`Name: Type` is the only spelling an interface has for a value member — and a read slot is one that
+*everything* can fill, a plain field and a computed get-only property alike. A slot that also
+demanded a setter would refuse implementers that every reader of the interface is satisfied by. Write
+a `func` when an interface needs to hand the caller a way to change the value.
+
+A value member is matched by NAME, like every other interface member: an implementer that does not
+declare one reports [NL325](./errors/NL325.md) under the member's own name. Writing to one through
+the interface reports [NL342](./errors/NL342.md) — the slot has no setter to store into. The three
+inheritance words are redundant on a value member — every member an interface declares is a slot
+already — and are reported with [NL311](./errors/NL311.md).
+
+An interface may declare an event and a value member together; each emits its own metadata row, and
+one class fills both:
+
+```n#
+import System
+
+interface IChannel {
+    event Changed: EventHandler
+
+    Name: string
+
+    func Touch()
+}
+
+class Channel: IChannel {
+    event Changed: EventHandler
+    Name: string
+
+    constructor(name: string) {
+        Name = name
+    }
+
+    func Touch() {
+        Changed?.Invoke(this, EventArgs.Empty)
+    }
+}
+```
+
 ### Duck Interfaces
 
 Duck interfaces use structural typing — any type that has the right methods automatically satisfies the interface, without declaring it.
+
+A duck interface's **value members** count in the match too. `duck interface IShaped { Size: int }`
+is satisfied only by a type that can be read for a `Size` of that type — a field or a get-only
+property — and the reader its slot needs is synthesized the same way a declared interface's is.
 
 ```n#
 duck interface IReader {

@@ -1188,15 +1188,23 @@ class AnalyzerTypeDeclarations {
         for member in members {
             function := member as FunctionDeclaration
             if function != null {
+                if ReportAbstractMemberFault(state, function.Name, FunctionHasBody(function), Convert.ToInt32(function.Modifiers), "func", spansValue.GetFunctionNameDiagnosticSpan(function)) {
+                    continue
+                }
+
                 if HasOverrideModifier(function.Modifiers) {
                     verdict := ClassifyOverrideTarget(declaredBase, function.Name, 0)
                     if verdict == 2 {
                         ReportOverrideTargetFault(function, "is not marked 'virtual', 'abstract' or 'override'", "Mark the base member 'virtual', or drop 'override' from this declaration.")
+                        continue
                     }
 
                     if verdict == 3 {
                         ReportOverrideTargetFault(function, "has no base member of that name", "Check the spelling against the base type, or drop 'override' to declare a new member.")
+                        continue
                     }
+
+                    ValidateOverrideAccessibility(state, declaredBase, function.Name, Convert.ToInt32(function.Modifiers), 0, spansValue.GetFunctionNameDiagnosticSpan(function))
                 }
 
                 continue
@@ -1204,15 +1212,23 @@ class AnalyzerTypeDeclarations {
 
             property := member as PropertyDeclaration
             if property != null {
+                if ReportAbstractMemberFault(state, property.Name, true, Convert.ToInt32(property.Modifiers), "property", spansValue.GetPropertyNameDiagnosticSpan(property)) {
+                    continue
+                }
+
                 if HasOverrideModifier(property.Modifiers) {
                     propertyVerdict := ClassifyOverridePropertyTarget(declaredBase, property.Name, 0)
                     if propertyVerdict == 2 {
                         ReportOverridePropertyTargetFault(property, "is not marked 'virtual', 'abstract' or 'override'", "Mark the base property 'virtual', or drop 'override' from this declaration.")
+                        continue
                     }
 
                     if propertyVerdict == 3 {
                         ReportOverridePropertyTargetFault(property, "has no base member of that name", "Check the spelling against the base type, or drop 'override' to declare a new property.")
+                        continue
                     }
+
+                    ValidateOverrideAccessibility(state, declaredBase, property.Name, Convert.ToInt32(property.Modifiers), 1, spansValue.GetPropertyNameDiagnosticSpan(property))
                 }
 
                 continue
@@ -1460,6 +1476,304 @@ class AnalyzerTypeDeclarations {
     func ReportFieldInheritanceModifierFault(field: FieldDeclaration, modifierName: string) {
         span := spansValue.GetFieldNameDiagnosticSpan(field)
         diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + field.Name + "' is declared '" + modifierName + "', but a field cannot be virtual, abstract or overridden", span.Line, span.Column, "Give it an accessor — '" + field.Name + ": <type> => <expression>' or a 'get'/'set' block — so it becomes a property, or drop '" + modifierName + "'.", span.Length)
+    }
+
+    // ---- `abstract` on a member that has nowhere to be abstract ------------------------------------
+    //
+    // AN `abstract` MEMBER IS A SLOT WITH NO IMPLEMENTATION, AND A SLOT NEEDS SOMEWHERE TO LIVE.
+    //
+    // MEASURED, because two different failures hid behind the same word. `class Widget { abstract func
+    // Touch() }` reached `TypeBuilder.CreateType` and died there — the whole check printed
+    // `Type must be declared abstract if any of its methods are abstract.` with no file, no line and no
+    // column, because the CLR refuses a concrete type carrying an abstract slot. And `abstract class
+    // Widget { abstract func Touch() { print "hi" } }` was accepted in SILENCE: the emitter treats
+    // `abstract` as "this member is its own declaration", so the body the author wrote was dropped and
+    // the method emitted as a slot. A dropped body is worse than a refusal, because nothing says so.
+    //
+    // `NL311` for both, for the reason the field and event families are: the fault is the MODIFIER, and
+    // the reader either moves the member or drops the word. Returns whether it reported, so the
+    // override walk beside it does not add a second sentence about the same declaration.
+    func ReportAbstractMemberFault(state: TypeDeclarationState, name: string, hasBody: bool, modifierBits: int, kindWord: string, span: DiagnosticSpan): bool {
+        if (modifierBits & Convert.ToInt32(Modifiers.Abstract)) == 0 {
+            return false
+        }
+
+        // AN INTERFACE MEMBER IS A SLOT ALREADY — the same sentence the event family answers with,
+        // because the reason is the same and a reader who met one should recognise the other.
+        if state.Form == 3 {
+            ReportAbstractMemberModifierFault(name, "but an interface's " + kindWord + " is already a slot", "Drop 'abstract'. Every member an interface declares without a body is a slot each implementing type fills.", span)
+            return true
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Static)) != 0 {
+            ReportAbstractMemberModifierFault(name, "but a static " + kindWord + " has no slot to dispatch through", "Drop 'static', or drop 'abstract'. A static member belongs to the type itself, so no receiver's runtime type could select another implementation.", span)
+            return true
+        }
+
+        if hasBody {
+            ReportAbstractMemberModifierFault(name, "but an abstract " + kindWord + " supplies no body", AbstractBodySuggestion(name, kindWord), span)
+            return true
+        }
+
+        if IsSealedClassDeclaration(state) {
+            ReportAbstractMemberModifierFault(name, "but '" + TypeName(state) + "' is sealed", "A sealed class has no derived type to fill the slot. Drop 'sealed' from the class and mark it 'abstract', or drop 'abstract' from '" + name + "'.", span)
+            return true
+        }
+
+        if !IsAbstractClassDeclaration(state) {
+            ReportAbstractMemberModifierFault(name, "but '" + TypeName(state) + "' is not an abstract class", AbstractOwnerSuggestion(state, name, kindWord), span)
+            return true
+        }
+
+        return false
+    }
+
+    // THE WAY OUT DEPENDS ON WHAT THE MEMBER IS WRITTEN IN. A plain class can simply become abstract; a
+    // struct or a record struct is sealed by the CLR and can never carry a slot, so the only move is to
+    // a class or an interface.
+    func AbstractOwnerSuggestion(state: TypeDeclarationState, name: string, kindWord: string): string {
+        if state.Form == 0 {
+            return "Write 'abstract class " + TypeName(state) + "' so the slot has somewhere to live, or give '" + name + "' a body and drop 'abstract'."
+        }
+
+        return "Move '" + name + "' to an abstract class or an interface, or give it a body and drop 'abstract'. The CLR seals " + FormWordForInheritance(state) + ", so it can hold no slot."
+    }
+
+    // N# HAS NO BODY-LESS PROPERTY, so "remove the body" is advice a property cannot take. The two
+    // spellings that DO give a reader an abstract value slot are named instead: a `func` slot, or an
+    // interface, whose value member is a get-only slot every implementer fills.
+    static func AbstractBodySuggestion(name: string, kindWord: string): string {
+        if kindWord == "property" {
+            return "N# has no body-less accessor, so a property cannot be a slot. Declare the slot as an 'abstract func " + name + "(): <type>', or move '" + name + "' onto an interface the type implements — an interface's value member is a get-only slot. Otherwise drop 'abstract'."
+        }
+
+        return "Remove the body so '" + name + "' is a slot a derived type fills, or drop 'abstract' and keep the implementation. An abstract member's body is never emitted."
+    }
+
+    func ReportAbstractMemberModifierFault(name: string, reason: string, suggestion: string, span: DiagnosticSpan) {
+        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + name + "' is declared 'abstract', " + reason, span.Line, span.Column, suggestion, span.Length)
+    }
+
+    // Whether the declaration carries an implementation at all. Either spelling counts: a block body
+    // and an expression body are the same promise to a caller.
+    static func FunctionHasBody(function: FunctionDeclaration): bool {
+        return function.Body != null || function.ExpressionBody != null
+    }
+
+    // ---- an `override` that narrows the slot's accessibility ---------------------------------------
+    //
+    // THE CLR REFUSES TO LOAD A TYPE WHOSE OVERRIDE IS LESS ACCESSIBLE THAN ITS SLOT.
+    //
+    // MEASURED: `class Base { public virtual func Speak(): string { … } }` with
+    // `class Derived: Base { protected override func Speak(): string { … } }` compiled, verified and
+    // then threw at the first use — `System.TypeLoadException: Derived method 'Speak' in type 'Derived'
+    // … cannot reduce access.` — with no diagnostic anywhere in the build. The word the reader has to
+    // change is a MODIFIER, so this is `NL311` like the rest of the family, and the message NAMES the
+    // slot's accessibility because that is the fact the source does not show.
+    //
+    // ONLY NARROWING IS REPORTED. Widening an override loads and runs, so reporting it would refuse a
+    // program the runtime accepts; the arbiter here is the CLR, not C#'s stricter `CS0507`.
+    func ValidateOverrideAccessibility(state: TypeDeclarationState, declaredBase: TypeInfo?, name: string, modifierBits: int, memberKind: int, span: DiagnosticSpan) {
+        slotLevel := OverrideSlotAccessibility(declaredBase, name, memberKind, 0)
+        if slotLevel < 0 {
+            return
+        }
+
+        declaredLevel := DeclaredAccessibilityLevel(name, modifierBits)
+        if declaredLevel >= slotLevel {
+            return
+        }
+
+        slotWord := AccessibilityWord(slotLevel)
+        declaredWord := AccessibilityWord(declaredLevel)
+        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + name + "' is declared '" + declaredWord + " override', but the slot it takes is '" + slotWord + "' — an override cannot narrow the accessibility it inherits", span.Line, span.Column, "Declare '" + name + "' '" + slotWord + "' to match the slot, or leave the base member '" + declaredWord + "'. The CLR refuses to load a type whose override reduces access.", span.Length)
+    }
+
+    // THE ACCESSIBILITY THE SLOT WAS OPENED WITH, or -1 for "cannot tell". The walk is the one
+    // `ClassifyOverrideTarget` makes — a reflection link answers from metadata, a source link from its
+    // own declared members, and an unresolved base stops the walk rather than guessing at `object`.
+    func OverrideSlotAccessibility(candidate: TypeInfo?, name: string, memberKind: int, depth: int): int {
+        if depth > 24 {
+            return -1
+        }
+
+        if candidate == null {
+            return ReflectionSlotAccessibility(typeof(object), name, memberKind)
+        }
+
+        if BuiltInTypes.IsUnknown(candidate) {
+            return -1
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            return ReflectionSlotAccessibility(reflectionType.Type, name, memberKind)
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !declarationContextValue.TryGetSourceMemberShape(candidate, null, out shape) {
+            return -1
+        }
+
+        declaredLevel := DeclaredSlotAccessibility(shape.DeclaredMembers, name, memberKind)
+        if declaredLevel != 0 {
+            return declaredLevel
+        }
+
+        if shape.BaseType == null && WritesUnresolvedBase(candidate) {
+            return -1
+        }
+
+        return OverrideSlotAccessibility(shape.BaseType, name, memberKind, depth + 1)
+    }
+
+    // 0 means "this link does not declare it", so the walk continues; anything else is the answer.
+    static func DeclaredSlotAccessibility(declaredMembers: DeclaredMemberInfo[], name: string, memberKind: int): int {
+        wanted := DeclaredMemberKind.Function
+        if memberKind == 1 {
+            wanted = DeclaredMemberKind.Property
+        }
+
+        index := 0
+        while index < declaredMembers.Length {
+            declared := declaredMembers[index]
+            if declared.Kind == wanted && declared.Name == name {
+                return DeclaredAccessibilityLevel(declared.Name, declared.DeclaredModifiers)
+            }
+
+            index = index + 1
+        }
+
+        return 0
+    }
+
+    // METADATA'S ANSWER. A property's accessibility is its ACCESSORS' — the getter decides, and a
+    // set-only property is read from its setter — exactly as virtual-ness is read from them.
+    static func ReflectionSlotAccessibility(clrType: Type, name: string, memberKind: int): int {
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        if memberKind == 1 {
+            properties := clrType.GetProperties(flags)
+            index := 0
+            while index < properties.Length {
+                property := properties[index]
+                if property.get_Name() == name {
+                    getter := property.GetGetMethod(true)
+                    if getter != null {
+                        return MethodAccessibilityLevel(getter)
+                    }
+
+                    setter := property.GetSetMethod(true)
+                    if setter != null {
+                        return MethodAccessibilityLevel(setter)
+                    }
+
+                    return -1
+                }
+
+                index = index + 1
+            }
+
+            return -1
+        }
+
+        methods := clrType.GetMethods(flags)
+        index := 0
+        while index < methods.Length {
+            method := methods[index]
+            if method.get_Name() == name && !method.get_IsSpecialName() && method.get_IsVirtual() && !method.get_IsFinal() {
+                return MethodAccessibilityLevel(method)
+            }
+
+            index = index + 1
+        }
+
+        return -1
+    }
+
+    // ECMA-335's `MemberAccess` ordering, which is the order the loader itself compares in: 1 private,
+    // 2 private protected, 3 internal, 4 protected, 5 protected internal, 6 public.
+    static func MethodAccessibilityLevel(method: MethodInfo): int {
+        if method.get_IsPublic() {
+            return 6
+        }
+
+        if method.get_IsFamilyOrAssembly() {
+            return 5
+        }
+
+        if method.get_IsFamily() {
+            return 4
+        }
+
+        if method.get_IsAssembly() {
+            return 3
+        }
+
+        if method.get_IsFamilyAndAssembly() {
+            return 2
+        }
+
+        return 1
+    }
+
+    // THE SAME ANSWER FROM SOURCE, AND IT INCLUDES THE CASING RULE. A member with no visibility word
+    // is public when its name is PascalCase and assembly-private when it is camelCase, which is the
+    // rule the emitter plans with — reading only the words would call every unannotated member
+    // private and report correct programs.
+    static func DeclaredAccessibilityLevel(name: string, modifierBits: int): int {
+        if (modifierBits & Convert.ToInt32(Modifiers.Public)) != 0 {
+            return 6
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Protected)) != 0 && (modifierBits & Convert.ToInt32(Modifiers.Private)) != 0 {
+            return 2
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Protected)) != 0 && (modifierBits & Convert.ToInt32(Modifiers.Internal)) != 0 {
+            return 5
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Private)) != 0 {
+            return 1
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Protected)) != 0 {
+            return 4
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Internal)) != 0 || (modifierBits & Convert.ToInt32(Modifiers.File)) != 0 {
+            return 3
+        }
+
+        if name != null && name.Length > 0 && char.IsUpper(name[0]) {
+            return 6
+        }
+
+        return 3
+    }
+
+    static func AccessibilityWord(level: int): string {
+        if level == 6 {
+            return "public"
+        }
+
+        if level == 5 {
+            return "protected internal"
+        }
+
+        if level == 4 {
+            return "protected"
+        }
+
+        if level == 3 {
+            return "internal"
+        }
+
+        if level == 2 {
+            return "private protected"
+        }
+
+        return "private"
     }
 
     // THE SQUIGGLE GOES ON THE MEMBER NAME, not on the `override` keyword and not on `func`. The name
