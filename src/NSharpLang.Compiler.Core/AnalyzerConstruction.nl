@@ -327,7 +327,142 @@ class AnalyzerConstruction {
             ReportConstructorArityIfNeeded(state, node)
         }
 
+        ReportMissingRequiredMembersIfNeeded(state, node)
         state.ResultType = state.ConstructedType
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // NL344 — A `required` MEMBER THE CREATION NEVER SETS.
+    // ------------------------------------------------------------------------------------------
+    //
+    // `required Id: Guid` IS A DEMAND MADE OF EVERY CALLER, and the whole value of the word is that
+    // the demand is checked. A creation satisfies it by naming the member in its object initializer;
+    // a CONSTRUCTOR satisfies it by carrying `[SetsRequiredMembers]`, which is the promise "I set them
+    // myself" — the same two ways out C# gives (CS9035).
+    //
+    // The question needs no types, only NAMES, so it is answered before the initializer's values are
+    // walked: a creation that is already missing a member should say so at the `new`, not after every
+    // value it did write has been type-checked.
+    func ReportMissingRequiredMembersIfNeeded(state: ConstructionState, node: NewExpression) {
+        if node.ArrayLengthExpression != null || state.UnionCaseName != null || state.SoaConstruction != null {
+            return
+        }
+
+        constructedType := NonNullableType(state.ConstructedType)
+        requiredNames := writeTargetsValue.RequiredMemberNames(constructedType)
+        if requiredNames.Count == 0 {
+            return
+        }
+
+        argumentCount := node.ConstructorArguments.Count
+        if SourceConstructorSetsRequiredMembers(constructedType, argumentCount) || writeTargetsValue.ReflectedConstructorSetsRequiredMembers(constructedType, argumentCount) {
+            return
+        }
+
+        missing := new List<string>()
+        nameIndex := 0
+        while nameIndex < requiredNames.Count {
+            if !CreationInitializerNamesMember(node, requiredNames[nameIndex]) {
+                missing.Add(requiredNames[nameIndex])
+            }
+
+            nameIndex = nameIndex + 1
+        }
+
+        if missing.Count == 0 {
+            return
+        }
+
+        typeDisplay := TypeText(constructedType)
+        span := CreationTypeNameDiagnosticSpan(node)
+        subject := "'" + missing[0] + "' is required by '" + typeDisplay + "', and this creation never sets it"
+        if missing.Count > 1 {
+            subject = JoinQuoted(missing) + " are required by '" + typeDisplay + "', and this creation never sets them"
+        }
+
+        diagnosticsValue.Report(ErrorCode.RequiredMemberNotSet, subject, span.Line, span.Column, "Name " + JoinQuoted(missing) + " in the object initializer — 'new " + typeDisplay + " { " + missing[0] + ": … }' — or mark the constructor '[SetsRequiredMembers]' if it sets them itself.", span.Length)
+    }
+
+    // THE SQUIGGLE GOES ON THE TYPE NAME THE CREATION WROTE, which is the thing the reader has to look
+    // at to see what it demands. A target-typed `new` has no written name, so it keeps the `new`.
+    func CreationTypeNameDiagnosticSpan(node: NewExpression): DiagnosticSpan {
+        simpleReference := node.Type as SimpleTypeReference
+        if simpleReference != null {
+            return spansValue.GetTypeNameDiagnosticSpan(simpleReference.Name, simpleReference.Line, simpleReference.Column)
+        }
+
+        genericReference := node.Type as GenericTypeReference
+        if genericReference != null {
+            return spansValue.GetTypeNameDiagnosticSpan(genericReference.Name, genericReference.Line, genericReference.Column)
+        }
+
+        return spansValue.GetExpressionDiagnosticSpan(node)
+    }
+
+    static func CreationInitializerNamesMember(node: NewExpression, memberName: string): bool {
+        if node.Initializer == null {
+            return false
+        }
+
+        properties := node.Initializer.Properties
+        index := 0
+        while index < properties.Count {
+            if properties[index].Name == memberName {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    // A SOURCE CONSTRUCTOR'S `[SetsRequiredMembers]`. Arity is the whole selector: the attribute says
+    // the constructor sets the demanded members, and a constructor that cannot even be the one being
+    // called says nothing about this creation.
+    func SourceConstructorSetsRequiredMembers(constructedType: TypeInfo, argumentCount: int): bool {
+        opened := declarationContextValue.ResolveDeclaredAlias(constructedType)
+        generic := opened as GenericTypeInfo
+        if generic != null && generic.GenericDefinition != null {
+            opened = generic.GenericDefinition
+        }
+
+        classType := opened as ClassTypeInfo
+        if classType == null {
+            return false
+        }
+
+        constructors := DeclaredConstructors(classType)
+        index := 0
+        while index < constructors.Count {
+            constructor := constructors[index]
+            if constructor.ParameterCount == argumentCount && constructor.HasSetsRequiredMembersAttribute {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func JoinQuoted(names: List<string>): string {
+        rendered := ""
+        index := 0
+        while index < names.Count {
+            if index > 0 {
+                if index == names.Count - 1 {
+                    rendered = rendered + " and "
+                } else {
+                    rendered = rendered + ", "
+                }
+            }
+
+            rendered = rendered + "'" + names[index] + "'"
+            index = index + 1
+        }
+
+        return rendered
     }
 
     // `new Point(1, 2)` OVER `class Point { constructor(x: int) }` REACHED THE EMITTER AND DIED THERE

@@ -376,6 +376,11 @@ class AnalyzerAssignment {
             return new AssignmentRequest(1, assignment.Value)
         }
 
+        if writeTargetsValue.ReportInitOnlyMemberWriteIfNeeded(assignment.Target, "assigned with '" + OperatorFacts.GetAssignmentText(assignment.Operator) + "'", expressionTypes) {
+            state.Phase = 6
+            return new AssignmentRequest(1, assignment.Value)
+        }
+
         if writeTargetsValue.ReportReadOnlyPropertyWriteTargetIfNeeded(assignment.Target, OperatorFacts.GetAssignmentText(assignment.Operator), expressionTypes) {
             state.Phase = 6
             return new AssignmentRequest(1, assignment.Value)

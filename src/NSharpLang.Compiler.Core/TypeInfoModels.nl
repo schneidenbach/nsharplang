@@ -59,6 +59,7 @@ class DeclaredMemberInfo {
     columnValue: int
     declaredModifiersValue: int
     hasBodyValue: bool
+    hasSetsRequiredMembersAttributeValue: bool
 
     Name: string => nameValue
     ContainingType: string => containingTypeValue
@@ -131,7 +132,15 @@ class DeclaredMemberInfo {
     // keeps its spelling; only the production factory that reads a real declaration supplies it.
     HasBody: bool => hasBodyValue
 
-    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null, parameterNullabilityFacts: int[]? = null) {
+    // WHETHER A CONSTRUCTOR PROMISES TO SET THE TYPE'S `required` MEMBERS ITSELF. The promise is
+    // `[SetsRequiredMembers]` (System.Diagnostics.CodeAnalysis), and it is the one way a creation that
+    // names no required member in its initializer is still legal. It is a single bit here for the
+    // reason `HasMustUseAttribute` beside it is: the attribute LIST does not travel with this record,
+    // so a question about one named attribute has to be answered where the declaration is read.
+    HasSetsRequiredMembersAttribute: bool => hasSetsRequiredMembersAttributeValue
+
+    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null, parameterNullabilityFacts: int[]? = null, hasSetsRequiredMembersAttribute: bool = false) {
+        hasSetsRequiredMembersAttributeValue = hasSetsRequiredMembersAttribute
         doesNotReturnValue = doesNotReturn
         parameterReachabilityFactsValue = parameterReachabilityFacts ?? new int[](0)
         parameterNullabilityFactsValue = parameterNullabilityFacts ?? new int[](0)

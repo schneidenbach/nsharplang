@@ -1212,6 +1212,10 @@ class AnalyzerTypeDeclarations {
 
             property := member as PropertyDeclaration
             if property != null {
+                if ValidateInitAndRequiredModifiers(property.Name, Convert.ToInt32(property.Modifiers), spansValue.GetPropertyNameDiagnosticSpan(property)) {
+                    continue
+                }
+
                 if ReportAbstractMemberFault(state, property.Name, true, Convert.ToInt32(property.Modifiers), "property", spansValue.GetPropertyNameDiagnosticSpan(property)) {
                     continue
                 }
@@ -1236,6 +1240,10 @@ class AnalyzerTypeDeclarations {
 
             field := member as FieldDeclaration
             if field != null {
+                if ValidateInitAndRequiredModifiers(field.Name, Convert.ToInt32(field.Modifiers), spansValue.GetFieldNameDiagnosticSpan(field)) {
+                    continue
+                }
+
                 ValidateFieldInheritanceModifiers(field)
                 continue
             }
@@ -1471,6 +1479,42 @@ class AnalyzerTypeDeclarations {
         if (modifierBits & Convert.ToInt32(Modifiers.Virtual)) != 0 {
             ReportFieldInheritanceModifierFault(field, "virtual")
         }
+    }
+
+    // ---- `init` AND `required` WHERE THEY CANNOT MEAN ANYTHING ------------------------------------
+    //
+    // BOTH WORDS ARE PROMISES ABOUT AN OBJECT BEING CREATED, and neither has anything to promise about
+    // a member that belongs to the TYPE rather than to a value of it. `static init X: int` has no
+    // object initializer to be set from and the CLR has no place to put the marker (C# refuses it as
+    // CS8856); `static required X: int` demands something of a creation that never touches it
+    // (CS9034); and a `const` field is a compile-time literal that no creation writes at all.
+    //
+    // `NL311` for the same reason the field family beside it is: the fault is the MODIFIER, and the
+    // way out is to drop the word or to make the member an instance member. Returns whether it
+    // reported, so the walk does not add a second sentence about the same declaration.
+    func ValidateInitAndRequiredModifiers(name: string, modifierBits: int, span: DiagnosticSpan): bool {
+        initBit := Convert.ToInt32(Modifiers.Init)
+        requiredBit := Convert.ToInt32(Modifiers.Required)
+        if (modifierBits & initBit) == 0 && (modifierBits & requiredBit) == 0 {
+            return false
+        }
+
+        word := "required"
+        if (modifierBits & initBit) != 0 {
+            word = "init"
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Const)) != 0 {
+            diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + name + "' is declared '" + word + " const', but a const is a compile-time literal that no object creation writes", span.Line, span.Column, "Drop '" + word + "', or drop 'const' and declare '" + name + "' as an ordinary member the creation can set.", span.Length)
+            return true
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Static)) != 0 {
+            diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + name + "' is declared '" + word + " static', but '" + word + "' is a promise about an object being created and a static member belongs to the type", span.Line, span.Column, "Drop '" + word + "', or drop 'static' so '" + name + "' belongs to each value and an object initializer can set it.", span.Length)
+            return true
+        }
+
+        return false
     }
 
     func ReportFieldInheritanceModifierFault(field: FieldDeclaration, modifierName: string) {
