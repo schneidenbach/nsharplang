@@ -976,8 +976,15 @@ class InterfaceDeclarationTable {
     EventNameLengths: int[]
     EventTypeStarts: int[]
     EventTypeLengths: int[]
+    // `Name: Type` members, in written order. An interface's VALUE member is written bare, exactly as
+    // a class writes one, and what it declares is a get-only abstract property slot — so the only
+    // facts a row carries are the name and the member type.
+    PropertyNameStarts: int[]
+    PropertyNameLengths: int[]
+    PropertyTypeStarts: int[]
+    PropertyTypeLengths: int[]
     Where: ParserDeclarationWhereTable
-    constructor(methodFuncIndices: int[], baseNameStarts: int[], baseNameLengths: int[], typeParamStarts: int[], typeParamLengths: int[], whereTable: ParserDeclarationWhereTable, eventNameStarts: int[]? = null, eventNameLengths: int[]? = null, eventTypeStarts: int[]? = null, eventTypeLengths: int[]? = null) {
+    constructor(methodFuncIndices: int[], baseNameStarts: int[], baseNameLengths: int[], typeParamStarts: int[], typeParamLengths: int[], whereTable: ParserDeclarationWhereTable, eventNameStarts: int[]? = null, eventNameLengths: int[]? = null, eventTypeStarts: int[]? = null, eventTypeLengths: int[]? = null, propertyNameStarts: int[]? = null, propertyNameLengths: int[]? = null, propertyTypeStarts: int[]? = null, propertyTypeLengths: int[]? = null) {
         MethodFuncIndices = methodFuncIndices
         BaseNameStarts = baseNameStarts
         BaseNameLengths = baseNameLengths
@@ -987,6 +994,10 @@ class InterfaceDeclarationTable {
         EventNameLengths = eventNameLengths ?? new int[](0)
         EventTypeStarts = eventTypeStarts ?? new int[](0)
         EventTypeLengths = eventTypeLengths ?? new int[](0)
+        PropertyNameStarts = propertyNameStarts ?? new int[](0)
+        PropertyNameLengths = propertyNameLengths ?? new int[](0)
+        PropertyTypeStarts = propertyTypeStarts ?? new int[](0)
+        PropertyTypeLengths = propertyTypeLengths ?? new int[](0)
         Where = whereTable
     }
 }
@@ -1531,7 +1542,9 @@ class InterfaceSignatureBaseOutputTable {
     WhereTypeTexts: string[]
     EventNameTexts: string[]
     EventTypeTexts: string[]
-    constructor(baseNameStarts: int[], baseNameLengths: int[], baseNameTexts: string[], interfaceNameTexts: string[], typeParamTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[], eventNameTexts: string[]? = null, eventTypeTexts: string[]? = null) {
+    PropertyNameTexts: string[]
+    PropertyTypeTexts: string[]
+    constructor(baseNameStarts: int[], baseNameLengths: int[], baseNameTexts: string[], interfaceNameTexts: string[], typeParamTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[], eventNameTexts: string[]? = null, eventTypeTexts: string[]? = null, propertyNameTexts: string[]? = null, propertyTypeTexts: string[]? = null) {
         BaseNameStarts = baseNameStarts
         BaseNameLengths = baseNameLengths
         BaseNameTexts = baseNameTexts
@@ -1542,6 +1555,8 @@ class InterfaceSignatureBaseOutputTable {
         WhereTypeTexts = whereTypeTexts
         EventNameTexts = eventNameTexts ?? new string[](0)
         EventTypeTexts = eventTypeTexts ?? new string[](0)
+        PropertyNameTexts = propertyNameTexts ?? new string[](0)
+        PropertyTypeTexts = propertyTypeTexts ?? new string[](0)
     }
 }
 
@@ -2052,7 +2067,11 @@ class ColumnarInterfaceOutputTable {
     // text, which is everything an interface event is — two abstract accessor slots and an `EventInfo`.
     EventNameTexts: string[]
     EventTypeTexts: string[]
-    constructor(methodFuncIndices: int[], baseNameTexts: string[], interfaceNameTexts: string[], methodNameTexts: string[], methodReturnTexts: string[], methodParamCounts: int[], methodBodyFlags: int[], methodParamNameTexts: string[], methodParamTypeTexts: string[], methodParamModifierKinds: int[], typeParamTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[], eventNameTexts: string[]? = null, eventTypeTexts: string[]? = null) {
+    // `Name: Type` members, in written order: the name and the member type's canonical text, which is
+    // everything an interface value member is — one abstract `get_Name` slot and a `PropertyInfo`.
+    PropertyNameTexts: string[]
+    PropertyTypeTexts: string[]
+    constructor(methodFuncIndices: int[], baseNameTexts: string[], interfaceNameTexts: string[], methodNameTexts: string[], methodReturnTexts: string[], methodParamCounts: int[], methodBodyFlags: int[], methodParamNameTexts: string[], methodParamTypeTexts: string[], methodParamModifierKinds: int[], typeParamTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[], eventNameTexts: string[]? = null, eventTypeTexts: string[]? = null, propertyNameTexts: string[]? = null, propertyTypeTexts: string[]? = null) {
         MethodFuncIndices = methodFuncIndices
         BaseNameTexts = baseNameTexts
         InterfaceNameTexts = interfaceNameTexts
@@ -2069,6 +2088,8 @@ class ColumnarInterfaceOutputTable {
         WhereTypeTexts = whereTypeTexts
         EventNameTexts = eventNameTexts ?? new string[](0)
         EventTypeTexts = eventTypeTexts ?? new string[](0)
+        PropertyNameTexts = propertyNameTexts ?? new string[](0)
+        PropertyTypeTexts = propertyTypeTexts ?? new string[](0)
     }
 }
 
@@ -9930,7 +9951,9 @@ func ParseInterfaceDeclarationCore(source: string, tokens: ParserDeclarationToke
 
     methodCount := 0
     eventCount := 0
+    propertyCount := 0
     eventTypeResult := new ParserDeclarationResultTable(new int[](2))
+    propertyTypeResult := new ParserDeclarationResultTable(new int[](2))
     while pos < count && tokens.Kinds[pos] != 130 {
         // AN EVENT MEMBER: `event Name: DelegateType`. `event` is CONTEXTUAL here exactly as it is in a
         // struct body — the word is an ordinary identifier followed by a NAME and a `:`, which no
@@ -9950,13 +9973,51 @@ func ParseInterfaceDeclarationCore(source: string, tokens: ParserDeclarationToke
             continue
         }
 
+        // A VALUE MEMBER: `Name: Type`, the bare spelling a class uses for its own value members. It
+        // is read AFTER the event arm because an event is `event Name :` — an identifier more — and
+        // what it declares is a get-only abstract property slot.
+        if ParseInterfaceDeclarationMemberIsValue(tokens, count, pos) {
+            decl.PropertyNameStarts[propertyCount] = tokens.Starts[pos]
+            decl.PropertyNameLengths[propertyCount] = tokens.ValueLengths[pos]
+            pos = pos + 2
+            pos = ParseDeclarationTypeSpanCore(tokens, count, pos, propertyTypeResult)
+            if pos < 0 {
+                return -1
+            }
+
+            decl.PropertyTypeStarts[propertyCount] = propertyTypeResult.Values[0]
+            decl.PropertyTypeLengths[propertyCount] = propertyTypeResult.Values[1]
+            propertyCount = propertyCount + 1
+            continue
+        }
+
         if tokens.Kinds[pos] != 7 {
             return -1
         }
 
         decl.MethodFuncIndices[methodCount] = pos
         pos = pos + 1
-        while pos < count && tokens.Kinds[pos] != 7 && tokens.Kinds[pos] != 130 && !ParseInterfaceDeclarationMemberIsEvent(source, tokens, count, pos) {
+        // A PARAMETER IS SPELLED `name: type` TOO, so the value-member test can only be asked OUTSIDE
+        // the signature's own brackets — `func Mutate(ref left: int)` otherwise ends the method at
+        // `left` and reads the rest of the parameter list as members.
+        signatureDepth := 0
+        while pos < count && tokens.Kinds[pos] != 130 && (signatureDepth > 0 || (tokens.Kinds[pos] != 7 && !ParseInterfaceDeclarationMemberIsEvent(source, tokens, count, pos) && !ParseInterfaceDeclarationMemberIsValue(tokens, count, pos))) {
+            if tokens.Kinds[pos] == 127 || tokens.Kinds[pos] == 131 {
+                signatureDepth = signatureDepth + 1
+                pos = pos + 1
+                continue
+            }
+
+            if tokens.Kinds[pos] == 128 || tokens.Kinds[pos] == 132 {
+                signatureDepth = signatureDepth - 1
+                if signatureDepth < 0 {
+                    return -1
+                }
+
+                pos = pos + 1
+                continue
+            }
+
             if tokens.Kinds[pos] == 129 {
                 depth := 1
                 pos = pos + 1
@@ -9991,6 +10052,10 @@ func ParseInterfaceDeclarationCore(source: string, tokens: ParserDeclarationToke
         result.Values[7] = eventCount
     }
 
+    if result.Values.Length > 8 {
+        result.Values[8] = propertyCount
+    }
+
     return methodCount
 }
 
@@ -10002,6 +10067,13 @@ func ParseInterfaceDeclarationMemberIsEvent(source: string, tokens: ParserDeclar
     }
 
     return ParserDeclarationTokenTextEquals(source, tokens.Starts[pos], tokens.ValueLengths[pos], "event")
+}
+
+// `Name: …` at this position — an identifier followed by a `:`. No other interface member spells
+// that: a method opens with `func`, an event has a NAME between the word and the colon, and a base
+// list and a constraint clause are both read before the body opens.
+func ParseInterfaceDeclarationMemberIsValue(tokens: ParserDeclarationTokenTable, count: int, pos: int): bool {
+    return pos + 1 < count && tokens.Kinds[pos] == 0 && tokens.Kinds[pos + 1] == 122
 }
 
 func ParseEnumMemberValuesCore(source: string, members: EnumMemberTable, memberCount: int, values: EnumMemberValueTable): bool {
@@ -13573,7 +13645,7 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
 
     declarationTokens := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
     declarationWhere := new ParserDeclarationWhereTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    declaration := new InterfaceDeclarationTable(methodOutputs.FuncIndices, baseOutputs.BaseNameStarts, baseOutputs.BaseNameLengths, new int[](count + 1), new int[](count + 1), declarationWhere, new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
+    declaration := new InterfaceDeclarationTable(methodOutputs.FuncIndices, baseOutputs.BaseNameStarts, baseOutputs.BaseNameLengths, new int[](count + 1), new int[](count + 1), declarationWhere, new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
     declarationResult := new ParserDeclarationResultTable(result.Values)
     methodCount := ParseInterfaceDeclarationCore(source, declarationTokens, count, interfaceIndex, declaration, declarationResult)
     if methodCount < 0 {
@@ -13606,6 +13678,34 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
         baseOutputs.EventNameTexts[e] = eventName
         baseOutputs.EventTypeTexts[e] = eventTypeText
         e = e + 1
+    }
+
+    // THE VALUE ROWS, RENDERED. A value member's type is a TYPE REFERENCE like any other, so it is
+    // canonicalised exactly as a method's return and an event's handler are.
+    propertyCount := 0
+    if result.Values.Length > 8 {
+        propertyCount = result.Values[8]
+    }
+
+    if propertyCount > baseOutputs.PropertyNameTexts.Length || propertyCount > baseOutputs.PropertyTypeTexts.Length {
+        return -1
+    }
+
+    v := 0
+    while v < propertyCount {
+        propertyName := ParserDeclarationSpanText(source, declaration.PropertyNameStarts[v], declaration.PropertyNameLengths[v])
+        if propertyName == "" {
+            return -1
+        }
+
+        propertyTypeText := ParserDeclarationCanonicalTypeText(source, declaration.PropertyTypeStarts[v], declaration.PropertyTypeLengths[v])
+        if propertyTypeText == "" {
+            return -1
+        }
+
+        baseOutputs.PropertyNameTexts[v] = propertyName
+        baseOutputs.PropertyTypeTexts[v] = propertyTypeText
+        v = v + 1
     }
 
     baseCount := result.Values[2]
@@ -13753,13 +13853,13 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
         flatParamCount = flatParamCount + paramCount
 
         // WHAT FOLLOWS A SIGNATURE SAYS WHETHER IT HAS A BODY: a `{` opens one, and the next member or
-        // the closing brace means it is a slot. An EVENT member is one of those "next member" spellings
-        // — it begins with an ordinary identifier rather than a keyword — so it is named here too, or a
-        // bodiless method followed by an event reads as a malformed declaration.
+        // the closing brace means it is a slot. An EVENT and a VALUE member are both "next member"
+        // spellings — each begins with an ordinary identifier rather than a keyword — so both are
+        // named here too, or a bodiless method followed by one reads as a malformed declaration.
         declarationTokensAfterSignature := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
         if tokens.Kinds[afterSignature] == 129 {
             methodOutputs.BodyFlags[methodIndex] = 1
-        } else if tokens.Kinds[afterSignature] == 7 || tokens.Kinds[afterSignature] == 130 || ParseInterfaceDeclarationMemberIsEvent(source, declarationTokensAfterSignature, count, afterSignature) {
+        } else if tokens.Kinds[afterSignature] == 7 || tokens.Kinds[afterSignature] == 130 || ParseInterfaceDeclarationMemberIsEvent(source, declarationTokensAfterSignature, count, afterSignature) || ParseInterfaceDeclarationMemberIsValue(declarationTokensAfterSignature, count, afterSignature) {
             methodOutputs.BodyFlags[methodIndex] = 0
         } else {
             return -1
@@ -16001,17 +16101,17 @@ func ColumnarEnumMemberNamesDistinct(source: string, scratch: ColumnarEnumMember
     return 1
 }
 
-func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outMethodParamModifierKinds: int[], outTypeParamTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[], outEventNameTexts: string[], outEventTypeTexts: string[]): int {
+func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outMethodParamModifierKinds: int[], outTypeParamTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[], outEventNameTexts: string[], outEventTypeTexts: string[], outPropertyNameTexts: string[], outPropertyTypeTexts: string[]): int {
     tokens := new ColumnarInterfaceTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
     scratch := new ColumnarInterfaceBaseScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    outputs := new ColumnarInterfaceOutputTable(outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts, outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags, outMethodParamNameTexts, outMethodParamTypeTexts, outMethodParamModifierKinds, outTypeParamTexts, outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts, outEventNameTexts, outEventTypeTexts)
+    outputs := new ColumnarInterfaceOutputTable(outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts, outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags, outMethodParamNameTexts, outMethodParamTypeTexts, outMethodParamModifierKinds, outTypeParamTexts, outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts, outEventNameTexts, outEventTypeTexts, outPropertyNameTexts, outPropertyTypeTexts)
     result := new ColumnarInterfaceResultTable(outResult)
     return ParseColumnarInterfaceInfoCore(source, tokens, interfaceIndex, scratch, outputs, result)
 }
 
 func ParseColumnarInterfaceInfoCore(source: string, tokens: ColumnarInterfaceTokenTable, interfaceIndex: int, scratch: ColumnarInterfaceBaseScratchTable, outputs: ColumnarInterfaceOutputTable, result: ColumnarInterfaceResultTable): int {
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
-    baseOutputs := new InterfaceSignatureBaseOutputTable(scratch.BaseNameStarts, scratch.BaseNameLengths, outputs.BaseNameTexts, outputs.InterfaceNameTexts, outputs.TypeParamTexts, outputs.WhereOwnerTexts, outputs.WhereItemCodes, outputs.WhereTypeTexts, outputs.EventNameTexts, outputs.EventTypeTexts)
+    baseOutputs := new InterfaceSignatureBaseOutputTable(scratch.BaseNameStarts, scratch.BaseNameLengths, outputs.BaseNameTexts, outputs.InterfaceNameTexts, outputs.TypeParamTexts, outputs.WhereOwnerTexts, outputs.WhereItemCodes, outputs.WhereTypeTexts, outputs.EventNameTexts, outputs.EventTypeTexts, outputs.PropertyNameTexts, outputs.PropertyTypeTexts)
     methodOutputs := new InterfaceSignatureMethodOutputTable(outputs.MethodFuncIndices, outputs.MethodNameTexts, outputs.MethodReturnTexts, outputs.MethodParamCounts, outputs.MethodBodyFlags, outputs.MethodParamNameTexts, outputs.MethodParamTypeTexts, outputs.MethodParamModifierKinds)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
@@ -16045,6 +16145,10 @@ func ParseColumnarInterfaceInfoCore(source: string, tokens: ColumnarInterfaceTok
     }
 
     if ColumnarInterfaceMethodParamNamesDistinct(outputs, methodCount) == 0 {
+        return -1
+    }
+
+    if ColumnarInterfaceMemberNamesDistinct(outputs, methodCount, result.Values[7], result.Values[8]) == 0 {
         return -1
     }
 
@@ -16100,6 +16204,54 @@ func ColumnarInterfaceMethodNamesDistinct(outputs: ColumnarInterfaceOutputTable,
             }
 
             j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
+// ONE MEMBER NAMESPACE. A `func`, an `event` and a value member of one interface cannot share a name:
+// each lowers to methods on the same type, and two of them would collide in metadata rather than
+// overload. A value member's own name must also be non-empty, which the scan already guarantees and
+// this re-reads so a malformed row cannot reach the emitter.
+func ColumnarInterfaceMemberNamesDistinct(outputs: ColumnarInterfaceOutputTable, methodCount: int, eventCount: int, propertyCount: int): int {
+    if eventCount < 0 || propertyCount < 0 || eventCount > outputs.EventNameTexts.Length || propertyCount > outputs.PropertyNameTexts.Length {
+        return 0
+    }
+
+    i := 0
+    while i < propertyCount {
+        if outputs.PropertyNameTexts[i] == "" {
+            return 0
+        }
+
+        j := i + 1
+        while j < propertyCount {
+            if outputs.PropertyNameTexts[i] == outputs.PropertyNameTexts[j] {
+                return 0
+            }
+
+            j = j + 1
+        }
+
+        m := 0
+        while m < methodCount {
+            if outputs.PropertyNameTexts[i] == outputs.MethodNameTexts[m] {
+                return 0
+            }
+
+            m = m + 1
+        }
+
+        e := 0
+        while e < eventCount {
+            if outputs.PropertyNameTexts[i] == outputs.EventNameTexts[e] {
+                return 0
+            }
+
+            e = e + 1
         }
 
         i = i + 1

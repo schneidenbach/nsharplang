@@ -409,11 +409,17 @@ class ColumnarInterfaceInput {
     // there is no body, no storage and no parameter list.
     EventNames: string[]
     EventHandlerCanonicals: string[]
+    // `Name: Type` members. An interface's value member is written bare, the way a class writes one,
+    // and what it declares is a GET-ONLY abstract property: one `get_Name` slot plus the
+    // `PropertyInfo` row naming it. There is no body, no storage and no setter — everything an
+    // implementer can read, a field included, can fill a read slot.
+    PropertyNames: string[]
+    PropertyTypeCanonicals: string[]
     TypeParamSpecialConstraints: int[]
     TypeParamTypeConstraints: string[][]
     SourceFileId: int
 
-    constructor(name: string, baseInterfaceNames: string[], methodNames: string[], methodReturnCanonicals: string[], methodParamNames: string[][], methodParamCanonicals: string[][], methodBodies: ColumnarFunctionInput?[]? = null, typeParamNames: string[]? = null, sourceFileId: int = 0, methodParamModifierKinds: int[][]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, eventNames: string[]? = null, eventHandlerCanonicals: string[]? = null) {
+    constructor(name: string, baseInterfaceNames: string[], methodNames: string[], methodReturnCanonicals: string[], methodParamNames: string[][], methodParamCanonicals: string[][], methodBodies: ColumnarFunctionInput?[]? = null, typeParamNames: string[]? = null, sourceFileId: int = 0, methodParamModifierKinds: int[][]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, eventNames: string[]? = null, eventHandlerCanonicals: string[]? = null, propertyNames: string[]? = null, propertyTypeCanonicals: string[]? = null) {
         Name = name
         BaseInterfaceNames = baseInterfaceNames
         TypeParamNames = typeParamNames ?? new string[](0)
@@ -425,6 +431,8 @@ class ColumnarInterfaceInput {
         MethodBodies = methodBodies ?? new ColumnarFunctionInput?[](methodNames.Length)
         EventNames = eventNames ?? new string[](0)
         EventHandlerCanonicals = eventHandlerCanonicals ?? new string[](0)
+        PropertyNames = propertyNames ?? new string[](0)
+        PropertyTypeCanonicals = propertyTypeCanonicals ?? new string[](0)
         TypeParamSpecialConstraints = ColumnarConstraintColumns.SpecialsOrEmpty(typeParamSpecialConstraints, TypeParamNames.Length)
         TypeParamTypeConstraints = ColumnarConstraintColumns.TypesOrEmpty(typeParamTypeConstraints, TypeParamNames.Length)
         SourceFileId = sourceFileId

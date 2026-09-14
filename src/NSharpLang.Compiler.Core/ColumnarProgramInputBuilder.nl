@@ -1721,6 +1721,8 @@ sealed class ColumnarProgramInputBuilder {
             outWhereTypeTexts := new string[](cap)
             outEventNameTexts := new string[](cap)
             outEventTypeTexts := new string[](cap)
+            outPropertyNameTexts := new string[](cap)
+            outPropertyTypeTexts := new string[](cap)
             outResult := new int[](9)
             methodCount := ParseColumnarInterfaceInfoInto(
                 source,
@@ -1745,7 +1747,9 @@ sealed class ColumnarProgramInputBuilder {
                 outWhereTypeTexts,
                 outResult,
                 outEventNameTexts,
-                outEventTypeTexts
+                outEventTypeTexts,
+                outPropertyNameTexts,
+                outPropertyTypeTexts
             )
             if methodCount < 0 {
                 return DeclineAtToken(ColumnarParseDeclines.InterfaceDeclaration, cs, cv, interfaceIndex, "")
@@ -1910,6 +1914,33 @@ sealed class ColumnarProgramInputBuilder {
                 interfaceEventHandlers[ev] = outEventTypeTexts[ev]
                 ev = ev + 1
             }
+            interfacePropertyCount := outResult[8]
+            if interfacePropertyCount < 0 || interfacePropertyCount > outPropertyNameTexts.Length {
+                return DeclineAtToken(
+                    ColumnarParseDeclines.InterfaceDeclaration,
+                    cs,
+                    cv,
+                    interfaceIndex,
+                    interfaceName
+                )
+            }
+            interfacePropertyNames := new string[](interfacePropertyCount)
+            interfacePropertyTypes := new string[](interfacePropertyCount)
+            vm := 0
+            while vm < interfacePropertyCount {
+                if string.IsNullOrWhiteSpace(outPropertyNameTexts[vm]) || string.IsNullOrWhiteSpace(outPropertyTypeTexts[vm]) {
+                    return DeclineAtToken(
+                        ColumnarParseDeclines.InterfaceDeclaration,
+                        cs,
+                        cv,
+                        interfaceIndex,
+                        interfaceName
+                    )
+                }
+                interfacePropertyNames[vm] = outPropertyNameTexts[vm]
+                interfacePropertyTypes[vm] = outPropertyTypeTexts[vm]
+                vm = vm + 1
+            }
             interfaceInputs.Add(new ColumnarInterfaceInput(
                 interfaceName,
                 baseInterfaceNames,
@@ -1924,7 +1955,9 @@ sealed class ColumnarProgramInputBuilder {
                 interfaceSpecials,
                 interfaceConstraints,
                 interfaceEventNames,
-                interfaceEventHandlers
+                interfaceEventHandlers,
+                interfacePropertyNames,
+                interfacePropertyTypes
             ))
             interfaceSlot = interfaceSlot + 1
         }

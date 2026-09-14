@@ -2988,6 +2988,22 @@ Analyzer coverage is split deliberately across:
   than declining at `emit.call.receiver`. NL324 and NL325 both count events now — on the supplied
   side and on the required side, source and reflected — so `class Chatty: INotifyPropertyChanged {}`
   names `PropertyChanged` instead of emitting a type the CLR refuses to load.
+- IFACE closed the interface's fourth member shape and two modifier holes beside it
+  (`tests/native/census-interfaces`). An interface's VALUE member — `Name: Type`, the bare spelling a
+  class body uses — is a GET-ONLY abstract property slot: one `get_Name` accessor and the
+  `PropertyInfo` row naming it. The analyzer already modelled it (NL325 has always matched an
+  interface's bare value member against a class's field OR property); what declined was the columnar
+  parser, which knew `func` and `event` and nothing else. An implementer fills the slot with either
+  spelling: a computed property's getter takes Virtual|Final|NewSlot, and a plain FIELD of that name
+  gets a synthesized `get_Name` over it, because a CLR field cannot fill a property slot. The
+  implementer gets NO second `PropertyInfo` row of that name — its `Name` stays the field its source
+  says it is. The slot is get-only on purpose: a read slot is one every implementer can fill, and N#
+  has no body-less accessor with which to spell a settable one.
+  The two modifier holes: `ReportAbstractMemberFault` replaced a raw `TypeBuilder` throw
+  (`Type must be declared abstract if any of its methods are abstract.`, no file/line/column) and a
+  SILENTLY DROPPED body on an `abstract` member with one; `ValidateOverrideAccessibility` replaced a
+  `TypeLoadException: … cannot reduce access.` at first call. Both are NL311 — see
+  `memory/components/error-reporting.md` for the verdict order and the accessibility ladder.
 - `AnalyzerMemberResolution`'s event arm carries one more true fact since EVENTS3:
   `ReflectionEventInfo.AnnotatedHandlerType`, read by
   `NullabilityMetadataReflection.ConvertEventHandlerType`. `EventInfo.EventHandlerType` answers a bare
