@@ -69,6 +69,45 @@ test "the members of the constructed type are reachable after it resolves" {
     assert snapshots.NoteFor("second") == "beta"
     assert snapshots.NoteFor("missing") == ""
     assert snapshots.NewestNote() == "beta"
+    assert snapshots.RecentCount() == 2
+    assert snapshots.FormattedNewest() == "beta"
+    assert snapshots.SlotCount() == 2
+}
+
+test "property event and annotated lambda positions keep the nested source argument" {
+    property: PropertyInfo? = typeof(Snapshots).GetProperty("Recent", NestedDeclaredFlags())
+    propertyType := (must property).PropertyType
+    assert propertyType.GetGenericTypeDefinition() == typeof(IReadOnlyList<int>).GetGenericTypeDefinition()
+    assert Object.ReferenceEquals(propertyType.GetGenericArguments()[0], NestedCachedType())
+
+    changed: EventInfo? = typeof(Snapshots).GetEvent("Changed", NestedDeclaredFlags())
+    handlerType := (must changed).EventHandlerType
+    assert handlerType != null
+    assert handlerType.GetGenericTypeDefinition() == typeof(Action<int>).GetGenericTypeDefinition()
+    assert Object.ReferenceEquals(handlerType.GetGenericArguments()[0], NestedCachedType())
+}
+
+test "a nested source generic and a base signature close over the private nested type" {
+    slots := NestedFieldType("slots")
+    slotType := slots.GetGenericArguments()[0]
+    assert slotType.get_IsGenericType()
+    assert Object.ReferenceEquals(slotType.GetGenericArguments()[0], NestedCachedType())
+
+    cachedList: Type? = typeof(Snapshots).GetNestedType("CachedList", BindingFlags.Public | BindingFlags.NonPublic)
+    baseType := (must cachedList).BaseType
+    assert baseType != null
+    assert baseType.GetGenericTypeDefinition() == typeof(List<int>).GetGenericTypeDefinition()
+    assert Object.ReferenceEquals(baseType.GetGenericArguments()[0], NestedCachedType())
+}
+
+test "a method constraint carries the private nested type inside its generic argument" {
+    constrained: MethodInfo? = typeof(Snapshots).GetMethod("Constrained", NestedDeclaredFlags())
+    genericParameters := (must constrained).GetGenericArguments()
+    assert genericParameters.Length == 1
+    constraints := genericParameters[0].GetGenericParameterConstraints()
+    assert constraints.Length == 1
+    assert constraints[0].GetGenericTypeDefinition() == typeof(IComparer<int>).GetGenericTypeDefinition()
+    assert Object.ReferenceEquals(constraints[0].GetGenericArguments()[0], NestedCachedType())
 }
 
 test "an array and a nested-generic value round-trip through the constructed dictionaries" {

@@ -21,13 +21,23 @@ class Snapshots {
     readonly ordered: List<Cached> = new List<Cached>()
     readonly grouped: Dictionary<string, List<Cached>> = new Dictionary<string, List<Cached>>()
     readonly batches: Dictionary<string, Cached[]> = new Dictionary<string, Cached[]>()
+    readonly slots: List<Slot<Cached>> = new List<Slot<Cached>>()
+    readonly formatter: Func<Cached, string>
+    private event Changed: Action<Cached>
 
     Count: int => ordered.Count
+    Recent: IReadOnlyList<Cached> => ordered
+
+    constructor() {
+        formatter = value => value.Note
+    }
 
     func Add(stamp: string, note: string) {
         entry := new Cached(stamp, note)
         byStamp[stamp] = entry
         ordered.Add(entry)
+        slots.Add(new Slot<Cached>(entry))
+        Changed?.Invoke(entry)
     }
 
     // The ARRAY is built here from the nested declaration and stored under an array-valued generic.
@@ -83,6 +93,19 @@ class Snapshots {
         return Newest().Note
     }
 
+    func RecentCount(): int {
+        recent: IReadOnlyList<Cached> = Recent
+        return recent.Count
+    }
+
+    func FormattedNewest(): string {
+        return formatter(Newest())
+    }
+
+    func SlotCount(): int {
+        return slots.Count
+    }
+
     private func Newest(): Cached {
         recent := new List<Cached>()
         for entry in ordered {
@@ -96,6 +119,21 @@ class Snapshots {
     // nested or not, so this signature is read by reflection rather than called.
     func Labelled(): (Head: Cached, Size: int) {
         return (ordered[0], ordered.Count)
+    }
+
+    private func Constrained<T>(_value: T): int where T: IComparer<Cached> {
+        return 1
+    }
+
+    private class CachedList: List<Cached> {
+    }
+
+    private class Slot<T> {
+        Value: T
+
+        constructor(value: T) {
+            Value = value
+        }
     }
 
     private sealed record Cached(Stamp: string, Note: string) {
