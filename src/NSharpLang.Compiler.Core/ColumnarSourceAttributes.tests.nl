@@ -226,6 +226,46 @@ test "a field's attributes are read from its own declaration position" {
     assert program.Structs[0].FieldSourceAttributesAt(9) == null
 }
 
+// AN ENUM MEMBER DECLARES ITS OWN ATTRIBUTES AT ITS OWN MEMBER POSITION, exactly as a field does —
+// the enum member scan records each member's name-token index — and the enum keyword's position
+// carries the declaration's own.
+test "an enum's and its members' attributes are read from their own declaration positions" {
+    program := SourceAttributeProgram("import System\n[Flags]\nenum Level {\n    [Obsolete(\"gone\")]\n    Low = 1,\n    High = 2\n}\n")
+    declared := program.Enums[0]
+    assert declared.SourceAttributes != null
+    assert declared.SourceAttributes.Length == 1
+    assert declared.SourceAttributes[0].Name == "Flags"
+    assert declared.MemberSourceAttributes != null
+    assert declared.MemberSourceAttributesAt(0).Length == 1
+    assert declared.MemberSourceAttributesAt(0)[0].Name == "Obsolete"
+    assert declared.MemberSourceAttributesAt(1).Length == 0
+    assert declared.MemberSourceAttributesAt(9) == null
+}
+
+// THE ENUM IS MATERIALIZED AFTER THE ATTRIBUTE QUEUE FLUSHES, so both rows are still open when the
+// blobs are written — and the type is still an enum afterwards.
+test "an enum's and its members' attributes reach the emitted rows" {
+    assembly := SourceAttributeAssembly("import System\n[Flags]\nenum Level {\n    [Obsolete(\"gone\")]\n    Low = 1,\n    High = 2\n}\n")
+    owner := assembly.GetType("Level")
+    assert owner != null
+    assert owner.IsEnum
+    assert Enum.GetUnderlyingType(owner) == typeof(int)
+    typeAttributes := owner.GetCustomAttributesData()
+    assert NullabilityProbeSequenceCount(typeAttributes) == 1
+    assert typeAttributes.get_Item(0).get_AttributeType() == typeof(FlagsAttribute)
+
+    member := owner.GetField("Low", BindingFlags.Public | BindingFlags.Static)
+    assert member != null
+    assert member.IsLiteral
+    memberAttributes := member.GetCustomAttributesData()
+    assert NullabilityProbeSequenceCount(memberAttributes) == 1
+    assert memberAttributes.get_Item(0).get_AttributeType() == typeof(ObsoleteAttribute)
+
+    plain := owner.GetField("High", BindingFlags.Public | BindingFlags.Static)
+    assert plain != null
+    assert NullabilityProbeSequenceCount(plain.GetCustomAttributesData()) == 0
+}
+
 test "a field's attribute reaches the emitted field row" {
     assembly := SourceAttributeAssembly("import System\nclass Probe {\n    [Obsolete(\"field gone\")]\n    static Shared: int = 3\n    Value: int\n    constructor() {\n        Value = 1\n    }\n}\n")
     owner := assembly.GetType("Probe")

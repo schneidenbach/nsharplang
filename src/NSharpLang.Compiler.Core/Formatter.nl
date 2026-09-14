@@ -637,7 +637,8 @@ class Formatter {
     }
 
     // An enum. THE TRAILING COMMA IS OMITTED ON THE LAST MEMBER, and a string-backed enum announces
-    // itself with `: string` — the only backing type the language spells.
+    // itself with `: string` — the only backing type the language spells. A member's own attributes
+    // are written above it, on their own lines, the way every other declaration's are.
     func FormatEnum(enumDeclaration: EnumDeclaration, builder: StringBuilder) {
         walk.FormatAttributes(enumDeclaration.Attributes, builder)
         state.Indent(builder)
@@ -656,6 +657,7 @@ class Formatter {
         index := 0
         while index < enumDeclaration.Members.Count {
             member := enumDeclaration.Members[index]
+            walk.FormatAttributes(member.Attributes, builder)
             state.Indent(builder)
             builder.Append(member.Name)
 

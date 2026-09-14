@@ -6217,31 +6217,51 @@ test "016 attributes: an unclosed target-prefixed attribute reports once and sto
     assert errors[0].Code == ErrorCode.AttributePositionUnsupported
 }
 
-// AN ENUM MEMBER HAS NO ATTRIBUTE POSITION EITHER, and the member itself keeps parsing: this used to
-// report nine diagnostics, starting with "Expected enum member name. Got '['".
-test "016 enums: an attribute on an enum member reports NL935 once and the member still parses" {
-    errors := RunPreamble("enum Level {\n    [Mark]\n    Low = 1,\n    High = 2\n}\n")
-    assert errors.Count == 1
+// AN ENUM MEMBER CARRIES ATTRIBUTES, because it becomes a literal FIELD of the emitted enum. This
+// used to be NL935 ("N# has no attribute position on an enum member") and before that nine
+// diagnostics starting with "Expected enum member name. Got '['".
+test "016 enums: an attribute on an enum member parses and lands on the member" {
+    ast := ColumnarParserRecovery.ParseFileAst("enum Level {\n    [Mark]\n    Low = 1,\n    High = 2\n}\n", "a.nl")
+    assert ast.Errors.Count == 0
 
-    e0 := errors[0]
-    assert e0.Code == ErrorCode.AttributePositionUnsupported
-    assert e0.Message == "N# has no attribute position on an enum member"
-    assert e0.Line == 2
-    assert e0.Column == 5
-    assert e0.Length == 1
-    assert e0.ContextualHint == "Write the attribute on the enum declaration itself, or model the per-member data as a lookup the program owns."
+    enumDeclaration := EnumMemberAttributeDeclaration(ast)
+    assert enumDeclaration.Members.Count == 2
+    low := enumDeclaration.Members[0]
+    assert low.Name == "Low"
+    // THE MEMBER NODE ANCHORS ON ITS NAME, not on the `[` above it.
+    assert low.Line == 3
+    assert low.Column == 5
+    assert low.Attributes.Count == 1
+    assert low.Attributes[0].Name == "Mark"
+    assert enumDeclaration.Members[1].Attributes.Count == 0
 }
 
-// THE FIRST ONE IS THE ONLY ONE, and that is the recovery design rather than a missed member: the
-// shared panic mode suppresses every further diagnostic until the parser resynchronizes, so a file
-// that writes the mistake on four members reads as one mistake, not four.
-test "016 enums: several attributed members report once, and the enum's own attribute is legal" {
-    errors := RunPreamble("[Mark]\nenum Level {\n    [Mark]\n    [Mark]\n    Low = 1,\n    [Mark]\n    High = 2\n}\n")
-    assert errors.Count == 1
-    assert errors[0].Code == ErrorCode.AttributePositionUnsupported
-    assert errors[0].Line == 3
+// EVERY MEMBER'S OWN GROUPS ARE ITS OWN, and the enum's attribute stays the enum's: a `[...]`
+// written above `Low` never migrates to `High`.
+test "016 enums: several attributed members keep their own attributes beside the enum's" {
+    ast := ColumnarParserRecovery.ParseFileAst("[Mark]\nenum Level {\n    [Mark]\n    [Mark(\"x\")]\n    Low = 1,\n    [Mark]\n    High = 2\n}\n", "a.nl")
+    assert ast.Errors.Count == 0
+
+    enumDeclaration := EnumMemberAttributeDeclaration(ast)
+    assert enumDeclaration.Attributes.Count == 1
+    assert enumDeclaration.Members.Count == 2
+    assert enumDeclaration.Members[0].Attributes.Count == 2
+    assert enumDeclaration.Members[0].Attributes[1].Arguments.Count == 1
+    assert enumDeclaration.Members[1].Attributes.Count == 1
 
     assert RunPreamble("[Mark]\nenum Level {\n    Low = 1,\n    High = 2\n}\n").Count == 0
+}
+
+// The first `EnumDeclaration` in a parsed file, for the enum-member attribute tests above.
+func EnumMemberAttributeDeclaration(ast: FileParseAst): EnumDeclaration {
+    for declaration in ast.CompilationUnit.Declarations {
+        enumDeclaration := declaration as EnumDeclaration
+        if enumDeclaration != null {
+            return enumDeclaration
+        }
+    }
+
+    throw new System.InvalidOperationException("the parsed file declares no enum")
 }
 
 // ---- NL340 — WHERE A `throw` MAY STAND AS A VALUE ----

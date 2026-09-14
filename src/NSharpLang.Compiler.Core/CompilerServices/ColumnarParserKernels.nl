@@ -1033,12 +1033,18 @@ class EnumMemberTable {
     ValueStarts: int[]
     ValueLengths: int[]
     HasValue: int[]
-    constructor(nameStarts: int[], nameLengths: int[], valueStarts: int[], valueLengths: int[], hasValue: int[]) {
+    // THE TOKEN INDEX OF EACH MEMBER'S NAME, which is what an attribute reader needs and a source
+    // span cannot give it: `ColumnarSourceAttributes.Read` walks BACKWARD from a declaration's token
+    // to collect the `[...]` groups written above it, and a member name's offset in the source says
+    // nothing about where the token stream stands.
+    NameTokens: int[]
+    constructor(nameStarts: int[], nameLengths: int[], valueStarts: int[], valueLengths: int[], hasValue: int[], nameTokens: int[]) {
         NameStarts = nameStarts
         NameLengths = nameLengths
         ValueStarts = valueStarts
         ValueLengths = valueLengths
         HasValue = hasValue
+        NameTokens = nameTokens
     }
 }
 
@@ -2012,12 +2018,14 @@ class ColumnarEnumMemberScratchTable {
     ValueStarts: int[]
     ValueLengths: int[]
     HasValue: int[]
-    constructor(nameStarts: int[], nameLengths: int[], valueStarts: int[], valueLengths: int[], hasValue: int[]) {
+    NameTokens: int[]
+    constructor(nameStarts: int[], nameLengths: int[], valueStarts: int[], valueLengths: int[], hasValue: int[], nameTokens: int[]) {
         NameStarts = nameStarts
         NameLengths = nameLengths
         ValueStarts = valueStarts
         ValueLengths = valueLengths
         HasValue = hasValue
+        NameTokens = nameTokens
     }
 }
 
@@ -8988,6 +8996,28 @@ func TopLevelFunctionPreamblePreviousToken(tokens: ParserDeclarationTokenTable, 
     return pos
 }
 
+// THE INDEX OF THE `]` THAT CLOSES THE `[` AT `openIndex`, or -1 when the group never closes.
+// The twin of `TopLevelFunctionPreambleAttributeOpen`, which answers the same question backward.
+func ParserDeclarationAttributeGroupClose(tokens: ParserDeclarationTokenTable, count: int, openIndex: int): int {
+    depth := 0
+    pos := openIndex
+    while pos < count {
+        kind := tokens.Kinds[pos]
+        if kind == 131 {
+            depth = depth + 1
+        } else if kind == 132 {
+            depth = depth - 1
+            if depth == 0 {
+                return pos
+            }
+        }
+
+        pos = pos + 1
+    }
+
+    return -1
+}
+
 func TopLevelFunctionPreambleAttributeOpen(tokens: ParserDeclarationTokenTable, closeIndex: int): int {
     depth := 0
     pos := closeIndex
@@ -10692,12 +10722,25 @@ func ParseEnumDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, e
 
     memberCount := 0
     while pos < count && tokens.Kinds[pos] != 130 {
-        if tokens.Kinds[pos] != 0 {
+        // AN ENUM MEMBER MAY CARRY ATTRIBUTES, and they are stepped over here rather than read:
+        // the member's own token index is what this kernel records, and the reader that wants the
+        // `[...]` groups walks back from it. A group that never closes is a malformed declaration.
+        while pos < count && tokens.Kinds[pos] == 131 {
+            close := ParserDeclarationAttributeGroupClose(tokens, count, pos)
+            if close < 0 {
+                return -1
+            }
+
+            pos = close + 1
+        }
+
+        if pos >= count || tokens.Kinds[pos] != 0 {
             return -1
         }
 
         members.NameStarts[memberCount] = tokens.Starts[pos]
         members.NameLengths[memberCount] = tokens.ValueLengths[pos]
+        members.NameTokens[memberCount] = pos
         members.HasValue[memberCount] = 0
         members.ValueStarts[memberCount] = -1
         members.ValueLengths[memberCount] = 0
@@ -16215,9 +16258,9 @@ func ColumnarUnionTypeParameterNamesDistinct(source: string, scratch: ColumnarUn
     return 1
 }
 
-func ParseColumnarEnumInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameTexts: string[], outMemberValues: int[], outMemberStringValues: string[], outEnumNameTexts: string[], outResult: int[]): int {
+func ParseColumnarEnumInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameTexts: string[], outMemberValues: int[], outMemberStringValues: string[], outEnumNameTexts: string[], outResult: int[], outMemberDeclTokens: int[]): int {
     tokens := new ColumnarEnumTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
-    scratch := new ColumnarEnumMemberScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
+    scratch := new ColumnarEnumMemberScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), outMemberDeclTokens)
     outputs := new ColumnarEnumTextOutputTable(outNameTexts, outMemberValues, outMemberStringValues, outEnumNameTexts)
     result := new ColumnarEnumResultTable(outResult)
     return ParseColumnarEnumInfoCore(source, tokens, enumIndex, scratch, outputs, result)
@@ -16225,7 +16268,7 @@ func ParseColumnarEnumInfoInto(source: string, tokenKinds: int[], tokenStarts: i
 
 func ParseColumnarEnumInfoCore(source: string, tokens: ColumnarEnumTokenTable, enumIndex: int, scratch: ColumnarEnumMemberScratchTable, outputs: ColumnarEnumTextOutputTable, result: ColumnarEnumResultTable): int {
     declarationTokens := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    members := new EnumMemberTable(scratch.NameStarts, scratch.NameLengths, scratch.ValueStarts, scratch.ValueLengths, scratch.HasValue)
+    members := new EnumMemberTable(scratch.NameStarts, scratch.NameLengths, scratch.ValueStarts, scratch.ValueLengths, scratch.HasValue, scratch.NameTokens)
     declarationResult := new ParserDeclarationResultTable(result.Values)
     memberCount := ParseEnumDeclarationCore(declarationTokens, tokens.Count, enumIndex, members, declarationResult)
     if memberCount < 0 {

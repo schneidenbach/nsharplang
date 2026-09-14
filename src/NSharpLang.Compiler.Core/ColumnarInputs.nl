@@ -11,6 +11,14 @@ class ColumnarEnumInput {
     isStringBackedValue: bool
     memberStringValuesValue: string[]
     SourceFileId: int
+    // The attributes written on the enum DECLARATION. They reach the emitted type's rows, which is
+    // why `[Flags]` changes what `ToString()` prints.
+    SourceAttributes: ColumnarSourceAttributeInput[]?
+    // The attributes written on each declared member, indexed the same way every other member column
+    // is. Null at a slot the source wrote nothing at, and null as a whole for an input built before
+    // the members were read. A member becomes a LITERAL FIELD of the emitted enum, so these are
+    // field attributes and are measured against `AttributeTargets.Field`.
+    MemberSourceAttributes: ColumnarSourceAttributeInput[]?[]?
 
     Name: string => nameValue
     MemberNames: string[] => memberNamesValue
@@ -25,6 +33,19 @@ class ColumnarEnumInput {
         isStringBackedValue = isStringBacked
         memberStringValuesValue = memberStringValues ?? new string[](0)
         SourceFileId = sourceFileId
+        SourceAttributes = null
+        MemberSourceAttributes = null
+    }
+
+    // The attributes written on the member at `index`, or none. Every member column is indexed the
+    // same way, so this is a bounds-guarded read of one row rather than a search.
+    func MemberSourceAttributesAt(index: int): ColumnarSourceAttributeInput[]? {
+        rows := MemberSourceAttributes
+        if rows == null || index < 0 || index >= rows.Length {
+            return null
+        }
+
+        return rows[index]
     }
 }
 

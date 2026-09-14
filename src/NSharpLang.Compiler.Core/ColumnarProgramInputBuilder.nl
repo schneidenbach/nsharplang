@@ -616,6 +616,7 @@ sealed class ColumnarProgramInputBuilder {
             outMemberStringValues := new string[](cap)
             outEnumNameTexts := new string[](1)
             outResult := new int[](3)
+            outMemberDeclTokens := new int[](cap)
             memberCount := ParseColumnarEnumInfoInto(
                 source,
                 ck,
@@ -627,7 +628,8 @@ sealed class ColumnarProgramInputBuilder {
                 outMemberValues,
                 outMemberStringValues,
                 outEnumNameTexts,
-                outResult
+                outResult,
+                outMemberDeclTokens
             )
             if memberCount < 0 || outResult[1] <= 0 {
                 return DeclineAtToken(ColumnarParseDeclines.EnumDeclaration, cs, cv, enumIndex, "")
@@ -649,14 +651,26 @@ sealed class ColumnarProgramInputBuilder {
                 }
                 m = m + 1
             }
-            enums.Add(new ColumnarEnumInput(
+            // A MEMBER'S ATTRIBUTES ARE READ FROM ITS OWN DECLARATION POSITION, exactly as a field's
+            // are: the member scan records each member's name-token index and the same backward walk
+            // collects the `[...]` groups written above it.
+            memberSourceAttributes := new ColumnarSourceAttributeInput[]?[](memberCount)
+            m = 0
+            while m < memberCount {
+                memberSourceAttributes[m] = ColumnarSourceAttributes.Read(source, ck, cs, cv, outMemberDeclTokens[m])
+                m = m + 1
+            }
+            enumInput := new ColumnarEnumInput(
                 enumName,
                 memberNames,
                 memberValues,
                 isStringBacked,
                 memberStringValues,
                 0
-            ))
+            )
+            enumInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, enumIndex)
+            enumInput.MemberSourceAttributes = memberSourceAttributes
+            enums.Add(enumInput)
             enumSlot = enumSlot + 1
         }
         return true

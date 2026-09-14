@@ -75,7 +75,7 @@ func CitrEnum(name: string, memberNames: string[]): EnumDeclaration {
     members := new List<EnumMember>()
     index := 0
     while index < memberNames.Length {
-        members.Add(new EnumMember(memberNames[index], null, 1, 1))
+        members.Add(new EnumMember(memberNames[index], null, null, 1, 1))
         index = index + 1
     }
 

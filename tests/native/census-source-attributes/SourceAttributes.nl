@@ -393,3 +393,52 @@ class ExplicitParameterCarrier {
         Value = value + plain
     }
 }
+
+// AN ENUM MEMBER IS A LITERAL FIELD, and an attribute written on one reaches that field's rows.
+// It used to be `NL935` ("N# has no attribute position on an enum member"), because the emitter
+// created every enum type in its first pass — before any attribute in the program had been bound —
+// and a created type's `FieldBuilder`s refuse `SetCustomAttribute`. The enum types are now left open
+// until the attribute queue flushes.
+//
+// `[Flags]` on the DECLARATION is a type attribute and is pinned beside them, because the two
+// positions are written the same way and only the metadata row differs.
+[Flags]
+[Mark("on the enum")]
+enum Marked {
+    [Mark("on the first member")]
+    None = 0,
+    [Mark("on the second member")]
+    [Obsolete("member went away")]
+    Low = 1,
+    [Levelled(Level.High, AttributeTargets.Field, "member payload")]
+    High = 2,
+    Plain = 4
+}
+
+// A STRING-BACKED enum is not a CLR enum at all — it is an `abstract sealed` class of literal string
+// fields — and its members carry attributes on exactly the same rows.
+enum MarkedText: string {
+    [Mark("on the text member")]
+    Warm = "warm",
+    Cool = "cool"
+}
+
+// AN ENUM NESTED IN A CLASS is still materialized before anything names it, and its members still
+// take their attributes: this is the shape whose signatures broke when the deferral was first tried.
+class EnumHost {
+    enum Nested {
+        [Mark("on the nested member")]
+        First = 1,
+        Second = 2
+    }
+
+    Current: EnumHost.Nested
+
+    constructor() {
+        Current = EnumHost.Nested.First
+    }
+
+    func Label(): string {
+        return $"{Current}"
+    }
+}

@@ -3183,17 +3183,15 @@ class ColumnarParserRecovery {
                 memberLine := Current().Line
                 // Parser.cs :1293 (captured BEFORE the name)
                 memberColumn := Current().Column
-                // AN ENUM MEMBER HAS NO ATTRIBUTE POSITION. An enum's members become literal fields of a
-                // type that is finalized before any attribute in the program has been bound, so there
-                // is no point at which one could be attached — and a silently dropped attribute is
-                // worse than a refused one. Reporting it here and skipping the `[...]` keeps the
-                // member itself parsing: `[Mark] Low = 1` used to produce nine diagnostics.
-                while Check(TokenType.LeftBracket) {
-                    ReportEnumMemberAttribute()
-                    Advance()
-                    if !SkipAttributeGroup() {
+                // AN ENUM MEMBER CARRIES ATTRIBUTES, because it becomes a literal FIELD of the emitted
+                // enum and a field is a position an attribute can name. They are parsed with the same
+                // reader every other declaration uses, and the member node anchors on its NAME, so the
+                // line/column are re-read after the `[...]` groups.
+                memberAttributes := new List<AttributeNode>()
+                if Check(TokenType.LeftBracket) {
+                    memberAttributes = ParseAttributes()
+                    if !AttributesMaterializable {
                         TypeBodyMaterializable = false
-                        return members
                     }
 
                     memberLine = Current().Line
@@ -3220,9 +3218,9 @@ class ColumnarParserRecovery {
                     if members.Count == 0 && valueResult.Node is StringLiteralExpression {
                         EnumBodyInferredString = true
                     }
-                    members.Add(new EnumMember(memberName, valueResult.Node, memberLine, memberColumn))
+                    members.Add(new EnumMember(memberName, valueResult.Node, memberAttributes, memberLine, memberColumn))
                 } else {
-                    members.Add(new EnumMember(memberName, null, memberLine, memberColumn))
+                    members.Add(new EnumMember(memberName, null, memberAttributes, memberLine, memberColumn))
                 }
                 if Check(TokenType.Comma) {
                     Advance()
@@ -10243,20 +10241,6 @@ class ColumnarParserRecovery {
         }
 
         return Position + 1 < Tokens.Count && Tokens[Position + 1].Type == TokenType.Colon
-    }
-
-    func ReportEnumMemberAttribute() {
-        marker := Current()
-        Report(
-            ErrorCode.AttributePositionUnsupported,
-            "N# has no attribute position on an enum member",
-            marker.Line,
-            marker.Column,
-            "An enum's members become literal fields of a type the compiler finalizes before any attribute in the program has been bound, so an attribute written on one has no row it could be attached to. Accepting the syntax would mean dropping the attribute.",
-            "Write the attribute on the enum declaration itself, or model the per-member data as a lookup the program owns.",
-            null,
-            MaxInt(1, marker.Value.Length)
-        )
     }
 
     func ReportAttributeTargetPrefix() {

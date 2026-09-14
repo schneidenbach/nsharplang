@@ -1173,8 +1173,8 @@ class ColumnarDeclarationPlanner {
     }
 
     // A STRING-BACKED enum is not a CLR enum at all — it is an `abstract sealed` class of literal
-    // string fields, because the CLR has no string-underlying enum. An INT-backed one goes through
-    // `DefineEnum`, which composes the rest of the word itself and is handed only the visibility.
+    // string fields, because the CLR has no string-underlying enum. An INT-backed one is published as
+    // the VISIBILITY alone; the emitter ORs `Sealed` on and names `System.Enum` as the base.
     static func StringBackedEnumTypeAttributes(): int {
         return PublicTypeAttribute() | AbstractTypeAttribute() | SealedTypeAttribute()
     }

@@ -467,3 +467,85 @@ test "an explicit constructor's parameter never routes to a field of the same na
     field := must typeof(ExplicitParameterCarrier).GetField("Value")
     assert field.GetCustomAttribute(typeof(MarkAttribute), false) == null
 }
+
+// AN ENUM MEMBER'S ATTRIBUTES REACH THE LITERAL FIELD THE MEMBER BECAME. Every one of these was a
+// parse error (`NL935`) until the emitter stopped creating enum types before the attribute queue
+// flushed.
+test "an enum member's attribute is emitted on the literal field" {
+    field := must typeof(Marked).GetField("None", BindingFlags.Public | BindingFlags.Static)
+    assert field.IsLiteral
+    assert (must field.GetRawConstantValue()).ToString() == "0"
+    found := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert found.Tag == "on the first member"
+}
+
+test "an enum member carries every attribute written on it" {
+    field := must typeof(Marked).GetField("Low", BindingFlags.Public | BindingFlags.Static)
+    data := field.GetCustomAttributesData()
+    assert data.Count == 2
+
+    marked := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert marked.Tag == "on the second member"
+    obsolete := field.GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
+    assert obsolete.Message == "member went away"
+}
+
+test "an enum member's attribute carries enum, flags and boxed arguments like any other field" {
+    field := must typeof(Marked).GetField("High", BindingFlags.Public | BindingFlags.Static)
+    found := field.GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute
+    assert found.Level == Level.High
+    assert found.Targets == AttributeTargets.Field
+    payload := must found.Payload
+    assert payload.ToString() == "member payload"
+}
+
+test "an enum member the source wrote no attribute on carries none" {
+    field := must typeof(Marked).GetField("Plain", BindingFlags.Public | BindingFlags.Static)
+    assert field.GetCustomAttributes(false).Length == 0
+}
+
+// THE ENUM'S OWN ATTRIBUTES STAY ON THE TYPE, and `[Flags]` still reaches it.
+test "the enum declaration keeps its own attributes beside its members'" {
+    found := typeof(Marked).GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert found.Tag == "on the enum"
+    assert typeof(Marked).GetCustomAttribute(typeof(FlagsAttribute), false) != null
+    combined: Marked = Marked.Low | Marked.High
+    assert combined.ToString() == "Low, High"
+}
+
+// THE ENUM IS STILL AN ENUM. Leaving its type open until the attribute flush changed when it is
+// created, not what it is.
+test "an attributed enum is still a CLR enum with its declared members" {
+    assert typeof(Marked).IsEnum
+    assert Enum.GetUnderlyingType(typeof(Marked)) == typeof(int)
+    assert Enum.GetNames(typeof(Marked)).Length == 4
+    assert (int)Marked.High == 2
+    assert Enum.IsDefined(typeof(Marked), Marked.Plain)
+}
+
+test "a string-backed enum member's attribute is emitted on its literal field" {
+    // A STRING-BACKED ENUM IS NOT A CLR ENUM: its values ARE strings, so `typeof(MarkedText)` is
+    // `typeof(string)` and the emitted class of literal fields is reached by name.
+    textType := must typeof(Marked).Assembly.GetType("NSharpLang.CensusSourceAttributes.MarkedText")
+    field := must textType.GetField("Warm", BindingFlags.Public | BindingFlags.Static)
+    assert field.IsLiteral
+    assert (must field.GetRawConstantValue()).ToString() == "warm"
+    found := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert found.Tag == "on the text member"
+
+    plain := must textType.GetField("Cool", BindingFlags.Public | BindingFlags.Static)
+    assert plain.GetCustomAttributes(false).Length == 0
+}
+
+// A NESTED ENUM'S TYPE STILL LOADS, which is the assertion the whole materialization order exists
+// for: the class that names it has a field, a constructor and an interpolation over it.
+test "a nested enum's member carries its attribute and the host still loads" {
+    // The nested enum is reached through the FIELD THAT NAMES IT, which is the signature the
+    // materialization order exists to keep loadable.
+    nestedType := (must typeof(EnumHost).GetField("Current")).FieldType
+    assert nestedType.IsEnum
+    field := must nestedType.GetField("First", BindingFlags.Public | BindingFlags.Static)
+    found := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert found.Tag == "on the nested member"
+    assert new EnumHost().Label() == "First"
+}

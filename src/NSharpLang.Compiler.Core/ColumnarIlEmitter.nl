@@ -3986,6 +3986,14 @@ sealed class ColumnarIlEmitter {
         sourceAttributeQueue := new ColumnarSourceAttributeQueue()
         program.PrepareExternalTypeBindings(referenceAssemblyPaths)
         enumRegistry := new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal)
+        // THE EMITTER OWNS WHEN AN ENUM IS MATERIALIZED, and it is not here. An enum's members are
+        // literal FIELDS, and a field's custom-attribute rows close the moment its declaring type is
+        // created — so every enum type is defined and left OPEN through the whole declaration walk
+        // and created after the source-attribute queue has flushed. Nothing downstream notices,
+        // because an enum defined this way is a `TypeBuilder` before and after `CreateType` and every
+        // un-baked-builder guard in the back end already reads it as one.
+        enumTypeBuilders := new List<TypeBuilder>()
+        enumLiteralFields := new List<FieldBuilder[]>()
         for e := 0; e < declarationPlan.EnumCount; e++ {
             exactEnumName := declarationPlan.EnumExactNames[e]
             memberNames := declarationPlan.EnumMemberNames[e]
@@ -3993,6 +4001,7 @@ sealed class ColumnarIlEmitter {
             if (declarationPlan.EnumIsStringBacked[e]) {
                 stringConstants := new Dictionary<string, string>(StringComparer.Ordinal)
                 tb := module.DefineType(exactEnumName, enumAttributes)
+                stringLiterals := new FieldBuilder[](memberNames.Length)
                 for m := 0; m < memberNames.Length; m++ {
                     field := tb.DefineField(
                         memberNames[m],
@@ -4000,10 +4009,12 @@ sealed class ColumnarIlEmitter {
                         FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault
                     )
                     field.SetConstant(declarationPlan.EnumMemberStringValues[e][m])
+                    stringLiterals[m] = field
                     stringConstants[memberNames[m]] = declarationPlan.EnumMemberStringValues[e][m]
                 }
 
-                _ = tb.CreateType()
+                enumTypeBuilders.Add(tb)
+                enumLiteralFields.Add(stringLiterals)
                 stringEnumDef := new ColumnarEnumDef(
                     typeof(string),
                     new Dictionary<string, int>(StringComparer.Ordinal),
@@ -4015,15 +4026,33 @@ sealed class ColumnarIlEmitter {
                 continue
             }
 
-            eb := module.DefineEnum(exactEnumName, enumAttributes, typeof(int))
+            // `DefineEnum` would answer an `EnumBuilder`, which is a WRAPPER the persisted metadata
+            // writer does not resolve to its own typedef in a generic instantiation — an enum passed
+            // to `AppendFormatted<T>` then wrote a signature with an invalid token and the assembly
+            // would not load. The three things `DefineEnum` does are done here directly, so the enum
+            // is an ordinary `TypeBuilder` from definition to `CreateType`.
+            enumTb := module.DefineType(exactEnumName, enumAttributes | TypeAttributes.Sealed, typeof(Enum))
+            _ = enumTb.DefineField(
+                "value__",
+                typeof(int),
+                FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName
+            )
             constants := new Dictionary<string, int>(StringComparer.Ordinal)
+            literalFields := new FieldBuilder[](memberNames.Length)
             for m := 0; m < memberNames.Length; m++ {
-                eb.DefineLiteral(memberNames[m], declarationPlan.EnumMemberValues[e][m])
+                literal := enumTb.DefineField(
+                    memberNames[m],
+                    enumTb,
+                    FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault
+                )
+                literal.SetConstant(declarationPlan.EnumMemberValues[e][m])
+                literalFields[m] = literal
                 constants[memberNames[m]] = declarationPlan.EnumMemberValues[e][m]
             }
-            enumType := eb.CreateType()
+            enumTypeBuilders.Add(enumTb)
+            enumLiteralFields.Add(literalFields)
             enumDef := new ColumnarEnumDef(
-                enumType,
+                enumTb,
                 constants,
                 null,
                 exactEnumName
@@ -4231,6 +4260,22 @@ sealed class ColumnarIlEmitter {
             structRegistry,
             unionRegistry
         )
+
+        // PASS 0n (enum attributes): an enum member IS a literal field, so the attributes written on
+        // it are queued exactly as a struct field's are — through the same queue, bound by the same
+        // binder, written with `FieldBuilder.SetCustomAttribute`. The enum's OWN attributes are queued
+        // here too, on the type: `[Flags]` is what makes `ToString()` print `Low, High`. This is the
+        // first point at which a resolution view exists to resolve an attribute's type name, and both
+        // the type and its literal `FieldBuilder`s are still open because no enum has been created.
+        for e := 0; e < declarationPlan.EnumCount; e++ {
+            enumInput := program.Enums[e]
+            enumLiterals := enumLiteralFields[e]
+            enumResolution := typeResolutionCatalog.For(enumInput.SourceFileId, null, null)
+            sourceAttributeQueue.QueueType(enumTypeBuilders[e], enumInput.SourceAttributes, enumResolution)
+            for m := 0; m < enumLiterals.Length; m++ {
+                sourceAttributeQueue.QueueField(enumLiterals[m], enumInput.MemberSourceAttributesAt(m), enumResolution)
+            }
+        }
 
         for i := 0; i < interfaces.Count; i++ {
             iface := interfaces[i]
@@ -6467,11 +6512,17 @@ sealed class ColumnarIlEmitter {
 
         // Finalize the struct types before the Program type (the spike's ordering). Struct fields are already
         // defined, so CreateType bakes the type metadata; methods that reference un-finalized builders resolve to
-        // the finalized types at Save. Enums were baked in pass 0 because no later user type can affect them.
+        // the finalized types at Save. Enums bake here too — defined in pass 0 and left open so their
+        // literal fields can take the attributes their members were written with.
         // Interfaces bake BEFORE their implementers, and base interfaces bake before derived interfaces.
         // Every builder the written attributes can name now exists. Bind and attach them before the
         // first CreateType bakes a type whose CustomAttribute rows would then be closed.
         sourceAttributeQueue.Flush()
+        // The enums bake FIRST among the late types: every literal `FieldBuilder` has now taken its
+        // attribute rows, and nothing that follows may still write to one.
+        for enumTypeBuilder in enumTypeBuilders {
+            enumTypeBuilder.CreateType()
+        }
         ColumnarInterfaceRealization.FinalizeInterfaces(interfaces, interfaceDefsInOrder, interfaceDepths)
         // Struct/class types bake BASE-BEFORE-DERIVED (depth ascending): CreateType on a derived TypeBuilder
         // requires its parent to be created first. Depth 0 (no base) covers every value-type struct and standalone

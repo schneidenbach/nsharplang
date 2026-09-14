@@ -742,6 +742,130 @@ func main() {
     )
 }
 
+// THE ENUM MATERIALIZATION ORDER, IN ONE PROGRAM. An enum type is left OPEN through the whole
+// declaration walk (its literal fields must still take the attributes its members were written with)
+// and created only after the source-attribute queue flushes. Everything that NAMES an enum has to
+// keep loading: a nested enum on a class, an enum field in a generic type, a struct field, a record
+// parameter default, an interface return, a generic instantiation (`List<Color>`, `Dictionary<Color,
+// string>`, a string interpolation's `AppendFormatted<T>`), a nullable `Color?`, a `typeof`, and an
+// enum written as another type's ATTRIBUTE ARGUMENT.
+test "MultiFileCompiler_EmitsEveryShapeThatNamesAnEnum" {
+    EmitterCanonicalAssertProgramNormalized(
+        "EnumMaterializationOrderProject",
+        """
+import System
+import System.Collections.Generic
+
+[Flags]
+enum Color {
+    Red = 1,
+    Blue = 2
+}
+
+enum Shade: string {
+    Light = "light",
+    Dark = "dark"
+}
+
+class MarkAttribute: Attribute {
+    Value: Color
+
+    constructor(value: Color) {
+        Value = value
+    }
+}
+
+[Mark(Color.Blue)]
+class Tagged {
+}
+
+class Host {
+    enum Nested {
+        First = 1,
+        Second = 2
+    }
+
+    Current: Host.Nested
+    Tone: Color
+
+    constructor() {
+        Current = Host.Nested.First
+        Tone = Color.Red
+    }
+
+    func Describe(): string {
+        return $"{Current}/{Tone}"
+    }
+}
+
+class Box<T> {
+    Kind: Color
+    Item: T
+
+    constructor(item: T) {
+        Kind = Color.Blue
+        Item = item
+    }
+
+    func Label(): string {
+        return $"{Kind}"
+    }
+}
+
+struct Point {
+    Tone: Color
+}
+
+record Ticket(Tone: Color = Color.Red) {
+}
+
+interface IToned {
+    func Tone(): Color
+}
+
+class Toned: IToned {
+    func Tone(): Color {
+        return Color.Blue
+    }
+}
+
+func Many(): List<Color> {
+    values := new List<Color>()
+    values.Add(Color.Red)
+    values.Add(Color.Blue)
+    return values
+}
+
+func Generic<T>(value: T): string {
+    return $"{value}"
+}
+
+func main() {
+    print new Host().Describe()
+    print new Box<string>("x").Label()
+    p: Point = new Point()
+    p.Tone = Color.Blue
+    print p.Tone.ToString()
+    print new Ticket().Tone.ToString()
+    print new Toned().Tone().ToString()
+    print Many().Count.ToString()
+    print Generic<Color>(Color.Blue)
+    map := new Dictionary<Color, string>()
+    map[Color.Red] = "r"
+    print map[Color.Red]
+    maybe: Color? = Color.Blue
+    print (must maybe).ToString()
+    print Shade.Dark
+    print (Color.Red | Color.Blue).ToString()
+    print typeof(Color).IsEnum.ToString()
+    print Enum.Parse(typeof(Color), "Blue").ToString()
+    print (must typeof(Tagged).GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute).Value.ToString()
+}
+""",
+        "First/Red\nBlue\nBlue\nRed\nBlue\n2\nBlue\nr\nBlue\ndark\nRed, Blue\nTrue\nBlue\nBlue"
+    )
+}
+
 test "MultiFileCompiler_EmitsNestedPropertyPatterns" {
     EmitterCanonicalAssertProgramNormalized(
         "NestedPropertyPatternProject",

@@ -379,7 +379,7 @@ test "AN ENUM IS MATCHED AND WALKED NO FURTHER, AND ITS MEMBER VALUES PROVE IT" 
     // The empty arm is not decoration: an enum member carries an EXPRESSION, and it is not visited.
     state := LdwState()
     members := new List<EnumMember>()
-    members.Add(new EnumMember("First", LdwId("StringBuilder", 3, 7), 3, 5))
+    members.Add(new EnumMember("First", LdwId("StringBuilder", 3, 7), null, 3, 5))
     enumDeclaration := new EnumDeclaration("Kind", members, EnumType.Int, Modifiers.None, LdwAttributes(), 1, 1)
     new LinterDeclarationWalk(state).Visit(LdwUnitOf(enumDeclaration))
     assert state.Diagnostics.Count == 0
