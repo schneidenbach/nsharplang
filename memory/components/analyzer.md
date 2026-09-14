@@ -4441,3 +4441,80 @@ Contracts: `InternalsVisibleToGrants.tests.nl` (the rule, and the scope's open/c
 `tests/native/census-internals-visible-to` (the end of it, RUN: the project is named `Tests`, which
 `LanguageServer.csproj` and `Cli.csproj` both declare as a friend, and `NotAFriend.tests.nl`
 compiles the same source under five names through `MultiFileCompiler`).
+
+## A static member receiver is an ordinary call, and `typeof(void)` (census 2026-09-14, EMIT5)
+
+**The emitter's runtime-call tier could not break a tie, so the ties became tables.** The
+direct-call planner owns every external call whose receiver AND arguments it can type; a receiver
+that is a STATIC MEMBER READ (`Encoding.UTF8`, `Holder.Text`) is one it yields, so those calls land
+in `ColumnarIlEmitter`'s own runtime tier. That tier asked only
+`ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity`, which refuses a name with two
+declarations at the arity — so `Encoding.UTF8.GetString(bytes)` (`byte[]` beside
+`ReadOnlySpan<byte>`) and `Holder.Text.IndexOf("a")` (`char` beside `string`) declined at
+`emit.call.instance-member-unmodeled` / `emit.call.instance-member` while the SAME call through a
+parameter or a local emitted. The declines were papered over downstream by hand-written per-API
+arms, and one of them was WRONG: `string.IndexOf`'s table bound `IndexOf(char)` for a `string`
+argument (declining the call) and `IndexOf(string, StringComparison)` for `IndexOf("a", 0)`, reading
+a start index as a comparison mode.
+
+`ColumnarIlEmitter.SelectOrdinaryRuntimeCall` is now the one selector for both the static and the
+instance runtime tiers, in three tiers of its own:
+
+1. `ResolveUniqueAtArity` — the only tier a site with a LAMBDA or `out` argument can reach.
+2. `ResolveWithFacts` — the SAME scored resolver the direct-call planner uses, fed the argument types
+   `TryGetPreflightExpressionType` can determine. A site that reaches it picks what the planner would
+   have picked for the same arguments.
+3. The admitted candidate set, filtered by emit-applicability. A COLLECTION EXPRESSION has no type
+   until a parameter names its element type, so its preflight type is provisional (`[72, 105]` is
+   `int[]`) and scoring it answers no — but `CanEmitOrdinaryRuntimeCallArguments` answers exactly the
+   question the literal can answer, and `Encoding.UTF8.GetString([72, 105])` is left with one
+   candidate. Two or more survivors is a real ambiguity and stays refused.
+
+`ColumnarOrdinaryRuntimeDirectCallResolver.CandidatesAtArity` is the new door for tier 3;
+`ResolveUniqueAtArity` is now literally "that set, when it has exactly one member", so the admission
+rule (accessibility, name, staticness, arity, excluded intrinsic shapes, unsupported resolved
+signature, dispatchability) exists once. The `string.IndexOf` table arm is DELETED.
+
+**An empty collection expression converts by its target alone.** `[]` carries no element, so the
+pre-pass that types arguments before a candidate is chosen can only give it `unknown[]`; every later
+element question then answered no and `sha.TransformFinalBlock([], 0, 0)` reported NL402 for a call
+with exactly one overload. `AnalyzerReflectionArgumentBinder.TryScoreEmptyCollectionExpressionArgument`
+states C# §12.6.4.4 directly — an empty collection expression is applicable at any
+collection-expression target — on the COLLECTION rung (4), never the identity one, using the same
+target gate `TryScoreCollectionExpressionArgument` uses. `AllElementsAreInRangeConstants` still
+answers false for an empty literal: that rule is about what the WRITTEN elements convert to.
+
+**`typeof` is the one type position that admits `void`.** `ColumnarBindingScopeFacts.TryResolveExplicitBuiltin`
+deliberately binds seventeen built-in spellings and not `void`, because `void` is not a type a local
+can hold, and that refusal stays. C# §12.8.18 permits `void` as the type argument of `typeof` and
+nowhere else, so the admission is stated in `ColumnarTypeOfPlanner.TryResolveTarget` (ahead of the
+binding-scope lookup, which can never bind a keyword) with `IsSupportedTypeOfTarget` beside
+`IsSupportedType` for the preflight guard. The lowering is the ordinary `ldtoken`/`GetTypeFromHandle`
+pair. The plan validator needed the matching split: `ColumnarCodePlanExecutor` validated EVERY
+type-pool row as STORAGE, and a row read only by `ldtoken` names METADATA — `MetadataOnlyTypePoolRows`
+marks those rows (no argument slot, no plan local, no non-`ldtoken` instruction references them) and
+`ValidateMetadataReferenceType` keeps every other rule while dropping the void refusal.
+
+**And the SOURCE static twin of the instance selector.** `ColumnarIlEmitter.TryEmitStaticCall` chose a
+same-arity source overload with `TryFindStaticMethodOnChain`, which answers by NAME AND ARITY and takes
+the first declaration it meets — the right answer for the existence readers (is this bare name a static
+of the enclosing type; does the callee never return) and the wrong one for a CALL. The INSTANCE arm has
+had the argument-aware selector all along (`TrySelectInstanceMethodOnDef`: unique by arity, else unique
+by `CanDeclaredCallArgumentsMatch`), so `sink.Take([1, "b", null])` bound and `Sink.Accept([1, "b", null])`
+declined at `emit.call.static-user-argument`. `TrySelectStaticMethodOnChain`/`TrySelectStaticMethodOnDef`
+are that selector's exact static mirror, including its refusals: a level with arity matches answers for
+the whole call, and two applicable candidates there is an ambiguity refused rather than guessed. This is
+the limit `website/docs/types.md` recorded as "a collection expression whose elements have no common type
+… declines at emission"; the bullet is removed.
+
+**And a loop variable remembers where its value came from.** `ColumnarIlEmitter`'s labelled-context
+walk gave a foreach variable the element's own WRITTEN type when `LabeledElementOfCollection` found
+one, and nothing otherwise. `rows.GroupBy(r => r)` over a `List<(Code: string, Amount: int)>` yields
+an `IGrouping<…>` — a type no written spelling in the chain names — so the search answered nothing,
+the loop variable remembered nothing, and `group.Key.Code` declined while `group.Key.Item1` emitted.
+The KEY, though, is the very tuple the collection's written type named. The foreach arm now falls back
+to `LabeledContextOfCollection` (the factored "own written type ?? the binding's remembered context ??
+the nearest receiver-chain link") into `_labeledContextByVariable`, exactly as a `:=` local already
+does, and the ordinary member walk finds the element. Names whose ONLY source is a lambda's own tuple
+LITERAL (`GroupBy(r => (Code: r.Code, Amount: r.Amount))`) still do not survive: nothing WRITTEN names
+them, which is a different gap from this one.

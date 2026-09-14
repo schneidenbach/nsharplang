@@ -8956,11 +8956,25 @@ sealed class ColumnarIlEmitter {
             // ones the collection's own written type gave that position -- the same rule an index read
             // follows, asked of the element type the foreach plan settled.
             foreachElementLabeled := LabeledElementOfCollection(collectionNode, foreachPlan.ElementType)
+            foreachCollectionContext: string? = null
             if (foreachElementLabeled != null) {
                 _labeledTypeByVariable[varName] = foreachElementLabeled
                 foreachElementNames := ColumnarTupleElementNames.TopLevelNames(foreachElementLabeled)
                 if (foreachElementNames != null) {
                     _tupleNamesByVariable[varName] = foreachElementNames
+                }
+            } else {
+                // NOTHING WRITTEN NAMES THE ELEMENT'S OWN TYPE, BUT SOMETHING READ OUT OF IT STILL HAS
+                // A SPELLING. `rows.GroupBy(r => r)` over a `List<(Code: string, Amount: int)>` yields
+                // an `IGrouping<…>`, which no written type in the chain names — so the element search
+                // above answers nothing and `group.Key.Code` declined while `group.Key.Item1` emitted.
+                // The KEY, though, is the very tuple the collection's written type named, and the
+                // ordinary member walk finds it the moment the loop variable remembers where its value
+                // came from. This is the same fallback a `:=` local already keeps, for the same reason:
+                // a binding that answers nothing for itself still answers for its origin.
+                foreachCollectionContext = LabeledContextOfCollection(collectionNode)
+                if (foreachCollectionContext != null) {
+                    _labeledContextByVariable[varName] = foreachCollectionContext
                 }
             }
 
@@ -8971,6 +8985,9 @@ sealed class ColumnarIlEmitter {
             if (foreachElementLabeled != null) {
                 _labeledTypeByVariable.Remove(varName)
                 _tupleNamesByVariable.Remove(varName)
+            }
+            if (foreachCollectionContext != null) {
+                _labeledContextByVariable.Remove(varName)
             }
 
             columnarStringKeySnapshot13 := new List<string>(_locals.Keys)
@@ -17486,13 +17503,7 @@ sealed class ColumnarIlEmitter {
         if (elementType == null) {
             return null
         }
-        contextLabeled := DirectLabeledTypeOfExpressionNode(collectionNode)
-        if (contextLabeled == null) {
-            contextLabeled = LabeledContextOfBindingNode(collectionNode)
-        }
-        if (contextLabeled == null) {
-            contextLabeled = NearestLabeledContext(collectionNode)
-        }
+        contextLabeled := LabeledContextOfCollection(collectionNode)
         if (contextLabeled == null) {
             return null
         }
@@ -17501,6 +17512,22 @@ sealed class ColumnarIlEmitter {
             return found
         }
         return null
+    }
+
+    // THE WRITTEN TYPE A COLLECTION'S VALUES CAME OUT OF: its own written type, the written type the
+    // binding it was read through remembers, or the nearest link in its receiver chain that declares
+    // one. Named apart from the element search above because a loop variable needs BOTH answers — the
+    // element's own written type when the search finds it, and this CONTEXT when it does not, so a
+    // member read off the loop variable can search the same spelling an unbroken chain would.
+    private func LabeledContextOfCollection(collectionNode: int): string? {
+        contextLabeled := DirectLabeledTypeOfExpressionNode(collectionNode)
+        if (contextLabeled == null) {
+            contextLabeled = LabeledContextOfBindingNode(collectionNode)
+        }
+        if (contextLabeled == null) {
+            contextLabeled = NearestLabeledContext(collectionNode)
+        }
+        return contextLabeled
     }
 
     // THE WRITTEN TYPE OF THE NEAREST LINK IN THE RECEIVER CHAIN THAT DECLARES ONE. A hop that declares
