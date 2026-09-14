@@ -1799,14 +1799,15 @@ class ColumnarTypeOfPlanner {
     // - a user TypeBuilder (record/class/struct under construction) — members rebind;
     // - an ARRAY of any element an array may hold, including a source declaration: the array itself is
     //   an ordinary reference whatever it holds, and its element rule already owns that question;
-    // - a CLOSED SOURCE GENERIC (`Box<int>` declared in this compilation) — a complete type whose
-    //   members rebind through the same `TypeBuilder.Get*` bridge a direct builder uses;
     // - `T?` over an element that lifts — `Nullable<T>` keeps ONE owner, so the lifting rules answer;
     // - a nested admissible collection (List<List<Pt>>, List<HashSet<int>>) — its own resolution already
     //   vetted the inner arguments, which is why the six concrete heads return before asking about them;
     // - the BAKED surface (scalars/string/enums/baked closed generics), through the supported-value tail.
     // A POINTER OR BYREF is not a value a collection may hold at all, and it is refused first because
     // SymbolType reports `IsSZArray` for both.
+    // PINNED DECLINE (flip with the construction path, not before it): a user-headed closed generic
+    // (`List<Box<int>>`). A signature could name it, but no `new List<Box<int>>()` emits yet, so
+    // admitting it here alone would publish a shape this compilation cannot produce.
     static func IsAdmissibleCollectionElement(valueType: Type): bool {
         if IsEnumBuilder(valueType) {
             return false
@@ -1823,9 +1824,6 @@ class ColumnarTypeOfPlanner {
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             element := valueType.GetElementType()
             return element != null && IsSupportedElementType(element)
-        }
-        if IsClosedSourceGeneric(valueType) {
-            return true
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             name := valueType.GetGenericTypeDefinition().FullName ?? ""

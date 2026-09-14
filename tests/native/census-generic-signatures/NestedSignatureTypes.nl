@@ -8,11 +8,14 @@ import System.Collections.Generic
 //
 // Every generic below closes over `Cached`, which is `private` and NESTED: the name is visible only
 // to the lexical scope that declares it, so nothing at file or import scope can answer it. The
-// spellings are written exactly as a reader would write them — bare `Cached`, never `Snapshots.Cached`
-// — in a field, a property, a parameter, a return, a local annotation, a `new` expression, an array,
-// a nullable, a tuple and a nested generic. Two of the heads (`ConcurrentDictionary`, `Lazy`) are
+// spellings are written exactly as a reader would write them — bare `Cached`, never
+// `Snapshots.Cached` — in a field, a parameter, a return, a local annotation, a `new` expression, an
+// array, a tuple and a nested generic. Two of the heads (`ConcurrentDictionary`, `Lazy`) are
 // deliberately NOT in any modelled-collection table, so they take the general external-construction
 // arm and prove the lexical scope reaches it too.
+//
+// Nothing that names `Cached` is exported: the whole point is that the declaration is reachable from
+// its own lexical scope and from nowhere else.
 class Snapshots {
     readonly byStamp: ConcurrentDictionary<string, Cached> = new ConcurrentDictionary<string, Cached>()
     readonly ordered: List<Cached> = new List<Cached>()
@@ -21,14 +24,20 @@ class Snapshots {
 
     Count: int => ordered.Count
 
-    func Add(stamp: string, note: string): Cached {
+    func Add(stamp: string, note: string) {
         entry := new Cached(stamp, note)
         byStamp[stamp] = entry
         ordered.Add(entry)
-        return entry
     }
 
-    func AddBatch(key: string, entries: Cached[]) {
+    // The ARRAY is built here from the nested declaration and stored under an array-valued generic.
+    func Batch(key: string) {
+        entries := new Cached[](ordered.Count)
+        index := 0
+        while index < ordered.Count {
+            entries[index] = ordered[index]
+            index += 1
+        }
         batches[key] = entries
     }
 
@@ -40,8 +49,16 @@ class Snapshots {
         return 0
     }
 
-    func Group(key: string, entries: List<Cached>) {
-        grouped[key] = entries
+    func BatchNote(key: string, index: int): string {
+        found: Cached[] = null
+        if batches.TryGetValue(key, out found) {
+            return found[index].Note
+        }
+        return ""
+    }
+
+    func Group(key: string) {
+        grouped[key] = ordered
     }
 
     func GroupedNote(key: string, index: int): string {
@@ -62,7 +79,19 @@ class Snapshots {
         return ""
     }
 
-    func Newest(): Cached {
+    func NewestNote(): string {
+        return Newest().Note
+    }
+
+    func HeadNote(): string {
+        return Labelled().Head.Note
+    }
+
+    func HeadSize(): int {
+        return Labelled().Size
+    }
+
+    private func Newest(): Cached {
         recent := new List<Cached>()
         for entry in ordered {
             recent.Add(entry)
@@ -70,7 +99,8 @@ class Snapshots {
         return recent[recent.Count - 1]
     }
 
-    func Labelled(): (Head: Cached, Size: int) {
+    // A TUPLE element typed by the nested declaration, in a return position.
+    private func Labelled(): (Head: Cached, Size: int) {
         return (ordered[0], ordered.Count)
     }
 
@@ -79,8 +109,8 @@ class Snapshots {
 }
 
 // THE SAME NAME AT TWO LEXICAL DEPTHS. `Leaf` inside `Mid` names `Deep.Mid.Leaf`; the owner walk
-// climbs through every enclosing declaration, and the outer class names the same type by its
-// qualified spelling. Both must select the identical CLR type.
+// climbs through every enclosing declaration, and the outer class names the same type by the
+// partially qualified spelling a reader would write.
 class Deep {
     readonly outer: List<Mid.Leaf> = new List<Mid.Leaf>()
 

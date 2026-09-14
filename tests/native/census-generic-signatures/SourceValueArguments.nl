@@ -80,31 +80,6 @@ class LocationIndex {
     }
 }
 
-// A CLOSED SOURCE GENERIC IS A COMPLETE TYPE, so it is an ordinary element too: `Box<int>` names one
-// type, and a collection of them stores, loads and enumerates like any other reference element.
-record Box<T>(Value: T) {
-}
-
-class BoxShelf {
-    readonly boxes: List<Box<int>> = new List<Box<int>>()
-
-    func Put(value: int) {
-        boxes.Add(new Box<int>(value))
-    }
-
-    func Sum(): int {
-        total := 0
-        for box in boxes {
-            total += box.Value
-        }
-        return total
-    }
-
-    func Count(items: List<Box<int>>): int {
-        return items.Count
-    }
-}
-
 // A DELEGATE OVER TWO SOURCE DECLARATIONS — one a value type, one a reference type — declared as a
 // field's type rather than inferred at a call site.
 class Projector {
