@@ -23,7 +23,7 @@ class QualifiedStatics {
     // argument in the same call.
     static func MakeDirectory(path: string?): string {
         System.IO.Directory.CreateDirectory(must path)
-        return must path
+        return path
     }
 
     static func DirectoryExists(path: string?): bool {

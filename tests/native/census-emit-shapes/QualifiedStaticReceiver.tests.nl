@@ -3,7 +3,6 @@ namespace NSharpLang.CensusEmitShapes.Tests
 import System
 import System.Collections.Generic
 import System.IO
-import System.Linq
 
 func QualifiedStaticsScratchDirectory(): string {
     return Path.Combine(Path.GetTempPath(), "nsharp-qualified-static-" + Guid.NewGuid().ToString("N"))
@@ -28,7 +27,7 @@ test "a must unwrap that fails inside a qualified static call throws the pipelin
         caught = failure
     }
     assert caught != null
-    assert (must caught).Message == "must unwrap failed: value was null"
+    assert caught.Message == "must unwrap failed: value was null"
 }
 
 test "a qualified static receiver takes an argument that is not a bare name" {
