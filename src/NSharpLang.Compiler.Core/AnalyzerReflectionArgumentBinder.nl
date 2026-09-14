@@ -428,6 +428,28 @@ class AnalyzerReflectionArgumentBinder {
             return false
         }
 
+        // AN EMPTY COLLECTION EXPRESSION HAS NO ELEMENT TO ASK ABOUT, AND THAT IS THE ANSWER RATHER
+        // THAN THE OBSTACLE.
+        //
+        // `[]` is target-typed like every other collection expression (§12.6.4.4), but the pre-pass
+        // that types arguments before a candidate is chosen can only give it `unknown[]` — there is
+        // no element to infer from. Every later question then asks whether `unknown` converts to the
+        // parameter's element type and answers no, so `sha.TransformFinalBlock([], 0, 0)` reported
+        // that no overload accepts three arguments with these types, for a call with exactly ONE
+        // overload that the writer spelled correctly.
+        //
+        // The conversion rule says an empty collection expression converts to any collection-expression
+        // target, and that is what is stated here — at the COLLECTION rung, never the identity one, so
+        // an empty literal never out-ranks a real argument. Where two candidates both accept it the
+        // call is genuinely ambiguous and the reader is told so, which is what C# does with the same
+        // pair; what stops now is the silent inapplicability that hid the single-candidate case.
+        emptyCollectionScore := 0
+        if TryScoreEmptyCollectionExpressionArgument(argumentValue, openParameterType, out emptyCollectionScore) {
+            PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, allowsLift)
+            score = emptyCollectionScore
+            return true
+        }
+
         selectedMethodGroup: FunctionTypeInfo? = null
         methodGroupScore := 0
         if TryBindMethodGroupToReflectionDelegate(openParameterType, argumentType, bindings, out selectedMethodGroup, out methodGroupScore) {
@@ -1837,6 +1859,28 @@ class AnalyzerReflectionArgumentBinder {
     // an identical element type keeps the top of the ladder and a converting one sits where every
     // other assignable argument sits. A parameter whose element type is still open takes no part —
     // a collection expression does not drive method type inference.
+    // THE EMPTY COLLECTION EXPRESSION, WHOSE APPLICABILITY IS A QUESTION ABOUT THE TARGET ALONE.
+    //
+    // `[]` carries no element, so there is nothing to convert and nothing to compare: the only
+    // question left is whether the parameter is a collection-expression target at all. The gate is
+    // the SAME one the element-by-element arm uses — a single-dimension array that is not a by-ref
+    // position and has no unbound type parameter left in it — so the two arms admit exactly the same
+    // set of targets and differ only in what they have to ask about the elements.
+    func TryScoreEmptyCollectionExpressionArgument(argumentValue: Expression, openParameterType: Type, out score: int): bool {
+        score = 0
+        literal := argumentValue as ArrayLiteralExpression
+        if literal == null || literal.Elements == null || literal.Elements.Count != 0 {
+            return false
+        }
+
+        if openParameterType.get_IsByRef() || openParameterType.get_ContainsGenericParameters() || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(openParameterType) {
+            return false
+        }
+
+        score = 4
+        return true
+    }
+
     func TryScoreCollectionExpressionArgument(argumentValue: Expression, openParameterType: Type, argumentType: TypeInfo, out score: int): bool {
         score = 0
         if argumentValue as ArrayLiteralExpression == null {
@@ -1883,10 +1927,10 @@ class AnalyzerReflectionArgumentBinder {
 
     // WHETHER EVERY ELEMENT WRITTEN IN AN ARRAY LITERAL IS A CONSTANT THIS ELEMENT TYPE ACCEPTS.
     //
-    // An EMPTY literal answers false rather than true: `[]` has no element to carry a constant, so it
-    // is the ordinary element relation — already asked and already answered — that decides it, and
-    // saying "every element converts" of no elements would make an empty literal applicable at every
-    // array parameter in the set at once.
+    // An EMPTY literal answers false rather than true: `[]` has no element to carry a constant, so
+    // this rule — which is about what the written elements convert to — has nothing to say about it.
+    // The empty form is answered one arm earlier, by the target-only rule that is its actual
+    // conversion (§12.6.4.4), and never by pretending the elements it does not have all converted.
     func AllElementsAreInRangeConstants(argumentValue: Expression, parameterElement: Type): bool {
         literal := argumentValue as ArrayLiteralExpression
         if literal == null || literal.Elements == null || literal.Elements.Count == 0 {

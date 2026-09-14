@@ -2644,8 +2644,9 @@ test "an array literal is applicable element by element when its elements are co
     mixed.Add(BinderIdentifier("n"))
     assert !binder.AllElementsAreInRangeConstants(BinderConstantArrayLiteral(mixed), typeof(byte))
 
-    // AN EMPTY LITERAL ANSWERS FALSE: it has no constant to carry, so the ordinary element relation
-    // — already asked and already answered — is what decides it.
+    // AN EMPTY LITERAL ANSWERS FALSE: it has no constant to carry, so this rule — which is about what
+    // the WRITTEN elements convert to — has nothing to say about it. Its conversion is the
+    // target-only one pinned in the test below.
     assert !binder.AllElementsAreInRangeConstants(BinderConstantArrayLiteral(new List<Expression>()), typeof(byte))
 
     // And a literal that is not an array literal at all is not this question.
@@ -2663,4 +2664,39 @@ test "a written type argument that is a type parameter binds on the N# side, and
     assert !AnalyzerReflectionArgumentBinder.IsOpenWrittenTypeArgument(BuiltInTypes.Unknown)
     assert !AnalyzerReflectionArgumentBinder.IsOpenWrittenTypeArgument(new ArrayTypeInfo(new SimpleTypeInfo("T")))
     assert !AnalyzerReflectionArgumentBinder.IsOpenWrittenTypeArgument(new GenericTypeInfo("List", new List<TypeInfo>(), null))
+}
+
+// ── AN EMPTY COLLECTION EXPRESSION CONVERTS BY ITS TARGET ALONE ─────────────────────────────────
+//
+// `[]` carries no element, so the pre-pass that types arguments before a candidate is chosen can only
+// give it `unknown[]`. Every element question then answers no, and `sha.TransformFinalBlock([], 0, 0)`
+// reported that no overload accepts three arguments with these types — for a call whose ONLY overload
+// is the one the writer meant. C# §12.6.4.4 converts an empty collection expression to any
+// collection-expression target, and that is the rule stated here: the same target gate the
+// element-by-element arm uses, with nothing left to ask about the elements.
+test "an empty collection expression is applicable at any array target, on the collection rung" {
+    binder := BinderDefault()
+    empty := BinderConstantArrayLiteral(new List<Expression>())
+    score := 0
+
+    assert binder.TryScoreEmptyCollectionExpressionArgument(empty, typeof(byte[]), out score)
+    assert score == 4
+    assert binder.TryScoreEmptyCollectionExpressionArgument(empty, typeof(string[]), out score)
+    assert score == 4
+
+    // NEVER the identity rung: an empty literal must not out-rank an argument that really is the
+    // parameter's own type.
+    assert score < 8
+
+    // A literal that HAS elements is the other arm's question, not this one.
+    assert !binder.TryScoreEmptyCollectionExpressionArgument(BinderConstantArrayLiteral(BinderExpressionList(["0"])), typeof(byte[]), out score)
+
+    // And the question is asked only of a LITERAL, never of an ordinary expression.
+    assert !binder.TryScoreEmptyCollectionExpressionArgument(BinderIdentifier("values"), typeof(byte[]), out score)
+
+    // The target gate is the element-by-element arm's, exactly: a parameter that is not a
+    // single-dimensional array, a by-ref position, and an open one are all refused.
+    assert !binder.TryScoreEmptyCollectionExpressionArgument(empty, typeof(object), out score)
+    assert !binder.TryScoreEmptyCollectionExpressionArgument(empty, typeof(byte[]).MakeByRefType(), out score)
+    assert !binder.TryScoreEmptyCollectionExpressionArgument(empty, typeof(List<int>).GetGenericTypeDefinition().GetGenericArguments()[0].MakeArrayType(), out score)
 }
