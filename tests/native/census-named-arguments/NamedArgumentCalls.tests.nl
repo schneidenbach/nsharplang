@@ -68,6 +68,11 @@ test "named static-method arguments bind by name" {
     assert label.Text == "s"
 }
 
+test "named argument placement participates in overload applicability" {
+    picker := new NamedOverloadPicker()
+    assert picker.Pick(left: 7, right: "text") == "text7second"
+}
+
 test "a lambda argument can be named" {
     assert ApplyTwice(value: 1, mapper: x => x + 3) == 7
 }

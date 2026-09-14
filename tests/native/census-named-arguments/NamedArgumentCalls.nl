@@ -75,6 +75,16 @@ class Label {
     }
 }
 
+class NamedOverloadPicker {
+    func Pick(left: object, right: string): string {
+        return left.ToString() + right + "first"
+    }
+
+    func Pick(right: string, left: int): string {
+        return right + left.ToString() + "second"
+    }
+}
+
 // A delegate parameter named at the call, which reaches emission through a different argument arm
 // than an ordinary value does.
 func ApplyTwice(value: int, mapper: Func<int, int>): int {

@@ -4,6 +4,15 @@ import System
 import System.Collections.Generic
 import System.Reflection
 
+class ColumnarNamedArgumentCandidate {
+    ParameterNames: string[]
+    ParameterTypes: Type[]
+
+    constructor(parameterNames: string[], parameterTypes: Type[]) {
+        ParameterNames = parameterNames
+        ParameterTypes = parameterTypes
+    }
+}
 
 // NAMED ARGUMENTS, from the name a call wrote to the slot the signature keeps it in.
 //
@@ -305,6 +314,153 @@ class ColumnarNamedArgumentBinder {
         }
 
         candidates.Add(parameterNames)
+    }
+
+    static func AddTypedCandidate(candidates: List<ColumnarNamedArgumentCandidate>, parameterNames: string[]?, parameterTypes: Type[]?, arity: int) {
+        if candidates == null || parameterNames == null || parameterTypes == null || parameterNames.Length != parameterTypes.Length || parameterNames.Length != arity || arity == 0 {
+            return
+        }
+
+        candidates.Add(new ColumnarNamedArgumentCandidate(parameterNames, parameterTypes))
+    }
+
+    static func CollectSourceInstanceCandidates(definition: ColumnarStructDef?, memberName: string, arity: int, candidates: List<ColumnarNamedArgumentCandidate>) {
+        current := definition
+        while current != null {
+            single: ColumnarInstanceMethodDef? = null
+            if current.Methods.TryGetValue(memberName, out single) && single != null {
+                AddTypedCandidate(candidates, single.ParamNames, single.ParamTypes, arity)
+            }
+
+            overloads: List<ColumnarInstanceMethodDef>? = null
+            if current.MethodOverloads.TryGetValue(memberName, out overloads) {
+                for overload in overloads {
+                    AddTypedCandidate(candidates, overload.ParamNames, overload.ParamTypes, arity)
+                }
+            }
+
+            current = current.BaseDef
+        }
+    }
+
+    static func CollectSourceStaticCandidates(definition: ColumnarStructDef?, memberName: string, arity: int, candidates: List<ColumnarNamedArgumentCandidate>) {
+        current := definition
+        while current != null {
+            statics: List<ColumnarStaticMethodDef>? = null
+            if current.StaticMethods.TryGetValue(memberName, out statics) {
+                for candidate in statics {
+                    AddTypedCandidate(candidates, candidate.ParamNames, candidate.ParamTypes, arity)
+                }
+            }
+
+            current = current.BaseDef
+        }
+    }
+
+    static func CollectReflectedCandidates(ownerType: Type?, memberName: string, arity: int, requireStatic: bool, candidates: List<ColumnarNamedArgumentCandidate>) {
+        if !IsReflectable(ownerType) || memberName == null || arity == 0 {
+            return
+        }
+
+        for method in ownerType.GetMethods() {
+            parameters := method.GetParameters()
+            if method.get_Name() != memberName || method.get_IsStatic() != requireStatic || parameters.Length != arity || method.get_ContainsGenericParameters() {
+                continue
+            }
+
+            types := new Type[](parameters.Length)
+            index := 0
+            while index < parameters.Length {
+                types[index] = parameters[index].get_ParameterType()
+                index += 1
+            }
+            AddTypedCandidate(candidates, ReflectedParameterNames(method), types, arity)
+        }
+    }
+
+    static func TryBestPlacement(nodes: ColumnarNodeTable, source: string, callNode: int, firstArgumentOrdinal: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, candidates: List<ColumnarNamedArgumentCandidate>, out placement: int[]): bool {
+        placement = new int[](0)
+        if argumentTypes == null || argumentFacts == null || candidates == null {
+            return false
+        }
+
+        bestScore := -1
+        tied := false
+        for candidate in candidates {
+            candidatePlacement := new int[](0)
+            if !TryPlace(nodes, source, callNode, firstArgumentOrdinal, argumentTypes.Length, candidate.ParameterNames, candidate.ParameterTypes.Length, out candidatePlacement) {
+                continue
+            }
+
+            copiedTypes := new Type[](argumentTypes.Length)
+            copiedFacts := CopyFacts(argumentFacts)
+            Array.Copy(argumentTypes, copiedTypes, argumentTypes.Length)
+            if !ApplyPlacement(copiedTypes, copiedFacts, candidatePlacement) {
+                continue
+            }
+
+            score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(candidate.ParameterTypes, copiedTypes, copiedFacts)
+            if score < 0 {
+                continue
+            }
+            if score > bestScore {
+                bestScore = score
+                placement = candidatePlacement
+                tied = false
+            } else if score == bestScore && !SamePlacement(placement, candidatePlacement) {
+                tied = true
+            }
+        }
+
+        if bestScore < 0 || tied {
+            if tied {
+                placement = new int[](0)
+                return false
+            }
+
+            // Lambdas and method groups are target-typed by the selected parameter, so their
+            // provisional type cannot score a candidate here. If every name-bearing candidate
+            // nevertheless agrees on one placement, keep the same safe answer the earlier
+            // name-only binder provided and let ordinary target-typed selection finish the call.
+            names := new List<string[]>()
+            for candidate in candidates {
+                AddCandidate(names, candidate.ParameterNames, argumentTypes.Length)
+            }
+            return TryAgreedPlacement(nodes, source, callNode, firstArgumentOrdinal, argumentTypes.Length, names, out placement)
+        }
+
+        FlattenPlacedArguments(nodes, callNode, firstArgumentOrdinal, placement)
+        return true
+    }
+
+    static func CopyFacts(sourceFacts: ColumnarDirectCallArgumentFacts): ColumnarDirectCallArgumentFacts {
+        count := sourceFacts.ArgumentNodes.Length
+        copy := ColumnarDirectCallArgumentFacts.Empty(count)
+        copy.SourceTypeDefinitions = sourceFacts.SourceTypeDefinitions
+        Array.Copy(sourceFacts.ArgumentNodes, copy.ArgumentNodes, count)
+        Array.Copy(sourceFacts.IsUnsuffixedIntegerLiteral, copy.IsUnsuffixedIntegerLiteral, count)
+        Array.Copy(sourceFacts.IsNegativeIntegerLiteral, copy.IsNegativeIntegerLiteral, count)
+        Array.Copy(sourceFacts.IntegerLiteralValues, copy.IntegerLiteralValues, count)
+        Array.Copy(sourceFacts.IsNullLiteral, copy.IsNullLiteral, count)
+        Array.Copy(sourceFacts.IsByRefArgument, copy.IsByRefArgument, count)
+        Array.Copy(sourceFacts.IsIntegerConstantArrayLiteral, copy.IsIntegerConstantArrayLiteral, count)
+        Array.Copy(sourceFacts.ArrayLiteralMinimumValues, copy.ArrayLiteralMinimumValues, count)
+        Array.Copy(sourceFacts.ArrayLiteralMaximumValues, copy.ArrayLiteralMaximumValues, count)
+        return copy
+    }
+
+    static func SamePlacement(left: int[], right: int[]): bool {
+        if left == null || right == null || left.Length != right.Length {
+            return false
+        }
+        index := 0
+        while index < left.Length {
+            if left[index] != right[index] {
+                return false
+            }
+            index += 1
+        }
+        return true
     }
 
     // The source instance methods named `memberName` at `arity`, walking the declaration's own base

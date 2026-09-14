@@ -211,6 +211,15 @@ class ColumnarDirectCallPlanner {
 
         argumentTypes := new Type[](nodes.ChildCount(node) - 1)
 
+        // Target-typed arguments (lambdas and method groups) need to sit directly under the call
+        // while their provisional type is discovered. When the names already occupy their declared
+        // positions, validate that fact against the reachable signatures and erase only those
+        // information-free wrappers before asking the type oracle.
+        preliminaryPlacement := new int[](0)
+        if ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentTypes.Length) {
+            TryFlattenAgreedInPositionNames(nodes, source, node, callee, calleeKind, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes.Length, out preliminaryPlacement)
+        }
+
         // NAMED ARGUMENTS ARE PLACED BEFORE ANYTHING ELSE LOOKS AT THEM. Every owner below this point
         // -- argument typing, overload selection, conversions, the argument walk -- reads argument `i`
         // as parameter `i`, and that is the whole reason a name is resolved here: the placement is
@@ -223,12 +232,6 @@ class ColumnarDirectCallPlanner {
         // decline for some unrelated reason reaches the residual emitter as the positional call it
         // is. A placement that MOVES an argument is kept here and applied to the argument rows below,
         // because only this planner can emit the move while preserving the written evaluation order.
-        namedPlacement := new int[](0)
-        if ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentTypes.Length) && !TryPlaceNamedCallArguments(nodes, source, node, callee, calleeKind, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes.Length, out namedPlacement) {
-            legacyWholeSubtreePlanning = true
-            return false
-        }
-
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
         argumentOwnership := ColumnarDirectCallOwnership.NotOwned
@@ -239,6 +242,12 @@ class ColumnarDirectCallPlanner {
                 legacyWholeSubtreePlanning = true
             }
 
+            return false
+        }
+
+        namedPlacement := new int[](0)
+        if ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentTypes.Length) && !TryPlaceNamedCallArguments(nodes, source, node, callee, calleeKind, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out namedPlacement) {
+            legacyWholeSubtreePlanning = true
             return false
         }
 
@@ -268,6 +277,60 @@ class ColumnarDirectCallPlanner {
         }
     }
 
+    static func TryFlattenAgreedInPositionNames(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, methodBodySchema: bool, arity: int, out placement: int[]): bool {
+        placement = new int[](0)
+        candidates := new List<string[]>()
+        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() {
+            bareName := nodes.Text(source, callee)
+            siblingFacts: ColumnarSiblingCallFacts? = null
+            if bindings.SiblingCallables.TryGetValue(bareName, out siblingFacts) {
+                ColumnarNamedArgumentBinder.AddCandidate(candidates, siblingFacts.ParameterNames, arity)
+            }
+            current := bindings.CurrentInstance
+            if current != null {
+                ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(current.SourceDefinition, bareName, arity, candidates)
+            }
+            ColumnarNamedArgumentBinder.CollectSourceStaticParameterNames(bindings.EnclosingTypeDefinition, bareName, arity, candidates)
+            return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
+        }
+
+        if calleeKind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+            current := bindings.CurrentInstance
+            if current != null && current.SourceDefinition != null {
+                ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(current.SourceDefinition.BaseDef, nodes.Text(source, callee), arity, candidates)
+                ColumnarNamedArgumentBinder.CollectReflectedParameterNames(current.SourceDefinition.ExactBaseType, nodes.Text(source, callee), arity, false, candidates)
+            }
+            return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
+        }
+
+        if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(callee) != 1 {
+            return false
+        }
+        memberName := nodes.Text(source, callee)
+        receiverNode := nodes.Child(callee, 0)
+        ownerName := ""
+        rootName := ""
+        if TryGetQualifiedName(nodes, source, receiverNode, 0, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) {
+            scope := nodes.BindingScope
+            exactSourceOwnerName := ownerName
+            sourceOwnerBlocked := false
+            if scope == null || scope.TryResolveSourceStaticOwner(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out exactSourceOwnerName, out sourceOwnerBlocked) {
+                ColumnarNamedArgumentBinder.CollectSourceStaticParameterNames(FindExactSourceOwner(exactSourceOwnerName, bindings.SourceTypeDefinitions), memberName, arity, candidates)
+            }
+            externalOwnerType := typeof(object)
+            if scope != null && scope.TryResolveExternalStaticOwnerType(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out externalOwnerType) {
+                ColumnarNamedArgumentBinder.CollectReflectedParameterNames(externalOwnerType, memberName, arity, true, candidates)
+            }
+        }
+        receiverType := typeof(object)
+        receiverOwnership := ColumnarDirectCallOwnership.NotOwned
+        if TryGetPlannableValueType(nodes, source, receiverNode, bindings, handles, depth + 1, ArgumentsAdmitPrimitiveBinary(), methodBodySchema, out receiverType, out receiverOwnership) {
+            ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(ColumnarNamedArgumentBinder.FindReceiverDefinition(receiverType, bindings.SourceTypeDefinitions), memberName, arity, candidates)
+            ColumnarNamedArgumentBinder.CollectReflectedParameterNames(receiverType, memberName, arity, false, candidates)
+        }
+        return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
+    }
+
     // THE SIGNATURES A CALL'S NAMES COULD BE PLACED AGAINST, gathered from the same declaration
     // registries the arms below select from -- never from a second lookup of their own. A bare name
     // reaches a sibling free function, an instance method of the body's own type, or a static of the
@@ -275,35 +338,36 @@ class ColumnarDirectCallPlanner {
     // a `base.M(...)` reaches the base declaration. Whichever of those the call turns out to be, its
     // parameter names are in this set, and the placement is accepted only when every candidate that
     // admits the written names agrees on it.
-    static func TryPlaceNamedCallArguments(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, methodBodySchema: bool, arity: int, out placement: int[]): bool {
+    static func TryPlaceNamedCallArguments(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, methodBodySchema: bool, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out placement: int[]): bool {
         placement = new int[](0)
-        candidates := new List<string[]>()
+        candidates := new List<ColumnarNamedArgumentCandidate>()
+        arity := argumentTypes.Length
 
         if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() {
             bareName := nodes.Text(source, callee)
             siblingFacts: ColumnarSiblingCallFacts? = null
             if bindings.SiblingCallables.TryGetValue(bareName, out siblingFacts) {
-                ColumnarNamedArgumentBinder.AddCandidate(candidates, siblingFacts.ParameterNames, arity)
+                ColumnarNamedArgumentBinder.AddTypedCandidate(candidates, siblingFacts.ParameterNames, siblingFacts.ParameterTypes, arity)
             }
 
             currentInstance := bindings.CurrentInstance
             if currentInstance != null {
-                ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(currentInstance.SourceDefinition, bareName, arity, candidates)
+                ColumnarNamedArgumentBinder.CollectSourceInstanceCandidates(currentInstance.SourceDefinition, bareName, arity, candidates)
             }
 
-            ColumnarNamedArgumentBinder.CollectSourceStaticParameterNames(bindings.EnclosingTypeDefinition, bareName, arity, candidates)
-            return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
+            ColumnarNamedArgumentBinder.CollectSourceStaticCandidates(bindings.EnclosingTypeDefinition, bareName, arity, candidates)
+            return ColumnarNamedArgumentBinder.TryBestPlacement(nodes, source, callNode, 1, argumentTypes, argumentFacts, candidates, out placement)
         }
 
         if calleeKind == ColumnarExpressionNodeKind.BaseMemberExpression() {
             currentInstance := bindings.CurrentInstance
             if currentInstance != null && currentInstance.SourceDefinition != null {
                 baseDefinition := currentInstance.SourceDefinition.BaseDef
-                ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(baseDefinition, nodes.Text(source, callee), arity, candidates)
-                ColumnarNamedArgumentBinder.CollectReflectedParameterNames(currentInstance.SourceDefinition.ExactBaseType, nodes.Text(source, callee), arity, false, candidates)
+                ColumnarNamedArgumentBinder.CollectSourceInstanceCandidates(baseDefinition, nodes.Text(source, callee), arity, candidates)
+                ColumnarNamedArgumentBinder.CollectReflectedCandidates(currentInstance.SourceDefinition.ExactBaseType, nodes.Text(source, callee), arity, false, candidates)
             }
 
-            return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
+            return ColumnarNamedArgumentBinder.TryBestPlacement(nodes, source, callNode, 1, argumentTypes, argumentFacts, candidates, out placement)
         }
 
         if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(callee) != 1 {
@@ -323,12 +387,12 @@ class ColumnarDirectCallPlanner {
             exactSourceOwnerName := ownerName
             sourceOwnerBlocked := false
             if scope == null || scope.TryResolveSourceStaticOwner(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out exactSourceOwnerName, out sourceOwnerBlocked) {
-                ColumnarNamedArgumentBinder.CollectSourceStaticParameterNames(FindExactSourceOwner(exactSourceOwnerName, bindings.SourceTypeDefinitions), memberName, arity, candidates)
+                ColumnarNamedArgumentBinder.CollectSourceStaticCandidates(FindExactSourceOwner(exactSourceOwnerName, bindings.SourceTypeDefinitions), memberName, arity, candidates)
             }
 
             externalOwnerType := typeof(object)
             if scope != null && scope.TryResolveExternalStaticOwnerType(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out externalOwnerType) {
-                ColumnarNamedArgumentBinder.CollectReflectedParameterNames(externalOwnerType, memberName, arity, true, candidates)
+                ColumnarNamedArgumentBinder.CollectReflectedCandidates(externalOwnerType, memberName, arity, true, candidates)
             }
         }
 
@@ -337,11 +401,11 @@ class ColumnarDirectCallPlanner {
         receiverType := typeof(object)
         receiverOwnership := ColumnarDirectCallOwnership.NotOwned
         if TryGetPlannableValueType(nodes, source, receiverNode, bindings, handles, depth + 1, ArgumentsAdmitPrimitiveBinary(), methodBodySchema, out receiverType, out receiverOwnership) {
-            ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(ColumnarNamedArgumentBinder.FindReceiverDefinition(receiverType, bindings.SourceTypeDefinitions), memberName, arity, candidates)
-            ColumnarNamedArgumentBinder.CollectReflectedParameterNames(receiverType, memberName, arity, false, candidates)
+            ColumnarNamedArgumentBinder.CollectSourceInstanceCandidates(ColumnarNamedArgumentBinder.FindReceiverDefinition(receiverType, bindings.SourceTypeDefinitions), memberName, arity, candidates)
+            ColumnarNamedArgumentBinder.CollectReflectedCandidates(receiverType, memberName, arity, false, candidates)
         }
 
-        return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
+        return ColumnarNamedArgumentBinder.TryBestPlacement(nodes, source, callNode, 1, argumentTypes, argumentFacts, candidates, out placement)
     }
 
     // The explicit generic callee stores its complete dotted value name and its type-reference
