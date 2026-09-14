@@ -321,6 +321,23 @@ class ColumnarNamedArgumentBinder {
         return names
     }
 
+    static func ReflectedExtensionParameterTypes(method: MethodBase?): Type[] {
+        if method == null {
+            return new Type[](0)
+        }
+        parameters := method.GetParameters()
+        if parameters.Length == 0 {
+            return new Type[](0)
+        }
+        types := new Type[](parameters.Length - 1)
+        index := 1
+        while index < parameters.Length {
+            types[index - 1] = parameters[index].get_ParameterType()
+            index += 1
+        }
+        return types
+    }
+
     // EVERY SIGNATURE THE CALL COULD REACH, by name and arity alone. A name PRUNES the overload set
     // long before types are scored -- `Encoding.GetString(bytes: b)` can only mean an overload that
     // has a `bytes` -- so the placement is asked of each candidate and the answer is accepted only

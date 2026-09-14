@@ -1,6 +1,7 @@
 namespace NSharpLang.CensusNamedArguments
 
 import System
+import System.Linq
 
 test "a free function's single parameter can be written by name" {
     assert Gate(flag: true) == 1
@@ -70,6 +71,16 @@ test "a constructor overload is still selected beside a named argument" {
 test "named instance-method arguments bind by name" {
     label := new Label("mid", 3)
     assert label.Render(suffix: ">", prefix: "<") == "<mid>"
+}
+
+test "named instance-method arguments may leave optional holes" {
+    value := new OptionalMethodSlots()
+    assert value.Read(last: 9) == 129
+}
+
+test "named arguments bind on extension methods" {
+    values: int[] = [1, 2]
+    assert values.Contains(value: 2)
 }
 
 test "named static-method arguments bind by name" {

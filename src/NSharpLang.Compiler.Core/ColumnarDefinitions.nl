@@ -120,6 +120,8 @@ class ColumnarInstanceMethodDef {
     // Empty when the registration site carried none, which means a call on this method may not name
     // a parameter.
     ParamNames: string[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
 
     constructor(builder: MethodBuilder, paramTypes: Type[], returnType: Type) {
         if builder == null || paramTypes == null || returnType == null {
@@ -131,6 +133,8 @@ class ColumnarInstanceMethodDef {
         ParamModifierKinds = new int[](0)
         ReturnType = returnType
         ParamNames = new string[](0)
+        ParamDefaultKinds = new int[](0)
+        ParamDefaultTexts = new string[](0)
         ReturnLabeledCanonical = null
         Generics = null
         DoesNotReturn = false
@@ -151,6 +155,8 @@ class ColumnarInstanceMethodDef {
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
         ParamNames = new string[](0)
+        ParamDefaultKinds = new int[](0)
+        ParamDefaultTexts = new string[](0)
         ReturnLabeledCanonical = returnLabeledCanonical
         Generics = null
         DoesNotReturn = false
@@ -190,6 +196,8 @@ class ColumnarStaticMethodDef {
     // Empty when the registration site carried none, which means a call on this method may not name
     // a parameter.
     ParamNames: string[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
 
     constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnLabeledCanonical: string? = null) {
         Builder = builder
@@ -197,6 +205,8 @@ class ColumnarStaticMethodDef {
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
         ParamNames = new string[](0)
+        ParamDefaultKinds = new int[](0)
+        ParamDefaultTexts = new string[](0)
         ReturnLabeledCanonical = returnLabeledCanonical
         Generics = null
         DoesNotReturn = false
