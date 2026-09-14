@@ -318,7 +318,7 @@ class AnalyzerSyntheticCallValidator {
                 }
 
                 paramsArgumentIndex := paramsParameterIndex - parameterStartIndex
-                isDirectParamsArrayArgument := overloadScoring.IsSingleDirectNSharpParamsArrayArgument(paramsArgumentIndex, call.Arguments, argTypes, paramsArrayType)
+                isDirectParamsArrayArgument := overloadScoring.IsDirectNSharpParamsArrayArgument(currentArgument, paramsArgumentIndex, call.Arguments, argTypes, paramsArrayType)
 
                 if !isDirectParamsArrayArgument {
                     spread := call.Arguments[currentArgument].Value as SpreadExpression

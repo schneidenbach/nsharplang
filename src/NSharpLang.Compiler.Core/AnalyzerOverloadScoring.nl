@@ -1020,19 +1020,26 @@ class AnalyzerOverloadScoring {
         return null
     }
 
-    // Whether the caller passed the params ARRAY itself rather than a loose argument list: exactly one
-    // trailing argument, not a spread, and assignable to the array type.
-    func IsSingleDirectNSharpParamsArrayArgument(regularParamCount: int, arguments: IReadOnlyList<Argument>, argTypes: IReadOnlyList<TypeInfo>, paramsArrayType: TypeInfo): bool {
-        if argTypes.Count != regularParamCount + 1 {
+    // Whether this argument passes the params ARRAY itself rather than one expanded element. A
+    // positional direct array is the one trailing argument. A NAMED argument already names the
+    // params parameter itself, so it is direct wherever it was written; placement separately
+    // guarantees that only one argument claims that parameter.
+    func IsDirectNSharpParamsArrayArgument(argumentIndex: int, regularParamCount: int, arguments: IReadOnlyList<Argument>, argTypes: IReadOnlyList<TypeInfo>, paramsArrayType: TypeInfo): bool {
+        if argumentIndex < 0 || argumentIndex >= arguments.Count || argumentIndex >= argTypes.Count {
             return false
         }
 
-        spread := arguments[regularParamCount].Value as SpreadExpression
+        argument := arguments[argumentIndex]
+        if argument.Name == null && (argTypes.Count != regularParamCount + 1 || argumentIndex != regularParamCount) {
+            return false
+        }
+
+        spread := argument.Value as SpreadExpression
         if spread != null {
             return false
         }
 
-        return assignability.IsAssignable(paramsArrayType, argTypes[regularParamCount])
+        return assignability.IsAssignable(paramsArrayType, argTypes[argumentIndex])
     }
 
     // What generic inference should read from a params ARGUMENT: a spread of an array contributes its

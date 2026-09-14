@@ -248,6 +248,16 @@ class ColumnarDirectCallPlanner {
         namedPlacement := new int[](0)
         if ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentTypes.Length) && !TryPlaceNamedCallArguments(nodes, source, node, callee, calleeKind, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out namedPlacement) {
             sparseCheckpoint := plan.CreateCheckpoint()
+            if calleeKind == 38 && TryAppendExplicitGenericSourceInstanceCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+                return true
+            }
+            plan.Rollback(sparseCheckpoint)
+            sparseCheckpoint = plan.CreateCheckpoint()
+            if calleeKind == 38 && TryAppendExplicitGenericSiblingCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+                return true
+            }
+            plan.Rollback(sparseCheckpoint)
+            sparseCheckpoint = plan.CreateCheckpoint()
             if TryAppendSparseNamedSiblingCall(nodes, source, node, callee, calleeKind, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
                 return true
             }
@@ -278,6 +288,9 @@ class ColumnarDirectCallPlanner {
             }
 
             if calleeKind == 38 {
+                if TryAppendExplicitGenericSourceInstanceCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+                    return true
+                }
                 if TryAppendExplicitGenericSiblingCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning, out resultType) {
                     return true
                 }
@@ -293,6 +306,206 @@ class ColumnarDirectCallPlanner {
             plan.Rollback(checkpoint)
             throw ex
         }
+    }
+
+    static func TryAppendExplicitGenericSourceInstanceCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+        ownership = ColumnarDirectCallOwnership.NotOwned
+        legacyWholeSubtreePlanning = false
+        resultType = typeof(int)
+        calleeName := nodes.Text(source, callee)
+        separator := calleeName.LastIndexOf(".", StringComparison.Ordinal)
+        if separator <= 0 || separator >= calleeName.Length - 1 {
+            return false
+        }
+        receiverName := calleeName.Substring(0, separator)
+        memberName := calleeName.Substring(separator + 1)
+        receiverType := typeof(object)
+        if !TryGetNamedReceiverType(receiverName, bindings, out receiverType) {
+            return false
+        }
+        definition := ColumnarNamedArgumentBinder.FindReceiverDefinition(receiverType, bindings.SourceTypeDefinitions)
+        if definition == null {
+            return false
+        }
+        candidates: List<ColumnarInstanceMethodDef>? = null
+        current := definition
+        while current != null && candidates == null {
+            current.MethodOverloads.TryGetValue(memberName, out candidates)
+            current = current.BaseDef
+        }
+        if candidates == null {
+            return false
+        }
+
+        scope := nodes.BindingScope
+        if scope == null {
+            return false
+        }
+        methodArguments := new Type[](nodes.ChildCount(callee))
+        index := 0
+        while index < methodArguments.Length {
+            canonical := ""
+            claimed := false
+            resolvedArgument := typeof(object)
+            if !ColumnarTypeOfPlanner.TryBuildTypeCanonical(nodes, source, nodes.Child(callee, index), 0, out canonical) || !scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out resolvedArgument, out claimed) {
+                return false
+            }
+            methodArguments[index] = resolvedArgument
+            index += 1
+        }
+        ownerParameters := definition.Builder.GetGenericArguments()
+        ownerArguments := new Type[](0)
+        if receiverType.get_IsGenericType() {
+            ownerArguments = receiverType.GetGenericArguments()
+        }
+
+        selected: ColumnarInstanceMethodDef? = null
+        selectedParameters := new Type[](0)
+        selectedReturn := typeof(object)
+        selectedPlacement := new int[](0)
+        bestScore := -1
+        tied := false
+        for candidate in candidates {
+            generics := candidate.Generics
+            if generics == null || generics.TypeParams.Length != methodArguments.Length || candidate.ParamTypes.Length != argumentTypes.Length || candidate.ParamNames.Length != candidate.ParamTypes.Length {
+                continue
+            }
+            placement := new int[](0)
+            if !ColumnarNamedArgumentBinder.TryPlace(nodes, source, callNode, 1, argumentTypes.Length, candidate.ParamNames, candidate.ParamTypes.Length, out placement) {
+                continue
+            }
+            parameters := new Type[](candidate.ParamTypes.Length)
+            valid := true
+            p := 0
+            while p < parameters.Length {
+                closedParameter := typeof(object)
+                if !ColumnarGenericConstraintPlanner.TrySubstituteGenericMemberType(ownerParameters, ownerArguments, generics.TypeParams, methodArguments, candidate.ParamTypes[p], out closedParameter) {
+                    valid = false
+                }
+                parameters[p] = closedParameter
+                p += 1
+            }
+            closedReturn := typeof(object)
+            if !valid || !ColumnarGenericConstraintPlanner.TrySubstituteGenericMemberType(ownerParameters, ownerArguments, generics.TypeParams, methodArguments, candidate.ReturnType, out closedReturn) {
+                continue
+            }
+            placedTypes := new Type[](argumentTypes.Length)
+            placedFacts := ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length)
+            p = 0
+            while p < placement.Length {
+                placedTypes[placement[p]] = argumentTypes[p]
+                CopyArgumentFactInto(argumentFacts, p, placedFacts, placement[p])
+                placedFacts.WrittenOrderSlots[p] = placement[p]
+                if placement[p] != p {
+                    placedFacts.RequiresReorder = true
+                }
+                p += 1
+            }
+            score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameters, placedTypes, placedFacts)
+            if score > bestScore {
+                bestScore = score
+                selected = candidate
+                selectedParameters = parameters
+                selectedReturn = closedReturn
+                selectedPlacement = placement
+                tied = false
+            } else if score >= 0 && score == bestScore {
+                tied = true
+            }
+        }
+        if selected == null || tied || !AppendNamedReceiver(receiverName, receiverType, definition.IsReference, bindings, plan) {
+            return false
+        }
+        placedTypes := new Type[](argumentTypes.Length)
+        placedFacts := ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length)
+        index = 0
+        while index < selectedPlacement.Length {
+            placedTypes[selectedPlacement[index]] = argumentTypes[index]
+            CopyArgumentFactInto(argumentFacts, index, placedFacts, selectedPlacement[index])
+            placedFacts.WrittenOrderSlots[index] = selectedPlacement[index]
+            if selectedPlacement[index] != index {
+                placedFacts.RequiresReorder = true
+            }
+            index += 1
+        }
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), placedTypes, selectedParameters, placedFacts) {
+            return false
+        }
+        selectedGenerics := selected.Generics
+        sourceRegistry := new Dictionary<string, ColumnarStructDef>(StringComparer.Ordinal)
+        for sourceDefinition in bindings.SourceTypeDefinitions {
+            sourceRegistry[sourceDefinition.DeclaredTypeName] = sourceDefinition
+        }
+        if selectedGenerics == null || !ColumnarGenericConstraintPlanner.TryValidateGenericSiblingConstraints(selectedGenerics.TypeParams, selectedGenerics.SpecialConstraints, selectedGenerics.BaseConstraints, selectedGenerics.InterfaceConstraints, methodArguments, methodArguments, sourceRegistry) {
+            return false
+        }
+        definitionMethod: MethodInfo = selected.Builder
+        if receiverType.get_IsGenericType() && !receiverType.get_IsGenericTypeDefinition() {
+            definitionMethod = ColumnarClosedGenericMemberResolver.ResolveMethod(receiverType, selected.Builder)
+        }
+        closedMethod := definitionMethod.MakeGenericMethod(methodArguments)
+        methodIndex := plan.AddMethodWithSignature(closedMethod, receiverType, selectedParameters, selectedReturn, false, selected.Builder.get_IsAbstract())
+        plan.AppendMethodInstruction(definition.IsReference ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+        resultType = selectedReturn
+        ownership = ColumnarDirectCallOwnership.Planned
+        return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
+    }
+
+    static func TryGetNamedReceiverType(name: string, bindings: ColumnarFragmentBindings, out receiverType: Type): bool {
+        receiverType = typeof(object)
+        if bindings.Locals.ContainsKey(name) {
+            receiverType = bindings.Locals[name].get_LocalType()
+            return true
+        }
+        if bindings.PlanLocals.ContainsKey(name) {
+            receiverType = bindings.PlanLocals[name].Item2
+            return true
+        }
+        return bindings.ParameterTypes.TryGetValue(name, out receiverType) && !receiverType.get_IsByRef()
+    }
+
+    static func AppendNamedReceiver(name: string, receiverType: Type, isReference: bool, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
+        if bindings.Locals.ContainsKey(name) {
+            local := plan.AddAmbientLocal(bindings.Locals[name])
+            plan.AppendAmbientLocalInstruction(isReference ? ColumnarCodePlanContract.Ldloc() : ColumnarCodePlanContract.Ldloca(), local)
+            return true
+        }
+        if bindings.PlanLocals.ContainsKey(name) {
+            local := bindings.PlanLocals[name].Item1
+            plan.AppendPlanLocalInstruction(isReference ? ColumnarCodePlanContract.Ldloc() : ColumnarCodePlanContract.Ldloca(), local)
+            return true
+        }
+        if bindings.ParameterOrdinals.ContainsKey(name) {
+            ordinal := bindings.ParameterOrdinals[name]
+            argumentIndex := -1
+            index := 0
+            while index < plan.ArgumentCount {
+                if plan.ArgumentOrdinals[index] == ordinal {
+                    argumentIndex = index
+                    break
+                }
+                index += 1
+            }
+            if argumentIndex < 0 {
+                argumentIndex = plan.AddArgument(ordinal, plan.AddType(receiverType), false)
+            }
+            plan.AppendArgumentInstruction(isReference ? ColumnarCodePlanContract.Ldarg() : ColumnarCodePlanContract.Ldarga(), argumentIndex)
+            return true
+        }
+        return false
+    }
+
+    static func CopyArgumentFactInto(sourceFacts: ColumnarDirectCallArgumentFacts, sourceIndex: int, targetFacts: ColumnarDirectCallArgumentFacts, targetIndex: int) {
+        targetFacts.SourceTypeDefinitions = sourceFacts.SourceTypeDefinitions
+        targetFacts.ArgumentNodes[targetIndex] = sourceFacts.ArgumentNodes[sourceIndex]
+        targetFacts.IsUnsuffixedIntegerLiteral[targetIndex] = sourceFacts.IsUnsuffixedIntegerLiteral[sourceIndex]
+        targetFacts.IsNegativeIntegerLiteral[targetIndex] = sourceFacts.IsNegativeIntegerLiteral[sourceIndex]
+        targetFacts.IntegerLiteralValues[targetIndex] = sourceFacts.IntegerLiteralValues[sourceIndex]
+        targetFacts.IsNullLiteral[targetIndex] = sourceFacts.IsNullLiteral[sourceIndex]
+        targetFacts.IsByRefArgument[targetIndex] = sourceFacts.IsByRefArgument[sourceIndex]
+        targetFacts.IsIntegerConstantArrayLiteral[targetIndex] = sourceFacts.IsIntegerConstantArrayLiteral[sourceIndex]
+        targetFacts.ArrayLiteralMinimumValues[targetIndex] = sourceFacts.ArrayLiteralMinimumValues[sourceIndex]
+        targetFacts.ArrayLiteralMaximumValues[targetIndex] = sourceFacts.ArrayLiteralMaximumValues[sourceIndex]
     }
 
     static func TryAppendSparseNamedSiblingCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out resultType: Type): bool {
@@ -913,7 +1126,7 @@ class ColumnarDirectCallPlanner {
         resultType = typeof(int)
         name := nodes.Text(source, callee)
         facts: ColumnarSiblingCallFacts? = null
-        if name.IndexOf(".", StringComparison.Ordinal) >= 0 || !bindings.SiblingCallables.TryGetValue(name, out facts) || facts == null || facts.TypeParameterCount != nodes.ChildCount(callee) || facts.ParameterTypes.Length != argumentTypes.Length || HasNonOrdinarySiblingParameter(facts.ParameterTypes, facts.ParameterModifierKinds) || bindings.IsSiblingShadowedByValue(name) {
+        if name.IndexOf(".", StringComparison.Ordinal) >= 0 || !bindings.SiblingCallables.TryGetValue(name, out facts) || facts == null || facts.TypeParameterCount != nodes.ChildCount(callee) || facts.ParameterNames.Length != facts.ParameterTypes.Length || facts.ParameterDefaultKinds.Length != facts.ParameterTypes.Length || facts.ParameterDefaultTexts.Length != facts.ParameterTypes.Length || facts.ParameterModifierKinds.Length != facts.ParameterTypes.Length || bindings.IsSiblingShadowedByValue(name) {
             legacyWholeSubtreePlanning = true
             return false
         }
@@ -955,9 +1168,69 @@ class ColumnarDirectCallPlanner {
             parameterIndex += 1
         }
         returnType := typeof(object)
-        if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(genericParameters, typeArguments, facts.ReturnType, out returnType) || ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts) < 0 || !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, parameterTypes, argumentFacts) {
+        if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(genericParameters, typeArguments, facts.ReturnType, out returnType) {
             legacyWholeSubtreePlanning = true
             return false
+        }
+        argumentCheckpoint := plan.CreateCheckpoint()
+        paramsAppended := TryAppendExplicitGenericParamsArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, argumentTypes, argumentFacts, parameterTypes, facts.ParameterNames, facts.ParameterDefaultKinds, facts.ParameterDefaultTexts, facts.ParameterModifierKinds)
+        directScore := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts)
+        directAppended := false
+        if !paramsAppended && directScore >= 0 {
+            directAppended = AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, parameterTypes, argumentFacts)
+        }
+        if !paramsAppended && !directAppended {
+            plan.Rollback(argumentCheckpoint)
+            placement := new int[](0)
+            claimed := new bool[](0)
+            if !ColumnarNamedArgumentBinder.TryPlaceSparse(nodes, source, callNode, 1, argumentTypes.Length, facts.ParameterNames, out placement, out claimed) {
+                legacyWholeSubtreePlanning = true
+                return false
+            }
+
+            slot := 0
+            while slot < claimed.Length {
+                if !claimed[slot] && facts.ParameterDefaultKinds[slot] < 0 {
+                    legacyWholeSubtreePlanning = true
+                    return false
+                }
+                slot += 1
+            }
+
+            locals := new int[](parameterTypes.Length)
+            Array.Fill(locals, -1)
+            written := 0
+            while written < argumentTypes.Length {
+                parameterSlot := placement[written]
+                singleTypes := new Type[](1)
+                singleTypes[0] = argumentTypes[written]
+                singleParameters := new Type[](1)
+                singleParameters[0] = parameterTypes[parameterSlot]
+                singleFacts := CopyArgumentFact(argumentFacts, written)
+                if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(singleParameters, singleTypes, singleFacts) < 0 {
+                    legacyWholeSubtreePlanning = true
+                    return false
+                }
+                if !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), singleTypes, singleParameters, singleFacts, 0) {
+                    legacyWholeSubtreePlanning = true
+                    return false
+                }
+                local := plan.DeclarePlanLocal(plan.AddType(singleParameters[0]))
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), local)
+                locals[parameterSlot] = local
+                written += 1
+            }
+
+            slot = 0
+            while slot < parameterTypes.Length {
+                if locals[slot] >= 0 {
+                    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), locals[slot])
+                } else if !ColumnarConstructionPlanner.TryAppendConstructorDefault(nodes, plan, parameterTypes[slot], facts.ParameterDefaultKinds[slot], facts.ParameterDefaultTexts[slot], bindings) {
+                    legacyWholeSubtreePlanning = true
+                    return false
+                }
+                slot += 1
+            }
         }
 
         closedMethod := method.MakeGenericMethod(typeArguments)
@@ -971,6 +1244,102 @@ class ColumnarDirectCallPlanner {
         resultType = returnType
         ownership = ColumnarDirectCallOwnership.Planned
         return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
+    }
+
+    // A trailing params array has three ordinary call shapes: a direct array, an omitted empty
+    // array, or expanded element arguments. Named fixed arguments still use the same placement
+    // rule, and every written value is parked before signature-order reload so side effects remain
+    // in source order.
+    static func TryAppendExplicitGenericParamsArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, parameterTypes: Type[], parameterNames: string[], defaultKinds: int[], defaultTexts: string[], modifierKinds: int[]): bool {
+        if parameterTypes.Length == 0 || modifierKinds[parameterTypes.Length - 1] != 3 || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameterTypes[parameterTypes.Length - 1]) {
+            return false
+        }
+        fixedCount := parameterTypes.Length - 1
+        paramsSlot := fixedCount
+        paramsType := parameterTypes[paramsSlot]
+        elementType := paramsType.GetElementType()
+
+        // A named params value and a spread value both denote the complete array. The ordinary
+        // sparse/direct routes already know how to preserve their relative written position.
+        written := 0
+        while written < argumentTypes.Length {
+            raw := nodes.Child(callNode, 1 + written)
+            value := ColumnarNamedArgumentBinder.ArgumentValueNode(nodes, raw)
+            name := ColumnarNamedArgumentBinder.ArgumentName(nodes, source, raw)
+            if (name != null && ColumnarNamedArgumentBinder.ParameterIndexOf(parameterNames, name) == paramsSlot) || nodes.Kind(value) == 64 {
+                return false
+            }
+            written += 1
+        }
+
+        fixedLocals := new int[](fixedCount)
+        Array.Fill(fixedLocals, -1)
+        expandedLocals := new int[](argumentTypes.Length)
+        expandedCount := 0
+        nextFixed := 0
+        written = 0
+        while written < argumentTypes.Length {
+            raw := nodes.Child(callNode, 1 + written)
+            name := ColumnarNamedArgumentBinder.ArgumentName(nodes, source, raw)
+            slot := -1
+            if name != null {
+                slot = ColumnarNamedArgumentBinder.ParameterIndexOf(parameterNames, name)
+                if slot < 0 || slot >= fixedCount || fixedLocals[slot] >= 0 {
+                    return false
+                }
+            } else {
+                while nextFixed < fixedCount && fixedLocals[nextFixed] >= 0 {
+                    nextFixed += 1
+                }
+                if nextFixed < fixedCount {
+                    slot = nextFixed
+                    nextFixed += 1
+                }
+            }
+
+            expected := slot >= 0 ? parameterTypes[slot] : elementType
+            actual := new Type[](1)
+            actual[0] = argumentTypes[written]
+            expectedArray := new Type[](1)
+            expectedArray[0] = expected
+            oneFacts := CopyArgumentFact(argumentFacts, written)
+            if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expectedArray, actual, oneFacts) < 0 || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), actual, expectedArray, oneFacts, 0) {
+                return false
+            }
+            local := plan.DeclarePlanLocal(plan.AddType(expected))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), local)
+            if slot >= 0 {
+                fixedLocals[slot] = local
+            } else {
+                expandedLocals[expandedCount] = local
+                expandedCount += 1
+            }
+            written += 1
+        }
+
+        slot := 0
+        while slot < fixedCount {
+            if fixedLocals[slot] >= 0 {
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), fixedLocals[slot])
+            } else if !ColumnarConstructionPlanner.TryAppendConstructorDefault(nodes, plan, parameterTypes[slot], defaultKinds[slot], defaultTexts[slot], bindings) {
+                return false
+            }
+            slot += 1
+        }
+        countIndex := plan.AddInt32(expandedCount)
+        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), countIndex)
+        elementTypeIndex := plan.AddType(elementType)
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), elementTypeIndex)
+        index := 0
+        while index < expandedCount {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+            arrayIndex := plan.AddInt32(index)
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), arrayIndex)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), expandedLocals[index])
+            ColumnarConstructionPlanner.AppendArrayElementStore(plan, elementType)
+            index += 1
+        }
+        return true
     }
 
     // The explicit generic callee stores its complete dotted value name and its type-reference

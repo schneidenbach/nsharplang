@@ -492,20 +492,8 @@ class ColumnarGenericConstraintPlanner {
             return false
         }
 
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
-            element: Type = null
-            if !TrySubstituteGenericTypeArguments(
-                typeParams,
-                binding,
-                sourceType.GetElementType(),
-                out element
-            ) {
-                return false
-            }
-            substituted = element.MakeArrayType()
-            return true
-        }
-
+        // A managed reference reports an element type too, but it is not an SZ array. Check it
+        // before the defensive array probe so a pre-bake `T&` closes to `int&`, never `int[]`.
         if sourceType.get_IsByRef() {
             element: Type = null
             if !TrySubstituteGenericTypeArguments(
@@ -517,6 +505,20 @@ class ColumnarGenericConstraintPlanner {
                 return false
             }
             substituted = element.MakeByRefType()
+            return true
+        }
+
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
+            element: Type = null
+            if !TrySubstituteGenericTypeArguments(
+                typeParams,
+                binding,
+                sourceType.GetElementType(),
+                out element
+            ) {
+                return false
+            }
+            substituted = element.MakeArrayType()
             return true
         }
 
@@ -542,6 +544,78 @@ class ColumnarGenericConstraintPlanner {
             return true
         }
 
+        if sourceType.get_ContainsGenericParameters() {
+            return false
+        }
+        substituted = sourceType
+        return true
+    }
+
+    // Close a signature that belongs to a generic method on a generic source type. The two
+    // parameter lists are separate CLR owners and may both contain position zero, so identity is
+    // the only sound discriminator while their builders are still unbaked.
+    static func TrySubstituteGenericMemberType(
+        ownerParameters: Type[],
+        ownerArguments: Type[],
+        methodParameters: Type[],
+        methodArguments: Type[],
+        sourceType: Type,
+        out substituted: Type
+    ): bool {
+        substituted = null
+        if ownerParameters.Length != ownerArguments.Length || methodParameters.Length != methodArguments.Length {
+            return false
+        }
+        if sourceType.get_IsGenericParameter() {
+            index := 0
+            while index < methodParameters.Length {
+                if Object.ReferenceEquals(methodParameters[index], sourceType) {
+                    substituted = methodArguments[index]
+                    return substituted != null
+                }
+                index += 1
+            }
+            index = 0
+            while index < ownerParameters.Length {
+                if Object.ReferenceEquals(ownerParameters[index], sourceType) {
+                    substituted = ownerArguments[index]
+                    return substituted != null
+                }
+                index += 1
+            }
+            return false
+        }
+        if sourceType.get_IsByRef() {
+            element: Type = null
+            if !TrySubstituteGenericMemberType(ownerParameters, ownerArguments, methodParameters, methodArguments, sourceType.GetElementType(), out element) {
+                return false
+            }
+            substituted = element.MakeByRefType()
+            return true
+        }
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
+            element: Type = null
+            if !TrySubstituteGenericMemberType(ownerParameters, ownerArguments, methodParameters, methodArguments, sourceType.GetElementType(), out element) {
+                return false
+            }
+            substituted = element.MakeArrayType()
+            return true
+        }
+        if sourceType.get_IsGenericType() && !sourceType.get_IsGenericTypeDefinition() {
+            arguments := sourceType.GetGenericArguments()
+            closed := new Type[](arguments.Length)
+            index := 0
+            while index < arguments.Length {
+                closedArgument := typeof(object)
+                if !TrySubstituteGenericMemberType(ownerParameters, ownerArguments, methodParameters, methodArguments, arguments[index], out closedArgument) {
+                    return false
+                }
+                closed[index] = closedArgument
+                index += 1
+            }
+            substituted = sourceType.GetGenericTypeDefinition().MakeGenericType(closed)
+            return true
+        }
         if sourceType.get_ContainsGenericParameters() {
             return false
         }

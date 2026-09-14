@@ -156,6 +156,52 @@ test "generic call binding retains earlier inference across array and recursive 
     assert retainedBinding[0] == typeof(int)
 }
 
+test "generic substitution preserves a pre-bake managed reference instead of turning it into an array" {
+    parameters := GenericCallBindingParameters("ManagedReference", 1)
+    binding := new Type[](1)
+    binding[0] = typeof(int)
+    substituted: Type = null
+
+    assert ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(
+        parameters,
+        binding,
+        parameters[0].MakeByRefType(),
+        out substituted
+    )
+    assert substituted == typeof(int).MakeByRefType()
+    assert substituted.get_IsByRef()
+    assert !substituted.get_IsArray()
+}
+
+test "generic member substitution distinguishes enclosing and method parameter identities" {
+    owner := TypeOfCreateBuilder(
+        "GenericMemberIdentity",
+        "ColumnarGenericCallBinding.GenericMemberIdentity",
+        1
+    )
+    ownerParameters := owner.GetGenericArguments()
+    method := owner.DefineMethod("Pick", MethodAttributes.Public)
+    methodParameters := method.DefineGenericParameters(["U"])
+    signature := GenericCallBindingClose2(typeof(ValueTuple<int, int>).GetGenericTypeDefinition(), ownerParameters[0], methodParameters[0])
+    ownerArguments := new Type[](1)
+    ownerArguments[0] = typeof(string)
+    methodArguments := new Type[](1)
+    methodArguments[0] = typeof(int)
+    substituted: Type = null
+
+    assert ColumnarGenericConstraintPlanner.TrySubstituteGenericMemberType(
+        ownerParameters,
+        ownerArguments,
+        methodParameters,
+        methodArguments,
+        signature,
+        out substituted
+    )
+    arguments := substituted.GetGenericArguments()
+    assert arguments[0] == typeof(string)
+    assert arguments[1] == typeof(int)
+}
+
 test "generic call binding admits direct source shapes but declines a composed builder-bound argument" {
     parameters := GenericCallBindingParameters("SourceBoundary", 1)
     sourceDefinition := TypeOfCreateBuilder(

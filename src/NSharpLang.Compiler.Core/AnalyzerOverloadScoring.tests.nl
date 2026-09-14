@@ -877,24 +877,30 @@ test "a directly passed params array is exactly one trailing non-spread assignab
     direct := new List<Argument>()
     direct.Add(new Argument(null, new IdentifierExpression("xs", 1, 1), ArgumentModifier.None))
     directTypes := OverloadTypeList(arrayType)
-    assert scoring.IsSingleDirectNSharpParamsArrayArgument(0, direct, directTypes, arrayType)
+    assert scoring.IsDirectNSharpParamsArrayArgument(0, 0, direct, directTypes, arrayType)
 
     // A SPREAD is an expansion, not a direct array.
     spread := new List<Argument>()
     spreadValue: Expression = new SpreadExpression(new IdentifierExpression("xs", 1, 1), 1, 1)
     spread.Add(new Argument(null, spreadValue, ArgumentModifier.None))
-    assert !scoring.IsSingleDirectNSharpParamsArrayArgument(0, spread, directTypes, arrayType)
+    assert !scoring.IsDirectNSharpParamsArrayArgument(0, 0, spread, directTypes, arrayType)
 
     // A non-assignable single argument is a loose element, not the array.
     scalarTypes := OverloadTypeList(BuiltInTypes.Int)
-    assert !scoring.IsSingleDirectNSharpParamsArrayArgument(0, direct, scalarTypes, arrayType)
+    assert !scoring.IsDirectNSharpParamsArrayArgument(0, 0, direct, scalarTypes, arrayType)
 
     // Two arguments cannot be one array.
     twoArguments := new List<Argument>()
     twoArguments.Add(new Argument(null, new IdentifierExpression("a", 1, 1), ArgumentModifier.None))
     twoArguments.Add(new Argument(null, new IdentifierExpression("b", 1, 1), ArgumentModifier.None))
     twoTypes := OverloadTypeList2(arrayType, arrayType)
-    assert !scoring.IsSingleDirectNSharpParamsArrayArgument(0, twoArguments, twoTypes, arrayType)
+    assert !scoring.IsDirectNSharpParamsArrayArgument(0, 0, twoArguments, twoTypes, arrayType)
+
+    namedArguments := new List<Argument>()
+    namedArguments.Add(new Argument("values", new IdentifierExpression("xs", 1, 1), ArgumentModifier.None))
+    namedArguments.Add(new Argument("seed", new IdentifierExpression("seed", 1, 1), ArgumentModifier.None))
+    namedTypes := OverloadTypeList2(arrayType, BuiltInTypes.Int)
+    assert scoring.IsDirectNSharpParamsArrayArgument(0, 1, namedArguments, namedTypes, arrayType)
 }
 
 test "a spread argument contributes its ELEMENT type to generic inference" {
