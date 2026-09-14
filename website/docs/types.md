@@ -1864,11 +1864,6 @@ Two rules the compiler enforces about the type-argument list itself:
   (`summary := Kernels.Summarize(args)` then `summary.ShowHelp`). The same member read works off a
   parameter of that type and off a local initialised with `new`, so binding the value differently is
   the workaround.
-- A collection expression whose elements have **no common type**, written against an overload set of
-  the same arity declared in the SAME project, type-checks and then declines at emission
-  (`Sink.Accept([1, "b", null])` where `Accept` takes both `int[]` and `object[]`). The emitter picks
-  a same-arity candidate before it looks at the argument. A single candidate of that arity, and an
-  overload set reached with a literal whose elements DO have a common type, are both unaffected.
 - A **conditional with no type left to take** declines at emission with
   [NL103](./errors/NL103.md). Two shapes reach it: BOTH arms throwing
   (`ok ? throw new A() : throw new B()` — C# refuses this too, since there is nothing for the

@@ -3370,11 +3370,89 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // Resolve a STATIC method call on `def`'s chain by name + ARG COUNT, nearest declaration first. A type whose
+    // THE STATIC TWIN OF `TrySelectInstanceMethodOnChain`, WHICH IS THE SELECTOR A CALL SITE NEEDS.
+    //
+    // `TryFindStaticMethodOnChain` below answers by NAME AND ARITY ALONE, taking the first
+    // declaration it meets. That is the right answer for the existence questions that read it (is
+    // this bare name a static of the enclosing type; does the callee never return), and the wrong one
+    // for a CALL, because an overload set of the same arity is chosen by its ARGUMENTS:
+    // `Sink.Accept([1, "b", null])` with `Accept(int[])` beside `Accept(object[])` bound the `int[]`
+    // one because it is declared first, and then declined at `emit.call.static-user-argument` — a
+    // literal the analyzer had already target-typed at `object[]`.
+    //
+    // A COLLECTION EXPRESSION is the shape that makes the difference visible, because it has no type
+    // of its own to score with; what it does have is an answer to "can you be emitted at this
+    // parameter", which is the same predicate the instance selector already uses and the same one the
+    // selected overload will be emitted with.
+    //
+    // The walk and the refusals are the instance selector's, exactly: a level whose overload set
+    // carries the name but no matching arity does not stop the walk; a level that DOES have arity
+    // matches answers for the whole call, and two applicable candidates there is an ambiguity that is
+    // refused rather than guessed.
+    private func TrySelectStaticMethodOnChain(def: ColumnarStructDef, name: string, callIdx: int, argCount: int, out method: ColumnarStaticMethodDef): bool {
+        method = null
+        for d := def; d != null; d = d.BaseDef {
+            let hadArityMatch: bool = false
+            if (TrySelectStaticMethodOnDef(d, name, callIdx, argCount, out method, out hadArityMatch)) {
+                return true
+            }
+            if (hadArityMatch) {
+                return false
+            }
+        }
+        method = null
+        return false
+    }
+
+    private func TrySelectStaticMethodOnDef(def: ColumnarStructDef, name: string, callIdx: int, argCount: int, out method: ColumnarStaticMethodDef, out hadArityMatch: bool): bool {
+        method = null
+        hadArityMatch = false
+        let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+        if (!def.StaticMethods.TryGetValue(name, out overloads)) {
+            return false
+        }
+
+        arityMatches := 0
+        soleArityMatch: ColumnarStaticMethodDef? = null
+        for candidate in overloads {
+            if (candidate.Generics != null || candidate.ParamTypes.Length != argCount) {
+                continue
+            }
+            hadArityMatch = true
+            arityMatches++
+            soleArityMatch = candidate
+        }
+
+        if (arityMatches == 0) {
+            return false
+        }
+        if (arityMatches == 1) {
+            method = soleArityMatch
+            return true
+        }
+
+        selected := false
+        for candidate in overloads {
+            if (candidate.Generics != null || candidate.ParamTypes.Length != argCount || !CanDeclaredCallArgumentsMatch(callIdx, candidate.ParamTypes, true)) {
+                continue
+            }
+            if (selected) {
+                method = null
+                return false
+            }
+            method = candidate
+            selected = true
+        }
+
+        return selected
+    }
+
+    // Resolve a STATIC method on `def`'s chain by name + ARG COUNT, nearest declaration first. A type whose
     // overload set carries the name but has
-    // no matching arity does NOT stop the walk — a base overload of the right arity still binds. (Same-arity
-    // overload sets were declined in PASS 0b, so an arity match is unique per type.) The arg TYPES are checked at
-    // the emit site (a mismatch declines because implicit conversions are not modelled here).
+    // no matching arity does NOT stop the walk — a base overload of the right arity still binds. This is the
+    // EXISTENCE question — is there a static of this name and arity — and it is asked by the bare-name and
+    // reachability readers; a CALL asks `TrySelectStaticMethodOnChain` above, which chooses among same-arity
+    // overloads by their arguments.
     private static func TryFindStaticMethodOnChain(def: ColumnarStructDef, name: string, argCount: int, out method: ColumnarStaticMethodDef): bool {
         for d := def; d != null; d = d.BaseDef {
             let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
@@ -16190,7 +16268,7 @@ sealed class ColumnarIlEmitter {
             }
             useExpandedParams := false
             userStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
-            if (TryFindStaticMethodOnChain(userType, member, argCount, out userStatic)) {
+            if (TrySelectStaticMethodOnChain(userType, member, callIdx, argCount, out userStatic)) {
                 useExpandedParams = ShouldUseExpandedParamsCall(callIdx, userStatic.ParamTypes, userStatic.ParamModifierKinds)
             } else {
                 if (!TryFindStaticExpandedParamsMethodOnChain(userType, member, callIdx, out userStatic)) {
