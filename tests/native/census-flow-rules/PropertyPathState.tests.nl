@@ -1,5 +1,7 @@
 namespace NSharpLang.CensusFlowRules.Tests
 
+import System
+
 
 // RUNTIME contracts for the flow state a PROPERTY PATH carries.
 //

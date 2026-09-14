@@ -1,6 +1,7 @@
 namespace NSharpLang.CensusSourceEvents.Tests
 
 import System
+import System.ComponentModel
 import System.Reflection
 
 test "an event declared by a source type is subscribed, raised and detached" {

@@ -2,6 +2,7 @@ namespace NSharpLang.ClassInheritance.Tests
 
 import System
 import System.Collections.Generic
+import System.Collections.ObjectModel
 import System.Reflection
 
 
