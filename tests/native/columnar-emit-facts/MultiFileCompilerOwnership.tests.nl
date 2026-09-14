@@ -451,21 +451,22 @@ test "MultiFileCompiler validation failure retains live errors and precedes outp
 // a `string`, which the backend now emits as an index loop, then assigning to a struct's own field
 // from its own method, which emits since the call site loads an addressable receiver by address, and
 // then a bare STATIC FIELD as a call receiver, which emits since a static member of the enclosing
-// type is a value binding; an `await foreach` INSIDE a generator body is the shape that declines
-// today, because releasing the inner enumerator on the exception and abandon paths needs an `await`
-// in a handler position that the async rewriter does not lower yet. When that one lands, replace it
-// with another declining shape rather than deleting this contract.
+// type is a value binding, and then an `await foreach` INSIDE a generator body, which emits now that
+// an awaiting handler is hoisted out of its protected region; an `async` LAMBDA inside a generator
+// body is the shape that declines today, because the lambda's own body needs an async wrap and a
+// fault guard the generator's lambda lowering does not write. When that one lands, replace it with
+// another declining shape rather than deleting this contract.
 test "MultiFileCompiler ordinary CLI pipeline requires columnar emission for a declining fixture" {
     compilation := MultiFileOwnerCompileWithPipelineFlags(
         "Program",
         EmitterCanonicalProjectYml("Program", "exe"),
         """
+import System
 import System.Collections.Generic
+import System.Threading.Tasks
 
-async func* Relay(source: IAsyncEnumerable<string>): IAsyncEnumerable<string> {
-    await foreach name in source {
-        yield name
-    }
+func* Relay(): IEnumerable<Func<Task<int>>> {
+    yield async () => 42
 }
 
 func main() {

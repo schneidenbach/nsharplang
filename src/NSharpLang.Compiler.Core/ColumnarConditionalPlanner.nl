@@ -332,6 +332,17 @@ class ColumnarConditionalPlanner {
     static func TryPlanReferenceCoalesce(nodes: ColumnarNodeTable, source: string, fallback: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, leftType: Type, out resultType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
         resultType = leftType
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
+        // `pop` IS A METHOD-BODY OPCODE, and a schema-v3 expression plan does not decline it — it
+        // THROWS ("The opcode does not use an operand-free row"). This arm is the only one of the
+        // three that needs it, so it is the only one that asks; the nullable and generic-parameter
+        // arms park the left in a plan local and use nothing a v3 fragment refuses. A v3 position
+        // therefore DECLINES here and the legacy emitter arm serves that `??`, exactly as it did
+        // before this owner existed — the same contract `ColumnarThrowExpressionPlanner` states for
+        // a `throw` arm, and for the same reason.
+        if !plan.IsMethodBodySchema() {
+            return false
+        }
+
         endLabel := plan.DefineLabel()
         plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
         plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), endLabel)
