@@ -12,6 +12,13 @@ func EcfItem(name: string, kind: string, itemType: string?, parameters: string?)
     return new CompletionItem(name, kind, itemType, parameters, null, false)
 }
 
+func EcfRequiredInitWords(): string[] {
+    words := new string[](2)
+    words[0] = "required"
+    words[1] = "init"
+    return words
+}
+
 test "every completion kind lands in the protocol slot the specification fixes" {
     assert EditorCompletionFacts.LspCompletionItemKind("method") == 2
     assert EditorCompletionFacts.LspCompletionItemKind("function") == 3
@@ -49,6 +56,13 @@ test "the detail is the signature: parameters, then type" {
 test "a member with only a type shows the type alone, with no stray separator" {
     field := EcfItem("Count", "field", "int", null)
     assert EditorCompletionFacts.MemberDetailText(field) == "int"
+}
+
+test "modifier words decorate editor detail without changing the completion type" {
+    property := new CompletionItem("User", "property", "string", null, null, false, 1, null, EcfRequiredInitWords())
+
+    assert property.Type == "string"
+    assert EditorCompletionFacts.MemberDetailText(property) == "required init string"
 }
 
 test "a member with only parameters shows them alone" {

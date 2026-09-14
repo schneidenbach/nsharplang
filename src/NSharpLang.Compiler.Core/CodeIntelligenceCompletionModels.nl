@@ -11,6 +11,7 @@ class CompletionItem {
     isStaticValue: bool
     overloadsValue: int
     importNamespaceValue: string?
+    modifierWordsValue: string[]?
 
     Name: string => nameValue
     Kind: string => kindValue
@@ -32,8 +33,14 @@ class CompletionItem {
     // not carry the namespace would be an offer the very next diagnostic underlines.
     ImportNamespace: string? => importNamespaceValue
 
-    constructor(Name: string, Kind: string, Type: string?, Parameters: string?, Documentation: string?, IsStatic: bool, Overloads: int = 1, ImportNamespace: string? = null) {
+    // WORDS THE EDITOR ADDS BEFORE THE TYPE IN ITS DETAIL COLUMN. `Type` stays the raw semantic
+    // type because it is also the stable value carried by the CLI completion schema; presentation
+    // such as `required init` must not be smuggled into that schema field.
+    ModifierWords: string[]? => modifierWordsValue
+
+    constructor(Name: string, Kind: string, Type: string?, Parameters: string?, Documentation: string?, IsStatic: bool, Overloads: int = 1, ImportNamespace: string? = null, ModifierWords: string[]? = null) {
         importNamespaceValue = ImportNamespace
+        modifierWordsValue = ModifierWords
         nameValue = Name
         kindValue = Kind
         typeValue = Type

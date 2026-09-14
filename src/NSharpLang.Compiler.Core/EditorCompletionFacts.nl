@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
+import System.Text
 
 // THE EDITOR'S HALF OF A COMPLETION ANSWER: THE SAME ITEMS THE CLI ALREADY COMPUTED, SAID IN THE
 // THREE WORDS AN LSP CLIENT UNDERSTANDS.
@@ -81,7 +82,7 @@ class EditorCompletionFacts {
     // and when an item carries neither, the kind word is better than an empty column.
     static func MemberDetailText(item: CompletionItem): string {
         parameters := item.Parameters
-        typeText := item.Type
+        typeText := DetailTypeText(item)
 
         if parameters != null && typeText != null {
             return (parameters ?? "") + ": " + (typeText ?? "") + OverloadSuffix(item)
@@ -96,6 +97,38 @@ class EditorCompletionFacts {
         }
 
         return item.Kind + OverloadSuffix(item)
+    }
+
+    // The raw type serves more than the editor: the CLI exposes it as the stable `type` field.
+    // Modifier words therefore travel separately on the completion and meet the type only at this
+    // presentation boundary. A member with no words keeps the exact detail it had before.
+    static func DetailTypeText(item: CompletionItem): string? {
+        typeText := item.Type
+        modifierWords := item.ModifierWords
+        if modifierWords == null || modifierWords.Length == 0 {
+            return typeText
+        }
+
+        builder := new StringBuilder()
+        index := 0
+        while index < modifierWords.Length {
+            if index > 0 {
+                builder.Append(" ")
+            }
+
+            builder.Append(modifierWords[index])
+            index = index + 1
+        }
+
+        if typeText != null {
+            if builder.Length > 0 {
+                builder.Append(" ")
+            }
+
+            builder.Append(typeText ?? "")
+        }
+
+        return builder.ToString()
     }
 
     // WHAT THE COLLAPSE OWES THE READER. One row now stands for every overload of a name, and the

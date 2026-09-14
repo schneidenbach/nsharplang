@@ -206,6 +206,27 @@ func QueryText(owner: object, propertyName: string): string {
     return value.ToString() ?? ""
 }
 
+func QueryWords(owner: object, propertyName: string): string {
+    words := QueryRequireList(QueryProperty(owner, propertyName), propertyName)
+    text := ""
+    index := 0
+    while index < words.Count {
+        if index > 0 {
+            text = text + " "
+        }
+
+        word := words[index]
+        if word == null {
+            throw new InvalidOperationException("The production query answered an empty " + propertyName + " word.")
+        }
+
+        text = text + (word.ToString() ?? "")
+        index = index + 1
+    }
+
+    return text
+}
+
 func QueryInt(owner: object, propertyName: string): int {
     value := QueryProperty(owner, propertyName)
     if value == null {
@@ -788,6 +809,40 @@ func QueryCompletionNames(answer: object, groupKey: string): List<string> {
     }
 
     return names
+}
+
+// The completion owner returns real CompletionItems rather than a display-string table. This helper
+// keeps an integration contract free to ask for the item's detail facts as well as its label.
+func QueryCompletionItemNamed(answer: object, groupKey: string, name: string): object? {
+    if !QueryCompletionHasGroup(answer, groupKey) {
+        return null
+    }
+
+    groups := QueryCompletionGroups(answer)
+    groupsType := groups.GetType()
+    itemProperty := groupsType.GetProperty("Item")
+    if itemProperty == null {
+        throw new InvalidOperationException("The production completions dictionary contract was incomplete.")
+    }
+
+    keyArguments := new object?[](1)
+    SetQueryObject(keyArguments, 0, groupKey)
+    group := itemProperty.GetValue(groups, keyArguments) as IList
+    if group == null {
+        return null
+    }
+
+    index := 0
+    while index < group.Count {
+        item := group[index]
+        if item != null && QueryText(item, "Name") == name {
+            return item
+        }
+
+        index = index + 1
+    }
+
+    return null
 }
 
 // ─── THE BINDING MAP ──────────────────────────────────────────────────────────────────────────
@@ -2462,6 +2517,176 @@ test "INHERIT: completions offer the external base's members beside the derived 
 
     // The derived type's OWN member is still offered, and it is offered once.
     assert properties.Contains("Tag")
+
+    QueryDeleteTemp(projectRoot)
+}
+
+// ─── EDITOR PROJECTIONS: SOURCE MEMBER SIGNATURES ──────────────────────────────────────────────
+//
+// Hover and completion are projections of the SAME analyzed source declaration. The member's binding
+// chooses its owner; the projection carries the modifier facts the ordinary type answer cannot. This
+// fixture has an inherited constructed field, an explicit accessor property, and same-line sibling
+// and nested owners, so a name-only source walk cannot accidentally pass.
+func EditorProjectionProject(): object {
+    projectRoot := QueryTempRoot()
+    QueryWriteProjectYaml(projectRoot, QueryDefaultProjectYaml())
+    QueryWriteSource(
+        projectRoot,
+        "Program.nl",
+        "namespace QueryTemp\n\nimport System\n\nclass BaseBox<T> {\n    required init Value: T\n}\n\nclass TextBox: BaseBox<string> {\n}\n\nclass PlainBox {\n    required init Plain: int\n}\n\nclass PropertyBox<T> {\n    storage: T\n\n    required init Managed: T {\n        get {\n            return storage\n        }\n        set {\n            storage = value\n        }\n    }\n}\n\nclass First { required init Name: string } class Second { Name: string }\nclass Outer { class InnerFirst { required init Name: string } class InnerSecond { Name: string } }\n\nfunc Read(box: TextBox): string {\n    return box.Value\n}\n\nfunc ReadPlain(box: PlainBox): int {\n    return box.Plain\n}\n\nfunc ReadManaged(box: PropertyBox<string>): string {\n    return box.Managed\n}\n"
+    )
+    return QueryLoadProject(projectRoot)
+}
+
+func EditorProjectionHover(snapshot: object, line: int, column: int): object {
+    hover := QueryGetHoverInfo(snapshot, "Program.nl", line, column)
+    if hover == null {
+        throw new InvalidOperationException("The production hover query answered nothing for the editor projection fixture.")
+    }
+
+    return hover
+}
+
+test "EDITOR PROJECTIONS: source member hover and completion preserve required init through constructed owners" {
+    snapshot := EditorProjectionProject()
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+
+    valueDeclarationLine := FindLineInFile(programPath, "required init Value")
+    valueDeclarationColumn := FindColumnInFile(programPath, valueDeclarationLine, "Value")
+    valueDeclarationHover := EditorProjectionHover(snapshot, valueDeclarationLine, valueDeclarationColumn)
+    assert QueryText(valueDeclarationHover, "Signature") == "field required init Value: T"
+    assert QueryText(valueDeclarationHover, "Kind") == "field"
+
+    valueUseLine := FindLineInFile(programPath, "return box.Value")
+    valueUseColumn := FindColumnInFile(programPath, valueUseLine, "Value")
+    valueUseHover := EditorProjectionHover(snapshot, valueUseLine, valueUseColumn)
+    assert QueryText(valueUseHover, "Signature") == "field required init Value: string"
+    assert QueryText(valueUseHover, "Kind") == "field"
+
+    valueDefinition := QueryFindDefinition(snapshot, "Program.nl", valueUseLine, valueUseColumn)
+    if valueDefinition == null {
+        throw new InvalidOperationException("The constructed inherited field had no definition binding.")
+    }
+    assert QueryText(valueDefinition, "Line") == valueDeclarationLine.ToString()
+    assert QueryText(valueDefinition, "Column") == valueDeclarationColumn.ToString()
+
+    valueCompletions := QueryGetCompletions(snapshot, "Program.nl", valueUseLine, valueUseColumn, false)
+    valueCompletion := QueryCompletionItemNamed(valueCompletions, "properties", "Value")
+    if valueCompletion == null {
+        throw new InvalidOperationException("The constructed inherited field was absent from completion.")
+    }
+    assert QueryText(valueCompletion, "Type") == "string"
+    assert QueryWords(valueCompletion, "ModifierWords") == "required init"
+
+    plainUseLine := FindLineInFile(programPath, "return box.Plain")
+    plainUseColumn := FindColumnInFile(programPath, plainUseLine, "Plain")
+    plainUseHover := EditorProjectionHover(snapshot, plainUseLine, plainUseColumn)
+    assert QueryText(plainUseHover, "Signature") == "field required init Plain: int"
+    plainCompletions := QueryGetCompletions(snapshot, "Program.nl", plainUseLine, plainUseColumn, false)
+    plainCompletion := QueryCompletionItemNamed(plainCompletions, "properties", "Plain")
+    if plainCompletion == null {
+        throw new InvalidOperationException("The direct source field was absent from completion.")
+    }
+    assert QueryText(plainCompletion, "Type") == "int"
+    assert QueryWords(plainCompletion, "ModifierWords") == "required init"
+
+    managedDeclarationLine := FindLineInFile(programPath, "required init Managed")
+    managedDeclarationColumn := FindColumnInFile(programPath, managedDeclarationLine, "Managed")
+    managedDeclarationHover := EditorProjectionHover(snapshot, managedDeclarationLine, managedDeclarationColumn)
+    assert QueryText(managedDeclarationHover, "Signature") == "property required init Managed: T"
+    assert QueryText(managedDeclarationHover, "Kind") == "property"
+
+    managedUseLine := FindLineInFile(programPath, "return box.Managed")
+    managedUseColumn := FindColumnInFile(programPath, managedUseLine, "Managed")
+    managedUseHover := EditorProjectionHover(snapshot, managedUseLine, managedUseColumn)
+    assert QueryText(managedUseHover, "Signature") == "property required init Managed: string"
+    assert QueryText(managedUseHover, "Kind") == "property"
+
+    managedCompletions := QueryGetCompletions(snapshot, "Program.nl", managedUseLine, managedUseColumn, false)
+    managedCompletion := QueryCompletionItemNamed(managedCompletions, "properties", "Managed")
+    if managedCompletion == null {
+        throw new InvalidOperationException("The constructed explicit property was absent from completion.")
+    }
+    assert QueryText(managedCompletion, "Type") == "string"
+    assert QueryWords(managedCompletion, "ModifierWords") == "required init"
+
+    QueryDeleteTemp(projectRoot)
+}
+
+test "EDITOR PROJECTIONS: exact declaration spans keep same-line sibling and nested owner modifiers separate" {
+    snapshot := EditorProjectionProject()
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+
+    siblingLine := FindLineInFile(programPath, "class First { required init Name")
+    firstNameColumn := FindColumnInFileAt(programPath, siblingLine, "Name", 1)
+    secondNameColumn := FindColumnInFileAt(programPath, siblingLine, "Name", 2)
+    assert QueryText(EditorProjectionHover(snapshot, siblingLine, firstNameColumn), "Signature") == "field required init Name: string"
+    assert QueryText(EditorProjectionHover(snapshot, siblingLine, secondNameColumn), "Signature") == "field Name: string"
+
+    nestedLine := FindLineInFile(programPath, "class Outer { class InnerFirst")
+    innerFirstNameColumn := FindColumnInFileAt(programPath, nestedLine, "Name", 1)
+    innerSecondNameColumn := FindColumnInFileAt(programPath, nestedLine, "Name", 2)
+    assert QueryText(EditorProjectionHover(snapshot, nestedLine, innerFirstNameColumn), "Signature") == "field required init Name: string"
+    assert QueryText(EditorProjectionHover(snapshot, nestedLine, innerSecondNameColumn), "Signature") == "field Name: string"
+
+    QueryDeleteTemp(projectRoot)
+}
+
+// A shadow diagnostic is deliberate in this fixture: the query contract still has to keep the inner
+// lambda parameter's binding distinct from the outer string. The contextual form beside it proves the
+// same ordinary projection works when the parameter type comes from its delegate target.
+func EditorLambdaProjectionProject(): object {
+    projectRoot := QueryTempRoot()
+    QueryWriteProjectYaml(projectRoot, QueryDefaultProjectYaml())
+    QueryWriteSource(
+        projectRoot,
+        "Program.nl",
+        "namespace QueryTemp\n\nimport System\n\nfunc Typed(): int {\n    value: string = \"outer\"\n    increment: Func<int, int> = (value: int) => value + 1\n    return increment(41)\n}\n\nfunc Contextual(): int {\n    increment: Func<int, int> = value => value + 1\n    return increment(41)\n}\n"
+    )
+    return QueryLoadProject(projectRoot)
+}
+
+test "EDITOR PROJECTIONS: typed and contextual lambda parameters project their bound value type and identity" {
+    snapshot := EditorLambdaProjectionProject()
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+
+    typedLine := FindLineInFile(programPath, "increment: Func<int, int> = (value: int)")
+    typedDeclarationColumn := FindColumnInFileAt(programPath, typedLine, "value", 1)
+    typedUseColumn := FindColumnInFileAt(programPath, typedLine, "value", 2)
+    typedDeclarationHover := EditorProjectionHover(snapshot, typedLine, typedDeclarationColumn)
+    typedUseHover := EditorProjectionHover(snapshot, typedLine, typedUseColumn)
+    assert QueryText(typedDeclarationHover, "Signature") == "variable value: int"
+    assert QueryText(typedUseHover, "Signature") == "variable value: int"
+
+    typedDefinition := QueryFindDefinition(snapshot, "Program.nl", typedLine, typedUseColumn)
+    if typedDefinition == null {
+        throw new InvalidOperationException("The typed lambda body reference had no definition binding.")
+    }
+    assert QueryText(typedDefinition, "Line") == typedLine.ToString()
+    assert QueryText(typedDefinition, "Column") == typedDeclarationColumn.ToString()
+
+    typedReferences := QueryFindReferences(snapshot, "Program.nl", typedLine, typedDeclarationColumn)
+    assert typedReferences.Count == 2
+    assert QueryDefinitionReferenceCount(typedReferences) == 1
+
+    typedUseType := QueryGetTypeAtPosition(snapshot, "Program.nl", typedLine, typedUseColumn)
+    if typedUseType == null {
+        throw new InvalidOperationException("The typed lambda body reference had no type result.")
+    }
+    assert QueryText(typedUseType, "ResolvedType") == "int"
+
+    contextualLine := FindLineInFile(programPath, "increment: Func<int, int> = value => value")
+    contextualDeclarationColumn := FindColumnInFileAt(programPath, contextualLine, "value", 1)
+    contextualUseColumn := FindColumnInFileAt(programPath, contextualLine, "value", 2)
+    assert QueryText(EditorProjectionHover(snapshot, contextualLine, contextualDeclarationColumn), "Signature") == "variable value: int"
+    assert QueryText(EditorProjectionHover(snapshot, contextualLine, contextualUseColumn), "Signature") == "variable value: int"
+
+    contextualReferences := QueryFindReferences(snapshot, "Program.nl", contextualLine, contextualDeclarationColumn)
+    assert contextualReferences.Count == 2
+    assert QueryDefinitionReferenceCount(contextualReferences) == 1
 
     QueryDeleteTemp(projectRoot)
 }

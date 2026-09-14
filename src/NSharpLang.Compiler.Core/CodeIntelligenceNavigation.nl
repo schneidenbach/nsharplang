@@ -21,11 +21,13 @@ import NSharpLang.Compiler.Ast
 // `ESCAPES TO (5)`, five property reads and NOTHING ELSE. Once the snapshot is an N# type the
 // family escapes to nothing at all, which is why it crosses in one piece.
 //
-// THE THREE ROUTES TO A TYPE ARE TRIED IN A FIXED ORDER AND THE ORDER IS THE POLICY.
+// THE FOUR ROUTES TO A TYPE ARE TRIED IN A FIXED ORDER AND THE ORDER IS THE POLICY.
 // `TypeAtPosition` asks the DECLARED NAME first (the cursor is on a declaration's own name), then
-// the TYPE USE (the cursor is on a type reference), and only then the EXPRESSION. A declaration
-// beats a use because the user pointed at the definition; a use beats an expression because a type
-// reference is not a value. Reordering them is a behaviour change, not a refactor.
+// the TYPE USE (the cursor is on a type reference), then a BOUND VALUE, and only then the
+// EXPRESSION. A declaration beats a use because the user pointed at the definition; a use beats a
+// value because a type reference is not a value; and a binding beats an enclosing expression because
+// a lambda parameter is not the lambda that contains it. Reordering them is a behaviour change, not
+// a refactor.
 //
 // THE BINDING MAP IS THE ONLY DEFINITION ORACLE. There is no syntactic fallback: a position that
 // the analyzer did not bind has no definition, and answering one from a name match would be the
@@ -226,6 +228,63 @@ class CodeIntelligenceNavigation {
         return new TypeResult(declaration.Name, resolvedType, declaration.Kind, location, nullability)
     }
 
+    // ── Route 3: the bound source value ──────────────────────────────────
+    // A lambda parameter has a binding declaration and a lexical semantic scope, but no standalone
+    // expression node. Asking the expression finder at its name therefore finds the enclosing lambda
+    // and reports `(T) -> U` instead of the parameter's `T`. The binding chooses the actual symbol;
+    // its own declaration position validates the lexical type before any use-site fact is accepted.
+    // A use-site expression type still wins when present so flow narrowing reaches the hover, but a
+    // same-named inner scope can never substitute for the binding the cursor actually resolved to.
+    // This is deliberately limited to `variable` bindings: functions and members keep their existing
+    // expression-specific projections below.
+    static func BoundVariableTypeAtPosition(snapshot: ProjectSnapshot, filePath: string, semanticModel: SemanticModel?, line: int, col: int): TypeResult? {
+        if semanticModel == null {
+            return null
+        }
+
+        declaration := TryResolveDefinitionViaBindings(snapshot, filePath, line, col)
+        if declaration == null || declaration.Kind != "variable" {
+            return null
+        }
+
+        declarationFile := declaration.File ?? ""
+        if !CodeIntelligenceResultKernels.MatchesFilePath(filePath, declarationFile) {
+            return null
+        }
+
+        // The binding map and the semantic scope are separate products of analysis. Re-resolving the
+        // declaration's exact name span proves the scope fact belongs to this binding rather than to
+        // a same-named value that happens to be visible at the query position.
+        boundAtDeclaration := TryResolveDefinitionViaBindings(snapshot, declarationFile, declaration.Line, declaration.Column)
+        if boundAtDeclaration == null || !boundAtDeclaration.Equals(declaration) {
+            return null
+        }
+
+        typeInfo := semanticModel.LookupIdentifierAtPosition(declaration.Name, declaration.Line, declaration.Column)
+        if typeInfo == null || BuiltInTypes.IsUnknown(typeInfo) {
+            return null
+        }
+
+        span := CodeIntelligenceSourceDoor.IdentifierSpanAt(CodeIntelligenceSourceDoor.SourceText(snapshot.SourceTexts, filePath), line, col)
+        if span.HasValue {
+            spanValue := span.Value
+            // A declaration name intentionally uses its scoped declaration type: the analyzer records
+            // the enclosing lambda at that position, not a parameter expression. A use name may have
+            // an exact expression type, whose flow refinement is more precise than the declared type.
+            if line != declaration.Line || spanValue.Item1 != declaration.Column {
+                useType := semanticModel.LookupTypeAtPosition(line, spanValue.Item1)
+                if useType != null && !BuiltInTypes.IsUnknown(useType) {
+                    typeInfo = useType
+                }
+            }
+        }
+
+        location := new LocationResult(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, declarationFile), declaration.Line, declaration.Column)
+        resolvedType := NullabilityMetadataReflection.FormatTypeInfo(typeInfo)
+        nullability := NullStateFacts.GetSchemaText(CodeIntelligenceTypeResolution.DefaultNullState(typeInfo))
+        return new TypeResult(declaration.Name, resolvedType, declaration.Kind, location, nullability)
+    }
+
     // ── Route 1: the declared name ──────────────────────────────────────
     // THE SELECTED WORD IS READ FROM SOURCE, NOT FROM THE TREE, because a declaration's own name is
     // exactly the text under the cursor and the tree would answer with the enclosing node. A blank
@@ -251,7 +310,7 @@ class CodeIntelligenceNavigation {
         return null
     }
 
-    // ── Route 3: the expression ─────────────────────────────────────────
+    // ── Route 4: the expression ─────────────────────────────────────────
     // THE EXPRESSION IS ASKED FIRST AND THE CANDIDATE NAMES ARE THE FALLBACK, and the resolved NAME
     // follows whichever answered: an expression answer keeps the expression's own query name, and a
     // name answer replaces it with the candidate that worked. That is why `resolvedName` is written
@@ -387,6 +446,11 @@ class CodeIntelligenceNavigation {
         typeUse := TypeUseAtPosition(snapshot, filePath, semanticModel, line, col)
         if typeUse != null {
             return typeUse
+        }
+
+        boundValue := BoundVariableTypeAtPosition(snapshot, filePath, semanticModel, line, col)
+        if boundValue != null {
+            return boundValue
         }
 
         expr := FindExpressionAtPositionRobust(cu, line, col)

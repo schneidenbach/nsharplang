@@ -37,7 +37,12 @@ class CompletionDeclarationFacts {
 
         if typeName == "FieldDeclaration" || typeName == "PropertyDeclaration" {
             memberType := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Type") as TypeReference
-            return new CompletionItem(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), "property", TypeReferenceFacts.GetDisplayNameOrVoid(memberType), null, null, false)
+            return ValueMemberItem(
+                TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"),
+                TypeReferenceFacts.GetDisplayNameOrVoid(memberType),
+                DeclarationFacts.GetDeclarationModifiers(declaration),
+                false
+            )
         }
 
         // AN EVENT IS ITS OWN OFFER. It is the one member a completion must NOT call a property:
@@ -132,7 +137,7 @@ class CompletionDeclarationFacts {
         // A field and a property are the same offer to whoever is typing: a named value with a
         // type. The completion says `"property"` for both.
         if kind == DeclaredMemberKind.Field || kind == DeclaredMemberKind.Property {
-            return new CompletionItem(member.Name, "property", TypeReferenceFacts.GetDisplayNameOrVoid(member.Type), null, null, member.IsStatic)
+            return ValueMemberItem(member.Name, TypeReferenceFacts.GetDisplayNameOrVoid(member.Type), member.DeclaredModifiers, member.IsStatic)
         }
 
         // An event is NOT that same offer: `on`/`off` is all a caller may write against it.
@@ -189,7 +194,7 @@ class CompletionDeclarationFacts {
         }
 
         if kind == DeclaredMemberKind.Field || kind == DeclaredMemberKind.Property {
-            return new CompletionItem(member.Name, "property", FormatSubstitutedMemberType(member.Type, semanticModels, declarationOwner, effectiveSubstitution), null, null, member.IsStatic)
+            return ValueMemberItem(member.Name, FormatSubstitutedMemberType(member.Type, semanticModels, declarationOwner, effectiveSubstitution), member.DeclaredModifiers, member.IsStatic)
         }
 
         if kind == DeclaredMemberKind.Event {
@@ -203,6 +208,14 @@ class CompletionDeclarationFacts {
     // reach through, not a value to read.
     static func DeclaredMemberTypeItem(member: DeclaredMemberInfo, kind: string): CompletionItem {
         return new CompletionItem(member.Name, kind, null, null, null, false)
+    }
+
+    // A value completion has two parallel facts: its raw type, which is part of the CLI contract,
+    // and its modifier words, which only the editor detail column composes into source-shaped text.
+    // Keeping them apart means a required field stays `type: "string"` in JSON while VS Code can
+    // still show `required init string` beside the label.
+    static func ValueMemberItem(name: string, typeText: string, modifiers: object, isStatic: bool): CompletionItem {
+        return new CompletionItem(name, "property", typeText, null, null, isStatic, 1, null, CodeIntelligenceDisplayText.FormatModifiers(modifiers))
     }
 
     // The parameter list a declared member shows. A parameter past the required count carries

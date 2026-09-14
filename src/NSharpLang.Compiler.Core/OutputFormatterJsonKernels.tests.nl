@@ -315,6 +315,13 @@ func OfjkCompletionsFixture(documentation: string?): CompletionResult {
     return new CompletionResult(CompletionContext.MemberAccess, "service", "TaskService", completions)
 }
 
+func OfjkRequiredInitWords(): string[] {
+    words := new string[](2)
+    words[0] = "required"
+    words[1] = "init"
+    return words
+}
+
 func OfjkInspectFixture(): InspectResult {
     references := new ReferenceResult[](2)
     references[0] = new ReferenceResult("Services/TaskService.nl", 93, 5, 8, "func GetStats(): TaskStats {", true)
@@ -568,6 +575,18 @@ test "the completions envelope root keys are exactly schemaVersion, command, ok,
     )
 
     assert OfjkRootKeysValidated(json) == "schemaVersion,command,ok,file,position,context,receiver,completions"
+}
+
+test "completion CLI type remains semantic when editor modifier words are present" {
+    items := new List<CompletionItem>()
+    items.Add(new CompletionItem("User", "property", "string", null, null, false, 1, null, OfjkRequiredInitWords()))
+
+    completions := new Dictionary<string, List<CompletionItem>>()
+    completions["properties"] = items
+    result := new CompletionResult(CompletionContext.MemberAccess, null, null, completions)
+    json := OutputFormatterJsonKernels.CompletionsToJson(result, "Program.nl", 4, 12)
+
+    assert OfjkKeyValues(json, "type") == "\"string\""
 }
 
 test "the doc envelope root keys are exactly schemaVersion, command, ok, query, result" {
