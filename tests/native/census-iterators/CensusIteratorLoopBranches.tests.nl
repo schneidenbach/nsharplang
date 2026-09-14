@@ -49,6 +49,16 @@ test "an array for..in skips and stops" {
     assert collected[1] == 5
 }
 
+test "a string comparison inside a generator is value equality" {
+    collected := new List<string>()
+    for value in NamedSkipping(["a", "", "b", "stop", "c"], "stop") {
+        collected.Add(value)
+    }
+    assert collected.Count == 2
+    assert collected[0] == "a"
+    assert collected[1] == "b"
+}
+
 test "a break out of a sequence for..in still disposes the enumerator" {
     trace := new CensusTrace()
     source := TracedSource([1, -1, 2, 9, 3], trace)

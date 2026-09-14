@@ -58,9 +58,7 @@ class LoopBranches {
     }
 
     // `for..in` over an ARRAY field — the index-loop lowering, which is a different emitter from the
-    // enumerator one below. (The elements are numbers rather than strings only because a string
-    // comparison in an iterator body is a SEPARATE decline this slice does not lift:
-    // `emit.iterator.unsupported-shape: an iterator body expression (node kind 12)`.)
+    // enumerator one below.
     static func* ArraySkipping(values: int[], stopAt: int): IEnumerable<int> {
         for value in values {
             if value == 0 {
@@ -156,5 +154,23 @@ func* TracedSource(values: int[], trace: CensusTrace): IEnumerable<int> {
         }
     } finally {
         trace.Add("disposed")
+    }
+}
+
+// STRING EQUALITY INSIDE A GENERATOR. `ceq` over two string references is the wrong answer and the
+// plan path had no `String.op_Equality` arm, so this shape declined the whole program with
+// `emit.iterator.unsupported-shape: an iterator body expression (node kind 12) could not be
+// lowered` — while `name + "!"` in the same body planned fine.
+func* NamedSkipping(values: string[], stopAt: string): IEnumerable<string> {
+    for value in values {
+        if value == "" {
+            continue
+        }
+
+        if value == stopAt {
+            break
+        }
+
+        yield value
     }
 }
