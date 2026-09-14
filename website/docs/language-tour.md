@@ -2478,6 +2478,26 @@ func main() {
 }
 ```
 
+`nameof` names something; it does not read it. Its target can be a local, a parameter, a type, a
+value member, an **event**, or a **method group** — including an overloaded one and a fully qualified
+one — and the answer is always the last segment's spelling. A method group inside `nameof` is not the
+"method used as a value" mistake (NL411) precisely because nothing is being used as a value:
+
+```n#
+class Report {
+    Title: string = ""
+    event Ready: Action?
+
+    static func Render(title: string): string => title
+}
+
+func main() {
+    print nameof(Report.Render)   // Render  -- a method group, not a call
+    print nameof(Report.Ready)    // Ready   -- an event, not a subscription
+    print nameof(Report.Title)    // Title
+}
+```
+
 `typeof` is also the one type position that accepts `void`. `void` is not a type a binding, field,
 parameter or array element can hold, so it is not written anywhere else; `typeof(void)` names
 `System.Void`, which is exactly the type a reflected `void` method reports as its return type.
