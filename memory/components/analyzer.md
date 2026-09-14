@@ -4950,9 +4950,10 @@ A call the planner then declines for some unrelated reason — a lambda argument
 residual emitter as the ordinary positional call it is. A placement that MOVES an argument is never
 flattened: only the planner can emit the move, because only it spills the written order.
 
-**What is still positional.** A `base(...)` / `this(...)` constructor chain records its arguments as
-source SPANS that are re-parsed as expressions, so a `name:` prefix there still declines at
-`parse.struct`; write the chain positionally. Separately — and independently of names — a source free
-function or method called with a TRAILING optional omitted still declines (`Opt(1)` where `Opt`
-declares `b: int = 5`), because only constructors and reflected members have call-site default
-filling; a named argument reaching a parameter that declares a default is unaffected.
+**Optional holes are filled by the caller.** A call such as `Opt(last: 9)` first places the written
+argument, then supplies the declaration default for every unclaimed slot. Source free functions,
+constructors, instance methods and static methods carry their default syntax beside their parameter
+names; referenced methods read the equivalent constants from `ParameterInfo`. Supplied expressions
+still run in written order before the final parameter-order load. A `base(...)` / `this(...)`
+constructor chain remains positional because its compact input records only argument expression
+spans; a `name:` prefix there currently declines at `parse.struct`.

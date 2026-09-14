@@ -103,6 +103,24 @@ class OptionalMethodSlots {
     }
 }
 
+class OptionalStaticSlots {
+    static func Read(first: int = 1, middle: int = 2, last: int = 3): int {
+        return first * 100 + middle * 10 + last
+    }
+}
+
+class SourceOptionalBase {
+    virtual func Pick(first: int = 1, second: int = 2): string {
+        return first.ToString() + second.ToString() + "base"
+    }
+}
+
+class SourceOptionalDerived: SourceOptionalBase {
+    override func Pick(first: int = 1, second: int = 2): string {
+        return first.ToString() + second.ToString() + "derived"
+    }
+}
+
 // A delegate parameter named at the call, which reaches emission through a different argument arm
 // than an ordinary value does.
 func ApplyTwice(value: int, mapper: Func<int, int>): int {
@@ -113,4 +131,39 @@ func ApplyTwice(value: int, mapper: Func<int, int>): int {
 func TryHalve(value: int, out half: int): bool {
     half = value / 2
     return value % 2 == 0
+}
+
+class ReceiverOrderRecorder {
+    Order: List<string>
+
+    constructor() {
+        Order = new List<string>()
+    }
+
+    func Receiver(): string {
+        Order.Add("receiver")
+        return "a,b"
+    }
+
+    func Argument(name: string, value: string): string {
+        Order.Add(name)
+        return value
+    }
+}
+
+class ReorderedOutAlias {
+    Value: int
+
+    constructor() {
+        Value = 0
+    }
+
+    func Parse(): bool {
+        return Int32.TryParse(result: out Value, s: MutateThenText())
+    }
+
+    func MutateThenText(): string {
+        Value = 9
+        return "42"
+    }
 }

@@ -563,9 +563,10 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // attributes on `test` blocks added tests/native/census-testrefs; 108 since lifted operators over a
 // nullable value type added tests/native/census-lifted-operators; 109 since `on`/`off` event
 // subscriptions reached the columnar pipeline added tests/native/census-events; 110 since NL209 for a simple name two imports supply added tests/native/census-imports; 111 since one accessibility relation for source and external members added tests/native/census-accessibility; 112 since the using statement added tests/native/census-using-statement; 113 since overload specificity by better conversion added tests/native/census-overload-resolution; 114 since async lambdas and the bare `throw` rethrow added tests/native/census-async-lambdas; 115 since source-declared events added tests/native/census-source-events; 116 since one type name declared in two files of one namespace added tests/native/census-duplicate-declarations; 117 since NL010 and NL002 answered from the analyzer's binding facts added tests/native/census-import-usage; 118 since an interface's value member became a get-only abstract property slot added tests/native/census-interfaces; 119 since InternalsVisibleTo grants added tests/native/census-internals-visible-to; 120 since the display chain a nested lambda walks added tests/native/census-closures; 121 since named arguments reached the columnar planners added tests/native/census-named-arguments.
-test "compile-time bench: the corpus is the 121 project.yml projects under examples, tests and templates" {
+test "compile-time bench: the corpus is the 122 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 121
+    assert projects.Count == 122
+    assert BenchListContains(projects, "tests/native/census-named-arguments/metadata-defaults")
     assert BenchListContains(projects, "tests/native/census-named-arguments")
     assert BenchListContains(projects, "tests/native/census-closures")
     assert BenchListContains(projects, "tests/native/census-internals-visible-to")

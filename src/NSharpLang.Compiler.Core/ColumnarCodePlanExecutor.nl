@@ -1130,7 +1130,9 @@ class ColumnarCodePlanExecutor {
         metadataOnlyTypes := MetadataOnlyTypePoolRows(plan)
         i := 0
         while i < plan.TypeCount {
-            if metadataOnlyTypes[i] {
+            if IsManagedPointerPlanLocalTypeRow(plan, i) {
+                ValidatePlanLocalType(plan.ValidatedTypeAt(i), schemaName)
+            } else if metadataOnlyTypes[i] {
                 ValidateMetadataReferenceType(plan.ValidatedTypeAt(i), "type pool", schemaName)
             } else {
                 ValidateStorableType(plan.ValidatedTypeAt(i), "type pool", schemaName)
@@ -1168,7 +1170,7 @@ class ColumnarCodePlanExecutor {
 
         i = 0
         while i < plan.PlanLocalCount {
-            ValidateStorableType(plan.ValidatedTypeAt(plan.PlanLocalTypeIndices[i]), "plan local", schemaName)
+            ValidatePlanLocalType(plan.ValidatedTypeAt(plan.PlanLocalTypeIndices[i]), schemaName)
             i += 1
         }
 
@@ -1394,6 +1396,34 @@ class ColumnarCodePlanExecutor {
         }
 
         ValidateStorableType(elementType, "method argument", schemaName)
+    }
+
+    // A spill local may hold a managed pointer while preserving written argument evaluation order.
+    // Its element obeys the ordinary storage rules; nested managed pointers remain invalid.
+    static func ValidatePlanLocalType(localType: Type, schemaName: string) {
+        if !localType.get_IsByRef() {
+            ValidateStorableType(localType, "plan local", schemaName)
+            return
+        }
+        elementType := localType.GetElementType()
+        if elementType == null || elementType.get_IsByRef() {
+            throw new InvalidOperationException(schemaName + " managed-pointer plan locals must reference a storable type.")
+        }
+        ValidateStorableType(elementType, "managed-pointer plan local element", schemaName)
+    }
+
+    static func IsManagedPointerPlanLocalTypeRow(plan: ColumnarCodePlan, typeIndex: int): bool {
+        if !plan.ValidatedTypeAt(typeIndex).get_IsByRef() {
+            return false
+        }
+        index := 0
+        while index < plan.PlanLocalCount {
+            if plan.PlanLocalTypeIndices[index] == typeIndex {
+                return true
+            }
+            index += 1
+        }
+        return false
     }
 
     // ── THE ONE POOL ROW THAT NAMES METADATA RATHER THAN STORAGE ───────────────────────────────
@@ -2107,7 +2137,15 @@ class ColumnarCodePlanExecutor {
             if isPlanLocal && !state.IsPlanLocalAssigned(localIndex) {
                 throw new InvalidOperationException(schemaName + " plan locals must be assigned before ldloc.")
             }
-            state.Push(localType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
+            if localType.get_IsByRef() {
+                elementType := localType.GetElementType()
+                if elementType == null {
+                    throw new InvalidOperationException(schemaName + " managed-pointer plan local has no element type.")
+                }
+                state.Push(elementType, true, ColumnarCodePlanStackValueKind.Exact(), false, 0)
+            } else {
+                state.Push(localType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
+            }
         } else if opCodeValue == ColumnarCodePlanContract.Ldloca() {
             if isPlanLocal && !state.IsPlanLocalAssigned(localIndex) {
                 state.PushPlanLocalAddress(localType, ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress(), false, localIndex, localIndex)
@@ -2120,7 +2158,8 @@ class ColumnarCodePlanExecutor {
             }
         } else {
             value := state.Pop()
-            if value.IsAddress || !IsStackCompatible(localType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
+            storesManagedPointer := localType.get_IsByRef() && value.IsAddress && ColumnarReferenceConversionFacts.ExactTypeShapeMatches(localType.GetElementType(), value.ValueType)
+            if !storesManagedPointer && (value.IsAddress || !IsStackCompatible(localType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue)) {
                 throw new InvalidOperationException(schemaName + " stloc value does not match its local type.")
             }
             if isPlanLocal {

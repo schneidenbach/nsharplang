@@ -2,6 +2,7 @@ namespace NSharpLang.CensusNamedArguments
 
 import System
 import System.Linq
+import NSharpLang.CensusNamedArguments.MetadataDefaults
 
 test "a free function's single parameter can be written by name" {
     assert Gate(flag: true) == 1
@@ -78,6 +79,15 @@ test "named instance-method arguments may leave optional holes" {
     assert value.Read(last: 9) == 129
 }
 
+test "named static-method arguments may leave optional holes" {
+    assert OptionalStaticSlots.Read(last: 9) == 129
+}
+
+test "a derived sparse source method hides its base method" {
+    value := new SourceOptionalDerived()
+    assert value.Pick(second: 3) == "13derived"
+}
+
 test "named arguments bind on extension methods" {
     values: int[] = [1, 2]
     assert values.Contains(value: 2)
@@ -111,6 +121,22 @@ test "a named out argument on an external member still passes storage" {
     assert parsed == 42
 }
 
+test "a reordered out argument preserves its address across later evaluation" {
+    target := new ReorderedOutAlias()
+    assert target.Parse()
+    assert target.Value == 42
+}
+
+test "a receiver evaluates before reordered named arguments" {
+    recorder := new ReceiverOrderRecorder()
+    result := recorder.Receiver().Replace(newValue: recorder.Argument("new", ";"), oldValue: recorder.Argument("old", ","))
+    assert result == "a;b"
+    assert recorder.Order.Count == 3
+    assert recorder.Order[0] == "receiver"
+    assert recorder.Order[1] == "new"
+    assert recorder.Order[2] == "old"
+}
+
 test "named arguments bind on an external instance member" {
     assert "a,b,c".Replace(oldValue: ",", newValue: ";") == "a;b;c"
     assert "a,b,c".Replace(newValue: ";", oldValue: ",") == "a;b;c"
@@ -138,4 +164,16 @@ class Divide2Holder {
 
 test "a named argument on a static method of a source type binds by name" {
     assert Divide2Holder.Divide(denominator: 4, numerator: 20) == 5
+}
+
+test "named arguments fill optional holes from referenced metadata" {
+    value := new ReflectedOptionalSlots(last: 9)
+    assert value.Value == 129
+    assert value.Read(last: 8) == 128
+    assert ReflectedOptionalSlots.ReadStatic(last: 7) == 127
+}
+
+test "a derived sparse metadata method hides its base method" {
+    value := new ReflectedOptionalDerived()
+    assert value.Pick(second: 3) == "13derived"
 }
