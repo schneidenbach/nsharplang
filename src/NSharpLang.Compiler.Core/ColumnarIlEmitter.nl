@@ -4671,6 +4671,7 @@ sealed class ColumnarIlEmitter {
                         }
                         ColumnarTupleElementNameEmitter.ApplyToReturn(pmb, m.ReturnLabeledCanonical)
                         overloadStaticDefinition := new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnLabeledCanonical)
+                        overloadStaticDefinition.ParamNames = m.ParamNames
                         overloadStaticDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
                         overloadStaticDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
                         overloads.Add(overloadStaticDefinition)
@@ -4695,6 +4696,7 @@ sealed class ColumnarIlEmitter {
                     }
                     ColumnarTupleElementNameEmitter.ApplyToReturn(smb, m.ReturnLabeledCanonical)
                     staticDefinition := new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnLabeledCanonical)
+                    staticDefinition.ParamNames = m.ParamNames
                     staticDefinition.Generics = sGenerics
                     staticDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
                     staticDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
@@ -4785,6 +4787,7 @@ sealed class ColumnarIlEmitter {
                     }
                     ColumnarTupleElementNameEmitter.ApplyToReturn(declaredGenericInstance, m.ReturnLabeledCanonical)
                     genericInstanceDefinition := new ColumnarInstanceMethodDef(declaredGenericInstance, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
+                    genericInstanceDefinition.ParamNames = m.ParamNames
                     genericInstanceDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
                     genericInstanceDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
                     genericInstanceDefinition.Generics = mGenerics
@@ -4860,6 +4863,7 @@ sealed class ColumnarIlEmitter {
                 ColumnarTupleElementNameEmitter.ApplyToReturn(mb, m.ReturnLabeledCanonical)
                 methodOverrideCompletion.Apply(def.Builder, mb, typeResolution.Structs.StructuralTypeReferences)
                 instanceDefinition := new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
+                instanceDefinition.ParamNames = m.ParamNames
                 instanceDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
                 instanceDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
                 AddInstanceMethod(
@@ -5789,6 +5793,7 @@ sealed class ColumnarIlEmitter {
                 fnBaseConstraints,
                 fnInterfaceConstraints
             )
+            siblingDefinition.ParamNames = fn.ParamNames
             siblingDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(fn.SourceAttributes)
             siblingDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(fn.ParameterSourceAttributes)
             siblingDefinitionsByFunc[f] = siblingDefinition
@@ -11686,7 +11691,8 @@ sealed class ColumnarIlEmitter {
                 sibling.ParamTypes,
                 sibling.ParamModifierKinds,
                 sibling.ReturnType,
-                sibling.TypeParams.Length
+                sibling.TypeParams.Length,
+                sibling.ParamNames
             )
         }
         _siblingCallFacts = facts

@@ -223,6 +223,17 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
+        // NAMED ARGUMENTS ARE PLACED BEFORE ANYTHING SCORES THEM. Every owner below this point --
+        // overload selection, conversions, the argument walk -- reads argument `i` as parameter `i`,
+        // and that is the whole reason a name has to be resolved here: the rows are moved into the
+        // signature's order once, and nothing downstream learns that a name was ever written. A call
+        // whose names cannot be placed is left exactly as written and declines, so a mis-placement
+        // can never reach IL.
+        if ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentTypes.Length) && !TryBindNamedCallArguments(nodes, source, node, callee, calleeKind, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts) {
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
         checkpoint := plan.CreateCheckpoint()
         try {
             if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() {
@@ -242,6 +253,82 @@ class ColumnarDirectCallPlanner {
             plan.Rollback(checkpoint)
             throw ex
         }
+    }
+
+    // THE SIGNATURES A CALL'S NAMES COULD BE PLACED AGAINST, gathered from the same declaration
+    // registries the arms below select from -- never from a second lookup of their own. A bare name
+    // reaches a sibling free function, an instance method of the body's own type, or a static of the
+    // enclosing type; a member access reaches the members of its receiver's type, source or external;
+    // a `base.M(...)` reaches the base declaration. Whichever of those the call turns out to be, its
+    // parameter names are in this set, and the placement is accepted only when every candidate that
+    // admits the written names agrees on it.
+    static func TryBindNamedCallArguments(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, methodBodySchema: bool, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
+        arity := argumentTypes.Length
+        candidates := new List<string[]>()
+
+        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() {
+            bareName := nodes.Text(source, callee)
+            siblingFacts: ColumnarSiblingCallFacts? = null
+            if bindings.SiblingCallables.TryGetValue(bareName, out siblingFacts) {
+                ColumnarNamedArgumentBinder.AddCandidate(candidates, siblingFacts.ParameterNames, arity)
+            }
+
+            currentInstance := bindings.CurrentInstance
+            if currentInstance != null {
+                ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(currentInstance.SourceDefinition, bareName, arity, candidates)
+            }
+
+            ColumnarNamedArgumentBinder.CollectSourceStaticParameterNames(bindings.EnclosingTypeDefinition, bareName, arity, candidates)
+            return ColumnarNamedArgumentBinder.TryBindAgreedPlacement(nodes, source, callNode, 1, candidates, argumentTypes, argumentFacts)
+        }
+
+        if calleeKind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+            currentInstance := bindings.CurrentInstance
+            if currentInstance != null && currentInstance.SourceDefinition != null {
+                baseDefinition := currentInstance.SourceDefinition.BaseDef
+                ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(baseDefinition, nodes.Text(source, callee), arity, candidates)
+                ColumnarNamedArgumentBinder.CollectReflectedParameterNames(currentInstance.SourceDefinition.ExactBaseType, nodes.Text(source, callee), arity, false, candidates)
+            }
+
+            return ColumnarNamedArgumentBinder.TryBindAgreedPlacement(nodes, source, callNode, 1, candidates, argumentTypes, argumentFacts)
+        }
+
+        if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(callee) != 1 {
+            return false
+        }
+
+        memberName := nodes.Text(source, callee)
+        receiverNode := nodes.Child(callee, 0)
+
+        // A STATIC OWNER IS A TYPE NAME, not a value, so it is spelled rather than typed. The same
+        // scope facts the static arm consults answer whether the written root names a source type or
+        // an external one.
+        ownerName := ""
+        rootName := ""
+        if TryGetQualifiedName(nodes, source, receiverNode, 0, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) {
+            scope := nodes.BindingScope
+            exactSourceOwnerName := ownerName
+            sourceOwnerBlocked := false
+            if scope == null || scope.TryResolveSourceStaticOwner(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out exactSourceOwnerName, out sourceOwnerBlocked) {
+                ColumnarNamedArgumentBinder.CollectSourceStaticParameterNames(FindExactSourceOwner(exactSourceOwnerName, bindings.SourceTypeDefinitions), memberName, arity, candidates)
+            }
+
+            externalOwnerType := typeof(object)
+            if scope != null && scope.TryResolveExternalStaticOwnerType(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out externalOwnerType) {
+                ColumnarNamedArgumentBinder.CollectReflectedParameterNames(externalOwnerType, memberName, arity, true, candidates)
+            }
+        }
+
+        // AN INSTANCE RECEIVER IS TYPED, by the same non-mutating oracle the argument rows were typed
+        // with. A receiver the oracle cannot type simply contributes no candidate.
+        receiverType := typeof(object)
+        receiverOwnership := ColumnarDirectCallOwnership.NotOwned
+        if TryGetPlannableValueType(nodes, source, receiverNode, bindings, handles, depth + 1, ArgumentsAdmitPrimitiveBinary(), methodBodySchema, out receiverType, out receiverOwnership) {
+            ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(ColumnarGenericTypeReceiverFacts.FindSourceDefinition(receiverType, bindings.SourceTypeDefinitions), memberName, arity, candidates)
+            ColumnarNamedArgumentBinder.CollectReflectedParameterNames(receiverType, memberName, arity, false, candidates)
+        }
+
+        return ColumnarNamedArgumentBinder.TryBindAgreedPlacement(nodes, source, callNode, 1, candidates, argumentTypes, argumentFacts)
     }
 
     // The explicit generic callee stores its complete dotted value name and its type-reference
@@ -1697,86 +1784,23 @@ class ColumnarDirectCallPlanner {
     }
 
     static func AppendArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
-        if inferredTypes.Length != parameterTypes.Length || nodes.ChildCount(callNode) - 1 != parameterTypes.Length || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IntegerLiteralValues.Length != parameterTypes.Length || argumentFacts.IsNullLiteral.Length != parameterTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != parameterTypes.Length {
+        if inferredTypes.Length != parameterTypes.Length || nodes.ChildCount(callNode) - 1 != parameterTypes.Length || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IntegerLiteralValues.Length != parameterTypes.Length || argumentFacts.IsNullLiteral.Length != parameterTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != parameterTypes.Length || argumentFacts.ArgumentNodes.Length != parameterTypes.Length || argumentFacts.WrittenOrderSlots.Length != parameterTypes.Length {
             return false
+        }
+
+        // A NAMED ARGUMENT THAT MOVED IS STILL EVALUATED WHERE IT WAS WRITTEN. `Send(body: Build(),
+        // to: Lookup())` runs `Build()` first because that is the order the author wrote, and the call
+        // still receives `to` first because that is the order the signature keeps -- so the written
+        // order is evaluated into temporaries and the temporaries are handed over in slot order.
+        // Nothing is spilled when the two orders agree, which is every call whose names were written
+        // where the signature keeps them.
+        if argumentFacts.RequiresReorder {
+            return AppendReorderedArguments(nodes, source, callNode, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts)
         }
 
         index := 0
         while index < parameterTypes.Length {
-            argumentNode := nodes.Child(callNode, index + 1)
-
-            // A `ref`/`out` ARGUMENT PASSES STORAGE, NOT A VALUE. The written `ref x` is a modifier
-            // node over the name, and what goes on the stack is the name's managed address, so this
-            // arm bypasses the value walk entirely — there is no conversion to apply and no temporary
-            // to make, because either would alias something the caller cannot see.
-            if argumentFacts.IsByRefArgument[index] {
-                byRefTarget := ByRefArgumentTarget(nodes, source, argumentNode)
-                byRefElement := typeof(int)
-                if byRefTarget < 0 || !parameterTypes[index].get_IsByRef() || !ColumnarBoundIdentifierPlanner.TryAppendAddressOf(nodes, source, byRefTarget, bindings, plan, out byRefElement) {
-                    return false
-                }
-
-                expectedElement := parameterTypes[index].GetElementType()
-                if expectedElement == null || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(expectedElement, byRefElement) {
-                    return false
-                }
-
-                index += 1
-                continue
-            }
-
-            if argumentFacts.IsNullLiteral[index] {
-                candidate := UnwrapParentheses(nodes, argumentNode)
-                if candidate < 0 || !ColumnarNullableArgumentLowering.TryAppendNullArgument(plan, parentFragment, nodes.Kind(candidate), candidate, parameterTypes[index]) {
-                    return false
-                }
-
-                index += 1
-                continue
-            }
-
-            if argumentFacts.IsUnsuffixedIntegerLiteral[index] {
-                literalTarget := parameterTypes[index]
-                liftTarget := false
-                if !ColumnarSourceDirectCallResolver.CanAdoptIntegerLiteral(literalTarget, argumentFacts.IntegerLiteralValues[index], argumentFacts.IsNegativeIntegerLiteral[index]) {
-                    nullableElement := typeof(int)
-                    if ColumnarNullableArgumentLowering.TryGetSupportedNullableElement(parameterTypes[index], out nullableElement) && ColumnarSourceDirectCallResolver.CanAdoptIntegerLiteral(nullableElement, argumentFacts.IntegerLiteralValues[index], argumentFacts.IsNegativeIntegerLiteral[index]) {
-                        literalTarget = nullableElement
-                        liftTarget = true
-                    }
-                }
-
-                if ColumnarSourceDirectCallResolver.CanAdoptIntegerLiteral(literalTarget, argumentFacts.IntegerLiteralValues[index], argumentFacts.IsNegativeIntegerLiteral[index]) {
-                    if !TryAppendTargetTypedIntegerArgument(nodes, argumentNode, plan, parentFragment, literalTarget, argumentFacts.IntegerLiteralValues[index]) || liftTarget && !ColumnarNullableArgumentLowering.TryAppendValueLift(plan, literalTarget, parameterTypes[index]) {
-                        return false
-                    }
-
-                    index += 1
-                    continue
-                }
-            }
-
-            // AN ARRAY LITERAL WRITTEN AT AN ARRAY PARAMETER TAKES THAT PARAMETER'S ELEMENT TYPE, which
-            // is what the score one owner over already admitted it on. `[0]` infers `int[]` and is not
-            // an `int[]` the call converts — it is a `byte[]` the call WRITES — so it is planned
-            // against the declared parameter rather than inferred and then converted.
-            if argumentFacts.IsIntegerConstantArrayLiteral[index] && ColumnarSourceDirectCallResolver.CanAdoptIntegerConstantArrayLiteral(parameterTypes[index], argumentFacts.ArrayLiteralMinimumValues[index], argumentFacts.ArrayLiteralMaximumValues[index]) {
-                if !ColumnarConstructionPlanner.TryAppendTargetTypedArray(nodes, source, argumentNode, bindings, handles, plan, parentFragment, depth + 1, parameterTypes[index]) {
-                    return false
-                }
-
-                index += 1
-                continue
-            }
-
-            actualType := typeof(int)
-            valuePlanned := false
-            if allowPrimitiveBinary {
-                valuePlanned = ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, argumentNode, bindings, handles, plan, parentFragment, depth, out actualType)
-            } else {
-                valuePlanned = ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, argumentNode, bindings, handles, plan, parentFragment, depth, out actualType)
-            }
-            if !valuePlanned || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(actualType, inferredTypes[index]) || !AppendArgumentConversion(plan, actualType, parameterTypes[index], argumentFacts.SourceTypeDefinitions) {
+            if !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts, index) {
                 return false
             }
 
@@ -1785,6 +1809,133 @@ class ColumnarDirectCallPlanner {
 
         return true
     }
+
+    // Evaluate the arguments in the order they were WRITTEN, each into a temporary of its parameter's
+    // type, then load the temporaries in the order the signature keeps. A by-reference argument is
+    // storage rather than a value and cannot be held in a temporary without aliasing something the
+    // caller cannot see, so a reordered call carrying one is declined instead.
+    static func AppendReorderedArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
+        slotLocals := new int[](parameterTypes.Length)
+        guard := 0
+        while guard < parameterTypes.Length {
+            if argumentFacts.IsByRefArgument[guard] || parameterTypes[guard] == null || parameterTypes[guard].get_IsByRef() {
+                return false
+            }
+
+            slotLocals[guard] = -1
+            guard += 1
+        }
+
+        written := 0
+        while written < parameterTypes.Length {
+            slot := argumentFacts.WrittenOrderSlots[written]
+            if slot < 0 || slot >= parameterTypes.Length || slotLocals[slot] >= 0 || !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts, slot) {
+                return false
+            }
+
+            localIndex := plan.DeclarePlanLocal(plan.AddType(parameterTypes[slot]))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), localIndex)
+            slotLocals[slot] = localIndex
+            written += 1
+        }
+
+        reload := 0
+        while reload < parameterTypes.Length {
+            if slotLocals[reload] < 0 {
+                return false
+            }
+
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), slotLocals[reload])
+            reload += 1
+        }
+
+        return true
+    }
+
+    // ONE argument slot: the row at `index` -- its node, its inferred type and its literal facts --
+    // planned against the parameter that slot belongs to.
+    static func AppendArgumentSlot(nodes: ColumnarNodeTable, source: string, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, index: int): bool {
+
+        // THE ARGUMENT THAT LANDED IN THIS SLOT, which is the call's child at this position only
+        // when nothing was named: a named argument was placed by its name, and the row carrying
+        // it moved with it.
+        argumentNode := argumentFacts.ArgumentNodes[index]
+
+        // A `ref`/`out` ARGUMENT PASSES STORAGE, NOT A VALUE. The written `ref x` is a modifier
+        // node over the name, and what goes on the stack is the name's managed address, so this
+        // arm bypasses the value walk entirely — there is no conversion to apply and no temporary
+        // to make, because either would alias something the caller cannot see.
+        if argumentFacts.IsByRefArgument[index] {
+            byRefTarget := ByRefArgumentTarget(nodes, source, argumentNode)
+            byRefElement := typeof(int)
+            if byRefTarget < 0 || !parameterTypes[index].get_IsByRef() || !ColumnarBoundIdentifierPlanner.TryAppendAddressOf(nodes, source, byRefTarget, bindings, plan, out byRefElement) {
+                return false
+            }
+
+            expectedElement := parameterTypes[index].GetElementType()
+            if expectedElement == null || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(expectedElement, byRefElement) {
+                return false
+            }
+
+            return true
+        }
+
+        if argumentFacts.IsNullLiteral[index] {
+            candidate := UnwrapParentheses(nodes, argumentNode)
+            if candidate < 0 || !ColumnarNullableArgumentLowering.TryAppendNullArgument(plan, parentFragment, nodes.Kind(candidate), candidate, parameterTypes[index]) {
+                return false
+            }
+
+            return true
+        }
+
+        if argumentFacts.IsUnsuffixedIntegerLiteral[index] {
+            literalTarget := parameterTypes[index]
+            liftTarget := false
+            if !ColumnarSourceDirectCallResolver.CanAdoptIntegerLiteral(literalTarget, argumentFacts.IntegerLiteralValues[index], argumentFacts.IsNegativeIntegerLiteral[index]) {
+                nullableElement := typeof(int)
+                if ColumnarNullableArgumentLowering.TryGetSupportedNullableElement(parameterTypes[index], out nullableElement) && ColumnarSourceDirectCallResolver.CanAdoptIntegerLiteral(nullableElement, argumentFacts.IntegerLiteralValues[index], argumentFacts.IsNegativeIntegerLiteral[index]) {
+                    literalTarget = nullableElement
+                    liftTarget = true
+                }
+            }
+
+            if ColumnarSourceDirectCallResolver.CanAdoptIntegerLiteral(literalTarget, argumentFacts.IntegerLiteralValues[index], argumentFacts.IsNegativeIntegerLiteral[index]) {
+                if !TryAppendTargetTypedIntegerArgument(nodes, argumentNode, plan, parentFragment, literalTarget, argumentFacts.IntegerLiteralValues[index]) || liftTarget && !ColumnarNullableArgumentLowering.TryAppendValueLift(plan, literalTarget, parameterTypes[index]) {
+                    return false
+                }
+
+                return true
+            }
+        }
+
+        // AN ARRAY LITERAL WRITTEN AT AN ARRAY PARAMETER TAKES THAT PARAMETER'S ELEMENT TYPE, which
+        // is what the score one owner over already admitted it on. `[0]` infers `int[]` and is not
+        // an `int[]` the call converts — it is a `byte[]` the call WRITES — so it is planned
+        // against the declared parameter rather than inferred and then converted.
+        if argumentFacts.IsIntegerConstantArrayLiteral[index] && ColumnarSourceDirectCallResolver.CanAdoptIntegerConstantArrayLiteral(parameterTypes[index], argumentFacts.ArrayLiteralMinimumValues[index], argumentFacts.ArrayLiteralMaximumValues[index]) {
+            if !ColumnarConstructionPlanner.TryAppendTargetTypedArray(nodes, source, argumentNode, bindings, handles, plan, parentFragment, depth + 1, parameterTypes[index]) {
+                return false
+            }
+
+            return true
+        }
+
+        actualType := typeof(int)
+        valuePlanned := false
+        if allowPrimitiveBinary {
+            valuePlanned = ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, argumentNode, bindings, handles, plan, parentFragment, depth, out actualType)
+        } else {
+            valuePlanned = ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, argumentNode, bindings, handles, plan, parentFragment, depth, out actualType)
+        }
+        if !valuePlanned || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(actualType, inferredTypes[index]) || !AppendArgumentConversion(plan, actualType, parameterTypes[index], argumentFacts.SourceTypeDefinitions) {
+            return false
+        }
+
+
+        return true
+    }
+
 
     static func TryAppendTargetTypedIntegerArgument(nodes: ColumnarNodeTable, argumentNode: int, plan: ColumnarCodePlan, parentFragment: int, targetType: Type, value: long): bool {
         candidate := UnwrapParentheses(nodes, argumentNode)
@@ -1968,7 +2119,12 @@ class ColumnarDirectCallPlanner {
 
         index := 0
         while index < argumentTypes.Length {
-            argumentNode := nodes.Child(callNode, index + 1)
+
+            // A `name:` wrapper is placement, not value: the row records the argument UNDERNEATH the
+            // name, and the name itself is read once, by the binder that decides which slot this row
+            // ends up in.
+            argumentNode := ColumnarNamedArgumentBinder.ArgumentValueNode(nodes, nodes.Child(callNode, index + 1))
+            argumentFacts.ArgumentNodes[index] = argumentNode
             argumentCandidate := UnwrapParentheses(nodes, argumentNode)
             if argumentCandidate >= 0 && nodes.Kind(argumentCandidate) == ColumnarExpressionNodeKind.NullLiteralExpression() {
                 argumentTypes[index] = typeof(object)
