@@ -63,6 +63,24 @@ class ColumnarDirectCallArgumentFacts {
     ArrayLiteralMaximumValues: long[]
     SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
 
+    // THE EXPRESSION NODE THAT SUPPLIES EACH SLOT, with a `name:` wrapper already removed. Every other
+    // column here is indexed by the same slot, and a call with NAMED arguments is bound by moving the
+    // whole row -- node, type and literal facts together -- into the slot its parameter occupies. A
+    // planner reads the argument to emit from here rather than from the call's child run, because
+    // after that move the two orders differ.
+    ArgumentNodes: int[]
+
+    // THE SLOT EACH WRITTEN ARGUMENT WAS BOUND TO, in the order the arguments were WRITTEN. It is the
+    // identity for a call with no named arguments, and it is what keeps evaluation order the written
+    // order when a named argument moved: the arguments are evaluated along this list and the values
+    // are handed to the call in slot order.
+    WrittenOrderSlots: int[]
+
+    // Whether WrittenOrderSlots is anything but the identity -- i.e. whether a named argument moved
+    // an argument away from the position it was written at, so that evaluating in slot order would
+    // run the written expressions out of order.
+    RequiresReorder: bool
+
     constructor(isUnsuffixedIntegerLiteral: bool[], isNegativeIntegerLiteral: bool[], integerLiteralValues: long[]) {
         if isUnsuffixedIntegerLiteral == null || isNegativeIntegerLiteral == null || integerLiteralValues == null || isUnsuffixedIntegerLiteral.Length != isNegativeIntegerLiteral.Length || isUnsuffixedIntegerLiteral.Length != integerLiteralValues.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must be non-null and positional.")
@@ -77,6 +95,15 @@ class ColumnarDirectCallArgumentFacts {
         ArrayLiteralMinimumValues = new long[](isUnsuffixedIntegerLiteral.Length)
         ArrayLiteralMaximumValues = new long[](isUnsuffixedIntegerLiteral.Length)
         SourceTypeDefinitions = new List<ColumnarStructDef>()
+        ArgumentNodes = new int[](isUnsuffixedIntegerLiteral.Length)
+        WrittenOrderSlots = new int[](isUnsuffixedIntegerLiteral.Length)
+        RequiresReorder = false
+        slot := 0
+        while slot < isUnsuffixedIntegerLiteral.Length {
+            ArgumentNodes[slot] = -1
+            WrittenOrderSlots[slot] = slot
+            slot = slot + 1
+        }
     }
 
     static func Empty(argumentCount: int): ColumnarDirectCallArgumentFacts {
@@ -1150,7 +1177,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ValidateArgumentFacts(argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts) {
-        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length {
+        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument types.")
         }
 

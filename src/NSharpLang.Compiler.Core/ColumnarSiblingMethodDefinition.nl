@@ -20,6 +20,14 @@ class ColumnarSiblingMethodDefinition {
     DoesNotReturn: bool
     // The `[DoesNotReturnIf(bool)]` each parameter carries, in declaration order.
     ParameterDoesNotReturnIf: int[]
+    // THE PARAMETER NAMES THE DECLARATION WROTE, in declaration order. A named argument
+    // (`Retry(attempts: 3)`) binds by this list, and a `MethodBuilder` cannot be asked for it before
+    // its owner is baked -- the same reason every other signature fact here is carried rather than
+    // reflected. Empty when the registration site had no names to carry, which simply means no call
+    // on this sibling can name a parameter.
+    ParamNames: string[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
 
     constructor(
         method: MethodInfo,
@@ -33,6 +41,9 @@ class ColumnarSiblingMethodDefinition {
     ) {
         DoesNotReturn = false
         ParameterDoesNotReturnIf = new int[](0)
+        ParamNames = new string[](0)
+        ParamDefaultKinds = new int[](0)
+        ParamDefaultTexts = new string[](0)
         Method = method
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds

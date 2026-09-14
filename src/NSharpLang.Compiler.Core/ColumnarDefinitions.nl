@@ -115,6 +115,13 @@ class ColumnarInstanceMethodDef {
     // `Type.Rows()[0].Item` -- and only the labelled spelling still has the names there.
     ReturnLabeledCanonical: string?
     Generics: ColumnarGenericMethodFacts?
+    // THE PARAMETER NAMES THE DECLARATION WROTE, in declaration order, and the only list a named
+    // argument can bind by: a `MethodBuilder` answers no `GetParameters()` before its owner is baked.
+    // Empty when the registration site carried none, which means a call on this method may not name
+    // a parameter.
+    ParamNames: string[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
 
     constructor(builder: MethodBuilder, paramTypes: Type[], returnType: Type) {
         if builder == null || paramTypes == null || returnType == null {
@@ -125,6 +132,9 @@ class ColumnarInstanceMethodDef {
         ParamTypes = paramTypes
         ParamModifierKinds = new int[](0)
         ReturnType = returnType
+        ParamNames = new string[](0)
+        ParamDefaultKinds = new int[](0)
+        ParamDefaultTexts = new string[](0)
         ReturnLabeledCanonical = null
         Generics = null
         DoesNotReturn = false
@@ -144,6 +154,9 @@ class ColumnarInstanceMethodDef {
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
+        ParamNames = new string[](0)
+        ParamDefaultKinds = new int[](0)
+        ParamDefaultTexts = new string[](0)
         ReturnLabeledCanonical = returnLabeledCanonical
         Generics = null
         DoesNotReturn = false
@@ -178,12 +191,22 @@ class ColumnarStaticMethodDef {
     // The return type AS WRITTEN -- see ColumnarInstanceMethodDef.
     ReturnLabeledCanonical: string?
     Generics: ColumnarGenericMethodFacts?
+    // THE PARAMETER NAMES THE DECLARATION WROTE, in declaration order, and the only list a named
+    // argument can bind by: a `MethodBuilder` answers no `GetParameters()` before its owner is baked.
+    // Empty when the registration site carried none, which means a call on this method may not name
+    // a parameter.
+    ParamNames: string[]
+    ParamDefaultKinds: int[]
+    ParamDefaultTexts: string[]
 
     constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnLabeledCanonical: string? = null) {
         Builder = builder
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
+        ParamNames = new string[](0)
+        ParamDefaultKinds = new int[](0)
+        ParamDefaultTexts = new string[](0)
         ReturnLabeledCanonical = returnLabeledCanonical
         Generics = null
         DoesNotReturn = false
@@ -209,8 +232,14 @@ class ColumnarSiblingCallFacts {
     ParameterModifierKinds: int[]
     ReturnType: Type
     TypeParameterCount: int
+    // The parameter NAMES the declaration wrote, in declaration order -- see
+    // ColumnarSiblingMethodDefinition.ParamNames. A named argument at a bare sibling call binds by
+    // this list; an empty list simply means no call on this sibling can name a parameter.
+    ParameterNames: string[]
+    ParameterDefaultKinds: int[]
+    ParameterDefaultTexts: string[]
 
-    constructor(method: MethodInfo, parameterTypes: Type[], parameterModifierKinds: int[], returnType: Type, typeParameterCount: int) {
+    constructor(method: MethodInfo, parameterTypes: Type[], parameterModifierKinds: int[], returnType: Type, typeParameterCount: int, parameterNames: string[]? = null, parameterDefaultKinds: int[]? = null, parameterDefaultTexts: string[]? = null) {
         if method == null || parameterTypes == null || parameterModifierKinds == null || returnType == null {
             throw new InvalidOperationException("Sibling call definition facts cannot be null.")
         }
@@ -220,6 +249,9 @@ class ColumnarSiblingCallFacts {
         ParameterModifierKinds = parameterModifierKinds
         ReturnType = returnType
         TypeParameterCount = typeParameterCount
+        ParameterNames = parameterNames ?? new string[](0)
+        ParameterDefaultKinds = parameterDefaultKinds ?? new int[](0)
+        ParameterDefaultTexts = parameterDefaultTexts ?? new string[](0)
     }
 }
 
@@ -323,12 +355,17 @@ class ColumnarConstructorDef {
     ParamTypes: Type[]
     DefaultKinds: int[]
     DefaultTexts: string[]
+    // The parameter NAMES the declaration wrote, in declaration order. `new Box(label: "a", value: 1)`
+    // binds by this list; a `ConstructorBuilder` answers no `GetParameters()` before its owner is
+    // baked, so the names are carried here exactly as the defaults beside them are.
+    ParamNames: string[]
 
-    constructor(builder: ConstructorBuilder, paramTypes: Type[], defaultKinds: int[], defaultTexts: string[]) {
+    constructor(builder: ConstructorBuilder, paramTypes: Type[], defaultKinds: int[], defaultTexts: string[], paramNames: string[]? = null) {
         Builder = builder
         ParamTypes = paramTypes
         DefaultKinds = defaultKinds
         DefaultTexts = defaultTexts
+        ParamNames = paramNames ?? new string[](0)
     }
 
     func Deconstruct(out builder: ConstructorBuilder, out paramTypes: Type[], out defaultKinds: int[], out defaultTexts: string[]) {
@@ -556,6 +593,12 @@ class ColumnarStructDef {
     // Keep the existing three-argument, default-public API while the complete input owner supplies
     // the source visibility word to the declaration planner's four-argument call.
     func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[], visibilityModifierFlags: int): ConstructorBuilder {
+        return DefineUserConstructor(parameterTypes, defaultKinds, defaultTexts, visibilityModifierFlags, new string[](0))
+    }
+
+    // The five-argument form carries the declaration's PARAMETER NAMES as well, which is what a named
+    // argument at a `new` binds by. An empty list means the registration site had none to carry.
+    func DefineUserConstructor(parameterTypes: Type[], defaultKinds: int[], defaultTexts: string[], visibilityModifierFlags: int, parameterNames: string[]): ConstructorBuilder {
         if parameterTypes == null || defaultKinds == null || defaultTexts == null {
             throw new InvalidOperationException("Source constructor definition facts cannot be null.")
         }
@@ -589,7 +632,22 @@ class ColumnarStructDef {
 
         visibility := ColumnarDeclarationPlanner.MethodVisibilityAttributes("Constructor", visibilityModifierFlags)
         builder := Builder.DefineConstructor((MethodAttributes)visibility, CallingConventions.Standard, exactParameterTypes)
-        Constructors.Add(new ColumnarConstructorDef(builder, exactParameterTypes, exactDefaultKinds, exactDefaultTexts))
+        exactParameterNames := new string[](parameterTypes.Length)
+        if parameterNames.Length == parameterTypes.Length {
+            nameIndex := 0
+            while nameIndex < parameterTypes.Length {
+                exactParameterNames[nameIndex] = parameterNames[nameIndex] ?? ""
+                nameIndex = nameIndex + 1
+            }
+        } else {
+            blankIndex := 0
+            while blankIndex < parameterTypes.Length {
+                exactParameterNames[blankIndex] = ""
+                blankIndex = blankIndex + 1
+            }
+        }
+
+        Constructors.Add(new ColumnarConstructorDef(builder, exactParameterTypes, exactDefaultKinds, exactDefaultTexts, exactParameterNames))
         return builder
     }
 

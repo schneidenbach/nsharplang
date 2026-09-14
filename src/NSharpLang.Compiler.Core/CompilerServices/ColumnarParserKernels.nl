@@ -414,9 +414,11 @@ class TypeReferenceTupleNameTable {
 //   AnonymousObjectInitializer -> kind 59 (`new { Field: value, ... }`; children [name0 (Identifier kind 6),
 //                                         value0, name1, value1, ...]. The parser records the shape; lowering is
 //                                         a later backend slice, so today's emitter declines this node explicitly.)
-//   NamedArgumentExpression -> kind 60 (`name: value` inside a `new <type>(...)` argument list; name in the
-//                                         value span, ONE child [value]. Calls still decline named args until
-//                                         call-site semantic binding owns parameter-name matching.)
+//   NamedArgumentExpression -> kind 60 (`name: value` in ANY argument list -- a call, a `new <type>(...)`,
+//                                         a `base(...)`/`this(...)` chain; the PARAMETER name in the value
+//                                         span, ONE child [argument]. The child is a whole argument, so a
+//                                         named `out`/`ref` argument keeps its kind-54 wrapper underneath
+//                                         the name. Lowering binds the name to a parameter position.)
 //   TypeBindingPattern     -> kind 61  ( `Type name` inside a match arm; children [typeRoot, binding].)
 //   NameOfExpression       -> kind 62  ( `nameof(expr)` (Nameof 50) -- ONE child [expr]. The emitter accepts
 //                                         the analyzer-validated identifier/member-access target subset.)
@@ -466,7 +468,7 @@ class TypeReferenceTupleNameTable {
 // `alloc <expr>` is parsed transparently: systems analysis owns allocation-policy enforcement before this
 // product handoff, and the emitter only needs the concrete expression shape.
 // Deferred (refused with -1, or the chain simply STOPS at them): `?[` null-conditional INDEXING, generic
-//   method calls (callee<T>(...)), named (`name:`) call arguments outside constructor argument lists,
+//   method calls (callee<T>(...)),
 //   `is`/`as` type tests; every other unlisted primary (`base.Member` is kind 71, `default` is kind 74
 //   and a bare `this` is kind 82).
 //   (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
@@ -5695,8 +5697,8 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             // Call `callee(args)`: children = [callee, arg0, arg1, ...]. Like generic type arguments, the
             // callee + arg node ids are gathered on the LIFO arg-stack (each arg is a full expression that
             // appends its own descendants) and the contiguous child run is appended only after the closing
-            // `)`. Named (`name:`) arguments are still deferred and refuse when the argument expression
-            // leaves the colon unconsumed.
+            // `)`. A `name:` argument becomes a kind-60 NamedArgumentExpression wrapper around the
+            // argument it names, so the call's child run is still [callee, arg0, arg1, ...].
             objSpanStart := nodes.SpanStarts[expr]
             st.Pos = pos + 1
             argBase := st.ArgStackTop
@@ -5847,6 +5849,37 @@ func ParseCallArgumentNode(tokens: ParserTokenTable, count: int, st: ParserState
         childRun := st.ChildCursor
         AppendExpressionChild(st, children, value)
         return EmitExpressionNode(st, nodes, 64, spreadStart, spreadLength, childRun, 1, spreadStart, valueEnd - spreadStart)
+    }
+
+    // `name: <argument>` -- a NAMED argument (NamedArgumentExpression kind 60: the parameter name in the
+    // value span, ONE child [argument]). The child is a full call argument of its own, so a named
+    // `ref`/`out` argument (`TryParse(s, result: out parsed)`) keeps its kind-54 wrapper underneath the
+    // name. A spread cannot be named -- `...` names no parameter -- and recursing here would accept
+    // `f(name: ...xs)`, so the child is parsed at the modifier level, not at this one.
+    if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 {
+        nameStart := tokens.Starts[st.Pos]
+        nameLength := tokens.ValueLengths[st.Pos]
+        st.Pos = st.Pos + 2
+        named := ParseCallArgumentModifierOrValueNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        if named < 0 {
+            return -1
+        }
+
+        namedEnd := nodes.SpanStarts[named] + nodes.SpanLengths[named]
+        namedChildRun := st.ChildCursor
+        AppendExpressionChild(st, children, named)
+        return EmitExpressionNode(st, nodes, 60, nameStart, nameLength, namedChildRun, 1, nameStart, namedEnd - nameStart)
+    }
+
+    return ParseCallArgumentModifierOrValueNode(tokens, count, st, argStack, nodes, children, depth)
+}
+
+// The `ref`/`out` modifier layer of a call argument, shared by the positional and the named forms:
+// `ref <expr>` / `out <expr>` (Ref 78 / Out 79) becomes a RefOutArgument (kind 54, the modifier token in
+// the value span, ONE child [target]); anything else is an ordinary argument expression.
+func ParseCallArgumentModifierOrValueNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if depth > 200 {
+        return -1
     }
 
     if st.Pos < count && (tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79) {
