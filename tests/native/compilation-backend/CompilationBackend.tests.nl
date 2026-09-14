@@ -9,7 +9,6 @@ import System.Text.Json
 // shipped binary. Each row keeps its original claim set; where the C# asserted "stderr is blank"
 // the claim is kept AND is non-vacuous here, because a child process's stderr is a real stream
 // that the neighbouring failure rows in this same file demonstrably reach.
-
 func ProjectYml(name: string, backend: string, outputType: string): string {
     text := "name: " + name + "\n"
     if backend != "" {

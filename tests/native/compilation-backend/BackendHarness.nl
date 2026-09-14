@@ -19,7 +19,6 @@ import System.Runtime.InteropServices
 // bodies never proved `nlc build` reaches `BuildCommand` at all, and their
 // `Directory.SetCurrentDirectory` dance (which forced the whole class into the serial
 // "ProcessState" xunit collection) disappears, because a child process carries its own cwd.
-
 class ProcessRun {
     ExitCode: int
     Stdout: string

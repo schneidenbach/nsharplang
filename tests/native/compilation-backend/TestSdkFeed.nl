@@ -18,7 +18,6 @@ import System.Threading
 // unchanged tree does not. The key computation is preserved byte-for-byte from the C# (sorted
 // ordinal relative paths, each followed by its bytes and a zero separator, then the runtime
 // version), so a tree that already has a warm cache keeps it.
-
 class SdkFeedState {
     static FeedPath: string = ""
     static Version: string = ""
@@ -189,7 +188,7 @@ func AcquireCacheLock(lockPath: string): FileStream {
     while true {
         try {
             return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
-        } catch (error: IOException) {
+        } catch error: IOException {
             if stopwatch.ElapsedMilliseconds >= CacheLockTimeoutMilliseconds() {
                 throw new TimeoutException("Waited " + stopwatch.ElapsedMilliseconds.ToString() + " ms for the SDK feed cache lock at " + lockPath + ": " + error.Message)
             }
