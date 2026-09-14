@@ -157,8 +157,24 @@ class InternalsVisibleToGrants {
         return GrantsAccess(declaringType.get_Assembly())
     }
 
+    // THE ASSEMBLY BEING EMITTED IS NOT A REFERENCE, AND IT CANNOT BE ASKED. A back-end filter reads
+    // the declaring type of a candidate member, and during emission that type can be a `TypeBuilder`
+    // whose assembly is the `PersistedAssemblyBuilder` itself — `GetCustomAttributesData()` on one
+    // throws `NotImplementedException`, which ended the whole build. A builder-backed assembly
+    // declares no friend this owner is entitled to read, so it grants nothing, and any other
+    // unreadable attribute table is treated the same way rather than failing the compilation.
     private func ReadGrant(assembly: Assembly): bool {
-        attributes := assembly.GetCustomAttributesData()
+        attributes: IList<CustomAttributeData>? = null
+        try {
+            attributes = assembly.GetCustomAttributesData()
+        } catch {
+            return false
+        }
+
+        if attributes == null {
+            return false
+        }
+
         count := NullabilityMetadataReflection.SequenceCount(attributes)
         index := 0
         while index < count {
