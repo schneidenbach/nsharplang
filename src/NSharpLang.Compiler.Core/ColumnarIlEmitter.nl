@@ -22520,7 +22520,9 @@ sealed class ColumnarIlEmitter {
             // nothing, and calling it settled left the delegate's return position open forever, which
             // is why `values.Select(Widen)` with two `Widen` overloads declined while one emitted.
             let overloadedCandidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
-            if (ColumnarContextualExtensionInference.IsDelegatePosition(binding, a) && (TryGetEnclosingMethodGroupCandidates(argNode, out overloadedCandidates) || TryGetExternalStaticMethodGroupCandidates(argNode, out overloadedCandidates))) {
+            let overloadedReceiverNode: int = -1
+            let overloadedReceiverType: System.Type? = null
+            if (ColumnarContextualExtensionInference.IsDelegatePosition(binding, a) && (TryGetEnclosingMethodGroupCandidates(argNode, out overloadedCandidates) || TryGetExternalStaticMethodGroupCandidates(argNode, out overloadedCandidates) || TryGetReceiverInstanceMethodGroup(argNode, out overloadedReceiverNode, out overloadedReceiverType, out overloadedCandidates))) {
                 continue
             }
             let argType: System.Type? = null
