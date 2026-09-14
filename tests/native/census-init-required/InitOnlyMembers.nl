@@ -52,10 +52,17 @@ struct Measurement {
     Unit: int
 }
 
-// An init-only member typed by the declaration's own type parameter.
+// An init-only member typed by the declaration's own type parameter. It is written by the
+// declaring type's OWN constructor, which references the open definition's setter directly: a
+// MemberRef to a closed generic type's `init` setter cannot carry `modreq(IsExternalInit)` (see
+// website/docs/types.md "Current limits"), so an object initializer over `Holder<string>` declines.
 class Holder<T> {
     init Value: T
     Slot: int
+
+    constructor(seed: T) {
+        Value = seed
+    }
 }
 
 // A record's synthesized equality compares init-only members, because they are part of what the

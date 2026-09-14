@@ -232,8 +232,15 @@ class ColumnarPropertyDef {
     PropertyType: Type
     GetterParameterCount: int
     SetterParameterCount: int
+    // WHETHER THE SETTER IS AN `init` ACCESSOR — that is, whether its return type carries
+    // `modreq(IsExternalInit)`. A caller has to know before it emits a reference to the setter,
+    // because a MemberRef to a member of a CLOSED GENERIC type cannot carry the marker:
+    // `TypeBuilder.GetMethod` builds the reference from the open method's bare signature, and the
+    // runtime then refuses to bind it. The one owner that asks declines that write rather than
+    // emitting a reference the JIT will not resolve.
+    IsInitOnly: bool
 
-    constructor(getter: MethodBuilder, setter: MethodBuilder?, propertyType: Type, token: ColumnarPropertyDefinitionToken) {
+    constructor(getter: MethodBuilder, setter: MethodBuilder?, propertyType: Type, token: ColumnarPropertyDefinitionToken, isInitOnly: bool = false) {
         if getter == null || propertyType == null || token == null {
             throw new InvalidOperationException("Source property definition facts cannot be null.")
         }
@@ -243,6 +250,7 @@ class ColumnarPropertyDef {
         PropertyType = propertyType
         GetterParameterCount = 0
         SetterParameterCount = setter == null ? 0 : 1
+        IsInitOnly = isInitOnly
     }
 
     // Define the accessors and their signature fact atomically. A ColumnarPropertyDef cannot
@@ -287,7 +295,7 @@ class ColumnarPropertyDef {
             }
         }
 
-        return new ColumnarPropertyDef(getter, setter, propertyType, new ColumnarPropertyDefinitionToken())
+        return new ColumnarPropertyDef(getter, setter, propertyType, new ColumnarPropertyDefinitionToken(), setterReturnRequiredModifiers != null)
     }
 }
 

@@ -785,6 +785,17 @@ class ColumnarConstructionPlanner {
                     setter: MethodInfo = property.Setter
                     declaringType: Type = propertyOwnerType
                     if !SameObject(propertyOwnerType, propertyOwner.Builder) {
+                        // AN `init` SETTER ON A CLOSED GENERIC TYPE CANNOT BE REFERENCED FROM HERE.
+                        // `TypeBuilder.GetMethod` builds the MemberRef from the open method's bare
+                        // signature and drops the `modreq(IsExternalInit)` the definition carries, so
+                        // the runtime refuses to bind it. Declining is the only honest answer: the
+                        // alternative is IL that compiles and throws `MissingMethodException` when the
+                        // caller is first jitted. The member is still settable from a constructor of
+                        // the declaring type, which references the OPEN method directly.
+                        if property.IsInitOnly {
+                            return false
+                        }
+
                         setter = TypeBuilder.GetMethod(propertyOwnerType, property.Setter)
                     }
                     plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
@@ -893,9 +904,53 @@ class ColumnarConstructionPlanner {
                 return false
             }
             memberName := nodes.Text(source, nameNode)
+            if !assigned.Add(memberName) {
+                return false
+            }
+
+            // A VALUE TYPE'S INITIALIZER MAY NAME A PROPERTY, and an `init` member always is one: its
+            // storage is a private backing field nothing outside the accessors may reach. The receiver
+            // is the temp's ADDRESS — the same `ldloca` the field rows beside this one use — and the
+            // call is `call`, not `callvirt`: a value type is sealed, so there is no virtual dispatch
+            // to do and no boxing to pay for.
+            valuePropertyOwner: ColumnarStructDef? = null
+            valueProperty: ColumnarPropertyDef? = null
+            if TryFindObjectInitializerProperty(definition, memberName, out valuePropertyOwner, out valueProperty) && valuePropertyOwner != null && valueProperty != null {
+                if valueProperty.Setter == null || valueProperty.SetterParameterCount != 1 {
+                    return false
+                }
+                valuePropertyOwnerType := typeof(object)
+                valuePropertyOwnerArguments := new Type[](0)
+                if !TryResolveExactObjectMemberOwnerType(definition, targetType, valuePropertyOwner, out valuePropertyOwnerType, out valuePropertyOwnerArguments) {
+                    return false
+                }
+                valuePropertyType := valuePropertyOwnerArguments.Length > 0 ? SubstituteTypeArgument(valueProperty.PropertyType, valuePropertyOwnerArguments) : valueProperty.PropertyType
+                valueSetter: MethodInfo = valueProperty.Setter
+                valueSetterDeclaringType: Type = valuePropertyOwnerType
+                if !SameObject(valuePropertyOwnerType, valuePropertyOwner.Builder) {
+                    // The same reference the reference-type arm above cannot build: a closed generic
+                    // type's `init` setter loses its `modreq(IsExternalInit)` on the way through
+                    // `TypeBuilder.GetMethod`, and a reference the runtime will not bind is worse than
+                    // a decline.
+                    if valueProperty.IsInitOnly {
+                        return false
+                    }
+
+                    valueSetter = TypeBuilder.GetMethod(valuePropertyOwnerType, valueProperty.Setter)
+                }
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), localIndex)
+                if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, valuePropertyType, out ownership, out legacyWholeSubtreePlanning) {
+                    return false
+                }
+                valueSetterIndex := plan.AddMethodWithSignature(valueSetter, valueSetterDeclaringType, Types1(valuePropertyType), RequiredVoidType(), false, false)
+                plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), valueSetterIndex)
+                index += 2
+                continue
+            }
+
             fieldOwner: ColumnarStructDef? = null
             field: FieldBuilder? = null
-            if !assigned.Add(memberName) || !TryFindObjectInitializerField(definition, memberName, out fieldOwner, out field) || fieldOwner == null || field == null {
+            if !TryFindObjectInitializerField(definition, memberName, out fieldOwner, out field) || fieldOwner == null || field == null {
                 return false
             }
             selectedField: FieldBuilder = field

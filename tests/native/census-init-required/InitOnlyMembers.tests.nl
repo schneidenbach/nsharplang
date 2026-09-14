@@ -53,17 +53,12 @@ test "an init-only member on a value type carries the value the creation gave it
 }
 
 test "an init-only member typed by the declaration's own type parameter round-trips" {
-    holder := new Holder<string> {
-        Value: "generic"
-    }
-
+    holder := new Holder<string>("generic")
     assert holder.Value == "generic"
 
-    numbers := new Holder<int> {
-        Value: 11
-    }
-
+    numbers := new Holder<int>(11)
     assert numbers.Value == 11
+    assert numbers.Slot == 0
 }
 
 test "a record's synthesized equality compares its init-only members" {

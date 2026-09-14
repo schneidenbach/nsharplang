@@ -2231,6 +2231,16 @@ class ColumnarCodePlanExecutor {
                 }
                 return
             }
+            // A VALUE TYPE'S OBJECT INITIALIZER WRITES THROUGH THE TEMP'S ADDRESS, not through a
+            // duplicated object reference: there is no reference to duplicate. The setter is called
+            // on the SAME plan-local address the `initobj` beside it established, which is exactly
+            // the shape the value-type `stfld` rule already admits for a field member — and an
+            // `init` member is never a field, so without this an init-only member could not be set
+            // on a value type at all.
+            if !isStatic && receiver != null && receiver.IsAddress && receiver.ValueKind == ColumnarCodePlanStackValueKind.Exact() && receiver.PlanLocalAddressIndex >= 0 && receiver.PlanLocalAddressIndex < plan.PlanLocalCount && isSpecialName && parameterCount == 1 && methodName.StartsWith("set_", StringComparison.Ordinal) {
+                return
+            }
+
             if ownerFragment != 0 || !IsVoidType(plan.FragmentResultTypes[ownerFragment]) {
                 throw new InvalidOperationException(schemaName + " void calls must be the root result or preserve an enclosing value.")
             }

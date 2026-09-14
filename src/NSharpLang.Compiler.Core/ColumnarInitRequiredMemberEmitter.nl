@@ -207,7 +207,7 @@ class ColumnarInitRequiredMemberEmitter {
             ApplyRequiredMemberToProperty(property)
         }
 
-        definition := new ColumnarPropertyDef(getter, setter, propertyType, new ColumnarPropertyDefinitionToken())
+        definition := new ColumnarPropertyDef(getter, setter, propertyType, new ColumnarPropertyDefinitionToken(), true)
         owner.AutoPropertyBackingFields.Add(BackingFieldName(propertyName))
         if isStatic {
             owner.StaticProperties[propertyName] = definition

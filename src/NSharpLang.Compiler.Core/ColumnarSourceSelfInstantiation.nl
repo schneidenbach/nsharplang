@@ -53,6 +53,26 @@ class ColumnarSourceSelfInstantiation {
     // hands back a fresh instantiation object every time, and a plan that records one handle's
     // declaring type while rebinding through another fails its own identity check — so a caller that
     // needs both the type and the member takes the type from `Of` once and passes it here.
+    // A PROPERTY'S SETTER, BOUND THE WAY THAT SETTER CAN BE BOUND.
+    //
+    // An `init` accessor's whole meaning lives in `modreq(IsExternalInit)` on its RETURN type, and
+    // `TypeBuilder.GetMethod` cannot carry it: the MemberRef it builds is made from the open method's
+    // bare signature, and the runtime then refuses to bind it (`MissingMethodException: Void
+    // Holder`1.set_Value(!0)`). Inside the DECLARING type's own body that rebinding is not needed at
+    // all — a MethodDef token names the method of the enclosing instantiation, which is exactly the
+    // method being called — so an init setter is referenced by its own handle and keeps its marker.
+    static func BindSetter(property: ColumnarPropertyDef): MethodInfo {
+        if property == null || property.Setter == null {
+            throw new InvalidOperationException("Source self-instantiation property setter cannot be null.")
+        }
+
+        if property.IsInitOnly {
+            return property.Setter
+        }
+
+        return Bind(property.Setter)
+    }
+
     static func BindOn(ownerType: Type, method: MethodBuilder): MethodInfo {
         if ownerType == null || method == null {
             throw new InvalidOperationException("Source self-instantiation method handle cannot be null.")
