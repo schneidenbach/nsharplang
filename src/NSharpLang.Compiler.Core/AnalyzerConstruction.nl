@@ -74,6 +74,9 @@ class ConstructionState {
     UnionCaseName: string?
     SoaConstruction: SoaRecordTypeInfo?
     ConstructorArgumentTypes: List<TypeInfo>
+    ConstructorSelectionDone: bool
+    SelectedSourceConstructor: DeclaredMemberInfo?
+    SelectedReflectedConstructor: ConstructorInfo?
     ArgIndex: int
     PropIndex: int
     PropertyStarted: bool
@@ -94,6 +97,9 @@ class ConstructionState {
         UnionCaseName = null
         SoaConstruction = null
         ConstructorArgumentTypes = new List<TypeInfo>()
+        ConstructorSelectionDone = false
+        SelectedSourceConstructor = null
+        SelectedReflectedConstructor = null
         ArgIndex = 0
         PropIndex = 0
         PropertyStarted = false
@@ -154,8 +160,10 @@ class AnalyzerConstruction {
     matchExhaustivenessValue: AnalyzerMatchExhaustiveness
     clrTypeConversionValue: AnalyzerClrTypeConversion
     writeTargetsValue: AnalyzerWriteTargets
+    functionTypeFactoryValue: AnalyzerFunctionTypeFactory
+    syntheticCallWalkValue: AnalyzerSyntheticCallWalk
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver, typeSubstitution: AnalyzerTypeSubstitution, projectDiscovery: AnalyzerProjectTypeDiscovery, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, memberAccess: AnalyzerMemberAccess, arrayLiteral: AnalyzerArrayLiteral, constantFacts: AnalyzerConstantExpressionFacts, assignability: AnalyzerAssignability, memberResolution: AnalyzerMemberResolution, matchExhaustiveness: AnalyzerMatchExhaustiveness, clrTypeConversion: AnalyzerClrTypeConversion, writeTargets: AnalyzerWriteTargets) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver, typeSubstitution: AnalyzerTypeSubstitution, projectDiscovery: AnalyzerProjectTypeDiscovery, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, memberAccess: AnalyzerMemberAccess, arrayLiteral: AnalyzerArrayLiteral, constantFacts: AnalyzerConstantExpressionFacts, assignability: AnalyzerAssignability, memberResolution: AnalyzerMemberResolution, matchExhaustiveness: AnalyzerMatchExhaustiveness, clrTypeConversion: AnalyzerClrTypeConversion, writeTargets: AnalyzerWriteTargets, functionTypeFactory: AnalyzerFunctionTypeFactory, syntheticCallWalk: AnalyzerSyntheticCallWalk) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
@@ -173,6 +181,8 @@ class AnalyzerConstruction {
         matchExhaustivenessValue = matchExhaustiveness
         clrTypeConversionValue = clrTypeConversion
         writeTargetsValue = writeTargets
+        functionTypeFactoryValue = functionTypeFactory
+        syntheticCallWalkValue = syntheticCallWalk
     }
 
     // THE `new` DOOR.
@@ -231,6 +241,7 @@ class AnalyzerConstruction {
                 return argumentStep
             }
 
+            SelectConstructorAndReportRequiredMembers(state, node)
             ValidateSoaRecordConstructionIfNeeded(state, node)
             state.Stage = 1
         }
@@ -327,7 +338,6 @@ class AnalyzerConstruction {
             ReportConstructorArityIfNeeded(state, node)
         }
 
-        ReportMissingRequiredMembersIfNeeded(state, node)
         state.ResultType = state.ConstructedType
     }
 
@@ -340,9 +350,19 @@ class AnalyzerConstruction {
     // a CONSTRUCTOR satisfies it by carrying `[SetsRequiredMembers]`, which is the promise "I set them
     // myself" — the same two ways out C# gives (CS9035).
     //
-    // The question needs no types, only NAMES, so it is answered before the initializer's values are
-    // walked: a creation that is already missing a member should say so at the `new`, not after every
-    // value it did write has been type-checked.
+    // The constructor decision needs the analysed argument types, so it runs as soon as the argument
+    // walk finishes and before the initializer's values are walked. A creation that is already
+    // missing a member still says so at the `new`, before every value it did write is type-checked.
+    func SelectConstructorAndReportRequiredMembers(state: ConstructionState, node: NewExpression) {
+        if state.ConstructorSelectionDone {
+            return
+        }
+
+        state.ConstructorSelectionDone = true
+        SelectConstructor(state, node)
+        ReportMissingRequiredMembersIfNeeded(state, node)
+    }
+
     func ReportMissingRequiredMembersIfNeeded(state: ConstructionState, node: NewExpression) {
         if node.ArrayLengthExpression != null || state.UnionCaseName != null || state.SoaConstruction != null {
             return
@@ -354,8 +374,7 @@ class AnalyzerConstruction {
             return
         }
 
-        argumentCount := node.ConstructorArguments.Count
-        if SourceConstructorSetsRequiredMembers(constructedType, argumentCount) || writeTargetsValue.ReflectedConstructorSetsRequiredMembers(constructedType, argumentCount) {
+        if SelectedConstructorSetsRequiredMembers(state) {
             return
         }
 
@@ -417,33 +436,137 @@ class AnalyzerConstruction {
         return false
     }
 
-    // A SOURCE CONSTRUCTOR'S `[SetsRequiredMembers]`. Arity is the whole selector: the attribute says
-    // the constructor sets the demanded members, and a constructor that cannot even be the one being
-    // called says nothing about this creation.
-    func SourceConstructorSetsRequiredMembers(constructedType: TypeInfo, argumentCount: int): bool {
+    func SelectConstructor(state: ConstructionState, node: NewExpression) {
+        if node.ArrayLengthExpression != null || state.UnionCaseName != null || state.SoaConstruction != null {
+            return
+        }
+
+        constructedType := NonNullableType(state.ConstructedType)
         opened := declarationContextValue.ResolveDeclaredAlias(constructedType)
         generic := opened as GenericTypeInfo
+        declarationOwner := constructedType
+        sourceSubstitution: Dictionary<string, TypeInfo>? = null
         if generic != null && generic.GenericDefinition != null {
             opened = generic.GenericDefinition
+            sourceSubstitution = declarationContextValue.CreateGenericSubstitution(opened, generic.TypeArguments)
         }
 
-        classType := opened as ClassTypeInfo
-        if classType == null {
-            return false
-        }
-
-        constructors := DeclaredConstructors(classType)
-        index := 0
-        while index < constructors.Count {
-            constructor := constructors[index]
-            if constructor.ParameterCount == argumentCount && constructor.HasSetsRequiredMembersAttribute {
-                return true
+        members := DeclaredMembers(opened)
+        sourceConstructors := ConstructorsFromMembers(members)
+        if sourceConstructors.Count > 0 {
+            signatures := new List<FunctionTypeInfo>()
+            index := 0
+            while index < sourceConstructors.Count {
+                signatures.Add(functionTypeFactoryValue.CreateFromDeclaredMember(sourceConstructors[index], sourceSubstitution, declarationOwner))
+                index = index + 1
             }
 
-            index = index + 1
+            selected := syntheticCallWalkValue.BindNSharpCall(signatures, ConstructorCall(node), state.ConstructorArgumentTypes, null)
+            if selected != null {
+                index = 0
+                while index < signatures.Count {
+                    if Object.ReferenceEquals(signatures[index], selected) {
+                        state.SelectedSourceConstructor = sourceConstructors[index]
+                        return
+                    }
+                    index = index + 1
+                }
+            }
+            return
         }
 
-        return false
+        normalized := writeTargetsValue.NormalizeReflectionOwner(opened) as ReflectionTypeInfo
+        if normalized == null || AnalyzerWriteTargets.IsTypeBuilder(normalized.Type) {
+            return
+        }
+
+        reflectedConstructors := AnalyzerReflectionMemberProbe.ConstructorsOrEmpty(normalized.Type)
+        reflectedSignatures := new List<FunctionTypeInfo>()
+        reflectedCandidates := new List<ConstructorInfo>()
+        reflectedOverrides := ReflectionConstructorTypeOverrides(constructedType, normalized.Type)
+        for constructorInfo in reflectedConstructors {
+            signature := AnalyzerFunctionTypeFactory.CreateFromReflectionConstructor(constructorInfo, reflectedOverrides)
+            if signature != null {
+                reflectedCandidates.Add(constructorInfo)
+                reflectedSignatures.Add(signature)
+            }
+        }
+
+        reflectedSelected := syntheticCallWalkValue.BindNSharpCall(reflectedSignatures, ConstructorCall(node), state.ConstructorArgumentTypes, null)
+        if reflectedSelected == null {
+            return
+        }
+
+        reflectedIndex := 0
+        while reflectedIndex < reflectedSignatures.Count {
+            if Object.ReferenceEquals(reflectedSignatures[reflectedIndex], reflectedSelected) {
+                state.SelectedReflectedConstructor = reflectedCandidates[reflectedIndex]
+                return
+            }
+            reflectedIndex = reflectedIndex + 1
+        }
+    }
+
+    static func ReflectionConstructorTypeOverrides(constructedType: TypeInfo, reflectedOwner: Type): Dictionary<Type, TypeInfo>? {
+        constructedGeneric := constructedType as GenericTypeInfo
+        if constructedGeneric == null || !reflectedOwner.get_IsGenericTypeDefinition() {
+            return null
+        }
+
+        openArguments := reflectedOwner.GetGenericArguments()
+        if openArguments.Length != constructedGeneric.TypeArguments.Count {
+            return null
+        }
+
+        overrides := new Dictionary<Type, TypeInfo>()
+        index := 0
+        while index < openArguments.Length {
+            overrides[openArguments[index]] = constructedGeneric.TypeArguments[index]
+            index = index + 1
+        }
+        return overrides
+    }
+
+    static func ConstructorCall(node: NewExpression): CallExpression {
+        return new CallExpression(new IdentifierExpression(".ctor", node.Line, node.Column), node.ConstructorArguments, null, node.Line, node.Column)
+    }
+
+    static func SelectedConstructorSetsRequiredMembers(state: ConstructionState): bool {
+        source := state.SelectedSourceConstructor
+        if source != null {
+            return source.HasSetsRequiredMembersAttribute
+        }
+
+        reflected := state.SelectedReflectedConstructor
+        return reflected != null && AnalyzerWriteTargets.ConstructorCarriesSetsRequiredMembers(reflected.GetCustomAttributesData())
+    }
+
+    static func DeclaredMembers(typeInfo: TypeInfo): DeclaredMemberInfo[] {
+        classType := typeInfo as ClassTypeInfo
+        if classType != null {
+            return classType.DeclaredMembers
+        }
+        structType := typeInfo as StructTypeInfo
+        if structType != null {
+            return structType.DeclaredMembers
+        }
+        recordType := typeInfo as RecordTypeInfo
+        if recordType != null {
+            return recordType.DeclaredMembers
+        }
+        return new DeclaredMemberInfo[](0)
+    }
+
+    static func ConstructorsFromMembers(members: DeclaredMemberInfo[]): List<DeclaredMemberInfo> {
+        constructors := new List<DeclaredMemberInfo>()
+        index := 0
+        while index < members.Length {
+            if members[index].Kind == DeclaredMemberKind.Constructor {
+                constructors.Add(members[index])
+            }
+            index = index + 1
+        }
+        return constructors
     }
 
     static func JoinQuoted(names: List<string>): string {

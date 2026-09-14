@@ -113,3 +113,39 @@ test "required members on a closed source generic are still demanded" {
     assert InitRequiredErrorCodes(errors) == "344", InitRequiredErrorCodes(errors)
     assert errors[0].Message.Contains("Value")
 }
+
+test "only the selected same-arity constructor may discharge required members" {
+    errors := InitRequiredAnalysisErrors(
+        "import System.Diagnostics.CodeAnalysis\n" + "class Selected {\n" + "    required Name: string\n" + "    [SetsRequiredMembers]\n" + "    constructor(name: string) { Name = name }\n" + "    constructor(value: int) { Name = value.ToString() }\n" + "}\n" + "func Missing(): Selected { return new Selected(1) }\n" + "func Valid(): Selected { return new Selected(\"ok\") }\n"
+    )
+
+    codes := InitRequiredErrorCodes(errors)
+    assert codes.EndsWith("344"), codes
+}
+
+test "constructor selection uses ordinary reference specificity before reading SetsRequiredMembers" {
+    errors := InitRequiredAnalysisErrors(
+        "import System.Diagnostics.CodeAnalysis\n" + "class Animal {}\n" + "class Dog: Animal {}\n" + "class Poodle: Dog {}\n" + "class Selected {\n" + "    required Name: string\n" + "    constructor(value: Animal) { Name = \"animal\" }\n" + "    [SetsRequiredMembers]\n" + "    constructor(value: Dog) { Name = \"dog\" }\n" + "}\n" + "func Make(): Selected { return new Selected(new Poodle()) }\n"
+    )
+
+    codes := InitRequiredErrorCodes(errors)
+    assert !codes.Contains("344"), codes
+}
+
+test "constructor selection uses ordinary numeric specificity before reading SetsRequiredMembers" {
+    errors := InitRequiredAnalysisErrors(
+        "import System.Diagnostics.CodeAnalysis\n" + "class Selected {\n" + "    required Name: string\n" + "    [SetsRequiredMembers]\n" + "    constructor(value: long) { Name = \"long\" }\n" + "    constructor(value: float) { Name = \"float\" }\n" + "}\n" + "func Make(): Selected { return new Selected(1) }\n"
+    )
+
+    codes := InitRequiredErrorCodes(errors)
+    assert !codes.Contains("344"), codes
+}
+
+test "annotated constructors discharge required members on generic source structs and records" {
+    errors := InitRequiredAnalysisErrors(
+        "import System.Diagnostics.CodeAnalysis\n" + "struct Packet<T> {\n" + "    required Value: T\n" + "    [SetsRequiredMembers]\n" + "    constructor(value: T) { Value = value }\n" + "}\n" + "record Receipt {\n" + "    required Code: string\n" + "    [SetsRequiredMembers]\n" + "    constructor(code: string) { Code = code }\n" + "}\n" + "func PacketValue(): Packet<int> { return new Packet<int>(1) }\n" + "func ReceiptValue(): Receipt { return new Receipt(\"r\") }\n"
+    )
+
+    codes := InitRequiredErrorCodes(errors)
+    assert !codes.Contains("344"), codes
+}

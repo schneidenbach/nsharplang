@@ -646,6 +646,69 @@ class AnalyzerFunctionTypeFactory {
         return signature
     }
 
+    // A reflected constructor projected into the same signature model the source overload walk
+    // consumes. Construction has no separate overload language: names, ref/out, optional tails and
+    // params all mean exactly what they mean on an ordinary call, so keeping this projection here
+    // lets the construction owner ask the established synthetic-call binder for one exact winner.
+    static func CreateFromReflectionConstructor(constructorInfo: ConstructorInfo, typeInfoOverrides: Dictionary<Type, TypeInfo>? = null): FunctionTypeInfo? {
+        parameters: ParameterInfo[]? = null
+        try {
+            parameters = constructorInfo.GetParameters()
+        } catch {
+            return null
+        }
+
+        if parameters == null {
+            return null
+        }
+
+        names := new List<string>()
+        types := new List<TypeInfo>()
+        modifiers := new List<Ast.ParameterModifier>()
+        requiredCount := 0
+        hasParams := false
+        index := 0
+        while index < parameters.Length {
+            parameter := parameters[index]
+            name := parameter.get_Name()
+            names.Add(name ?? "arg" + index.ToString())
+            try {
+                if typeInfoOverrides == null {
+                    types.Add(NullabilityMetadataReflection.ConvertParameter(parameter))
+                } else {
+                    types.Add(AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(parameter, typeInfoOverrides, null))
+                }
+            } catch {
+                return null
+            }
+
+            modifier := GetReflectionParameterModifier(parameter)
+            if AnalyzerOverloadFacts.IsParamsParameter(parameter) {
+                modifier = Ast.ParameterModifier.Params
+                hasParams = true
+            }
+
+            modifiers.Add(modifier)
+            if !parameter.get_IsOptional() && modifier != Ast.ParameterModifier.Params {
+                requiredCount = requiredCount + 1
+            }
+
+            index = index + 1
+        }
+
+        signature := new FunctionTypeInfo()
+        signature.SyntheticName = ".ctor"
+        signature.SourceName = ".ctor"
+        signature.SourceParameterCount = parameters.Length
+        signature.ParameterNames = names
+        signature.ParameterTypes = types
+        signature.ParameterModifiers = modifiers
+        signature.RequiredParameterCount = requiredCount
+        signature.HasParamsParameter = hasParams
+        signature.ReturnType = BuiltInTypes.Void
+        return signature
+    }
+
     // A by-ref reflection parameter carries its direction; everything else has none.
     static func GetReflectionParameterModifier(parameter: ParameterInfo): Ast.ParameterModifier {
         parameterType := parameter.get_ParameterType()
