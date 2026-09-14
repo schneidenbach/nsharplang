@@ -9009,7 +9009,7 @@ func TopLevelFunctionPreamblesAreValidCore(source: string, tokens: ParserDeclara
         if preceding >= 0 && tokens.Kinds[preceding] != 130 {
             if tokens.Kinds[preceding] == 4 {
                 if preceding - 1 < 0 || tokens.Kinds[preceding - 1] != 17 {
-                    if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(source, tokens, count, indices.Indices[i - 1], preceding + 1) == 0 {
+                    if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(source, tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
                         return 0
                     }
                 }
@@ -9038,7 +9038,7 @@ func TopLevelFunctionPreamblesAreValidCore(source: string, tokens: ParserDeclara
             isAliasedFileImportHeader := headerWalk >= 0 && tokens.Kinds[headerWalk] == 4 && headerWalk - 1 >= 0 && tokens.Kinds[headerWalk - 1] == 17
 
             if headerWalk == preceding || headerWalk < 0 || (tokens.Kinds[headerWalk] != 15 && tokens.Kinds[headerWalk] != 17 && tokens.Kinds[headerWalk] != 18 && !isAliasedFileImportHeader) {
-                if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(source, tokens, count, indices.Indices[i - 1], preceding + 1) == 0 {
+                if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(source, tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
                     return 0
                 }
             }
@@ -9050,13 +9050,14 @@ func TopLevelFunctionPreamblesAreValidCore(source: string, tokens: ParserDeclara
     return 1
 }
 
-// DOES THE PRECEDING FUNCTION'S EXPRESSION BODY END EXACTLY WHERE THE NEXT DECLARATION BEGINS? The
-// boundary asked about is the next declaration's PREAMBLE start, not its `func` keyword: `async`,
-// `public` and an attribute group all sit between the two, so measuring to the keyword made every
-// arrow-bodied function followed by a modified one look like an unterminated body and declined the
-// whole file at `parse.declaration-scan`.
-func TopLevelExpressionBodiedFunctionEndsAt(source: string, tokens: ParserDeclarationTokenTable, count: int, funcIndex: int, nextDeclarationStart: int): int {
-    if funcIndex < 0 || funcIndex >= count || nextDeclarationStart <= funcIndex || nextDeclarationStart > count || tokens.Kinds[funcIndex] != 7 {
+// DOES THE PRECEDING FUNCTION'S EXPRESSION BODY END WHERE THE NEXT DECLARATION'S PREAMBLE BEGINS?
+// The body's end is measured FORWARD to the next `func` keyword: everything between them must be
+// that declaration's own preamble — modifiers and attribute groups, an optional `;` after the body.
+// Measuring to the keyword alone made every arrow-bodied function followed by a modified one look
+// like an unterminated body; measuring to a BACKWARD-walked preamble start read the `]` of an
+// indexer body (`=> items[0]`) as an attribute group's close and declined the file the same way.
+func TopLevelExpressionBodiedFunctionEndsAt(source: string, tokens: ParserDeclarationTokenTable, count: int, funcIndex: int, nextFuncIndex: int): int {
+    if funcIndex < 0 || funcIndex >= count || nextFuncIndex <= funcIndex || nextFuncIndex > count || tokens.Kinds[funcIndex] != 7 {
         return 0
     }
 
@@ -9070,15 +9071,52 @@ func TopLevelExpressionBodiedFunctionEndsAt(source: string, tokens: ParserDeclar
         return 0
     }
 
-    if expressionEnd == nextDeclarationStart {
-        return 1
+    pos := expressionEnd
+    if pos < count && tokens.Kinds[pos] == 133 {
+        pos = pos + 1
     }
 
-    if expressionEnd + 1 == nextDeclarationStart && expressionEnd < count && tokens.Kinds[expressionEnd] == 133 {
+    while pos < nextFuncIndex {
+        kind := tokens.Kinds[pos]
+        if ModifierFlag(kind) != 0 {
+            pos = pos + 1
+        } else if kind == 131 {
+            close := TopLevelFunctionPreambleAttributeClose(tokens, count, pos)
+            if close < 0 || close >= nextFuncIndex {
+                return 0
+            }
+
+            pos = close + 1
+        } else {
+            return 0
+        }
+    }
+
+    if pos == nextFuncIndex {
         return 1
     }
 
     return 0
+}
+
+func TopLevelFunctionPreambleAttributeClose(tokens: ParserDeclarationTokenTable, count: int, openIndex: int): int {
+    depth := 0
+    pos := openIndex
+    while pos < count {
+        kind := tokens.Kinds[pos]
+        if kind == 131 {
+            depth = depth + 1
+        } else if kind == 132 {
+            depth = depth - 1
+            if depth == 0 {
+                return pos
+            }
+        }
+
+        pos = pos + 1
+    }
+
+    return -1
 }
 
 func MatchingCloseBraceCore(tokens: ParserDeclarationKindStream, count: int, open: int): int {

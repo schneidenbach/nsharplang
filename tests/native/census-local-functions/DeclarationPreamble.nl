@@ -144,3 +144,17 @@ func AttributedAfterArrow(): int => 8
 func ConstrainedArrow<T>(value: T): T where T: class => value
 
 func AfterConstrainedArrow(): int => 9
+
+// AN INDEXER AT THE END OF AN ARROW BODY is not an attribute group. The preamble walk that finds
+// where the next declaration's modifiers begin reads backwards from its `func`, and a `]` there
+// looked like an attribute's close — so `=> items[0]` made the next declaration's preamble start
+// inside the body, and the file declined at `parse.declaration-scan`. The body's end is measured
+// forward to the next `func` instead, over that declaration's real modifiers and attributes.
+func IndexerArrow(items: int[]): int => items[0]
+
+func AfterIndexerArrow(): int => 10
+
+func IndexerArrowBeforeAttributed(items: int[]): int => items[1]
+
+[Obsolete("pinned by the indexer preamble contract")]
+func AttributedAfterIndexerArrow(): int => 11

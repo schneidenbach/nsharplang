@@ -126,3 +126,17 @@ test "an expression-bodied function with a constraint clause does not swallow th
     assert ConstrainedArrow<string>("held") == "held"
     assert AfterConstrainedArrow() == 9
 }
+
+test "an indexer at the end of an arrow body is not read as the next declaration's attribute group" {
+    assert IndexerArrow([3, 4]) == 3
+    assert AfterIndexerArrow() == 10
+    assert IndexerArrowBeforeAttributed([3, 4]) == 4
+    assert AttributedAfterIndexerArrow() == 11
+
+    method := PreambleFacts.Method("AttributedAfterIndexerArrow")
+    assert method != null
+    obsolete := method.GetCustomAttribute(typeof(ObsoleteAttribute)) as ObsoleteAttribute
+    assert obsolete != null
+    assert obsolete.Message == "pinned by the indexer preamble contract"
+    assert PreambleFacts.ReturnType("AfterIndexerArrow") == typeof(int)
+}
