@@ -68,6 +68,12 @@ class GenericInitializable<T> {
     init Value: T
 }
 
+func GenericInitializableFrom<U>(value: U): GenericInitializable<U> {
+    return new GenericInitializable<U> {
+        Value: value
+    }
+}
+
 struct GenericMeasurement<T> {
     init Value: T
 }

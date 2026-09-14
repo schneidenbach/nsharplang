@@ -14045,11 +14045,23 @@ sealed class ColumnarIlEmitter {
                             if (constructedClosedArgs.Length == 0) {
                                 userSetter = userInitProperty.Setter
                             } else {
-                                if (userInitProperty.IsInitOnly) {
-                                    _modifiedMemberReferences.Record(constructedType, userInitProperty.Setter)
-                                }
-
                                 userSetter = TypeBuilder.GetMethod(constructedType, userInitProperty.Setter)
+                                if (userInitProperty.IsInitOnly) {
+                                    // The MemberRef belongs to the CONSTRUCTED owner. Its `!0` can
+                                    // therefore denote a method-owned `U` from `Box<U>`, while the
+                                    // open setter's parameter is the declaration-owned `T`. Keep the
+                                    // open setter only as the modifier source and match the emitted
+                                    // signature against the already-substituted property type.
+                                    setterParameterTypes := new Type[](1)
+                                    setterParameterTypes[0] = propertyType
+                                    _modifiedMemberReferences.Record(
+                                        constructedType,
+                                        userSetter,
+                                        userInitProperty.Setter,
+                                        setterParameterTypes,
+                                        ColumnarTypeOfPlanner.RequiredVoidType()
+                                    )
+                                }
                             }
                             _il.Emit(OpCodes.Callvirt, userSetter)
                             continue

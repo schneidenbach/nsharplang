@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.Reflection
+import System.Reflection.Emit
 
 func ModifiedMemberWriteInt32(bytes: byte[], offset: int, value: int) {
     bytes[offset] = (byte)value
@@ -108,4 +109,20 @@ test "ColumnarModifiedMemberReferenceRepair retains a marked method signature so
     assert last == 19
     assert plan.MethodModifiedSignatureSources[first] == method
     assert plan.MethodModifiedSignatureSources[last] == null
+}
+
+test "ColumnarModifiedMemberReferenceRepair keeps unbaked VAR and MVAR identities distinct" {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("ModifiedMemberGenericIdentity"), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule("ModifiedMemberGenericIdentity")
+    owner := module.DefineType("Owner", TypeAttributes.Public)
+    ownerParameters := owner.DefineGenericParameters(["T"])
+    method := owner.DefineMethod("Make", MethodAttributes.Public | MethodAttributes.Static)
+    methodParameters := method.DefineGenericParameters(["U", "V"])
+
+    assert ownerParameters.Length == 1
+    assert methodParameters.Length == 2
+    assert ownerParameters[0].get_IsGenericTypeParameter()
+    assert methodParameters[0].get_IsGenericMethodParameter()
+    assert ColumnarModifiedMemberReferenceRepair.RuntimeTypeIdentity(ownerParameters[0]) != ColumnarModifiedMemberReferenceRepair.RuntimeTypeIdentity(methodParameters[0])
+    assert ColumnarModifiedMemberReferenceRepair.RuntimeTypeIdentity(methodParameters[0]) != ColumnarModifiedMemberReferenceRepair.RuntimeTypeIdentity(methodParameters[1])
 }

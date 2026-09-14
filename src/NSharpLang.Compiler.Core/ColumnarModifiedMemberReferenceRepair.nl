@@ -172,8 +172,17 @@ class ColumnarModifiedMemberReferenceRepair {
             return RuntimeTypeIdentity(clrType.GetElementType()) + suffix
         }
         if clrType.get_IsGenericParameter() {
-            declaringMethod := clrType.get_DeclaringMethod()
-            if declaringMethod != null {
+            if clrType.get_IsGenericMethodParameter() {
+                declaringMethod := clrType.get_DeclaringMethod()
+                if declaringMethod == null {
+                    // GenericParameterBuilder preserves the VAR/MVAR kind and ordinal before its
+                    // method is baked, but DeclaringMethod may still be unavailable. An MVAR in a
+                    // MemberRef operand is contextual to the method body containing that operand,
+                    // so the portable signature identity here is exactly its kind and ordinal.
+                    // Request identity separately includes the constructed owner and both setter
+                    // identities; two different target members therefore cannot collapse here.
+                    return "!!:" + clrType.get_GenericParameterPosition().ToString()
+                }
                 methodOwner := declaringMethod.get_DeclaringType()
                 ownerIdentity := methodOwner == null ? "" : RuntimeTypeDefinitionIdentity(methodOwner)
                 methodArity := declaringMethod.get_IsGenericMethod() ? declaringMethod.GetGenericArguments().Length : 0
@@ -1183,7 +1192,11 @@ class ColumnarModifiedMemberReferenceRepair {
             if !clrType.get_IsGenericParameter() || !TryReadCompressed(bytes, ref cursor, out position) || position != clrType.get_GenericParameterPosition() {
                 return false
             }
-            methodOwned := clrType.get_DeclaringMethod() != null
+            methodOwned := clrType.get_IsGenericMethodParameter()
+            typeOwned := clrType.get_IsGenericTypeParameter()
+            if methodOwned == typeOwned {
+                return false
+            }
             return (code == MVar && methodOwned) || (code == Var && !methodOwned)
         }
         if code == 0x11 || code == 0x12 {
