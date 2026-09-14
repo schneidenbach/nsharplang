@@ -744,7 +744,7 @@ class ColumnarExactTypeResolver {
             exactGenericHead := canonical.Substring(0, genericOpen)
             lexicalGenericHead := ""
             if TryResolveLexicalSourceDeclarationName(exactGenericHead, out lexicalGenericHead) {
-                exactGenericHead = lexicalGenericHead
+                exactGenericHead = program.FileRelativeExactTypeName(sourceFileId, lexicalGenericHead)
             }
             argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
                 canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
@@ -773,7 +773,7 @@ class ColumnarExactTypeResolver {
 
         exactName := ""
         if TryResolveLexicalSourceDeclarationName(canonical, out exactName) {
-            return exactName
+            return program.FileRelativeExactTypeName(sourceFileId, exactName)
         }
         return canonical
     }

@@ -710,7 +710,7 @@ class ColumnarBindingScopeFacts {
 
         exactName := ""
         if TryFindLexicalOwnedSourceTypeName(enclosingTypeName, canonical, out exactName) {
-            return exactName
+            return FileRelativeExactTypeName(activeSourceFileId, exactName)
         }
         return canonical
     }
