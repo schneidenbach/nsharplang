@@ -127,7 +127,8 @@ test "a display that captured its enclosing scope holds exactly one receiver fie
     // Scaler's five member lambdas and its three-argument constructor, Composer.Curry's outer lambda,
     // `Totals.Weighted`'s lambda in CapturedInference.nl and `Ledger.Weigh`'s INFERRED zero-parameter
     // lambda in InferredDelegates.nl (eight instance receivers), plus the inner lambdas of Curried,
-    // ThreeDeep's two inner levels, CurriedBlocks and Composer.Curry (five parent displays).
+    // ThreeDeep's two inner levels, CurriedBlocks and Composer.Curry, plus the innermost level of
+    // `Curry` and of `ChainedOverACapture` in DelegateStorage.nl (seven parent displays).
     //
     // A scope whose body reaches NOTHING outside its own captures gets no receiver field at all:
     // Curried's and CurriedBlocks' OUTER lambdas capture only a function parameter,
@@ -135,7 +136,7 @@ test "a display that captured its enclosing scope holds exactly one receiver fie
     // SharedCounter's levels reach `total` through its shared box rather than through a receiver, and
     // every free-function lambda in CapturedInference.nl — CountGreater's nested pair included —
     // and every free-function lambda in InferredDelegates.nl capture only parameters and locals.
-    assert displaysWithReceiver == 14
+    assert displaysWithReceiver == 16
 }
 
 test "a nested lambda's display points at the display of the scope that made it" {
@@ -160,10 +161,11 @@ test "a nested lambda's display points at the display of the scope that made it"
         }
     }
 
-    // Curried's inner lambda, ThreeDeep's two inner levels, CurriedBlocks' inner lambda and
-    // Composer.Curry's inner lambda each point at the display the scope above them made — which is
-    // the link a read walks when it reaches past its own captures.
-    assert nestedDisplays == 5
+    // Curried's inner lambda, ThreeDeep's two inner levels, CurriedBlocks' inner lambda,
+    // Composer.Curry's inner lambda and — from DelegateStorage.nl's invocation chains — the
+    // INNERMOST level of `Curry` and of `ChainedOverACapture` each point at the display the scope
+    // above them made, which is the link a read walks when it reaches past its own captures.
+    assert nestedDisplays == 7
     // Scaler's five member lambdas, its three-argument constructor, Composer.Curry's outer lambda,
     // `Totals.Weighted`'s lambda and `Ledger.Weigh`'s point at the declaring type's instance.
     assert instanceDisplays == 9

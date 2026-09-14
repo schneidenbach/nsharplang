@@ -35,3 +35,10 @@ test "a written loop binding is captured per iteration by an async lambda" {
     firstAgain := await first()
     assert firstAgain == 10
 }
+
+test "a delegate produced by a call is invoked by the argument list after it" {
+    assert ChainedThroughALocal() == 6
+    assert ChainedFromACallResult() == 6
+    assert ChainedThroughAParameter(Curry()) == 15
+    assert ChainedOverACapture(2) == 7
+}

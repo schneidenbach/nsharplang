@@ -2352,6 +2352,74 @@ sealed class ColumnarIlEmitter {
     // The signature is settled by PREFLIGHT before a single instruction is emitted, so a callee that
     // is not a delegate (or whose arity disagrees) declines with nothing on the stack, and the
     // arguments go through the same declared-argument door every other call uses.
+    // WHAT A CALL WHOSE CALLEE IS AN EXPRESSION IS WORTH, without emitting anything. The callee's own
+    // preflight answers the delegate, and `Invoke` answers the result — which is what makes a chain of
+    // invocations (`three(1)(2)(3)`) resolve one link at a time.
+    private func TryGetPreflightDelegateInvocationType(callIdx: int, callee: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let calleeType: System.Type? = null
+        if (!TryGetPreflightExpressionType(callee, out calleeType) || calleeType == null) {
+            return false
+        }
+
+        return TryGetPreflightDelegateResultType(callIdx, calleeType, out columnarResolvedType)
+    }
+
+    // `Invoke`'s return type for a delegate this emitter can invoke, with the call's arity checked
+    // against it: a mismatched argument list is not an invocation of this delegate at all.
+    private func TryGetPreflightDelegateResultType(callIdx: int, calleeType: Type, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (!IsInvocableDelegateType(calleeType)) {
+            return false
+        }
+        let invoke: System.Reflection.MethodInfo = null
+        let invokeParameterTypes: System.Type[] = null
+        let invokeReturnType: System.Type = null
+        if (!TryResolveDelegateInvocation(calleeType, out invoke, out invokeParameterTypes, out invokeReturnType)) {
+            return false
+        }
+        if (_nodes.ChildCount(callIdx) - 1 != invokeParameterTypes.Length) {
+            return false
+        }
+        columnarResolvedType = invokeReturnType
+        return true
+    }
+
+    // THE DECLARED TYPE OF A DELEGATE-VALUED BINDING, in the tier order `TryEmitDelegateInvoke` uses:
+    // a boxed capture's current value, then a lifted local's, then a plain local, then a parameter.
+    private func TryGetPreflightBoundDelegateType(name: string, out delegateType: Type): bool {
+        delegateType = null
+        let boxedDelegateBoxField: System.Reflection.FieldInfo? = null
+        let boxedDelegateValueType: System.Type? = null
+        let boxedDelegate: (BoxField: System.Reflection.FieldInfo, ValueType: System.Type) = (boxedDelegateBoxField, boxedDelegateValueType)
+        if (_boxedCaptures != null && _boxedCaptures.TryGetValue(name, out boxedDelegate)) {
+            delegateType = boxedDelegate.ValueType
+            return delegateType != null
+        }
+        let liftedDelegateBox: System.Reflection.Emit.LocalBuilder? = null
+        let liftedDelegateValueType: System.Type? = null
+        let liftedDelegate: (Box: System.Reflection.Emit.LocalBuilder, ValueType: System.Type) = (liftedDelegateBox, liftedDelegateValueType)
+        if (_liftedLocals.TryGetValue(name, out liftedDelegate)) {
+            delegateType = liftedDelegate.ValueType
+            return delegateType != null
+        }
+        let local: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(name, out local)) {
+            delegateType = local.get_LocalType()
+            return true
+        }
+        let ordinal: int = 0
+        if (_paramOrdinals.TryGetValue(name, out ordinal)) {
+            let paramType: System.Type? = null
+            if (_paramTypes.TryGetValue(name, out paramType)) {
+                delegateType = paramType
+                return paramType != null
+            }
+        }
+
+        return false
+    }
+
     private func TryEmitInvokedDelegateValue(callIdx: int, callee: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         let calleeType: System.Type? = null
@@ -21541,12 +21609,29 @@ sealed class ColumnarIlEmitter {
                 }
                 return false
             }
+            // A CALLEE THAT IS NOT A NAME AT ALL PRODUCES THE DELEGATE IT INVOKES. `three(1)(2)` is
+            // two invocations, and the second one's callee is the first CALL — a node kind this arm
+            // had no case for, so it answered nothing and the emitter's delegate-invoke door (which
+            // asks this preflight what the callee is worth) declined the whole expression with
+            // `emit.call.callee-kind`.
             if (_nodes.Kind(callee) != 6) {
-                return false
+                return TryGetPreflightDelegateInvocationType(node, callee, out columnarResolvedType)
             }
             calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
             if (_locals.ContainsKey(calleeName) || _paramOrdinals.ContainsKey(calleeName) || _liftedLocals.ContainsKey(calleeName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(calleeName))) {
-                return false
+                // A BINDING'S NAME INVOKES ONLY WHEN IT IS DELEGATE-TYPED, and a same-named method
+                // tier is terminal — the same precedence the emission arm applies, so what the
+                // preflight promises and what the emitter writes cannot disagree.
+                let shadowingInstanceMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                let shadowingStaticMethod: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+                if (_siblings.ContainsKey(calleeName) || (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, calleeName, out shadowingInstanceMethod)) || (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, calleeName, _nodes.ChildCount(node) - 1, out shadowingStaticMethod))) {
+                    return false
+                }
+                let boundDelegateType: System.Type? = null
+                if (!TryGetPreflightBoundDelegateType(calleeName, out boundDelegateType)) {
+                    return false
+                }
+                return TryGetPreflightDelegateResultType(node, boundDelegateType, out columnarResolvedType)
             }
             let localFnMethod: System.Reflection.Emit.MethodBuilder? = null
             let localFnParamTypes: System.Type[]? = null

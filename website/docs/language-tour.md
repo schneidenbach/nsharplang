@@ -1028,6 +1028,19 @@ for i := 0; i < 3; i++ {
 print adders[0]()   // 0, not 20
 ```
 
+**An argument list after anything that produces a delegate invokes it.** A curried chain reads left to
+right, one invocation per link:
+
+```n#
+import System
+
+func curry(): Func<int, Func<int, Func<int, int>>> {
+    return a => b => c => a + b + c
+}
+
+print curry()(1)(2)(3)      // 6
+```
+
 ### Lambdas inside lambdas
 
 A lambda written inside another lambda reaches **every** enclosing scope — its own parameters, the

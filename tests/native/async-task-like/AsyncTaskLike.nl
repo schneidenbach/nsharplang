@@ -112,3 +112,27 @@ class ImmediateAwaiter: System.Runtime.CompilerServices.INotifyCompletion {
 func AwaitCustom(value: int): int {
     return await new Immediate(value)
 }
+
+// A HAND-WRITTEN `GetAwaiter()`, WHICH IS WHAT `await` LOWERS TO AND WHAT A SYNCHRONOUS WAIT SPELLS.
+//
+// `Task<TResult>` re-declares `GetAwaiter()` — it returns `TaskAwaiter<TResult>` where the base
+// `Task`'s returns `TaskAwaiter` — so reflection hands back BOTH declarations for a `Task<int>`
+// receiver and the two tied at zero arguments. That is not an ambiguity: a member declared in a more
+// derived type HIDES one of the same signature in a base, and a return type is not part of a
+// signature. Until the hiding relation was applied, `t.GetAwaiter()` on a `Task<int>` declined while
+// the identical call on a non-generic `Task` bound.
+func AwaitedSynchronously(): int {
+    return CountedWork().GetAwaiter().GetResult()
+}
+
+func AwaiterThroughALocal(): int {
+    task := Task.FromResult(11)
+    awaiter := task.GetAwaiter()
+    return awaiter.GetResult()
+}
+
+func UnitAwaitedSynchronously(): bool {
+    work := UnitWork()
+    work.GetAwaiter().GetResult()
+    return work.IsCompleted
+}

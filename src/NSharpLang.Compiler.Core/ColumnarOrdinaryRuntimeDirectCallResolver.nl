@@ -525,7 +525,23 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                                 selectedParameters = parameterTypes
                                 selectedReturnType = returnType
                             } else if score >= 0 && score == bestScore {
-                                bestCount += 1
+                                // A TIE BETWEEN TWO DECLARATIONS OF ONE SIGNATURE IS NOT AN AMBIGUITY
+                                // WHEN ONE HIDES THE OTHER (C# §12.5). `Task<TResult>` re-declares
+                                // `GetAwaiter()` — returning `TaskAwaiter<TResult>` where the base
+                                // `Task`'s returns `TaskAwaiter` — and `GetMethods()` hands back both,
+                                // so a written `t.GetAwaiter()` on a `Task<int>` scored two zero-argument
+                                // candidates equally and was owned-REJECTED, while the identical call on
+                                // a non-generic `Task` bound. A return type is not part of a signature;
+                                // the hiding relation is, and the more derived declaration wins.
+                                hidesSelected := selected != null && SameCallSignature(selected, selected.GetParameters(), candidate, parameters) && HidesDeclaration(candidate, selected)
+                                hiddenBySelected := selected != null && SameCallSignature(selected, selected.GetParameters(), candidate, parameters) && HidesDeclaration(selected, candidate)
+                                if hidesSelected {
+                                    selected = candidate
+                                    selectedParameters = parameterTypes
+                                    selectedReturnType = returnType
+                                } else if !hiddenBySelected {
+                                    bestCount += 1
+                                }
                             }
                         }
                     }
@@ -690,6 +706,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         admitted := new List<ColumnarOrdinaryRuntimeDirectCallSelection>()
+        admittedMethods := new List<MethodInfo>()
         index := 0
         while index < candidates.Length {
             candidate := candidates[index]
@@ -709,14 +726,51 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 continue
             }
 
+            let admittedSelection: ColumnarOrdinaryRuntimeDirectCallSelection = null
             if builderBound {
-                admitted.Add(SelectedBuilderBound(lookupType, candidateLookupType, candidate, parameterTypes, returnType, expectedStatic))
+                admittedSelection = SelectedBuilderBound(lookupType, candidateLookupType, candidate, parameterTypes, returnType, expectedStatic)
             } else {
-                admitted.Add(Selected(lookupType, candidate, parameterTypes, expectedStatic))
+                admittedSelection = Selected(lookupType, candidate, parameterTypes, expectedStatic)
             }
+            AdmitUnlessHidden(admittedMethods, admitted, candidate, admittedSelection)
         }
 
         return admitted
+    }
+
+    // A MEMBER DECLARED IN A MORE DERIVED TYPE HIDES ONE OF THE SAME SIGNATURE IN A BASE (C# §12.5),
+    // and `Type.GetMethods()` hands back BOTH. `Task<TResult>` re-declares `GetAwaiter()` — returning
+    // `TaskAwaiter<TResult>` where the base `Task`'s returns `TaskAwaiter` — so a written
+    // `t.GetAwaiter()` on a `Task<int>` left two declarations standing at arity 0 and the
+    // unique-at-arity rule refused a call C# resolves without hesitation. A RETURN TYPE is not part of
+    // a signature; the hiding relation is, and it is the same one the interface walk beside this
+    // already applies.
+    //
+    // WHEN NEITHER DECLARATION HIDES THE OTHER both are kept, because that is a real ambiguity: two
+    // unrelated base interfaces declaring one signature is exactly the shape C# refuses, and the
+    // unique-at-arity rule is what refuses it here.
+    static func AdmitUnlessHidden(methods: List<MethodInfo>, selections: List<ColumnarOrdinaryRuntimeDirectCallSelection>, candidate: MethodInfo, selection: ColumnarOrdinaryRuntimeDirectCallSelection) {
+        candidateParameters := candidate.GetParameters()
+        index := 0
+        while index < methods.Count {
+            existing := methods[index]
+            if SameCallSignature(existing, existing.GetParameters(), candidate, candidateParameters) {
+                if HidesDeclaration(candidate, existing) {
+                    methods[index] = candidate
+                    selections[index] = selection
+                    return
+                }
+
+                if HidesDeclaration(existing, candidate) {
+                    return
+                }
+            }
+
+            index = index + 1
+        }
+
+        methods.Add(candidate)
+        selections.Add(selection)
     }
 
     static func ValidateBuilderBoundCandidates(candidates: MethodInfo[]) {

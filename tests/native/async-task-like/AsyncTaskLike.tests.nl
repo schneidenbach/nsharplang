@@ -44,3 +44,9 @@ test "await reaches any value with the awaiter pattern, task or not" {
     assert AwaitCustom(7) == 7
     assert AwaitCustom(0) == 0
 }
+
+test "`GetAwaiter()` written out works on a generic task, not only on a unit one" {
+    assert AwaitedSynchronously() == 41
+    assert AwaiterThroughALocal() == 11
+    assert UnitAwaitedSynchronously()
+}

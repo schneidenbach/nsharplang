@@ -1405,6 +1405,19 @@ public-only flags. `System.Object`'s own `protected` methods (`MemberwiseClone`,
 listed on such a receiver, which is honest — they ARE reachable — and is what a name-based filter
 would have to be invented to suppress. A VS Code visual pass over this list is OWED.
 
+**A MEMBER DECLARED IN A MORE DERIVED TYPE HIDES ONE OF THE SAME SIGNATURE IN A BASE** (2026-09-14,
+stream CAPTURE3). `Type.GetMethods()` returns BOTH declarations of a `new`-hidden member, and both
+candidate paths of `ColumnarOrdinaryRuntimeDirectCallResolver` counted that as an ambiguity:
+`ResolveFromCandidatesCore` scored them equally (`bestCount > 1` -> `Rejected`, which the direct-call
+planner reports as OWNED and refused) and `CandidatesAtArityCore` left two rows standing (so the
+unique-at-arity rule answered nothing). `Task<TResult>` re-declares `GetAwaiter()` — returning
+`TaskAwaiter<TResult>` where the base `Task`'s returns `TaskAwaiter` — so a written
+`t.GetAwaiter()` on a `Task<int>` declined at emit while the identical call on a non-generic `Task`
+bound. Both paths now apply C# §12.5's hiding relation, reusing the `SameCallSignature` /
+`HidesDeclaration` pair the interface walk beside them already had: a return type is not part of a
+signature, and when NEITHER declaration hides the other both are kept, because two unrelated base
+interfaces declaring one signature is a real ambiguity.
+
 **`object`'S PROTECTED SURFACE IS THE SAME BASE WHETHER OR NOT ONE IS WRITTEN, AND `Finalize` IS
 REFUSED AT THE CALL** (2026-09-14, stream CAPTURE3). `class Holder: Exception` reached
 `MemberwiseClone` and `Finalize` through the reflected base walk above; `class Holder` with no written
