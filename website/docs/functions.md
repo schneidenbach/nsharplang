@@ -1027,6 +1027,18 @@ nonEmpty := words.Count(w => w.Length > 0)  // the extension
 
 Writing `()` after a member whose value is not a delegate is [`NL413`](./errors/NL413.md).
 
+**Any expression whose value is a delegate can be called where it stands** — a call's own result, an
+element of a list, a ternary. The argument list applies to the value, not to a name:
+
+```n#
+func Make(prefix: string): Func<string, string> {
+    return s => prefix + s
+}
+
+greeting := Make("hello, ")("world")   // call the delegate `Make` handed back
+first := handlers[0](event)            // and the one the list holds
+```
+
 ```n#
 // Explicit types
 convert := items.Select((string s) => int.Parse(s))
@@ -1075,8 +1087,13 @@ lambda as a private instance method on the enclosing type and binds the delegate
 receiver, so reading the object costs no closure allocation at all; a lambda that reads nothing
 outside itself stays a static method, as before.
 
-A lambda inside a **constructor body**, or inside a `struct`'s method, cannot bind the instance this
-way — a delegate over either would carry a copy with different mutation semantics — and reports
+A lambda inside a **constructor body** binds the instance the same way: inside a class's own
+constructor `this` IS the object being constructed, so `this.greet = () => this.Name + "!"` stores a
+delegate that reads the finished object, exactly as the same line in a method does. A lambda written
+directly at a constructor's ARGUMENT (`new Runner(() => "hi")`) builds its delegate there too.
+
+A lambda inside a **`struct`'s** method or constructor cannot bind the instance — a delegate over a
+value type's `this` would carry a copy with different mutation semantics — and reports
 [`NL103`](./errors/NL103.md). Read what you need into a local first and capture that.
 
 ## Async Functions

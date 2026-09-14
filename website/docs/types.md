@@ -1578,11 +1578,17 @@ their own. A call carrying a LAMBDA or a METHOD GROUP is resolved by method type
 the arguments that do have types are folded in first, each lambda is then analysed under the
 parameter types that fixes, and its result closes whatever type parameter stands in the delegate's
 return position (see [lambda type inference](functions.md#type-inference-in-lambdas)). Two candidates
-that survive that are separated by the same two tie-breaks C# uses — a candidate that would throw a
+that survive that are separated by the same tie-breaks C# uses — a candidate that would throw a
 lambda's result away loses to one that keeps it (`Task.Run(() => 42)` picks `Func<TResult>` over
-`Action`), and between two candidates that close to the SAME signature the less generic one wins
-(`Max<TSource>` over `Max<TSource, TResult>`). Anything still ambiguous is refused rather than
-guessed. An `out` argument still binds only when the name leaves exactly ONE candidate at that arity.
+`Action`), between two candidates that close to the SAME signature the less generic one wins
+(`Max<TSource>` over `Max<TSource, TResult>`), and last the candidate whose signature was WRITTEN
+more specifically wins. That last rule is what answers `Task.Run(() => Task.FromResult(11))`:
+`Run<TResult>(Func<TResult>)` and `Run<TResult>(Func<Task<TResult>>)` both close to
+`Func<Task<int>>`, and `Func<Task<TResult>>` says more than `Func<TResult>`, so the call's type is
+`Task<int>` rather than `Task<Task<int>>`. A lambda that EXACTLY matches one delegate also beats one
+it merely converts to, which is how `Run(Func<Task>)` — a legal target for a lambda handing back a
+`Task<int>` — loses to the overload that keeps the result. Anything still ambiguous is refused rather
+than guessed. An `out` argument still binds only when the name leaves exactly ONE candidate at that arity.
 
 ### Over your own type parameters
 

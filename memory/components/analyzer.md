@@ -1974,8 +1974,9 @@ three worlds supply their own conversion oracle and share only the decision:
   more specific type (the one that converts to the other and not back).
 - `FoldArgumentVerdicts` — ALL-OR-NOTHING. A candidate that wins one position and loses another is
   not better, it is INCOMPARABLE, and incomparable is what NL414 reports.
-- `CompareTieBreaks(parameterTypesIdentical, …)` — non-generic over generic (gated on the substituted
-  parameter types being IDENTICAL), normal form over an expanded `params` tail, fewer defaults.
+- `CompareTieBreaks(parameterTypesIdentical, …, openTypeVerdict)` — non-generic over generic (gated on
+  the substituted parameter types being IDENTICAL), normal form over an expanded `params` tail, fewer
+  defaults, and LAST the written-signature verdict `AnalyzerOpenTypeSpecificity` supplies.
 - `FindMaximalIndexes(comparisons, count)` — SELECTION IS A MAXIMAL-SET SEARCH, NOT A SORT. "Better"
   is a PARTIAL order, so a sort has no defined answer and would make the chosen overload depend on the
   candidate order. One maximal candidate is the call's overload; two or more is NL414; NONE (a cycle
@@ -2017,6 +2018,65 @@ The three callers:
 - `ColumnarSourceDirectCallResolver.SelectMostSpecificParameters` — the EMITTER resolves source calls
   independently, so it needs the rule too or it declines (NL103) a call the analyzer accepted. Oracle:
   `ExactTypeShapeMatches` and `ArgumentFlowScore(...) >= 0`. Asked only on a tie.
+
+#### `ShouldReportUndefinedMember` through a BCL generic over a source type (census 2026-09-13, LAMBDA5)
+
+`List<PriceArgs>.Nope` and `items.Nope` (over `items: List<PriceArgs>`) reported NOTHING: the generic
+arm answers from a SOURCE definition or from a reachable CLR type, and a BCL definition closed over a
+type that is still a declaration has neither — its closed CLR type cannot be constructed. The miss
+first surfaced as an emitter decline (`emit.expression.generic-type-receiver` / `emit.return.expression`),
+which names a backend rather than the typo.
+
+The DEFINITION answers instead, and it is asked about the NAME: `HasReliableReflectionMemberSet(List<>)`
+AND `List<>` has no member called `Nope`. A type argument never adds a member, so the report is certain.
+Asking only "is the definition reliable" is NOT enough and was the first (reverted) shape — `List<T>`
+inside a generic function has the same unconstructible closed type, and every `result.Add(...)` in the
+estate became a false NL303. A name the definition DOES have is the analyzer's own resolution gap, not
+the reader's.
+
+#### `AnalyzerOpenTypeSpecificity` — "more specific parameter types", the last tie-break (census 2026-09-13, LAMBDA5)
+
+`Task.Run(() => Task.FromResult(11))` answered `Task<Task<int>>` and every rule above agreed it should:
+`Run<TResult>(Func<TResult>)` and `Run<TResult>(Func<Task<TResult>>)` BOTH close to `Func<Task<int>>`,
+score the same, expand no params tail and default no parameter. C# separates such a pair with
+§12.6.4.3's LAST tie-break, which is the only rule that reads the signatures UNINSTANTIATED. The
+relation, spelled once for both worlds:
+
+- a TYPE PARAMETER is less specific than anything that is not one (`Task<TResult>` beats `TResult`);
+- an ARRAY is ordered by its element type, and only against an array of the same rank;
+- a CONSTRUCTED type of the same arity is ordered element-wise, folded by `FoldArgumentVerdicts` —
+  at least one argument more specific and none less specific. DIFFERENT arity answers NEITHER, which
+  is why `Func<Task>` and `Func<Task<TResult>>` are not ordered here.
+
+Two oracles, one rule: `CompareReflectionTypes` over CLR `Type`s (`IsGenericParameter`, `IsArray`,
+`GetGenericArguments`) and `CompareSourceTypes` over the `TypeReference` the declaration WROTE, where
+a type parameter is a bare name matching the signature's own `TypeParameters` — and each candidate is
+asked with its OWN list, because `F<T>(x: T)` and `G(x: T)` name their parameters independently.
+Written `Func<…>` parses as a `FunctionTypeReference`, so its parameters and return are its type
+arguments. The source world's older `GetGenericParameterCost` (count of positions written as a BARE
+`T`) is the shallow case of the same question and still answers before it.
+
+Three callers: `AnalyzerCallAnalysis.BuildReflectionOpenParameterTypesByArgument` (the same walk that
+builds the closed array, minus `ApplyReflectionBindings`), `AnalyzerSyntheticCallFacts.GetSourceOpenParameterTypesByArgument`
+(the same walk `GetGenericParameterCost` uses), and — because the emitter resolves contextual calls
+independently — `ColumnarIlEmitter.CompareContextualOpenSignatures` over each binding's
+`OpenArgumentType`, which is what stops `Task.Run(() => Task.FromResult(11))` declining at emission
+after the analyzer typed it.
+
+#### The EXACT-MATCH candidate run (census 2026-09-13, LAMBDA5)
+
+The open-type rule alone is not enough for `Task.Run`: `Run(Func<Task>)` accepts a lambda handing back
+a `Task<int>` (by covariance) and C# eliminates it with §12.6.4.4's FIRST clause — the delegate the
+lambda EXACTLY matches beats one it merely converts to. N# cannot ask that where C# does, because
+phase 32 leaves a lambda argument unanalysed until an overload is chosen. So it is asked in the RETRY
+loop instead: a GROUP whose call carries a lambda is walked TWICE, first with
+`ReflectionCallFinalizeState.RequireExactLambdaMatch` (the lambda's own return type must BE the now-bound
+delegate's — `AnalyzerReflectionArgumentBinder.LambdaExactlyMatchesTarget`, asked at the phase-two
+analysis whose result nothing read before), and then, only if that bound nothing, accepting every
+conversion exactly as the walk always did. Nothing a single run used to bind stops binding.
+`PromoteBestReflectionCandidate` now moves EVERY maximal candidate to the front rather than just the
+first, so the fallback the exact run falls back to is the next-best member and not the next row of the
+score sort.
 
 `AnalyzerOverloadFacts.LambdaBodyProducesValue` scores BOTH directions of the lambda-return rule. An
 expression-bodied lambda has a value to give and prefers a delegate that keeps it (`Task.Run(() => 42)`
