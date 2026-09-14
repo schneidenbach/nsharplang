@@ -145,6 +145,13 @@ class CallAnalysisState {
     ReflectionArgumentIndex: int
     ReflectionCandidates: List<ReflectionPreBoundCandidate>?
     ReflectionCandidateIndex: int
+
+    // WHETHER THE CANDIDATE RUN NOW UNDER WAY IS THE EXACT-MATCH ONE. A group whose call carries a
+    // LAMBDA argument is walked twice: first demanding that every lambda's own type BE the delegate
+    // the candidate declares (§12.6.4.4's "E exactly matches T"), then — only if that found nothing —
+    // accepting every conversion, which is what the walk always did. The second run is the fallback,
+    // so a call with no exact match behaves exactly as it did before the clause existed.
+    ReflectionRequireExactLambdaMatch: bool
     ReflectionErrorsBefore: int
     ReflectionArgumentErrorsBefore: int
     ReflectionArgumentIsUntargeted: bool
@@ -192,6 +199,7 @@ class CallAnalysisState {
         ReflectionArgumentIndex = 0
         ReflectionCandidates = null
         ReflectionCandidateIndex = 0
+        ReflectionRequireExactLambdaMatch = false
         ReflectionErrorsBefore = 0
         ReflectionArgumentErrorsBefore = 0
         ReflectionArgumentIsUntargeted = false
@@ -668,7 +676,7 @@ class AnalyzerCallAnalysis {
                 return FailReflectionBind(state)
             }
 
-            state.FinalizeState = reflectionArgumentBinder.BeginFinalizeReflectionCall(candidate)
+            state.FinalizeState = reflectionArgumentBinder.BeginFinalizeReflectionCall(candidate, false)
             state.Phase = 36
             return null
         }
@@ -696,6 +704,7 @@ class AnalyzerCallAnalysis {
         PromoteBestReflectionCandidate(state, candidates)
         state.ReflectionCandidates = candidates
         state.ReflectionCandidateIndex = 0
+        state.ReflectionRequireExactLambdaMatch = CallHasLambdaArgument(state.Call)
         state.Phase = 35
         return null
     }
@@ -727,10 +736,13 @@ class AnalyzerCallAnalysis {
 
         argumentClrTypes := BuildReflectionArgumentClrTypes(state)
         argumentTypeInfos := BuildReflectionArgumentTypeInfos(state)
+        argumentIsAnonymousFunction := BuildReflectionArgumentAnonymousFunctionFlags(state, argumentClrTypes.Length)
         parameterTypesByCandidate := new List<Type?[]>()
+        openParameterTypesByCandidate := new List<Type?[]>()
         candidateIndex := 0
         while candidateIndex < count {
             parameterTypesByCandidate.Add(BuildReflectionParameterTypesByArgument(candidates[candidateIndex], state, argumentClrTypes.Length))
+            openParameterTypesByCandidate.Add(BuildReflectionOpenParameterTypesByArgument(candidates[candidateIndex], state, argumentClrTypes.Length))
             candidateIndex = candidateIndex + 1
         }
 
@@ -740,7 +752,7 @@ class AnalyzerCallAnalysis {
             column := 0
             while column < count {
                 if row != column {
-                    comparisons[row * count + column] = CompareReflectionCandidates(candidates[row], candidates[column], parameterTypesByCandidate[row], parameterTypesByCandidate[column], argumentClrTypes, argumentTypeInfos)
+                    comparisons[row * count + column] = CompareReflectionCandidates(candidates[row], candidates[column], parameterTypesByCandidate[row], parameterTypesByCandidate[column], openParameterTypesByCandidate[row], openParameterTypesByCandidate[column], argumentClrTypes, argumentTypeInfos, argumentIsAnonymousFunction)
                 }
 
                 column = column + 1
@@ -761,9 +773,35 @@ class AnalyzerCallAnalysis {
             }
         }
 
-        best := candidates[maximal[0]]
-        candidates.RemoveAt(maximal[0])
-        candidates.Insert(0, best)
+        // EVERY MAXIMAL CANDIDATE MOVES TO THE FRONT, in the order the list already had them. The
+        // first one is the same candidate a single promotion would have moved, so nothing about a
+        // resolved call changes; what changes is the RETRY order behind it — a candidate that
+        // something beats is now tried after every candidate that nothing beats, instead of
+        // wherever the score sort left it. That matters as soon as the leading candidate can fail
+        // (the exact-match run below), because the fallback must be the next-best member and not
+        // simply the next row of the sort.
+        promoted := new List<ReflectionPreBoundCandidate>()
+        maximalIndex := 0
+        while maximalIndex < maximal.Count {
+            promoted.Add(candidates[maximal[maximalIndex]])
+            maximalIndex = maximalIndex + 1
+        }
+
+        remainingIndex := 0
+        while remainingIndex < count {
+            if !maximal.Contains(remainingIndex) {
+                promoted.Add(candidates[remainingIndex])
+            }
+
+            remainingIndex = remainingIndex + 1
+        }
+
+        candidates.Clear()
+        candidateIndex = 0
+        while candidateIndex < promoted.Count {
+            candidates.Add(promoted[candidateIndex])
+            candidateIndex = candidateIndex + 1
+        }
     }
 
     // EVERY POSITION'S ARGUMENT TYPE, THE EXTENSION RECEIVER INCLUDED AT SLOT 0.
@@ -800,6 +838,22 @@ class AnalyzerCallAnalysis {
         }
 
         return clrTypes
+    }
+
+    // WHICH POSITIONS HOLD AN ANONYMOUS FUNCTION, in the same slot numbering the type arrays use —
+    // slot 0 is the extension receiver and never a lambda. A lambda is the one argument that reaches
+    // the comparison with NO type and still has a betterness rule of its own (§12.6.4.4), so the
+    // comparison has to be able to tell it apart from an argument whose type is merely unknown.
+    func BuildReflectionArgumentAnonymousFunctionFlags(state: CallAnalysisState, positionCount: int): bool[] {
+        flags := new bool[positionCount]
+        arguments := state.Call.Arguments
+        index := 0
+        while index < arguments.Count && index + 1 < positionCount {
+            flags[index + 1] = arguments[index].Value as LambdaExpression != null
+            index = index + 1
+        }
+
+        return flags
     }
 
     // WHETHER THE TIE IS THE PROGRAM'S OR THE COMPILER'S.
@@ -924,6 +978,53 @@ class AnalyzerCallAnalysis {
         return parameterTypes
     }
 
+    // THE SAME POSITIONS, UNINSTANTIATED. Every rule but the last reads the closed parameter types
+    // above; "more specific parameter types" reads the signature the declaration WROTE, which is the
+    // only way a pair closing to the identical parameter types can still be ordered
+    // (`Task.Run<TResult>(Func<TResult>)` against `Task.Run<TResult>(Func<Task<TResult>>)`, both
+    // `Func<Task<int>>` once inferred). The two arrays are built by the same walk so that position
+    // `i` names the same argument in both.
+    func BuildReflectionOpenParameterTypesByArgument(candidate: ReflectionPreBoundCandidate, state: CallAnalysisState, positionCount: int): Type?[] {
+        parameterTypes := new Type?[](positionCount)
+        if AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver(candidate.SignatureMethod, state.Call, state.ReflectionReceiverClrType) {
+            receiverParameters := candidate.SignatureMethod.GetParameters()
+            if receiverParameters.Length > 0 && positionCount > 0 {
+                parameterTypes[0] = receiverParameters[0].get_ParameterType()
+            }
+        }
+
+        boundArguments := candidate.BoundArguments
+        index := 0
+        while index < boundArguments.Count {
+            boundArgument := boundArguments[index]
+            index = index + 1
+
+            supplied := boundArgument as SuppliedReflectionBoundArgument
+            if supplied != null {
+                if supplied.ArgumentIndex >= 0 && supplied.ArgumentIndex + 1 < positionCount {
+                    parameterTypes[supplied.ArgumentIndex + 1] = supplied.OpenParameterType
+                }
+
+                continue
+            }
+
+            expanded := boundArgument as ParamsReflectionBoundArgument
+            if expanded != null {
+                elements := expanded.Arguments
+                elementIndex := 0
+                while elementIndex < elements.Count {
+                    element := elements[elementIndex]
+                    elementIndex = elementIndex + 1
+                    if element.ArgumentIndex >= 0 && element.ArgumentIndex + 1 < positionCount {
+                        parameterTypes[element.ArgumentIndex + 1] = element.OpenParameterType
+                    }
+                }
+            }
+        }
+
+        return parameterTypes
+    }
+
     // THE REFLECTED WORLD'S "BETTER FUNCTION MEMBER", answered by supplying this world's conversion
     // oracle to `AnalyzerOverloadSpecificity`.
     //
@@ -935,7 +1036,20 @@ class AnalyzerCallAnalysis {
     //
     // A position is SKIPPED rather than guessed at when either candidate left it unfilled, when a
     // type parameter stayed open (there is no type to compare), or when the argument has no CLR form.
-    func CompareReflectionCandidates(left: ReflectionPreBoundCandidate, right: ReflectionPreBoundCandidate, leftParameterTypes: Type?[], rightParameterTypes: Type?[], argumentClrTypes: Type?[], argumentTypeInfos: TypeInfo?[]): int {
+    //
+    // AN ANONYMOUS FUNCTION IS THE ONE ARGUMENT WITH NO TYPE THAT STILL ANSWERS THIS QUESTION.
+    // "Better conversion from expression" (§12.6.4.4) asks first whether the lambda EXACTLY MATCHES
+    // one delegate and not the other — its inferred return type is that delegate's — which needs the
+    // body typed against a target and is therefore not available here; phase 32 leaves a lambda
+    // unanalysed on purpose. Its SECOND clause needs nothing about the argument at all: where the
+    // lambda matches both delegates or neither, the BETTER CONVERSION TARGET wins, and that is the
+    // ordinary §12.6.4.6 comparison between the two parameter types. `Task.Run(() => Task.FromResult(11))`
+    // is exactly that pair: `Func<Task<int>>` converts to `Func<Task>` by covariance and not back, so
+    // the delegate that keeps the result is the better target — the answer C# gives by the first
+    // clause, reached here by the second. An argument that has no type for a different reason (an
+    // anonymous object, which types as `unknown`) is NOT asked, because for it the parameter-type
+    // comparison would be a guess dressed as a rule.
+    func CompareReflectionCandidates(left: ReflectionPreBoundCandidate, right: ReflectionPreBoundCandidate, leftParameterTypes: Type?[], rightParameterTypes: Type?[], leftOpenParameterTypes: Type?[], rightOpenParameterTypes: Type?[], argumentClrTypes: Type?[], argumentTypeInfos: TypeInfo?[], argumentIsAnonymousFunction: bool[]): int {
         if left.Score != right.Score {
             if left.Score > right.Score {
                 return AnalyzerOverloadSpecificity.LeftIsBetter
@@ -985,6 +1099,15 @@ class AnalyzerCallAnalysis {
                 }
 
                 if argumentTypeInfo == null {
+                    if currentIndex < argumentIsAnonymousFunction.Length && argumentIsAnonymousFunction[currentIndex] {
+                        verdicts.Add(AnalyzerOverloadSpecificity.CompareConversionTargets(
+                            false,
+                            false,
+                            HasImplicitReflectionConversion(leftParameterType, rightParameterType),
+                            HasImplicitReflectionConversion(rightParameterType, leftParameterType)
+                        ))
+                    }
+
                     continue
                 }
 
@@ -1021,7 +1144,16 @@ class AnalyzerCallAnalysis {
             }
         }
 
-        return AnalyzerOverloadSpecificity.CompareTieBreaks(parameterTypesIdentical, left.SignatureMethod.get_IsGenericMethodDefinition(), right.SignatureMethod.get_IsGenericMethodDefinition(), left.UsesParams, right.UsesParams, left.DefaultsUsed, right.DefaultsUsed)
+        return AnalyzerOverloadSpecificity.CompareTieBreaks(
+            parameterTypesIdentical,
+            left.SignatureMethod.get_IsGenericMethodDefinition(),
+            right.SignatureMethod.get_IsGenericMethodDefinition(),
+            left.UsesParams,
+            right.UsesParams,
+            left.DefaultsUsed,
+            right.DefaultsUsed,
+            AnalyzerOpenTypeSpecificity.CompareReflectionParameterLists(leftOpenParameterTypes, rightOpenParameterTypes)
+        )
     }
 
     // A MEMBER DECLARED ON A MORE DERIVED TYPE HIDES THE ONE IT SHADOWS (§12.6.4.4), and the two are
@@ -1102,16 +1234,48 @@ class AnalyzerCallAnalysis {
         return candidate.DefaultsUsed < existing.DefaultsUsed
     }
 
+    // WHETHER ANY ARGUMENT IS AN ANONYMOUS FUNCTION, which is the only thing the exact-match run has
+    // to say anything about.
+    static func CallHasLambdaArgument(call: CallExpression): bool {
+        arguments := call.Arguments
+        index := 0
+        while index < arguments.Count {
+            if arguments[index].Value as LambdaExpression != null {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
     // PHASE 35 — THE NEXT CANDIDATE IN PREFERENCE ORDER, WITH ITS ROLLBACK MARK TAKEN FIRST.
+    //
+    // A GROUP WHOSE CALL CARRIES A LAMBDA IS WALKED TWICE. §12.6.4.4 prefers the delegate the lambda
+    // EXACTLY matches over one it merely converts to, and N# cannot ask that where C# does — a lambda
+    // argument has no type until an overload is chosen. So the first run demands the match and the
+    // second, reached only when the first bound nothing, accepts every conversion exactly as the walk
+    // always did. Nothing a single run used to bind stops binding; a call whose lambda fits one
+    // candidate exactly simply stops preferring one that would have swallowed the body's type.
     func BeginNextReflectionCandidate(state: CallAnalysisState): CallAnalysisRequest? {
         candidates := state.ReflectionCandidates
-        if candidates == null || state.ReflectionCandidateIndex >= candidates.Count {
+        if candidates == null {
             return FailReflectionBind(state)
+        }
+
+        if state.ReflectionCandidateIndex >= candidates.Count {
+            if !state.ReflectionRequireExactLambdaMatch {
+                return FailReflectionBind(state)
+            }
+
+            state.ReflectionRequireExactLambdaMatch = false
+            state.ReflectionCandidateIndex = 0
         }
 
         candidate := candidates[state.ReflectionCandidateIndex]
         state.ReflectionErrorsBefore = diagnostics.ErrorCount
-        state.FinalizeState = reflectionArgumentBinder.BeginFinalizeReflectionCall(candidate)
+        state.FinalizeState = reflectionArgumentBinder.BeginFinalizeReflectionCall(candidate, state.ReflectionRequireExactLambdaMatch)
         state.Phase = 36
         return null
     }

@@ -117,8 +117,11 @@ class AnalyzerSyntheticCallWalk {
     // argument's expected type, then fewer type parameters bound by inference (an overload that
     // matched a WRITTEN type is more specific than one that matched by binding `T`), then a
     // non-params overload over a params one, then more parameters over fewer (an overload that used
-    // defaults is less specific than one that did not). Two candidates still maximal after all of
-    // that are AMBIGUOUS and are reported as NL414 rather than resolved by declaration order.
+    // defaults is less specific than one that did not), and LAST the written signatures themselves —
+    // `Pick<T>(f: Func<T>)` and `Pick<T>(f: Func<List<T>>)` accept the same call identically, and the
+    // second is better because it wrote more (`AnalyzerOpenTypeSpecificity`). Two candidates still
+    // maximal after all of that are AMBIGUOUS and are reported as NL414 rather than resolved by
+    // declaration order.
     func BindNSharpCall(candidates: IReadOnlyList<FunctionTypeInfo>, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, receiverType: TypeInfo?): FunctionTypeInfo? {
         applicable := new List<FunctionTypeInfo>()
         scores := new List<int>()
@@ -249,8 +252,25 @@ class AnalyzerSyntheticCallWalk {
 
         // `CompareTieBreaks` reads the params and default keys; the "more declared parameters wins"
         // rule is expressed as the DEFAULT count each candidate would have to fill, which is what the
-        // reflected world counts too.
-        return AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, HasSyntheticParamsTail(left), HasSyntheticParamsTail(right), Math.Max(0, leftParameterCount - argTypes.Count), Math.Max(0, rightParameterCount - argTypes.Count))
+        // reflected world counts too. Its LAST key is the written-signature comparison, which is the
+        // only rule here that reads the source type references rather than the resolved `TypeInfo`s —
+        // the generic-parameter cost above it is the shallow case of the same question (a parameter
+        // written as a BARE `T`) and answers before it whenever it can.
+        return AnalyzerOverloadSpecificity.CompareTieBreaks(
+            false,
+            false,
+            false,
+            HasSyntheticParamsTail(left),
+            HasSyntheticParamsTail(right),
+            Math.Max(0, leftParameterCount - argTypes.Count),
+            Math.Max(0, rightParameterCount - argTypes.Count),
+            AnalyzerOpenTypeSpecificity.CompareSourceParameterLists(
+                AnalyzerSyntheticCallFacts.GetSourceOpenParameterTypesByArgument(left, call, argTypes.Count),
+                AnalyzerSyntheticCallFacts.GetSourceOpenParameterTypesByArgument(right, call, argTypes.Count),
+                left.TypeParameters,
+                right.TypeParameters
+            )
+        )
     }
 
     // How many parameters the CALLER supplies for this candidate — the receiver offset comes off.
