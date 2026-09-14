@@ -1,0 +1,114 @@
+namespace NSharpLang.CensusIterators.Tests
+
+import System
+import System.Collections.Generic
+import System.Threading.Tasks
+
+
+// PROTECTED REGIONS INSIDE AN `async func*`.
+//
+// A `try` and a `using` are the same thing to a state machine — a region whose handler must run on
+// every final way out — and the machinery that makes them work is the machinery a SYNCHRONOUS
+// generator already had: a region ordinal, a region-entry label the dispatch hops through (a branch
+// INTO a protected region is illegal IL), a handler guarded by `state < 0` so a suspension that
+// merely leaves the region does not release anything, and a dispose flag that lets an abandoned
+// machine walk back to where it stood and leave every region properly.
+//
+// The one thing an async machine adds is that its resume states INTERLEAVE `yield` and `await` in
+// walk order, so the region table is keyed by the shared suspension counter rather than by the
+// yield count alone.
+
+// A `try`/`finally` whose body both suspends and yields. The handler runs once, after the sequence
+// ends — not at either suspension.
+async func* Guarded(trace: CensusTrace): IAsyncEnumerable<int> {
+    try {
+        trace.Add("enter")
+        await Task.Delay(1)
+        yield 1
+        yield 2
+    } finally {
+        trace.Add("finally")
+    }
+    trace.Add("after")
+}
+
+// A `try`/`catch` around an awaiting body: the exception is caught inside the machine and the
+// sequence continues. C# admits an `await` inside a `try` that declares a `catch` (only `yield`
+// is refused there), and so does this.
+async func* Caught(trace: CensusTrace): IAsyncEnumerable<int> {
+    try {
+        await Task.Delay(1)
+        throw new InvalidOperationException("inner")
+    } catch ex: InvalidOperationException {
+        trace.Add(ex.Message)
+    }
+    yield 9
+}
+
+// A `try`/`finally` whose body RAISES after a suspension: the handler runs before the exception
+// reaches the consumer.
+async func* Raising(trace: CensusTrace): IAsyncEnumerable<int> {
+    try {
+        await Task.Delay(1)
+        yield 1
+        throw new InvalidOperationException("raised")
+    } finally {
+        trace.Add("finally")
+    }
+}
+
+// A synchronous `using` resource inside an async generator: acquired once, released once, and NOT
+// released at the suspension the consumer is about to come back to.
+async func* Scoped(trace: CensusTrace): IAsyncEnumerable<int> {
+    using r := new CensusRecordingResource(trace, "r") {
+        await Task.Delay(1)
+        yield 1
+        yield 2
+    }
+}
+
+// NESTED regions, so the unwind order is observable: the inner handler runs before the outer one.
+async func* Nested(trace: CensusTrace): IAsyncEnumerable<int> {
+    try {
+        try {
+            await Task.Delay(1)
+            yield 1
+        } finally {
+            trace.Add("inner")
+        }
+    } finally {
+        trace.Add("outer")
+    }
+}
+
+// A SUSPENSION NUMBERED AFTER AN AWAIT, inside a region. The resume states of an async machine
+// interleave `yield` and `await` in walk order under one counter, so the two yields below are
+// states 3 and 4 while the awaits are 1 and 2. A region table keyed by the YIELD count alone would
+// record the wrong region for both of them, and the abandonment below would unwind nothing.
+async func* InterleavedRegion(trace: CensusTrace): IAsyncEnumerable<int> {
+    await Task.Delay(1)
+    try {
+        await Task.Delay(1)
+        yield 1
+        yield 2
+    } finally {
+        trace.Add("finally")
+    }
+}
+
+// A recording resource: an ordinary source class implementing IDisposable, so the release the
+// machine performs is observable from the test.
+class CensusRecordingResource: IDisposable {
+    Trace: CensusTrace
+    Name: string
+
+    constructor(trace: CensusTrace, name: string) {
+        Trace = trace
+        Name = name
+        trace.Add("acquire " + name)
+    }
+
+    func Dispose() {
+        Trace.Add("release " + Name)
+    }
+}
