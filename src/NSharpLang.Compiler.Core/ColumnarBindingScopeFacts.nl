@@ -716,12 +716,14 @@ class ColumnarBindingScopeFacts {
     }
 
     // The name-level half of the owner walk: does an enclosing declaration (or one of ITS owners)
-    // declare a source type of this simple name? Only the identity is selected here — resolving it
-    // stays with the ordinary explicit-type walk, so aliases, arity retries and ambiguity keep one
-    // owner.
+    // declare a source type this spelling names? The spelling may be PARTIALLY qualified — `Mid.Leaf`
+    // written inside `Deep` names `Deep.Mid.Leaf`, exactly as C# reads it — so the walk appends the
+    // whole spelling to each owner rather than only a simple name. Only the identity is selected
+    // here: resolving it stays with the ordinary explicit-type walk, so aliases, arity retries and
+    // ambiguity keep one owner.
     func TryFindLexicalOwnedSourceTypeName(enclosingTypeName: string, canonical: string, out exactName: string): bool {
         exactName = ""
-        if canonical == null || canonical.Length == 0 || canonical.Contains(".") || enclosingTypeName == null || enclosingTypeName.Length == 0 {
+        if canonical == null || canonical.Length == 0 || enclosingTypeName == null || enclosingTypeName.Length == 0 {
             return false
         }
 
