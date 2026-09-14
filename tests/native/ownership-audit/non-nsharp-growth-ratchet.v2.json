@@ -4,7 +4,7 @@
   "codeEpochFileCount": 223,
   "codeEpochPathFingerprint": "pathset-v2:fbda7fc3d5053525",
   "codeEpochFactFingerprint": "epochfacts-v2:05f608333cab8ef7",
-  "reviewedHeadFingerprint": "head-v2:1ea73131cfdf06d1",
+  "reviewedHeadFingerprint": "head-v2:b55f7b0b38976b80",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":163,"currentNonBlankLines":137,"currentBytes":0,"currentFingerprint":"text-v1:bc7886703362adb1"},
@@ -164,7 +164,7 @@
     {"path":"scripts/publish-toolset.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":113,"currentNonBlankLines":100,"currentBytes":0,"currentFingerprint":"text-v1:d01fd81f6219466c"},
     {"path":"scripts/reload-vscode-extension.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":47,"currentNonBlankLines":37,"currentBytes":0,"currentFingerprint":"text-v1:3d289f37a5003958"},
     {"path":"scripts/replay-template-quickstarts.py","language":"python","surface":"gate-infrastructure","campaignScope":"closeout","state":"existing-debt","epochLines":11,"currentLines":11,"epochNonBlankLines":8,"currentNonBlankLines":8,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:d73b02cf49f311cf"},
-    {"path":"scripts/reseed.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":172,"currentNonBlankLines":152,"currentBytes":0,"currentFingerprint":"text-v1:bd55742d778d00c1"},
+    {"path":"scripts/reseed.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":250,"currentNonBlankLines":222,"currentBytes":0,"currentFingerprint":"text-v1:e74b5389d00aaaf3"},
     {"path":"scripts/setup-consumer.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":15,"currentNonBlankLines":11,"currentBytes":0,"currentFingerprint":"text-v1:3509af26564f548a"},
     {"path":"scripts/setup-local.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":399,"currentNonBlankLines":350,"currentBytes":0,"currentFingerprint":"text-v1:d4abd61721fb31f9"},
     {"path":"scripts/smoke-turnkey-install.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":5,"currentNonBlankLines":4,"currentBytes":0,"currentFingerprint":"text-v1:f97c6e01ea763864"},
