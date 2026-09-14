@@ -126,6 +126,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL337`](./NL337.md) | An event a type declared, read, raised or assigned from outside that type. |
 | [`NL338`](./NL338.md) | An event declared over a type that is not a delegate. |
 | [`NL339`](./NL339.md) | One type name declared in two files of one namespace. |
+| [`NL340`](./NL340.md) | A `throw` written as a value where nothing can say what the expression is worth. |
 
 ## Calls — `NL4xx`
 

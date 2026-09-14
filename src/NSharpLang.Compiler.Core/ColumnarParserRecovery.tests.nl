@@ -6243,3 +6243,76 @@ test "016 enums: several attributed members report once, and the enum's own attr
 
     assert RunPreamble("[Mark]\nenum Level {\n    Low = 1,\n    High = 2\n}\n").Count == 0
 }
+
+// ---- NL340 — WHERE A `throw` MAY STAND AS A VALUE ----
+//
+// A throw expression produces NOTHING, so it can only stand where some OTHER operand already says
+// what the surrounding expression is worth. The parser owns the rule because the rule is purely
+// positional: the three admitting callers publish the token index of the operand they are about to
+// descend into, and the unary tier compares the cursor against it. That is why `x ?? throw e` is
+// admitted and `x ?? (throw e)` is not — the `(` moved the cursor, and the parentheses are what the
+// throw is then standing in.
+//
+// A MISPLACED THROW STILL BUILDS ITS NODE. Recovery is better served by the real tree: the analyzer
+// types it `never` and the reader gets one sentence about the position, rather than a cascade of
+// "cannot convert `never`" from a hole where the expression should have been.
+func ThrowPlacementErrors(source: string): List<CompilerError> {
+    return ColumnarParserRecovery.ParseFileAst(source, "a.nl").Errors
+}
+
+test "340 throw-as-value: the three admitted positions report nothing" {
+    assert ThrowPlacementErrors("func f(v: string?): string {\n    return v ?? throw new System.Exception(\"x\")\n}\n").Count == 0
+    assert ThrowPlacementErrors("func f(ok: bool, v: string): string {\n    return ok ? v : throw new System.Exception(\"x\")\n}\n").Count == 0
+    assert ThrowPlacementErrors("func f(ok: bool, v: string): string {\n    return ok ? throw new System.Exception(\"x\") : v\n}\n").Count == 0
+    assert ThrowPlacementErrors("func f(): string => throw new System.Exception(\"x\")\n").Count == 0
+    assert ThrowPlacementErrors("func f(): System.Func<int, string> {\n    return x => throw new System.Exception(\"x\")\n}\n").Count == 0
+    assert ThrowPlacementErrors("func f(): System.Func<int, int, string> {\n    return (x, y) => throw new System.Exception(\"x\")\n}\n").Count == 0
+    assert ThrowPlacementErrors("class Box {\n    Name: string => throw new System.Exception(\"x\")\n}\n").Count == 0
+}
+
+test "340 throw-as-value: an operator operand is reported, with the position and the fix" {
+    errors := ThrowPlacementErrors("func f(): int {\n    n := 1 + throw new System.Exception(\"x\")\n    return n\n}\n")
+    assert errors.Count == 1
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ThrowExpressionNotAllowedHere
+    assert e0.Message == "A 'throw' can't be used as a value here"
+    assert e0.Line == 2
+    assert e0.Column == 14
+    assert e0.Length == 5
+    assert e0.ContextualHint == "Make the `throw` a statement of its own, or move it into one of the three positions above. Parentheses do not help: `x ?? (throw e)` is the same mistake, because the parentheses are what the throw is standing in."
+    assert e0.Suggestions != null
+    assert e0.Suggestions.Count == 3
+    assert e0.Suggestions[0] == "Write `throw` as a statement on its own line"
+}
+
+test "340 throw-as-value: parentheses around a legal fallback are the same mistake" {
+    errors := ThrowPlacementErrors("func f(v: string?): string {\n    return v ?? (throw new System.Exception(\"x\"))\n}\n")
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.ThrowExpressionNotAllowedHere
+    assert errors[0].Column == 18
+}
+
+test "340 throw-as-value: an initializer, an argument and an index are each reported once" {
+    assert ThrowPlacementErrors("func f(): string {\n    s := throw new System.Exception(\"x\")\n    return s\n}\n").Count == 1
+    assert ThrowPlacementErrors("func f(xs: int[]): int {\n    return xs[throw new System.Exception(\"x\")]\n}\n").Count == 1
+    assert ThrowPlacementErrors("func g(v: string) {\n}\n\nfunc f() {\n    g(throw new System.Exception(\"x\"))\n}\n").Count == 1
+}
+
+test "340 throw-as-value: the permission is spent on the way in and does not reach a nested throw" {
+    // The fallback's OWN throw is admitted; a throw written inside that fallback's operand is judged
+    // on its own position and reported. One permission, one throw.
+    errors := ThrowPlacementErrors("func f(v: string?): string {\n    return v ?? throw new System.Exception(1 + throw new System.Exception(\"x\"))\n}\n")
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.ThrowExpressionNotAllowedHere
+    assert errors[0].Line == 2
+}
+
+test "340 throw-as-value: a statement `throw` is untouched, in either shape" {
+    assert ThrowPlacementErrors("func f() {\n    throw new System.Exception(\"x\")\n}\n").Count == 0
+    assert ThrowPlacementErrors("func f() {\n    try {\n        f()\n    } catch e: System.Exception {\n        throw\n    }\n}\n").Count == 0
+}
+
+test "340 throw-as-value: nested coalesce fallbacks each admit their own throw" {
+    assert ThrowPlacementErrors("func f(a: string?, b: string?): string {\n    return a ?? b ?? throw new System.Exception(\"x\")\n}\n").Count == 0
+}
