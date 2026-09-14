@@ -1,5 +1,6 @@
 namespace NSharpLang.NativeComparisonRunner
 
+import System
 import System.Diagnostics
 
 

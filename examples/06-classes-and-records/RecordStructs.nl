@@ -1,3 +1,5 @@
+namespace Examples.RecordStructs
+
 import System
 
 

@@ -1,5 +1,7 @@
 // Example: Required and Init-Only Properties
 // This demonstrates N# property initialization features
+namespace Examples.RequiredAndInitProperties
+
 import System
 
 

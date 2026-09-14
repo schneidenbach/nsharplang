@@ -1,6 +1,8 @@
 // Demonstrates records, with expressions, interfaces, and inheritance
 
 // Record type with value equality
+namespace Examples.RecordsAndInterfaces
+
 record Point {
     X: int
     Y: int

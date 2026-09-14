@@ -2,6 +2,8 @@
 // Demonstrates the `new()` syntax that infers type from context
 
 // 1. Simple class for demonstration
+namespace Examples.TargetTypedNew
+
 class Person {
     readonly Name: string
     readonly Age: int
