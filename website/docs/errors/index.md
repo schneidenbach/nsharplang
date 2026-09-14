@@ -128,6 +128,8 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL339`](./NL339.md) | One type name declared in two files of one namespace. |
 | [`NL340`](./NL340.md) | A `throw` written as a value where nothing can say what the expression is worth. |
 | [`NL342`](./NL342.md) | A write to an interface's value member, which is a read slot. |
+| [`NL343`](./NL343.md) | A write to an `init` member after the object exists. |
+| [`NL344`](./NL344.md) | A creation that does not set a `required` member. |
 
 ## Calls — `NL4xx`
 

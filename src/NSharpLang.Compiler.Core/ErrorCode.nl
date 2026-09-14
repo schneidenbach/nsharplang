@@ -59,6 +59,8 @@ enum ErrorCode {
     TypeDeclaredInAnotherFile = 339,
     ThrowExpressionNotAllowedHere = 340,
     InterfaceValueMemberWrite = 342,
+    InitOnlyMemberWrite = 343,
+    RequiredMemberNotSet = 344,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,

@@ -603,6 +603,352 @@ class AnalyzerWriteTargets {
     }
 
     // ------------------------------------------------------------------------------------------
+    // RULE 4b — THE INIT-ONLY MEMBER.
+    // ------------------------------------------------------------------------------------------
+    //
+    // AN `init` MEMBER IS WRITABLE WHILE THE OBJECT IS BEING CREATED AND AT NO OTHER TIME. The two
+    // ways to write one are an OBJECT INITIALIZER (`new Config { Name: "x" }`) and a CONSTRUCTOR of
+    // the declaring type or of a type derived from it — neither of which reaches this rule, because
+    // an initializer entry is the construction family's own arm and a constructor write is exempted
+    // below. Everything left is a write after creation, and it is refused.
+    //
+    // IT IS ASKED OF REFLECTED MEMBERS TOO, and it has to be: a C# record's `init` property carries
+    // `modreq(System.Runtime.CompilerServices.IsExternalInit)` on its setter's return type, which IS
+    // how C# marks the accessor. Without reading it, `csRecord.Name = "x"` from N# would compile and
+    // silently break the promise the referenced assembly makes to every other language.
+    func ReportInitOnlyMemberWriteIfNeeded(target: Expression, action: string, expressionTypes: Dictionary<object, TypeInfo>?): bool {
+        parenthesized := target as ParenthesizedExpression
+        if parenthesized != null {
+            return ReportInitOnlyMemberWriteIfNeeded(parenthesized.Inner, action, expressionTypes)
+        }
+
+        memberName := ""
+        ownerDisplay := ""
+        insideDeclaringType := false
+        if !TryFindInitOnlyWriteTarget(target, expressionTypes, out memberName, out ownerDisplay, out insideDeclaringType) {
+            return false
+        }
+
+        // A CONSTRUCTOR OF THE TYPE THAT DECLARES IT — or of one derived from it — is initialization,
+        // which is exactly what the word permits.
+        if insideDeclaringType && ambientValue.InConstructor {
+            return false
+        }
+
+        span := spansValue.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column)
+        suggestion := "Set '" + memberName + "' in the object initializer that creates the value — 'new " + ownerDisplay + " { " + memberName + ": … }' — or in a constructor of '" + ownerDisplay + "'. Drop 'init' from the declaration if the value is meant to change after the object exists."
+        if insideDeclaringType {
+            suggestion = "Move this write into a constructor of '" + ownerDisplay + "', or drop 'init' from the declaration if the value is meant to change after the object exists."
+        }
+
+        diagnosticsValue.Report(ErrorCode.InitOnlyMemberWrite, "'" + memberName + "' is declared 'init' — it can only be " + InitOnlyWriteAllowance() + ", so it can't be " + action, span.Line, span.Column, suggestion, span.Length)
+        return true
+    }
+
+    static func InitOnlyWriteAllowance(): string {
+        return "set while the object is being created"
+    }
+
+    // WHICH WRITE TARGETS NAME AN INIT-ONLY MEMBER. A bare name and `this.Name` reach the ENCLOSING
+    // type's channel — the only one that can apply the constructor exemption — and a write through
+    // any other receiver reaches the receiver's channel, where no exemption applies at all.
+    func TryFindInitOnlyWriteTarget(target: Expression, expressionTypes: Dictionary<object, TypeInfo>?, out memberName: string, out ownerDisplay: string, out insideDeclaringType: bool): bool {
+        memberName = ""
+        ownerDisplay = ""
+        insideDeclaringType = false
+
+        identifier := target as IdentifierExpression
+        if identifier != null {
+            return TryFindEnclosingInitOnlyMember(identifier.Name, out memberName, out ownerDisplay, out insideDeclaringType)
+        }
+
+        memberAccess := target as MemberAccessExpression
+        if memberAccess == null {
+            return false
+        }
+
+        if memberAccess.Object as ThisExpression != null {
+            return TryFindEnclosingInitOnlyMember(memberAccess.MemberName, out memberName, out ownerDisplay, out insideDeclaringType)
+        }
+
+        if expressionTypes == null || memberAccessValue.IsStaticMemberAccessTarget(memberAccess.Object) {
+            return false
+        }
+
+        receiverType: TypeInfo = BuiltInTypes.Unknown
+        if !expressionTypes.TryGetValue(memberAccess.Object, out receiverType) {
+            return false
+        }
+
+        receiver := declarationContextValue.ResolveDeclaredAlias(NonNullableType(receiverType))
+        byRefReceiver := receiver as ByRefTypeInfo
+        if byRefReceiver != null {
+            receiver = declarationContextValue.ResolveDeclaredAlias(NonNullableType(byRefReceiver.InnerType))
+        }
+
+        resolvedName := ""
+        if !TryFindInitOnlyMember(receiver, memberAccess.MemberName, out resolvedName) {
+            return false
+        }
+
+        memberName = resolvedName
+        ownerDisplay = TypeDisplayText(receiver)
+        return true
+    }
+
+    // THE ENCLOSING TYPE'S OWN CHANNEL. The member list the walk is standing in answers first, so a
+    // type's own `init` member is recognised before any lookup; an INHERITED one is found through the
+    // named type. Either way the answer is "inside the declaring type", which is what makes the
+    // constructor exemption apply.
+    func TryFindEnclosingInitOnlyMember(name: string, out memberName: string, out ownerDisplay: string, out insideDeclaringType: bool): bool {
+        memberName = ""
+        ownerDisplay = ambientValue.CurrentTypeName ?? ""
+        insideDeclaringType = false
+        currentMembers := ambientValue.CurrentTypeMembers
+        if currentMembers != null {
+            for member in currentMembers {
+                field := member as FieldDeclaration
+                if field != null && field.Name == name {
+                    if !HasModifier(field.Modifiers, Modifiers.Init) {
+                        return false
+                    }
+
+                    memberName = field.Name
+                    insideDeclaringType = true
+                    return true
+                }
+
+                property := member as PropertyDeclaration
+                if property != null && property.Name == name {
+                    if !HasModifier(property.Modifiers, Modifiers.Init) {
+                        return false
+                    }
+
+                    memberName = property.Name
+                    insideDeclaringType = true
+                    return true
+                }
+            }
+        }
+
+        currentTypeName := ambientValue.CurrentTypeName
+        if currentTypeName == null {
+            return false
+        }
+
+        currentType := scopesValue.LookupType(currentTypeName)
+        if currentType == null {
+            return false
+        }
+
+        resolvedName := ""
+        if !TryFindInitOnlyMember(currentType, name, out resolvedName) {
+            return false
+        }
+
+        memberName = resolvedName
+        insideDeclaringType = true
+        return true
+    }
+
+    // PUBLISHED: the construction family asks the same question of an object-initializer entry when it
+    // has to decide whether an `init` member's write is the legal one.
+    func TryFindInitOnlyMember(receiver: TypeInfo, memberName: string, out resolvedMemberName: string): bool {
+        resolvedMemberName = ""
+        resolvedReceiver := declarationContextValue.ResolveDeclaredAlias(receiver)
+        sourceMemberClaimed := false
+        if declarationContextValue.TryFindInitOnlyMember(resolvedReceiver, memberName, out resolvedMemberName, out sourceMemberClaimed) {
+            return true
+        }
+
+        if sourceMemberClaimed {
+            return false
+        }
+
+        reflected := NormalizeReflectionOwner(resolvedReceiver) as ReflectionTypeInfo
+        if reflected == null {
+            return false
+        }
+
+        reflectedType := reflected.Type
+        if reflectedType.get_IsGenericTypeDefinition() || IsTypeBuilder(reflectedType) {
+            return false
+        }
+
+        return TryFindInitOnlyReflectionProperty(reflectedType, memberName, out resolvedMemberName)
+    }
+
+    // THE MODREQ IS THE MARKER. C# writes `init` by putting `IsExternalInit` in the setter's REQUIRED
+    // return-type modifiers; nothing else in the metadata says the accessor is an init accessor, and
+    // a reader that skips it sees an ordinary settable property.
+    static func TryFindInitOnlyReflectionProperty(reflectedType: Type, memberName: string, out resolvedMemberName: string): bool {
+        resolvedMemberName = ""
+        flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly
+        current: Type? = reflectedType
+        while current != null {
+            declaredType := current
+            properties := declaredType.GetProperties(flags)
+            for property in properties {
+                if property.get_Name() == memberName {
+                    if !PropertySetterIsInitOnly(property) {
+                        return false
+                    }
+
+                    resolvedMemberName = property.get_Name()
+                    return true
+                }
+            }
+
+            if ReflectionMemberNameIsClaimed(declaredType, memberName, flags) {
+                return false
+            }
+
+            current = declaredType.get_BaseType()
+        }
+
+        return false
+    }
+
+    static func PropertySetterIsInitOnly(property: PropertyInfo): bool {
+        setter := property.GetSetMethod(true)
+        if setter == null {
+            return false
+        }
+
+        modifiers := setter.get_ReturnParameter().GetRequiredCustomModifiers()
+        index := 0
+        while index < modifiers.Length {
+            if modifiers[index].FullName == "System.Runtime.CompilerServices.IsExternalInit" {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    // PUBLISHED for the construction family: THE MEMBERS A TYPE DEMANDS OF EVERY `new`. A source type
+    // answers from the `required` word its declaration spells; an external one answers from the
+    // `[RequiredMember]` rows C# wrote into its metadata, which is the same question asked of the same
+    // fact in the only place each of the two has to record it.
+    func RequiredMemberNames(receiver: TypeInfo): List<string> {
+        resolvedReceiver := declarationContextValue.ResolveDeclaredAlias(receiver)
+        sourceNames := declarationContextValue.SourceRequiredMemberNames(resolvedReceiver)
+        if sourceNames.Count > 0 {
+            return sourceNames
+        }
+
+        reflected := NormalizeReflectionOwner(resolvedReceiver) as ReflectionTypeInfo
+        if reflected == null {
+            return sourceNames
+        }
+
+        reflectedType := reflected.Type
+        if IsTypeBuilder(reflectedType) {
+            return sourceNames
+        }
+
+        return ReflectedRequiredMemberNames(reflectedType)
+    }
+
+    static func ReflectedRequiredMemberNames(reflectedType: Type): List<string> {
+        names := new List<string>()
+        flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly
+        current: Type? = reflectedType
+        while current != null {
+            declaredType := current
+            if TypeCarriesRequiredMemberAttribute(declaredType) {
+                properties := declaredType.GetProperties(flags)
+                for property in properties {
+                    if MemberCarriesRequiredMemberAttribute(property.GetCustomAttributesData()) && !names.Contains(property.get_Name()) {
+                        names.Add(property.get_Name())
+                    }
+                }
+
+                fields := declaredType.GetFields(flags)
+                for field in fields {
+                    if MemberCarriesRequiredMemberAttribute(field.GetCustomAttributesData()) && !names.Contains(field.get_Name()) {
+                        names.Add(field.get_Name())
+                    }
+                }
+            }
+
+            current = declaredType.get_BaseType()
+        }
+
+        return names
+    }
+
+    static func TypeCarriesRequiredMemberAttribute(candidate: Type): bool {
+        return MemberCarriesRequiredMemberAttribute(candidate.GetCustomAttributesData())
+    }
+
+    static func MemberCarriesRequiredMemberAttribute(attributes: IList<CustomAttributeData>): bool {
+        index := 0
+        while index < attributes.Count {
+            attributeType := attributes[index].get_AttributeType()
+            if attributeType.FullName == "System.Runtime.CompilerServices.RequiredMemberAttribute" {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    // `[SetsRequiredMembers]` ON THE CHOSEN CONSTRUCTOR LIFTS THE DEMAND, because the constructor is
+    // promising to set them itself. It is asked of an EXTERNAL type's constructors here; a source
+    // type's constructors are asked by the construction family, which has their declarations.
+    func ReflectedConstructorSetsRequiredMembers(receiver: TypeInfo, argumentCount: int): bool {
+        resolvedReceiver := declarationContextValue.ResolveDeclaredAlias(receiver)
+        reflected := NormalizeReflectionOwner(resolvedReceiver) as ReflectionTypeInfo
+        if reflected == null {
+            return false
+        }
+
+        reflectedType := reflected.Type
+        if IsTypeBuilder(reflectedType) {
+            return false
+        }
+
+        constructors := reflectedType.GetConstructors()
+        for constructor in constructors {
+            if constructor.GetParameters().Length == argumentCount && ConstructorCarriesSetsRequiredMembers(constructor.GetCustomAttributesData()) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static func ConstructorCarriesSetsRequiredMembers(attributes: IList<CustomAttributeData>): bool {
+        index := 0
+        while index < attributes.Count {
+            attributeType := attributes[index].get_AttributeType()
+            if attributeType.FullName == "System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute" {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    // A receiver type's display text, for the sentence that names where the member lives.
+    static func TypeDisplayText(candidate: TypeInfo): string {
+        boxed := candidate as object
+        rendered := boxed.ToString()
+        if rendered != null {
+            return rendered
+        }
+
+        return ""
+    }
+
+    // ------------------------------------------------------------------------------------------
     // RULE 5 — THE READONLY FIELD, AND ITS THREE REPORTS.
     // ------------------------------------------------------------------------------------------
 

@@ -629,6 +629,83 @@ class AnalyzerDeclarationContext {
         return true
     }
 
+    // INIT-ONLY ELIGIBILITY, ASKED THE WAY READONLY ELIGIBILITY IS ASKED ABOVE. `init X: T` sets
+    // `Modifiers.Init` on the member's own declaration, and the word travels with it through
+    // inheritance and through closed generic base substitutions. `claimed` answers whether a SOURCE
+    // member of this name exists at all, so a caller cannot fall through to reflection and reinterpret
+    // a member the source already decided.
+    func TryFindInitOnlyMember(owner: TypeInfo, name: string, out resolvedMemberName: string, out claimed: bool): bool {
+        resolvedMemberName = ""
+        selection := new AnalyzerMemberSelection()
+        if !TryFindMember(owner, name, out selection) {
+            claimed = false
+            return false
+        }
+
+        claimed = true
+        member := selection.Member
+        if member == null || (member.Kind != DeclaredMemberKind.Field && member.Kind != DeclaredMemberKind.Property) {
+            return false
+        }
+
+        if (member.DeclaredModifiers & Convert.ToInt32(Modifiers.Init)) == 0 {
+            return false
+        }
+
+        resolvedMemberName = member.Name
+        return true
+    }
+
+    // THE MEMBERS A SOURCE TYPE DEMANDS, by name, in declaration order — its own first, then every
+    // base's. A name the derived type re-declares is listed once, because the nearest declaration is
+    // the one a caller's initializer writes. Only source types answer; a reflected type's demands are
+    // written in its metadata and are read there.
+    func SourceRequiredMemberNames(owner: TypeInfo): List<string> {
+        names := new List<string>()
+        CollectSourceRequiredMemberNames(owner, null, new HashSet<object>(), names)
+        return names
+    }
+
+    func CollectSourceRequiredMemberNames(owner: TypeInfo, substitution: Dictionary<string, TypeInfo>?, visited: HashSet<object>, names: List<string>) {
+        if !visited.Add(owner) {
+            return
+        }
+
+        generic := owner as GenericTypeInfo
+        if generic != null && generic.GenericDefinition != null {
+            CollectSourceRequiredMemberNames(generic.GenericDefinition, CreateSourceGenericSubstitution(generic.GenericDefinition, generic.TypeArguments), visited, names)
+            return
+        }
+
+        alias := owner as AliasTypeInfo
+        if alias != null {
+            resolvedAlias := ResolveAlias(alias, new HashSet<string>(StringComparer.Ordinal))
+            if resolvedAlias != owner {
+                CollectSourceRequiredMemberNames(resolvedAlias, substitution, visited, names)
+                return
+            }
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !TryGetSourceMemberShape(owner, substitution, out shape) {
+            return
+        }
+
+        memberIndex := 0
+        while memberIndex < shape.DeclaredMembers.Length {
+            member := shape.DeclaredMembers[memberIndex]
+            if member != null && (member.Kind == DeclaredMemberKind.Field || member.Kind == DeclaredMemberKind.Property) && (member.DeclaredModifiers & Convert.ToInt32(Modifiers.Required)) != 0 && !names.Contains(member.Name) {
+                names.Add(member.Name)
+            }
+
+            memberIndex = memberIndex + 1
+        }
+
+        if shape.BaseType != null {
+            CollectSourceRequiredMemberNames(shape.BaseType, substitution, visited, names)
+        }
+    }
+
     // File-import aliases have their own terminal type namespace. Keep the dotted-name split,
     // declaration-kind validation, alias expansion, nested visibility, and claimed semantics in
     // N#; Analyzer only records the returned canonical SymbolDeclaration in its binding map.

@@ -21,6 +21,11 @@ class ColumnarStructFieldColumns {
     FieldVirtualFlags: bool[]
     FieldAbstractFlags: bool[]
     FieldOverrideFlags: bool[]
+    // `required` and `init` as written on each row. A `required` row stays a field and carries the
+    // metadata that makes an object initializer's omission a diagnostic; an `init` row is an
+    // init-only auto-property whose storage is a private compiler-generated field.
+    FieldRequiredFlags: bool[]
+    FieldInitOnlyFlags: bool[]
     FieldInitKinds: int[]
     FieldInitTexts: string[]
 
@@ -37,6 +42,8 @@ class ColumnarStructFieldColumns {
         fieldVirtualFlags: bool[],
         fieldAbstractFlags: bool[],
         fieldOverrideFlags: bool[],
+        fieldRequiredFlags: bool[],
+        fieldInitOnlyFlags: bool[],
         fieldInitKinds: int[],
         fieldInitTexts: string[]
     ) {
@@ -52,6 +59,8 @@ class ColumnarStructFieldColumns {
         FieldVirtualFlags = fieldVirtualFlags
         FieldAbstractFlags = fieldAbstractFlags
         FieldOverrideFlags = fieldOverrideFlags
+        FieldRequiredFlags = fieldRequiredFlags
+        FieldInitOnlyFlags = fieldInitOnlyFlags
         FieldInitKinds = fieldInitKinds
         FieldInitTexts = fieldInitTexts
     }
@@ -78,6 +87,8 @@ class ColumnarStructFieldColumns {
         fieldVirtualFlags := new bool[](count)
         fieldAbstractFlags := new bool[](count)
         fieldOverrideFlags := new bool[](count)
+        fieldRequiredFlags := new bool[](count)
+        fieldInitOnlyFlags := new bool[](count)
 
         fieldIndex := 0
         while fieldIndex < count {
@@ -103,6 +114,8 @@ class ColumnarStructFieldColumns {
             fieldVirtualFlags[fieldIndex] = ColumnarStructFieldFlagIsVirtual(fieldModifierFlags)
             fieldAbstractFlags[fieldIndex] = ColumnarStructFieldFlagIsAbstract(fieldModifierFlags)
             fieldOverrideFlags[fieldIndex] = ColumnarStructFieldFlagIsOverride(fieldModifierFlags)
+            fieldRequiredFlags[fieldIndex] = ColumnarStructFieldFlagIsRequired(fieldModifierFlags)
+            fieldInitOnlyFlags[fieldIndex] = ColumnarStructFieldFlagIsInitOnly(fieldModifierFlags)
             fieldIndex = fieldIndex + 1
         }
 
@@ -119,6 +132,8 @@ class ColumnarStructFieldColumns {
             fieldVirtualFlags,
             fieldAbstractFlags,
             fieldOverrideFlags,
+            fieldRequiredFlags,
+            fieldInitOnlyFlags,
             fieldInitKinds,
             fieldInitTexts
         )

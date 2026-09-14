@@ -2,36 +2,11 @@ namespace NSharpLang.CompilationBackend.Tests
 
 import System.IO
 
-// ─── WHAT THE IL BACKEND REFUSES RATHER THAN EMITS ────────────────────────────────────────────
-//
-// FOUND BY CONVERTING tests/LanguageServerTests.cs, WHICH FAILED AT RUN TIME AFTER A CLEAN CHECK.
-// `new CompletionParams { Position: p }` — writing an `init`-only property of a REFERENCED type —
-// checked clean and then threw
-//
-//     Method not found: 'Void …TextDocumentPositionParams.set_Position(…Position)'
-//
-// the first time the emitted assembly ran. `init` is written in metadata as
-// `modreq(IsExternalInit)` on the setter's return, and the metadata writer DROPS required custom
-// modifiers when it emits a `MemberRef`, so the reference resolved to nothing. That writer
-// limitation is already measured and already policy elsewhere in the backend:
-// `ColumnarForeachLoopPlanner.IsReferenceablePattern` refuses `ReadOnlySpan<T>`'s enumerator for
-// exactly it, with exactly the same "Method not found" symptom, and the planned BCL property-write
-// door already refused the shape through `IsInitOnlySetter`. Two doors did not, and both are closed
-// now — so the failure is a diagnostic instead of a crash.
-//
-// THE TWO ROWS BELOW MEASURE THE TWO SPELLINGS, AND THEY DO NOT GET THE SAME SENTENCE. The
-// ASSIGNMENT form is refused in the IL emitter, which has a decline channel that carries a message,
-// so its diagnostic names the property and says why. The OBJECT-INITIALIZER form is refused earlier,
-// in `ColumnarConstructionPlanner`, which has no reason channel at all and can only answer "no" — so
-// the user gets the enclosing site (`emit.local.initializer` / `emit.return.expression`) and no
-// sentence about the setter. Both are honest; only one is helpful, and the difference is recorded
-// here rather than papered over, because giving the construction planner a reason channel is the
-// follow-up this asymmetry is asking for.
-//
-// THE SUBJECT IS A BCL TYPE, DELIBERATELY. `System.Text.Json.Schema.JsonSchemaExporterOptions` has a
-// public parameterless constructor and one `init`-only property, and `System.Text.Json` is in the
-// default reference set — so these rows need no dependency and cannot go stale because a package
-// moved. Every C# `record` is this shape too; the BCL type is simply the one every project can see.
+// Post-construction writes to a reflected init-only property are a semantic error (NL343).
+// Legal object initializers still encounter the pending MemberRef custom-modifier repair: the
+// persisted metadata writer drops modreq(IsExternalInit), producing a runtime MissingMethodException
+// if emission is permitted. Keep that refusal covered until INITREQ replaces it with runtime proof.
+// JsonSchemaExporterOptions supplies the reflected shape from the default framework references.
 func WriteInitOnlyProbe(directory: string, body: string) {
     WriteFile(directory, "project.yml", ProjectYml("InitOnlySetter", "il", "library"))
     WriteFile(directory, "Probe.nl", "namespace InitOnlySetter\n\nimport System.Text.Json.Schema\n\n" + body)
@@ -57,11 +32,11 @@ test "assigning an init-only property of a referenced type is refused, and the m
         assert run.ExitCode == 1
 
         said := SaidByCheck(run)
-        assert said.Contains("NL103")
-        assert said.Contains("emit.member-assignment.unreferenceable-setter")
-        assert said.Contains("JsonSchemaExporterOptions.TreatNullObliviousAsNonNullable")
-        assert said.Contains("required custom modifier")
-        assert said.Contains("MemberRef")
+        assert said.Contains("NL343")
+        assert said.Contains("TreatNullObliviousAsNonNullable")
+        assert said.Contains("is declared 'init'")
+        assert said.Contains("object initializer")
+        assert !said.Contains("NL103")
     } finally {
         DeleteTempDirectory(directory)
     }

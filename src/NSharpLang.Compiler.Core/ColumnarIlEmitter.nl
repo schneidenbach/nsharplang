@@ -1339,6 +1339,28 @@ sealed class ColumnarIlEmitter {
         overloads.Add(method)
     }
 
+    // AN `init` AUTO-PROPERTY'S STORAGE, WRITTEN FROM THE DECLARING TYPE'S OWN BODY.
+    //
+    // The setter of an auto-property IS the field store: calling it and storing the field are the
+    // same instruction sequence with the same result. The declaring type stores the field, for two
+    // reasons. The storage belongs to the type, so the store is exactly as legal as the call. And on
+    // a GENERIC type it is the only form that works at all — a reference to a generic type's `init`
+    // setter cannot carry the `modreq(IsExternalInit)` its definition has, because
+    // `TypeBuilder.GetMethod` builds the MemberRef from the open method's bare signature, and the
+    // runtime then refuses to bind it. A FIELD reference has no signature modifiers to lose.
+    //
+    // Only the type's OWN declaration answers. A base's backing field is private to the base, so a
+    // derived body still goes through the accessor — which is what C# does too.
+    private static func TryFindInitAutoPropertyBackingField(owner: ColumnarStructDef, memberName: string, out backingField: System.Reflection.Emit.FieldBuilder): bool {
+        backingField = null
+        let initProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+        if (!owner.Properties.TryGetValue(memberName, out initProperty) || !initProperty.IsInitOnly) {
+            return false
+        }
+
+        return owner.Fields.TryGetValue(NSharpLang.Compiler.Columnar.ColumnarInitRequiredMemberEmitter.BackingFieldName(memberName), out backingField)
+    }
+
     private static func TryFindPropertyOnChain(def: ColumnarStructDef, name: string, out property: ColumnarPropertyDef): bool {
         let columnarDiscard3: NSharpLang.Compiler.Columnar.ColumnarStructDef = null
         return TryFindPropertyOnChain(def, name, out columnarDiscard3, out property)
@@ -4179,6 +4201,14 @@ sealed class ColumnarIlEmitter {
                 ColumnarAttributeBlobs.ApplyToType(tb, structReadOnlyCtor, declarationPlan.CustomAttributes.StructReadOnlyBlobs[s])
             }
 
+            // A TYPE THAT DEMANDS ANYTHING CARRIES `[RequiredMember]` ITSELF. The per-member
+            // attribute says which members are demanded; the type-level one is what lets a consumer
+            // know to look at all, without walking every member of every type it constructs. C#
+            // emits both, and its own object-initializer rule reads both.
+            if (ColumnarInitRequiredMemberEmitter.DeclaresRequiredMember(st)) {
+                ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToType(tb)
+            }
+
             // Generic type parameters (`class Box<T>`): declared on the builder before any member signature
             // resolves (a member type naming T needs the GenericTypeParameterBuilder). Duplicate names decline in
             // the product parser wrapper before this point.
@@ -4523,6 +4553,30 @@ sealed class ColumnarIlEmitter {
                     continue
                 }
 
+                // AN `init` ROW IS NOT A FIELD, BECAUSE THE PROMISE IT MAKES HAS NOWHERE TO LIVE ON
+                // ONE. "Writable while the object is being created, never afterwards" is spelled in
+                // the CLR as `modreq(IsExternalInit)` on a SETTER's return type, so the row becomes
+                // an init-only auto-property: a private `[CompilerGenerated]` backing field, a
+                // getter over it, and a setter carrying the marker — exactly what C# emits for
+                // `public string Name { get; init; }`, and therefore exactly what a C# caller reads.
+                if (st.FieldInitOnlyFlags[fi]) {
+                    initPropertyVisibility := ColumnarDeclarationPlanner.MethodVisibilityAttributes(fieldName, st.FieldVisibilityFlags[fi])
+                    let initSlotType: System.Type? = null
+                    initFillsInterfaceSlot := !fieldRows.FieldIsStatic[s][fi] && (TryFindDeclaredInterfaceValueMember(st.BaseNames, typeResolution, fieldName, out initSlotType) || TryFindImplementedInterfaceValueMember(def, fieldName, out initSlotType))
+                    if (initFillsInterfaceSlot && !InterfaceValueSlotAccepts(initSlotType, fieldType)) {
+                        return DeclineStatic("emit.declaration.interface-value-member", "'" + st.Name + "." + fieldName + "' fills an interface value slot, so it must have the slot's own type", st.Name, -1, 0)
+                    }
+                    ColumnarInitRequiredMemberEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], initPropertyVisibility, st.FieldRequiredFlags[fi], initFillsInterfaceSlot)
+                    def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
+                    // THE STORAGE STILL COUNTS AS INSTANCE STATE. A record's synthesized equality
+                    // compares the fields in this list, and an init-only property is part of what the
+                    // record IS, so its backing field belongs here even though no body can name it.
+                    if (!fieldRows.FieldIsStatic[s][fi]) {
+                        instanceFieldNames.Add(ColumnarInitRequiredMemberEmitter.BackingFieldName(fieldName))
+                    }
+                    continue
+                }
+
                 if (fieldRows.FieldIsStatic[s][fi]) {
                     isLiteral := fieldRows.FieldIsLiteral[s][fi]
                     literalValue := 0
@@ -4530,6 +4584,9 @@ sealed class ColumnarIlEmitter {
                         return DeclineStatic("emit.declaration.const-initializer", "const field '" + st.Name + "." + fieldName + "' requires an unsuffixed int literal initializer", st.Name, -1, 0)
                     }
                     sfb := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi], isLiteral, literalValue)
+                    if (st.FieldRequiredFlags[fi]) {
+                        ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToField(sfb)
+                    }
                     sourceAttributeQueue.QueueField(sfb, st.FieldSourceAttributesAt(fi), typeResolution)
                     // A named tuple's element names live on the DECLARING position, so a field that
                     // mentions one carries the same attribute a return or a parameter does.
@@ -4546,6 +4603,9 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic("emit.declaration.field-initializer", "instance field initializer is not modeled for '" + st.Name + "." + fieldName + "'", st.Name, -1, 0)
                 }
                 instanceField := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi], false, 0)
+                if (st.FieldRequiredFlags[fi]) {
+                    ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToField(instanceField)
+                }
                 sourceAttributeQueue.QueueField(instanceField, st.FieldSourceAttributesAt(fi), typeResolution)
                 ColumnarTupleElementNameEmitter.ApplyToField(instanceField, st.FieldTypeCanonicals[fi])
                 def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
@@ -4978,7 +5038,8 @@ sealed class ColumnarIlEmitter {
                         staticPropertyGetterAttributes,
                         staticPropertyType,
                         staticPropertySetterName,
-                        staticPropertySetterAttributes
+                        staticPropertySetterAttributes,
+                        ColumnarInitRequiredMemberEmitter.SetterReturnModifiersFor(prop.IsInitOnly)
                     )
                     staticGetter := staticAccessors.Getter
                     if (!ColumnarMethodImplAttributes.TryApplyToMethod(staticGetter, prop.Getter.SourceAttributes, typeResolution)) {
@@ -5006,6 +5067,9 @@ sealed class ColumnarIlEmitter {
                         resolvedOutputConstructor: ConstructorInfo = outputConstructor
                         outputBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
                         staticProperty.SetCustomAttribute(resolvedOutputConstructor, outputBlob)
+                    }
+                    if prop.IsRequired {
+                        ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToProperty(staticProperty)
                     }
                     staticProperty.SetGetMethod(staticGetter)
                     staticSetter := staticAccessors.Setter
@@ -5055,7 +5119,8 @@ sealed class ColumnarIlEmitter {
                     propertyGetterAttributes,
                     propertyType,
                     propertySetterName,
-                    propertySetterAttributes
+                    propertySetterAttributes,
+                    ColumnarInitRequiredMemberEmitter.SetterReturnModifiersFor(prop.IsInitOnly)
                 )
                 getter := accessors.Getter
                 if (!ColumnarMethodImplAttributes.TryApplyToMethod(getter, prop.Getter.SourceAttributes, typeResolution)) {
@@ -5083,6 +5148,9 @@ sealed class ColumnarIlEmitter {
                     resolvedOutputConstructor: ConstructorInfo = outputConstructor
                     outputBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
                     property.SetCustomAttribute(resolvedOutputConstructor, outputBlob)
+                }
+                if prop.IsRequired {
+                    ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToProperty(property)
                 }
                 property.SetGetMethod(getter)
                 setter := accessors.Setter
@@ -8658,7 +8726,7 @@ sealed class ColumnarIlEmitter {
                             if (!TryEmitAssignableValue(Child(expr, 1), staticPropWrite.PropertyType, out columnarDiscard16)) {
                                 return false
                             }
-                            _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(staticPropWrite.Setter))
+                            _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.BindSetter(staticPropWrite))
                             return true
                         }
                         return false
@@ -8743,7 +8811,7 @@ sealed class ColumnarIlEmitter {
                             if (!EmitExpression(Child(expr, 1), out writePropValueType) || !TypesEquivalent(writePropValueType, writeProp.PropertyType)) {
                                 return false
                             }
-                            _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(writeProp.Setter))
+                            _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.BindSetter(writeProp))
                             return true
                         }
                     }
@@ -8829,6 +8897,16 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Stfld, explicitThisFieldTarget)
                     return true
                 }
+                let explicitThisInitBacking: System.Reflection.Emit.FieldBuilder = null
+                if (TryFindInitAutoPropertyBackingField(_currentStruct, targetName, out explicitThisInitBacking)) {
+                    _il.Emit(OpCodes.Ldarg_0)
+                    let columnarInitDiscard0: System.Type = null
+                    if (!TryEmitAssignableValue(Child(expr, 1), explicitThisInitBacking.get_FieldType(), out columnarInitDiscard0)) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Stfld, explicitThisInitBacking)
+                    return true
+                }
                 let explicitThisPropertyTarget: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
                 if (_currentStruct.IsReference && TryFindPropertyOnChain(_currentStruct, targetName, out explicitThisPropertyTarget) && explicitThisPropertyTarget.Setter != null) {
                     _il.Emit(OpCodes.Ldarg_0)
@@ -8836,7 +8914,7 @@ sealed class ColumnarIlEmitter {
                     if (!TryEmitAssignableValue(Child(expr, 1), explicitThisPropertyTarget.PropertyType, out columnarDiscard18)) {
                         return false
                     }
-                    _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(explicitThisPropertyTarget.Setter))
+                    _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.BindSetter(explicitThisPropertyTarget))
                     return true
                 }
                 return TryEmitInheritedExternalInstanceWrite(targetName, Child(expr, 1))
@@ -9038,6 +9116,16 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Stfld, thisFieldTarget)
                 return true
             }
+            let thisInitBacking: System.Reflection.Emit.FieldBuilder = null
+            if (_currentStruct != null && TryFindInitAutoPropertyBackingField(_currentStruct, targetName, out thisInitBacking)) {
+                _il.Emit(OpCodes.Ldarg_0)
+                let columnarInitDiscard1: System.Type = null
+                if (!TryEmitAssignableValue(Child(expr, 1), thisInitBacking.get_FieldType(), out columnarInitDiscard1)) {
+                    return false
+                }
+                _il.Emit(OpCodes.Stfld, thisInitBacking)
+                return true
+            }
             let thisPropertyTarget: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
             if (_currentStruct != null && _currentStruct.IsReference && TryFindPropertyOnChain(_currentStruct, targetName, out thisPropertyTarget) && thisPropertyTarget.Setter != null) {
                 _il.Emit(OpCodes.Ldarg_0)
@@ -9045,7 +9133,7 @@ sealed class ColumnarIlEmitter {
                 if (!TryEmitAssignableValue(Child(expr, 1), thisPropertyTarget.PropertyType, out columnarDiscard21)) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(thisPropertyTarget.Setter))
+                _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.BindSetter(thisPropertyTarget))
                 return true
             }
             // Bare STATIC-field write inside ANY member body of the declaring type (`count = expr` where count
@@ -13914,6 +14002,17 @@ sealed class ColumnarIlEmitter {
                             if (constructedClosedArgs.Length == 0) {
                                 userSetter = userInitProperty.Setter
                             } else {
+                                // A CLOSED GENERIC TYPE'S `init` SETTER CANNOT BE REFERENCED FROM
+                                // OUTSIDE IT. `TypeBuilder.GetMethod` drops the
+                                // `modreq(IsExternalInit)` the definition carries, and the runtime
+                                // refuses to bind the reference that results — so declining here is
+                                // the only honest answer. The member is still settable from a
+                                // constructor of the declaring type, whose body names the method by
+                                // its own handle.
+                                if (userInitProperty.IsInitOnly) {
+                                    return false
+                                }
+
                                 userSetter = TypeBuilder.GetMethod(constructedType, userInitProperty.Setter)
                             }
                             _il.Emit(OpCodes.Callvirt, userSetter)
@@ -14198,7 +14297,7 @@ sealed class ColumnarIlEmitter {
                         if (!TypesEquivalent(initPropertyValueType, initProperty.PropertyType) && !TryEmitImplicitWidening(initPropertyValueType, initProperty.PropertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initPropertyValueType, initProperty.PropertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(initPropertyValueType, initProperty.PropertyType)) {
                             return false
                         }
-                        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(initProperty.Setter))
+                        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.BindSetter(initProperty))
                         continue
                     }
                     let initField: System.Reflection.Emit.FieldBuilder? = null
@@ -14236,6 +14335,25 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 fieldName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
+                // A VALUE TYPE'S INITIALIZER MAY NAME A PROPERTY, and an `init` member always is one:
+                // its storage is a private backing field nothing outside the accessors may reach.
+                // The receiver is the temp's ADDRESS and the call is `call`, not `callvirt` — a value
+                // type is sealed, so there is no virtual dispatch to do and no boxing to pay for.
+                let initValueProperty: ColumnarPropertyDef? = null
+                if (initStructDef.Properties.TryGetValue(fieldName, out initValueProperty)) {
+                    if (initValueProperty.Setter == null || !assigned.Add(fieldName)) {
+                        return false
+                    }
+
+                    _il.Emit(OpCodes.Ldloca, structValue)
+                    let columnarDiscardValueProperty: System.Type = null
+                    if (!TryEmitAssignableValue(valueNode, initValueProperty.PropertyType, out columnarDiscardValueProperty)) {
+                        return false
+                    }
+
+                    _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.BindSetter(initValueProperty))
+                    continue
+                }
                 let initField: System.Reflection.Emit.FieldBuilder? = null
                 if (!initStructDef.Fields.TryGetValue(fieldName, out initField) || !assigned.Add(fieldName)) {
                     return false

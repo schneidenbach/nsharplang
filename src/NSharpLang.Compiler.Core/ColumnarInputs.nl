@@ -255,16 +255,23 @@ class ColumnarPropertyInput {
     // These marker facts are retained on the property input so the emitter can attach the exact
     // framework attributes without treating arbitrary skipped attributes as CLR metadata.
     HasMsBuildOutputAttribute: bool
+    // The `required` and `init` words the declaration wrote. `required` puts a
+    // `RequiredMemberAttribute` on the property row; `init` puts `modreq(IsExternalInit)` on the
+    // setter's return type, which is how every CLR language spells an init-only accessor.
+    IsRequired: bool
+    IsInitOnly: bool
     Name: string
     TypeCanonical: string
     Getter: ColumnarFunctionInput
     Setter: ColumnarFunctionInput?
     SourceFileId: int
 
-    constructor(name: string, typeCanonical: string, getter: ColumnarFunctionInput, setter: ColumnarFunctionInput?, isStatic: bool = false, sourceFileId: int = 0, hasMsBuildRequiredAttribute: bool = false, hasMsBuildOutputAttribute: bool = false) {
+    constructor(name: string, typeCanonical: string, getter: ColumnarFunctionInput, setter: ColumnarFunctionInput?, isStatic: bool = false, sourceFileId: int = 0, hasMsBuildRequiredAttribute: bool = false, hasMsBuildOutputAttribute: bool = false, isRequired: bool = false, isInitOnly: bool = false) {
         IsStatic = isStatic
         HasMsBuildRequiredAttribute = hasMsBuildRequiredAttribute
         HasMsBuildOutputAttribute = hasMsBuildOutputAttribute
+        IsRequired = isRequired
+        IsInitOnly = isInitOnly
         Name = name
         TypeCanonical = typeCanonical
         Getter = getter
@@ -319,6 +326,13 @@ class ColumnarStructInput {
     FieldVirtualFlags: bool[]
     FieldAbstractFlags: bool[]
     FieldOverrideFlags: bool[]
+    // `required` and `init` as written on each row. `required` keeps the row a field and adds the
+    // `RequiredMemberAttribute` a caller's object initializer is checked against; `init` makes the
+    // row an init-only auto-property — the CLR spells "settable only while the object is being
+    // created" as a setter whose return type carries `modreq(IsExternalInit)`, and a field has no
+    // setter to put it on.
+    FieldRequiredFlags: bool[]
+    FieldInitOnlyFlags: bool[]
     FieldInitKinds: int[]
     FieldInitTexts: string[]
     // The synthesized `.cctor` body: `Name = <expression>` statements, in textual order, for every
@@ -336,7 +350,7 @@ class ColumnarStructInput {
     EnclosingTypeName: string
     NestedVisibilityAttributes: int
 
-    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null, fieldConstFlags: bool[]? = null, fieldVisibilityFlags: int[]? = null, fieldEventFlags: bool[]? = null, fieldVirtualFlags: bool[]? = null, fieldAbstractFlags: bool[]? = null, fieldOverrideFlags: bool[]? = null) {
+    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null, fieldConstFlags: bool[]? = null, fieldVisibilityFlags: int[]? = null, fieldEventFlags: bool[]? = null, fieldVirtualFlags: bool[]? = null, fieldAbstractFlags: bool[]? = null, fieldOverrideFlags: bool[]? = null, fieldRequiredFlags: bool[]? = null, fieldInitOnlyFlags: bool[]? = null) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -378,6 +392,8 @@ class ColumnarStructInput {
         FieldVirtualFlags = fieldVirtualFlags ?? new bool[](fieldNames.Length)
         FieldAbstractFlags = fieldAbstractFlags ?? new bool[](fieldNames.Length)
         FieldOverrideFlags = fieldOverrideFlags ?? new bool[](fieldNames.Length)
+        FieldRequiredFlags = fieldRequiredFlags ?? new bool[](fieldNames.Length)
+        FieldInitOnlyFlags = fieldInitOnlyFlags ?? new bool[](fieldNames.Length)
     }
 
     // The attributes written on the field at `index`, or none. Every field column is indexed the

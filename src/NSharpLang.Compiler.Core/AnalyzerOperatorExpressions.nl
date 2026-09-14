@@ -1009,6 +1009,10 @@ class AnalyzerOperatorExpressions {
             return null
         }
 
+        if writeTargetsValue.ReportInitOnlyMemberWriteIfNeeded(operand, "changed with '" + UnarySymbolText(unaryNode.Operator) + "'", expressionTypes) {
+            return null
+        }
+
         if writeTargetsValue.ReportReadOnlyPropertyWriteTargetIfNeeded(operand, UnarySymbolText(unaryNode.Operator), expressionTypes) {
             return null
         }

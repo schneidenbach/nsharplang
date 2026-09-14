@@ -264,8 +264,15 @@ class ColumnarPropertyDef {
     PropertyType: Type
     GetterParameterCount: int
     SetterParameterCount: int
+    // WHETHER THE SETTER IS AN `init` ACCESSOR — that is, whether its return type carries
+    // `modreq(IsExternalInit)`. A caller has to know before it emits a reference to the setter,
+    // because a MemberRef to a member of a CLOSED GENERIC type cannot carry the marker:
+    // `TypeBuilder.GetMethod` builds the reference from the open method's bare signature, and the
+    // runtime then refuses to bind it. The one owner that asks declines that write rather than
+    // emitting a reference the JIT will not resolve.
+    IsInitOnly: bool
 
-    constructor(getter: MethodBuilder, setter: MethodBuilder?, propertyType: Type, token: ColumnarPropertyDefinitionToken) {
+    constructor(getter: MethodBuilder, setter: MethodBuilder?, propertyType: Type, token: ColumnarPropertyDefinitionToken, isInitOnly: bool = false) {
         if getter == null || propertyType == null || token == null {
             throw new InvalidOperationException("Source property definition facts cannot be null.")
         }
@@ -275,12 +282,20 @@ class ColumnarPropertyDef {
         PropertyType = propertyType
         GetterParameterCount = 0
         SetterParameterCount = setter == null ? 0 : 1
+        IsInitOnly = isInitOnly
     }
 
     // Define the accessors and their signature fact atomically. A ColumnarPropertyDef cannot
     // wrap an arbitrary MethodBuilder: the only construction route creates a zero-parameter
     // getter and, when present, a one-parameter setter itself.
     static func Define(owner: TypeBuilder, getterName: string, getterAttributes: MethodAttributes, propertyType: Type, setterName: string?, setterAttributes: MethodAttributes): ColumnarPropertyDef {
+        return Define(owner, getterName, getterAttributes, propertyType, setterName, setterAttributes, null)
+    }
+
+    // `setterReturnRequiredModifiers` carries `modreq(IsExternalInit)` for an `init` accessor and is
+    // null for an ordinary `set`. It goes on the setter's RETURN type — the CLR's own place for the
+    // marker, and the one every other language reads to tell `set` from `init`.
+    static func Define(owner: TypeBuilder, getterName: string, getterAttributes: MethodAttributes, propertyType: Type, setterName: string?, setterAttributes: MethodAttributes, setterReturnRequiredModifiers: Type[]?): ColumnarPropertyDef {
         if owner == null || getterName == null || propertyType == null {
             throw new InvalidOperationException("Source property definition inputs cannot be null.")
         }
@@ -305,10 +320,14 @@ class ColumnarPropertyDef {
             setterParameters := new Type[](1)
             setterParameters[0] = propertyType
             exactSetterAttributes := (MethodAttributes)((int)setterAttributes | specialNameFlag)
-            setter = owner.DefineMethod(setterName, exactSetterAttributes, voidType, setterParameters)
+            if setterReturnRequiredModifiers == null {
+                setter = owner.DefineMethod(setterName, exactSetterAttributes, voidType, setterParameters)
+            } else {
+                setter = owner.DefineMethod(setterName, exactSetterAttributes, CallingConventions.Standard, voidType, setterReturnRequiredModifiers, null, setterParameters, null, null)
+            }
         }
 
-        return new ColumnarPropertyDef(getter, setter, propertyType, new ColumnarPropertyDefinitionToken())
+        return new ColumnarPropertyDef(getter, setter, propertyType, new ColumnarPropertyDefinitionToken(), setterReturnRequiredModifiers != null)
     }
 }
 
@@ -538,6 +557,12 @@ class ColumnarStructDef {
     // routing of an attribute written on a positional constructor parameter, which needs the
     // `[AttributeUsage]` of a source-declared attribute class.
     DeclaredSourceAttributes: ColumnarSourceAttributeInput[]?
+    // THE PRIVATE STORAGE BEHIND AN INIT-ONLY AUTO-PROPERTY, by backing-field name. It is a field in
+    // every table that holds fields, and it is NOT a member a constructor owes an assignment to: an
+    // init-only member is written from OUTSIDE the constructor — an object initializer is its whole
+    // point — and the only code that ever touches this field is the accessor pair the emitter wrote.
+    // The same reasoning exempts a field-like event's backing delegate from the same rule.
+    AutoPropertyBackingFields: HashSet<string>
 
     constructor(builder: TypeBuilder, fieldOrder: string[], fields: Dictionary<string, FieldBuilder>, isReference: bool, isRecord: bool = false, isClosureDisplay: bool = false, declaredTypeName: string = "") {
         if builder == null || fieldOrder == null || fields == null || declaredTypeName == null {
@@ -571,6 +596,7 @@ class ColumnarStructDef {
         Properties = new Dictionary<string, ColumnarPropertyDef>(StringComparer.Ordinal)
         Events = new Dictionary<string, ColumnarEventDef>(StringComparer.Ordinal)
         MemberLabeledCanonicals = new Dictionary<string, string>(StringComparer.Ordinal)
+        AutoPropertyBackingFields = new HashSet<string>(StringComparer.Ordinal)
         ExactBaseType = null
     }
 

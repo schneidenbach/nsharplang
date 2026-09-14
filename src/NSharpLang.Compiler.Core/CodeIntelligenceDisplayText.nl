@@ -247,7 +247,7 @@ class CodeIntelligenceDisplayText {
     // ── The modifier chips ───────────────────────────────────────────────
 
     // `Modifiers.HasFlag` does not emit; `VisibilityConventions` already answers this exact enum
-    // with `Convert.ToInt32` and a mask, and that is the shape reused here. The ORDER of the eleven
+    // with `Convert.ToInt32` and a mask, and that is the shape reused here. The ORDER of the thirteen
     // tests is the printed order and is asserted as such.
     static func FormatModifiers(modifiers: object): string[]? {
         value := ModifierMask(modifiers)
@@ -298,6 +298,17 @@ class CodeIntelligenceDisplayText {
 
         if HasModifier(value, 512) {
             result.Add("readonly")
+        }
+
+        // The two words that say WHEN a member may be written. A reader hovering `Name` needs them
+        // before anything else the chip row carries: `required` says the creation must set it, `init`
+        // says nothing afterwards may.
+        if HasModifier(value, 8192) {
+            result.Add("required")
+        }
+
+        if HasModifier(value, 16384) {
+            result.Add("init")
         }
 
         if result.Count == 0 {

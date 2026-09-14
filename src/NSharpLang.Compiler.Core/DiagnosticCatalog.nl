@@ -163,6 +163,8 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.TypeDeclaredInAnotherFile)
         AddCompiler(descriptors, ErrorCode.ThrowExpressionNotAllowedHere)
         AddCompiler(descriptors, ErrorCode.InterfaceValueMemberWrite)
+        AddCompiler(descriptors, ErrorCode.InitOnlyMemberWrite)
+        AddCompiler(descriptors, ErrorCode.RequiredMemberNotSet)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)
