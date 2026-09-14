@@ -82,6 +82,16 @@ class ColumnarAttributeBlobs {
         return blob.ToArray()
     }
 
+    // `[CompilerFeatureRequired("RequiredMembers")]`: prolog, ONE SerString fixed argument, no named
+    // arguments — the same shape the two-string form below writes, with one argument instead of two.
+    static func OneString(value: string): byte[] {
+        blob := new List<byte>()
+        WritePrologue(blob)
+        WriteSerString(blob, value)
+        WriteNamedArgumentCount(blob, 0)
+        return blob.ToArray()
+    }
+
     // `[Trait("NSharpDescription", <description>)]`: prolog, two SerString fixed arguments, no named
     // arguments. A null argument is legal and writes the single-byte null form.
     static func TwoStrings(first: string, second: string): byte[] {

@@ -8024,6 +8024,16 @@ func ModifierFlag(kind: int): int {
         return 65536
     }
 
+    // `required` and `init` — `Modifiers.Required` (8192) and `Modifiers.Init` (16384) in
+    // DeclarationEnums.nl, the same two bits the recovery parser hangs on the declaration node.
+    if kind == 76 {
+        return 8192
+    }
+
+    if kind == 77 {
+        return 16384
+    }
+
     return 0
 }
 
@@ -10808,7 +10818,11 @@ func ParserDeclarationMemberModifierKind(kind: int): int {
         return 1
     }
 
-    if kind == 21 || kind == 22 || kind == 58 || kind == 59 || kind == 60 || kind == 61 || kind == 62 || kind == 68 || kind == 81 {
+    // `required` (76) and `init` (77) are MEMBER modifier words, admitted here for the same reason
+    // every other word on this row is: the member scan has to step across them before it can read the
+    // name. They carry no visibility and no storage decision of their own, so they are kind 3 —
+    // ordinary prefix words whose meaning the field/property columns behind this scan decide.
+    if kind == 21 || kind == 22 || kind == 58 || kind == 59 || kind == 60 || kind == 61 || kind == 62 || kind == 68 || kind == 76 || kind == 77 || kind == 81 {
         return 3
     }
 
@@ -11730,8 +11744,33 @@ func ParseDeclarationMemberFieldModifierWord(memberModifiers: ParserDeclarationR
     if (memberModifiers.Values[2] & 65536) != 0 {
         fieldModifierFlags = fieldModifierFlags + 2048
     }
+    // Bits 12 and 13 — `required` and `init`. `required` keeps the row a FIELD and adds the metadata
+    // that makes a caller's object initializer name it; `init` turns the row into an init-only
+    // AUTO-PROPERTY, because the promise it makes ("settable in an object initializer, nowhere else")
+    // is spelled in the CLR as a setter carrying `modreq(IsExternalInit)`, and a field has no setter.
+    if (memberModifiers.Values[2] & 8192) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 4096
+    }
+    if (memberModifiers.Values[2] & 16384) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 8192
+    }
 
     return fieldModifierFlags
+}
+
+// The `required` / `init` words as the PROPERTY column's own two bits (8 and 16). A property row
+// packs its prefix differently from a field row — its word is small and its meanings are its own —
+// so the translation from the shared modifier word lives beside the packing that uses it.
+func ParseDeclarationMemberPropertyModifierBits(memberModifiers: ParserDeclarationResultTable): int {
+    bits := 0
+    if (memberModifiers.Values[2] & 8192) != 0 {
+        bits = bits | 8
+    }
+    if (memberModifiers.Values[2] & 16384) != 0 {
+        bits = bits | 16
+    }
+
+    return bits
 }
 
 func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTable, count: int, structIndex: int, decl: StructDeclarationTable, result: ParserDeclarationResultTable): int {
@@ -11934,7 +11973,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             }
         } else if tokens.Kinds[memberStart] == 0 && memberStart + 3 < count && tokens.Kinds[memberStart + 1] == 122 && tokens.Kinds[memberStart + 2] == 0 && tokens.Kinds[memberStart + 3] == 129 {
             decl.PropIndices[propCount] = memberStart
-            decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2) | (memberModifiers.Values[5] * 4)
+            decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2) | (memberModifiers.Values[5] * 4) | ParseDeclarationMemberPropertyModifierBits(memberModifiers)
             propCount = propCount + 1
             pos = memberStart + 3
 
@@ -12016,7 +12055,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
 
             if pos < count && tokens.Kinds[pos] == 129 {
                 decl.PropIndices[propCount] = memberStart
-                decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2) | (memberModifiers.Values[5] * 4)
+                decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2) | (memberModifiers.Values[5] * 4) | ParseDeclarationMemberPropertyModifierBits(memberModifiers)
                 propCount = propCount + 1
 
                 pdepth := 0
@@ -12043,7 +12082,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
 
             if pos < count && tokens.Kinds[pos] == 120 {
                 decl.PropIndices[propCount] = memberStart
-                decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2) | (memberModifiers.Values[5] * 4)
+                decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2) | (memberModifiers.Values[5] * 4) | ParseDeclarationMemberPropertyModifierBits(memberModifiers)
                 propCount = propCount + 1
                 pos = ParseDeclarationExpressionBodyEndCore(source, tokens, count, pos)
                 if pos < 0 {
@@ -15357,9 +15396,21 @@ func ColumnarStructFieldFlagIsOverride(flags: int): bool {
     return (flags & 2048) != 0
 }
 
+// Bits 12 and 13: `required` and `init` as written on the member. A `required` row stays a field and
+// gains the metadata a caller's object initializer is checked against; an `init` row becomes an
+// init-only auto-property, whose storage is a private compiler-generated field.
+func ColumnarStructFieldFlagIsRequired(flags: int): bool {
+    return (flags & 4096) != 0
+}
+
+func ColumnarStructFieldFlagIsInitOnly(flags: int): bool {
+    return (flags & 8192) != 0
+}
+
 // Property prefix flags share the existing integer output column: bit 0 is static, bit 1 is the
-// exact MSBuild RequiredAttribute marker, and bit 2 is the exact MSBuild OutputAttribute marker.
-// Naming the reads here keeps the host from duplicating the packed representation.
+// exact MSBuild RequiredAttribute marker, bit 2 is the exact MSBuild OutputAttribute marker, bit 3
+// is the `required` word and bit 4 the `init` word. Naming the reads here keeps the host from
+// duplicating the packed representation.
 func ColumnarStructPropertyFlagIsStatic(flags: int): bool {
     return (flags & 1) != 0
 }
@@ -15370,6 +15421,15 @@ func ColumnarStructPropertyFlagHasMsBuildRequired(flags: int): bool {
 
 func ColumnarStructPropertyFlagHasMsBuildOutput(flags: int): bool {
     return (flags & 4) != 0
+}
+
+// Bits 3 and 4: the `required` and `init` words written in front of a property declaration.
+func ColumnarStructPropertyFlagIsRequired(flags: int): bool {
+    return (flags & 8) != 0
+}
+
+func ColumnarStructPropertyFlagIsInitOnly(flags: int): bool {
+    return (flags & 16) != 0
 }
 
 func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, methodCount: int): int {
@@ -15869,7 +15929,7 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: ColumnarS
 
     i := 0
     while i < propCount {
-        if outputs.PropStaticFlags[i] < 0 || outputs.PropStaticFlags[i] > 7 {
+        if outputs.PropStaticFlags[i] < 0 || outputs.PropStaticFlags[i] > 31 {
             return 0
         }
 
@@ -15924,7 +15984,7 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: ColumnarS
 
         j := i + 1
         while j < propCount {
-            if outputs.PropStaticFlags[j] < 0 || outputs.PropStaticFlags[j] > 7 {
+            if outputs.PropStaticFlags[j] < 0 || outputs.PropStaticFlags[j] > 31 {
                 return 0
             }
 

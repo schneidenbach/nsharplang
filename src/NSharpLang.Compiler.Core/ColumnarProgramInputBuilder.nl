@@ -852,7 +852,9 @@ sealed class ColumnarProgramInputBuilder {
                     out propInput,
                     ColumnarStructPropertyFlagIsStatic(outPropStaticFlags[pr]),
                     ColumnarStructPropertyFlagHasMsBuildRequired(outPropStaticFlags[pr]),
-                    ColumnarStructPropertyFlagHasMsBuildOutput(outPropStaticFlags[pr])
+                    ColumnarStructPropertyFlagHasMsBuildOutput(outPropStaticFlags[pr]),
+                    ColumnarStructPropertyFlagIsRequired(outPropStaticFlags[pr]),
+                    ColumnarStructPropertyFlagIsInitOnly(outPropStaticFlags[pr])
                 ) {
                     return DeclineAtToken(
                         ColumnarParseDeclines.StructProperty,
@@ -895,7 +897,9 @@ sealed class ColumnarProgramInputBuilder {
                 fieldColumns.FieldEventFlags,
                 fieldColumns.FieldVirtualFlags,
                 fieldColumns.FieldAbstractFlags,
-                fieldColumns.FieldOverrideFlags
+                fieldColumns.FieldOverrideFlags,
+                fieldColumns.FieldRequiredFlags,
+                fieldColumns.FieldInitOnlyFlags
             )
             structInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, structIndex)
             // A FIELD'S ATTRIBUTES ARE READ FROM ITS OWN DECLARATION POSITION. The member scan records
@@ -1559,7 +1563,7 @@ sealed class ColumnarProgramInputBuilder {
         return true
     }
 
-    private static func TryParseColumnarPropertyAt(ck: int[], cs: int[], cv: int[], n: int, propIndex: int, source: string, out input: ColumnarPropertyInput, isStatic: bool = false, hasMsBuildRequiredAttribute: bool = false, hasMsBuildOutputAttribute: bool = false): bool {
+    private static func TryParseColumnarPropertyAt(ck: int[], cs: int[], cv: int[], n: int, propIndex: int, source: string, out input: ColumnarPropertyInput, isStatic: bool = false, hasMsBuildRequiredAttribute: bool = false, hasMsBuildOutputAttribute: bool = false, isRequired: bool = false, isInitOnly: bool = false): bool {
         input = null
         cap := n + 1
         gk := new int[](cap)
@@ -1695,7 +1699,7 @@ sealed class ColumnarProgramInputBuilder {
         if setter != null {
             setter.SourceAttributes = propertyAttributes
         }
-        input = new ColumnarPropertyInput(propName, propType, getter, setter, isStatic, 0, hasMsBuildRequiredAttribute, hasMsBuildOutputAttribute)
+        input = new ColumnarPropertyInput(propName, propType, getter, setter, isStatic, 0, hasMsBuildRequiredAttribute, hasMsBuildOutputAttribute, isRequired, isInitOnly)
         return true
     }
 

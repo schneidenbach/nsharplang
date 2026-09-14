@@ -180,6 +180,9 @@ class ColumnarConstructorDeclarationPlanner {
                             }
 
                             builder := definition.DefineUserConstructor(parameterTypes, ctor.ParamDefaultKinds, canonicalDefaultTexts, ctor.VisibilityModifierFlags)
+                            if ColumnarInitRequiredMemberEmitter.DeclaresRequiredMember(constructorInput) {
+                                ColumnarInitRequiredMemberEmitter.ApplyCompilerFeatureRequiredToConstructor(builder)
+                            }
                             sourceAttributeQueue.QueueConstructor(builder, ctor.Body.SourceAttributes, typeResolution)
                             if !ColumnarMethodImplAttributes.TryApplyToConstructor(builder, ctor.Body.SourceAttributes, typeResolution) {
                                 return Declined(
@@ -267,6 +270,16 @@ class ColumnarConstructorDeclarationPlanner {
                             )
                             definition.DefaultCtor = defaultBuilder
                             defaultConstructorJobs.Add(new ColumnarDefaultConstructorJob(definition, defaultBuilder))
+                        }
+                        // THE SYNTHESIZED CONSTRUCTOR IS A CONSTRUCTOR TOO. A type whose members are
+                        // `required` is constructible only by a compiler that understands the
+                        // feature, and the parameterless constructor a caller actually reaches is the
+                        // one this arm defines.
+                        if ColumnarInitRequiredMemberEmitter.DeclaresRequiredMember(structInput) {
+                            synthesizedConstructor := definition.DefaultCtor
+                            if synthesizedConstructor != null {
+                                ColumnarInitRequiredMemberEmitter.ApplyCompilerFeatureRequiredToConstructor(synthesizedConstructor)
+                            }
                         }
                     }
                 }
@@ -445,7 +458,11 @@ class ColumnarConstructorDeclarationPlanner {
                 // null — that is the whole reason `Changed?.Invoke(...)` is the raise idiom — and the
                 // storage is written only by the synthesized `add_`/`remove_` accessors, so a
                 // constructor that assigned it would be assigning somebody else's private field.
-                if !assigned.Contains(fieldName) && !currentStruct.NullableFields.Contains(fieldName) && !currentStruct.Events.ContainsKey(fieldName) && IsReferenceTypedField(currentStruct, fieldName) {
+                // AN INIT-ONLY AUTO-PROPERTY'S STORAGE OWES NOTHING EITHER, for the reason the
+                // event storage beside it owes nothing: the field is written only by the accessor
+                // pair the emitter synthesized, and the whole point of `init` is that the value
+                // arrives from an OBJECT INITIALIZER — outside every constructor this rule can see.
+                if !assigned.Contains(fieldName) && !currentStruct.AutoPropertyBackingFields.Contains(fieldName) && !currentStruct.NullableFields.Contains(fieldName) && !currentStruct.Events.ContainsKey(fieldName) && IsReferenceTypedField(currentStruct, fieldName) {
                     return false
                 }
             }

@@ -4150,6 +4150,14 @@ sealed class ColumnarIlEmitter {
                 ColumnarAttributeBlobs.ApplyToType(tb, structReadOnlyCtor, declarationPlan.CustomAttributes.StructReadOnlyBlobs[s])
             }
 
+            // A TYPE THAT DEMANDS ANYTHING CARRIES `[RequiredMember]` ITSELF. The per-member
+            // attribute says which members are demanded; the type-level one is what lets a consumer
+            // know to look at all, without walking every member of every type it constructs. C#
+            // emits both, and its own object-initializer rule reads both.
+            if (ColumnarInitRequiredMemberEmitter.DeclaresRequiredMember(st)) {
+                ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToType(tb)
+            }
+
             // Generic type parameters (`class Box<T>`): declared on the builder before any member signature
             // resolves (a member type naming T needs the GenericTypeParameterBuilder). Duplicate names decline in
             // the product parser wrapper before this point.
@@ -4478,6 +4486,30 @@ sealed class ColumnarIlEmitter {
                     continue
                 }
 
+                // AN `init` ROW IS NOT A FIELD, BECAUSE THE PROMISE IT MAKES HAS NOWHERE TO LIVE ON
+                // ONE. "Writable while the object is being created, never afterwards" is spelled in
+                // the CLR as `modreq(IsExternalInit)` on a SETTER's return type, so the row becomes
+                // an init-only auto-property: a private `[CompilerGenerated]` backing field, a
+                // getter over it, and a setter carrying the marker — exactly what C# emits for
+                // `public string Name { get; init; }`, and therefore exactly what a C# caller reads.
+                if (st.FieldInitOnlyFlags[fi]) {
+                    initPropertyVisibility := ColumnarDeclarationPlanner.MethodVisibilityAttributes(fieldName, st.FieldVisibilityFlags[fi])
+                    let initSlotType: System.Type? = null
+                    initFillsInterfaceSlot := !fieldRows.FieldIsStatic[s][fi] && (TryFindDeclaredInterfaceValueMember(st.BaseNames, typeResolution, fieldName, out initSlotType) || TryFindImplementedInterfaceValueMember(def, fieldName, out initSlotType))
+                    if (initFillsInterfaceSlot && !InterfaceValueSlotAccepts(initSlotType, fieldType)) {
+                        return DeclineStatic("emit.declaration.interface-value-member", "'" + st.Name + "." + fieldName + "' fills an interface value slot, so it must have the slot's own type", st.Name, -1, 0)
+                    }
+                    ColumnarInitRequiredMemberEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], initPropertyVisibility, st.FieldRequiredFlags[fi], initFillsInterfaceSlot)
+                    def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
+                    // THE STORAGE STILL COUNTS AS INSTANCE STATE. A record's synthesized equality
+                    // compares the fields in this list, and an init-only property is part of what the
+                    // record IS, so its backing field belongs here even though no body can name it.
+                    if (!fieldRows.FieldIsStatic[s][fi]) {
+                        instanceFieldNames.Add(ColumnarInitRequiredMemberEmitter.BackingFieldName(fieldName))
+                    }
+                    continue
+                }
+
                 if (fieldRows.FieldIsStatic[s][fi]) {
                     isLiteral := fieldRows.FieldIsLiteral[s][fi]
                     literalValue := 0
@@ -4485,6 +4517,9 @@ sealed class ColumnarIlEmitter {
                         return DeclineStatic("emit.declaration.const-initializer", "const field '" + st.Name + "." + fieldName + "' requires an unsuffixed int literal initializer", st.Name, -1, 0)
                     }
                     sfb := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi], isLiteral, literalValue)
+                    if (st.FieldRequiredFlags[fi]) {
+                        ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToField(sfb)
+                    }
                     sourceAttributeQueue.QueueField(sfb, st.FieldSourceAttributesAt(fi), typeResolution)
                     // A named tuple's element names live on the DECLARING position, so a field that
                     // mentions one carries the same attribute a return or a parameter does.
@@ -4501,6 +4536,9 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic("emit.declaration.field-initializer", "instance field initializer is not modeled for '" + st.Name + "." + fieldName + "'", st.Name, -1, 0)
                 }
                 instanceField := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi], false, 0)
+                if (st.FieldRequiredFlags[fi]) {
+                    ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToField(instanceField)
+                }
                 sourceAttributeQueue.QueueField(instanceField, st.FieldSourceAttributesAt(fi), typeResolution)
                 ColumnarTupleElementNameEmitter.ApplyToField(instanceField, st.FieldTypeCanonicals[fi])
                 def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
@@ -4921,7 +4959,8 @@ sealed class ColumnarIlEmitter {
                         staticPropertyGetterAttributes,
                         staticPropertyType,
                         staticPropertySetterName,
-                        staticPropertySetterAttributes
+                        staticPropertySetterAttributes,
+                        ColumnarInitRequiredMemberEmitter.SetterReturnModifiersFor(prop.IsInitOnly)
                     )
                     staticGetter := staticAccessors.Getter
                     if (!ColumnarMethodImplAttributes.TryApplyToMethod(staticGetter, prop.Getter.SourceAttributes, typeResolution)) {
@@ -4949,6 +4988,9 @@ sealed class ColumnarIlEmitter {
                         resolvedOutputConstructor: ConstructorInfo = outputConstructor
                         outputBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
                         staticProperty.SetCustomAttribute(resolvedOutputConstructor, outputBlob)
+                    }
+                    if prop.IsRequired {
+                        ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToProperty(staticProperty)
                     }
                     staticProperty.SetGetMethod(staticGetter)
                     staticSetter := staticAccessors.Setter
@@ -4998,7 +5040,8 @@ sealed class ColumnarIlEmitter {
                     propertyGetterAttributes,
                     propertyType,
                     propertySetterName,
-                    propertySetterAttributes
+                    propertySetterAttributes,
+                    ColumnarInitRequiredMemberEmitter.SetterReturnModifiersFor(prop.IsInitOnly)
                 )
                 getter := accessors.Getter
                 if (!ColumnarMethodImplAttributes.TryApplyToMethod(getter, prop.Getter.SourceAttributes, typeResolution)) {
@@ -5026,6 +5069,9 @@ sealed class ColumnarIlEmitter {
                     resolvedOutputConstructor: ConstructorInfo = outputConstructor
                     outputBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
                     property.SetCustomAttribute(resolvedOutputConstructor, outputBlob)
+                }
+                if prop.IsRequired {
+                    ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToProperty(property)
                 }
                 property.SetGetMethod(getter)
                 setter := accessors.Setter
