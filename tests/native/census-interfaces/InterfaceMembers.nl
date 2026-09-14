@@ -215,3 +215,66 @@ class Unmatched {
 func ReadShaped(shaped: IShaped): string {
     return shaped.Describe() + ":" + shaped.Size.ToString()
 }
+
+// A BASE INTERFACE'S MEMBERS READ THROUGH THE **DERIVED** INTERFACE'S OWN RECEIVER.
+//
+// `ITestCase: INamed` already existed above, but every read of `DisplayName` had to be written
+// through an `INamed` local first (`named: INamed = testCase`) — a bare `testCase.DisplayName` was
+// NL303 "Member 'DisplayName' not found on type 'ITestCase'", and so was `testCase.Describe()` for
+// a `func` slot. That is the relation inverted: `interface ITestCase: INamed` says every
+// `ITestCase` HAS everything `INamed` declares, and the CLR dispatches `INamed::DisplayName` on an
+// `ITestCase` receiver with no conversion at all.
+//
+// THE SLOT IS STILL THE BASE'S. Both reads below dispatch through the interface that DECLARED the
+// member; the metadata assertions beside them pin which one that is.
+interface IIdentified {
+    Key: string
+
+    func Describe(): string
+}
+
+interface ITracked: IIdentified {
+    Revision: int
+}
+
+// TWO BASES, AND ONE OF THEM HAS A BASE OF ITS OWN — the closure is walked depth-first in written
+// order, which is the order a `func` slot has always been found in.
+interface IAudited {
+    Auditor: string
+}
+
+interface IDocumentRecord: ITracked, IAudited {
+    Path: string
+}
+
+class DocumentRecord: IDocumentRecord {
+    Key: string
+    Revision: int
+    Auditor: string
+    Path: string
+
+    constructor(key: string, revision: int, auditor: string, path: string) {
+        Key = key
+        Revision = revision
+        Auditor = auditor
+        Path = path
+    }
+
+    func Describe(): string {
+        return Key + "@" + Revision.ToString()
+    }
+}
+
+// Each read is written against the DERIVED interface, which is the whole point: none of these
+// compiled before, and none of them needs a cast now.
+func ReadThroughDerived(entry: IDocumentRecord): string {
+    return entry.Path + "/" + entry.Revision.ToString() + "/" + entry.Key + "/" + entry.Auditor
+}
+
+func DescribeThroughDerived(entry: IDocumentRecord): string {
+    return entry.Describe()
+}
+
+func ReadOneLevelUp(tracked: ITracked): string {
+    return tracked.Key + "#" + tracked.Revision.ToString()
+}

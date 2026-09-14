@@ -1550,6 +1550,8 @@ class ColumnarDirectCallPlanner {
             } else if !AppendExplicitReceiver(nodes, source, receiverNode, bindings, handles, plan, callFragment, depth + 1, selection.ReceiverType, selection.ReceiverIsReference) {
                 return false
             }
+
+            AppendInterfaceReceiverWidening(plan, selection)
         }
 
         if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
@@ -1586,6 +1588,38 @@ class ColumnarDirectCallPlanner {
 
         resultType = selection.ReturnType
         return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
+    }
+
+    // A SLOT A **BASE** INTERFACE DECLARED, REACHED THROUGH THE DERIVED ONE.
+    //
+    // `interface ITestCase: INamed` makes every `ITestCase` an `INamed`, and the selection walk
+    // already finds `INamed`'s declaration through `InterfaceBases` — but the receiver on the stack
+    // is still spelled `ITestCase`, and the sealed plan refused it with "reference receiver for
+    // 'Name' does not match its declaring type". Reflection cannot settle that: both interfaces are
+    // unbaked `TypeBuilder`s, and `IsAssignableFrom` / `GetInterfaces` throw `NotSupportedException`
+    // over one, so the validator has no way to know the edge the SOURCE declared.
+    //
+    // The widening is therefore written into the plan, which is the same answer this planner already
+    // gives for an ARGUMENT flowing into a source interface (`AppendArgumentConversion`'s
+    // `exactSourceInterfaceFlow` arm emits exactly this `castclass`). Stating the conversion makes
+    // the receiver's stack type the declaring interface, so the plan is checkable end to end rather
+    // than checked by exception.
+    //
+    // ONLY AN INTERFACE DECLARING TYPE, and only when it is not the receiver's own type. A base
+    // CLASS slot needs nothing: `IsExactDynamicBaseUpcast` walks a builder's base chain, which
+    // Reflection.Emit does answer. A value receiver is loaded as a managed ADDRESS, which a
+    // `castclass` cannot consume, so it is left to the arms that own boxing.
+    static func AppendInterfaceReceiverWidening(plan: ColumnarCodePlan, selection: ColumnarSourceDirectCallSelection) {
+        if !selection.ReceiverIsReference || !selection.DeclaringType.get_IsInterface() {
+            return
+        }
+
+        if ColumnarReferenceConversionFacts.ExactTypeShapeMatches(selection.ReceiverType, selection.DeclaringType) {
+            return
+        }
+
+        declaringIndex := plan.AddType(selection.DeclaringType)
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Castclass(), declaringIndex)
     }
 
     static func AppendImplicitReceiver(plan: ColumnarCodePlan, selection: ColumnarSourceDirectCallSelection) {

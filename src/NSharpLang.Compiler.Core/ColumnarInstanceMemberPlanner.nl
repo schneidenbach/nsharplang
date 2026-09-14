@@ -21,7 +21,12 @@ class ColumnarInstanceMemberSelection {
     Field: FieldInfo?
     Getter: MethodInfo?
 
-    constructor(kind: ColumnarInstanceMemberKind, receiverIsReference: bool, preserveDirectValueStorage: bool, declaringType: Type, resultType: Type, field: FieldInfo?, getter: MethodInfo?) {
+    // THE INTERFACE THE RECEIVER MUST BE WIDENED TO BEFORE THE SLOT IS READ, or null when it is
+    // already spelled that way. Only a member found on a BASE INTERFACE of the receiver's own
+    // interface sets it; see `AppendInterfaceReceiverWidening`.
+    ReceiverWidening: Type?
+
+    constructor(kind: ColumnarInstanceMemberKind, receiverIsReference: bool, preserveDirectValueStorage: bool, declaringType: Type, resultType: Type, field: FieldInfo?, getter: MethodInfo?, receiverWidening: Type? = null) {
         Kind = kind
         ReceiverIsReference = receiverIsReference
         PreserveDirectValueStorage = preserveDirectValueStorage
@@ -29,6 +34,7 @@ class ColumnarInstanceMemberSelection {
         ResultType = resultType
         Field = field
         Getter = getter
+        ReceiverWidening = receiverWidening
     }
 }
 
@@ -649,6 +655,30 @@ class ColumnarInstanceMemberPlanner {
             current = baseDefinition
         }
 
+        // A VALUE MEMBER A **BASE** INTERFACE DECLARED. The chain above follows `BaseDef`, which an
+        // interface does not have: `interface ITestCase: INamed` records `INamed` in `InterfaceBases`,
+        // and the slot `INamed` opened is part of every `ITestCase` receiver's surface. The walk is
+        // depth-first in written order, matching the one `ColumnarSourceDirectCallResolver`
+        // makes for a `func` slot, so the two spellings of an interface member agree about which
+        // declaration a name reaches.
+        //
+        // ONLY A BARE RECEIVER. A CONSTRUCTED source interface (`IBox<int>`) would need its base
+        // clause substituted before the slot's type could be spelled, and guessing there would emit
+        // a read of the wrong type; that shape declines instead, exactly as the `func` walk does.
+        interfaceWidening: Type? = null
+        rootBuilder: Type = root.Builder
+        if !found && !foundStatic && root.IsInterface && Object.ReferenceEquals(receiverType, rootBuilder) {
+            baseInterfaceOwner: ColumnarStructDef? = null
+            if TryFindInterfaceBaseProperty(root, memberName, out baseInterfaceOwner) && baseInterfaceOwner != null {
+                baseInterfaceBuilder: Type = baseInterfaceOwner.Builder
+                found = true
+                foundProperty = baseInterfaceOwner.Properties[memberName]
+                foundDeclaring = baseInterfaceBuilder
+                foundExactDeclaring = baseInterfaceBuilder
+                interfaceWidening = baseInterfaceBuilder
+            }
+        }
+
         if !found && !foundStatic && externalBase != null {
             // A `protected` member of the external base is INHERITED SURFACE of this receiver, and the
             // body being emitted may read it when it is written inside the receiver's own type or one
@@ -725,9 +755,42 @@ class ColumnarInstanceMemberPlanner {
             return false
         }
 
-        selection = new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.Property, classification.ReceiverIsReference, classification.PreserveDirectValueStorage, declaringPropertyType, propertyType, null, selectedGetter)
+        selection = new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.Property, classification.ReceiverIsReference, classification.PreserveDirectValueStorage, declaringPropertyType, propertyType, null, selectedGetter, interfaceWidening)
 
         return true
+    }
+
+    // A BASE INTERFACE'S VALUE MEMBER, depth-first in written order. A diamond reaches the same
+    // declaration twice and answers the same way both times, so no visited set is needed for
+    // CORRECTNESS — the depth guard is what keeps a malformed cyclic base clause (reported elsewhere)
+    // from hanging emission.
+    static func TryFindInterfaceBaseProperty(owner: ColumnarStructDef, memberName: string, out found: ColumnarStructDef?): bool {
+        return TryFindInterfaceBasePropertyCore(owner, memberName, 0, out found)
+    }
+
+    static func TryFindInterfaceBasePropertyCore(owner: ColumnarStructDef, memberName: string, depth: int, out found: ColumnarStructDef?): bool {
+        found = null
+        if depth > 32 {
+            return false
+        }
+
+        index := 0
+        while index < owner.InterfaceBases.Count {
+            baseInterface := owner.InterfaceBases[index]
+            if baseInterface.Properties.ContainsKey(memberName) {
+                found = baseInterface
+                return true
+            }
+
+            if TryFindInterfaceBasePropertyCore(baseInterface, memberName, depth + 1, out found) {
+                return true
+            }
+
+            index += 1
+        }
+
+        found = null
+        return false
     }
 
     // A MEMBER THIS COMPILATION DID NOT WRITE, READ THROUGH A RECEIVER IT DID. The receiver stays the
@@ -891,6 +954,8 @@ class ColumnarInstanceMemberPlanner {
             return
         }
 
+        AppendInterfaceReceiverWidening(plan, selection)
+
         if selection.Kind == ColumnarInstanceMemberKind.Field {
             field := selection.Field
             if field == null {
@@ -912,6 +977,25 @@ class ColumnarInstanceMemberPlanner {
         methodIndex := plan.AddMethodWithSignature(getter, selection.DeclaringType, new Type[](0), selection.ResultType, false, getter.get_IsAbstract())
 
         plan.AppendMethodInstruction(selection.ReceiverIsReference ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+    }
+
+    // THE RECEIVER IS SPELLED `ITestCase`; THE SLOT BELONGS TO `INamed`.
+    //
+    // Both are unbaked `TypeBuilder`s, so `IsAssignableFrom` and `GetInterfaces` throw
+    // `NotSupportedException` over them and the sealed plan cannot check the edge the SOURCE
+    // declared — it refused the read with "reference receiver for 'Label' does not match its
+    // declaring type". Stating the widening as a `castclass` makes the receiver's stack type the
+    // declaring interface, so the plan stays checkable end to end. It is the same answer
+    // `ColumnarDirectCallPlanner` gives for an ARGUMENT flowing into a source interface, and for a
+    // base-interface `func` slot.
+    static func AppendInterfaceReceiverWidening(plan: ColumnarCodePlan, selection: ColumnarInstanceMemberSelection) {
+        widening := selection.ReceiverWidening
+        if widening == null || !selection.ReceiverIsReference {
+            return
+        }
+
+        wideningIndex := plan.AddType(widening)
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Castclass(), wideningIndex)
     }
 
     static func AppendTemporaryAddress(plan: ColumnarCodePlan, receiverType: Type) {

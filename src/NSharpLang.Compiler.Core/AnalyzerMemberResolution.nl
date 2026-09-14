@@ -385,6 +385,21 @@ class AnalyzerMemberResolution {
                 }
             }
 
+            // A DERIVED INTERFACE REACHES ITS BASE INTERFACES' MEMBERS. `interface ITestCase: INamed`
+            // says an `ITestCase` receiver HAS everything `INamed` declares; the CLR dispatches
+            // `INamed::Name` on it directly and there is no conversion for the source to write. The
+            // walk is a full re-resolution per base, in written order, exactly as the base-class walk
+            // above is, so generic substitution and the base's OWN bases are carried along.
+            baseInterfaceIndex := 0
+            while baseInterfaceIndex < sourceShape.BaseInterfaces.Length {
+                baseInterfaceMember := ResolveMember(sourceShape.BaseInterfaces[baseInterfaceIndex], memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess)
+                if !BuiltInTypes.IsUnknown(baseInterfaceMember) {
+                    return baseInterfaceMember
+                }
+
+                baseInterfaceIndex = baseInterfaceIndex + 1
+            }
+
             if !includeStaticMembers && sourceShape.SupportsObjectMembers {
                 shapeObjectMember: TypeInfo = BuiltInTypes.Unknown
                 if TryResolveSourceObjectMember(memberName, out shapeObjectMember) {

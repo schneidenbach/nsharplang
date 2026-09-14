@@ -2691,6 +2691,26 @@ negative case before the emitter could express the positive ones. No new codes w
 | `override` of a base member that is not `virtual`/`abstract`/`override` | `NL311` | `AnalyzerTypeDeclarations.nl` |
 | an `override` that NARROWS the accessibility of the slot it takes | `NL311` | `AnalyzerTypeDeclarations.nl` |
 
+**A DERIVED INTERFACE REACHES ITS BASE INTERFACES' MEMBERS.** `AnalyzerSourceMemberShape` carries a
+`BaseInterfaces` array beside its single `BaseType`, because a class has ONE base and an interface has
+MANY; `AnalyzerDeclarationContext.ResolveBaseInterfaces` fills it for an `InterfaceTypeInfo` (resolving
+each `TypeReference` against the file that WROTE the derived declaration, with the receiver's
+substitution applied, and dropping a reference that does not resolve so an unresolved base clause stays
+one diagnostic). Three walks fan out over it: `AnalyzerMemberResolution.ResolveMember` (the NL303
+owner), `AnalyzerDeclarationContext.TryFindMemberCore` (go-to-definition) and
+`CollectAvailableSourceMemberNames` (completions). Depth-first in written order, first declaration
+wins — the same rule the single-inheritance chain beside it follows.
+
+EMISSION NEEDS THE RECEIVER SPELLED AS THE DECLARING INTERFACE. Both interfaces are unbaked
+`TypeBuilder`s, over which `Type.IsAssignableFrom` and `Type.GetInterfaces` throw
+`NotSupportedException` (measured), so the sealed code plan cannot check the edge the source declared
+and refused the call with "reference receiver for 'Name' does not match its declaring type". The
+planners state the widening instead: `ColumnarDirectCallPlanner.AppendInterfaceReceiverWidening` for a
+`func` slot and `ColumnarInstanceMemberPlanner.AppendInterfaceReceiverWidening` for a value member both
+append a `castclass` to the declaring interface — the same answer `AppendArgumentConversion` already
+gives for an ARGUMENT flowing into a source interface. A CONSTRUCTED source interface receiver
+(`IBox<int>`) declines rather than guessing at a substituted base clause.
+
 **WHAT A SLOT IS WORTH DEPENDS ON WHO IS ASKING.** `AnalyzerTypeDeclarations.InheritedAccessibilityLevel`
 is the one owner of that relation, and `ReflectionSlotAccessibility` is the only caller that has to
 apply it — a SOURCE slot is in this compilation by construction, so the boundary never moves it.

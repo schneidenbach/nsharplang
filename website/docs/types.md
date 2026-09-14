@@ -1138,6 +1138,41 @@ class User : IEntity {
 }
 ```
 
+### Interface inheritance
+
+An interface may list the interfaces it extends. A receiver typed as the derived interface reaches
+every member the closure declares — value members and `func` slots alike — with no cast:
+
+```n#
+interface IIdentified {
+    Key: string
+    func Describe(): string
+}
+
+interface ITracked : IIdentified {
+    Revision: int
+}
+
+interface IAudited {
+    Auditor: string
+}
+
+interface IDocumentRecord : ITracked, IAudited {
+    Path: string
+}
+
+func Summarize(entry: IDocumentRecord): string {
+    // `Path` is this interface's own slot; `Revision` comes from `ITracked`, `Key` from
+    // `IIdentified` above it, and `Auditor` from the second base in the written list.
+    return entry.Describe() + " " + entry.Path + " r" + entry.Revision.ToString() + " " + entry.Auditor
+}
+```
+
+The closure is searched depth-first in written order, and the first declaration of a name wins. Each
+member is still declared exactly once — on the interface that opened it — so the call dispatches
+through that interface's slot, which is what `typeof(IIdentified).GetProperty("Key")` shows and
+`typeof(IDocumentRecord).GetProperty("Key")` (declared-only) does not.
+
 ### Generic Interfaces
 
 ```n#

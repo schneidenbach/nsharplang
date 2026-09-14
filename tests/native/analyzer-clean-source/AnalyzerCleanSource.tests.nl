@@ -1507,6 +1507,44 @@ test "020 s28 analyzer clean source: a class that implements `IGreetable` assign
     assert AcRow(analysis, 0) == "<no-such-error>"
 }
 
+// A DERIVED INTERFACE'S RECEIVER REACHES ITS BASE INTERFACES' MEMBERS.
+//
+// `interface ITestCase: INamed` says every `ITestCase` HAS everything `INamed` declares, and the CLR
+// dispatches `INamed`'s slot on such a receiver with no conversion at all — but member lookup
+// stopped at the derived declaration's own member list, so a bare `t.Name()` or `t.Label` on a
+// `t: ITestCase` was NL303 "Member 'Name' not found on type 'ITestCase'". The only way through was
+// an explicit `named: INamed = t`, which is not a conversion the source should have to write.
+test "020 s28 analyzer clean source: a `func` slot and a value member declared on a BASE interface are read through the DERIVED interface's receiver and the analysis is SILENT" {
+    source := "\n            interface INamed {\n                func Name(): string\n                Label: string\n            }\n            interface ITestCase : INamed {\n                func Run(): int\n            }\n            func Use(t: ITestCase): string {\n                return t.Name() + t.Label + t.Run().ToString()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+}
+
+// TWO BASES AND A BASE-OF-A-BASE: the closure is walked, not just the first link.
+test "020 s28 analyzer clean source: a member two links up a multi-base interface closure is read through the derived receiver and the analysis is SILENT" {
+    source := "\n            interface IIdentified {\n                Key: string\n            }\n            interface ITracked : IIdentified {\n                Revision: int\n            }\n            interface IAudited {\n                Auditor: string\n            }\n            interface IDocumentRecord : ITracked, IAudited {\n                Path: string\n            }\n            func Use(entry: IDocumentRecord): string {\n                return entry.Path + entry.Revision.ToString() + entry.Key + entry.Auditor\n            }\n        "
+    assert AcParseCensus(source) == ""
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+}
+
+// THE REFUSAL IS STILL THERE FOR A NAME NOTHING IN THE CLOSURE DECLARES. Widening the walk must not
+// turn an interface receiver into a shape that accepts every name.
+test "020 s28 analyzer clean source: a name NO interface in the closure declares is still NL303 on the derived interface" {
+    source := "\n            interface INamed {\n                func Name(): string\n            }\n            interface ITestCase : INamed {\n                func Run(): int\n            }\n            func Use(t: ITestCase): string {\n                return t.Missing()\n            }\n        "
+    assert AcParseCensus(source) == ""
+    analysis := AcAnalyze(source)
+    assert AcHasErrors(analysis) == "True"
+    assert AcCensus(analysis) == "NL303:UndefinedMember@9:26+7;"
+}
+
 test "020 s28 analyzer clean source: an `int`, a `string` and a `bool` all assign to `object`-typed locals in one function and the analysis is SILENT (was AnalyzerTests.NominalSubtyping_EverythingAssignableToObject)" {
     source := "\n            func Main() {\n                x: object = 42\n                y: object = \"hello\"\n                z: object = true\n            }\n        "
     assert AcParseCensus(source) == ""
