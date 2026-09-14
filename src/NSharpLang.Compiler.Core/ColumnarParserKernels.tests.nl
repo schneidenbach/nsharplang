@@ -1644,6 +1644,61 @@ test "declaration scanner records async and generator facts independently for as
     assert probe.GeneratorFlags[0] == 1
 }
 
+// A DECLARATION'S MODIFIERS ARE THE RUN IMMEDIATELY BEFORE ITS KEYWORD. The scan skips bodies by
+// brace depth, which an EXPRESSION-BODIED function has none of — so its body's tokens are read here
+// too, and an `async` lambda in that position used to leave `async` pending for the NEXT function.
+// Nothing reported it: the following function silently grew a `ValueTask<T>` signature and an async
+// fault guard around its body, so a `throw` it raised became a faulted task nobody awaited.
+test "an async lambda behind an expression body leaves the next function alone" {
+    probe := new ColumnarFunctionGeneratorScanProbe(
+        "func Factory(): Func<Task<int>> => async () => 1\nfunc Plain(name: string): string { return name }"
+    )
+
+    assert probe.ScanStatus >= 0
+    assert probe.FuncCount == 2
+    assert probe.AsyncFlags[0] == 0
+    assert probe.AsyncFlags[1] == 0
+}
+
+// The other half of the rule: ending the modifier run at the body must not eat the NEXT
+// declaration's own preamble.
+test "a declared async function after an expression-bodied one keeps its own async" {
+    probe := new ColumnarFunctionGeneratorScanProbe(
+        "func Arrow(): int => 1\nasync func Later(): int { return 2 }"
+    )
+
+    assert probe.ScanStatus >= 0
+    assert probe.FuncCount == 2
+    assert probe.AsyncFlags[0] == 0
+    assert probe.AsyncFlags[1] == 1
+}
+
+// The preamble a declaration after an expression body may write is modifiers OR an attribute group,
+// and the scan measures the expression body's end against the start of that preamble — measuring to
+// the `func` keyword made the body look unterminated and declined the whole source.
+test "an attribute group after an expression-bodied function still scans as two declarations" {
+    probe := new ColumnarFunctionGeneratorScanProbe(
+        "func Arrow(): int => 1\n[Obsolete]\nfunc Later(): int => 2"
+    )
+
+    assert probe.ScanStatus >= 0
+    assert probe.FuncCount == 2
+    assert probe.AsyncFlags[1] == 0
+}
+
+// A CONSTRAINT CLAUSE ends at the body, and an expression body opens with `=>`, not `{`. While only
+// a brace ended it, this declaration hid every declaration after it in the file.
+test "a constraint clause on an expression-bodied function ends at the arrow" {
+    probe := new ColumnarFunctionGeneratorScanProbe(
+        "func Id<T>(value: T): T where T : class => value\nfunc After(): int => 2"
+    )
+
+    assert probe.ScanStatus >= 0
+    assert probe.FuncCount == 2
+    assert probe.AsyncFlags[0] == 0
+    assert probe.AsyncFlags[1] == 0
+}
+
 test "function body parser lands a value yield as YieldStatement kind 72" {
     probe := new ColumnarFunctionBodyYieldProbe(
         "func* Gen(): IEnumerable<int> { yield 41 }"

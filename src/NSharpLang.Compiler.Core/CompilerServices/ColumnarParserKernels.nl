@@ -7889,6 +7889,14 @@ func TopLevelDeclarationModifiersCore(tokens: ParserDeclarationKindStream, count
                 parenDepth = 0
             }
         } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
+            if kind == 120 {
+                // A CONSTRAINT CLAUSE ENDS AT THE BODY, and an EXPRESSION body opens with `=>`, not `{`.
+                // Only the brace used to clear this latch, so `func F<T>(x: T): T where T : class => x`
+                // left it set for the rest of the file and every later declaration went unseen — the
+                // whole source then declined at `parse.declaration-scan`.
+                inWhereClause = false
+            }
+
             if kind == 53 {
                 inWhereClause = true
             } else if !inWhereClause {
@@ -7899,6 +7907,17 @@ func TopLevelDeclarationModifiersCore(tokens: ParserDeclarationKindStream, count
                     decls.Kinds[outCount] = kind
                     decls.Modifiers[outCount] = pending
                     outCount = outCount + 1
+                    pending = 0
+                } else if kind != 136 {
+                    // A DECLARATION'S MODIFIERS ARE THE RUN IMMEDIATELY BEFORE ITS KEYWORD, and anything
+                    // else at depth zero ends that run. Brace depth alone cannot enforce it: an
+                    // EXPRESSION-BODIED top-level function has no braces, so its body's tokens are read
+                    // here too — and `func F(): Func<Task<int>> => async () => 1` left `async` pending,
+                    // which the NEXT function then wore. That was not a parse error: the following
+                    // function silently became `async`, its signature grew a `ValueTask<T>` wrap, and its
+                    // body was emitted inside the async fault guard, so a `throw` it raised turned into a
+                    // faulted task nobody awaited. Newlines (136) carry no meaning between a modifier and
+                    // its keyword, so they alone do not end the run.
                     pending = 0
                 }
             }
@@ -7955,6 +7974,14 @@ func TopLevelDeclarationNameSpansCore(tokens: ParserDeclarationTokenTable, count
                 parenDepth = 0
             }
         } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
+            if kind == 120 {
+                // A CONSTRAINT CLAUSE ENDS AT THE BODY, and an EXPRESSION body opens with `=>`, not `{`.
+                // Only the brace used to clear this latch, so `func F<T>(x: T): T where T : class => x`
+                // left it set for the rest of the file and every later declaration went unseen — the
+                // whole source then declined at `parse.declaration-scan`.
+                inWhereClause = false
+            }
+
             if kind == 53 {
                 inWhereClause = true
             } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) && !IsRecordStructTailToken(tokens.Kinds, i) {
@@ -8022,6 +8049,14 @@ func TopLevelDeclarationKindsCore(tokens: ParserDeclarationKindStream, count: in
                 parenDepth = 0
             }
         } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
+            if kind == 120 {
+                // A CONSTRAINT CLAUSE ENDS AT THE BODY, and an EXPRESSION body opens with `=>`, not `{`.
+                // Only the brace used to clear this latch, so `func F<T>(x: T): T where T : class => x`
+                // left it set for the rest of the file and every later declaration went unseen — the
+                // whole source then declined at `parse.declaration-scan`.
+                inWhereClause = false
+            }
+
             if kind == 53 {
                 inWhereClause = true
             } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) && !IsRecordStructTailToken(tokens.Kinds, i) {
@@ -8513,6 +8548,14 @@ func TopLevelStructLikeDeclarationIndicesAppend(tokens: ParserDeclarationKindStr
                 parenDepth = 0
             }
         } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
+            if kind == 120 {
+                // A CONSTRAINT CLAUSE ENDS AT THE BODY, and an EXPRESSION body opens with `=>`, not `{`.
+                // Only the brace used to clear this latch, so `func F<T>(x: T): T where T : class => x`
+                // left it set for the rest of the file and every later declaration went unseen — the
+                // whole source then declined at `parse.declaration-scan`.
+                inWhereClause = false
+            }
+
             if kind == 53 {
                 inWhereClause = true
             } else if kind == targetKind && (suppressWhereClause == 0 || !inWhereClause) && !IsRecordStructTailToken(tokens.Kinds, i) {
@@ -8721,6 +8764,14 @@ func TopLevelDeclarationIndicesCore(tokens: ParserDeclarationKindStream, count: 
                 parenDepth = 0
             }
         } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
+            if kind == 120 {
+                // A CONSTRAINT CLAUSE ENDS AT THE BODY, and an EXPRESSION body opens with `=>`, not `{`.
+                // Only the brace used to clear this latch, so `func F<T>(x: T): T where T : class => x`
+                // left it set for the rest of the file and every later declaration went unseen — the
+                // whole source then declined at `parse.declaration-scan`.
+                inWhereClause = false
+            }
+
             if kind == 53 {
                 inWhereClause = true
             } else if kind == targetKind && (suppressWhereClause == 0 || !inWhereClause) {
@@ -8797,7 +8848,7 @@ func TopLevelFunctionPreamblesAreValidCore(source: string, tokens: ParserDeclara
         if preceding >= 0 && tokens.Kinds[preceding] != 130 {
             if tokens.Kinds[preceding] == 4 {
                 if preceding - 1 < 0 || tokens.Kinds[preceding - 1] != 17 {
-                    if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(source, tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
+                    if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(source, tokens, count, indices.Indices[i - 1], preceding + 1) == 0 {
                         return 0
                     }
                 }
@@ -8826,7 +8877,7 @@ func TopLevelFunctionPreamblesAreValidCore(source: string, tokens: ParserDeclara
             isAliasedFileImportHeader := headerWalk >= 0 && tokens.Kinds[headerWalk] == 4 && headerWalk - 1 >= 0 && tokens.Kinds[headerWalk - 1] == 17
 
             if headerWalk == preceding || headerWalk < 0 || (tokens.Kinds[headerWalk] != 15 && tokens.Kinds[headerWalk] != 17 && tokens.Kinds[headerWalk] != 18 && !isAliasedFileImportHeader) {
-                if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(source, tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
+                if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(source, tokens, count, indices.Indices[i - 1], preceding + 1) == 0 {
                     return 0
                 }
             }
@@ -8838,8 +8889,13 @@ func TopLevelFunctionPreamblesAreValidCore(source: string, tokens: ParserDeclara
     return 1
 }
 
-func TopLevelExpressionBodiedFunctionEndsAt(source: string, tokens: ParserDeclarationTokenTable, count: int, funcIndex: int, nextFuncIndex: int): int {
-    if funcIndex < 0 || funcIndex >= count || nextFuncIndex <= funcIndex || nextFuncIndex > count || tokens.Kinds[funcIndex] != 7 {
+// DOES THE PRECEDING FUNCTION'S EXPRESSION BODY END EXACTLY WHERE THE NEXT DECLARATION BEGINS? The
+// boundary asked about is the next declaration's PREAMBLE start, not its `func` keyword: `async`,
+// `public` and an attribute group all sit between the two, so measuring to the keyword made every
+// arrow-bodied function followed by a modified one look like an unterminated body and declined the
+// whole file at `parse.declaration-scan`.
+func TopLevelExpressionBodiedFunctionEndsAt(source: string, tokens: ParserDeclarationTokenTable, count: int, funcIndex: int, nextDeclarationStart: int): int {
+    if funcIndex < 0 || funcIndex >= count || nextDeclarationStart <= funcIndex || nextDeclarationStart > count || tokens.Kinds[funcIndex] != 7 {
         return 0
     }
 
@@ -8853,11 +8909,11 @@ func TopLevelExpressionBodiedFunctionEndsAt(source: string, tokens: ParserDeclar
         return 0
     }
 
-    if expressionEnd == nextFuncIndex {
+    if expressionEnd == nextDeclarationStart {
         return 1
     }
 
-    if expressionEnd + 1 == nextFuncIndex && expressionEnd < count && tokens.Kinds[expressionEnd] == 133 {
+    if expressionEnd + 1 == nextDeclarationStart && expressionEnd < count && tokens.Kinds[expressionEnd] == 133 {
         return 1
     }
 

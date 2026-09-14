@@ -1,7 +1,6 @@
 namespace NSharpLang.CensusLocalFunctions.Tests
 
 
-
 // RUNTIME contracts for a local function being visible in its whole block.
 //
 // Each of these compiled to NL412 "Function 'x' not found" before the rule landed, so the fact that
