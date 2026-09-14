@@ -1511,9 +1511,17 @@ test "TWO VALUES OF THE SAME OPEN TYPE PARAMETER COMPARE, `?` OR NOT" {
     mixed := OperatorSourceErrors("namespace P\n\nfunc Same<T>(a: T?, b: T): bool where T : struct {\n    return a == b\n}\n")
     assert mixed.Count == 0
 
-    // A type parameter of the enclosing TYPE reads the same rule as one of the function.
-    onType := OperatorSourceErrors("namespace P\n\nclass Box<T> {\n    Value: T\n\n    constructor(value: T) {\n        Value = value\n    }\n\n    func Holds(candidate: T): bool {\n        return Value == candidate\n    }\n}\n")
-    assert onType.Count == 0
+    // A type parameter of the enclosing TYPE reads the same rule as one of the function, and the
+    // enclosing type may be of ANY kind: the question is asked of the SCOPE, which records a
+    // declaration's parameters whatever the declaration is.
+    onClass := OperatorSourceErrors("namespace P\n\nclass Box<T> {\n    Value: T\n\n    constructor(value: T) {\n        Value = value\n    }\n\n    func Holds(candidate: T): bool {\n        return Value == candidate\n    }\n}\n")
+    assert onClass.Count == 0
+
+    onStruct := OperatorSourceErrors("namespace P\n\nstruct Cell<T> where T : struct {\n    Value: T?\n\n    constructor(value: T?) {\n        Value = value\n    }\n\n    func Holds(candidate: T?): bool {\n        return Value == candidate\n    }\n}\n")
+    assert onStruct.Count == 0
+
+    onRecord := OperatorSourceErrors("namespace P\n\nrecord Pair<T> where T : struct {\n    Left: T?\n    Right: T?\n\n    func Balanced(): bool {\n        return Left == Right\n    }\n}\n")
+    assert onRecord.Count == 0
 }
 
 test "TWO DIFFERENT OPEN TYPE PARAMETERS ARE NOT THIS RULE, AND NEITHER IS AN ORDERING" {

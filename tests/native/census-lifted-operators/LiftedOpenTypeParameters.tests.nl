@@ -53,10 +53,22 @@ test "an unconstrained parameter compares the same way, reference instantiation 
     assert !SameAny(7, 8)
 }
 
-test "an enclosing type's own parameter reads the same rule" {
+test "an enclosing type's own parameter reads the same rule, whatever kind the type is" {
     box := MakeBox(4)
     assert box.Holds(4)
     assert !box.Holds(5)
+
+    absent: int? = null
+    cell := MakeCell(4)
+    assert cell.Holds(4)
+    assert !cell.Holds(5)
+    assert !cell.Holds(absent)
+    assert MakeCell(absent).Holds(absent)
+
+    assert MakePair(4, 4).Balanced()
+    assert !MakePair(4, 5).Balanced()
+    assert MakePair(absent, absent).Balanced()
+    assert !MakePair(4, absent).Balanced()
 }
 
 test "the comparison DISPATCHES to the instantiation's own equality rather than comparing bits" {

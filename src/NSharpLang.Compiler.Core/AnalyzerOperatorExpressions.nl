@@ -1981,10 +1981,10 @@ class AnalyzerOperatorExpressions {
         return rightName != null && leftName == rightName
     }
 
-    // The NAME an operand names when it is an enclosing declaration's own type parameter, seen
-    // through at most one `?`, and null for everything else. A type parameter has no TypeInfo kind of
-    // its own — it resolves to a `SimpleTypeInfo` carrying the written name — so the declaration is
-    // what says whether a name is one, exactly as the `lock` rule asks it.
+    // The NAME an operand names when it is a type parameter visible here, seen through at most one
+    // `?`, and null for everything else. A type parameter has no TypeInfo kind of its own — it
+    // resolves to a `SimpleTypeInfo` carrying the written name — so the SCOPE is what says whether a
+    // name is one, which is also what makes a generic `struct` and `record` answer as a `class` does.
     func OpenTypeParameterName(candidate: TypeInfo): string? {
         resolved := declarationsValue.ResolveDeclaredAlias(candidate)
         nullable := resolved as NullableTypeInfo
@@ -1997,39 +1997,11 @@ class AnalyzerOperatorExpressions {
             return null
         }
 
-        if !DeclaresEnclosingTypeParameter(simple.Name) {
+        if !scopesValue.IsTypeParameterInScope(simple.Name) {
             return null
         }
 
         return simple.Name
-    }
-
-    // Whether the enclosing FUNCTION or the enclosing TYPE introduced `name` as a type parameter.
-    func DeclaresEnclosingTypeParameter(name: string): bool {
-        currentFunction := ambientValue.CurrentFunction
-        if currentFunction != null && DeclaresTypeParameter(currentFunction.TypeParameters, name) {
-            return true
-        }
-
-        currentClass := ambientValue.CurrentClass
-        return currentClass != null && DeclaresTypeParameter(currentClass.TypeParameters, name)
-    }
-
-    static func DeclaresTypeParameter(typeParameters: List<TypeParameter>?, name: string): bool {
-        if typeParameters == null {
-            return false
-        }
-
-        index := 0
-        while index < typeParameters.Count {
-            if typeParameters[index].Name == name {
-                return true
-            }
-
-            index = index + 1
-        }
-
-        return false
     }
 
     // THE LIFTED FORM OF EVERY EQUALITY THE RULE ABOVE ALREADY ADMITS. `Nullable<T>` gets a lifted

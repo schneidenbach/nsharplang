@@ -539,6 +539,26 @@ class AnalyzerScopeStack {
         return constraintTypes[0]
     }
 
+    // WHETHER A NAME VISIBLE HERE IS A TYPE PARAMETER AT ALL, innermost scope included.
+    //
+    // `DeclareTypeParameter` records every one of them — a function's, and the enclosing declaration's
+    // whatever kind that declaration is — so this one question answers for a generic `class`, `struct`,
+    // `record`, `interface` and `union` alike. Asking the ambient `CurrentClass` slot instead would
+    // answer only for a class: its slot is typed `ClassDeclaration` and the other four could never be
+    // put in it.
+    func IsTypeParameterInScope(name: string): bool {
+        index := typeParameterNames.Count - 1
+        while index >= 0 {
+            if typeParameterNames[index].Contains(name) {
+                return true
+            }
+
+            index = index - 1
+        }
+
+        return false
+    }
+
     // Whether a scope OUTSIDE the innermost one already declared a type parameter of this name — the
     // question a nested declaration's own type-parameter list has to ask before it shadows one.
     func HasEnclosingTypeParameter(name: string): bool {
