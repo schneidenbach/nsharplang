@@ -4939,9 +4939,9 @@ no `GetParameters()` before its owner is baked.
 because it is written first, even though `to` is the earlier parameter. When a placement MOVES an
 argument, `ColumnarDirectCallPlanner.AppendReorderedArguments` evaluates along the written order into
 plan locals and loads them in slot order; when the two orders agree — every call whose names were
-written where the signature keeps them — nothing is spilled. A reordered call carrying a `ref`/`out`
-argument declines: storage cannot be held in a temporary without aliasing something the caller cannot
-see.
+written where the signature keeps them — nothing is spilled. A reordered `ref`/`out` argument spills
+its managed address and reloads that same address in parameter order, so later argument evaluation
+still observes and may mutate the caller's storage before the callee writes it.
 
 **A verified in-position placement is flattened into the node table.** Once the names have been
 checked against a real signature and found to name the parameters they were already written at, the
@@ -4954,6 +4954,11 @@ flattened: only the planner can emit the move, because only it spills the writte
 argument, then supplies the declaration default for every unclaimed slot. Source free functions,
 constructors, instance methods and static methods carry their default syntax beside their parameter
 names; referenced methods read the equivalent constants from `ParameterInfo`. Supplied expressions
-still run in written order before the final parameter-order load. A `base(...)` / `this(...)`
-constructor chain remains positional because its compact input records only argument expression
-spans; a `name:` prefix there currently declines at `parse.struct`.
+still run in written order before the final parameter-order load. Constructor-chain inputs retain
+each written name beside its expression span, so `base(last: 9)` and `this(last: 9)` use the same
+placement and optional-hole rules for source and reflected constructors.
+
+Attribute syntax keeps the CLR's two concepts distinct: `name: value` names a constructor parameter,
+while `Name = value` assigns a public mutable field or settable property in the custom-attribute row.
+The analyzer and emitter carry the separator fact separately, so neither form silently falls through
+to the other when a constructor parameter and member share a spelling.

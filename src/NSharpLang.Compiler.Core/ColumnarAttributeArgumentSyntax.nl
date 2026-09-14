@@ -62,14 +62,17 @@ class ColumnarAttributeArgumentNode {
     }
 }
 
-// ONE ARGUMENT AS WRITTEN: the name when the source spelled `Name = value`, and the value's shape.
+// ONE ARGUMENT AS WRITTEN: an optional name, whether `:` made it a constructor name rather than an
+// `=` member assignment, and the value's shape.
 class ColumnarAttributeArgumentSyntax {
     Name: string?
     Value: ColumnarAttributeArgumentNode
+    IsConstructorNamed: bool
 
-    constructor(name: string?, value: ColumnarAttributeArgumentNode) {
+    constructor(name: string?, value: ColumnarAttributeArgumentNode, isConstructorNamed: bool = false) {
         Name = name
         Value = value
+        IsConstructorNamed = isConstructorNamed
     }
 }
 
@@ -108,8 +111,10 @@ class ColumnarAttributeArgumentReader {
 
         reader := new ColumnarAttributeArgumentReader(source, tokens, start, end)
         name: string? = null
+        constructorNamed := false
         if reader.LooksLikeNamedArgument() {
             name = reader.TokenText(reader.position)
+            constructorNamed = reader.tokens.Kinds[reader.position + 1] == (int)TokenType.Colon
             reader.position = reader.position + 2
         }
 
@@ -118,7 +123,7 @@ class ColumnarAttributeArgumentReader {
             return false
         }
 
-        argument = new ColumnarAttributeArgumentSyntax(name, value)
+        argument = new ColumnarAttributeArgumentSyntax(name, value, constructorNamed)
         return true
     }
 
@@ -130,7 +135,7 @@ class ColumnarAttributeArgumentReader {
             return false
         }
 
-        return tokens.Kinds[position] == (int)TokenType.Identifier && tokens.Kinds[position + 1] == (int)TokenType.Assign
+        return tokens.Kinds[position] == (int)TokenType.Identifier && (tokens.Kinds[position + 1] == (int)TokenType.Assign || tokens.Kinds[position + 1] == (int)TokenType.Colon)
     }
 
     func TokenText(index: int): string {

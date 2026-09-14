@@ -1486,16 +1486,16 @@ class ColumnarConstructionPlanner {
         argumentCount := nodes.ChildCount(node) - 1
         argumentTypes := new Type[](argumentCount)
         namedPlacement := new int[](0)
-        if !TryPlaceNamedConstructorArguments(nodes, source, node, null, targetType, argumentCount, out namedPlacement) {
-            ownership = ColumnarDirectCallOwnership.NotOwned
-            legacyWholeSubtreePlanning = true
-            return false
-        }
+        placementSucceeded := TryPlaceNamedConstructorArguments(nodes, source, node, null, targetType, argumentCount, out namedPlacement)
 
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
         if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
+        }
+
+        if !placementSucceeded {
+            return TryAppendSparseNamedRuntimeConstruction(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning)
         }
 
         if namedPlacement.Length == argumentCount && !ColumnarNamedArgumentBinder.ApplyPlacement(argumentTypes, argumentFacts, namedPlacement) {
@@ -1525,6 +1525,106 @@ class ColumnarConstructionPlanner {
         }
 
         constructorIndex := plan.AddConstructorWithSignature(constructor, targetType, parameters)
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+        return true
+    }
+
+    static func TryAppendSparseNamedRuntimeConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        selected: ConstructorInfo? = null
+        selectedTypes := new Type[](0)
+        selectedParameters := new ParameterInfo[](0)
+        selectedPlacement := new int[](0)
+        selectedClaimed := new bool[](0)
+        bestScore := -1
+        tied := false
+        for candidate in RuntimeConstructorsOrEmpty(targetType) {
+            parameters := candidate.GetParameters()
+            if parameters.Length <= argumentTypes.Length {
+                continue
+            }
+            names := ColumnarNamedArgumentBinder.ReflectedParameterNames(candidate)
+            types := new Type[](parameters.Length)
+            index := 0
+            while index < parameters.Length {
+                types[index] = parameters[index].get_ParameterType()
+                index += 1
+            }
+            placement := new int[](0)
+            claimed := new bool[](0)
+            if !ColumnarNamedArgumentBinder.TryPlaceSparse(nodes, source, node, 1, argumentTypes.Length, names, out placement, out claimed) {
+                continue
+            }
+            fillable := true
+            score := 0
+            slot := 0
+            while slot < types.Length {
+                if !claimed[slot] && !ColumnarExtensionMethodResolver.CanFillOptional(parameters[slot], types[slot]) {
+                    fillable = false
+                }
+                slot += 1
+            }
+            written := 0
+            while fillable && written < argumentTypes.Length {
+                expected := new Type[](1)
+                expected[0] = types[placement[written]]
+                actual := new Type[](1)
+                actual[0] = argumentTypes[written]
+                scorePart := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, actual, ColumnarDirectCallPlanner.CopyArgumentFact(argumentFacts, written))
+                if scorePart < 0 {
+                    fillable = false
+                } else {
+                    score += scorePart
+                }
+                written += 1
+            }
+            if !fillable {
+                continue
+            }
+            if score > bestScore {
+                bestScore = score
+                selected = candidate
+                selectedTypes = types
+                selectedParameters = parameters
+                selectedPlacement = placement
+                selectedClaimed = claimed
+                tied = false
+            } else if score == bestScore {
+                tied = true
+            }
+        }
+        if selected == null || tied {
+            return false
+        }
+        locals := new int[](selectedTypes.Length)
+        Array.Fill(locals, -1)
+        written := 0
+        while written < argumentTypes.Length {
+            slot := selectedPlacement[written]
+            expected := new Type[](1)
+            expected[0] = selectedTypes[slot]
+            actual := new Type[](1)
+            actual[0] = argumentTypes[written]
+            oneFacts := ColumnarDirectCallPlanner.CopyArgumentFact(argumentFacts, written)
+            if oneFacts.IsByRefArgument[0] || !ColumnarDirectCallPlanner.AppendArgumentSlot(nodes, source, bindings, handles, plan, fragment, depth + 1, true, actual, expected, oneFacts, 0) {
+                return false
+            }
+            local := plan.DeclarePlanLocal(plan.AddType(expected[0]))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), local)
+            locals[slot] = local
+            written += 1
+        }
+        slot := 0
+        while slot < selectedTypes.Length {
+            if selectedClaimed[slot] {
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), locals[slot])
+            } else if !ColumnarExtensionMethodResolver.TryAppendOptionalDefault(plan, selectedParameters[slot], selectedTypes[slot]) {
+                return false
+            }
+            slot += 1
+        }
+        constructorIndex := plan.AddConstructorWithSignature(selected, targetType, selectedTypes)
         plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
         return true
     }

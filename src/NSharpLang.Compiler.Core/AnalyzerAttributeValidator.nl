@@ -23,6 +23,7 @@ class AttributeArgumentValidationInfo {
     valueExpression: Expression
     clrTypeValue: Type?
     isNullValue: bool
+    memberNamedValue: bool
     hasIntegerConstantValue: bool
     constantMagnitudeValue: ulong
     constantIsNegativeValue: bool
@@ -32,6 +33,7 @@ class AttributeArgumentValidationInfo {
     Value: Expression => valueExpression
     ClrType: Type? => clrTypeValue
     IsNull: bool => isNullValue
+    IsMemberNamed: bool => memberNamedValue
 
     // THE ARGUMENT'S VALUE, WHEN IT IS AN INTEGER CONSTANT, because the NARROWING question cannot be
     // answered by types. `5` fills a `byte` parameter and `300` does not, and they have the same type;
@@ -43,12 +45,13 @@ class AttributeArgumentValidationInfo {
     ConstantMagnitude: ulong => constantMagnitudeValue
     ConstantIsNegative: bool => constantIsNegativeValue
 
-    constructor(argument: Argument, name: string?, value: Expression, clrType: Type?, isNull: bool) {
+    constructor(argument: Argument, name: string?, value: Expression, clrType: Type?, isNull: bool, isMemberNamed: bool = false) {
         argumentValue = argument
         nameValue = name
         valueExpression = value
         clrTypeValue = clrType
         isNullValue = isNull
+        memberNamedValue = isMemberNamed
         hasIntegerConstantValue = false
         constantMagnitudeValue = 0UL
         constantIsNegativeValue = false
@@ -534,10 +537,11 @@ class AnalyzerAttributeValidator {
                 argumentName: string? = null
                 valueExpression: Expression = argument.Value
                 NormalizeAttributeArgument(argument, out argumentName, out valueExpression)
+                memberNamed := argument.Name == null && argumentName != null
                 ignoredKind := AttributeArgumentConstantKind.Null
                 if !TryValidateAttributeArgumentExpression(valueExpression, out ignoredKind) {
                     allConstantsValid = false
-                    argumentInfos.Add(new AttributeArgumentValidationInfo(argument, argumentName, valueExpression, null, false))
+                    argumentInfos.Add(new AttributeArgumentValidationInfo(argument, argumentName, valueExpression, null, false, memberNamed))
                     continue
                 }
 
@@ -549,7 +553,7 @@ class AnalyzerAttributeValidator {
                     recordedType = inferredType
                 }
 
-                argumentInfo := new AttributeArgumentValidationInfo(argument, argumentName, valueExpression, recordedType, isNull)
+                argumentInfo := new AttributeArgumentValidationInfo(argument, argumentName, valueExpression, recordedType, isNull, memberNamed)
                 constantMagnitude := 0UL
                 constantIsNegative := false
                 if TryEvaluateAttributeIntegerConstant(valueExpression, out constantMagnitude, out constantIsNegative) {
@@ -1520,7 +1524,7 @@ class AnalyzerAttributeValidator {
         displayName := GetSourceAttributeDisplayName(sourceType)
         for argumentInfo in argumentInfos {
             declaredName := argumentInfo.Name
-            if declaredName != null {
+            if declaredName != null && argumentInfo.IsMemberNamed {
                 ValidateSourceNamedAttributeArgument(sourceType, displayName, argumentInfo, declaredName)
             }
         }
@@ -1528,7 +1532,7 @@ class AnalyzerAttributeValidator {
         positionalArguments := new List<AttributeArgumentValidationInfo>()
         anyUntyped := false
         for argumentInfo in argumentInfos {
-            if argumentInfo.Name == null {
+            if !argumentInfo.IsMemberNamed {
                 positionalArguments.Add(argumentInfo)
                 if argumentInfo.ClrType == null {
                     anyUntyped = true
@@ -1661,7 +1665,7 @@ class AnalyzerAttributeValidator {
             }
 
             candidateCount = candidateCount + 1
-            outcome := MeasureSourceConstructorSignature(classType, member.ParameterTypes, member.RequiredParameterCount, positionalArguments)
+            outcome := MeasureSourceConstructorSignature(classType, member.ParameterNames, member.ParameterTypes, member.RequiredParameterCount, positionalArguments)
             if outcome != AnalyzerAttributeValidator.SourceMemberNotFound {
                 return outcome
             }
@@ -1676,7 +1680,13 @@ class AnalyzerAttributeValidator {
             }
 
             candidateCount = candidateCount + 1
-            outcome := MeasureSourceConstructorSignature(classType, primaryTypes, primaryTypes.Length, positionalArguments)
+            primaryNames := new string[](shape.PrimaryParameters.Length)
+            index = 0
+            while index < shape.PrimaryParameters.Length {
+                primaryNames[index] = shape.PrimaryParameters[index].Name
+                index = index + 1
+            }
+            outcome := MeasureSourceConstructorSignature(classType, primaryNames, primaryTypes, primaryTypes.Length, positionalArguments)
             if outcome != AnalyzerAttributeValidator.SourceMemberNotFound {
                 return outcome
             }
@@ -1693,7 +1703,7 @@ class AnalyzerAttributeValidator {
     // calls the one-parameter constructor and the blob carries the declared default, exactly as the
     // same call written in code does — so the arity test is a RANGE, from the required count to the
     // full one, and only the arguments the source wrote are measured against their parameters.
-    func MeasureSourceConstructorSignature(owner: TypeInfo, parameterTypes: TypeReference[], declaredRequiredCount: int, positionalArguments: List<AttributeArgumentValidationInfo>): int {
+    func MeasureSourceConstructorSignature(owner: TypeInfo, parameterNames: string[], parameterTypes: TypeReference[], declaredRequiredCount: int, positionalArguments: List<AttributeArgumentValidationInfo>): int {
         requiredCount := declaredRequiredCount
         if requiredCount < 0 || requiredCount > parameterTypes.Length {
             requiredCount = parameterTypes.Length
@@ -1703,10 +1713,20 @@ class AnalyzerAttributeValidator {
             return AnalyzerAttributeValidator.SourceMemberNotFound
         }
 
+        claimed := new bool[](parameterTypes.Length)
+        nextPositional := 0
         index := 0
         while index < positionalArguments.Count {
+            parameterIndex := AttributeConstructorParameterSlot(parameterNames, claimed, positionalArguments[index].Name, nextPositional)
+            if positionalArguments[index].Name == null {
+                nextPositional = parameterIndex + 1
+            }
+            if parameterIndex < 0 || parameterIndex >= parameterTypes.Length || claimed[parameterIndex] {
+                return AnalyzerAttributeValidator.SourceMemberNotFound
+            }
+            claimed[parameterIndex] = true
             parameterClrType: Type = typeof(object)
-            if !TryGetSourceDeclaredClrType(owner, parameterTypes[index], out parameterClrType) {
+            if !TryGetSourceDeclaredClrType(owner, parameterTypes[parameterIndex], out parameterClrType) {
                 return AnalyzerAttributeValidator.SourceMemberUndecidable
             }
 
@@ -1715,6 +1735,13 @@ class AnalyzerAttributeValidator {
             }
 
             index = index + 1
+        }
+        requiredIndex := 0
+        while requiredIndex < requiredCount {
+            if !claimed[requiredIndex] {
+                return AnalyzerAttributeValidator.SourceMemberNotFound
+            }
+            requiredIndex += 1
         }
 
         return AnalyzerAttributeValidator.SourceMemberMatched
@@ -1750,7 +1777,7 @@ class AnalyzerAttributeValidator {
     func ValidateClrAttributeArguments(attribute: AttributeNode, attributeType: Type, argumentInfos: List<AttributeArgumentValidationInfo>) {
         for argumentInfo in argumentInfos {
             declaredName := argumentInfo.Name
-            if declaredName != null {
+            if declaredName != null && argumentInfo.IsMemberNamed {
                 ValidateNamedAttributeArgument(attributeType, argumentInfo, declaredName)
             }
         }
@@ -1758,7 +1785,7 @@ class AnalyzerAttributeValidator {
         positionalArguments := new List<AttributeArgumentValidationInfo>()
         anyUntyped := false
         for argumentInfo in argumentInfos {
-            if argumentInfo.Name == null {
+            if !argumentInfo.IsMemberNamed {
                 positionalArguments.Add(argumentInfo)
                 if argumentInfo.ClrType == null {
                     anyUntyped = true
@@ -1828,10 +1855,27 @@ class AnalyzerAttributeValidator {
             }
 
             matches := true
+            claimed := new bool[](parameters.Length)
+            names := new string[](parameters.Length)
+            nameIndex := 0
+            while nameIndex < parameters.Length {
+                names[nameIndex] = parameters[nameIndex].get_Name() ?? ""
+                nameIndex += 1
+            }
+            nextPositional := 0
             index := 0
             while index < positionalArguments.Count {
-                parameter := parameters[index]
                 argumentInfo := positionalArguments[index]
+                parameterIndex := AttributeConstructorParameterSlot(names, claimed, argumentInfo.Name, nextPositional)
+                if argumentInfo.Name == null {
+                    nextPositional = parameterIndex + 1
+                }
+                if parameterIndex < 0 || parameterIndex >= parameters.Length || claimed[parameterIndex] {
+                    matches = false
+                    break
+                }
+                claimed[parameterIndex] = true
+                parameter := parameters[parameterIndex]
                 if !IsAttributeArgumentCompatibleValue(parameter.get_ParameterType(), argumentInfo) {
                     matches = false
                     break
@@ -1840,12 +1884,38 @@ class AnalyzerAttributeValidator {
                 index = index + 1
             }
 
+            requiredIndex := 0
+            while matches && requiredIndex < RequiredParameterCount(parameters) {
+                if !claimed[requiredIndex] {
+                    matches = false
+                }
+                requiredIndex += 1
+            }
+
             if matches {
                 return true
             }
         }
 
         return false
+    }
+
+    static func AttributeConstructorParameterSlot(parameterNames: string[], claimed: bool[], argumentName: string?, nextPositional: int): int {
+        if argumentName == null {
+            slot := nextPositional
+            while slot < claimed.Length && claimed[slot] {
+                slot += 1
+            }
+            return slot
+        }
+        index := 0
+        while index < parameterNames.Length {
+            if parameterNames[index] == argumentName {
+                return index
+            }
+            index += 1
+        }
+        return -1
     }
 
     // HOW MANY ARGUMENTS A METADATA SIGNATURE INSISTS ON. Optional parameters are trailing by

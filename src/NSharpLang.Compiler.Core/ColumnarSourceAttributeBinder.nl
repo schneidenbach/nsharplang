@@ -13,6 +13,7 @@ import NSharpLang.Compiler
 class ColumnarAttributeConstructorCandidate {
     Constructor: ConstructorInfo
     ParameterTypes: Type[]
+    ParameterNames: string[]
     // THE VALUE A PARAMETER TAKES WHEN THE ATTRIBUTE OMITS IT, or null where the parameter is
     // required. A custom-attribute blob has no notion of an omitted argument — every fixed argument
     // is written — so `[Mark]` on `MarkAttribute(level: int = 1)` has to write the DEFAULT, which is
@@ -21,9 +22,10 @@ class ColumnarAttributeConstructorCandidate {
     // else.
     DefaultValues: ColumnarAttributeArgumentNode?[]
 
-    constructor(candidate: ConstructorInfo, parameterTypes: Type[], defaultValues: ColumnarAttributeArgumentNode?[]? = null) {
+    constructor(candidate: ConstructorInfo, parameterTypes: Type[], parameterNames: string[]? = null, defaultValues: ColumnarAttributeArgumentNode?[]? = null) {
         Constructor = candidate
         ParameterTypes = parameterTypes
+        ParameterNames = parameterNames ?? new string[](parameterTypes.Length)
         DefaultValues = defaultValues ?? new ColumnarAttributeArgumentNode?[](parameterTypes.Length)
     }
 }
@@ -81,19 +83,18 @@ class ColumnarSourceAttributeBinder {
             return false
         }
 
-        positional := new List<ColumnarAttributeArgumentNode>()
+        constructorArguments := new List<ColumnarAttributeArgumentSyntax>()
         namedArguments := new List<ColumnarAttributeNamedArgument>()
         for argument in attribute.ArgumentSyntax {
             argumentName := argument.Name
-            if argumentName == null {
+            if argumentName == null || argument.IsConstructorNamed {
                 // A POSITIONAL ARGUMENT AFTER A NAMED ONE is not a call any blob can express — the
                 // fixed arguments are positional by construction — so the whole attribute declines
                 // rather than silently reordering it.
                 if namedArguments.Count > 0 {
                     return false
                 }
-
-                positional.Add(argument.Value)
+                constructorArguments.Add(argument)
                 continue
             }
 
@@ -112,7 +113,7 @@ class ColumnarSourceAttributeBinder {
         selectedObjects := 0
         for candidate in CollectConstructors(attributeType, sourceDefinition) {
             fixedArguments := new List<ColumnarAttributeArgumentNode>()
-            if !TryFillOmittedArguments(positional, candidate, fixedArguments) {
+            if !TryFillOmittedArguments(constructorArguments, candidate, fixedArguments) {
                 continue
             }
 
@@ -123,7 +124,7 @@ class ColumnarSourceAttributeBinder {
 
             // A SIGNATURE THAT NEEDS NO DEFAULT BEATS ONE THAT DOES, which is the direction ordinary
             // better-ness runs for an omitted argument; among equals the least `object`-typed wins.
-            omitted := candidate.ParameterTypes.Length - positional.Count
+            omitted := candidate.ParameterTypes.Length - constructorArguments.Count
             objects := ObjectParameterCount(candidate.ParameterTypes)
             if selected == null || omitted < selectedOmitted || (omitted == selectedOmitted && objects < selectedObjects) {
                 selected = new ColumnarSourceAttributePlan(candidate.Constructor, blob)
@@ -143,27 +144,47 @@ class ColumnarSourceAttributeBinder {
     // THE WRITTEN ARGUMENTS FOLLOWED BY THE DEFAULT OF EVERY PARAMETER THE SOURCE LEFT OFF. A
     // parameter past the written list with no default makes this signature inapplicable, which is the
     // same answer the arity test gave before defaults were read.
-    static func TryFillOmittedArguments(positional: List<ColumnarAttributeArgumentNode>, candidate: ColumnarAttributeConstructorCandidate, fixedArguments: List<ColumnarAttributeArgumentNode>): bool {
-        if positional.Count > candidate.ParameterTypes.Length {
+    static func TryFillOmittedArguments(written: List<ColumnarAttributeArgumentSyntax>, candidate: ColumnarAttributeConstructorCandidate, fixedArguments: List<ColumnarAttributeArgumentNode>): bool {
+        if written.Count > candidate.ParameterTypes.Length || candidate.ParameterNames.Length != candidate.ParameterTypes.Length {
             return false
         }
-
-        for written in positional {
-            fixedArguments.Add(written)
+        values := new ColumnarAttributeArgumentNode?[](candidate.ParameterTypes.Length)
+        claimed := new bool[](candidate.ParameterTypes.Length)
+        nextPositional := 0
+        for argument in written {
+            slot := -1
+            if argument.Name != null {
+                index := 0
+                while index < candidate.ParameterNames.Length {
+                    if candidate.ParameterNames[index] == argument.Name {
+                        slot = index
+                        break
+                    }
+                    index += 1
+                }
+            } else {
+                while nextPositional < claimed.Length && claimed[nextPositional] {
+                    nextPositional += 1
+                }
+                slot = nextPositional
+                nextPositional += 1
+            }
+            if slot < 0 || slot >= claimed.Length || claimed[slot] {
+                return false
+            }
+            claimed[slot] = true
+            values[slot] = argument.Value
         }
-
-        index := positional.Count
+        index := 0
         while index < candidate.ParameterTypes.Length {
-            if index >= candidate.DefaultValues.Length {
-                return false
+            value := values[index]
+            if value == null {
+                if index >= candidate.DefaultValues.Length || candidate.DefaultValues[index] == null {
+                    return false
+                }
+                value = candidate.DefaultValues[index]
             }
-
-            omittedValue := candidate.DefaultValues[index]
-            if omittedValue == null {
-                return false
-            }
-
-            fixedArguments.Add(omittedValue)
+            fixedArguments.Add(value)
             index = index + 1
         }
 
@@ -266,12 +287,12 @@ class ColumnarSourceAttributeBinder {
         candidates := new List<ColumnarAttributeConstructorCandidate>()
         if sourceDefinition != null {
             for declared in sourceDefinition.Constructors {
-                candidates.Add(new ColumnarAttributeConstructorCandidate(declared.Builder, declared.ParamTypes, SourceDefaultValues(declared)))
+                candidates.Add(new ColumnarAttributeConstructorCandidate(declared.Builder, declared.ParamTypes, declared.ParamNames, SourceDefaultValues(declared)))
             }
 
             defaultConstructor := sourceDefinition.DefaultCtor
             if candidates.Count == 0 && defaultConstructor != null {
-                candidates.Add(new ColumnarAttributeConstructorCandidate(defaultConstructor, Array.Empty<Type>()))
+                candidates.Add(new ColumnarAttributeConstructorCandidate(defaultConstructor, Array.Empty<Type>(), new string[](0)))
             }
 
             return candidates
@@ -284,10 +305,12 @@ class ColumnarSourceAttributeBinder {
         for metadataConstructor in attributeType.GetConstructors(BindingFlags.Public | BindingFlags.Instance) {
             parameters := metadataConstructor.GetParameters()
             parameterTypes := new Type[](parameters.Length)
+            parameterNames := new string[](parameters.Length)
             defaultValues := new ColumnarAttributeArgumentNode?[](parameters.Length)
             index := 0
             while index < parameters.Length {
                 parameterTypes[index] = parameters[index].get_ParameterType()
+                parameterNames[index] = parameters[index].get_Name() ?? ""
                 metadataDefault: ColumnarAttributeArgumentNode = null
                 if TryReadMetadataDefault(parameters[index], out metadataDefault) {
                     defaultValues[index] = metadataDefault
@@ -296,7 +319,7 @@ class ColumnarSourceAttributeBinder {
                 index = index + 1
             }
 
-            candidates.Add(new ColumnarAttributeConstructorCandidate(metadataConstructor, parameterTypes, defaultValues))
+            candidates.Add(new ColumnarAttributeConstructorCandidate(metadataConstructor, parameterTypes, parameterNames, defaultValues))
         }
 
         return candidates

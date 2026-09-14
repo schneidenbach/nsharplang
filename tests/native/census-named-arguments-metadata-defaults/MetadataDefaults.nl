@@ -27,3 +27,11 @@ class ReflectedOptionalDerived: ReflectedOptionalBase {
         return first.ToString() + second.ToString() + "derived"
     }
 }
+
+class ReflectedChainBase {
+    Value: int
+
+    constructor(first: int = 1, middle: int = 2, last: int = 3) {
+        Value = first * 100 + middle * 10 + last
+    }
+}

@@ -1128,10 +1128,12 @@ class ConstructorChainArgTable {
     Kinds: int[]
     Starts: int[]
     Lengths: int[]
-    constructor(kinds: int[], starts: int[], lengths: int[]) {
+    Names: string[]
+    constructor(kinds: int[], starts: int[], lengths: int[], names: string[]) {
         Kinds = kinds
         Starts = starts
         Lengths = lengths
+        Names = names
     }
 }
 
@@ -12463,10 +12465,15 @@ func ParseConstructorChainInfoCore(source: string, tokens: ParserDeclarationToke
     expressionState := new ParserState(pos, 0, 0, 0, 0, 0, source)
     argCount := 0
     while pos < count && tokens.Kinds[pos] != 128 {
-        if argCount >= args.Kinds.Length || argCount >= args.Starts.Length || argCount >= args.Lengths.Length {
+        if argCount >= args.Kinds.Length || argCount >= args.Starts.Length || argCount >= args.Lengths.Length || argCount >= args.Names.Length {
             return -1
         }
 
+        args.Names[argCount] = ""
+        if pos + 1 < count && tokens.Kinds[pos] == 0 && tokens.Kinds[pos + 1] == 122 {
+            args.Names[argCount] = source.Substring(tokens.Starts[pos], tokens.ValueLengths[pos])
+            pos = pos + 2
+        }
         argumentStartToken := pos
         expressionState.Pos = pos
         expressionRoot := ParseLambdaOrAssignmentExpressionNode(
@@ -13774,7 +13781,8 @@ func ParseConstructorSignatureInfoCore(source: string, tokens: ParserTokenTable,
     chainArgKinds := new int[](count + 1)
     chainArgStarts := new int[](count + 1)
     chainArgLengths := new int[](count + 1)
-    chainArgs := new ConstructorChainArgTable(chainArgKinds, chainArgStarts, chainArgLengths)
+    chainArgNames := new string[](count + 1)
+    chainArgs := new ConstructorChainArgTable(chainArgKinds, chainArgStarts, chainArgLengths, chainArgNames)
     chainResult := new ParserDeclarationResultTable(result.Values)
     chainArgCount := ParseConstructorChainInfoCore(source, declarationTokens, count, ctorIndex, chainArgs, chainResult)
     if chainArgCount < 0 {
@@ -13791,7 +13799,7 @@ func ParseConstructorSignatureInfoCore(source: string, tokens: ParserTokenTable,
         outputs.ArgKinds[chainOutputIndex] = chainArgs.Kinds[chainArgIndex]
         outputs.ArgStarts[chainOutputIndex] = chainArgs.Starts[chainArgIndex]
         outputs.ArgLengths[chainOutputIndex] = chainArgs.Lengths[chainArgIndex]
-        outputs.ArgTexts[chainOutputIndex] = source.Substring(chainArgs.Starts[chainArgIndex], chainArgs.Lengths[chainArgIndex])
+        outputs.ArgTexts[chainOutputIndex] = chainArgs.Names[chainArgIndex]
         chainArgIndex = chainArgIndex + 1
     }
 

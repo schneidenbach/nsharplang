@@ -64,21 +64,37 @@ class ColumnarCodePlanStackNode {
 class ColumnarCodePlanStackState {
     Head: ColumnarCodePlanStackNode?
     AssignedPlanLocalWords: ulong[]
+    PlanLocalPointerKinds: int[]
+    PlanLocalPointerAddressIndices: int[]
     Count: int
 
     constructor(planLocalCount: int) {
         Head = null
         AssignedPlanLocalWords = new ulong[]((planLocalCount + 63) >> 6)
+        PlanLocalPointerKinds = new int[](planLocalCount)
+        PlanLocalPointerAddressIndices = new int[](planLocalCount)
+        pointerIndex := 0
+        while pointerIndex < planLocalCount {
+            PlanLocalPointerKinds[pointerIndex] = -1
+            PlanLocalPointerAddressIndices[pointerIndex] = -1
+            pointerIndex += 1
+        }
         Count = 0
     }
 
     func Copy(): ColumnarCodePlanStackState {
-        result := new ColumnarCodePlanStackState(AssignedPlanLocalWords.Length * 64)
+        result := new ColumnarCodePlanStackState(PlanLocalPointerKinds.Length)
         result.Head = Head
         result.Count = Count
         i := 0
         while i < AssignedPlanLocalWords.Length {
             result.AssignedPlanLocalWords[i] = AssignedPlanLocalWords[i]
+            i += 1
+        }
+        i = 0
+        while i < PlanLocalPointerKinds.Length {
+            result.PlanLocalPointerKinds[i] = PlanLocalPointerKinds[i]
+            result.PlanLocalPointerAddressIndices[i] = PlanLocalPointerAddressIndices[i]
             i += 1
         }
         return result
@@ -141,6 +157,11 @@ class ColumnarCodePlanStackState {
         bitIndex := localIndex & 63
         mask := (ulong)1 << bitIndex
         AssignedPlanLocalWords[wordIndex] = AssignedPlanLocalWords[wordIndex] | mask
+    }
+
+    func RecordPlanLocalPointer(localIndex: int, valueKind: int, addressIndex: int) {
+        PlanLocalPointerKinds[localIndex] = valueKind
+        PlanLocalPointerAddressIndices[localIndex] = addressIndex
     }
 }
 
@@ -1416,14 +1437,25 @@ class ColumnarCodePlanExecutor {
         if !plan.ValidatedTypeAt(typeIndex).get_IsByRef() {
             return false
         }
+        isLocal := false
         index := 0
         while index < plan.PlanLocalCount {
             if plan.PlanLocalTypeIndices[index] == typeIndex {
-                return true
+                isLocal = true
             }
             index += 1
         }
-        return false
+        if !isLocal {
+            return false
+        }
+        index = 0
+        while index < plan.OperationCount {
+            if plan.OperandKinds[index] == ColumnarCodePlanContract.TypeOperand() && plan.OperandIndices[index] == typeIndex {
+                return false
+            }
+            index += 1
+        }
+        return true
     }
 
     // ── THE ONE POOL ROW THAT NAMES METADATA RATHER THAN STORAGE ───────────────────────────────
@@ -1686,6 +1718,26 @@ class ColumnarCodePlanExecutor {
         MergeStack(existing, incoming, schemaName)
 
         i := 0
+        while i < existing.PlanLocalPointerKinds.Length {
+            leftKind := existing.PlanLocalPointerKinds[i]
+            leftAddress := existing.PlanLocalPointerAddressIndices[i]
+            if leftKind == ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress() && leftAddress >= 0 && existing.IsPlanLocalAssigned(leftAddress) {
+                leftKind = ColumnarCodePlanStackValueKind.Exact()
+            }
+            rightKind := incoming.PlanLocalPointerKinds[i]
+            rightAddress := incoming.PlanLocalPointerAddressIndices[i]
+            if rightKind == ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress() && rightAddress >= 0 && incoming.IsPlanLocalAssigned(rightAddress) {
+                rightKind = ColumnarCodePlanStackValueKind.Exact()
+            }
+            if existing.IsPlanLocalAssigned(i) && incoming.IsPlanLocalAssigned(i) && (leftKind != rightKind || leftAddress != rightAddress) {
+                existing.PlanLocalPointerKinds[i] = -2
+                existing.PlanLocalPointerAddressIndices[i] = -1
+            } else {
+                existing.PlanLocalPointerKinds[i] = leftKind
+            }
+            i += 1
+        }
+        i = 0
         while i < existing.AssignedPlanLocalWords.Length {
             existing.AssignedPlanLocalWords[i] = existing.AssignedPlanLocalWords[i] & incoming.AssignedPlanLocalWords[i]
             i += 1
@@ -2142,11 +2194,26 @@ class ColumnarCodePlanExecutor {
                 if elementType == null {
                     throw new InvalidOperationException(schemaName + " managed-pointer plan local has no element type.")
                 }
-                state.Push(elementType, true, ColumnarCodePlanStackValueKind.Exact(), false, 0)
+                if !isPlanLocal {
+                    state.Push(elementType, true, ColumnarCodePlanStackValueKind.Exact(), false, 0)
+                    return
+                }
+                pointerKind := state.PlanLocalPointerKinds[localIndex]
+                pointerAddressIndex := state.PlanLocalPointerAddressIndices[localIndex]
+                if pointerKind < 0 {
+                    throw new InvalidOperationException(schemaName + " managed-pointer plan local has no stable address provenance.")
+                }
+                if pointerKind == ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress() && pointerAddressIndex >= 0 && state.IsPlanLocalAssigned(pointerAddressIndex) {
+                    pointerKind = ColumnarCodePlanStackValueKind.Exact()
+                }
+                state.PushPlanLocalAddress(elementType, pointerKind, false, 0, pointerAddressIndex)
             } else {
                 state.Push(localType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
             }
         } else if opCodeValue == ColumnarCodePlanContract.Ldloca() {
+            if localType.get_IsByRef() {
+                throw new InvalidOperationException(schemaName + " cannot take the address of a managed-pointer local.")
+            }
             if isPlanLocal && !state.IsPlanLocalAssigned(localIndex) {
                 state.PushPlanLocalAddress(localType, ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress(), false, localIndex, localIndex)
                 return
@@ -2164,6 +2231,9 @@ class ColumnarCodePlanExecutor {
             }
             if isPlanLocal {
                 state.MarkPlanLocalAssigned(localIndex)
+                if storesManagedPointer {
+                    state.RecordPlanLocalPointer(localIndex, value.ValueKind, value.PlanLocalAddressIndex)
+                }
             }
         }
     }

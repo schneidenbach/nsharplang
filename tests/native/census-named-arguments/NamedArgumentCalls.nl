@@ -2,7 +2,27 @@ namespace NSharpLang.CensusNamedArguments
 
 import System
 import System.Collections.Generic
+import NSharpLang.CensusNamedArguments.MetadataDefaults
 
+[Obsolete(error: true, message: "named attribute", DiagnosticId = "named-id")]
+class NamedAttributeTarget {
+}
+
+class SparseAttribute: Attribute {
+    First: int
+    Middle: int
+    Last: int
+
+    constructor(first: int = 1, middle: int = 2, last: int = 3) {
+        First = first
+        Middle = middle
+        Last = last
+    }
+}
+
+[Sparse(last: 9)]
+class SparseAttributeTarget {
+}
 
 // The declarations every named-argument contract beside this file is written against. A named
 // argument names a PARAMETER, so what matters about each of these is the spelling of its parameter
@@ -110,13 +130,13 @@ class OptionalStaticSlots {
 }
 
 class SourceOptionalBase {
-    virtual func Pick(first: int = 1, second: int = 2): string {
+    func Pick(first: int = 1, second: int = 2): string {
         return first.ToString() + second.ToString() + "base"
     }
 }
 
 class SourceOptionalDerived: SourceOptionalBase {
-    override func Pick(first: int = 1, second: int = 2): string {
+    func Pick(first: int = 1, second: int = 2): string {
         return first.ToString() + second.ToString() + "derived"
     }
 }
@@ -165,5 +185,26 @@ class ReorderedOutAlias {
     func MutateThenText(): string {
         Value = 9
         return "42"
+    }
+}
+
+class SourceThisChain {
+    Value: int
+
+    constructor(first: int = 1, middle: int = 2, last: int = 3) {
+        Value = first * 100 + middle * 10 + last
+    }
+
+    constructor(marker: string): this(last: 9, first: 2) {
+    }
+}
+
+class SourceBaseChain: OptionalConstructorSlots {
+    constructor(): base(last: 8, first: 4) {
+    }
+}
+
+class ReflectedBaseChain: ReflectedChainBase {
+    constructor(): base(last: 7, first: 5) {
     }
 }

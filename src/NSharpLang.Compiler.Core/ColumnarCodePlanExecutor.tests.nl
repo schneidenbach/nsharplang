@@ -30,6 +30,26 @@ class ColumnarExecutorProbeMethods {
     static func RecordStatic(target: List<int>) {
         target.Add(41)
     }
+    static func Increment(ref value: int): int {
+        value = value + 1
+        return value
+    }
+    static func Assign(out value: int): int {
+        value = 7
+        return value
+    }
+}
+
+func ExecutorManagedPointerMethod(): MethodInfo {
+    parameters := new Type[](1)
+    parameters[0] = typeof(int).MakeByRefType()
+    return ExecutorRequiredMethod(typeof(ColumnarExecutorProbeMethods), "Increment", parameters)
+}
+
+func ExecutorManagedPointerOutMethod(): MethodInfo {
+    parameters := new Type[](1)
+    parameters[0] = typeof(int).MakeByRefType()
+    return ExecutorRequiredMethod(typeof(ColumnarExecutorProbeMethods), "Assign", parameters)
 }
 
 class ColumnarExecutorFieldProbe {
@@ -4540,4 +4560,221 @@ test "an executor refuses to replay a plan that mirrors plan locals" {
         executeMessage = ex.Message
     }
     assert executeMessage.Contains("type-discovery scratch and cannot be executed")
+}
+
+test "managed-pointer spill locals preserve addresses and reject invalid local operations" {
+    byRefInt := typeof(int).MakeByRefType()
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = byRefInt
+    method := ExecutorManagedPointerMethod()
+
+    valid := new ColumnarCodePlan()
+    valid.PrepareV3()
+    validRoot := valid.BeginFragment(-1, 1910, 0)
+    intType := valid.AddType(typeof(int))
+    pointerType := valid.AddType(byRefInt)
+    argument := valid.AddArgument(0, intType)
+    pointerLocal := valid.DeclarePlanLocal(pointerType)
+    methodIndex := valid.AddMethodWithSignature(method, typeof(ColumnarExecutorProbeMethods), parameterTypes, typeof(int), true, false)
+    valid.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), argument)
+    valid.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), pointerLocal)
+    valid.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), pointerLocal)
+    valid.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+    valid.CompleteFragment(validRoot, typeof(int))
+    valid.CompleteV3(typeof(int))
+    ColumnarCodePlanExecutor.Validate(valid)
+
+    nonAddress := new ColumnarCodePlan()
+    nonAddress.PrepareV3()
+    nonAddressRoot := nonAddress.BeginFragment(-1, 1911, 0)
+    nonAddressPointer := nonAddress.DeclarePlanLocal(nonAddress.AddType(byRefInt))
+    nonAddress.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    nonAddress.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), nonAddressPointer)
+    nonAddress.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    nonAddress.CompleteFragment(nonAddressRoot, typeof(int))
+    nonAddress.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(nonAddress)
+    }
+
+    wrongElement := new ColumnarCodePlan()
+    wrongElement.PrepareV3()
+    wrongRoot := wrongElement.BeginFragment(-1, 1912, 0)
+    stringType := wrongElement.AddType(typeof(string))
+    wrongPointer := wrongElement.DeclarePlanLocal(wrongElement.AddType(byRefInt))
+    stringArgument := wrongElement.AddArgument(0, stringType)
+    wrongElement.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), stringArgument)
+    wrongElement.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), wrongPointer)
+    wrongElement.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    wrongElement.CompleteFragment(wrongRoot, typeof(int))
+    wrongElement.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(wrongElement)
+    }
+
+    unassigned := new ColumnarCodePlan()
+    unassigned.PrepareV3()
+    unassignedRoot := unassigned.BeginFragment(-1, 1913, 0)
+    unassignedPointer := unassigned.DeclarePlanLocal(unassigned.AddType(byRefInt))
+    unassigned.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), unassignedPointer)
+    unassigned.CompleteFragment(unassignedRoot, byRefInt)
+    unassigned.CompleteV3(byRefInt)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(unassigned)
+    }
+
+    nestedAddress := new ColumnarCodePlan()
+    nestedAddress.PrepareV3()
+    nestedRoot := nestedAddress.BeginFragment(-1, 1914, 0)
+    nestedInt := nestedAddress.AddType(typeof(int))
+    nestedArgument := nestedAddress.AddArgument(0, nestedInt)
+    nestedPointer := nestedAddress.DeclarePlanLocal(nestedAddress.AddType(byRefInt))
+    nestedAddress.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), nestedArgument)
+    nestedAddress.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), nestedPointer)
+    nestedAddress.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), nestedPointer)
+    nestedAddress.CompleteFragment(nestedRoot, byRefInt)
+    nestedAddress.CompleteV3(byRefInt)
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(nestedAddress)
+    }
+
+    laundered := new ColumnarCodePlan()
+    laundered.PrepareV3()
+    launderedRoot := laundered.BeginFragment(-1, 1915, 0)
+    launderedInt := laundered.AddType(typeof(int))
+    launderedPointerType := laundered.AddType(byRefInt)
+    unassignedTarget := laundered.DeclarePlanLocal(launderedInt)
+    launderedPointer := laundered.DeclarePlanLocal(launderedPointerType)
+    launderedMethod := laundered.AddMethodWithSignature(method, typeof(ColumnarExecutorProbeMethods), parameterTypes, typeof(int), true, false)
+    laundered.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), unassignedTarget)
+    laundered.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), launderedPointer)
+    laundered.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), launderedPointer)
+    laundered.AppendMethodInstruction(ColumnarCodePlanContract.Call(), launderedMethod)
+    laundered.CompleteFragment(launderedRoot, typeof(int))
+    laundered.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(laundered)
+    }
+
+    initializedThroughPointer := new ColumnarCodePlan()
+    initializedThroughPointer.PrepareV3()
+    initializedRoot := initializedThroughPointer.BeginFragment(-1, 1916, 0)
+    initializedInt := initializedThroughPointer.AddType(typeof(int))
+    initializedPointerType := initializedThroughPointer.AddType(byRefInt)
+    initializedTarget := initializedThroughPointer.DeclarePlanLocal(initializedInt)
+    initializedPointer := initializedThroughPointer.DeclarePlanLocal(initializedPointerType)
+    outMethod := ExecutorManagedPointerOutMethod()
+    outReturnType := outMethod.ReturnType
+    outMethodIndex := initializedThroughPointer.AddMethodWithSignature(outMethod, typeof(ColumnarExecutorProbeMethods), parameterTypes, outReturnType, true, false)
+    refMethodIndex := initializedThroughPointer.AddMethodWithSignature(method, typeof(ColumnarExecutorProbeMethods), parameterTypes, typeof(int), true, false)
+    initializedThroughPointer.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), initializedTarget)
+    initializedThroughPointer.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), initializedPointer)
+    initializedThroughPointer.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), initializedPointer)
+    initializedThroughPointer.AppendMethodInstruction(ColumnarCodePlanContract.Call(), outMethodIndex)
+    initializedThroughPointer.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), initializedPointer)
+    initializedThroughPointer.AppendMethodInstruction(ColumnarCodePlanContract.Call(), refMethodIndex)
+    initializedThroughPointer.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
+    initializedThroughPointer.CompleteFragment(initializedRoot, typeof(int))
+    initializedThroughPointer.CompleteV3(typeof(int))
+    ColumnarCodePlanExecutor.Validate(initializedThroughPointer)
+
+    voidPointer := new ColumnarCodePlan()
+    voidPointer.PrepareV3()
+    voidRoot := voidPointer.BeginFragment(-1, 1917, 0)
+    actionType := typeof(Action)
+    invokeMethod := actionType.GetMethod("Invoke")
+    assert invokeMethod != null
+    voidType := invokeMethod.ReturnType
+    byRefVoid := voidType.MakeByRefType()
+    voidPointerType := voidPointer.AddType(byRefVoid)
+    voidPointerLocal := voidPointer.DeclarePlanLocal(voidPointerType)
+    assert voidPointerLocal == 0
+    voidPointer.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    voidPointer.CompleteFragment(voidRoot, typeof(int))
+    voidPointer.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(voidPointer)
+    }
+
+    pointerOperand := new ColumnarCodePlan()
+    pointerOperand.PrepareV3()
+    operandRoot := pointerOperand.BeginFragment(-1, 1918, 0)
+    operandPointerType := pointerOperand.AddType(byRefInt)
+    operandPointerLocal := pointerOperand.DeclarePlanLocal(operandPointerType)
+    assert operandPointerLocal == 0
+    pointerOperand.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+    pointerOperand.AppendTypeInstruction(ColumnarCodePlanContract.Box(), operandPointerType)
+    pointerOperand.CompleteFragment(operandRoot, typeof(object))
+    pointerOperand.CompleteV3(typeof(object))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(pointerOperand)
+    }
+}
+
+test "managed-pointer provenance merges only the same definitely assigned target" {
+    byRefInt := typeof(int).MakeByRefType()
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = byRefInt
+    method := ExecutorManagedPointerMethod()
+
+    sameTarget := new ColumnarCodePlan()
+    sameTarget.PrepareV3()
+    sameRoot := sameTarget.BeginFragment(-1, 1920, 0)
+    sameInt := sameTarget.AddType(typeof(int))
+    samePointerType := sameTarget.AddType(byRefInt)
+    sameValue := sameTarget.DeclarePlanLocal(sameInt)
+    samePointer := sameTarget.DeclarePlanLocal(samePointerType)
+    sameMethod := sameTarget.AddMethodWithSignature(method, typeof(ColumnarExecutorProbeMethods), parameterTypes, typeof(int), true, false)
+    sameFalse := sameTarget.DefineLabel()
+    sameEnd := sameTarget.DefineLabel()
+    sameTarget.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    sameTarget.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), sameFalse)
+    sameTarget.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), sameValue)
+    sameTarget.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), samePointer)
+    sameTarget.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    sameTarget.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), sameValue)
+    sameTarget.AppendLabelInstruction(ColumnarCodePlanContract.Br(), sameEnd)
+    sameTarget.AppendMarkLabel(sameFalse)
+    sameTarget.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_2())
+    sameTarget.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), sameValue)
+    sameTarget.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), sameValue)
+    sameTarget.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), samePointer)
+    sameTarget.AppendMarkLabel(sameEnd)
+    sameTarget.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), samePointer)
+    sameTarget.AppendMethodInstruction(ColumnarCodePlanContract.Call(), sameMethod)
+    sameTarget.CompleteFragment(sameRoot, typeof(int))
+    sameTarget.CompleteV3(typeof(int))
+    ColumnarCodePlanExecutor.Validate(sameTarget)
+
+    differentTargets := new ColumnarCodePlan()
+    differentTargets.PrepareV3()
+    differentRoot := differentTargets.BeginFragment(-1, 1921, 0)
+    differentInt := differentTargets.AddType(typeof(int))
+    differentPointerType := differentTargets.AddType(byRefInt)
+    firstTarget := differentTargets.DeclarePlanLocal(differentInt)
+    secondTarget := differentTargets.DeclarePlanLocal(differentInt)
+    differentPointer := differentTargets.DeclarePlanLocal(differentPointerType)
+    differentMethod := differentTargets.AddMethodWithSignature(method, typeof(ColumnarExecutorProbeMethods), parameterTypes, typeof(int), true, false)
+    differentTargets.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    differentTargets.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), firstTarget)
+    differentTargets.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_2())
+    differentTargets.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), secondTarget)
+    differentFalse := differentTargets.DefineLabel()
+    differentEnd := differentTargets.DefineLabel()
+    differentTargets.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    differentTargets.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), differentFalse)
+    differentTargets.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), firstTarget)
+    differentTargets.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), differentPointer)
+    differentTargets.AppendLabelInstruction(ColumnarCodePlanContract.Br(), differentEnd)
+    differentTargets.AppendMarkLabel(differentFalse)
+    differentTargets.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), secondTarget)
+    differentTargets.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), differentPointer)
+    differentTargets.AppendMarkLabel(differentEnd)
+    differentTargets.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), differentPointer)
+    differentTargets.AppendMethodInstruction(ColumnarCodePlanContract.Call(), differentMethod)
+    differentTargets.CompleteFragment(differentRoot, typeof(int))
+    differentTargets.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(differentTargets)
+    }
 }

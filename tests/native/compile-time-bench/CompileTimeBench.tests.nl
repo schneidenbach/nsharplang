@@ -566,7 +566,7 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 test "compile-time bench: the corpus is the 122 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
     assert projects.Count == 122
-    assert BenchListContains(projects, "tests/native/census-named-arguments/metadata-defaults")
+    assert BenchListContains(projects, "tests/native/census-named-arguments-metadata-defaults")
     assert BenchListContains(projects, "tests/native/census-named-arguments")
     assert BenchListContains(projects, "tests/native/census-closures")
     assert BenchListContains(projects, "tests/native/census-internals-visible-to")

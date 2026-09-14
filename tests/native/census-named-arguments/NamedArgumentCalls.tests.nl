@@ -2,6 +2,7 @@ namespace NSharpLang.CensusNamedArguments
 
 import System
 import System.Linq
+import System.Reflection
 import NSharpLang.CensusNamedArguments.MetadataDefaults
 
 test "a free function's single parameter can be written by name" {
@@ -166,7 +167,33 @@ test "a named argument on a static method of a source type binds by name" {
     assert Divide2Holder.Divide(denominator: 4, numerator: 20) == 5
 }
 
+test "attribute constructor arguments bind by name" {
+    found := typeof(NamedAttributeTarget).GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
+    assert found != null
+    assert found.Message == "named attribute"
+    assert found.IsError
+    assert found.DiagnosticId == "named-id"
+}
+
+test "source attribute constructor arguments may leave optional holes" {
+    found := typeof(SparseAttributeTarget).GetCustomAttribute(typeof(SparseAttribute), false) as SparseAttribute
+    assert found != null
+    assert found.First == 1
+    assert found.Middle == 2
+    assert found.Last == 9
+}
+
 test "named arguments fill optional holes from referenced metadata" {
+    fixtureType := typeof(ReflectedOptionalSlots)
+    assert fixtureType.Assembly != typeof(NamedAttributeTarget).Assembly
+    reflected := fixtureType.GetMethod("Read")
+    assert reflected != null
+    parameters := reflected.GetParameters()
+    assert parameters.Length == 3
+    assert parameters[0].get_IsOptional()
+    assert Convert.ToInt32(parameters[0].get_DefaultValue()) == 1
+    assert parameters[1].get_IsOptional()
+    assert Convert.ToInt32(parameters[1].get_DefaultValue()) == 2
     value := new ReflectedOptionalSlots(last: 9)
     assert value.Value == 129
     assert value.Read(last: 8) == 128
@@ -176,4 +203,19 @@ test "named arguments fill optional holes from referenced metadata" {
 test "a derived sparse metadata method hides its base method" {
     value := new ReflectedOptionalDerived()
     assert value.Pick(second: 3) == "13derived"
+}
+
+test "this constructor chains place named arguments and fill optional holes" {
+    value := new SourceThisChain("chain")
+    assert value.Value == 229
+}
+
+test "source base constructor chains place named arguments and fill optional holes" {
+    value := new SourceBaseChain()
+    assert value.Value == 428
+}
+
+test "reflected base constructor chains place named arguments and fill optional holes" {
+    value := new ReflectedBaseChain()
+    assert value.Value == 527
 }
