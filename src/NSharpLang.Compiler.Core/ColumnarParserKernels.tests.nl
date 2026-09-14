@@ -1568,11 +1568,22 @@ test "constructor parser preserves ordered expression spans and the accepted tra
     assert probe.Result[0] == 1
     assert probe.Result[3] == 3
     assert probe.ArgKinds[1] == 0
-    assert probe.ArgTexts[1] == "Build(root, Nested(1, null))"
+    assert probe.ArgTexts[1] == ""
     assert probe.ArgKinds[2] == 46
-    assert probe.ArgTexts[2] == "null"
+    assert probe.ArgTexts[2] == ""
     assert probe.ArgKinds[3] == 41
-    assert probe.ArgTexts[3] == "new Cache()"
+    assert probe.ArgTexts[3] == ""
+}
+
+test "constructor parser separates chain argument names from value spans" {
+    probe := new ColumnarConstructorDefaultParseProbe(
+        "constructor(root: string): base(last: Build(root), first: 1) {}"
+    )
+
+    assert probe.ParamCount == 1
+    assert probe.Result[3] == 2
+    assert probe.ArgTexts[1] == "last"
+    assert probe.ArgTexts[2] == "first"
 }
 
 test "constructor parser rejects a missing expression between chained arguments" {

@@ -4977,9 +4977,9 @@ no `GetParameters()` before its owner is baked.
 because it is written first, even though `to` is the earlier parameter. When a placement MOVES an
 argument, `ColumnarDirectCallPlanner.AppendReorderedArguments` evaluates along the written order into
 plan locals and loads them in slot order; when the two orders agree — every call whose names were
-written where the signature keeps them — nothing is spilled. A reordered call carrying a `ref`/`out`
-argument declines: storage cannot be held in a temporary without aliasing something the caller cannot
-see.
+written where the signature keeps them — nothing is spilled. A reordered `ref`/`out` argument spills
+its managed address and reloads that same address in parameter order, so later argument evaluation
+still observes and may mutate the caller's storage before the callee writes it.
 
 **A verified in-position placement is flattened into the node table.** Once the names have been
 checked against a real signature and found to name the parameters they were already written at, the
@@ -4988,9 +4988,15 @@ A call the planner then declines for some unrelated reason — a lambda argument
 residual emitter as the ordinary positional call it is. A placement that MOVES an argument is never
 flattened: only the planner can emit the move, because only it spills the written order.
 
-**What is still positional.** A `base(...)` / `this(...)` constructor chain records its arguments as
-source SPANS that are re-parsed as expressions, so a `name:` prefix there still declines at
-`parse.struct`; write the chain positionally. Named calls to source free functions, constructors and
-instance methods now fill omitted optional slots, including holes between supplied arguments. Static
-source methods and constructor chaining remain under audit. Reordered `ref`/`out` arguments still
-decline at this checkpoint; their managed-reference spill lowering is the next required slice.
+**Optional holes are filled by the caller.** A call such as `Opt(last: 9)` first places the written
+argument, then supplies the declaration default for every unclaimed slot. Source free functions,
+constructors, instance methods and static methods carry their default syntax beside their parameter
+names; referenced methods read the equivalent constants from `ParameterInfo`. Supplied expressions
+still run in written order before the final parameter-order load. Constructor-chain inputs retain
+each written name beside its expression span, so `base(last: 9)` and `this(last: 9)` use the same
+placement and optional-hole rules for source and reflected constructors.
+
+Attribute syntax keeps the CLR's two concepts distinct: `name: value` names a constructor parameter,
+while `Name = value` assigns a public mutable field or settable property in the custom-attribute row.
+The analyzer and emitter carry the separator fact separately, so neither form silently falls through
+to the other when a constructor parameter and member share a spelling.

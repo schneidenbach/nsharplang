@@ -224,6 +224,7 @@ class ColumnarConstructorInput {
     ChainInitKind: int
     ChainArgKinds: int[]
     ChainArgTexts: string[]
+    ChainArgNames: string[]
     ChainArgNodes: ColumnarNodeTable[]
     ChainArgRoots: int[]
     ParamDefaultKinds: int[]
@@ -237,6 +238,7 @@ class ColumnarConstructorInput {
         ChainInitKind = chainInitKind
         ChainArgKinds = chainArgKinds
         ChainArgTexts = chainArgTexts
+        ChainArgNames = new string[](chainArgTexts.Length)
         ChainArgNodes = new ColumnarNodeTable[](0)
         ChainArgRoots = new int[](0)
         ParamDefaultKinds = paramDefaultKinds ?? new int[](0)

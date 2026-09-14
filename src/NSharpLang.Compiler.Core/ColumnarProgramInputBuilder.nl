@@ -1488,13 +1488,15 @@ sealed class ColumnarProgramInputBuilder {
 
         chainArgKinds := new int[](chainArgCount)
         chainArgTexts := new string[](chainArgCount)
+        chainArgNames := new string[](chainArgCount)
         chainArgNodes := new ColumnarNodeTable[](chainArgCount)
         chainArgRoots := new int[](chainArgCount)
         a := 0
         while a < chainArgCount {
             chainArgIndex := paramCount + a
             chainArgKinds[a] = caKinds[chainArgIndex]
-            chainArgText := caTexts[chainArgIndex]
+            chainArgNames[a] = caTexts[chainArgIndex]
+            chainArgText := source.Substring(caStarts[chainArgIndex], caLengths[chainArgIndex])
             chainNodes: ColumnarNodeTable = null
             chainRoot := -1
             if !TryBuildExpressionSpanNodeTable(
@@ -1568,6 +1570,7 @@ sealed class ColumnarProgramInputBuilder {
         body.ParameterSourceAttributes = ColumnarSourceAttributes.ReadParameters(source, ck, cs, cv, ctorIndex, paramCount)
         parsedInput.ChainArgNodes = chainArgNodes
         parsedInput.ChainArgRoots = chainArgRoots
+        parsedInput.ChainArgNames = chainArgNames
         input = parsedInput
         parsedInput.VisibilityModifierFlags = ColumnarConstructorDeclarationMetadataModifierFlagsAt(ck, ctorIndex)
         return true

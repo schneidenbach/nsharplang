@@ -158,6 +158,11 @@ func AttrArg(arguments: List<Argument>, value: Expression, name: string?) {
     arguments.Add(new Argument(name, value, ArgumentModifier.None))
 }
 
+func AttrMemberArg(arguments: List<Argument>, value: Expression, name: string) {
+    assignment := new AssignmentExpression(AttrId(name), AssignmentOperator.Assign, value, 4, 9)
+    arguments.Add(new Argument(null, assignment, ArgumentModifier.None))
+}
+
 func AttrNode(name: string, arguments: List<Argument>): AttributeNode {
     return new AttributeNode(name, arguments, 3, 1)
 }
@@ -1017,7 +1022,7 @@ test "a SOURCE attribute's exported mutable field takes a named argument" {
     members[0] = AttrSourceField("MarkerAttribute", "Tag", AttrSimple("string"), false, true)
     harness := AttrSourceHarness(members)
     arguments := AttrArgs()
-    AttrArg(arguments, AttrString("value"), "Tag")
+    AttrMemberArg(arguments, AttrString("value"), "Tag")
 
     harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
 
@@ -1029,7 +1034,7 @@ test "a SOURCE attribute reports a named argument no member accepts" {
     members[0] = AttrSourceField("MarkerAttribute", "Tag", AttrSimple("string"), false, true)
     harness := AttrSourceHarness(members)
     arguments := AttrArgs()
-    AttrArg(arguments, AttrString("value"), "Missing")
+    AttrMemberArg(arguments, AttrString("value"), "Missing")
 
     harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
 
@@ -1045,7 +1050,7 @@ test "a SOURCE attribute refuses a readonly field as a named argument" {
     members[0] = AttrSourceField("MarkerAttribute", "Tag", AttrSimple("string"), true, true)
     harness := AttrSourceHarness(members)
     arguments := AttrArgs()
-    AttrArg(arguments, AttrString("value"), "Tag")
+    AttrMemberArg(arguments, AttrString("value"), "Tag")
 
     harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
 
@@ -1058,7 +1063,7 @@ test "a SOURCE attribute refuses an unexported field as a named argument" {
     members[0] = AttrSourceField("MarkerAttribute", "tag", AttrSimple("string"), false, false)
     harness := AttrSourceHarness(members)
     arguments := AttrArgs()
-    AttrArg(arguments, AttrString("value"), "tag")
+    AttrMemberArg(arguments, AttrString("value"), "tag")
 
     harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
 
@@ -1071,7 +1076,7 @@ test "a SOURCE attribute reports a named argument whose type does not match the 
     members[0] = AttrSourceField("MarkerAttribute", "Count", AttrSimple("int"), false, true)
     harness := AttrSourceHarness(members)
     arguments := AttrArgs()
-    AttrArg(arguments, AttrString("value"), "Count")
+    AttrMemberArg(arguments, AttrString("value"), "Count")
 
     harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
 

@@ -13441,12 +13441,12 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL402` at 1:18+1 — th
     assert AcCodeAnchor(rich, "NoMatchingOverload") == "NL402@1:18+1"
 }
 
-test "020 s32 analyzer diagnostics: the fixture reports `NL303` at 1:27+5; the plain route underlines 1 column where production underlines 5 — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_UnknownClrNamedMember_ReportBeforeEmission)" {
-    source := "[System.Obsolete(message: \"bad\")]\nfunc Bad(): int {\n    return 0\n}"
+test "020 s32 analyzer diagnostics: both routes underline the unknown attribute member with `NL303` at 1:18+7 (was AnalyzerTests.AttributeArguments_UnknownClrNamedMember_ReportBeforeEmission)" {
+    source := "[System.Obsolete(message= \"bad\")]\nfunc Bad(): int {\n    return 0\n}"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL303:UndefinedMember@1:27+1;"
+    assert AcCensus(analysis) == "NL303:UndefinedMember@1:18+7;", AcCensus(analysis)
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
     assert AcRow(analysis, 0) == "UndefinedMember|Attribute 'System.ObsoleteAttribute' has no public settable property or field named 'message'|Use a named argument exposed by the attribute type.|Error"
@@ -13459,30 +13459,30 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL303` at 1:27+5; the p
     assert AcCodeCount(analysis, "UndefinedMember") == 1
     assert AcCodeErrorCount(analysis, "UndefinedMember") == 1
     assert AcCodeRow(analysis, "UndefinedMember") == "UndefinedMember|Attribute 'System.ObsoleteAttribute' has no public settable property or field named 'message'|Use a named argument exposed by the attribute type.|Error"
-    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@1:27+1"
+    assert AcCodeAnchor(analysis, "UndefinedMember") == "NL303@1:18+7"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL303:UndefinedMember@1:27+5;"
+    assert AcCensus(rich) == "NL303:UndefinedMember@1:18+7;", AcCensus(rich)
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
     assert AcRow(rich, 0) == "UndefinedMember|Attribute 'System.ObsoleteAttribute' has no public settable property or field named 'message'|Use a named argument exposed by the attribute type.|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
-    assert AcSnippet(rich, 0) == "[System.Obsolete(message: \"bad\")]"
+    assert AcSnippet(rich, 0) == "[System.Obsolete(message= \"bad\")]"
     assert AcTypes(rich, 0) == "<null>|<null>"
     assert AcExplanation(rich, 0) == "<null>"
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "UndefinedMember") == 1
     assert AcCodeErrorCount(rich, "UndefinedMember") == 1
     assert AcCodeRow(rich, "UndefinedMember") == "UndefinedMember|Attribute 'System.ObsoleteAttribute' has no public settable property or field named 'message'|Use a named argument exposed by the attribute type.|Error"
-    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@1:27+5"
+    assert AcCodeAnchor(rich, "UndefinedMember") == "NL303@1:18+7"
 }
 
-test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 1:32+1 — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_ClrNamedMemberTypeMismatch_ReportBeforeEmission)" {
-    source := "[System.Obsolete(DiagnosticId: 1)]\nfunc Bad(): int {\n    return 0\n}"
+test "020 s32 analyzer diagnostics: both routes underline the mismatched attribute member with `NL202` at 1:18+12 (was AnalyzerTests.AttributeArguments_ClrNamedMemberTypeMismatch_ReportBeforeEmission)" {
+    source := "[System.Obsolete(DiagnosticId= 1)]\nfunc Bad(): int {\n    return 0\n}"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL202:TypeMismatch@1:32+1;"
+    assert AcCensus(analysis) == "NL202:TypeMismatch@1:18+12;", AcCensus(analysis)
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
     assert AcRow(analysis, 0) == "TypeMismatch|Attribute named argument 'DiagnosticId' on 'System.ObsoleteAttribute' expects 'string!' but got 'int'|Use a value whose type matches the attribute property or field.|Error"
@@ -13495,22 +13495,22 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 1:32+1 — th
     assert AcCodeCount(analysis, "TypeMismatch") == 1
     assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
     assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|Attribute named argument 'DiagnosticId' on 'System.ObsoleteAttribute' expects 'string!' but got 'int'|Use a value whose type matches the attribute property or field.|Error"
-    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@1:32+1"
+    assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@1:18+12"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL202:TypeMismatch@1:32+1;"
+    assert AcCensus(rich) == "NL202:TypeMismatch@1:18+12;", AcCensus(rich)
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
     assert AcRow(rich, 0) == "TypeMismatch|Attribute named argument 'DiagnosticId' on 'System.ObsoleteAttribute' expects 'string!' but got 'int'|Use a value whose type matches the attribute property or field.|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
-    assert AcSnippet(rich, 0) == "[System.Obsolete(DiagnosticId: 1)]"
+    assert AcSnippet(rich, 0) == "[System.Obsolete(DiagnosticId= 1)]"
     assert AcTypes(rich, 0) == "<null>|<null>"
     assert AcExplanation(rich, 0) == "<null>"
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
     assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|Attribute named argument 'DiagnosticId' on 'System.ObsoleteAttribute' expects 'string!' but got 'int'|Use a value whose type matches the attribute property or field.|Error"
-    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@1:32+1"
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@1:18+12"
 }
 
 test "020 s32 analyzer diagnostics: the fixture reports `NL303` at 3:34+4; production carries a `ContextualHint` the plain route leaves null — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_UnknownClrEnumMember_ReportBeforeEmission)" {

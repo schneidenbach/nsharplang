@@ -535,15 +535,13 @@ custom-attribute blob is written:
 [Mark(typeof(Order))]                               // a type
 [Mark(["a", "b"])]                                  // an array of constants
 [Mark(null)]                                        // a null reference
-[Mark("text", Count = 42, Note = "named")]          // named arguments
-[Mark("text", Count: 42, Note: "named")]            // the same, in N#'s own spelling
+[Mark(text: "text", Count = 42, Note = "named")]    // constructor name, then member assignments
 ```
 
-A named argument binds to a **public settable property** or a **public mutable field** of the
-attribute, declared by it or inherited. Named arguments come after the positional ones. Either
-separator writes one: `Name = value` is the spelling C# uses, and `Name: value` is the spelling N#
-uses for a named argument everywhere else — a call, an object initializer — so both are accepted and
-emit the same metadata row.
+The two separators mean different CLR facts. `name: value` names an attribute **constructor
+parameter** and may be written out of parameter order. `Name = value` assigns a **public settable
+property** or **public mutable field** of the attribute, declared by it or inherited. Member
+assignments come after constructor arguments.
 
 An integer constant fills any numeric parameter whose range contains it, so a `byte` parameter takes
 `[Mark(5)]` and refuses `[Mark(300)]`. A `long` or `ulong` constant that does not fit in an `int`
@@ -564,7 +562,7 @@ class MarkAttribute: Attribute {
 }
 
 [Mark]            // the emitted row carries Level = 1
-[Mark(3)]         // the emitted row carries Level = 3
+[Mark(level: 3)]  // the emitted row carries Level = 3
 ```
 
 This holds for an attribute from a referenced assembly too: its parameter defaults are read from its

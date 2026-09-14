@@ -96,7 +96,7 @@ func main() {
 Any argument may be written with the name of the parameter it is for, `name: value`. The name binds
 the argument to that parameter wherever it is written, so a call reads as what it means rather than
 as a row of unlabelled values. This works at every call: a free function, a method, a constructor, a
-static member, and a member of a .NET type.
+static member, a member of a .NET type, and a `base(...)` or `this(...)` constructor chain.
 
 ```n#
 func connect(host: string, port: int = 8080, secure: bool = false): string {

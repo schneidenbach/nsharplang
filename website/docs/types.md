@@ -1857,9 +1857,6 @@ Two rules the compiler enforces about the type-argument list itself:
   lambda's body) but does not EMIT yet. A generic FREE function with a delegate parameter is
   unaffected, and so is every generic method on an external type; write the type argument out
   (`Match<string>(...)`) or move the call into a free function.
-- A **named argument in a constructor chain** — `constructor(name: string): base(label: name)` — is
-  not compiled yet. Named arguments are unaffected everywhere else, including at `new`, so write the
-  chain's arguments positionally (`base(name)`) and name them at the call sites instead.
 - **Null-conditional INDEXING** (`items?[0]`) is not compiled yet; `?.` on a member or a method is
   unaffected, and an explicit null check reads the element.
 - An argument that must be **boxed into an `object` parameter of a GENERIC function**
