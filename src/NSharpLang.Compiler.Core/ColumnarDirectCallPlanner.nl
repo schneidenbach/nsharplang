@@ -210,6 +210,25 @@ class ColumnarDirectCallPlanner {
         }
 
         argumentTypes := new Type[](nodes.ChildCount(node) - 1)
+
+        // NAMED ARGUMENTS ARE PLACED BEFORE ANYTHING ELSE LOOKS AT THEM. Every owner below this point
+        // -- argument typing, overload selection, conversions, the argument walk -- reads argument `i`
+        // as parameter `i`, and that is the whole reason a name is resolved here: the placement is
+        // decided once, against the signatures the call could actually reach, and nothing downstream
+        // learns that a name was ever written. A call whose names cannot be placed is left exactly as
+        // written and declines, so a mis-placement can never reach IL.
+        //
+        // A placement that leaves every argument where it was written is FLATTENED into the node
+        // table straight away: the wrappers then carry nothing, and a call this planner goes on to
+        // decline for some unrelated reason reaches the residual emitter as the positional call it
+        // is. A placement that MOVES an argument is kept here and applied to the argument rows below,
+        // because only this planner can emit the move while preserving the written evaluation order.
+        namedPlacement := new int[](0)
+        if ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentTypes.Length) && !TryPlaceNamedCallArguments(nodes, source, node, callee, calleeKind, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes.Length, out namedPlacement) {
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
         argumentOwnership := ColumnarDirectCallOwnership.NotOwned
@@ -223,13 +242,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        // NAMED ARGUMENTS ARE PLACED BEFORE ANYTHING SCORES THEM. Every owner below this point --
-        // overload selection, conversions, the argument walk -- reads argument `i` as parameter `i`,
-        // and that is the whole reason a name has to be resolved here: the rows are moved into the
-        // signature's order once, and nothing downstream learns that a name was ever written. A call
-        // whose names cannot be placed is left exactly as written and declines, so a mis-placement
-        // can never reach IL.
-        if ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentTypes.Length) && !TryBindNamedCallArguments(nodes, source, node, callee, calleeKind, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts) {
+        if namedPlacement.Length == argumentTypes.Length && !ColumnarNamedArgumentBinder.ApplyPlacement(argumentTypes, argumentFacts, namedPlacement) {
             legacyWholeSubtreePlanning = true
             return false
         }
@@ -262,8 +275,8 @@ class ColumnarDirectCallPlanner {
     // a `base.M(...)` reaches the base declaration. Whichever of those the call turns out to be, its
     // parameter names are in this set, and the placement is accepted only when every candidate that
     // admits the written names agrees on it.
-    static func TryBindNamedCallArguments(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, methodBodySchema: bool, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
-        arity := argumentTypes.Length
+    static func TryPlaceNamedCallArguments(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, methodBodySchema: bool, arity: int, out placement: int[]): bool {
+        placement = new int[](0)
         candidates := new List<string[]>()
 
         if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() {
@@ -279,7 +292,7 @@ class ColumnarDirectCallPlanner {
             }
 
             ColumnarNamedArgumentBinder.CollectSourceStaticParameterNames(bindings.EnclosingTypeDefinition, bareName, arity, candidates)
-            return ColumnarNamedArgumentBinder.TryBindAgreedPlacement(nodes, source, callNode, 1, candidates, argumentTypes, argumentFacts)
+            return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
         }
 
         if calleeKind == ColumnarExpressionNodeKind.BaseMemberExpression() {
@@ -290,7 +303,7 @@ class ColumnarDirectCallPlanner {
                 ColumnarNamedArgumentBinder.CollectReflectedParameterNames(currentInstance.SourceDefinition.ExactBaseType, nodes.Text(source, callee), arity, false, candidates)
             }
 
-            return ColumnarNamedArgumentBinder.TryBindAgreedPlacement(nodes, source, callNode, 1, candidates, argumentTypes, argumentFacts)
+            return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
         }
 
         if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(callee) != 1 {
@@ -328,7 +341,7 @@ class ColumnarDirectCallPlanner {
             ColumnarNamedArgumentBinder.CollectReflectedParameterNames(receiverType, memberName, arity, false, candidates)
         }
 
-        return ColumnarNamedArgumentBinder.TryBindAgreedPlacement(nodes, source, callNode, 1, candidates, argumentTypes, argumentFacts)
+        return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
     }
 
     // The explicit generic callee stores its complete dotted value name and its type-reference

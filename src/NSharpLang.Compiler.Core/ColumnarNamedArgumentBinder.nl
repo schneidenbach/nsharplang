@@ -112,7 +112,7 @@ class ColumnarNamedArgumentBinder {
     // no names at all admits only positional arguments.
     static func TryPlace(nodes: ColumnarNodeTable, source: string, callNode: int, firstArgumentOrdinal: int, argumentCount: int, parameterNames: string[], parameterCount: int, out slotForWrittenArgument: int[]): bool {
         slotForWrittenArgument = new int[](0)
-        if nodes == null || source == null || parameterNames == null || argumentCount != parameterCount || callNode < 0 || callNode >= nodes.Kinds.Length {
+        if nodes == null || source == null || parameterNames == null || argumentCount > parameterCount || argumentCount <= 0 || callNode < 0 || callNode >= nodes.Kinds.Length {
             return false
         }
 
@@ -154,9 +154,15 @@ class ColumnarNamedArgumentBinder {
             written = written + 1
         }
 
+        // THE WRITTEN ARGUMENTS MUST FILL THE LEADING SLOTS. A signature may be reached at fewer
+        // arguments than it has parameters -- the ones left over take their declared defaults -- but
+        // the defaults the backend can write are the TRAILING ones, so a name that skips a parameter
+        // and claims a later one leaves a hole nothing fills, and the call is declined rather than
+        // silently shifted.
         unclaimed := 0
         while unclaimed < parameterCount {
-            if claimedBy[unclaimed] < 0 {
+            claimed := claimedBy[unclaimed] >= 0
+            if claimed != (unclaimed < argumentCount) {
                 return false
             }
 
@@ -233,17 +239,6 @@ class ColumnarNamedArgumentBinder {
         return true
     }
 
-    // Bind a call's named arguments against one candidate signature and move the rows into its
-    // order. Answers false -- leaving every column exactly as it was -- when the names do not place.
-    static func TryBind(nodes: ColumnarNodeTable, source: string, callNode: int, firstArgumentOrdinal: int, parameterNames: string[], parameterCount: int, argumentTypes: Type[], facts: ColumnarDirectCallArgumentFacts): bool {
-        placement := new int[](0)
-        if !TryPlace(nodes, source, callNode, firstArgumentOrdinal, argumentTypes.Length, parameterNames, parameterCount, out placement) {
-            return false
-        }
-
-        return ApplyPlacement(argumentTypes, facts, placement)
-    }
-
     // The parameter names of a reflected method or constructor, in declaration order. A parameter
     // whose metadata carries no name cannot be named at a call, and answers the empty spelling.
     static func ReflectedParameterNames(method: MethodBase?): string[] {
@@ -288,14 +283,14 @@ class ColumnarNamedArgumentBinder {
     // that spell their parameters differently and BOTH admit the written names would place the call
     // two ways; that call is ambiguous and is declined rather than guessed at.
     static func AddCandidate(candidates: List<string[]>, parameterNames: string[]?, arity: int) {
-        if parameterNames == null || parameterNames.Length != arity || arity == 0 {
+        if parameterNames == null || parameterNames.Length < arity || arity == 0 {
             return
         }
 
         for existing in candidates {
-            same := true
+            same := existing.Length == parameterNames.Length
             index := 0
-            while index < arity {
+            while same && index < existing.Length {
                 if !String.Equals(existing[index], parameterNames[index], StringComparison.Ordinal) {
                     same = false
                     break
@@ -416,10 +411,11 @@ class ColumnarNamedArgumentBinder {
         }
     }
 
-    // Place the call's arguments against the gathered candidates and move the argument rows into the
-    // agreed order. False means the call keeps the order it was written in and its named arguments
-    // are still un-bound, which is what the planner declines on.
-    static func TryBindAgreedPlacement(nodes: ColumnarNodeTable, source: string, callNode: int, firstArgumentOrdinal: int, candidates: List<string[]>, argumentTypes: Type[], facts: ColumnarDirectCallArgumentFacts): bool {
+    // Decide the placement the gathered candidates agree on, and flatten it into the node table when
+    // it leaves every argument where it was written. False means the call keeps the order it was
+    // written in and its named arguments are still un-placed, which is what the planner declines on.
+    static func TryAgreedPlacement(nodes: ColumnarNodeTable, source: string, callNode: int, firstArgumentOrdinal: int, argumentCount: int, candidates: List<string[]>, out placement: int[]): bool {
+        placement = new int[](0)
         if candidates == null || candidates.Count == 0 {
             return false
         }
@@ -427,20 +423,20 @@ class ColumnarNamedArgumentBinder {
         agreed := new int[](0)
         found := false
         for candidate in candidates {
-            placement := new int[](0)
-            if !TryPlace(nodes, source, callNode, firstArgumentOrdinal, argumentTypes.Length, candidate, candidate.Length, out placement) {
+            candidatePlacement := new int[](0)
+            if !TryPlace(nodes, source, callNode, firstArgumentOrdinal, argumentCount, candidate, candidate.Length, out candidatePlacement) {
                 continue
             }
 
             if !found {
-                agreed = placement
+                agreed = candidatePlacement
                 found = true
                 continue
             }
 
             index := 0
-            while index < placement.Length {
-                if placement[index] != agreed[index] {
+            while index < candidatePlacement.Length {
+                if candidatePlacement[index] != agreed[index] {
                     return false
                 }
 
@@ -448,11 +444,12 @@ class ColumnarNamedArgumentBinder {
             }
         }
 
-        if !found || !ApplyPlacement(argumentTypes, facts, agreed) {
+        if !found {
             return false
         }
 
-        FlattenPlacedArguments(nodes, callNode, firstArgumentOrdinal, argumentTypes.Length, facts)
+        placement = agreed
+        FlattenPlacedArguments(nodes, callNode, firstArgumentOrdinal, agreed)
         return true
     }
 
@@ -462,15 +459,20 @@ class ColumnarNamedArgumentBinder {
     // ends up declining for some unrelated reason (a lambda argument, say) reaches the residual
     // emitter as the ordinary positional call it is. A placement that MOVES an argument is left
     // alone: only the planner can emit that, because only it spills the written order.
-    static func FlattenPlacedArguments(nodes: ColumnarNodeTable, callNode: int, firstArgumentOrdinal: int, argumentCount: int, facts: ColumnarDirectCallArgumentFacts) {
-        if facts.RequiresReorder {
-            return
+    static func FlattenPlacedArguments(nodes: ColumnarNodeTable, callNode: int, firstArgumentOrdinal: int, placement: int[]) {
+        index := 0
+        while index < placement.Length {
+            if placement[index] != index {
+                return
+            }
+
+            index = index + 1
         }
 
-        index := 0
-        while index < argumentCount {
-            nodes.SetChild(callNode, firstArgumentOrdinal + index, facts.ArgumentNodes[index])
-            index = index + 1
+        flatten := 0
+        while flatten < placement.Length {
+            nodes.SetChild(callNode, firstArgumentOrdinal + flatten, ArgumentValueNode(nodes, nodes.Child(callNode, firstArgumentOrdinal + flatten)))
+            flatten = flatten + 1
         }
     }
 }

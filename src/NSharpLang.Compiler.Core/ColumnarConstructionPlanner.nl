@@ -1338,13 +1338,20 @@ class ColumnarConstructionPlanner {
             return true
         }
         argumentTypes := new Type[](argumentCount)
+        namedPlacement := new int[](0)
+        if !TryPlaceNamedConstructorArguments(nodes, source, node, definition, targetType, argumentCount, out namedPlacement) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
         if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
 
-        if !TryBindNamedConstructorArguments(nodes, source, node, definition, targetType, argumentTypes, argumentFacts) {
+        if namedPlacement.Length == argumentCount && !ColumnarNamedArgumentBinder.ApplyPlacement(argumentTypes, argumentFacts, namedPlacement) {
             ownership = ColumnarDirectCallOwnership.NotOwned
             legacyWholeSubtreePlanning = true
             return false
@@ -1391,13 +1398,20 @@ class ColumnarConstructionPlanner {
         // appending instructions, so nothing is emitted before the selection is known.
         argumentCount := nodes.ChildCount(node) - 1
         argumentTypes := new Type[](argumentCount)
+        namedPlacement := new int[](0)
+        if !TryPlaceNamedConstructorArguments(nodes, source, node, null, targetType, argumentCount, out namedPlacement) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
         if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
 
-        if !TryBindNamedConstructorArguments(nodes, source, node, null, targetType, argumentTypes, argumentFacts) {
+        if namedPlacement.Length == argumentCount && !ColumnarNamedArgumentBinder.ApplyPlacement(argumentTypes, argumentFacts, namedPlacement) {
             ownership = ColumnarDirectCallOwnership.NotOwned
             legacyWholeSubtreePlanning = true
             return false
@@ -1452,13 +1466,20 @@ class ColumnarConstructionPlanner {
             return true
         }
         argumentTypes := new Type[](argumentCount)
+        namedPlacement := new int[](0)
+        if !TryPlaceNamedConstructorArguments(nodes, source, node, definition, targetType, argumentCount, out namedPlacement) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
         if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
 
-        if !TryBindNamedConstructorArguments(nodes, source, node, definition, targetType, argumentTypes, argumentFacts) {
+        if namedPlacement.Length == argumentCount && !ColumnarNamedArgumentBinder.ApplyPlacement(argumentTypes, argumentFacts, namedPlacement) {
             ownership = ColumnarDirectCallOwnership.NotOwned
             legacyWholeSubtreePlanning = true
             return false
@@ -1560,13 +1581,20 @@ class ColumnarConstructionPlanner {
         legacyWholeSubtreePlanning = false
         argumentCount := nodes.ChildCount(node) - 1
         argumentTypes := new Type[](argumentCount)
+        namedPlacement := new int[](0)
+        if !TryPlaceNamedConstructorArguments(nodes, source, node, null, targetType, argumentCount, out namedPlacement) {
+            ownership = ColumnarDirectCallOwnership.NotOwned
+            legacyWholeSubtreePlanning = true
+            return false
+        }
+
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
         if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
 
-        if !TryBindNamedConstructorArguments(nodes, source, node, null, targetType, argumentTypes, argumentFacts) {
+        if namedPlacement.Length == argumentCount && !ColumnarNamedArgumentBinder.ApplyPlacement(argumentTypes, argumentFacts, namedPlacement) {
             ownership = ColumnarDirectCallOwnership.NotOwned
             legacyWholeSubtreePlanning = true
             return false
@@ -1727,19 +1755,20 @@ class ColumnarConstructionPlanner {
     // The names a `new` may write are its type's constructors' parameter names. A source type answers
     // from its own declarations; an external one from its metadata. The placement moves the argument
     // rows into signature order before any constructor is selected, exactly as a call's does.
-    static func TryBindNamedConstructorArguments(nodes: ColumnarNodeTable, source: string, node: int, definition: ColumnarStructDef?, targetType: Type?, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
-        if !ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentTypes.Length) {
+    static func TryPlaceNamedConstructorArguments(nodes: ColumnarNodeTable, source: string, node: int, definition: ColumnarStructDef?, targetType: Type?, argumentCount: int, out placement: int[]): bool {
+        placement = new int[](0)
+        if !ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentCount) {
             return true
         }
 
         candidates := new List<string[]>()
         if definition != null {
-            ColumnarNamedArgumentBinder.CollectSourceConstructorParameterNames(definition, argumentTypes.Length, candidates)
+            ColumnarNamedArgumentBinder.CollectSourceConstructorParameterNames(definition, argumentCount, candidates)
         } else {
-            ColumnarNamedArgumentBinder.CollectReflectedConstructorParameterNames(targetType, argumentTypes.Length, candidates)
+            ColumnarNamedArgumentBinder.CollectReflectedConstructorParameterNames(targetType, argumentCount, candidates)
         }
 
-        return ColumnarNamedArgumentBinder.TryBindAgreedPlacement(nodes, source, node, 1, candidates, argumentTypes, argumentFacts)
+        return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, node, 1, argumentCount, candidates, out placement)
     }
 
     static func TryGetConstructorArguments(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, methodBodySchema: bool, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
