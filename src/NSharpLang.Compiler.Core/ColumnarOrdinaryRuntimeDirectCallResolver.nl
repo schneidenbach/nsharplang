@@ -616,16 +616,80 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     // receiver is a builder-bound instantiation — and `closedArguments` is non-empty only in the
     // second case, where every declared position closes over it.
     static func ResolveUniqueAtArityCore(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentCount: int, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        admitted := CandidatesAtArityCore(lookupType, candidateLookupType, closedArguments, memberName, argumentCount, expectedStatic)
+        if admitted.Count != 1 {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        }
+
+        return admitted[0]
+    }
+
+    // EVERY DECLARATION OF THIS NAME THIS RECEIVER COULD DISPATCH AT THIS ARITY, in resolution's own
+    // admission terms rather than a caller's.
+    //
+    // `ResolveUniqueAtArity` is this list plus the sentence "exactly one, or nothing". The list itself
+    // is what a caller needs when its ARGUMENTS still carry the information that would choose — a
+    // collection expression, which has no type until a parameter names its element type, is the shape
+    // that has it: `Encoding.UTF8.GetString([72, 105])` leaves two arity-1 declarations standing here
+    // (`byte[]` and `ReadOnlySpan<byte>`), and only the `byte[]` one can accept the literal that was
+    // actually written. A caller that can answer THAT question filters this list and is left with the
+    // overload the language chose; one that cannot keeps asking for the unique answer and is refused
+    // exactly as before.
+    //
+    // The admission rules are not restated anywhere: accessibility, name, staticness, arity, the
+    // excluded intrinsic shapes, an unsupported resolved signature and dispatchability are all decided
+    // here, once, so a filtered candidate is a candidate resolution itself would have selected.
+    static func CandidatesAtArity(lookupType: Type, memberName: string, argumentCount: int, expectedStatic: bool): List<ColumnarOrdinaryRuntimeDirectCallSelection> {
+        empty := new List<ColumnarOrdinaryRuntimeDirectCallSelection>()
+        if lookupType == null || memberName == null || argumentCount < 0 {
+            return empty
+        }
+
+        if lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
+            return empty
+        }
+
+        genericDefinition := typeof(object)
+        closedArguments := new Type[](0)
+        if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
+            try {
+                return CandidatesAtArityCore(lookupType, genericDefinition, closedArguments, memberName, argumentCount, expectedStatic)
+            } catch ex: NotSupportedException {
+                return empty
+            } catch ex: NotImplementedException {
+                return empty
+            } catch ex: InvalidOperationException {
+                return empty
+            } catch ex: ArgumentException {
+                return empty
+            }
+        }
+
+        if ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(lookupType) {
+            return empty
+        }
+
+        try {
+            return CandidatesAtArityCore(lookupType, lookupType, new Type[](0), memberName, argumentCount, expectedStatic)
+        } catch ex: NotSupportedException {
+            return empty
+        } catch ex: NotImplementedException {
+            return empty
+        } catch ex: InvalidOperationException {
+            return empty
+        } catch ex: ArgumentException {
+            return empty
+        }
+    }
+
+    static func CandidatesAtArityCore(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentCount: int, expectedStatic: bool): List<ColumnarOrdinaryRuntimeDirectCallSelection> {
         builderBound := closedArguments.Length > 0
         candidates := CandidatesOrEmpty(candidateLookupType)
         if builderBound {
             ValidateBuilderBoundCandidates(candidates)
         }
 
-        selected: MethodInfo? = null
-        selectedParameters := new Type[](0)
-        selectedReturnType := typeof(object)
-        selectedCount := 0
+        admitted := new List<ColumnarOrdinaryRuntimeDirectCallSelection>()
         index := 0
         while index < candidates.Length {
             candidate := candidates[index]
@@ -645,21 +709,14 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 continue
             }
 
-            selectedCount = selectedCount + 1
-            selected = candidate
-            selectedParameters = parameterTypes
-            selectedReturnType = returnType
+            if builderBound {
+                admitted.Add(SelectedBuilderBound(lookupType, candidateLookupType, candidate, parameterTypes, returnType, expectedStatic))
+            } else {
+                admitted.Add(Selected(lookupType, candidate, parameterTypes, expectedStatic))
+            }
         }
 
-        if selectedCount != 1 || selected == null {
-            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
-        }
-
-        if builderBound {
-            return SelectedBuilderBound(lookupType, candidateLookupType, selected, selectedParameters, selectedReturnType, expectedStatic)
-        }
-
-        return Selected(lookupType, selected, selectedParameters, expectedStatic)
+        return admitted
     }
 
     static func ValidateBuilderBoundCandidates(candidates: MethodInfo[]) {

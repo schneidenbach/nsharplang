@@ -1875,11 +1875,6 @@ Two rules the compiler enforces about the type-argument list itself:
   (`summary := Kernels.Summarize(args)` then `summary.ShowHelp`). The same member read works off a
   parameter of that type and off a local initialised with `new`, so binding the value differently is
   the workaround.
-- A collection expression whose elements have **no common type**, written against an overload set of
-  the same arity declared in the SAME project, type-checks and then declines at emission
-  (`Sink.Accept([1, "b", null])` where `Accept` takes both `int[]` and `object[]`). The emitter picks
-  a same-arity candidate before it looks at the argument. A single candidate of that arity, and an
-  overload set reached with a literal whose elements DO have a common type, are both unaffected.
 - A **conditional whose arms BOTH throw** (`ok ? throw new A() : throw new B()`) declines at emission
   with [NL103](./errors/NL103.md): there is nothing for the conditional to be worth, and C# refuses
   it for the same reason. Write the throw as a statement instead. A conditional with only ONE
@@ -1890,11 +1885,14 @@ Two rules the compiler enforces about the type-argument list itself:
   `this.GetType()`, `other.GetType()` on a parameter or a local, and `(this as object).GetType()` all
   work, on a `class` and on a `record`. Inside a **`struct`**'s own method the `this.` spelling is not
   available for an inherited member either — take the value through a parameter or a local first.
-- **Tuple element NAMES do not survive an `IGrouping.Key` hop.** `xs.GroupBy(x => (x.Code, x.Line))`
-  emits and `group.Key.Item1` reads the element, but `group.Key.Code` does not: the names are
-  metadata the grouping's key type does not carry, and nothing at the call site writes them down.
-  Names DO survive a declared return type — `func Pairs(): List<(Code: string, Line: int)>` then
-  `pair.Code` — so hand the grouped keys to a function that declares them.
+- **Tuple element NAMES survive an `IGrouping.Key` hop only when something WRITTEN named them.**
+  Grouping a `List<(Code: string, Line: int)>` by its whole element — `rows.GroupBy(r => r)` — keeps
+  the names, so `group.Key.Code` reads the element; the loop variable remembers the written type its
+  values came out of and the key is the tuple that type named. A key whose names exist only in a
+  LAMBDA's own tuple literal (`xs.GroupBy(x => (Code: x.Code, Line: x.Line))`) does not: nothing
+  written names those elements, so `group.Key.Item1` reads them and `group.Key.Code` does not.
+  Annotate the sequence (or hand the keys to a function that declares
+  `List<(Code: string, Line: int)>`) to get the names back.
 - Overloaded **free functions** are not emitted: two `func Accept(...)` declarations at file scope
   with different parameter types stop the columnar backend at its declaration scan. Declare the
   overload set on a type instead. Two same-named free functions in DIFFERENT namespaces are not an

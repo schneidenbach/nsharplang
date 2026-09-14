@@ -49,7 +49,7 @@ class ColumnarTypeOfPlanner {
         ValidateInputs(nodes, source, node, bindings, plan)
         candidate := UnwrapParentheses(nodes, node)
         selected := ColumnarSelectedTypeReference.Missing(bindings.StructuralTypeReferences)
-        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression() && (!TryResolveTarget(nodes, source, candidate, bindings, out selected) || !IsSupportedType(selected.RuntimeType)) {
+        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression() && (!TryResolveTarget(nodes, source, candidate, bindings, out selected) || !IsSupportedTypeOfTarget(selected.RuntimeType)) {
             plan.PrepareV3()
             resultType = typeof(Type)
             return false
@@ -171,6 +171,23 @@ class ColumnarTypeOfPlanner {
         canonical := ""
         if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), 0, out canonical) {
             return false
+        }
+        // `typeof` IS THE ONE TYPE POSITION THAT ADMITS `void`.
+        //
+        // `AnalyzerTypeReferenceFacts` already states the split: `void` is a built-in SPELLING the
+        // analyzer resolves everywhere a return type is written, but
+        // `ColumnarBindingScopeFacts.TryResolveExplicitBuiltin` deliberately binds the other
+        // seventeen and not this one, "because `void` is not a type a local can hold". That refusal
+        // is the reason `x: void` and `new void[](1)` do not bind, and it must stay.
+        //
+        // `typeof(void)` is the exception the CLR itself carries (C# §12.8.18: the type argument of
+        // `typeof` may be `void`, and ONLY there). It lowers to the same `ldtoken`/`GetTypeFromHandle`
+        // pair as every other target and yields `System.Void` — an ordinary external named identity
+        // in the structural pool. So the admission is stated HERE, in the typeof owner, where it
+        // cannot leak into a storage position, rather than by widening the explicit-type builtin set.
+        if canonical == "void" {
+            selected = bindings.StructuralTypeReferences.SelectRuntimeType(RequiredVoidType())
+            return true
         }
         scope := nodes.BindingScope
         if scope != null && !canonical.Contains("|") {
@@ -1098,6 +1115,16 @@ class ColumnarTypeOfPlanner {
     // generic type/method parameter; and a closed instantiation of a user generic definition.
     // Mixed arithmetic (implicit widening) is not modelled — an expression's operands must share
     // one type.
+    // The target of a `typeof` is a METADATA reference, not a value, so it admits one type the
+    // storable-value surface must keep refusing: `System.Void`. Everything else is the same rule,
+    // because everything else that can be named can also be held.
+    static func IsSupportedTypeOfTarget(targetType: Type): bool {
+        if targetType != null && targetType == RequiredVoidType() {
+            return true
+        }
+        return IsSupportedType(targetType)
+    }
+
     static func IsSupportedType(valueType: Type): bool {
         if valueType == null {
             return false

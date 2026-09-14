@@ -1295,3 +1295,60 @@ test "an external generic over a type parameter is a storable type, and a source
     // A BY-REF-LIKE instantiation is refused: it may not be a field at all, whatever its arguments.
     assert !ColumnarTypeOfPlanner.IsSupportedType(typeof(Span<int>).GetGenericTypeDefinition().MakeGenericType(oneArgument))
 }
+
+// ── `typeof` IS THE ONE TYPE POSITION THAT ADMITS `void` ───────────────────────────────────────
+//
+// `AnalyzerTypeReferenceFacts` states the split the language already had: `void` is a built-in
+// SPELLING the analyzer resolves wherever a return type is written, while
+// `ColumnarBindingScopeFacts.TryResolveExplicitBuiltin` binds the other seventeen and not this one,
+// "because `void` is not a type a local can hold". Both halves of that split are asserted here —
+// the storage refusal that must stay, and the `typeof` admission that C# §12.8.18 carries and the
+// CLR lowers with the ordinary `ldtoken`/`GetTypeFromHandle` pair.
+test "typeof admits void while every storage position still refuses it" {
+    voidType := ColumnarTypeOfPlanner.RequiredVoidType()
+    assert voidType.FullName == "System.Void"
+
+    // The refusal that must stay: `void` is not an explicit type a binding, field, parameter or
+    // array element may name, so the explicit-type builtin set does not bind the spelling at all.
+    explicitBuiltin := typeof(object)
+    assert !ColumnarBindingScopeFacts.TryResolveExplicitBuiltin("void", out explicitBuiltin)
+    assert ColumnarBindingScopeFacts.TryResolveExplicitBuiltin("int", out explicitBuiltin)
+
+    // And the same refusal on the storable-value surface, which decides what a pool row may hold.
+    assert !ColumnarTypeOfPlanner.IsSupportedType(voidType)
+    assert !ColumnarTypeOfPlanner.IsSupportedElementType(voidType)
+
+    // The admission is exactly one position wide: the target of a `typeof`.
+    assert ColumnarTypeOfPlanner.IsSupportedTypeOfTarget(voidType)
+    assert ColumnarTypeOfPlanner.IsSupportedTypeOfTarget(typeof(int))
+    assert !ColumnarTypeOfPlanner.IsSupportedTypeOfTarget(null)
+
+    tree := TypeOfSimpleTree("void")
+    bindings := ColumnarRangePlannerEmptyBindings()
+    selected := ColumnarSelectedTypeReference.Missing(bindings.StructuralTypeReferences)
+    assert ColumnarTypeOfPlanner.TryResolveTarget(tree.Nodes, tree.Source, tree.Root, bindings, out selected)
+    assert selected.RuntimeType == voidType
+
+    // The lowering is the ordinary two-instruction pair, and the pool row it names really executes.
+    plan := TypeOfPlan(tree, bindings)
+    assert plan.OperationCount == 2
+    assert plan.TypeCount == 1
+    assert plan.Types[0] == voidType
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldtoken()
+    assert plan.OperandKinds[0] == ColumnarCodePlanContract.TypeOperand()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    assert plan.ResultType == typeof(Type)
+    assert ExecutorRunV3ScalarPlan(plan, typeof(Type)) == "System.Void"
+
+    // A type-pool row read ONLY by `ldtoken` names metadata rather than storage, which is what lets
+    // the row above survive validation while every other role keeps the void refusal.
+    metadataOnly := ColumnarCodePlanExecutor.MetadataOnlyTypePoolRows(plan)
+    assert metadataOnly.Length == 1
+    assert metadataOnly[0]
+
+    typedTree := TypeOfSimpleTree("string")
+    typedPlan := TypeOfPlan(typedTree, bindings)
+    typedMetadataOnly := ColumnarCodePlanExecutor.MetadataOnlyTypePoolRows(typedPlan)
+    assert typedMetadataOnly.Length == 1
+    assert typedMetadataOnly[0]
+}
