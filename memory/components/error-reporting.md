@@ -117,6 +117,12 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
   file/line/column. The `CompilerError.FileName`, `Line`, `Column`, and `Length` fields point at the declined source
   span when the backend can map it. Set `NSHARP_COLUMNAR_DECLINE_LOG=1` to dump the full columnar decline trace to
   stderr; `NSHARP_DEBUG_LOG=1` also mirrors the trace into `compile-debug.log`.
+  **The SUBJECT of a call decline is the member, not the chain that reaches it.** A callee written with explicit type
+  arguments carries its whole dotted spelling as its text, so `emit.call.generic-unresolved` and
+  `emit.call.generic-shadowed` used to print the entire receiver where the reader looks for a name — about 1,400
+  characters for the language-server conversion's 27-link `WithHandler` chain. `ColumnarDeclineReasonFacts.CalledMemberName`
+  is the one rule (everything up to and including the last `.` is the receiver); the chain stays the LOCATION the
+  decline points at. Pinned in `ColumnarDeclineReasonFacts.tests.nl`.
 - `NL104`: UnexpectedEndOfFile — emitted when `Consume`/`ConsumeIdentifier` reach EOF while a token is still required (e.g. `func`, `class Foo`, or a trailing `<expected>` with no body). The span anchors on the last visible owner token (the keyword/identifier), never on the empty EOF position, and the message reads "...but reached the end of the file" instead of exposing the empty `''` token.
 - `NL105`: InvalidLiteral, including unterminated string, character, triple-quoted, and interpolated raw string literals with spans on the literal opener/token
 - `NL106-108`: Missing closing brace/paren/bracket, with line-break and empty-list recovery pointing at visible owner tokens when available

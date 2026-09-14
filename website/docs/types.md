@@ -598,6 +598,26 @@ result := MathHelper.square(5)
 pi := MathHelper.Pi
 ```
 
+**A receiver that names a type is a static receiver, however you spell it.** The type's own name, its
+namespace-qualified name, and a constructed generic head all reach the same static member, so a call
+you would otherwise have to `import` for can be written out in full:
+
+```n#
+func WriteInto(path: string?) {
+    System.IO.Directory.CreateDirectory(must path)          // a namespace-qualified receiver
+    System.Console.WriteLine(System.String.Concat("in ", must path))
+}
+
+func EmptyInts(): int[] {
+    return System.Linq.Enumerable.Empty<int>().ToArray()    // a qualified GENERIC static
+}
+```
+
+The qualified spelling is a type NAME, not a value, so nothing about the receiver is loaded — and
+nothing about the argument changes either. A `must` unwrap is a null assert, not a conversion: it
+produces its operand's type (a `T?` value produces `T`), and that type is what chooses the overload,
+so `System.Math.Max(must count, 3)` picks `Max(int, int)` exactly as the imported spelling does.
+
 ### Field initializers
 
 A field initializer is an ordinary expression — a literal, a call, a construction, an operator
@@ -1864,7 +1884,11 @@ Two rules the compiler enforces about the type-argument list itself:
   argument reaches a non-generic function's `object?` parameter without ceremony.
 - A generic method written with its type arguments **directly on a call's RESULT**
   (`Make().As<int>()`) does not resolve; bind the receiver to a name first (`made := Make()` then
-  `made.As<int>()`). An ordinary member off a call result (`Make().Index`) is unaffected.
+  `made.As<int>()`). An ordinary member off a call result (`Make().Index`) is unaffected. The
+  receiver in front of a written type argument list is read name by name, so a chain of plain member
+  names is fine — `map.Values.OfType<string>()` and `server.Services.GetRequiredService<ILogger>()`
+  both reach their member, including through properties a referenced assembly declares — and only a
+  chain that CALLS or INDEXES on the way needs the local.
 - A **lambda or a method group as a CONSTRUCTOR argument** compiles (`new Lazy<int>(() => 1)`),
   including into an external generic closed over one of your own types — `new Lazy<Query>(MakeQuery)`
   and `new Lazy<Query>(() => new Query())` both work, and so does reading `.Value` off the result.
