@@ -92,9 +92,15 @@ class NullabilityGenericSubstitution {
         return names
     }
 
-    static func AddLiftedTypeParameter(names: HashSet<string>?, constraint: GenericConstraint): HashSet<string>? {
+    // THE ONE READING OF THE `struct` BIT, so every owner that has to tell the two readings of `T?`
+    // apart asks the same question of the same word.
+    static func IsStructConstrained(constraint: GenericConstraint): bool {
         structFlag := Convert.ToInt32(SpecialConstraintKind.Struct)
-        if (Convert.ToInt32(constraint.SpecialConstraints) & structFlag) != structFlag {
+        return (Convert.ToInt32(constraint.SpecialConstraints) & structFlag) == structFlag
+    }
+
+    static func AddLiftedTypeParameter(names: HashSet<string>?, constraint: GenericConstraint): HashSet<string>? {
+        if !IsStructConstrained(constraint) {
             return names
         }
 

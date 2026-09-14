@@ -880,3 +880,31 @@ test "a constraint leaves scope with the declaration that introduced it" {
     assert !stack.TryGetTypeParameterConstraints("T", out recorded)
     assert recorded == null
 }
+
+test "the `struct` constraint is recorded on its own and leaves scope with its declaration" {
+    model := new SemanticModel()
+    stack := ScopeStackOf(model, [ScopeKind.Global])
+
+    stack.Push(model, new Scope(ScopeKind.Function), 2, 1)
+    stack.DeclareTypeParameter("T")
+
+    // `where T : struct` names no type, so the constraint-TYPE record stays empty and this is the
+    // only place the fact lives — and it is the fact that makes `T?` a real `Nullable<T>`.
+    stack.DeclareStructConstrainedTypeParameter("T")
+    recorded: List<TypeInfo>? = null
+    assert !stack.TryGetTypeParameterConstraints("T", out recorded)
+    assert stack.IsStructConstrainedTypeParameter("T")
+
+    // A name nothing constrained, and an ordinary type that merely shares a spelling with one,
+    // answer false.
+    assert !stack.IsStructConstrainedTypeParameter("U")
+    assert !stack.IsStructConstrainedTypeParameter("string")
+
+    // It is visible from an inner scope and dies with the declaration that introduced it.
+    stack.Push(model, new Scope(ScopeKind.Block), 3, 1)
+    assert stack.IsStructConstrainedTypeParameter("T")
+    stack.Pop(model)
+
+    stack.Pop(model)
+    assert !stack.IsStructConstrainedTypeParameter("T")
+}

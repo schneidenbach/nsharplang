@@ -7,8 +7,9 @@ import System.Reflection.Emit
 
 // Generic sibling-call inference and result-shape ownership. Inference mutates the caller-supplied
 // binding array as each parameter is learned; a later mismatch deliberately retains those earlier
-// writes. Return substitution is a separate, narrower model whose source-generic and admitted BCL
-// collection rules must not inherit the broader constraint-substitution behavior.
+// writes. Return substitution is a separate, narrower model: a source-generic head recloses on its
+// own definition, and every other constructed head is admitted by the backend's type-admissibility
+// question rather than by the broader constraint-substitution behavior.
 class ColumnarGenericCallBindingPlanner {
     static func TryUnifyTypeParam(
         typeParams: Type[],
@@ -174,27 +175,53 @@ class ColumnarGenericCallBindingPlanner {
 
         if declaredReturn.get_IsGenericType() && !declaredReturn.get_IsGenericTypeDefinition() && ColumnarTypeOfPlanner.ContainsBuilderBoundType(declaredReturn) {
             returnDefinition := declaredReturn.GetGenericTypeDefinition()
-            if returnDefinition != typeof(List<int>).GetGenericTypeDefinition() && !IsAnyDictionaryCollectionDefinition(returnDefinition) && returnDefinition != typeof(HashSet<int>).GetGenericTypeDefinition() && returnDefinition != typeof(IEnumerable<int>).GetGenericTypeDefinition() {
+            // The DEFINITION has to be a complete EXTERNAL identity. A source-headed one was already
+            // answered by the closed-source-generic arm above, and a definition that is itself
+            // builder-bound has no other reading here.
+            if ColumnarTypeOfPlanner.ContainsBuilderBoundType(returnDefinition) {
                 return false
             }
 
-            collectionArguments := declaredReturn.GetGenericArguments()
-            substitutedCollectionArguments := new Type[](collectionArguments.Length)
+            constructedArguments := declaredReturn.GetGenericArguments()
+            substitutedConstructedArguments := new Type[](constructedArguments.Length)
             argumentIndex := 0
-            while argumentIndex < collectionArguments.Length {
-                substitutedCollectionArgument: Type = null
+            while argumentIndex < constructedArguments.Length {
+                substitutedConstructedArgument: Type = null
                 if !TrySubstituteReturnType(
                     typeParams,
                     binding,
-                    collectionArguments[argumentIndex],
-                    out substitutedCollectionArgument
+                    constructedArguments[argumentIndex],
+                    out substitutedConstructedArgument
                 ) {
                     return false
                 }
-                substitutedCollectionArguments[argumentIndex] = substitutedCollectionArgument
+                substitutedConstructedArguments[argumentIndex] = substitutedConstructedArgument
                 argumentIndex = argumentIndex + 1
             }
-            substituted = returnDefinition.MakeGenericType(substitutedCollectionArguments)
+
+            // A CONSTRUCTION THAT CANNOT EXIST IS A DECLINE, NOT A THROW. `MakeGenericType` validates
+            // the definition's own constraints for a complete runtime identity, so a binding that
+            // violates one — `Nullable<T>` over a reference — raises rather than answering.
+            candidate: Type = null
+            try {
+                candidate = returnDefinition.MakeGenericType(substitutedConstructedArguments)
+            } catch ex: ArgumentException {
+                return false
+            }
+
+            // WHICH SUBSTITUTED CONSTRUCTIONS MAY COME BACK IS THE BACKEND'S OWN TYPE-ADMISSIBILITY
+            // QUESTION, and it used to be a list of four collection definitions instead. `Nullable<>`
+            // was not on that list, so `func Pick<T>(…): T? where T : struct` emitted its DECLARATION
+            // and every CALL that had to read the lifted result declined — `r := Pick(xs)` and
+            // `if Pick(xs) != null` both, while the same call at a position that already stated
+            // `int?` bound. `IsSupportedType` is the one head every param, local, field, element and
+            // return already passes through, and it is what knows a `Nullable<T>` over a substituted
+            // element is storable, so asking it states the rule instead of enumerating the answers.
+            if !ColumnarTypeOfPlanner.IsSupportedType(candidate) {
+                return false
+            }
+
+            substituted = candidate
             return true
         }
 

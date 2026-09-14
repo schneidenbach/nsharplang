@@ -1032,15 +1032,21 @@ class ColumnarCanonicalTypeResolver {
                     unionRegistry,
                     out element
                 ) {
-                    if !ColumnarTypeOfPlanner.IsValueTypeShape(element.RuntimeType) {
-                        selected = element
-                        return true
-                    }
+                    // THE LIFT IS ASKED FIRST, because it is the only question that can tell the two
+                    // readings of a TYPE PARAMETER's `T?` apart. A parameter is not a "value-type
+                    // shape" — reflection cannot say what it will be — so asking that first read
+                    // `where T : struct`'s `T?` as the bare annotated `T`, which is the UNCONSTRAINED
+                    // reading. For every other element the order changes nothing: a reference type is
+                    // never liftable, and a value type always is.
                     if ColumnarTypeOfPlanner.IsLiftableNullableElement(element.RuntimeType) {
                         nullableDefinition := ColumnarTypeOfPlanner.RequiredNullableDefinition()
                         runtimeArguments := SelectedRuntimeTypes(SelectedSingle(element))
                         runtimeType := nullableDefinition.MakeGenericType(runtimeArguments)
                         selected = ConstructedSelection(table, runtimeType, nullableDefinition, SelectedSingle(element))
+                        return true
+                    }
+                    if !ColumnarTypeOfPlanner.IsValueTypeShape(element.RuntimeType) {
+                        selected = element
                         return true
                     }
                 }

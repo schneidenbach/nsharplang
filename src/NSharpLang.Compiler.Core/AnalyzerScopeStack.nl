@@ -470,6 +470,29 @@ class AnalyzerScopeStack {
         Peek().TypeParameterConstraints[name] = constraintTypes
     }
 
+    // THE `struct` CONSTRAINT, WHICH NAMES NO TYPE AND SO HAS ITS OWN RECORD. It is the fact that
+    // makes this parameter's `T?` a real `Nullable<T>`, so every reader that has to tell the two
+    // readings of `T?` apart inside the declaration asks it here.
+    func DeclareStructConstrainedTypeParameter(name: string) {
+        Peek().StructConstrainedTypeParameters.Add(name)
+    }
+
+    // Whether a bare name visible here is a type parameter its declaration constrained to `struct`.
+    // Any other name — an unconstrained parameter, or an ordinary type that merely shares a spelling
+    // with one — answers false.
+    func IsStructConstrainedTypeParameter(name: string): bool {
+        index := scopes.Count - 1
+        while index >= 0 {
+            if scopes[index].StructConstrainedTypeParameters.Contains(name) {
+                return true
+            }
+
+            index = index - 1
+        }
+
+        return false
+    }
+
     // The constraints of a type parameter visible here, innermost scope first. A name with no
     // recorded constraints — an unconstrained parameter, or an ordinary type that merely shares a
     // spelling with one — answers false.

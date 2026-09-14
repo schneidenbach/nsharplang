@@ -131,10 +131,9 @@ func FoundMomentYear(moments: List<DateTime>): int {
 // `?` two other ways — a `NullableAttribute(2)` on the return, and a `[MaybeNullWhen(false)]`
 // postcondition — and both erase for a value element, INCLUDING a struct this compilation declares.
 //
-// (`tallies.Find(t => t.Count > 1)` over a `List<Tally>` would say the same thing and declines at
-// `emit.call.instance-member`: an external generic closed over a SOURCE type, called with a lambda.
-// That is an emit gap of its own and nothing to do with the erasure, which the ANALYSIS contract in
-// `tests/native/analyzer-clean-source` covers for the source-struct element.)
+// (`tallies.Find(t => t.Count > 1)` over a `List<Tally>` says the same thing and now emits too —
+// an external generic closed over a SOURCE type, called with a lambda, reads its candidates off the
+// open definition. `GenericLiftedReturns` pins that half.)
 struct Tally {
     Count: int
 }
@@ -173,12 +172,8 @@ func FirstOrDefaultOf<T>(items: T[]): T? {
 
 // A `struct` CONSTRAINT SPELLS A REAL `Nullable<T>`, and the CLR writes that one as `Nullable<T>`
 // in metadata — it is not the same type as the annotation above and does not erase. That half is
-// pinned by ANALYSIS rather than here: calling a generic source function whose return is a
-// `Nullable` over its own type parameter declines at `emit.if.condition` /
-// `emit.return.expression`, a generic-CALL emit gap that is nothing to do with the erasure rule
-// (the same declaration EMITS; only a call that reads its lifted result does not). The contracts
-// are `AnalyzerSyntheticCallBinder.tests.nl`'s lifted-set assertions and the clean-source pair in
-// `tests/native/analyzer-clean-source`.
+// pinned beside this one, in `GenericLiftedReturns`: the declaration's own metadata, and the calls
+// that read the lifted result at every position.
 
 func FirstNumber(values: int[]): int {
     return FirstOrDefaultOf(values)

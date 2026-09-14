@@ -38,6 +38,7 @@ class MemberAccessHarness {
     ImportedDeclarations: Dictionary<string, Dictionary<string, SymbolDeclaration>>
     Members: AnalyzerMemberResolution
     ExtensionResolution: AnalyzerExtensionMethodResolution
+    NullFlow: AnalyzerNullFlow
 
     constructor(
         arm: AnalyzerMemberAccess,
@@ -50,7 +51,8 @@ class MemberAccessHarness {
         importedSymbols: Dictionary<string, Dictionary<string, TypeInfo>>,
         importedDeclarations: Dictionary<string, Dictionary<string, SymbolDeclaration>>,
         members: AnalyzerMemberResolution,
-        extensionResolution: AnalyzerExtensionMethodResolution
+        extensionResolution: AnalyzerExtensionMethodResolution,
+        nullFlow: AnalyzerNullFlow
     ) {
         Arm = arm
         Errors = errors
@@ -63,6 +65,7 @@ class MemberAccessHarness {
         ImportedDeclarations = importedDeclarations
         Members = members
         ExtensionResolution = extensionResolution
+        NullFlow = nullFlow
     }
 }
 
@@ -105,7 +108,7 @@ func MemberArmOf(): MemberAccessHarness {
     identifierResolution := new AnalyzerIdentifierResolution(sink, scopes, resolver, discovery, probe, functionTypes, ambient, nullFlow, extensions, members, model, bindings)
 
     arm := new AnalyzerMemberAccess(sink, spans, scopes, context, nullFlow, soaEscape, ambient, provider, discovery, probe, substitution, identifierResolution, extensions, namespaces, usingAliases, importedSymbols, importedDeclarations, assemblies, members, clrConversion, extensionResolution, bindings)
-    return new MemberAccessHarness(arm, errors, scopes, model, bindings, sink, context, importedSymbols, importedDeclarations, members, extensionResolution)
+    return new MemberAccessHarness(arm, errors, scopes, model, bindings, sink, context, importedSymbols, importedDeclarations, members, extensionResolution, nullFlow)
 }
 
 func MemberCodes(errors: List<CompilerError>): string {
@@ -907,4 +910,102 @@ test "`Nullable<T>`'s own members are read off the DEFINITION when T has no CLR 
 
     missing: TypeInfo = BuiltInTypes.Unknown
     assert !harness.Arm.TryResolveOpenNullableDefinitionMember(money, "Nonesuch", out missing)
+}
+
+// ---- the narrowed-origin rule reaches a PROPERTY PATH -------------------------------------------
+
+func MemberPathAccessOf(receiverName: string, pathMember: string, memberName: string): MemberAccessExpression {
+    path := new MemberAccessExpression(new IdentifierExpression(receiverName, 4, 1), pathMember, false, 4, 1)
+    return new MemberAccessExpression(path, memberName, false, 4, 1)
+}
+
+test "`.Value` on a narrowed property path is the unwrap, and is not warned about" {
+    harness := MemberArmOf()
+    node := MemberPathAccessOf("holder", "Slot", "Value")
+
+    // Without the recorded collapse the receiver is simply an `int`, and `int` has no `Value`.
+    bare := MemberDriveWith(harness, node, BuiltInTypes.Int)
+    assert bare.Answer == "unknown"
+    assert MemberCodes(harness.Errors) == "303"
+
+    // WITH IT, the path is a narrowed nullable exactly as a narrowed local is: `.Value` is the
+    // unwrap and NL907 stays silent, because the narrowing already proved the value is there.
+    narrowed := MemberArmOf()
+    narrowedNode := MemberPathAccessOf("holder", "Slot", "Value")
+    narrowed.NullFlow.RecordNarrowedNullableOrigin(narrowedNode.Object, new NullableTypeInfo(BuiltInTypes.Int), BuiltInTypes.Int)
+    trace := MemberDriveWith(narrowed, narrowedNode, BuiltInTypes.Int)
+
+    assert trace.Answer == "simple:int"
+    assert narrowed.Errors.Count == 0
+}
+
+test "`Nullable<T>`'s own surface answers through a narrowed property path too" {
+    harness := MemberArmOf()
+    node := MemberPathAccessOf("holder", "Slot", "GetValueOrDefault")
+    harness.NullFlow.RecordNarrowedNullableOrigin(node.Object, new NullableTypeInfo(BuiltInTypes.Int), BuiltInTypes.Int)
+    trace := MemberDriveWith(harness, node, BuiltInTypes.Int)
+
+    // `GetValueOrDefault` is `Nullable<int>`'s and `int` declares nothing of the name, so an answer
+    // at all is the contract — and no report is the other half.
+    assert trace.Answer != "unknown"
+    assert harness.Errors.Count == 0
+}
+
+// ---- which of a `T?`'s two candidate types a name binds on --------------------------------------
+
+test "the nullable-first surface is exactly what `Nullable<T>` DECLARES" {
+    harness := MemberArmOf()
+
+    // The definition's own declarations: two properties, both `GetValueOrDefault` overloads, and the
+    // three `object` members it OVERRIDES. Nothing here is written down in the compiler.
+    assert harness.Arm.NullableDefinitionDeclares("HasValue")
+    assert harness.Arm.NullableDefinitionDeclares("Value")
+    assert harness.Arm.NullableDefinitionDeclares("GetValueOrDefault")
+    assert harness.Arm.NullableDefinitionDeclares("ToString")
+    assert harness.Arm.NullableDefinitionDeclares("Equals")
+    assert harness.Arm.NullableDefinitionDeclares("GetHashCode")
+
+    // `GetType` is INHERITED from `object` and not overridden, so it is not on this surface: it
+    // boxes, and boxing an absent nullable is a null reference the dereference report should name.
+    assert !harness.Arm.NullableDefinitionDeclares("GetType")
+
+    // A name only `T` has stays `T`-first.
+    assert !harness.Arm.NullableDefinitionDeclares("CompareTo")
+    assert !harness.Arm.NullableDefinitionDeclares("Nonesuch")
+
+    // The READER'S list leaves the property accessors out, and the binder's does not.
+    names := harness.Arm.NullableDefinitionMemberNames()
+    assert names.Contains("HasValue")
+    assert names.Contains("GetValueOrDefault")
+    assert !names.Contains("get_HasValue")
+    assert harness.Arm.NullableDefinitionDeclares("get_HasValue")
+}
+
+test "the did-you-mean list for a nullable offers the nullable's own names first" {
+    harness := MemberArmOf()
+    available := harness.Arm.GetAvailableMemberNames(new NullableTypeInfo(BuiltInTypes.Int), false)
+
+    assert available.Count > 0
+    assert available[0] == "HasValue" || available[0] == "Value"
+    assert available.Contains("GetValueOrDefault")
+}
+
+test "a `struct`-constrained type parameter is the one bare name whose `T?` has the nullable's surface" {
+    harness := MemberArmOf()
+    harness.Scopes.Push(new SemanticModel(), new Scope(ScopeKind.Function), 3, 1)
+    harness.Scopes.DeclareTypeParameter("T")
+    harness.Scopes.DeclareStructConstrainedTypeParameter("T")
+
+    parameter: TypeInfo = new SimpleTypeInfo("T")
+    assert harness.Arm.IsStructConstrainedTypeParameter(parameter)
+    assert harness.Arm.IsLiftedValueReceiver(parameter)
+
+    // An UNCONSTRAINED parameter's `T?` is a reference annotation and has no surface of its own.
+    assert !harness.Arm.IsStructConstrainedTypeParameter(new SimpleTypeInfo("U"))
+    assert !harness.Arm.IsLiftedValueReceiver(new SimpleTypeInfo("U"))
+
+    MemberDeclare(harness, "a", new NullableTypeInfo(parameter))
+    presence := MemberDriveWith(harness, MemberAccessOf("a", "HasValue", false), new NullableTypeInfo(parameter))
+    assert presence.Answer == "simple:bool"
+    assert harness.Errors.Count == 0
 }

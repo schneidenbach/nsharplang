@@ -593,7 +593,8 @@ class Analyzer: IDisposable {
             IdentifierResolution,
             DeclarationContext,
             NullabilityPostconditions,
-            TerminatingCalls
+            TerminatingCalls,
+            NullFlow
         )
     }
 

@@ -479,6 +479,14 @@ class AnalyzerFunctionBodies {
                 scopesValue.DeclareTypeParameterConstraints(constraint.TypeParameter, resolved)
             }
 
+            // `where T : struct` NAMES NO TYPE, so the loop above records nothing for it — and it is
+            // the one constraint that changes what `T?` MEANS. Without it every read of the nullable's
+            // own surface inside the declaration (`a.HasValue`, `a.GetValueOrDefault()`) fell through
+            // to the reference-annotation reading and reported NL905 on a call that cannot throw.
+            if NullabilityGenericSubstitution.IsStructConstrained(constraint) {
+                scopesValue.DeclareStructConstrainedTypeParameter(constraint.TypeParameter)
+            }
+
             index = index + 1
         }
     }

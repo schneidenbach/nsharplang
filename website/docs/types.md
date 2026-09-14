@@ -1775,11 +1775,6 @@ Two rules the compiler enforces about the type-argument list itself:
   lambda's body) but does not EMIT yet. A generic FREE function with a delegate parameter is
   unaffected, and so is every generic method on an external type; write the type argument out
   (`Match<string>(...)`) or move the call into a free function.
-- Calling a **generic function whose return is a nullable over its own type parameter**
-  (`func First<T>(items: T[]): T? where T : struct`) reports [NL103](./errors/NL103.md) at the call,
-  on the statement that reads the result. The declaration itself compiles, and a generic function
-  that returns a plain `T` is unaffected; write the non-generic shape, or return the element with a
-  separate presence flag, until then.
 - **Null-conditional INDEXING** (`items?[0]`) is not compiled yet; `?.` on a member or a method is
   unaffected, and an explicit null check reads the element.
 - An argument that must be **boxed into an `object` parameter of a GENERIC function**
@@ -1924,8 +1919,22 @@ func Spend(budget: Money?, fallback: Money): int {
 `GetValueOrDefault()` answers `T`'s own `default` when the value is absent and never throws, so it
 needs no guard. `Value` does throw, so the compiler warns when you read it without proving the value
 is there ([NL907](./errors/NL907.md)) — `must`, a null check or `GetValueOrDefault` are the three
-ways to say what you mean. A name that `T` itself declares still binds on `T`; only a name `T` does
-not have falls through to `Nullable<T>`'s.
+ways to say what you mean.
+
+**A name `Nullable<T>` declares binds on the nullable; every other name binds on `T`.** The two
+types share three names — `ToString`, `Equals` and `GetHashCode`, which `Nullable<T>` overrides —
+and those are the nullable's, exactly as they are in C#. All three are null-safe — for an ABSENT
+value `v.ToString()` is `""`, `v.GetHashCode()` is `0`, and `v.Equals(other)` is true only when
+`other` is null as well; none of them throws. Nothing else is on that surface, so `v.CompareTo(3)`
+reads `int`'s own overloads, and `v.GetType()` is
+`object`'s — it boxes, and boxing an absent nullable produces a null reference, so the compiler
+reports the dereference ([NL905](./errors/NL905.md)) the program really would hit.
+
+```n#
+func Describe(v: int?): string? {
+    return v.ToString()        // Nullable<int>.ToString() — "" when absent, and never a throw
+}
+```
 
 `==` and `!=` are **lifted** over a nullable value type: two absent values are equal, an absent one
 differs from every present one, and the answer is a plain `bool` rather than a `bool?`. One side may
@@ -2223,6 +2232,24 @@ sees whatever the last one left. The four shapes that lower the nullable *themse
 `value == null`, `value ?? 0`, `value.HasValue`, `value.Value` — keep the `Nullable<T>` and stay
 legal on a narrowed name.
 
+**A narrowed property PATH is narrowed the same way.** `h.Slot` is a nullable the flow can prove,
+so `h.Slot.Value` past a guard is the unwrap and `h.Slot.GetValueOrDefault()` is the nullable's own
+member, exactly as they are for a narrowed local. Writing any prefix of the path ends it.
+
+```n#
+class Holder {
+    Slot: int?
+}
+
+func slotOrMinusOne(h: Holder): int {
+    if h.Slot == null {
+        return -1
+    }
+
+    return h.Slot.Value + 1             // the unwrap, then the narrowed read
+}
+```
+
 ### A generic member's nullability follows its type argument
 
 When you read a member of a constructed generic whose declared type is a bare type parameter, the
@@ -2301,6 +2328,24 @@ func FirstOrAbsent<T>(items: T[]): T? where T : struct {
 
     return null                          // a real `Nullable<T>`, so `null` is one of its values
 }
+
+func firstNumber(values: int[]): int {
+    found := FirstOrAbsent(values)       // int? — the constraint made it a real Nullable<int>
+    if found == null {
+        return -1
+    }
+
+    return found.Value
+}
+
+Inside such a declaration the parameter's own `T?` has `Nullable<T>`'s full surface, because the
+`where` clause is what says it is one:
+
+```n#
+func presenceOf<T>(a: T?): bool where T : struct {
+    return a.HasValue                    // and `a.GetValueOrDefault()`, and `a.Value` past a guard
+}
+```
 
 func Count(values: int[]): int {
     return FirstOrDefaultOf(values)      // int — the annotation erased

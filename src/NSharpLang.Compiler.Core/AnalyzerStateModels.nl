@@ -64,6 +64,7 @@ class Scope {
     typeAritiesValue: Dictionary<string, List<int>>
     hoistedLocalFunctionsValue: HashSet<string>
     typeParameterConstraintsValue: Dictionary<string, List<TypeInfo>>
+    structConstrainedTypeParametersValue: HashSet<string>
 
     // THE NAMES THIS SCOPE BOUND THAT MAY NOT BE WRITTEN AGAIN. Today exactly one thing fills it: a
     // `using` resource, which the statement disposes at the end of its region and therefore has to
@@ -91,6 +92,13 @@ class Scope {
     // can live is beside the declaration that introduced it — and it leaves scope with that
     // declaration, which is why this is a scope field rather than a walk-lifetime map.
     TypeParameterConstraints: Dictionary<string, List<TypeInfo>> => typeParameterConstraintsValue
+
+    // THE `struct` HALF OF THE SAME `where` CLAUSE, which is a SPECIAL constraint and names no type,
+    // so the dictionary above cannot hold it. It is what makes `T?` a real `Nullable<T>` rather than
+    // a reference annotation, and therefore what a read of `a.HasValue` inside the declaration has
+    // to consult: a type parameter is a `SimpleTypeInfo` and every reader that asks "is this a
+    // reference type?" of a bare name answers YES.
+    StructConstrainedTypeParameters: HashSet<string> => structConstrainedTypeParametersValue
     NullStates: Dictionary<string, NullState> => nullStatesValue
     ErrorTupleResults: Dictionary<string, ErrorTupleResultGuard> => errorTupleResultsValue
     AvailableErrorTupleResults: HashSet<string> => availableErrorTupleResultsValue
@@ -106,6 +114,7 @@ class Scope {
         typeAritiesValue = new Dictionary<string, List<int>>(StringComparer.Ordinal)
         hoistedLocalFunctionsValue = new HashSet<string>(StringComparer.Ordinal)
         typeParameterConstraintsValue = new Dictionary<string, List<TypeInfo>>(StringComparer.Ordinal)
+        structConstrainedTypeParametersValue = new HashSet<string>(StringComparer.Ordinal)
         readOnlyNamesValue = new HashSet<string>(StringComparer.Ordinal)
     }
 

@@ -398,13 +398,43 @@ test "generic sibling return substitution recloses source and admitted BCL colle
     )
     assert generalSubstitution == typeof(Queue<int>)
 
+    // WHICH CONSTRUCTED HEADS RECLOSE IS THE BACKEND'S TYPE-ADMISSIBILITY QUESTION, and it used to
+    // be a list of four collection definitions instead. `Queue<T>` recloses for exactly the reason
+    // `List<T>` does — `IsSupportedType` admits the closed shape — and the list is what made the two
+    // differ. `Nullable<T>` is the row that forced the change: a `where T : struct` source generic
+    // returns one, and every call that read its lifted result declined while the list held.
     queueOutcome := GenericCallBindingSubstituteReturn(
         parameters,
         binding,
         declaredQueue,
         typeof(object)
     )
-    assert !queueOutcome.Result
+    assert queueOutcome.Result
     assert queueOutcome.Error == null
-    assert queueOutcome.Substituted == null
+    assert queueOutcome.Substituted == typeof(Queue<int>)
+
+    nullableDefinition := typeof(Nullable<int>).GetGenericTypeDefinition()
+    liftedOutcome := GenericCallBindingSubstituteReturn(
+        parameters,
+        binding,
+        GenericCallBindingClose1(nullableDefinition, parameters[0]),
+        typeof(object)
+    )
+    assert liftedOutcome.Result
+    assert liftedOutcome.Error == null
+    assert liftedOutcome.Substituted == typeof(Nullable<int>)
+
+    // A CONSTRUCTION THAT CANNOT EXIST DECLINES AND DOES NOT RAISE. `Nullable<T>` requires a
+    // non-nullable value type, so a reference binding has no closed form for the definition to make.
+    referenceBinding := new Type[](1)
+    referenceBinding[0] = typeof(string)
+    impossibleOutcome := GenericCallBindingSubstituteReturn(
+        parameters,
+        referenceBinding,
+        GenericCallBindingClose1(nullableDefinition, parameters[0]),
+        typeof(object)
+    )
+    assert !impossibleOutcome.Result
+    assert impossibleOutcome.Error == null
+    assert impossibleOutcome.Substituted == null
 }

@@ -604,3 +604,69 @@ test "an assignment INVALIDATES the facts derived from the target's path" {
     assert harness.Scopes.NullStateOrUnknown("box") == NullState.Null
     assert !harness.Scopes.HasNullState("box.Value")
 }
+
+// ── the nullable a receiver was declared with, when the flow is reading it narrower ─────────────
+
+test "a narrowed LOCAL's origin is found by walking out of the scopes, with no recorded collapse" {
+    harness := NullFlowDefault()
+    declared := NfNullable(BuiltInTypes.Int)
+    harness.Scopes.Peek().Symbols["count"] = declared
+
+    // The branch scope rebinds the name to the INNER type — that binding IS the narrowing — and the
+    // walk steps over it to reach the declaration.
+    harness.Scopes.Push(new SemanticModel(), new Scope(ScopeKind.Block), 5, 1)
+    harness.Scopes.Peek().Symbols["count"] = BuiltInTypes.Int
+
+    origin := harness.Owner.NarrowedNullableOrigin(NfName("count"), BuiltInTypes.Int)
+    assert Object.ReferenceEquals(origin, declared)
+
+    // IDENTITY WITH THE INNER TYPE IS THE QUESTION. A receiver that is not this nullable's narrowed
+    // form is not its narrowed form, whatever its name says.
+    assert harness.Owner.NarrowedNullableOrigin(NfName("count"), BuiltInTypes.String) == null
+    assert harness.Owner.NarrowedNullableOrigin(NfName("other"), BuiltInTypes.Int) == null
+}
+
+test "a narrowed PROPERTY PATH's origin is the collapse the flow type recorded" {
+    harness := NullFlowDefault()
+    path: Expression = NfMember("holder", "Slot", false)
+    declared := NfNullable(BuiltInTypes.Int)
+
+    // Nothing is known before the collapse: a path has no scope binding to walk out to, which is the
+    // whole reason the collapse has to write itself down.
+    assert harness.Owner.NarrowedNullableOrigin(path, BuiltInTypes.Int) == null
+
+    harness.Owner.RecordNarrowedNullableOrigin(path, declared, BuiltInTypes.Int)
+    origin := harness.Owner.NarrowedNullableOrigin(path, BuiltInTypes.Int)
+    assert Object.ReferenceEquals(origin, declared)
+
+    // THE KEY IS THE NODE, NOT THE TEXT OR THE POSITION. A second `holder.Slot` written at the same
+    // line and column is a different node and carries no fact of its own.
+    assert harness.Owner.NarrowedNullableOrigin(NfMember("holder", "Slot", false), BuiltInTypes.Int) == null
+}
+
+test "a collapse is recorded only when one actually happened" {
+    harness := NullFlowDefault()
+    unchanged: Expression = NfMember("holder", "Slot", false)
+
+    // Suppressed, or simply not narrowed: `ApplyNullabilityFlowType` answered its own input, so
+    // there is no collapse to remember and the receiver still reads as the nullable itself.
+    declared := NfNullable(BuiltInTypes.Int)
+    harness.Owner.RecordNarrowedNullableOrigin(unchanged, declared, declared)
+    assert harness.Owner.NarrowedNullableOrigin(unchanged, BuiltInTypes.Int) == null
+
+    // A declared type that was never nullable records nothing either, so a plain `int` path can
+    // never be mistaken for a narrowed one.
+    plain: Expression = NfMember("holder", "Count", false)
+    harness.Owner.RecordNarrowedNullableOrigin(plain, BuiltInTypes.Int, BuiltInTypes.Int)
+    assert harness.Owner.NarrowedNullableOrigin(plain, BuiltInTypes.Int) == null
+}
+
+test "a new analysis forgets every recorded collapse" {
+    harness := NullFlowDefault()
+    path: Expression = NfMember("holder", "Slot", false)
+    harness.Owner.RecordNarrowedNullableOrigin(path, NfNullable(BuiltInTypes.Int), BuiltInTypes.Int)
+    assert harness.Owner.NarrowedNullableOrigin(path, BuiltInTypes.Int) != null
+
+    harness.Owner.BeginAnalysis()
+    assert harness.Owner.NarrowedNullableOrigin(path, BuiltInTypes.Int) == null
+}

@@ -85,6 +85,11 @@ class AnalyzerExpressionTail {
         nullState := nullFlow.GetExpressionNullState(expr, dispatchedType)
         flowType := nullFlow.ApplyNullabilityFlowType(dispatchedType, nullState)
 
+        // THE COLLAPSE IS RECORDED WHERE IT HAPPENS. A narrowed member PATH has no other trace of
+        // the nullable it was declared with — a path is narrowed by a null fact, not by a scope
+        // rebinding its name — so `h.Slot.Value` reads it back from here.
+        nullFlow.RecordNarrowedNullableOrigin(expr, dispatchedType, flowType)
+
         model := semanticModel
         if model != null {
             model.RecordExpressionType(expr.Line, expr.Column, flowType)
