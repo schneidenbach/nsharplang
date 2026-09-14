@@ -1494,18 +1494,10 @@ test "a test name carrying quotes and backslashes round-trips through a STRICT p
     }
 }
 
-test "A TEST THAT WRITES TO STDOUT CORRUPTS THE ENVELOPE — a defect, pinned as it behaves" {
-    // THE DOCUMENT IS NOT ALONE ON STDOUT. A native test runs IN PROCESS, so its own
-    // `Console.WriteLine` lands on the same stream the envelope is written to, ahead of the opening
-    // brace — and a strict parser rejects the run outright. Several native projects print from a
-    // test, so a sweep that reads `--json` counts them as "no tests" or as unparseable rather than as
-    // the green runs they are.
-    //
-    // THE FIX IS NOT REACHABLE FROM N#: the run and the write are `src/NSharpLang.Cli/Program.Testing.cs`
-    // (`RunXunitTests` / `RunReflectionTests` and `OutputNativeTestJson`), and redirecting
-    // `Console.Out` around the run is a C# change this stream may not make. This row states the
-    // CURRENT behaviour so the fix flips it rather than landing unnoticed: when stdout carries only
-    // the document, the first assertion below fails and this test is the one to rewrite.
+test "a test that writes to stdout leaves the envelope alone: its output goes to stderr" {
+    // A native test runs IN PROCESS. In `--json` mode the command redirects `Console.Out` to stderr
+    // around the run, so the document is alone on stdout and a strict parser reads the whole
+    // stream; the test's own line is still visible, on stderr. (TOOL3 pinned the old corruption.)
     directory := NewTempDirectory("nlc-test-json-stdout")
     try {
         WriteProjectYml(directory, "name: PrintingTest\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
@@ -1517,14 +1509,11 @@ test "A TEST THAT WRITES TO STDOUT CORRUPTS THE ENVELOPE — a defect, pinned as
         run := NlcIn(directory, "test --no-cache --json")
 
         assert run.ExitCode == 0, run.Stdout + run.Stderr
-        assert !run.Stdout.TrimStart().StartsWith("{"), run.Stdout
-        assert run.Stdout.Contains("stray output")
+        assert run.Stdout.TrimStart().StartsWith("{"), run.Stdout
+        assert !run.Stdout.Contains("stray output"), run.Stdout
+        assert run.Stderr.Contains("stray output"), run.Stderr
 
-        // The DOCUMENT itself is well formed once the stray line is cut, so the defect is the stream
-        // and not the writer.
-        brace := run.Stdout.IndexOf("{", StringComparison.Ordinal)
-        assert brace > 0
-        document := JsonDocument.Parse(run.Stdout.Substring(brace))
+        document := JsonDocument.Parse(run.Stdout)
         assert document.RootElement.GetProperty("summary").GetProperty("passed").GetInt32() == 1
         document.Dispose()
     } finally {

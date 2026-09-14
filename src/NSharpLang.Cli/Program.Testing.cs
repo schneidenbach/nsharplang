@@ -97,23 +97,20 @@ partial class Program
                 return Error(message);
             }
 
-            var testRun = TestCommandKernels.ShouldRunNUnit(projectConfig.TestFramework)
-                ? RunReflectionTests(outputPath, filter, verbose, timeoutMs)
-                : RunXunitTests(outputPath, filter, verbose, timeoutMs);
-            var testResults = testRun.Results;
+            var stdout = Console.Out; // JSON mode: the document is alone on stdout, a test's own writes go to stderr
+            if (TestCommandKernels.IsJsonOutputMode(outputMode)) Console.SetOut(Console.Error);
+            NativeTestRun testRun;
+            try { testRun = TestCommandKernels.ShouldRunNUnit(projectConfig.TestFramework) ? RunReflectionTests(outputPath, filter, verbose, timeoutMs) : RunXunitTests(outputPath, filter, verbose, timeoutMs); }
+            finally { Console.SetOut(stdout); }
             var summary = TestCommandKernels.SummarizeNativeTestRun(testRun);
 
             if (TestCommandKernels.IsJsonOutputMode(outputMode))
             {
-                OutputNativeTestJson(projectRoot, summary.Ok, testResults, summary);
+                OutputNativeTestJson(projectRoot, summary.Ok, testRun.Results, summary);
             }
             else
             {
-                Console.WriteLine(TestCommandKernels.GetSummaryMessage(
-                    summary.Passed,
-                    summary.Failed,
-                    summary.Skipped,
-                    summary.Total));
+                Console.WriteLine(TestCommandKernels.GetSummaryMessage(summary.Passed, summary.Failed, summary.Skipped, summary.Total));
                 Console.WriteLine(TestCommandKernels.GetCompletedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(stopwatch.ElapsedMilliseconds)));
             }
 
