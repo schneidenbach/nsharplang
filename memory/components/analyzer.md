@@ -2702,14 +2702,19 @@ An unknown argument suppresses the exemption and does not add a secondary ambigu
 
 An `init` setter is identified in CLR metadata by `modreq(IsExternalInit)` on its return position.
 Reflection.Emit drops custom modifiers when it creates a `MemberRef` for a method on a constructed
-type, so `ColumnarModifiedMemberReferenceRepair` handles affected closed-generic calls at the
+type, so `ColumnarModifiedMemberReferenceRepair` handles affected constructed-generic calls at the
 `PersistedAssemblyBuilder.GenerateMetadata` boundary. The first pass records exact owners and
 setter signatures and discovers the emitted MemberRef rows. A conditional second emission appends
-corrected rows, preserves modifier order and placement while retaining the emitted closed VAR/MVAR
+corrected rows, preserves modifier order and placement while retaining the emitted VAR/MVAR
 shape, and structurally remaps only InlineMethod operands. Before publishing the image it compares
 the original ordered AssemblyRef, TypeDef, TypeRef, TypeSpec, MethodDef, and MemberRef identities
 against discovery and verifies each appended repaired row. Assemblies with no affected setter stay
 on the ordinary single-pass path.
+For `Box<U>` inside a generic function or local function, the owner TypeSpec contains method
+parameter `!!0`, while the setter signature still uses its declaring type's `!0`. The repair request
+therefore records the constructed setter and substituted property type, retaining the open setter
+only as the modifier source. Unbaked generic parameters use their authoritative type/method kind;
+a missing `DeclaringMethod` does not turn an MVAR into a VAR.
 
 ### Exact Runtime Structural Projections
 

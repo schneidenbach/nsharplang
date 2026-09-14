@@ -70,6 +70,12 @@ class GenericInitializable<T> {
     init Value: T
 }
 
+func GenericInitializableFrom<U>(value: U): GenericInitializable<U> {
+    return new GenericInitializable<U> {
+        Value: value
+    }
+}
+
 struct GenericMeasurement<T> {
     init Value: T
 }
@@ -121,4 +127,19 @@ func GenericInitThroughLocalFunction(): int {
     }
     result := Make(42)
     return result.Value
+}
+
+func GenericInitThroughGenericLocalFunction(): int {
+    func Make<U>(value: U): GenericInitializable<U> {
+        return new GenericInitializable<U> {
+            Value: value
+        }
+    }
+    return Make<int>(42).Value
+}
+
+func GenericMeasurementFrom<U>(value: U): GenericMeasurement<U> {
+    return new GenericMeasurement<U> {
+        Value: value
+    }
 }

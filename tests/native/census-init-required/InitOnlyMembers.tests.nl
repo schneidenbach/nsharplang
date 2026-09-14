@@ -83,6 +83,11 @@ test "closed generic init setters retain their constructed owner and modifier" {
     assert nested.Value == "nested"
 }
 
+test "a generic function initializes a generic member with its method type parameter" {
+    value := GenericInitializableFrom<int>(42)
+    assert value.Value == 42
+}
+
 test "a record's synthesized equality compares its init-only members" {
     first := new Pair {
         Left: 1,
@@ -179,4 +184,15 @@ test "generic init metadata is shared through a lambda emitter" {
 
 test "generic init metadata is shared through a local function emitter" {
     assert GenericInitThroughLocalFunction() == 42
+}
+
+test "generic local init metadata retains its method parameter owner" {
+    assert GenericInitThroughGenericLocalFunction() == 42
+}
+
+test "a generic function initializes a generic struct with its method type parameter" {
+    number := GenericMeasurementFrom<int>(42)
+    text := GenericMeasurementFrom<string>("value")
+    assert number.Value == 42
+    assert text.Value == "value"
 }
