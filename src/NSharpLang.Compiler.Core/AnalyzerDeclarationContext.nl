@@ -58,6 +58,13 @@ class AnalyzerSourceMemberShape {
     PrimaryParameters: ParameterDeclarationInfo[]
     NestedTypes: NestedTypeInfo[]
     BaseType: TypeInfo?
+
+    // THE INTERFACES THIS SHAPE INHERITS MEMBERS FROM, resolved and substituted, in written order.
+    // A class has ONE base and an interface has MANY, so the two cannot share a slot: `BaseType` is
+    // the single-inheritance chain every walk here already follows, and this is the fan-out beside
+    // it. Empty for every form but `interface`, never null.
+    BaseInterfaces: TypeInfo[]
+
     SupportsPrimaryParameters: bool
     SupportsObjectMembers: bool
 
@@ -67,16 +74,18 @@ class AnalyzerSourceMemberShape {
         PrimaryParameters = new ParameterDeclarationInfo[](0)
         NestedTypes = new NestedTypeInfo[](0)
         BaseType = null
+        BaseInterfaces = new TypeInfo[](0)
         SupportsPrimaryParameters = false
         SupportsObjectMembers = false
     }
 
-    constructor(owner: TypeInfo, declaredMembers: DeclaredMemberInfo[], primaryParameters: ParameterDeclarationInfo[], nestedTypes: NestedTypeInfo[], baseType: TypeInfo?, supportsPrimaryParameters: bool, supportsObjectMembers: bool) {
+    constructor(owner: TypeInfo, declaredMembers: DeclaredMemberInfo[], primaryParameters: ParameterDeclarationInfo[], nestedTypes: NestedTypeInfo[], baseType: TypeInfo?, supportsPrimaryParameters: bool, supportsObjectMembers: bool, baseInterfaces: TypeInfo[]? = null) {
         Owner = owner
         DeclaredMembers = declaredMembers
         PrimaryParameters = primaryParameters
         NestedTypes = nestedTypes
         BaseType = baseType
+        BaseInterfaces = baseInterfaces ?? new TypeInfo[](0)
         SupportsPrimaryParameters = supportsPrimaryParameters
         SupportsObjectMembers = supportsObjectMembers
     }
@@ -723,11 +732,44 @@ class AnalyzerDeclarationContext {
         }
         interfaceType := owner as InterfaceTypeInfo
         if interfaceType != null {
-            shape = new AnalyzerSourceMemberShape(interfaceType, interfaceType.DeclaredMembers, new ParameterDeclarationInfo[](0), interfaceType.NestedTypes, null, false, true)
+            shape = new AnalyzerSourceMemberShape(interfaceType, interfaceType.DeclaredMembers, new ParameterDeclarationInfo[](0), interfaceType.NestedTypes, null, false, true, ResolveBaseInterfaces(interfaceType, substitution))
             return true
         }
         shape = new AnalyzerSourceMemberShape()
         return false
+    }
+
+    // THE BASE INTERFACES A DERIVED INTERFACE REACHES THROUGH, resolved against the file that WROTE
+    // the derived declaration and substituted with the receiver's type arguments.
+    //
+    // `interface ITestCase: INamed` means an `ITestCase` receiver HAS everything `INamed` declares —
+    // the CLR dispatches `INamed::Name` on it and no cast is involved — but member lookup stopped at
+    // the derived declaration's own member list, so `t.Name()` on a `t: ITestCase` was NL303 "Member
+    // 'Name' not found on type 'ITestCase'" for functions and for value members alike. The only way
+    // out was an explicit `named: INamed = t`, which is not a conversion the source should have to
+    // write.
+    //
+    // A REFERENCE THAT DOES NOT RESOLVE IS DROPPED rather than recorded as unknown: an unresolved
+    // base clause is reported by the declaration walk, and a lookup that carried the failure would
+    // turn one diagnostic into two.
+    func ResolveBaseInterfaces(interfaceType: InterfaceTypeInfo, substitution: Dictionary<string, TypeInfo>?): TypeInfo[] {
+        references := interfaceType.BaseInterfaces
+        if references.Length == 0 {
+            return new TypeInfo[](0)
+        }
+
+        resolvedBases := new List<TypeInfo>()
+        index := 0
+        while index < references.Length {
+            resolved := BuiltInTypes.Unknown as TypeInfo
+            if TryResolveTypeForOwner(references[index], interfaceType, substitution, out resolved) && !BuiltInTypes.IsUnknown(resolved) {
+                resolvedBases.Add(resolved)
+            }
+
+            index = index + 1
+        }
+
+        return resolvedBases.ToArray()
     }
 
     func RequiresNestedExport(currentFilePath: string?, declarationFilePath: string?): bool {
@@ -1952,6 +1994,17 @@ class AnalyzerDeclarationContext {
             if shape.BaseType != null {
                 return TryFindMemberCore(shape.BaseType, name, substitution, visited, out selection)
             }
+
+            // A DERIVED INTERFACE'S BASES, in written order. First declaration wins, which is the
+            // same rule the single-inheritance chain above follows; `visited` makes a diamond safe.
+            baseIndex := 0
+            while baseIndex < shape.BaseInterfaces.Length {
+                if TryFindMemberCore(shape.BaseInterfaces[baseIndex], name, substitution, visited, out selection) {
+                    return true
+                }
+
+                baseIndex = baseIndex + 1
+            }
         }
 
         enumType := owner as EnumTypeInfo
@@ -2137,6 +2190,11 @@ class AnalyzerDeclarationContext {
             }
             if shape.BaseType != null {
                 CollectAvailableSourceMemberNames(shape.BaseType, includeStaticMembers, substitution, visited, result)
+            }
+            baseInterfaceIndex := 0
+            while baseInterfaceIndex < shape.BaseInterfaces.Length {
+                CollectAvailableSourceMemberNames(shape.BaseInterfaces[baseInterfaceIndex], includeStaticMembers, substitution, visited, result)
+                baseInterfaceIndex = baseInterfaceIndex + 1
             }
             return
         }

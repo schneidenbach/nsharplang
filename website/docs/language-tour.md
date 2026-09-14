@@ -1795,6 +1795,44 @@ class Widget {
 and — exactly as in C# — it throws `NullReferenceException` when no handler is attached, because an
 event with no subscribers is null.
 
+### Subscribing, inside the declaring type
+
+`on` and `off` are the one position where the name means the **event** wherever it is written, so the
+declaring type subscribes to its own event exactly as an outside caller does:
+
+```n#
+class Widget {
+    event Changed: EventHandler
+    Seen: int
+
+    func WatchItself(): int {
+        subscription := on this.Changed (sender, args) => {
+            Seen = Seen + 1
+        }
+        Raise()
+        off subscription
+        Raise()
+        return Seen                              // 1 — the second raise ran after `off`
+    }
+
+    func Raise() {
+        Changed?.Invoke(this, EventArgs.Empty)
+    }
+}
+```
+
+`on this.Changed` and `on Changed` are the **same** target: `this.Member` collapses to the bare
+member read, here as everywhere else. A `static event` named bare subscribes the same way, with no
+receiver at all. This is what C#'s `this.E += handler` does inside the declaring type — the field
+combine — so one reading serves both spellings, and an `abstract` event (which has no backing field
+to combine) needs no exception of its own.
+
+Everything that is not an `on` / `off` target keeps the delegate reading above, so
+`Changed?.Invoke(...)` and `Changed == null` are unaffected. A name that is a plain delegate rather
+than an event is still refused: `on handler (sender, args) => { … }` over an `EventHandler?` field
+reports [NL318](./errors/NL318.md), because `on` subscribes and a delegate field is combined with
+`+=`.
+
 ### Outside the declaring type it is only an event
 
 Everywhere else the name may be subscribed to with `on` and detached with `off`, and nothing more.

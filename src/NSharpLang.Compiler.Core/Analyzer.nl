@@ -719,6 +719,7 @@ class Analyzer: IDisposable {
             UsingNamespaces
         )
         created.SetFriendGrants(FriendGrants)
+        created.SetAmbient(Ambient)
         return created
     }
 

@@ -39,6 +39,11 @@ class AnalyzerMemberResolution {
     // every unit test that builds this owner directly already saw.
     friendGrants: InternalsVisibleToGrants?
 
+    // THE AMBIENT SLOT THAT SAYS AN EVENT IS BEING NAMED AS AN `on` / `off` TARGET, or null for an
+    // owner built without an analyzer around it (which is every planner unit test). Only the event
+    // arm below reads it; see `AllowsEventReference`.
+    ambient: AnalyzerAmbientContext?
+
     constructor(functionTypes: AnalyzerFunctionTypeFactory, declarations: AnalyzerDeclarationContext, substitution: AnalyzerTypeSubstitution, types: AnalyzerTypeResolver, clrConversion: AnalyzerClrTypeConversion, extensions: AnalyzerExtensionMethodResolution, importedNamespaces: List<string>) {
         functionTypeFactory = functionTypes
         declarationContext = declarations
@@ -48,10 +53,24 @@ class AnalyzerMemberResolution {
         extensionMethodResolution = extensions
         usingNamespaces = importedNamespaces
         friendGrants = null
+        ambient = null
     }
 
     func SetFriendGrants(grants: InternalsVisibleToGrants?) {
         friendGrants = grants
+    }
+
+    func SetAmbient(context: AnalyzerAmbientContext?) {
+        ambient = context
+    }
+
+    // IS THIS NAME BEING READ AS AN EVENT? `on`/`off` open this slot around their target expression,
+    // and `AnalyzerExpressionTail` already reads the same flag to decide whether an event reaching a
+    // value position is a mistake. An owner with no ambient behind it answers no, which is the
+    // reading every other position gets.
+    func AllowsEventReference(): bool {
+        context := ambient
+        return context != null && context.AllowEventReference
     }
 
     // WHAT A MEMBER NAME RESOLVES TO, read as a VALUE. Every caller that is not the callee of a call
@@ -345,8 +364,17 @@ class AnalyzerMemberResolution {
                 // read. Without this the read bound to a delegate that was never emitted and the
                 // backend declined with `emit.call.receiver` — an internal sentence for a source
                 // mistake the reader can fix.
+                //
+                // …EXCEPT WHEN THE POSITION IS `on` / `off` ITSELF. `on this.Changed (sender, args)
+                // => { … }` written inside the declaring type read the backing DELEGATE and was
+                // refused with NL318 "`on` can only subscribe to a .NET event" — a sentence about a
+                // member that IS an event, in the one type that can see its storage. Inside the
+                // declaring type the name subscribes, exactly as it does everywhere else; C#'s
+                // `this.E += h` there is the field combine and the two are the same operation, so
+                // one reading serves both and an ABSTRACT event (which has no field at all) needs
+                // no exception of its own.
                 declaredEventIsAbstract := SourceEventFacts.IsAbstractDeclaredEvent(sourceShape.DeclaredMembers, memberName)
-                if !declaredEventIsAbstract && SourceEventFacts.IsInsideDeclaringType(sourceShape.Owner, currentTypeName) {
+                if !declaredEventIsAbstract && !AllowsEventReference() && SourceEventFacts.IsInsideDeclaringType(sourceShape.Owner, currentTypeName) {
                     return declaredEventHandler
                 }
 
@@ -383,6 +411,21 @@ class AnalyzerMemberResolution {
                 if !BuiltInTypes.IsUnknown(baseMember) {
                     return baseMember
                 }
+            }
+
+            // A DERIVED INTERFACE REACHES ITS BASE INTERFACES' MEMBERS. `interface ITestCase: INamed`
+            // says an `ITestCase` receiver HAS everything `INamed` declares; the CLR dispatches
+            // `INamed::Name` on it directly and there is no conversion for the source to write. The
+            // walk is a full re-resolution per base, in written order, exactly as the base-class walk
+            // above is, so generic substitution and the base's OWN bases are carried along.
+            baseInterfaceIndex := 0
+            while baseInterfaceIndex < sourceShape.BaseInterfaces.Length {
+                baseInterfaceMember := ResolveMember(sourceShape.BaseInterfaces[baseInterfaceIndex], memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess)
+                if !BuiltInTypes.IsUnknown(baseInterfaceMember) {
+                    return baseInterfaceMember
+                }
+
+                baseInterfaceIndex = baseInterfaceIndex + 1
             }
 
             if !includeStaticMembers && sourceShape.SupportsObjectMembers {

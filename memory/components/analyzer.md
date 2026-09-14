@@ -2730,6 +2730,59 @@ negative case before the emitter could express the positive ones. No new codes w
 | `new` on an abstract class | `NL803` | `AnalyzerConstruction.nl` |
 | `override` with no base member of that name | `NL311` | `AnalyzerTypeDeclarations.nl` |
 | `override` of a base member that is not `virtual`/`abstract`/`override` | `NL311` | `AnalyzerTypeDeclarations.nl` |
+| an `override` that NARROWS the accessibility of the slot it takes | `NL311` | `AnalyzerTypeDeclarations.nl` |
+
+**`on` / `off` DECIDE WHAT AN EVENT NAME MEANS.** Inside the declaring type a source event's name
+reads as the backing DELEGATE — that is what makes `Changed?.Invoke(...)` and `Changed == null`
+ordinary reads there — but an `on`/`off` TARGET always reads it as the EVENT. The slot is
+`AnalyzerAmbientContext.AllowEventReference`, which `Analyzer.DriveOnSubscription` already opened
+around the target expression for `AnalyzerExpressionTail`'s "event used as a value" guard;
+`AnalyzerMemberResolution.AllowsEventReference` reads the same slot, so the two cannot disagree. An
+owner with no ambient behind it (every planner unit test) gets the ordinary reading. Emission
+follows: `ParseEventTargetNode` collapses `this.Member` to the bare member read, so
+`ParseOnSubscriptionNode` accepts an IDENTIFIER root (it refused one, declining the whole
+declaration at `parse.struct`), and `ColumnarIlEmitter`'s `on` arm treats a bare name as the
+enclosing type's event — `this` as the receiver for an instance event, no receiver for a static one.
+
+**A DERIVED INTERFACE REACHES ITS BASE INTERFACES' MEMBERS.** `AnalyzerSourceMemberShape` carries a
+`BaseInterfaces` array beside its single `BaseType`, because a class has ONE base and an interface has
+MANY; `AnalyzerDeclarationContext.ResolveBaseInterfaces` fills it for an `InterfaceTypeInfo` (resolving
+each `TypeReference` against the file that WROTE the derived declaration, with the receiver's
+substitution applied, and dropping a reference that does not resolve so an unresolved base clause stays
+one diagnostic). Three walks fan out over it: `AnalyzerMemberResolution.ResolveMember` (the NL303
+owner), `AnalyzerDeclarationContext.TryFindMemberCore` (go-to-definition) and
+`CollectAvailableSourceMemberNames` (completions). Depth-first in written order, first declaration
+wins — the same rule the single-inheritance chain beside it follows.
+
+EMISSION NEEDS THE RECEIVER SPELLED AS THE DECLARING INTERFACE. Both interfaces are unbaked
+`TypeBuilder`s, over which `Type.IsAssignableFrom` and `Type.GetInterfaces` throw
+`NotSupportedException` (measured), so the sealed code plan cannot check the edge the source declared
+and refused the call with "reference receiver for 'Name' does not match its declaring type". The
+planners state the widening instead: `ColumnarDirectCallPlanner.AppendInterfaceReceiverWidening` for a
+`func` slot and `ColumnarInstanceMemberPlanner.AppendInterfaceReceiverWidening` for a value member both
+append a `castclass` to the declaring interface — the same answer `AppendArgumentConversion` already
+gives for an ARGUMENT flowing into a source interface. A CONSTRUCTED source interface receiver
+(`IBox<int>`) declines rather than guessing at a substituted base clause.
+
+**WHAT A SLOT IS WORTH DEPENDS ON WHO IS ASKING.** `AnalyzerTypeDeclarations.InheritedAccessibilityLevel`
+is the one owner of that relation, and `ReflectionSlotAccessibility` is the only caller that has to
+apply it — a SOURCE slot is in this compilation by construction, so the boundary never moves it.
+`protected internal` (`FamORAssem`, level 5) is a UNION of a family half and an assembly half; read
+from another assembly the assembly half is gone, so what an override inherits is `protected`
+(level 4). `private protected` (`FamANDAssem`, level 2) is an INTERSECTION, so the same boundary
+erases it entirely and the walk answers -1 ("cannot tell") rather than comparing against a level no
+type outside the declaring assembly can reach. `InternalsVisibleToGrants` is the one owner of the
+friend question and is asked through `IsFriendOfDeclaringAssembly`; with a grant every level reads
+back exactly as its metadata says.
+
+This is measured against the runtime, not copied from C#. `Reflection.Emit`-ing an override of
+`ExpressionVisitor.VisitExtension` (`protected internal virtual`, System.Linq.Expressions) and
+loading it shows `Family` LOADS, `FamORAssem` LOADS, and only `Assembly` and `FamANDAssem` raise
+`TypeLoadException: … cannot reduce access.` So `protected override` there is an exact match (Roslyn
+accepts only that spelling, via CS0507) and `protected internal override` is an ordinary widening
+N# honours, consistent with every other widening the family permits. Before this rule the analyzer
+read the raw metadata level and reported `protected override` as a NARROWING — the shape every
+converted OmniSharp handler has, 22 sites in one converter census.
 
 The EMISSION side has three owners worth knowing about:
 

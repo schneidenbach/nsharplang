@@ -101,6 +101,43 @@ func MemberResolutionDefault(): MemberResolutionHarness {
     )
 }
 
+// `on` / `off` OPEN A SLOT THAT CHANGES WHAT AN EVENT NAME MEANS, and this is the leaf that reads
+// it. Inside the declaring type the name is the backing DELEGATE — which is what makes
+// `Changed?.Invoke(...)` an ordinary read there — EXCEPT in an `on`/`off` target, where it is the
+// EVENT, exactly as it is everywhere else. `on this.Changed (…) => { … }` written in the declaring
+// type used to be NL318 "`on` can only subscribe to a .NET event" about a member that IS one.
+//
+// An owner built with no analyzer around it (which is every planner unit test) is the friend of no
+// ambient slot and gets the ordinary reading.
+test "the `on` / `off` slot is what decides whether an event name reads as the EVENT" {
+    harness := MemberResolutionDefault()
+    assert harness.Resolution.AllowsEventReference() == false
+
+    harness.Resolution.SetAmbient(null)
+    assert harness.Resolution.AllowsEventReference() == false
+
+    ambient := MemberResolutionAmbient()
+    harness.Resolution.SetAmbient(ambient)
+    assert harness.Resolution.AllowsEventReference() == false
+
+    saved := ambient.EnterAllowEventReference()
+    assert harness.Resolution.AllowsEventReference()
+    ambient.ExitAllowEventReference(saved)
+    assert harness.Resolution.AllowsEventReference() == false
+}
+
+func MemberResolutionAmbient(): AnalyzerAmbientContext {
+    provider := new AnalyzerProjectSourceProvider()
+    diagnostics := new AnalyzerDiagnosticSink(new List<CompilerError>(), provider)
+    spans := new AnalyzerDiagnosticSpans(diagnostics)
+    escapeContext := new AnalyzerDeclarationContext()
+    escapeContext.Reset(Path.GetFullPath("."), new List<Assembly>())
+    escapeScopes := new AnalyzerScopeStack()
+    escapeScopes.Push(new SemanticModel(), new Scope(ScopeKind.Global), 1, 1)
+    escape := new AnalyzerSoaEscape(diagnostics, spans, escapeScopes, escapeContext)
+    return new AnalyzerAmbientContext(diagnostics, spans, escape)
+}
+
 func MemberResolutionCoreAssembly(): Assembly {
     coreType := typeof(object)
     return coreType.get_Assembly()

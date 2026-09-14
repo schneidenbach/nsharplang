@@ -1,6 +1,7 @@
 namespace NSharpLang.CensusAccessibility.Tests
 
 import System
+import System.Linq.Expressions
 import System.Reflection
 
 test "a source type calls its generic external base's protected methods through this and base" {
@@ -108,4 +109,48 @@ test "an override takes the accessibility of the member it overrides" {
     insertItem := must observedType.GetMethod("InsertItem", declared)
     assert insertItem.IsPublic
     assert insertItem.IsVirtual
+}
+
+// A SLOT THE DECLARING ASSEMBLY OPENED `protected internal`, TAKEN FROM ANOTHER ASSEMBLY.
+test "a protected override of an external protected internal slot compiles, loads and dispatches" {
+    visitor := new RecordingVisitor()
+
+    // The visit runs through the CLR's own virtual dispatch inside `ExpressionVisitor.Visit`, so
+    // reaching the override at all proves the slot was taken rather than merely named.
+    constant: Expression = Expression.Constant(7)
+    visited := visitor.Visit(constant)
+    assert visited != null
+    assert visitor.Constants == 1
+
+    sum: Expression = Expression.Add(Expression.Constant(1), Expression.Constant(2))
+    visitor.Visit(sum)
+    assert visitor.Constants == 3
+    assert visitor.Extensions == 0
+}
+
+// THE CLR METADATA, which is the half a runtime assertion cannot see.
+test "the override of a cross-assembly protected internal slot is emitted family, and a written protected internal widens it" {
+    declared := BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
+    visitorType := typeof(RecordingVisitor)
+
+    // Written `protected`, and `protected` is exactly what the slot is worth here — so the emitted
+    // member is `family`, matching the C# `protected override` this was converted from.
+    visitExtension := must visitorType.GetMethod("VisitExtension", declared)
+    assert visitExtension.IsFamily
+    assert !visitExtension.IsFamilyOrAssembly
+    assert visitExtension.IsVirtual
+    assert !visitExtension.IsPublic
+
+    // Written `protected internal`: the assembly half is added back on THIS side. The CLR permits
+    // it — an override may widen — so the word is honoured rather than corrected.
+    visitConstant := must visitorType.GetMethod("VisitConstant", declared)
+    assert visitConstant.IsFamilyOrAssembly
+    assert !visitConstant.IsFamily
+    assert visitConstant.IsVirtual
+
+    // The base's own words are unchanged by any of this: both slots are `famorassem` where they
+    // were declared, which is the fact the inherited-accessibility rule reads.
+    baseType := must visitorType.BaseType
+    assert (must baseType.GetMethod("VisitExtension", declared)).IsFamilyOrAssembly
+    assert (must baseType.GetMethod("VisitConstant", declared)).IsFamilyOrAssembly
 }

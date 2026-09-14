@@ -1,5 +1,6 @@
 namespace NSharpLang.CensusInterfaces.Tests
 
+import System.Collections.Generic
 import System.Reflection
 
 // WHAT AN INTERFACE'S VALUE MEMBER IS, MEASURED THROUGH THE DISPATCH IT EXISTS FOR.
@@ -192,4 +193,114 @@ test "a base interface's slot is declared on the base, and the derived interface
     }
 
     assert inheritsNamed
+}
+
+// A BASE INTERFACE'S MEMBERS, READ THROUGH THE DERIVED INTERFACE'S OWN RECEIVER.
+test "a base interface's value member is read through the DERIVED interface, with no cast" {
+    entry: IDocumentRecord = new DocumentRecord("k-1", 4, "ada", "/src/a.nl")
+    // `Path` is the derived interface's own slot; `Revision` comes from `ITracked`, `Key` from
+    // `IIdentified` one level above that, and `Auditor` from the SECOND base in the written list.
+    assert ReadThroughDerived(entry) == "/src/a.nl/4/k-1/ada"
+}
+
+test "a base interface's `func` slot is called through the DERIVED interface" {
+    entry: IDocumentRecord = new DocumentRecord("k-2", 9, "grace", "/src/b.nl")
+    assert DescribeThroughDerived(entry) == "k-2@9"
+}
+
+test "the same reads work one level up the interface chain" {
+    entry: IDocumentRecord = new DocumentRecord("k-3", 1, "linus", "/src/c.nl")
+    tracked: ITracked = entry
+    assert ReadOneLevelUp(tracked) == "k-3#1"
+}
+
+// THE SLOT BELONGS TO THE INTERFACE THAT DECLARED IT, which is the fact a runtime assertion cannot
+// see: a derived interface does not re-declare an inherited member, it inherits the row.
+test "an inherited interface member is declared once, on the interface that opened it" {
+    declared := BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
+
+    assert typeof(IIdentified).GetProperty("Key", declared) != null
+    assert typeof(ITracked).GetProperty("Key", declared) == null
+    assert typeof(IDocumentRecord).GetProperty("Key", declared) == null
+
+    assert typeof(ITracked).GetProperty("Revision", declared) != null
+    assert typeof(IAudited).GetProperty("Auditor", declared) != null
+    assert typeof(IDocumentRecord).GetProperty("Path", declared) != null
+
+    assert typeof(IIdentified).GetMethod("Describe", declared) != null
+    assert typeof(IDocumentRecord).GetMethod("Describe", declared) == null
+
+    // …and the derived interface really does inherit them, which is what makes the reads above
+    // ordinary `callvirt`s on the declaring interface's slot.
+    interfaces := typeof(IDocumentRecord).GetInterfaces()
+    names := new List<string>()
+    for candidate in interfaces {
+        names.Add(candidate.Name)
+    }
+    assert names.Contains("ITracked")
+    assert names.Contains("IAudited")
+    assert names.Contains("IIdentified")
+}
+
+// A CLASS THAT CLOSES A GENERIC SOURCE INTERFACE — the type LOADS, and the slot dispatches.
+test "a class closing a generic source interface loads and dispatches through the closed slot" {
+    box: IBox<int> = new IntBox(5)
+    assert ReadIntBox(box) == "int:5/5"
+    assert box.Describe() == "int:5"
+    assert box.Value == 5
+}
+
+test "a generic class closing the same interface with its OWN parameter loads and dispatches" {
+    box: IBox<string> = new GenBox<string>("hi")
+    assert ReadStringBox(box) == "gen/hi"
+    assert box.Value == "hi"
+}
+
+// THE INTERFACE MAP, which is the half a runtime assertion cannot see: ONE implementation per slot,
+// bound to the CLOSED interface.
+test "the closed generic interface is the one in the implementer's interface map" {
+    boxInterfaces := typeof(IntBox).GetInterfaces()
+    closed := new List<string>()
+    for candidate in boxInterfaces {
+        closed.Add(candidate.ToString())
+    }
+    assert closed.Count == 1
+    assert closed[0].Contains("IBox")
+    assert closed[0].Contains("Int32")
+
+    map := typeof(IntBox).GetInterfaceMap(boxInterfaces[0])
+    assert map.InterfaceMethods.Length == map.TargetMethods.Length
+    targets := new List<string>()
+    for target in map.TargetMethods {
+        targets.Add(target.Name)
+    }
+    assert targets.Contains("Describe")
+    assert targets.Contains("get_Value")
+}
+
+// A DUCK INTERFACE'S EVENT SLOT, filled by a structural match rather than by a written base list.
+test "a duck interface's EVENT loads, and the match subscribes through the interface" {
+    broadcaster := new Broadcaster()
+    assert WatchBroadcast(broadcaster) == 2
+    // The third `Touch` ran after `off`, so the type kept raising while nobody listened.
+    assert broadcaster.Touches == 3
+}
+
+test "the duck-matched event's accessors are emitted virtual, which is what lets the type load" {
+    declared := BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
+    broadcasterType := typeof(Broadcaster)
+
+    adder := must broadcasterType.GetMethod("add_Changed", declared)
+    remover := must broadcasterType.GetMethod("remove_Changed", declared)
+    assert adder.IsVirtual
+    assert remover.IsVirtual
+    assert adder.IsFinal
+    assert remover.IsFinal
+
+    // …and the structural match really did register the interface on the type.
+    names := new List<string>()
+    for candidate in broadcasterType.GetInterfaces() {
+        names.Add(candidate.Name)
+    }
+    assert names.Contains("IBroadcasts")
 }

@@ -4250,6 +4250,11 @@ sealed class ColumnarIlEmitter {
             return false
         }
         // interface inheritance cycle.
+        // PASS 0a (type resolutions): every declaration's resolution context, its type-level
+        // attributes and its generic constraints, computed before ANY member is defined — the base
+        // lists and the duck-interface registration below both need it, and a member's own
+        // definition needs THEM (an accessor that fills an interface slot is emitted virtual, and
+        // "which interfaces" is not settled until the duck pass has run).
         structTypeResolutions := new ColumnarSemanticTypeResolution[structs.Count]
         for s := 0; s < structs.Count; s++ {
             st := structs[s]
@@ -4267,6 +4272,52 @@ sealed class ColumnarIlEmitter {
             if (!ColumnarGenericConstraintPlanner.TryApplyDeclaredTypeConstraints(st.TypeParamNames, typeGenericParams, st.TypeParamSpecialConstraints, st.TypeParamTypeConstraints, typeResolution)) {
                 return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + st.Name + "' are not modeled", st.Name, -1, 0)
             }
+        }
+
+        // PASS 0a' (base/interface lists): resolve each colon-list name. Any interface becomes a directly
+        // implemented interface (and contributes its inherited interfaces to metadata); at most one class may
+        // become the parent, and only for a CLASS. A base on a value type, record inheritance, a record
+        // base, an unknown/non-type name, multiple class bases, and inheritance
+        // cycles all decline rather than silently changing type identity or emitting unloadable IL.
+        for s := 0; s < structs.Count; s++ {
+            def := structDefsInOrder[s]
+            typeResolution := structTypeResolutions[s]
+            // N# owns the base/interface classification: source-vs-runtime interface, source base,
+            // and external runtime base — with accessibility and the exact TypeBuilder metadata.
+            // C# only resolves each spelling to a live handle and reports the outcome.
+            basePlanner := new ColumnarBaseTypePlanner(def, typeResolution.Structs.Values)
+            for baseName in structs[s].BaseNames {
+                let resolvedBaseType: System.Type? = null
+                baseTypeResolved := def.GenericParameters != null ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(baseName, def.GenericParameters, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out resolvedBaseType) : ColumnarCanonicalTypeResolver.TryResolveType(baseName, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out resolvedBaseType)
+                if (!baseTypeResolved) {
+                    return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + structs[s].Name + "'", structs[s].Name, -1, 0)
+                }
+                baseOutcome := basePlanner.Apply(resolvedBaseType)
+                if (baseOutcome == ColumnarBaseTypeApplyOutcome.Reject) {
+                    return false
+                }
+                if (baseOutcome == ColumnarBaseTypeApplyOutcome.Unresolvable) {
+                    return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + structs[s].Name + "'", structs[s].Name, -1, 0)
+                }
+            }
+        }
+
+        // PASS 0a'' (duck interfaces): N# owns the complete structural registration pass.
+        ColumnarInterfaceRealization.RegisterDuckInterfaces(
+            structs,
+            structDefsInOrder,
+            structTypeResolutions,
+            interfaceDefsInOrder
+        )
+
+        // PASS 0a''' (fields and field-like events): with every base list and every duck match
+        // registered, each declaration's storage and its event accessors are defined.
+        for s := 0; s < structs.Count; s++ {
+            st := structs[s]
+            tb := structBuilders[s]
+            def := structDefsInOrder[s]
+            typeGenericParams := def.GenericParameters
+            typeResolution := structTypeResolutions[s]
             fields := def.Fields
             fieldRows := declarationPlan.Fields
             instanceFieldNames := new List<string>(st.FieldNames.Length)
@@ -4299,12 +4350,15 @@ sealed class ColumnarIlEmitter {
                     }
                     eventVisibilityWord := ColumnarDeclarationPlanner.MethodVisibilityAttributes(fieldName, st.FieldVisibilityFlags[fi])
                     eventInheritanceKind := ColumnarEventMemberEmitter.InheritanceKindOf(st.FieldVirtualFlags[fi], st.FieldAbstractFlags[fi], st.FieldOverrideFlags[fi])
-                    // A DECLARED INTERFACE THAT NAMES THIS EVENT MAKES THE ACCESSORS A SLOT FILL. The
-                    // question is asked of the declaration's OWN base list rather than of
-                    // `ImplementedInterfaces`, which the duck-interface pass has not computed yet at
-                    // this point; both read the same interface definitions, whose events were defined
-                    // in the interface pass above.
-                    implementsInterfaceEventSlot := !fieldRows.FieldIsStatic[s][fi] && DeclaredInterfaceDeclaresEvent(st.BaseNames, typeResolution, fieldName)
+                    // AN INTERFACE THAT NAMES THIS EVENT MAKES THE ACCESSORS A SLOT FILL, and the
+                    // question is asked of the RESOLVED interface set. It used to be asked of the
+                    // declaration's own base list, because the duck pass ran after this one — so a
+                    // DUCK interface's event slot was invisible here, the accessors were emitted
+                    // non-virtual, and the CLR refused the type: `Method 'add_Changed' in type
+                    // 'Source' … does not have an implementation.` The passes are now ordered so that
+                    // every base list and every duck match is registered before any member is
+                    // defined, which is the same order the VALUE-slot walk beside this one relies on.
+                    implementsInterfaceEventSlot := !fieldRows.FieldIsStatic[s][fi] && ImplementedInterfaceDeclaresEvent(def, fieldName)
                     eventDefinition := ColumnarEventMemberEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], eventVisibilityWord, eventInheritanceKind, implementsInterfaceEventSlot)
                     def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
                     // AN ABSTRACT EVENT CONTRIBUTES NO INSTANCE FIELD, because it has no storage: the
@@ -4350,42 +4404,6 @@ sealed class ColumnarIlEmitter {
             }
             def.SetFieldOrder(instanceFieldNames.ToArray())
         }
-
-        // PASS 0a' (base/interface lists): resolve each colon-list name. Any interface becomes a directly
-        // implemented interface (and contributes its inherited interfaces to metadata); at most one class may
-        // become the parent, and only for a CLASS. A base on a value type, record inheritance, a record
-        // base, an unknown/non-type name, multiple class bases, and inheritance
-        // cycles all decline rather than silently changing type identity or emitting unloadable IL.
-        for s := 0; s < structs.Count; s++ {
-            def := structDefsInOrder[s]
-            typeResolution := structTypeResolutions[s]
-            // N# owns the base/interface classification: source-vs-runtime interface, source base,
-            // and external runtime base — with accessibility and the exact TypeBuilder metadata.
-            // C# only resolves each spelling to a live handle and reports the outcome.
-            basePlanner := new ColumnarBaseTypePlanner(def, typeResolution.Structs.Values)
-            for baseName in structs[s].BaseNames {
-                let resolvedBaseType: System.Type? = null
-                baseTypeResolved := def.GenericParameters != null ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(baseName, def.GenericParameters, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out resolvedBaseType) : ColumnarCanonicalTypeResolver.TryResolveType(baseName, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out resolvedBaseType)
-                if (!baseTypeResolved) {
-                    return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + structs[s].Name + "'", structs[s].Name, -1, 0)
-                }
-                baseOutcome := basePlanner.Apply(resolvedBaseType)
-                if (baseOutcome == ColumnarBaseTypeApplyOutcome.Reject) {
-                    return false
-                }
-                if (baseOutcome == ColumnarBaseTypeApplyOutcome.Unresolvable) {
-                    return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + structs[s].Name + "'", structs[s].Name, -1, 0)
-                }
-            }
-        }
-
-        // PASS 0a'' (duck interfaces): N# owns the complete structural registration pass.
-        ColumnarInterfaceRealization.RegisterDuckInterfaces(
-            structs,
-            structDefsInOrder,
-            structTypeResolutions,
-            interfaceDefsInOrder
-        )
 
         // Chain-depth per type: 0 for no base, base's depth + 1 otherwise. A chain longer than the type count is a
         // CYCLE (A: B, B: A) — decline before any IL references the malformed hierarchy.
@@ -4669,7 +4687,18 @@ sealed class ColumnarIlEmitter {
                 // Resolution remains at the declaration phase because source builders and closed handles
                 // do not exist when the initial rows are planned. N# owns target deduplication, final
                 // attributes, base-target resolution and application order.
+                // A GENERIC SOURCE INTERFACE IS ONLY EVER IMPLEMENTED CLOSED, and its slot belongs to
+                // the CLOSED handle. `class IntBox: IBox<int>` implements `IBox<int>`, not
+                // `IBox<T>` — so a MethodImpl row pointing at the open `IBox`1::Describe` names a
+                // method this type neither implements nor inherits, and the CLR said exactly that:
+                // `TypeLoadException: … tried to override method 'Describe' but does not implement
+                // or inherit that method.` The closed loop below is the owner of that target, and it
+                // produces the right one through `TypeBuilder.GetMethod(closed, open)`.
                 for implementedInterface in def.ImplementedInterfaces {
+                    implementedInterfaceBuilder: Type = implementedInterface.Builder
+                    if (implementedInterfaceBuilder.get_IsGenericTypeDefinition()) {
+                        continue
+                    }
                     methodOverride.TryAddSourceInterfaceTarget(
                         implementedInterface,
                         m.Name,
@@ -27338,29 +27367,20 @@ sealed class ColumnarIlEmitter {
     // WHETHER ONE OF THE DECLARATION'S OWN BASE ENTRIES IS AN INTERFACE THAT DECLARES THIS EVENT.
     // Inherited interfaces count, which is why the walk is the same closure enumeration the method
     // side uses: `class Panel: IChatty` where `IChatty: INotifier` fills `INotifier`'s slots too.
-    private static func DeclaredInterfaceDeclaresEvent(baseNames: string[], typeResolution: ColumnarSemanticTypeResolution, eventName: string): bool {
-        for baseName in baseNames {
-            let baseDefinition: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-            if (typeResolution.Structs.TryGetValue(baseName, out baseDefinition)) {
-                if (!baseDefinition.IsInterface) {
-                    continue
+    // THE SAME QUESTION ASKED OF THE RESOLVED INTERFACE SET rather than of the written base names —
+    // the event sibling of `TryFindImplementedInterfaceValueMember`, and for the same reason: a DUCK
+    // interface is never written in a base list, so a walk over `st.BaseNames` cannot see it.
+    private static func ImplementedInterfaceDeclaresEvent(definition: ColumnarStructDef, eventName: string): bool {
+        for implementedInterface in definition.ImplementedInterfaces {
+            closure := new List<ColumnarStructDef>()
+            ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(implementedInterface, closure)
+            for implemented in closure {
+                if (implemented.Events.ContainsKey(eventName)) {
+                    return true
                 }
-                closure := new List<ColumnarStructDef>()
-                ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(baseDefinition, closure)
-                for implemented in closure {
-                    if (implemented.Events.ContainsKey(eventName)) {
-                        return true
-                    }
-                }
-                continue
             }
-            // AN EXTERNAL INTERFACE NAMES ITS EVENTS IN METADATA — `INotifyPropertyChanged` is the one
-            // every reader meets — and `GetInterfaces` flattens the whole inherited set, so one call
-            // settles the closure the source walk above has to enumerate.
-            let externalInterface: System.Type? = null
-            if (!ColumnarCanonicalTypeResolver.TryResolveType(baseName, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out externalInterface) || externalInterface == null || !externalInterface.get_IsInterface()) {
-                continue
-            }
+        }
+        for externalInterface in definition.ExternalInterfaces {
             // The same guard the value-member walk beside this one carries: a generic interface
             // closed over a type still being emitted answers every member query with
             // `NotSupportedException`.
@@ -27369,11 +27389,6 @@ sealed class ColumnarIlEmitter {
             }
             if (externalInterface.GetEvent(eventName) != null) {
                 return true
-            }
-            for inheritedInterface in externalInterface.GetInterfaces() {
-                if (inheritedInterface.GetEvent(eventName) != null) {
-                    return true
-                }
             }
         }
         return false
@@ -27574,6 +27589,23 @@ sealed class ColumnarIlEmitter {
             receiverLocal = _il.DeclareLocal(_currentStruct.Builder)
             _il.Emit(OpCodes.Ldarg_0)
             _il.Emit(OpCodes.Stloc, receiverLocal)
+        } else if (targetKind == 6) {
+            // A BARE NAME IS THE ENCLOSING TYPE'S OWN EVENT. `on this.Changed` collapses to the bare
+            // member read in the parser exactly as every other `this.Member` does, so this arm serves
+            // both spellings — and inside the declaring type the name SUBSCRIBES, which is the same
+            // operation C#'s `this.E += h` performs on a field-like event.
+            if (_currentStruct == null) {
+                return Decline("emit.on.bare-receiver", "`on " + eventName + "` needs an enclosing type that declares the event", targetNode)
+            }
+            ownerType = _currentStruct.Builder
+            if (FindSourceEventOnChain(ownerType, eventName, true) == null && FindEventOnChain(ownerType, eventName, true) == null) {
+                if (!_currentStruct.IsReference) {
+                    return Decline("emit.on.value-type-receiver", "an instance event cannot be bound through a value-type receiver", targetNode)
+                }
+                receiverLocal = _il.DeclareLocal(ownerType)
+                _il.Emit(OpCodes.Ldarg_0)
+                _il.Emit(OpCodes.Stloc, receiverLocal)
+            }
         } else {
             if (targetKind != 8 || _nodes.ChildCount(targetNode) != 1) {
                 return Decline("emit.on.target-shape", "`on` subscription target is not a member access ending in an event name", targetNode)
