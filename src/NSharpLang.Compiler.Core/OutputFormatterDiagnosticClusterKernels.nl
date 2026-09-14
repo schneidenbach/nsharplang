@@ -690,46 +690,34 @@ class OutputFormatterDiagnosticClusterKernels {
 
     static func StripLeadingDeclarationModifiers(snippet: string, start: int): int {
         current := start
+        advanced := true
 
-        while true {
+        while advanced {
             current = TrimStartIndexFrom(snippet, current)
+            advanced = false
 
             if StartsWithIgnoreCase(snippet, current, "async ") {
                 current = current + 6
-                continue
-            }
-
-            if StartsWithIgnoreCase(snippet, current, "static ") {
+                advanced = true
+            } else if StartsWithIgnoreCase(snippet, current, "static ") {
                 current = current + 7
-                continue
-            }
-
-            if StartsWithIgnoreCase(snippet, current, "override ") {
+                advanced = true
+            } else if StartsWithIgnoreCase(snippet, current, "override ") {
                 current = current + 9
-                continue
-            }
-
-            if StartsWithIgnoreCase(snippet, current, "public ") {
+                advanced = true
+            } else if StartsWithIgnoreCase(snippet, current, "public ") {
                 current = current + 7
-                continue
-            }
-
-            if StartsWithIgnoreCase(snippet, current, "private ") {
+                advanced = true
+            } else if StartsWithIgnoreCase(snippet, current, "private ") {
                 current = current + 8
-                continue
-            }
-
-            if StartsWithIgnoreCase(snippet, current, "protected ") {
+                advanced = true
+            } else if StartsWithIgnoreCase(snippet, current, "protected ") {
                 current = current + 10
-                continue
-            }
-
-            if StartsWithIgnoreCase(snippet, current, "internal ") {
+                advanced = true
+            } else if StartsWithIgnoreCase(snippet, current, "internal ") {
                 current = current + 9
-                continue
+                advanced = true
             }
-
-            return current
         }
 
         return current

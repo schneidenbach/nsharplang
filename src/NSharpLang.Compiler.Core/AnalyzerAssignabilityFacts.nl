@@ -139,13 +139,10 @@ class AnalyzerAssignabilityFacts {
 
     static func UnwrapOblivious(candidate: TypeInfo): TypeInfo {
         current := candidate
-        while true {
-            oblivious := current as ObliviousTypeInfo
-            if oblivious == null {
-                return current
-            }
-
+        oblivious := current as ObliviousTypeInfo
+        while oblivious != null {
             current = oblivious.InnerType
+            oblivious = current as ObliviousTypeInfo
         }
 
         return current

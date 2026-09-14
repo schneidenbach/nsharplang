@@ -76,11 +76,7 @@ class SystemsStackallocPolicy {
         simpleName := SystemsTypeNames.SimpleName(typeName)
         seen := new HashSet<string>(StringComparer.Ordinal)
         aliasedName := ""
-        while true {
-            if !typeAliasesValue.TryGetValue(simpleName, out aliasedName) {
-                return simpleName
-            }
-
+        while typeAliasesValue.TryGetValue(simpleName, out aliasedName) {
             if !seen.Add(simpleName) {
                 return simpleName
             }
@@ -191,32 +187,26 @@ class SystemsStackallocPolicy {
     // target is integer shaped: `(double)4` is not the same reservation as `4`.
     func UnwrapStackallocLengthExpression(expression: Expression): Expression {
         current := expression
-        while true {
+        peeled := true
+        while peeled {
+            peeled = false
             parenthesized := current as ParenthesizedExpression
+            checkedExpression := current as CheckedExpression
+            uncheckedExpression := current as UncheckedExpression
+            castExpression := current as CastExpression
             if parenthesized != null {
                 current = parenthesized.Inner
-                continue
-            }
-
-            checkedExpression := current as CheckedExpression
-            if checkedExpression != null {
+                peeled = true
+            } else if checkedExpression != null {
                 current = checkedExpression.Expression
-                continue
-            }
-
-            uncheckedExpression := current as UncheckedExpression
-            if uncheckedExpression != null {
+                peeled = true
+            } else if uncheckedExpression != null {
                 current = uncheckedExpression.Expression
-                continue
-            }
-
-            castExpression := current as CastExpression
-            if castExpression != null && IsStackallocIntLikeCast(castExpression.TargetType) {
+                peeled = true
+            } else if castExpression != null && IsStackallocIntLikeCast(castExpression.TargetType) {
                 current = castExpression.Expression
-                continue
+                peeled = true
             }
-
-            return current
         }
 
         return current
