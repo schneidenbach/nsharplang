@@ -451,6 +451,14 @@ class TypeReferenceTupleNameTable {
 //                                         and NO value span, exactly like the null literal (kind 5). The
 //                                         written-type form is spelled as an annotation in N# (`x: T = default`),
 //                                         so the keyword never carries a type child. )
+//   ThrowExpression         -> kind 83  ( `throw <exception>` in VALUE position -- ONE child (the
+//                                         exception expression), no value span, the span running from
+//                                         the `throw` keyword through the operand. The grammar admits
+//                                         it in exactly three places: the right operand of `??`, either
+//                                         arm of a conditional, and an expression body (an arrow-bodied
+//                                         `func`/property, or a lambda's). It is worth NOTHING -- the
+//                                         position it sits in supplies the type. Statement-position
+//                                         `throw` stays kind 48. )
 //   RangeExpression         -> kind 69  (`start..end`, `start..`, `..end`, `..`; DotDot token in the
 //                                         value span. Children are the present endpoint expressions; with
 //                                         one child, compare its span start to the DotDot span to classify
@@ -625,6 +633,21 @@ class ColumnarExpressionNodeKind {
     // keyword's own byte span is the value span.
     static func OnSubscriptionExpression(): int {
         return 79
+    }
+
+    // `throw <exception>` written where a VALUE is expected, rather than as a statement of its own
+    // (statement kind 48). ONE child (the exception expression), NO value span, and a span that runs
+    // from the `throw` keyword through the end of its operand.
+    //
+    // It produces no value at all — its type is the BOTTOM type, and the position it sits in decides
+    // what the surrounding expression is worth: `x ?? throw e` is worth `x` with its nullability
+    // removed, a conditional arm is worth the OTHER arm, and an expression body is worth the declared
+    // return type. That is why the grammar admits it in exactly three places — the right operand of
+    // `??`, either arm of a conditional, and an expression body (a `func`/property arrow body or a
+    // lambda's) — and nowhere else: everywhere else there is no other operand to take the type from,
+    // and the analyzer reports NL340 before emission is ever asked.
+    static func ThrowExpression(): int {
+        return 83
     }
 }
 
@@ -6088,7 +6111,17 @@ func ParseBinaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserS
             opStart := tokens.Starts[st.Pos]
             opLength := tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
-            right := ParseBinaryExpressionNode(tokens, count, st, argStack, nodes, children, prec + 1, depth + 1)
+            // `x ?? throw e` — the FALLBACK of a null-coalesce may be a throw expression (kind 83),
+            // and `??` (116) is the only operator whose right operand may be: it is the one whose
+            // result the LEFT side already decides, so a fallback that produces nothing still leaves
+            // the expression with a type. Every other operator needs a value on both sides.
+            right := -1
+            if opKind == 116 && st.Pos < count && tokens.Kinds[st.Pos] == 37 {
+                right = ParseThrowExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+            } else {
+                right = ParseBinaryExpressionNode(tokens, count, st, argStack, nodes, children, prec + 1, depth + 1)
+            }
+
             if right < 0 {
                 return -1
             }
@@ -6105,6 +6138,54 @@ func ParseBinaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserS
     return left
 }
 
+// `throw <exception>` in VALUE position -- ThrowExpression kind 83, ONE child (the exception
+// expression), no value span, the span running from the `throw` keyword through the operand.
+//
+// It is NOT reached from the expression precedence chain: a throw expression is worth nothing, so
+// the only places it can stand are the ones where some OTHER operand supplies the type. Each of
+// those three callers asks for one BY NAME at the exact token where the grammar admits it -- the
+// right operand of `??`, either arm of a conditional, and an expression body -- so `1 + throw e`
+// never parses here at all. The operand is a full assignment-level expression, exactly as the
+// statement form's is, and a bare `throw` (no operand) is refused: the rethrow is a statement.
+func ParseThrowExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if depth > 200 || st.Pos >= count || tokens.Kinds[st.Pos] != 37 {
+        return -1
+    }
+
+    throwStart := tokens.Starts[st.Pos]
+    st.Pos = st.Pos + 1
+    operand := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+    if operand < 0 {
+        return -1
+    }
+
+    operandEnd := nodes.SpanStarts[operand] + nodes.SpanLengths[operand]
+    childRunStart := st.ChildCursor
+    AppendExpressionChild(st, children, operand)
+    return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.ThrowExpression(), -1, 0, childRunStart, 1, throwStart, operandEnd - throwStart)
+}
+
+// A value position that ADMITS a throw expression: `throw` (37) opens one, anything else is an
+// ordinary assignment-level expression. The three grammar positions all read exactly this way.
+func ParseValueOrThrowExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if st.Pos < count && tokens.Kinds[st.Pos] == 37 {
+        return ParseThrowExpressionNode(tokens, count, st, argStack, nodes, children, depth)
+    }
+
+    return ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth)
+}
+
+// The EXPRESSION-BODY twin of the position above. An arrow body sits at the LAMBDA level rather than
+// the assignment level (`=> x => x + 1` returns a lambda), so the non-throw fall-through is the
+// lambda-level entry; the throw arm is the same one.
+func ParseBodyValueOrThrowExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if st.Pos < count && tokens.Kinds[st.Pos] == 37 {
+        return ParseThrowExpressionNode(tokens, count, st, argStack, nodes, children, depth)
+    }
+
+    return ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth)
+}
+
 func ParseTernaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     condition := ParseBinaryExpressionNode(tokens, count, st, argStack, nodes, children, 1, depth)
     if condition < 0 {
@@ -6114,7 +6195,10 @@ func ParseTernaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     if st.Pos < count && tokens.Kinds[st.Pos] == 115 {
         conditionSpanStart := nodes.SpanStarts[condition]
         st.Pos = st.Pos + 1
-        thenNode := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        // EITHER ARM MAY BE A THROW (kind 83) -- `flag ? value : throw e` and its mirror. An arm that
+        // throws contributes nothing to the join, so the OTHER arm decides what the conditional is
+        // worth; both arms throwing has no type at all and the analyzer refuses it.
+        thenNode := ParseValueOrThrowExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
         if thenNode < 0 {
             return -1
         }
@@ -6125,7 +6209,7 @@ func ParseTernaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
 
         st.Pos = st.Pos + 1
 
-        elseNode := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        elseNode := ParseValueOrThrowExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
         if elseNode < 0 {
             return -1
         }
@@ -6393,7 +6477,10 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int,
     if st.Pos < count && tokens.Kinds[st.Pos] == 129 {
         body = ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, depth + 1)
     } else {
-        body = ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        // An expression body may BE a throw (`x => throw new ArgumentException(...)`, kind 83): the
+        // delegate's declared return type is what the body would otherwise have produced, so nothing
+        // else has to supply one.
+        body = ParseBodyValueOrThrowExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
     }
 
     if body < 0 {
@@ -11993,7 +12080,10 @@ func ParseDeclarationExpressionBodyEndCore(source: string, tokens: ParserDeclara
     nodes := new ParserExpressionNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
     children := new ParserChildIndexTable(new int[](count + 1))
     st := new ParserState(arrowIndex + 1, 0, 0, 0, 0, 0)
-    valueRoot := ParseLambdaOrAssignmentExpressionNode(expressionTokens, count, st, argStack, nodes, children, 0)
+    // The scan admits exactly what the body parser admits, `=> throw <exception>` included: the two
+    // readings of where a member ENDS must agree, and a scan that stopped at the `throw` would shift
+    // every member after it.
+    valueRoot := ParseBodyValueOrThrowExpressionNode(expressionTokens, count, st, argStack, nodes, children, 0)
     if valueRoot < 0 || st.Pos <= arrowIndex + 1 {
         return -1
     }
@@ -13973,7 +14063,10 @@ func ParseColumnarFunctionExpressionBodyNodesCore(source: string, tokens: Column
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
     st := new ParserState(arrowIndex + 1, 0, 0, 0, 0, 0)
-    valueRoot := ParseLambdaOrAssignmentExpressionNode(expressionTokens, tokens.Count, st, argStack, nodes, children, 0)
+    // `=> throw <exception>` is an expression body whose value is a throw (kind 83). The synthesized
+    // `return` below still wraps it; the return owner recognises the shape and ends the path with
+    // `throw` instead of a `ret` that would have nothing to return.
+    valueRoot := ParseBodyValueOrThrowExpressionNode(expressionTokens, tokens.Count, st, argStack, nodes, children, 0)
     if valueRoot < 0 || st.Pos <= arrowIndex + 1 {
         return -1
     }
@@ -16324,7 +16417,10 @@ func ParseColumnarPropertyExpressionBodyNodesCore(source: string, tokens: Column
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
     st := new ParserState(arrowIndex + 1, 0, 0, 0, 0, 0)
-    valueRoot := ParseLambdaOrAssignmentExpressionNode(expressionTokens, tokens.Count, st, argStack, nodes, children, 0)
+    // `=> throw <exception>` is an expression body whose value is a throw (kind 83). The synthesized
+    // `return` below still wraps it; the return owner recognises the shape and ends the path with
+    // `throw` instead of a `ret` that would have nothing to return.
+    valueRoot := ParseBodyValueOrThrowExpressionNode(expressionTokens, tokens.Count, st, argStack, nodes, children, 0)
     if valueRoot < 0 || st.Pos <= arrowIndex + 1 {
         return -1
     }

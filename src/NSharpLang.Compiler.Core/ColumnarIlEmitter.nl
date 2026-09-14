@@ -1781,6 +1781,12 @@ sealed class ColumnarIlEmitter {
         if (_asyncReturnType != null) {
             return EmitAsyncLambdaExpressionBody(bodyNode, returnType)
         }
+        // `x => throw e` — the body raises instead of producing the delegate's result, so the method
+        // ends with `throw` and no `ret`, exactly as `x => { throw e }` does. A `void` delegate takes
+        // the same shape: there is no value either way.
+        if (IsThrowExpressionNode(bodyNode)) {
+            return EmitThrowExpressionValue(bodyNode)
+        }
         let bodyType: System.Type? = null
         if (!EmitExpression(bodyNode, out bodyType)) {
             return false
@@ -1803,6 +1809,24 @@ sealed class ColumnarIlEmitter {
         _protectedDoneCreated = true
         _protectedDepth = _protectedDepth + 1
         _il.BeginExceptionBlock()
+        // `async x => throw e` — the body raises, and the guard below is exactly what makes that
+        // land on the RETURNED TASK rather than on whoever built the delegate. A `try` region may end
+        // with `throw`, so the protected block needs no `leave` of its own on this path.
+        if (IsThrowExpressionNode(bodyNode)) {
+            if (!EmitThrowExpressionValue(bodyNode)) {
+                return false
+            }
+            _il.BeginCatchBlock(typeof(Exception))
+            EmitFaultedAsyncReturnMirror()
+            _il.Emit(OpCodes.Stloc, _protectedResult)
+            _il.Emit(OpCodes.Leave, _protectedDone)
+            _il.EndExceptionBlock()
+            _protectedDepth = _protectedDepth - 1
+            _il.MarkLabel(_protectedDone)
+            _il.Emit(OpCodes.Ldloc, _protectedResult)
+            _il.Emit(OpCodes.Ret)
+            return true
+        }
         let bodyType: System.Type? = null
         if (!EmitExpression(bodyNode, out bodyType)) {
             return false
@@ -7233,6 +7257,17 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             retNode := Child(idx, 0)
+            // `func F(): T => throw e` — AN EXPRESSION BODY THAT IS A THROW. The arrow body is parsed
+            // into this synthesized `return` like every other one, so the throw arrives here as the
+            // returned VALUE (kind 83). There is nothing to return: the exception ends the path, and a
+            // `ret` after it would be unreachable IL with an empty stack under a value signature.
+            // The same reading serves a `return` whose value is a throw anywhere it can be written.
+            if (IsThrowExpressionNode(retNode)) {
+                if (_finallyDepth > 0) {
+                    return false
+                }
+                return EmitThrowExpressionValue(retNode)
+            }
             let retType: System.Type = null
             // `return x => …` ON A DELEGATE-RETURNING FUNCTION. A lambda literal has no type of its
             // own either, so the DECLARED return type is what gives it its shape — the same reading
@@ -10808,6 +10843,35 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // IS THIS NODE A THROW EXPRESSION (kind 83)? The three grammar positions that admit one —
+    // the fallback of a `??`, a conditional arm, an expression body — each ask before they emit,
+    // because a throw produces no value and every one of them otherwise expects a value AND a type.
+    private func IsThrowExpressionNode(idx: int): bool {
+        return idx >= 0 && idx < _nodes.Kinds.Length && _nodes.Kind(idx) == ColumnarExpressionNodeKind.ThrowExpression()
+    }
+
+    // A THROW EXPRESSION, EMITTED IN PLACE: the exception reference, then `throw`. NOTHING is left on
+    // the evaluation stack and NOTHING follows on this path — `throw` is an unconditional transfer,
+    // so a caller that emitted a branch around this arm still merges at a consistent depth and a
+    // caller that is the whole body simply ends here without a `ret`.
+    //
+    // The operand rule is the statement form's, unchanged: the value must be a `System.Exception`,
+    // which is what makes `x ?? throw 5` refuse for the same reason `throw 5` does.
+    private func EmitThrowExpressionValue(idx: int): bool {
+        if (_nodes.ChildCount(idx) != 1) {
+            return Decline("emit.throw-expression.shape", "a throw expression has one exception operand", idx)
+        }
+        let thrownType: System.Type? = null
+        if (!EmitExpression(Child(idx, 0), out thrownType)) {
+            return false
+        }
+        if (!typeof(Exception).IsAssignableFrom(thrownType)) {
+            return Decline("emit.throw-expression.operand", "a throw expression's operand must be a System.Exception", Child(idx, 0))
+        }
+        _il.Emit(OpCodes.Throw)
+        return true
+    }
+
     // WHEN A READ IS OF A NAME FLOW HAS PROVED PRESENT, AND THE ELEMENT TYPE IT BECOMES. Only a BARE
     // name qualifies: a member path's storage is not this body's to re-type, and a parenthesised read
     // reaches its identifier through this same door one level down.
@@ -11406,6 +11470,17 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Call, ResolveNullableMethod(coalesceLeft, "GetValueOrDefault", Type.EmptyTypes))
                     _il.Emit(OpCodes.Br, endLabel2)
                     _il.MarkLabel(elseLabel2)
+                    // `n ?? throw e` on a `Nullable<T>`: the ABSENT branch raises instead of
+                    // producing an element, so it leaves no value to unify with the present one and
+                    // the merge label is reached only from the `HasValue` side.
+                    if (IsThrowExpressionNode(Child(idx, 1))) {
+                        if (!EmitThrowExpressionValue(Child(idx, 1))) {
+                            return false
+                        }
+                        _il.MarkLabel(endLabel2)
+                        columnarResolvedType = coalesceElement
+                        return true
+                    }
                     let columnarDiscard45: System.Type = null
                     if (!TryEmitIntLiteralAsType(Child(idx, 1), coalesceElement, out columnarDiscard45)) {
                         // emit-then-check is decline-safe: a false return abandons the program.
@@ -11430,6 +11505,18 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Ldloc, typeParameterLocal)
                     _il.Emit(OpCodes.Box, coalesceLeft)
                     _il.Emit(OpCodes.Brtrue, typeParameterLeftLabel)
+                    if (IsThrowExpressionNode(Child(idx, 1))) {
+                        // The null instantiation raises: no fallback value, so no `br` to the merge
+                        // either — the label below is reached only from the non-null side.
+                        if (!EmitThrowExpressionValue(Child(idx, 1))) {
+                            return false
+                        }
+                        _il.MarkLabel(typeParameterLeftLabel)
+                        _il.Emit(OpCodes.Ldloc, typeParameterLocal)
+                        _il.MarkLabel(typeParameterEndLabel)
+                        columnarResolvedType = coalesceLeft
+                        return true
+                    }
                     let typeParameterRightType: System.Type? = null
                     if (!EmitExpression(Child(idx, 1), out typeParameterRightType) || !TypesEquivalent(typeParameterRightType, coalesceLeft)) {
                         return false
@@ -11448,6 +11535,18 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Dup)
                 _il.Emit(OpCodes.Brtrue, coalesceEnd)
                 _il.Emit(OpCodes.Pop)
+                // `x ?? throw e` — THE FORM C# CODE WRITES CONSTANTLY. The duplicated reference is
+                // popped exactly as it is for a value fallback, the exception is raised in its place,
+                // and the merge label carries the non-null left with its nullability removed: the
+                // whole expression is worth `x`, and the analyzer's flow says so too.
+                if (IsThrowExpressionNode(Child(idx, 1))) {
+                    if (!EmitThrowExpressionValue(Child(idx, 1))) {
+                        return false
+                    }
+                    _il.MarkLabel(coalesceEnd)
+                    columnarResolvedType = coalesceLeft
+                    return true
+                }
                 if (_nodes.Kind(Child(idx, 1)) == 5) {
                     _il.Emit(OpCodes.Ldnull)
                 } else {
@@ -13639,6 +13738,54 @@ sealed class ColumnarIlEmitter {
             ternaryElseIsNull := _nodes.Kind(ternaryElseNode) == 5
             if (ternaryThenIsNull && ternaryElseIsNull) {
                 return false
+            }
+
+            // AN ARM THAT THROWS (kind 83) CONTRIBUTES NOTHING TO THE JOIN — the same reading a
+            // `null` arm gets one rung up, taken further: a `null` still has to be a value of the
+            // other arm's type, while a throw is not a value at all, so the merge label is reached
+            // only from the arm that does produce one and the conditional is worth THAT arm's type.
+            // Both arms throwing has no type to be worth; the analyzer refuses it (NL340's sibling
+            // rule) and this guard keeps the emitter honest.
+            ternaryThenThrows := IsThrowExpressionNode(ternaryThenNode)
+            ternaryElseThrows := IsThrowExpressionNode(ternaryElseNode)
+            if (ternaryThenThrows && ternaryElseThrows) {
+                return Decline("emit.conditional.both-arms-throw", "a conditional whose arms both throw produces no value", idx)
+            }
+            if (ternaryThenThrows || ternaryElseThrows) {
+                if ((ternaryThenThrows && ternaryElseIsNull) || (ternaryElseThrows && ternaryThenIsNull)) {
+                    return Decline("emit.conditional.throw-and-null", "a conditional between a throw and a bare 'null' has no type to take", idx)
+                }
+                if (!EmitCondition(Child(idx, 0))) {
+                    return false
+                }
+                throwArmElse := _il.DefineLabel()
+                _il.Emit(OpCodes.Brfalse, throwArmElse)
+                let throwArmValueType: System.Type? = null
+                if (ternaryThenThrows) {
+                    // The THEN arm raises, so the value arm is the ELSE one and the branch target is
+                    // where the whole conditional continues.
+                    if (!EmitThrowExpressionValue(ternaryThenNode)) {
+                        return false
+                    }
+                    _il.MarkLabel(throwArmElse)
+                    if (!EmitExpression(ternaryElseNode, out throwArmValueType)) {
+                        return false
+                    }
+                    columnarResolvedType = throwArmValueType
+                    return true
+                }
+                if (!EmitExpression(ternaryThenNode, out throwArmValueType)) {
+                    return false
+                }
+                throwArmEnd := _il.DefineLabel()
+                _il.Emit(OpCodes.Br, throwArmEnd)
+                _il.MarkLabel(throwArmElse)
+                if (!EmitThrowExpressionValue(ternaryElseNode)) {
+                    return false
+                }
+                _il.MarkLabel(throwArmEnd)
+                columnarResolvedType = throwArmValueType
+                return true
             }
             let ternaryNullArmType: System.Type? = null
             if (ternaryThenIsNull) {
