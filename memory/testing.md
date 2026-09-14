@@ -816,24 +816,26 @@ public void TestFullCompilation()
 ```
 
 ### 4. Emitted Assemblies Load Into Collectible Scopes
-Tests that reflect over or invoke an emitted assembly (columnar parity programs, compiled
-Compiler Core or CLI outputs, `MultiFileCompiler` outputs) must load it through `CollectibleAssemblyScope`
-(tests/CollectibleAssemblyScope.cs):
+Never `Assembly.Load(bytes)` or `Assembly.LoadFile(path)` from a test that reflects over or invokes
+an emitted assembly: each call pins the assembly in a fresh NON-collectible AssemblyLoadContext for
+the host's lifetime. Load it into a collectible `AssemblyLoadContext` and `Unload()` it instead,
+keeping every `Type`/`MethodInfo`/delegate obtained from it inside that scope.
 
-```text
-using var loadScope = CollectibleAssemblyScope.Load(asm!);                  // emitted byte[]
-using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);    // emitted .dll
-var type = loadScope.Assembly.GetType(typeName!)!;
-```
+WHAT THE RULE'S HOST WAS, AND WHERE IT STANDS NOW. The rule was written for the xunit process that
+ran `tests/Tests.csproj`, where the parity suite loaded hundreds of emitted assemblies per run and
+the pinned pile intermittently OOM-crashed it ("Test host process crashed : Out of memory"). Its
+helper, `tests/CollectibleAssemblyScope.cs`, was retired with that project: every suite that used it
+had already migrated to N#, so the last thing standing was the helper itself.
 
-Never `Assembly.Load(bytes)` or `Assembly.LoadFile(path)`: each call pins the assembly in a fresh
-NON-collectible AssemblyLoadContext for the test host's lifetime. The parity suite loads hundreds of
-emitted assemblies per run and grows every slice — the pinned pile intermittently OOM-crashed the
-xUnit host ("Test host process crashed : Out of memory").
-
-Rules of the scope:
-- Keep every `Type`/`MethodInfo`/delegate obtained from `loadScope.Assembly` inside the `using` scope.
-- `CollectibleAssemblyScopeTests` pins the contract (collectible, non-default, reclaimable after Dispose).
+`tests/native/test-assembly-load-contexts` now holds the three claims that mattered — a context
+created `isCollectible: true` is collectible and is not the default one, an unloaded one becomes
+reclaimable, and no C# under `tests/` calls a static `Assembly.Load*` — plus a row the C# never had,
+which proves the guard's own regex still matches the banned shapes. It also RECORDS a measurement
+worth knowing: `nlc test`'s default xunit runner leaves the emitted test assembly in the DEFAULT,
+non-collectible context (only its NUnit-shaped reflection runner uses a collectible one). That is
+not today's leak, because the gate runs one `nlc test --project <dir>` process per project and the
+single pin dies with the process — but it is the thing to fix before several projects ever share one
+process.
 - The compiler side holds the matching guarantee: external-type/doc resolution enumerates loaded
   assemblies through the N# `ExternalAssemblyScan.Loaded()` owner
   (`src/NSharpLang.Compiler.Core/ExternalAssemblyScan.nl`),
