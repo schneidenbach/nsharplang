@@ -10507,6 +10507,14 @@ sealed class ColumnarIlEmitter {
     // the same owner the call spelled: a bare identifier that binds no value is the TYPE name of a
     // static call, and anything else is a receiver whose preflight type answers for an instance one.
     // Nothing about the member is written down.
+    //
+    // WHAT THIS READER NEEDS IS METADATA, NOT A CALL TARGET, and those are two different capabilities.
+    // A member of a BUILDER-BOUND instantiation — `List<Entry>.Add` for a source `Entry` — is a
+    // perfectly good thing to CALL, and the resolver hands one back rebound onto the instantiation,
+    // but reflection refuses to read custom attributes off it: `MethodInfo.GetCustomAttributesData()`
+    // and the `ParameterInfo`s it hands out both answer NotImplementedException. The attributes are
+    // the whole reason this reader exists, so such a handle is declined here rather than read — the
+    // same answer the reader gave before the resolver could reach the shape at all.
     private func TryResolveExternalCallStatementMethod(callNode: int, out externalMethod: MethodInfo): bool {
         externalMethod = null
         if (_nodes.Kind(callNode) != 9 || _nodes.ChildCount(callNode) < 1) {
@@ -10528,7 +10536,7 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 staticSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(staticOwnerType, member, argCount, true)
-                if (!staticSelection.IsSelected || staticSelection.Method == null) {
+                if (!staticSelection.IsSelected || staticSelection.Method == null || !IsAttributeReadableRuntimeMethod(staticSelection.DeclaringType)) {
                     return false
                 }
                 externalMethod = staticSelection.Method
@@ -10540,11 +10548,18 @@ sealed class ColumnarIlEmitter {
             return false
         }
         instanceSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(instanceReceiverType, member, argCount, false)
-        if (!instanceSelection.IsSelected || instanceSelection.Method == null) {
+        if (!instanceSelection.IsSelected || instanceSelection.Method == null || !IsAttributeReadableRuntimeMethod(instanceSelection.DeclaringType)) {
             return false
         }
         externalMethod = instanceSelection.Method
         return true
+    }
+
+    // Whether a resolved method's own metadata can be read at all. Only a COMPLETE runtime identity
+    // answers a custom-attribute query; a member of an instantiation closed over a type this
+    // compilation is still building throws instead.
+    private static func IsAttributeReadableRuntimeMethod(declaringType: Type): bool {
+        return declaringType != null && !ColumnarTypeOfPlanner.ContainsBuilderBoundType(declaringType)
     }
 
     // THE ARGUMENT A `[DoesNotReturnIf(b)]` NAMED, and the branch the surviving flow is on. The

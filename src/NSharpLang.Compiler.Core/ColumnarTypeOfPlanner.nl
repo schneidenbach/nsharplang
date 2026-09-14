@@ -1376,11 +1376,38 @@ class ColumnarTypeOfPlanner {
             return false
         }
 
-        if valueType.get_IsGenericParameter() || valueType.get_IsGenericTypeDefinition() {
+        if valueType.get_IsGenericTypeDefinition() {
             return false
         }
 
+        // A TYPE PARAMETER IS A LIFTABLE ELEMENT EXACTLY WHEN ITS OWN `where` CLAUSE SAYS IT IS A
+        // NON-NULLABLE VALUE TYPE. That is the CLR's requirement on `Nullable<T>`'s argument, read at
+        // the DECLARATION rather than at an instantiation, and it is also what separates the two
+        // readings of `T?`: `where T : struct` makes it `Nullable<T>`, exactly as C# reads it, while
+        // an UNCONSTRAINED `T?` is the annotated `T` itself and lifts nothing.
+        //
+        // Refusing every parameter was silently the second reading for both: `func Pick<T>(…): T?
+        // where T : struct` declared its return as bare `T`, so the DECLARATION emitted and every
+        // caller that read the lifted result saw a `T` where the analyzer had said `T?`.
+        if valueType.get_IsGenericParameter() {
+            return HasNotNullableValueTypeConstraint(valueType)
+        }
+
         return IsValueTypeSafely(valueType) && !IsByRefLike(valueType)
+    }
+
+    // The `struct` bit of a type parameter's own `GenericParameterAttributes`, read defensively
+    // because a parameter this compilation has not finished building answers some reflection
+    // questions by throwing rather than by declining.
+    static func HasNotNullableValueTypeConstraint(valueType: Type): bool {
+        try {
+            attributes := valueType.get_GenericParameterAttributes()
+            return ((int)attributes & ColumnarGenericConstraintPlanner.NotNullableValueTypeConstraintBit()) != 0
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
     }
 
     static func IsValueTypeSafely(valueType: Type): bool {

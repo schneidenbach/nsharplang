@@ -564,13 +564,32 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             throw new InvalidOperationException("Ordinary runtime direct-call inputs cannot be null.")
         }
 
-        // A builder-bound owner's members are reachable only through its open definition, where the
-        // TYPE's arguments would have to be closed alongside the call. That pairing keeps the exact
-        // resolver's answer.
+        if lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        }
+
+        // A BUILDER-BOUND OWNER'S MEMBERS ARE READ OFF ITS OPEN DEFINITION, with this instantiation's
+        // arguments closed into every position — which is exactly what the SCORING resolver above
+        // already does for the same receiver. This tier used to refuse the shape outright, and it is
+        // the only tier a DELEGATE argument can reach: `items.Find(m => ...)` on a `List<Money>` for a
+        // source `Money` therefore declined, while the identical call on a `List<int>` bound, because
+        // the baked receiver answered its own member query. `List<Money>` answers none — reflection
+        // throws on a member query over a builder-bound instantiation — so the candidates come from
+        // `List<T>` and the selected handle is rebound onto the instantiation.
         genericDefinition := typeof(object)
         closedArguments := new Type[](0)
-        if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) || lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
-            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
+            try {
+                return ResolveUniqueAtArityCore(lookupType, genericDefinition, closedArguments, memberName, argumentCount, expectedStatic)
+            } catch ex: NotSupportedException {
+                return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+            } catch ex: NotImplementedException {
+                return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+            } catch ex: InvalidOperationException {
+                return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+            } catch ex: ArgumentException {
+                return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+            }
         }
 
         // A SOURCE owner — a `TypeBuilder`, or an instantiation of one — is not an ordinary RUNTIME
@@ -581,15 +600,29 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
         }
 
-        candidates := CandidatesOrEmpty(lookupType)
+        return ResolveUniqueAtArityCore(lookupType, lookupType, closedArguments, memberName, argumentCount, expectedStatic)
+    }
+
+    // The unique-at-arity selection itself, over one candidate surface. `candidateLookupType` is the
+    // type the candidates were read from — the receiver itself, or its open definition when the
+    // receiver is a builder-bound instantiation — and `closedArguments` is non-empty only in the
+    // second case, where every declared position closes over it.
+    static func ResolveUniqueAtArityCore(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentCount: int, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        builderBound := closedArguments.Length > 0
+        candidates := CandidatesOrEmpty(candidateLookupType)
+        if builderBound {
+            ValidateBuilderBoundCandidates(candidates)
+        }
+
         selected: MethodInfo? = null
         selectedParameters := new Type[](0)
+        selectedReturnType := typeof(object)
         selectedCount := 0
         index := 0
         while index < candidates.Length {
             candidate := candidates[index]
             index = index + 1
-            if candidate == null || !IsPublicCandidateForLookup(candidate, lookupType, memberName, expectedStatic) {
+            if candidate == null || !IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, expectedStatic) {
                 continue
             }
 
@@ -598,8 +631,8 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 continue
             }
 
-            parameterTypes := ResolveParameterTypes(candidate, lookupType, parameters, closedArguments)
-            returnType := ResolveReturnType(candidate, lookupType, closedArguments)
+            parameterTypes := ResolveParameterTypes(candidate, candidateLookupType, parameters, closedArguments)
+            returnType := ResolveReturnType(candidate, candidateLookupType, closedArguments)
             if HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) || !CanDispatch(candidate, lookupType, expectedStatic) {
                 continue
             }
@@ -607,10 +640,15 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             selectedCount = selectedCount + 1
             selected = candidate
             selectedParameters = parameterTypes
+            selectedReturnType = returnType
         }
 
         if selectedCount != 1 || selected == null {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        }
+
+        if builderBound {
+            return SelectedBuilderBound(lookupType, candidateLookupType, selected, selectedParameters, selectedReturnType, expectedStatic)
         }
 
         return Selected(lookupType, selected, selectedParameters, expectedStatic)
