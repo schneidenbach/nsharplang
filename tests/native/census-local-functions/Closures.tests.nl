@@ -144,8 +144,11 @@ test "a capturing scope gets exactly one display class and a capture-free local 
 
     // One per capturing scope in Closures.nl: Walk, CountSteps, SharedStorage, BumpParameter,
     // TwoScopes, MakeAdder, AddThroughLocalVariable, MapThroughArgument, TotalLengths and
-    // Scaler.Scale, plus the one the lambda in PerIterationAdders gets — the same lowering.
-    assert displayCount == 11
+    // Scaler.Scale, plus the one the lambda in PerIterationAdders gets — the same lowering — plus
+    // CapturingRequiredAfterAsyncArrow in DeclarationPreamble.nl and DecorateWith and PushTwice in
+    // ArrowBodies.nl, whose local functions capture `prefix` and `sink`. An ARROW body is lowered
+    // through the same display a block body uses, which is why each adds exactly one.
+    assert displayCount == 14
 
     // CountSteps declares two mutually recursive capturing local functions. They share ONE display,
     // which is the whole reason each sees the other's writes to the captured counter.

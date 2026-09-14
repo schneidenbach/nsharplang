@@ -1597,6 +1597,16 @@ func getFullName(first: string, last: string): string =>
 func isEven(n: int): bool => n % 2 == 0
 ```
 
+A `void` expression body **performs** its expression rather than returning it, so the expression
+must itself produce nothing:
+
+```n#
+func append(sink: List<int>, value: int): void => sink.Add(value)
+```
+
+Handing a `void` expression body a value is an error (NL202) — say what the function returns, or
+drop the value.
+
 ### Expression-Bodied Properties
 
 ```n#
@@ -1643,6 +1653,23 @@ func processData(input: string, label: string): string {
     return transform(input)
 }
 ```
+
+### Expression-Bodied Local Functions
+
+A local function takes the same `=>` body a top-level function does, `void` bodies included:
+
+```n#
+func report(values: List<int>, label: string): string {
+    func doubled(x: int): int => x * 2
+    func push(x: int): void => values.Add(x)
+
+    push(doubled(values.Count))
+    return $"{label}: {values.Count}"
+}
+```
+
+The body ends where the expression ends, so it may continue on the next line, and a `static` local
+function may use one too.
 
 ### Async Local Functions
 

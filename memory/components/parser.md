@@ -666,6 +666,43 @@ anything else reports **NL311 on the word** and keeps parsing the declaration wi
 Both the top-level and the member dispatch route through the one function, so a nested readonly struct
 behaves identically to a top-level one.
 
+### A DECLARATION'S EXTENT WHEN IT HAS NO BRACES
+
+Three walkers over the top-level token stream — `TopLevelDeclarationModifiersCore`,
+`TopLevelDeclarationKindsCore`/`NameSpansCore` and `TopLevelDeclarationIndicesCore` — skip bodies by
+BRACE DEPTH. An EXPRESSION-BODIED declaration has no braces, so its body's tokens are read as if they
+sat between declarations, and three separate failures came out of that one gap:
+
+- **A modifier leaked forward, silently.** `func F(): Func<Task<int>> => async () => 1` left `async`
+  pending, and the NEXT top-level function wore it: its signature grew a `ValueTask<T>` wrap and its
+  body was emitted inside the async fault guard, so a `throw` it raised became a faulted task nobody
+  awaited and the call simply returned. No diagnostic anywhere. A declaration's modifiers are the run
+  IMMEDIATELY before its keyword, so any depth-zero token that is not a modifier, a declaration
+  keyword or a newline now ends the run.
+- **A modified declaration after an arrow body declined the whole file.**
+  `TopLevelFunctionPreamblesAreValidCore` measured the arrow body's end against the next `func`
+  TOKEN, and `async`/`public`/an attribute group sits between them. It measures against the next
+  declaration's PREAMBLE start now (`preceding + 1`, which the walk already computed).
+- **A constraint clause never ended.** `inWhereClause` was cleared only by `{`, so
+  `func Id<T>(v: T): T where T : class => v` hid every later declaration in the file. All five
+  walkers clear the latch at `=>` as well, which is how an expression body opens.
+
+### A local function's body, and what an expression body lowers to
+
+The statement kernel's kind-41 arm records only the `func` keyword's span and SKIPS the declaration;
+the host re-locates the keyword and parses signature + body through the ordinary function kernels.
+That skip demanded a `{`, so `func inner(v: string?): string => v ?? "d"` declined its WHOLE enclosing
+function at `parse.function` — the kernels behind it already read an expression body, only the skip
+did not. It now stops at the first DEPTH-ZERO `{` or `=>` (depth matters: a parameter default may
+itself be a lambda) and, for an arrow, takes the expression's end from
+`ParseDeclarationExpressionBodyEndCore`.
+
+`ParseColumnarFunctionExpressionBodyNodesCore` takes `returnsVoid` and lowers the expression to a
+ReturnStatement (kind 20) or an ExpressionStatement (kind 23). A `void` arrow used to be lowered as a
+value return from a void method and declined at `emit.body`; an omitted return type canonicalizes to
+`void`, so it answers the same way. One kernel serves free functions, struct methods and local
+functions, so all three gained the `void` arrow together.
+
 ## Usage Example
 
 ```text
