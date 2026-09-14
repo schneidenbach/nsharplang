@@ -2165,6 +2165,8 @@ its type from what the conditional is written *at*: the declared return type, th
 the local, the type of the local being assigned, or the parameter the value is passed to.
 
 ```n#
+import System
+
 func pick(flag: bool, name: string): string? => flag ? name : null
 func pickValue(flag: bool, n: int): int? => flag ? n : null      // the `int` arm lifts to `int?`
 func orThrow(ok: bool, failure: Exception): string? => ok ? null : throw failure
