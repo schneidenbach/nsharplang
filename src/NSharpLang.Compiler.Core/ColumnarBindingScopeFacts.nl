@@ -605,22 +605,132 @@ class ColumnarBindingScopeFacts {
     func TryResolveExactExplicitTypeInContext(enclosingTypeName: string, canonical: string, bindings: ColumnarFragmentBindings, out result: Type, out claimed: bool): bool {
         result = typeof(object)
         claimed = false
-        if canonical == null || canonical.Length == 0 || canonical.Contains(".") || enclosingTypeName == null || enclosingTypeName.Length == 0 {
+        if canonical == null || canonical.Length == 0 || enclosingTypeName == null || enclosingTypeName.Length == 0 {
             return TryResolveExactExplicitType(canonical, bindings, out result, out claimed)
         }
 
-        ownerName := enclosingTypeName
-        activeAliases := new HashSet<string>(StringComparer.Ordinal)
-        while ownerName.Length > 0 {
-            candidateName := ownerName + "." + canonical
-            candidateClaimed := false
-            if TryResolveExactSourceBinding(candidateName, false, bindings, activeAliases, 0, out result, out candidateClaimed) {
+        if !canonical.Contains(".") {
+            ownerName := enclosingTypeName
+            activeAliases := new HashSet<string>(StringComparer.Ordinal)
+            while ownerName.Length > 0 {
+                candidateName := ownerName + "." + canonical
+                candidateClaimed := false
+                if TryResolveExactSourceBinding(candidateName, false, bindings, activeAliases, 0, out result, out candidateClaimed) {
+                    claimed = true
+                    return true
+                }
+                if candidateClaimed {
+                    claimed = true
+                    return false
+                }
+
+                separator := ownerName.Length - 1
+                while separator >= 0 && ownerName[separator] != '.' {
+                    separator = separator - 1
+                }
+                if separator < 0 {
+                    ownerName = ""
+                } else {
+                    ownerName = ownerName.Substring(0, separator)
+                }
+            }
+        }
+
+        // A COMPOSED SPELLING CARRIES THE SAME LEXICAL SCOPE ITS SIMPLE NAMES DO. The owner walk
+        // above answers `Cached`; `List<Cached>`, `Cached[]` and `(Left: Cached, Right: int)` name
+        // the same declaration in the same place, so each POSITION inside the spelling is rewritten
+        // to its exact source identity before the per-file walk — which sees only file and import
+        // scope — assembles the CLR shape.
+        contextualCanonical := RewriteLexicalCanonicalInContext(enclosingTypeName, canonical, 0)
+        if contextualCanonical != canonical {
+            contextualClaimed := false
+            if TryResolveExactExplicitType(contextualCanonical, bindings, out result, out contextualClaimed) {
                 claimed = true
                 return true
             }
-            if candidateClaimed {
+            if contextualClaimed {
                 claimed = true
                 return false
+            }
+        }
+        return TryResolveExactExplicitType(canonical, bindings, out result, out claimed)
+    }
+
+    // Rewrite every simple name inside a type spelling that the enclosing declaration's owner walk
+    // claims as one of its own nested declarations. A position no owner claims is left exactly as
+    // written, so a spelling with nothing to rewrite produces no contextual attempt at all.
+    func RewriteLexicalCanonicalInContext(enclosingTypeName: string, canonical: string, depth: int): string {
+        if canonical == null || canonical.Length == 0 || depth > 200 {
+            return canonical
+        }
+
+        if canonical.EndsWith("[]", StringComparison.Ordinal) {
+            return RewriteLexicalCanonicalInContext(enclosingTypeName, canonical.Substring(0, canonical.Length - 2), depth + 1) + "[]"
+        }
+        if canonical.EndsWith("?", StringComparison.Ordinal) {
+            return RewriteLexicalCanonicalInContext(enclosingTypeName, canonical.Substring(0, canonical.Length - 1), depth + 1) + "?"
+        }
+        if canonical.StartsWith("&", StringComparison.Ordinal) {
+            return "&" + RewriteLexicalCanonicalInContext(enclosingTypeName, canonical.Substring(1), depth + 1)
+        }
+
+        genericOpen := canonical.IndexOf("<", StringComparison.Ordinal)
+        if genericOpen > 0 && canonical.EndsWith(">", StringComparison.Ordinal) {
+            rewrittenHead := RewriteLexicalCanonicalInContext(enclosingTypeName, canonical.Substring(0, genericOpen), depth + 1)
+            argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
+                canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
+            )
+            rewrittenArguments := new string[](argumentCanonicals.Count)
+            argumentIndex := 0
+            while argumentIndex < argumentCanonicals.Count {
+                rewrittenArguments[argumentIndex] = RewriteLexicalCanonicalInContext(enclosingTypeName, argumentCanonicals[argumentIndex], depth + 1)
+                argumentIndex = argumentIndex + 1
+            }
+            return rewrittenHead + "<" + string.Join(",", rewrittenArguments) + ">"
+        }
+
+        if canonical.Length >= 2 && canonical[0] == '(' && canonical[canonical.Length - 1] == ')' {
+            elementCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
+                canonical.Substring(1, canonical.Length - 2)
+            )
+            rewrittenElements := new string[](elementCanonicals.Count)
+            elementIndex := 0
+            while elementIndex < elementCanonicals.Count {
+                element := elementCanonicals[elementIndex]
+                colon := element.IndexOf(":", StringComparison.Ordinal)
+                if colon > 0 && ColumnarTypeCanonicalizer.IsBareIdentifier(element.Substring(0, colon)) {
+                    rewrittenElements[elementIndex] = element.Substring(0, colon + 1) + RewriteLexicalCanonicalInContext(enclosingTypeName, element.Substring(colon + 1), depth + 1)
+                } else {
+                    rewrittenElements[elementIndex] = RewriteLexicalCanonicalInContext(enclosingTypeName, element, depth + 1)
+                }
+                elementIndex = elementIndex + 1
+            }
+            return "(" + string.Join(",", rewrittenElements) + ")"
+        }
+
+        exactName := ""
+        if TryFindLexicalOwnedSourceTypeName(enclosingTypeName, canonical, out exactName) {
+            return exactName
+        }
+        return canonical
+    }
+
+    // The name-level half of the owner walk: does an enclosing declaration (or one of ITS owners)
+    // declare a source type of this simple name? Only the identity is selected here — resolving it
+    // stays with the ordinary explicit-type walk, so aliases, arity retries and ambiguity keep one
+    // owner.
+    func TryFindLexicalOwnedSourceTypeName(enclosingTypeName: string, canonical: string, out exactName: string): bool {
+        exactName = ""
+        if canonical == null || canonical.Length == 0 || canonical.Contains(".") || enclosingTypeName == null || enclosingTypeName.Length == 0 {
+            return false
+        }
+
+        ownerName := enclosingTypeName
+        while ownerName.Length > 0 {
+            candidateName := ownerName + "." + canonical
+            if sourceTypeNames.Contains(candidateName) || sourceTypeAliasFileIds.ContainsKey(candidateName) {
+                exactName = candidateName
+                return true
             }
 
             separator := ownerName.Length - 1
@@ -633,7 +743,7 @@ class ColumnarBindingScopeFacts {
                 ownerName = ownerName.Substring(0, separator)
             }
         }
-        return TryResolveExactExplicitType(canonical, bindings, out result, out claimed)
+        return false
     }
 
     // Return the exact source declaration selected by an explicit type spelling. Unlike the CLR
