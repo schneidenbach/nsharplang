@@ -63,7 +63,8 @@ test "an unmodelled read-only set head closes over a source struct in a paramete
     assert Object.ReferenceEquals(parameters[0].ParameterType.GetGenericArguments()[0], typeof(Loc))
 
     returning: MethodInfo? = typeof(LocationIndex).GetMethod("SeenSet")
-    assert Object.ReferenceEquals((must returning).ReturnType.GetGenericArguments()[0], typeof(Loc))
+    returned := must returning
+    assert Object.ReferenceEquals(returned.ReturnType.GetGenericArguments()[0], typeof(Loc))
 }
 
 // `System.ValueType`'s field-wise equality is what makes a plain struct a key, so two values that

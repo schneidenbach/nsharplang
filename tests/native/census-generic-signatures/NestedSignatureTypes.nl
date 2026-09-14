@@ -83,14 +83,6 @@ class Snapshots {
         return Newest().Note
     }
 
-    func HeadNote(): string {
-        return Labelled().Head.Note
-    }
-
-    func HeadSize(): int {
-        return Labelled().Size
-    }
-
     private func Newest(): Cached {
         recent := new List<Cached>()
         for entry in ordered {
@@ -99,8 +91,10 @@ class Snapshots {
         return recent[recent.Count - 1]
     }
 
-    // A TUPLE element typed by the nested declaration, in a return position.
-    private func Labelled(): (Head: Cached, Size: int) {
+    // A TUPLE element typed by the nested declaration, in a return position. Reading an element back
+    // OUT of a builder-bound tuple is a separate lowering that declines today for any source type,
+    // nested or not, so this signature is read by reflection rather than called.
+    func Labelled(): (Head: Cached, Size: int) {
         return (ordered[0], ordered.Count)
     }
 

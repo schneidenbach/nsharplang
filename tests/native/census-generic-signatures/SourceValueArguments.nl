@@ -59,7 +59,7 @@ class LocationIndex {
         if entry == null {
             return -1
         }
-        return (must entry).Line
+        return entry.Line
     }
 
     func Distinct(): int {

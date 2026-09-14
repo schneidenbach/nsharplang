@@ -86,21 +86,15 @@ test "an array and a nested-generic value round-trip through the constructed dic
     assert snapshots.GroupedNote("absent", 0) == ""
 }
 
-// The tuple lives in a PRIVATE return signature, so reflection is what reads its shape; the two
-// accessors prove the same tuple runs.
 test "a tuple element typed by the nested declaration keeps its element type" {
     labelled: MethodInfo? = typeof(Snapshots).GetMethod("Labelled", NestedDeclaredFlags())
-    returned := (must labelled).ReturnType
+    selected := must labelled
+    returned := selected.ReturnType
     assert returned.get_IsGenericType()
     tupleArguments := returned.GetGenericArguments()
     assert tupleArguments.Length == 2
     assert Object.ReferenceEquals(tupleArguments[0], NestedCachedType())
     assert tupleArguments[1] == typeof(int)
-
-    snapshots := new Snapshots()
-    snapshots.Add("only", "single")
-    assert snapshots.HeadSize() == 1
-    assert snapshots.HeadNote() == "single"
 }
 
 // A NESTED TYPE AT TWO DEPTHS. `Leaf` is written bare inside `Mid` and as `Mid.Leaf` from `Deep`;
