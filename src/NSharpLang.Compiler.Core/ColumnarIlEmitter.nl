@@ -21169,6 +21169,35 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        // `a ?? b` PRODUCES WHAT THE PRESENT VALUE IS, AND PREFLIGHT COULD NOT SAY SO.
+        //
+        // The emit arm has always known the rule — a REFERENCE left yields the left's own type, a
+        // `Nullable<T>` left yields its ELEMENT — but the preflight typed both operands and then fell
+        // off the end, so every reader that asks what an expression PRODUCES stopped at a coalesce.
+        // `census.IndexOf("returnLifetime=" + (value ?? ""), StringComparison.Ordinal)` is what that
+        // cost: the concat could not be typed, so the call's overload could not be chosen from its
+        // arguments and the site fell through to a per-API residual.
+        //
+        // The right operand must land on the same type the present value has. A widening, a derived
+        // reference and a `throw` right-hand side are all left un-typed here rather than guessed —
+        // they are exactly the shapes the emit arm decides WHILE emitting, and a preflight that
+        // answered differently from that arm would be worse than one that declines.
+        if (op == "??") {
+            if (ColumnarTypeOfPlanner.IsSupportedNullable(leftType)) {
+                coalesceElementType := leftType.GetGenericArguments()[0]
+                if (!TypesEquivalent(rightType, coalesceElementType)) {
+                    return false
+                }
+                columnarResolvedType = coalesceElementType
+                return true
+            }
+            if (leftType.get_IsValueType() || !TypesEquivalent(leftType, rightType)) {
+                return false
+            }
+            columnarResolvedType = leftType
+            return true
+        }
+
         if ((op == "==" || op == "!=") && TypesEquivalent(leftType, rightType) && (leftType == typeof(string) || leftType == typeof(Type) || IsSupportedInterpolationEqualityType(leftType))) {
             columnarResolvedType = typeof(bool)
             return true

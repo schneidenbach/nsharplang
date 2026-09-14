@@ -19,6 +19,12 @@ test "a static property receiver resolves a tied external overload by argument t
     assert StaticReceiverOverloads.Encoded()[0] == 72
 }
 
+test "an argument containing a coalesce is typed, so the overload is still chosen by its arguments" {
+    assert StaticReceiverOverloads.OrdinalIndexOf("banana", null) == 2
+    assert StaticReceiverOverloads.OrdinalIndexOf("banana", "na") == 2
+    assert StaticReceiverOverloads.OrdinalIndexOf("banana", "zz") == -1
+}
+
 test "a collection expression at a tied external overload selects the candidate that accepts it" {
     assert StaticReceiverOverloads.DecodedFromLiteral() == "Hi"
 }

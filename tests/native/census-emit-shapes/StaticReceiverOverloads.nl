@@ -1,5 +1,6 @@
 namespace NSharpLang.CensusEmitShapes.Tests
 
+import System
 import System.Text
 
 
@@ -49,5 +50,14 @@ class StaticReceiverOverloads {
 
     static func Encoded(): byte[] {
         return Encoding.UTF8.GetBytes("Hi")
+    }
+
+    // AN ARGUMENT THAT CONTAINS A COALESCE IS STILL AN ARGUMENT THAT CHOOSES. `a ?? b` produces what
+    // the present value is — the emit arm has always known that — but the preflight typed both
+    // operands and then said nothing, so a concat containing one had no type and the overload could
+    // not be chosen from it. The second argument here is a StringComparison, which only two of
+    // `IndexOf`'s arity-2 declarations accept, and the first must be typed to separate those two.
+    static func OrdinalIndexOf(haystack: string, suffix: string?): int {
+        return haystack.IndexOf("na" + (suffix ?? ""), StringComparison.Ordinal)
     }
 }

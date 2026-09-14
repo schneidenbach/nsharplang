@@ -4518,3 +4518,12 @@ the nearest receiver-chain link") into `_labeledContextByVariable`, exactly as a
 does, and the ordinary member walk finds the element. Names whose ONLY source is a lambda's own tuple
 LITERAL (`GroupBy(r => (Code: r.Code, Amount: r.Amount))`) still do not survive: nothing WRITTEN names
 them, which is a different gap from this one.
+
+**And a coalesce has a preflight type.** Deleting the `string.IndexOf` table exposed the reason it
+existed: `ColumnarIlEmitter.TryGetPreflightBinaryExpressionType` typed both operands of a `??` and then
+fell off the end, so `census.IndexOf("returnLifetime=" + (value ?? ""), StringComparison.Ordinal)` had
+an untypable first argument and the table's emit-then-decide arm was the only thing that could bind it.
+The emit arm has always known the rule — a REFERENCE left yields the left's own type, a `Nullable<T>`
+left yields its ELEMENT — and the preflight now states the same one. A widening, a derived reference
+and a `throw` right-hand side stay un-typed rather than guessed: those are the shapes the emit arm
+decides WHILE emitting.
