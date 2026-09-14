@@ -45,6 +45,11 @@ class AnalyzerExternalTypeProbe {
     usingNamespaces: List<string>
     typeCache: Dictionary<string, Type>
 
+    // THE FRIEND RULE'S ONE OWNER, handed in by the analyzer so that the probe, member resolution and
+    // completion all answer from the same grants. It is the analyzer's live instance, not a copy: the
+    // compiling assembly name is set when the project config loads, which is after this probe is built.
+    grants: InternalsVisibleToGrants
+
     // A FULL NAME NO LOADED ASSEMBLY DECLARES, REMEMBERED AGAINST THE ASSEMBLY COUNT THAT PROVED IT.
     //
     // Every question this owner answers is a sweep of `assemblies x Assembly.GetType`, and the MISS
@@ -62,11 +67,25 @@ class AnalyzerExternalTypeProbe {
     // comment was protecting, kept without paying for it twice.
     missedFullNames: Dictionary<string, int>
 
-    constructor(mlcAssemblies: List<Assembly>, importedNamespaces: List<string>) {
+    // A PROBE WITH NO PROJECT BEHIND IT IS THE FRIEND OF NOTHING. The analyzer hands in its own
+    // grants; a caller that builds a probe over a bare assembly list has no assembly identity to be
+    // named by an `InternalsVisibleTo`, so it gets an unnamed instance and sees exactly the visible
+    // surface.
+    constructor(mlcAssemblies: List<Assembly>, importedNamespaces: List<string>): this(mlcAssemblies, importedNamespaces, new InternalsVisibleToGrants()) {
+    }
+
+    constructor(mlcAssemblies: List<Assembly>, importedNamespaces: List<string>, friendGrants: InternalsVisibleToGrants) {
         assemblies = mlcAssemblies
         usingNamespaces = importedNamespaces
         typeCache = new Dictionary<string, Type>()
         missedFullNames = new Dictionary<string, int>(StringComparer.Ordinal)
+        grants = friendGrants
+    }
+
+    Grants: InternalsVisibleToGrants {
+        get {
+            return grants
+        }
     }
 
     // THE ONE SWEEP EVERY QUESTION BELOW IS MADE OF: does any loaded assembly declare this exact full
@@ -87,10 +106,11 @@ class AnalyzerExternalTypeProbe {
         while assemblyIndex < assemblies.Count {
             candidate := assemblies[assemblyIndex].GetType(fullName)
             // `Assembly.GetType` answers for INTERNAL types too (`System.TokenType` lives in
-            // System.Private.CoreLib); only a visible type is a name this program can spell, so an
-            // invisible one is no rival for NL209 and no answer for a qualified spelling — the rule
-            // C# lookup applies to every metadata type.
-            if candidate != null && candidate.IsVisible {
+            // System.Private.CoreLib); only a NAMEABLE type is a name this program can spell, so an
+            // unnameable one is no rival for NL209 and no answer for a qualified spelling — the rule
+            // C# lookup applies to every metadata type. An assembly that named this compilation in an
+            // `InternalsVisibleTo` widens "nameable" to its internals, exactly as it does for C#.
+            if grants.IsNameableType(candidate) {
                 typeCache[fullName] = candidate
                 resolved = candidate
                 return true
@@ -117,11 +137,21 @@ class AnalyzerExternalTypeProbe {
 
         bareIndex := 0
         while bareIndex < assemblies.Count {
-            exportedTypes := assemblies[bareIndex].GetExportedTypes()
+            assembly := assemblies[bareIndex]
+            // THE SCAN'S SURFACE IS THE NAMEABLE SURFACE. `GetExportedTypes()` is the public one and
+            // stays the answer for an ordinary reference; a reference that made this compilation a
+            // friend also offers its internals, and `GetTypes()` is the only reader that returns them.
+            // The wider read is paid for ONLY by a granting assembly, so an ordinary project's scan
+            // costs exactly what it did before.
+            scanned := assembly.GetExportedTypes()
+            if grants.GrantsAccess(assembly) {
+                scanned = assembly.GetTypes()
+            }
+
             exportedIndex := 0
-            while exportedIndex < exportedTypes.Length {
-                candidate := exportedTypes[exportedIndex]
-                if candidate.Name == name || candidate.FullName == name {
+            while exportedIndex < scanned.Length {
+                candidate := scanned[exportedIndex]
+                if (candidate.Name == name || candidate.FullName == name) && grants.IsNameableType(candidate) {
                     typeCache[name] = candidate
                     return new ReflectionTypeInfo(candidate)
                 }

@@ -161,7 +161,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         closedArguments := new Type[](0)
         if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
             try {
-                candidates := genericDefinition.GetMethods(CandidateMethodFlags(allowInheritedProtected))
+                candidates := genericDefinition.GetMethods(CandidateMethodFlags(allowInheritedProtected, genericDefinition))
                 if candidates == null {
                     throw new InvalidOperationException("Runtime generic method enumeration returned null.")
                 }
@@ -262,8 +262,16 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     // inherited-base form adds `NonPublic`, and the level filter beside it decides what of that is
     // actually reachable.
     static func CandidateMethodFlags(allowInheritedProtected: bool): BindingFlags {
+        return CandidateMethodFlags(allowInheritedProtected, null)
+    }
+
+    // The FRIEND arm widens the same opt-in for the same reason: an `internal` method of an assembly
+    // that named this one in an `InternalsVisibleTo` is a candidate, and `GetMethods` will not return
+    // it without `NonPublic`. The level filter beside this decides what of the widened set is
+    // actually reachable, so asking for more here never admits more than the relation allows.
+    static func CandidateMethodFlags(allowInheritedProtected: bool, lookupType: Type?): BindingFlags {
         flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
-        if allowInheritedProtected {
+        if allowInheritedProtected || InternalsVisibleToEmissionScope.GrantsAccessToDeclarer(lookupType) {
             flags = flags | BindingFlags.NonPublic
         }
 
@@ -275,7 +283,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func CandidateMethods(lookupType: Type, allowInheritedProtected: bool): MethodInfo[] {
-        declared := lookupType.GetMethods(CandidateMethodFlags(allowInheritedProtected))
+        declared := lookupType.GetMethods(CandidateMethodFlags(allowInheritedProtected, lookupType))
         if declared == null || !lookupType.get_IsInterface() {
             return declared
         }
@@ -294,7 +302,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
         baseIndex := 0
         while baseIndex < baseInterfaces.Length {
-            inherited := baseInterfaces[baseIndex].GetMethods(CandidateMethodFlags(allowInheritedProtected))
+            inherited := baseInterfaces[baseIndex].GetMethods(CandidateMethodFlags(allowInheritedProtected, baseInterfaces[baseIndex]))
             baseIndex = baseIndex + 1
             if inherited == null {
                 continue
@@ -674,7 +682,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func IsPublicCandidateForLookup(method: MethodInfo, lookupType: Type, memberName: string, expectedStatic: bool, allowInheritedProtected: bool): bool {
-        if !ColumnarRuntimeInstanceMemberResolver.IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(method), allowInheritedProtected) || method.get_Name() != memberName || method.get_IsStatic() != expectedStatic {
+        if !ColumnarRuntimeInstanceMemberResolver.IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(method), allowInheritedProtected, method.get_DeclaringType()) || method.get_Name() != memberName || method.get_IsStatic() != expectedStatic {
             return false
         }
 

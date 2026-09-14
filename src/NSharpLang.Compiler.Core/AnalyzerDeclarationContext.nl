@@ -189,6 +189,11 @@ class AnalyzerDeclarationContext {
     externalTypes: Dictionary<string, TypeInfo>
     missingExternalTypes: HashSet<string>
 
+    // The compilation's friend grants, or null for a context built without a project behind it.
+    // A fully-qualified external spelling is nameable when it is visible OR when its assembly named
+    // this compilation in an `InternalsVisibleTo`; the resolver below asks this object which.
+    friendGrants: InternalsVisibleToGrants?
+
     // The import-usage ledger and the file it belongs to. This owner resolves names on behalf of
     // EVERY file in the project — a member's declared type is resolved against the file that declares
     // it — so a credit is only this file's when the facts being read are this file's.
@@ -258,6 +263,16 @@ class AnalyzerDeclarationContext {
 
         names := cached ?? new HashSet<string>(StringComparer.Ordinal)
         return names.Contains(name)
+    }
+
+    // THE COMPILATION'S FRIEND GRANTS, handed in by the analyzer. A context with none grants
+    // nothing, which is the behaviour every unit-built context already had.
+    func SetFriendGrants(grants: InternalsVisibleToGrants?) {
+        friendGrants = grants
+    }
+
+    func GetFriendGrants(): InternalsVisibleToGrants? {
+        return friendGrants
     }
 
     func Reset(projectRootValue: string, assemblyValues: List<Assembly>) {
@@ -2241,7 +2256,7 @@ class AnalyzerDeclarationContext {
             return false
         }
         runtimeType := typeof(object)
-        if ExternalQualifiedTypeResolver.TryResolve(assemblies, fullName, out runtimeType) {
+        if ExternalQualifiedTypeResolver.TryResolve(assemblies, fullName, friendGrants, out runtimeType) {
             typeInfo = new ReflectionTypeInfo(runtimeType)
             externalTypes[fullName] = typeInfo
             return true

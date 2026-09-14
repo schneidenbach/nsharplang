@@ -973,7 +973,7 @@ class AnalyzerMemberAccess {
         }
 
         runtimeType: Type = typeof(object)
-        if !ExternalQualifiedTypeResolver.TryResolve(mlcAssembliesValue, qualifiedName, out runtimeType) {
+        if !ExternalQualifiedTypeResolver.TryResolve(mlcAssembliesValue, qualifiedName, externalTypeProbeValue.Grants, out runtimeType) {
             return false
         }
 

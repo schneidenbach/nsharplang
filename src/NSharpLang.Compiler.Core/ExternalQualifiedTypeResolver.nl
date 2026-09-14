@@ -9,12 +9,21 @@ import System.Reflection
 // traversal; bare names use the same case-sensitive exported-type assembly scan as Analyzer.
 class ExternalQualifiedTypeResolver {
     static func TryResolve(assemblies: IReadOnlyList<Assembly>, fullName: string, out runtimeType: Type): bool {
+        return TryResolve(assemblies, fullName, null, out runtimeType)
+    }
+
+    // THE NAMEABLE SURFACE, NOT THE EXPORTED ONE. `Assembly.GetType` answers for internal types too,
+    // so this resolver checked membership of `GetExportedTypes()` to reject what a program cannot
+    // spell. A reference that named this compilation in an `InternalsVisibleTo` widens what it CAN
+    // spell, so the test is `InternalsVisibleToGrants.IsNameableType` — the same rule the analyzer's
+    // metadata probe applies — and the exported list is what an absent grants object falls back to.
+    static func TryResolve(assemblies: IReadOnlyList<Assembly>, fullName: string, grants: InternalsVisibleToGrants?, out runtimeType: Type): bool {
         runtimeType = typeof(object)
         if assemblies == null || fullName == null || fullName.Length == 0 {
             return false
         }
         if !fullName.Contains(".") {
-            return TryResolveBareName(assemblies, fullName, out runtimeType)
+            return TryResolveBareName(assemblies, fullName, grants, out runtimeType)
         }
 
         candidate := fullName
@@ -24,16 +33,9 @@ class ExternalQualifiedTypeResolver {
             while index < assemblies.Count {
                 try {
                     resolved := assemblies[index].GetType(candidate)
-                    if resolved != null {
-                        exportedTypes := assemblies[index].GetExportedTypes()
-                        typeIndex := 0
-                        while typeIndex < exportedTypes.Length {
-                            if exportedTypes[typeIndex] == resolved {
-                                runtimeType = resolved
-                                return true
-                            }
-                            typeIndex = typeIndex + 1
-                        }
+                    if resolved != null && IsNameable(resolved, grants) {
+                        runtimeType = resolved
+                        return true
                     }
                 } catch {
                 }
@@ -62,15 +64,19 @@ class ExternalQualifiedTypeResolver {
     }
 
     static func TryResolveBareName(assemblies: IReadOnlyList<Assembly>, name: string, out runtimeType: Type): bool {
+        return TryResolveBareName(assemblies, name, null, out runtimeType)
+    }
+
+    static func TryResolveBareName(assemblies: IReadOnlyList<Assembly>, name: string, grants: InternalsVisibleToGrants?, out runtimeType: Type): bool {
         runtimeType = typeof(object)
         assemblyIndex := 0
         while assemblyIndex < assemblies.Count {
             try {
-                exportedTypes := assemblies[assemblyIndex].GetExportedTypes()
+                scanned := NameableTypes(assemblies[assemblyIndex], grants)
                 typeIndex := 0
-                while typeIndex < exportedTypes.Length {
-                    candidate := exportedTypes[typeIndex]
-                    if string.Equals(candidate.Name, name, StringComparison.Ordinal) || string.Equals(candidate.FullName, name, StringComparison.Ordinal) {
+                while typeIndex < scanned.Length {
+                    candidate := scanned[typeIndex]
+                    if (string.Equals(candidate.Name, name, StringComparison.Ordinal) || string.Equals(candidate.FullName, name, StringComparison.Ordinal)) && IsNameable(candidate, grants) {
                         runtimeType = candidate
                         return true
                     }
@@ -83,6 +89,24 @@ class ExternalQualifiedTypeResolver {
             assemblyIndex = assemblyIndex + 1
         }
         return false
+    }
+
+    // The surface to SCAN. The public one for an ordinary reference; the declared one for a reference
+    // that made this compilation a friend, since only `GetTypes()` returns its internals.
+    static func NameableTypes(assembly: Assembly, grants: InternalsVisibleToGrants?): Type[] {
+        if grants != null && grants.GrantsAccess(assembly) {
+            return assembly.GetTypes()
+        }
+
+        return assembly.GetExportedTypes()
+    }
+
+    static func IsNameable(candidate: Type, grants: InternalsVisibleToGrants?): bool {
+        if grants == null {
+            return candidate.get_IsVisible()
+        }
+
+        return grants.IsNameableType(candidate)
     }
 
     static func RootName(qualifiedName: string): string {

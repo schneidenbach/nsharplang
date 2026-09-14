@@ -4360,3 +4360,84 @@ Two consequences worth knowing when reading analyzer output:
   spelling is now NL340 (C# refuses it too), so the unwrap is unreachable defence rather than a
   supported form; it is left in place because a flow fact that over-narrows on a rejected program
   changes nothing.
+## A reference's `InternalsVisibleTo` grant (census 2026-09-13, IVT)
+
+`Assembly.GetType` answers for INTERNAL types too, so the metadata probe once saw every internal type
+of every reference (`System.TokenType` shadowed a source `TokenType`). Answering only for
+`Type.IsVisible` fixed that and was HALF the rule: C# sees the internals of exactly those assemblies
+that named this one in an `[assembly: InternalsVisibleTo(...)]`. The converted language-server test
+project — assembly `Tests`, referencing the C# `LanguageServer.dll`, which grants `Tests` — was
+NL301 x23 on `internal static class LspDiagnosticConverter`.
+
+`InternalsVisibleToGrants` is the single owner of the rule.
+
+* The attribute is read with `GetCustomAttributesData()`, the only reader a `MetadataLoadContext`
+  supports (`IsDefined` and `GetCustomAttributes` throw there).
+* The argument is an assembly DISPLAY name: only the simple name before the first comma is compared,
+  and it is compared `OrdinalIgnoreCase`, because assembly simple names compare that way. A
+  strong-name key after the comma is not part of the identity; a near miss (`Tests.Unit`, `Test`) is
+  not a friend.
+* The compiling name comes from `CompilationReferenceResolverKernels.GetProjectAssemblyName` — the
+  project's `name:`, falling back to its directory — and is set in `Analyzer.LoadFromProjectConfig`,
+  the one point where the config and the assembly list meet.
+* An UNNAMED instance grants nothing. That is the behaviour a bare `new Analyzer()` and every
+  unit-built owner keeps, so nothing that lacks a project changed.
+
+TWO CARRIERS, ONE RULE. The analyzer HOLDS an instance and hands it to the owners that ask
+(`AnalyzerExternalTypeProbe`, `AnalyzerMemberResolution`, `AnalyzerExtensionMethodResolution`,
+`AnalyzerDeclarationContext` and through it `AnalyzerDeclarationPolicy`, `EditorTypeCatalog`). The
+columnar back end cannot: its accessibility filters are static functions shared with planner unit
+tests and code intelligence, so it reads `InternalsVisibleToEmissionScope`, a THREAD-LOCAL scope
+opened by `MultiFileCompiler.RunColumnarEmissionOnCurrentThread` (the wide-stack emit thread) and
+closed when that emission ends. An unopened scope grants nothing, exactly like an unnamed instance.
+
+What each reader changed:
+
+* nameability — `IsNameableType` is `Type.IsVisible` OR (granting assembly AND every level of the
+  nesting chain is `public`/`assembly`/`FamORAssem`). `protected` and `private protected` are NOT
+  admitted by a NAMING question: both need a derivation relation the question does not carry.
+* the exported-name scan (`AnalyzerExternalTypeProbe.ResolveExternalType`, `EditorTypeCatalog`,
+  `ExternalAssemblyScan.FindFirstVisibleType`, `ExternalQualifiedTypeResolver`) reads `GetTypes()`
+  instead of `GetExportedTypes()` for a GRANTING assembly only, so an ordinary project's scan costs
+  what it did before.
+* member reach — `MemberAccessibility.IsAccessible`'s `sameAssembly` argument is the grant, asked of
+  the member's OWN declaring type (a member inherited from a base in a third assembly is reachable
+  only if THAT assembly granted this one). Every filter that widens its `BindingFlags` to
+  `NonPublic` for a friend keeps the level test beside it.
+* extension hosts — `ScanExternalExtensionMethods` already read DECLARED types so an extension on an
+  `internal static class` would be found, which offered every reference's internal hosts to
+  everybody. The host is now gated by `IsNameableType`, and an `internal` extension METHOD of a
+  public host is admitted for a granting assembly.
+* emission — reaching a friend's internal member emits the ORDINARY instruction; the CLR re-checks
+  the grant at load. No filter was added to `ExternalAssemblyScan`'s TYPE lookup, and that was
+  measured rather than assumed: gating `FindExactType`/`FindFirstVisibleType` on
+  `InternalsVisibleToEmissionScope.CanNameType` compiled and passed the estate, then took SIX native
+  projects down in the full sweep — `census-emit-shapes`, `qualified-names` and `tuple-names` to
+  ZERO tests, and one test each in `census-import-usage`, `diagnostic-honesty` and `lsp-lifetime`.
+  The back end's type lookup is reached by paths whose answers a nameability filter perturbs, and
+  the shapes that broke (a tuple over a source type, a qualified name, a named tuple) say the
+  perturbation is not about internals at all. The filter was reverted whole; see STILL OPEN.
+
+STILL OPEN, and none of it this rule's to close alone:
+
+* `AnalyzerTypeResolver` deliberately does not report an unresolved DOTTED type name (it returns an
+  `ExternalTypeInfo` placeholder and says so), so `new System.TokenType()` and
+  `new <granting-namespace>.<InternalType>()` written with a FULLY QUALIFIED spelling still compile
+  and EMIT for a project no reference befriended. The emitted reference is one the CLR refuses at
+  load. Closing it means either making dotted names non-lenient in the analyzer or finding the one
+  back-end lookup that can carry the filter without the collateral above; the six-project failure
+  is the evidence that the obvious place is not it. `typeof(<unresolved name>)` reports nothing at
+  all, for the same leniency.
+* Member-level COMPLETION (`CompletionReflectionFacts`) still offers only the public surface of a
+  granting reference. That is a missing ADDITION, not an unsound answer, and wiring it means
+  threading the grants through `CompletionReceiverFacts` and the completion engine.
+* N# cannot WRITE an `InternalsVisibleTo`: `AssemblyBuilder.SetCustomAttribute(ConstructorInfo,
+  byte[])` is not on the PINNED stage-0 emit surface (measured: `emit.call.instance-member-unmodeled`
+  when Compiler.Core spells it), so `project.yml` has no `internalsVisibleTo:` key yet and an N#
+  library cannot make another assembly its friend. It becomes possible the moment the bootstrap seed
+  is republished from a tip that models that call.
+
+Contracts: `InternalsVisibleToGrants.tests.nl` (the rule, and the scope's open/closed answers) and
+`tests/native/census-internals-visible-to` (the end of it, RUN: the project is named `Tests`, which
+`LanguageServer.csproj` and `Cli.csproj` both declare as a friend, and `NotAFriend.tests.nl`
+compiles the same source under five names through `MultiFileCompiler`).

@@ -189,6 +189,12 @@ class AnalyzerMetadataLoadSurface {
         return new EditorTypeCatalog(assemblies)
     }
 
+    func CreateEditorTypeCatalog(grants: InternalsVisibleToGrants?): EditorTypeCatalog {
+        catalog := new EditorTypeCatalog(assemblies)
+        catalog.SetFriendGrants(grants)
+        return catalog
+    }
+
     func AddSearchDirectory(directory: string) {
         if AnalyzerMetadataLoadPolicy.ShouldAddSearchDirectory(directory, Directory.Exists(directory), SearchDirectories) {
             SearchDirectories.Add(directory)

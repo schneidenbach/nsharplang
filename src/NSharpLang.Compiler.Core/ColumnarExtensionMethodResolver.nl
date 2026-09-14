@@ -136,7 +136,7 @@ class ColumnarExtensionMethodResolver {
     }
 
     static func AddAssembly(index: ColumnarExtensionMethodIndex, assembly: Assembly) {
-        types := ExportedTypesOrEmpty(assembly)
+        types := HostTypesOrEmpty(assembly)
         typeIndex := 0
         while typeIndex < types.Length {
             candidateType := types[typeIndex]
@@ -278,7 +278,9 @@ class ColumnarExtensionMethodResolver {
         }
 
         try {
-            if !method.get_IsStatic() || !method.get_IsPublic() {
+            // `public` OR, in an assembly that made this emission a friend, `internal` and
+            // `protected internal` — the same relation every other external member filter applies.
+            if !method.get_IsStatic() || !InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.LevelOfMethod(method), method.get_DeclaringType()) {
                 return false
             }
         } catch {
@@ -345,6 +347,27 @@ class ColumnarExtensionMethodResolver {
         }
 
         return result
+    }
+
+    // THE HOSTS THIS EMISSION MAY REACH. The public surface for an ordinary reference; the DECLARED
+    // surface for one that named the assembly being emitted in an `InternalsVisibleTo`, because an
+    // extension declared on an `internal static class` of a friend is a real candidate and only
+    // `GetTypes()` returns it. `IsStaticExtensionHost` and `IsExtensionMethodCandidate` still decide
+    // what of the wider list is a host and what of its methods is reachable.
+    static func HostTypesOrEmpty(assembly: Assembly): Type[] {
+        if InternalsVisibleToEmissionScope.GrantsAccess(assembly) {
+            try {
+                declared := assembly.GetTypes()
+                if declared != null {
+                    return declared
+                }
+            } catch {
+            }
+        }
+        // A granting assembly whose declared surface cannot be enumerated falls back to the
+        // exported one rather than contributing nothing.
+
+        return ExportedTypesOrEmpty(assembly)
     }
 
     static func ExportedTypesOrEmpty(assembly: Assembly): Type[] {
