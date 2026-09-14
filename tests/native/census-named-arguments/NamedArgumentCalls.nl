@@ -48,6 +48,82 @@ func GenericFirst<T>(first: T, second: T): T {
     return first
 }
 
+func GenericOptional<T>(first: T, second: int = 2): T {
+    _ = second
+    return first
+}
+
+func GenericSet<T>(value: T, ref target: T): T {
+    target = value
+    return target
+}
+
+func GenericSetOut<T>(out target: T, value: T) {
+    target = value
+}
+
+func GenericParams<T>(seed: T, params values: int[]): T {
+    _ = values.Length
+    return seed
+}
+
+func GenericParamsCount<T>(seed: T, params values: int[]): int {
+    _ = seed
+    return values.Length
+}
+
+class GenericSeedCounter {
+    Count: int
+
+    func Next(): int {
+        Count = Count + 1
+        return 40
+    }
+}
+
+class GenericNamedRecorder {
+    Value: int
+    Order: List<string>
+
+    constructor() {
+        Value = 1
+        Order = new List<string>()
+    }
+
+    func AddressValue(): int {
+        Order.Add("value")
+        Value = 9
+        return 42
+    }
+
+    func Set(): int {
+        return GenericSet<int>(target: ref Value, value: AddressValue())
+    }
+}
+
+class GenericNamedOwner<T> {
+    Order: List<string>
+
+    constructor() {
+        Order = new List<string>()
+    }
+
+    func NoteValue(name: string, value: int): int {
+        Order.Add(name)
+        return value
+    }
+
+    func NoteOwner(name: string, value: T): T {
+        Order.Add(name)
+        return value
+    }
+
+    func Pick<U>(owner: T, value: U): U {
+        _ = owner
+        return value
+    }
+}
+
 // Two parameters of the SAME type, which is the case a name is actually load-bearing for: nothing
 // but the name distinguishes `Between(low: 1, high: 9)` from its reverse.
 func Between(value: int, low: int, high: int): bool {

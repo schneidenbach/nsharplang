@@ -830,7 +830,7 @@ class AnalyzerSyntheticCallBinder {
         }
 
         paramsArgumentIndex := paramsParameterIndex - parameterStartIndex
-        isDirectParamsArrayArgument := overloadScoring.IsSingleDirectNSharpParamsArrayArgument(paramsArgumentIndex, call.Arguments, argTypes, paramsArrayType)
+        isDirectParamsArrayArgument := overloadScoring.IsDirectNSharpParamsArrayArgument(argumentIndex, paramsArgumentIndex, call.Arguments, argTypes, paramsArrayType)
         if isDirectParamsArrayArgument {
             return new SyntheticArgumentComparison(true, expectedType, argumentType)
         }

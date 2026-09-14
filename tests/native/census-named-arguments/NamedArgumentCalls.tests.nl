@@ -183,6 +183,39 @@ test "explicit generic calls place reordered named arguments before emission" {
     assert GenericFirst<int>(second: 2, first: 40) == 40
 }
 
+test "explicit generic calls fill defaults and accept a named params array" {
+    assert GenericOptional<int>(first: 40) == 40
+    assert GenericParams<int>(values: [1, 2], seed: 40) == 40
+    assert GenericParamsCount<int>(seed: 40) == 0
+    assert GenericParamsCount<int>(seed: 40, 1, 2) == 2
+    values: int[] = [1, 2]
+    assert GenericParamsCount<int>(seed: 40, ...values) == 2
+
+    counter := new GenericSeedCounter()
+    assert GenericParams<int>(counter.Next(), values) == 40
+    assert counter.Count == 1
+}
+
+test "explicit generic ref and out arguments preserve storage and assignment" {
+    recorder := new GenericNamedRecorder()
+    assert recorder.Set() == 42
+    assert recorder.Value == 42
+    assert recorder.Order.Count == 1
+    assert recorder.Order[0] == "value"
+
+    let result: int
+    GenericSetOut<int>(value: 42, target: out result)
+    assert result == 42
+}
+
+test "a generic source owner keeps enclosing and method type arguments distinct" {
+    owner := new GenericNamedOwner<string>()
+    assert owner.Pick<int>(value: owner.NoteValue("value", 42), owner: owner.NoteOwner("owner", "text")) == 42
+    assert owner.Order.Count == 2
+    assert owner.Order[0] == "value"
+    assert owner.Order[1] == "owner"
+}
+
 test "attribute constructor arguments bind by name" {
     found := typeof(NamedAttributeTarget).GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
     assert found != null

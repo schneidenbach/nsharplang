@@ -2449,6 +2449,21 @@ class ColumnarCodePlanExecutor {
             }
             return declaringArguments[position]
         }
+        // A GENERIC managed reference can answer the defensive SZ-array probe while its owner is
+        // still unbaked. Preserve its actual element shape before asking the array question.
+        if signatureType.get_IsByRef() {
+
+            // `ref T` / `out T`. Substituting THROUGH the reference is the whole point — a generic
+            // method closed over `T` has `T&` in its raw signature, and the closed shape is a reference
+            // to the substituted element. Without this arm the raw `T&` reached the compound refusal
+            // below and every closed by-ref signature was rejected.
+            byRefElement := signatureType.GetElementType()
+            if byRefElement == null {
+                throw new InvalidOperationException(schemaName + " by-reference method signature has no element type.")
+            }
+
+            return ResolveMemberSignatureType(byRefElement, declaringArguments, methodParameterDefinitions, methodArguments, schemaName).MakeByRefType()
+        }
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
             elementType := signatureType.GetElementType()
             if elementType == null {
@@ -2471,19 +2486,6 @@ class ColumnarCodePlanExecutor {
                 i += 1
             }
             return definition.MakeGenericType(resolvedArguments)
-        }
-        if signatureType.get_IsByRef() {
-
-            // `ref T` / `out T`. Substituting THROUGH the reference is the whole point — a generic
-            // method closed over `T` has `T&` in its raw signature, and the closed shape is a reference
-            // to the substituted element. Without this arm the raw `T&` reached the compound refusal
-            // below and every closed by-ref signature was rejected.
-            byRefElement := signatureType.GetElementType()
-            if byRefElement == null {
-                throw new InvalidOperationException(schemaName + " by-reference method signature has no element type.")
-            }
-
-            return ResolveMemberSignatureType(byRefElement, declaringArguments, methodParameterDefinitions, methodArguments, schemaName).MakeByRefType()
         }
         if signatureType.get_HasElementType() {
             compoundElement := signatureType.GetElementType()
