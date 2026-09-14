@@ -4625,7 +4625,7 @@ sealed class ColumnarIlEmitter {
                 propertyGetterAttributes := accessorAttributes
                 propertyOwnerBaseNames := structs[s].BaseNames
                 let propertySlotType: System.Type? = null
-                if (TryFindDeclaredInterfaceValueMember(propertyOwnerBaseNames, typeResolution, prop.Name, out propertySlotType)) {
+                if (TryFindDeclaredInterfaceValueMember(propertyOwnerBaseNames, typeResolution, prop.Name, out propertySlotType) || TryFindImplementedInterfaceValueMember(def, prop.Name, out propertySlotType)) {
                     if (!InterfaceValueSlotAccepts(propertySlotType, propType)) {
                         return DeclineStatic("emit.declaration.interface-value-member", "'" + structs[s].Name + "." + prop.Name + "' fills an interface value slot, so it must have the slot's own type", structs[s].Name, -1, 0)
                     }
@@ -4703,10 +4703,10 @@ sealed class ColumnarIlEmitter {
         // second row of the same name would make `Name` ambiguous to every other language.
         for s := 0; s < structs.Count; s++ {
             st := structs[s]
-            if (st.BaseNames.Length == 0) {
+            def := structDefsInOrder[s]
+            if (st.BaseNames.Length == 0 && def.ImplementedInterfaces.Count == 0 && def.ExternalInterfaces.Count == 0) {
                 continue
             }
-            def := structDefsInOrder[s]
             typeResolution := structTypeResolutions[s]
             fieldRows := declarationPlan.Fields
             for fi := 0; fi < st.FieldNames.Length; fi++ {
@@ -4718,7 +4718,7 @@ sealed class ColumnarIlEmitter {
                     continue
                 }
                 let fieldSlotType: System.Type? = null
-                if (!TryFindDeclaredInterfaceValueMember(st.BaseNames, typeResolution, fieldName, out fieldSlotType)) {
+                if (!TryFindDeclaredInterfaceValueMember(st.BaseNames, typeResolution, fieldName, out fieldSlotType) && !TryFindImplementedInterfaceValueMember(def, fieldName, out fieldSlotType)) {
                     continue
                 }
                 let slotBackingField: System.Reflection.Emit.FieldBuilder? = null
@@ -26725,6 +26725,38 @@ sealed class ColumnarIlEmitter {
                     slotType = inheritedSlot.PropertyType
                     return true
                 }
+            }
+        }
+        return false
+    }
+
+    // THE SAME QUESTION ASKED OF THE RESOLVED INTERFACE SET rather than of the written base names.
+    // A DUCK interface is never written in a base list — the type matches it structurally, and the
+    // match is computed in the duck pass — so a walk over `st.BaseNames` cannot see it, and the
+    // accessors that fill its slots were emitted as ordinary methods. The CLR then refused to load
+    // the type ("Method 'get_Name' in type 'FileReader' does not have an implementation"). Both
+    // collections are populated by the time any accessor is declared.
+    private static func TryFindImplementedInterfaceValueMember(definition: ColumnarStructDef, memberName: string, out slotType: System.Type?): bool {
+        slotType = null
+        for implementedInterface in definition.ImplementedInterfaces {
+            closure := new List<ColumnarStructDef>()
+            ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(implementedInterface, closure)
+            for implemented in closure {
+                let sourceSlot: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (implemented.Properties.TryGetValue(memberName, out sourceSlot)) {
+                    slotType = sourceSlot.PropertyType
+                    return true
+                }
+            }
+        }
+        for externalInterface in definition.ExternalInterfaces {
+            if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(externalInterface)) {
+                continue
+            }
+            externalSlot := externalInterface.GetProperty(memberName)
+            if (externalSlot != null) {
+                slotType = externalSlot.PropertyType
+                return true
             }
         }
         return false

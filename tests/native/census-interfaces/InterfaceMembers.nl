@@ -181,3 +181,37 @@ interface IBox<T> {
 
     func Describe(): string
 }
+
+// A DUCK INTERFACE'S VALUE MEMBER IS A SLOT LIKE ANY OTHER. Structural matching used to count only
+// the interface's `Methods`, so `IShaped` would have matched EVERY type in the program — a value
+// member is not a method — and the CLR then refused to load each one ("Method 'get_Size' in type
+// 'Unmatched' does not have an implementation"). The match now asks for the value members too, and
+// the reader each match needs is synthesized exactly as a declared interface's is.
+duck interface IShaped {
+    Size: int
+
+    func Describe(): string
+}
+
+class Tile {
+    Size: int
+
+    constructor(size: int) {
+        Size = size
+    }
+
+    func Describe(): string {
+        return "tile"
+    }
+}
+
+// Same `func`, NO `Size` — so this one does not match, and nothing is registered on it.
+class Unmatched {
+    func Describe(): string {
+        return "unmatched"
+    }
+}
+
+func ReadShaped(shaped: IShaped): string {
+    return shaped.Describe() + ":" + shaped.Size.ToString()
+}

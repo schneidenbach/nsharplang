@@ -69,6 +69,28 @@ test "a GENERIC interface's value member is typed by its own parameter" {
     assert (must typeof(IBox<int>).GetProperty("Value")).get_PropertyType() == typeof(int)
 }
 
+test "a DUCK interface's value member is matched structurally and filled like any other" {
+    assert ReadShaped(new Tile(4)) == "tile:4"
+
+    // The type that has the `func` and NOT the value member is not a match, so nothing was
+    // registered on it — the whole program would have failed to load if it had been.
+    unmatched := new Unmatched()
+    assert unmatched.Describe() == "unmatched"
+
+    matched := false
+    for candidate in typeof(Tile).GetInterfaces() {
+        if candidate == typeof(IShaped) {
+            matched = true
+        }
+    }
+
+    assert matched
+
+    for candidate in typeof(Unmatched).GetInterfaces() {
+        assert candidate != typeof(IShaped)
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // THE METADATA, READ BACK. A slot that reads correctly could still be the wrong metadata — a
 // non-virtual method, or no `PropertyInfo` at all — and every other language sees the metadata
