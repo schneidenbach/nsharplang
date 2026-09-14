@@ -190,6 +190,10 @@ test "explicit generic calls fill defaults and accept a named params array" {
     assert GenericParamsCount<int>(seed: 40, 1, 2) == 2
     values: int[] = [1, 2]
     assert GenericParamsCount<int>(seed: 40, ...values) == 2
+
+    counter := new GenericSeedCounter()
+    assert GenericParams<int>(counter.Next(), values) == 40
+    assert counter.Count == 1
 }
 
 test "explicit generic ref and out arguments preserve storage and assignment" {

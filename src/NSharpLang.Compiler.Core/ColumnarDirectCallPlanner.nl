@@ -1174,6 +1174,9 @@ class ColumnarDirectCallPlanner {
         }
         argumentCheckpoint := plan.CreateCheckpoint()
         paramsAppended := TryAppendExplicitGenericParamsArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, argumentTypes, argumentFacts, parameterTypes, facts.ParameterNames, facts.ParameterDefaultKinds, facts.ParameterDefaultTexts, facts.ParameterModifierKinds)
+        if !paramsAppended {
+            plan.Rollback(argumentCheckpoint)
+        }
         directScore := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts)
         directAppended := false
         if !paramsAppended && directScore >= 0 {

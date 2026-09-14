@@ -72,6 +72,15 @@ func GenericParamsCount<T>(seed: T, params values: int[]): int {
     return values.Length
 }
 
+class GenericSeedCounter {
+    Count: int
+
+    func Next(): int {
+        Count = Count + 1
+        return 40
+    }
+}
+
 class GenericNamedRecorder {
     Value: int
     Order: List<string>

@@ -440,8 +440,8 @@ test "generic sibling substitution closes recursive arrays byrefs and generic ar
     assert array.Substituted == typeof(int[])
 
     builderByRef := parameters[1].MakeByRefType()
-    // Reflection.Emit's SymbolType reports both answers. The historical source checks IsSZArray first,
-    // so this builder-derived byref deliberately closes as an SZ array.
+    // Reflection.Emit's SymbolType reports both answers. Managed-reference identity wins before the
+    // element type is recursively substituted, matching the runtime by-ref shape below.
     assert builderByRef.get_IsSZArray()
     assert builderByRef.get_IsByRef()
     byRef := SiblingConstraintSubstitute(
@@ -452,7 +452,7 @@ test "generic sibling substitution closes recursive arrays byrefs and generic ar
     )
     assert byRef.Result
     assert byRef.Error == null
-    assert byRef.Substituted == typeof(string[])
+    assert byRef.Substituted == typeof(string).MakeByRefType()
 
     // A runtime managed reference is not that SymbolType shape, so it reaches the actual by-ref arm.
     runtimeByRef := SiblingConstraintSubstitute(
