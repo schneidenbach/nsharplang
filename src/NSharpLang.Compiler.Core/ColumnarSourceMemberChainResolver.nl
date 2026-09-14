@@ -130,6 +130,25 @@ class ColumnarSourceMemberChainResolver {
         return false
     }
 
+    // THE INSTANCE PROPERTY OF THAT NAME, by the same nearest-declaration-first walk the field and
+    // method selectors take. A bare name inside a lambda has to know whether it reaches an INSTANCE
+    // member — that is exactly the question "does this lambda need the enclosing receiver?" — and a
+    // property answers it as readily as a field does.
+    static func TryFindPropertyOnChain(definition: ColumnarStructDef, name: string, out property: ColumnarPropertyDef?): bool {
+        current: ColumnarStructDef? = definition
+        while current != null {
+            candidate := current
+            found: ColumnarPropertyDef? = null
+            if candidate.Properties.TryGetValue(name, out found) {
+                property = found
+                return true
+            }
+            current = candidate.BaseDef
+        }
+        property = null
+        return false
+    }
+
     static func TryFindStaticFieldOnChain(definition: ColumnarStructDef, name: string, out field: FieldBuilder?): bool {
         owner: ColumnarStructDef? = null
         return TryFindStaticFieldOnChain(definition, name, out owner, out field)

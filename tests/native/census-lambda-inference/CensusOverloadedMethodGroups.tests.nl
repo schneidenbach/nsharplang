@@ -46,3 +46,22 @@ test "selecting an overload for a delegate leaves the group itself untouched" {
     assert Filters.KeptDirectly("ab")
     assert !Filters.KeptDirectly("a")
 }
+
+test "an overloaded group on an instance receiver binds that receiver's overload" {
+    words := new List<string>()
+    words.Add("a")
+    words.Add("bb")
+
+    described := DescribeAll(new Greeter("n:"), words)
+    assert described.Count == 2
+    assert described[0] == "n:a"
+    assert described[1] == "n:bb"
+
+    // A second receiver answers from its own state, which is what makes the delegate bound rather
+    // than static.
+    other := DescribeAll(new Greeter("m:"), words)
+    assert other[0] == "m:a"
+
+    // The overload the position did not select is still callable by its own name.
+    assert DescribeCountDirectly(new Greeter("n:"), 7) == "n:7"
+}

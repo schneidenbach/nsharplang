@@ -66,3 +66,34 @@ class Filters {
         return Keep(word)
     }
 }
+
+// AN OVERLOADED GROUP ON AN INSTANCE RECEIVER is the same question with a receiver in front of it.
+// Phase one recognised an overloaded group written as a bare name or on a TYPE, and not one written
+// on a VALUE — so `words.Select(greeter.Describe)` settled the position with nothing folded into it
+// and the call declined at `emit.call.instance-member` while the one-overload sibling emitted.
+// Selecting the overload binds the delegate to THAT receiver, so two instances answer differently.
+class Greeter {
+    Prefix: string
+
+    constructor(prefix: string) {
+        Prefix = prefix
+    }
+
+    func Describe(word: string): string {
+        return Prefix + word
+    }
+
+    func Describe(count: int): string {
+        return Prefix + count.ToString()
+    }
+}
+
+func DescribeAll(greeter: Greeter, words: List<string>): List<string> {
+    return words.Select(greeter.Describe).ToList()
+}
+
+// The group is FILTERED for the position, not narrowed permanently: the other overload is still
+// callable by its own name on the same receiver.
+func DescribeCountDirectly(greeter: Greeter, count: int): string {
+    return greeter.Describe(count)
+}

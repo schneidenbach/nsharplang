@@ -31,3 +31,16 @@ test "an await foreach inside a bare Task function drains and completes" {
 test "an await foreach inside a Task of int function accumulates the async iterator" {
     assert SumCounted().Result == 3
 }
+
+test "await reaches any value with the awaiter pattern, task or not" {
+    counted := YieldingWork()
+    countedValue := await counted
+    assert countedValue == 42
+
+    unit := YieldOnce()
+    unit.Wait()
+    assert unit.get_IsCompleted()
+
+    assert AwaitCustom(7) == 7
+    assert AwaitCustom(0) == 0
+}

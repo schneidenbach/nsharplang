@@ -55,3 +55,60 @@ async func SumCounted(): Task<int> {
     }
     return total
 }
+
+// WHAT MAKES A VALUE AWAITABLE IS THE PATTERN, NOT ITS NAME: a parameterless `GetAwaiter()` whose
+// result carries `IsCompleted` and `GetResult()`. `Task.Yield()` answers no task at all — it answers
+// a `YieldAwaitable` — so `await Task.Yield()` declined at `emit.expression-statement.await` while
+// the four task shapes beside it emitted. The blocking lowering the task shapes use is the one this
+// pattern takes: take the awaiter, spill it, call `GetResult()` on it.
+async func YieldingWork(): Task<int> {
+    await Task.Yield()
+    total := 1
+    await Task.Yield()
+    return total + 41
+}
+
+// A UNIT async body whose only statement is a bare `await Task.Yield()`.
+async func YieldOnce(): Task {
+    await Task.Yield()
+}
+
+// AN AWAITABLE A PROGRAM WRITES FOR ITSELF answers the same pattern and takes the same lowering —
+// there is no list of names to be on.
+class Immediate {
+    Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+
+    func GetAwaiter(): ImmediateAwaiter {
+        return new ImmediateAwaiter(Value)
+    }
+}
+
+class ImmediateAwaiter: System.Runtime.CompilerServices.INotifyCompletion {
+    Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+
+    IsCompleted: bool {
+        get {
+            return true
+        }
+    }
+
+    func OnCompleted(continuation: Action) {
+        continuation()
+    }
+
+    func GetResult(): int {
+        return Value
+    }
+}
+
+func AwaitCustom(value: int): int {
+    return await new Immediate(value)
+}

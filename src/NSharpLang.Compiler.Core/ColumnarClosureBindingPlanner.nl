@@ -10,6 +10,15 @@ import System.Reflection.Emit
 // remaining C# display-class and recursive-body lowering debt runs. All maps and sets are the emitter's
 // live state; this planner neither snapshots them early nor substitutes another lookup.
 class ColumnarClosureBindingPlanner {
+
+    // THE NAME A DISPLAY GIVES THE ENCLOSING RECEIVER IT CAPTURED. One owner, because three separate
+    // readers depend on it meaning the same storage: the display definition writes the field, a bare
+    // member read hops through it, and a bare call on the lexical owner loads it as its receiver. It
+    // is the name Roslyn's closure conversion uses, so a decompiler and a debugger both recognise it.
+    static func CapturedEnclosingInstanceFieldName(): string {
+        return "<>4__this"
+    }
+
     static func IsVisibleBindingName(
         name: string,
         locals: Dictionary<string, LocalBuilder>,
@@ -86,9 +95,30 @@ class ColumnarClosureBindingPlanner {
         parameterOrdinals: Dictionary<string, int>,
         liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>
     ): SortedSet<string> {
+        return PlanOrderedCaptureSet(nodes, source, bodyNode, lambdaOrdinals, locals, parameterOrdinals, liftedLocals, null)
+    }
+
+    // THE SAME SET, ASKED FROM INSIDE A DISPLAY. A body that is itself a closure sees the scope above
+    // it as boxed captures rather than locals — the boxes ride fields of the display it runs on — and
+    // a lambda written there captures those names exactly as the scope above captured them. Leaving
+    // them out of the union is what made a MUTATED local unreachable from a lambda nested one level
+    // deeper than the one that lifted it.
+    static func PlanOrderedCaptureSet(
+        nodes: ColumnarNodeTable,
+        source: string,
+        bodyNode: int,
+        lambdaOrdinals: Dictionary<string, int>,
+        locals: Dictionary<string, LocalBuilder>,
+        parameterOrdinals: Dictionary<string, int>,
+        liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>,
+        boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?
+    ): SortedSet<string> {
         enclosingCapturableNames := new HashSet<string>(locals.Keys, StringComparer.Ordinal)
         enclosingCapturableNames.UnionWith(parameterOrdinals.Keys)
         enclosingCapturableNames.UnionWith(liftedLocals.Keys)
+        if boxedCaptures != null {
+            enclosingCapturableNames.UnionWith(boxedCaptures.Keys)
+        }
         boundParameterNames := new HashSet<string>(lambdaOrdinals.Keys, StringComparer.Ordinal)
         captures := ColumnarLambdaPlacementPlanner.PlanCaptureSet(nodes, source, bodyNode, boundParameterNames, enclosingCapturableNames)
         return new SortedSet<string>(captures, StringComparer.Ordinal)
@@ -155,11 +185,17 @@ class ColumnarClosureBindingPlanner {
         return false
     }
 
-    // A mixed-capture display needs an outer-instance slot only when the body calls a bare instance
-    // method. Bare instance fields remain outside this lowering: the closure emitter has no field-read
-    // route through the captured receiver, so reporting those here would admit a capture it cannot emit.
-    // This mirrors BodyReferencesEnclosingChain's walk and narrows its member test to instance methods.
-    static func BodyReferencesEnclosingInstanceMethodChain(
+    // WHETHER A MIXED-CAPTURE LAMBDA NEEDS THE ENCLOSING RECEIVER AT ALL: does its body name an
+    // INSTANCE member of the lexical owner, or `this` itself? That is C#'s rule — a static member
+    // belongs to the TYPE and is reached without a receiver, so it does not put `<>4__this` on the
+    // display, while a field, a property or a method of the instance does.
+    //
+    // This mirrors BodyReferencesEnclosingChain's walk and narrows its member test to the INSTANCE
+    // members. It used to narrow further, to instance METHODS alone, because the closure emitter had
+    // no field-read route through the captured receiver and admitting a capture it could not emit
+    // would have been worse than declining; `ColumnarBoundIdentifierPlanner`'s captured-receiver read
+    // is that route, so the test is now the whole instance-member question it was always asking.
+    static func BodyReferencesEnclosingInstanceMemberChain(
         nodes: ColumnarNodeTable,
         source: string,
         node: int,
@@ -181,11 +217,19 @@ class ColumnarClosureBindingPlanner {
         if ColumnarLambdaNodeFacts.IsLambda(kind) {
             nestedBound := new HashSet<string>(bound, StringComparer.Ordinal)
             nestedBound.UnionWith(BoundParamsOf(nodes, source, node))
-            return BodyReferencesEnclosingInstanceMethodChain(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), nestedBound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
+            return BodyReferencesEnclosingInstanceMemberChain(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), nestedBound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
         }
         if kind == 6 && nodes.ValueStart(node) >= 0 && currentDefinition != null {
             name := nodes.Text(source, node)
             if !bound.Contains(name) && !locals.ContainsKey(name) && !liftedLocals.ContainsKey(name) && !parameterOrdinals.ContainsKey(name) && !siblings.ContainsKey(name) {
+                field: FieldBuilder? = null
+                if ColumnarSourceMemberChainResolver.TryFindFieldOnChain(currentDefinition, name, out field) {
+                    return true
+                }
+                property: ColumnarPropertyDef? = null
+                if ColumnarSourceMemberChainResolver.TryFindPropertyOnChain(currentDefinition, name, out property) {
+                    return true
+                }
                 method: ColumnarInstanceMethodDef? = null
                 if ColumnarSourceMemberChainResolver.TryFindMethodOnChain(currentDefinition, name, out method) {
                     return true
@@ -193,12 +237,12 @@ class ColumnarClosureBindingPlanner {
             }
         }
         if kind == 46 || kind == 47 {
-            return BodyReferencesEnclosingInstanceMethodChain(nodes, source, nodes.Child(node, 0), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
+            return BodyReferencesEnclosingInstanceMemberChain(nodes, source, nodes.Child(node, 0), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
         }
         first := kind == 15 || kind == 16 ? 1 : 0
         childOrdinal := first
         while childOrdinal < nodes.ChildCount(node) {
-            if BodyReferencesEnclosingInstanceMethodChain(nodes, source, nodes.Child(node, childOrdinal), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings) {
+            if BodyReferencesEnclosingInstanceMemberChain(nodes, source, nodes.Child(node, childOrdinal), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings) {
                 return true
             }
             childOrdinal = childOrdinal + 1

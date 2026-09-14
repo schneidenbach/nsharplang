@@ -1423,7 +1423,8 @@ sealed class ColumnarIlEmitter {
             ordinals,
             _locals,
             _paramOrdinals,
-            _liftedLocals
+            _liftedLocals,
+            _boxedCaptures
         )
 
         if (captures.Count == 0) {
@@ -1535,7 +1536,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         lambdaBoundNames := new HashSet<string>(ordinals.Keys, StringComparer.Ordinal)
-        capturesEnclosingThis := _currentStruct != null && ColumnarClosureBindingPlanner.BodyReferencesEnclosingInstanceMethodChain(
+        capturesEnclosingThis := _currentStruct != null && ColumnarClosureBindingPlanner.BodyReferencesEnclosingInstanceMemberChain(
             _nodes,
             _source,
             bodyNode,
@@ -1556,7 +1557,9 @@ sealed class ColumnarIlEmitter {
         snapshotNames := new List<string>()
         snapshotTypes := new List<Type>()
         boxedNames := new List<string>()
-        boxedSources := new List<(Box: LocalBuilder, ValueType: Type)>()
+        boxedSourceLocals := new List<LocalBuilder?>()
+        boxedSourceFields := new List<FieldInfo?>()
+        boxedValueTypes := new List<Type>()
         for captureName in captures {
             let liftedSourceBox: System.Reflection.Emit.LocalBuilder? = null
             let liftedSourceValueType: System.Type? = null
@@ -1566,7 +1569,26 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 boxedNames.Add(captureName)
-                boxedSources.Add(liftedSource)
+                boxedSourceLocals.Add(liftedSource.Item1)
+                boxedSourceFields.Add(null)
+                boxedValueTypes.Add(liftedSource.Item2)
+                continue
+            }
+            // A MUTATED CAPTURE THE SCOPE ABOVE ALREADY LIFTED. Inside a display, that name's box is
+            // not a local at all — it rides a field of the display this body runs on. Copying the BOX
+            // reference across is exactly what the lifted arm above does with a local, which is why a
+            // write from either depth is seen at every other.
+            let enclosingBoxValueType: System.Type? = null
+            let enclosingBoxField: System.Reflection.FieldInfo? = null
+            let enclosingBox: (BoxField: System.Reflection.FieldInfo, ValueType: System.Type) = (enclosingBoxField, enclosingBoxValueType)
+            if (_boxedCaptures != null && _boxedCaptures.TryGetValue(captureName, out enclosingBox)) {
+                if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(enclosingBox.Item2, _programType)) {
+                    return false
+                }
+                boxedNames.Add(captureName)
+                boxedSourceLocals.Add(null)
+                boxedSourceFields.Add(enclosingBox.Item1)
+                boxedValueTypes.Add(enclosingBox.Item2)
                 continue
             }
             if (_bodyRoot < 0) {
@@ -1640,14 +1662,14 @@ sealed class ColumnarIlEmitter {
         for b := 0; b < boxedNames.Count; b++ {
             openBoxFieldType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition()
             boxFieldTypeArguments := new Type[1]
-            boxFieldValueType: Type = boxedSources[b].Item2
+            boxFieldValueType: Type = boxedValueTypes[b]
             boxFieldTypeArguments[0] = boxFieldValueType
             boxFieldType := openBoxFieldType.MakeGenericType(boxFieldTypeArguments)
             boxedFields[b] = display.DefineField(boxedNames[b], boxFieldType, FieldAttributes.Public)
             boxedCaptureMapTarget := boxedCaptureMap
             boxedCaptureName := boxedNames[b]
             boxedCaptureField: FieldInfo = boxedFields[b]
-            boxedCaptureValueType: Type = boxedSources[b].Item2
+            boxedCaptureValueType: Type = boxedValueTypes[b]
             let boxedCaptureValue: (BoxField: FieldInfo, ValueType: Type) = (boxedCaptureField, boxedCaptureValueType)
             boxedCaptureMapTarget[boxedCaptureName] = boxedCaptureValue
         }
@@ -1679,6 +1701,13 @@ sealed class ColumnarIlEmitter {
             displayDefIsClosureDisplay,
             displayDeclaredTypeName
         )
+        // THE SCOPE THIS DISPLAY WAS MADE FOR, recorded whenever it captured that scope's receiver.
+        // In a member body that receiver is the declaring type's instance; in a body that is ITSELF a
+        // lambda or local function with a display, it is that PARENT DISPLAY — which is what lets a
+        // read inside the nested lambda walk out through one `<>4__this` per level.
+        if enclosingThisField != null {
+            displayDef.ClosureEnclosingDef = _currentStruct
+        }
         // The lambda becomes an INSTANCE method on the display class: arg 0 is the closure, so parameter
         // ordinals shift +1; snapshot names fall through the sub-emitter's locals/params to the
         // `_currentStruct` field chain, boxed names resolve through _boxedCaptures.
@@ -1764,7 +1793,19 @@ sealed class ColumnarIlEmitter {
         }
         for b := 0; b < boxedNames.Count; b++ {
             _il.Emit(OpCodes.Dup)
-            _il.Emit(OpCodes.Ldloc, boxedSources[b].Item1)
+            boxedSourceLocal := boxedSourceLocals[b]
+            if (boxedSourceLocal != null) {
+                _il.Emit(OpCodes.Ldloc, boxedSourceLocal)
+            } else {
+                // The box rides a field of the display this body is running on, so argument zero is
+                // where it is read from — the only difference from the local case above.
+                boxedSourceField := boxedSourceFields[b]
+                if (boxedSourceField == null) {
+                    return false
+                }
+                _il.Emit(OpCodes.Ldarg_0)
+                _il.Emit(OpCodes.Ldfld, boxedSourceField)
+            }
             _il.Emit(OpCodes.Stfld, boxedFields[b])
         }
         _il.Emit(OpCodes.Ldftn, closureMethod)
@@ -1781,6 +1822,11 @@ sealed class ColumnarIlEmitter {
         if (bodyNodeKind == 25) {
             return EmitBody(bodyNode, returnType == ColumnarTypeOfPlanner.RequiredVoidType())
         }
+        // AN EXPRESSION BODY IS ITS OWN ROOT. `EmitBody` sets this for a block; entering here left it
+        // unset, and the never-mutated scan a nested lambda's capture needs reads it — so a lambda
+        // written inside an expression-bodied lambda declined for want of a body to scan. There are no
+        // statements around this expression: scanning it IS scanning the whole body.
+        _bodyRoot = bodyNode
         if (_asyncReturnType != null) {
             return EmitAsyncLambdaExpressionBody(bodyNode, returnType)
         }
@@ -1789,6 +1835,18 @@ sealed class ColumnarIlEmitter {
         // the same shape: there is no value either way.
         if (IsThrowExpressionNode(bodyNode)) {
             return EmitThrowExpressionValue(bodyNode)
+        }
+        // `x => y => …` — A LAMBDA WHOSE WHOLE BODY IS ANOTHER LAMBDA. A lambda literal has no type
+        // of its own, so the outer delegate's RETURN type is what gives the inner one its shape, in
+        // the same reading `return x => …` performs on a delegate-returning function and an argument
+        // position performs on a delegate parameter. Without it the body reached the untyped
+        // expression door and reported an unsupported node kind.
+        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(bodyNode)) && IsContextualLambdaTarget(bodyNode, returnType)) {
+            if (!TryEmitLambdaLiteral(bodyNode, returnType)) {
+                return false
+            }
+            lambdaIl.Emit(OpCodes.Ret)
+            return true
         }
         let bodyType: System.Type? = null
         if (!EmitExpression(bodyNode, out bodyType)) {
@@ -1819,6 +1877,26 @@ sealed class ColumnarIlEmitter {
             if (!EmitThrowExpressionValue(bodyNode)) {
                 return false
             }
+            _il.BeginCatchBlock(typeof(Exception))
+            EmitFaultedAsyncReturnMirror()
+            _il.Emit(OpCodes.Stloc, _protectedResult)
+            _il.Emit(OpCodes.Leave, _protectedDone)
+            _il.EndExceptionBlock()
+            _protectedDepth = _protectedDepth - 1
+            _il.MarkLabel(_protectedDone)
+            _il.Emit(OpCodes.Ldloc, _protectedResult)
+            _il.Emit(OpCodes.Ret)
+            return true
+        }
+        // The same contextual reading an ordinary expression body takes: `async x => y => …` produces
+        // the task's RESULT, and a lambda literal takes its shape from the type that result has.
+        if (_asyncResultType != null && ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(bodyNode)) && IsContextualLambdaTarget(bodyNode, returnType)) {
+            if (!TryEmitLambdaLiteral(bodyNode, returnType)) {
+                return DeclineMember("emit.lambda.async-body-type", "an `async` lambda's body does not produce the task's result type", bodyNode, "lambda")
+            }
+            EmitWrappedAsyncCompletedReturn(true)
+            _il.Emit(OpCodes.Stloc, _protectedResult)
+            _il.Emit(OpCodes.Leave, _protectedDone)
             _il.BeginCatchBlock(typeof(Exception))
             EmitFaultedAsyncReturnMirror()
             _il.Emit(OpCodes.Stloc, _protectedResult)
@@ -6853,7 +6931,9 @@ sealed class ColumnarIlEmitter {
             displayFields["<>4__this"] = enclosingThisField
             displayFieldOrder := new string[1]
             displayFieldOrder[0] = "<>4__this"
-            result.BindDisplayDefinition(new ColumnarStructDef(display, displayFieldOrder, displayFields, true, false, true, displayTypeName))
+            localFunctionDisplayDef := new ColumnarStructDef(display, displayFieldOrder, displayFields, true, false, true, displayTypeName)
+            localFunctionDisplayDef.ClosureEnclosingDef = enclosingDefinition
+            result.BindDisplayDefinition(localFunctionDisplayDef)
         }
         return result
     }
@@ -7180,8 +7260,9 @@ sealed class ColumnarIlEmitter {
 
     // ASYNC mirror of the legacy emitter's EmitAwaiterGetResult — the BLOCKING await: ValueTask(/T) spills
     // and converts via AsTask() first; Task(/T) goes callvirt GetAwaiter() then the STRUCT awaiter
-    // spills for `call GetResult()`. Only the four BCL task shapes are modelled — any other
-    // awaitable declines (the legacy emitter's general GetAwaiter pattern is a later rung).
+    // spills for `call GetResult()`. The four BCL task shapes keep those exact lowerings — a
+    // `ValueTask` must be converted rather than blocked on directly — and every OTHER awaitable is
+    // served by the general awaiter pattern below, which is the rule the four are instances of.
     private func TryEmitBlockingAwait(awaitableType: Type, out resultType: Type): bool {
         resultType = null
         if (awaitableType == typeof(System.Threading.Tasks.ValueTask)) {
@@ -7234,7 +7315,123 @@ sealed class ColumnarIlEmitter {
             resultType = taskResult
             return true
         }
+        return TryEmitBlockingAwaitPattern(awaitableType, out resultType)
+    }
+
+    // WHAT MAKES A VALUE AWAITABLE IS THE PATTERN, NOT ITS NAME. C# asks for a parameterless
+    // `GetAwaiter()` whose result carries `IsCompleted`, `OnCompleted` and `GetResult()`; the four
+    // task shapes above are simply the instances of that pattern whose blocking lowering has a
+    // conversion of its own. `await Task.Yield()` is the shape that named this gap — `YieldAwaitable`
+    // is not a task at all, and a bare `await Task.Yield()` statement declined at
+    // `emit.expression-statement.await` — and a custom awaitable a program writes for itself is the
+    // same question.
+    //
+    // The blocking lowering is the one the modelled shapes use: take the awaiter, spill it, and call
+    // `GetResult()` on it. An awaiter is conventionally a STRUCT, so it spills to a local and the
+    // call takes its address; a reference awaiter dispatches virtually as any other receiver does.
+    // The awaitable itself takes the same treatment for the `GetAwaiter()` call.
+    private func TryEmitBlockingAwaitPattern(awaitableType: Type, out resultType: Type): bool {
+        resultType = null
+        if (awaitableType == null || awaitableType.get_IsGenericParameter() || awaitableType.get_IsByRef() || awaitableType.get_IsPointer()) {
+            return false
+        }
+        let getAwaiter: System.Reflection.MethodInfo? = null
+        if (!TryResolveAwaitPatternMethod(awaitableType, "GetAwaiter", out getAwaiter) || getAwaiter == null) {
+            return false
+        }
+        awaiterType := getAwaiter.get_ReturnType()
+        if (awaiterType == null || awaiterType == ColumnarTypeOfPlanner.RequiredVoidType()) {
+            return false
+        }
+        let getResult: System.Reflection.MethodInfo? = null
+        if (!TryResolveAwaitPatternMethod(awaiterType, "GetResult", out getResult) || getResult == null) {
+            return false
+        }
+        // `IsCompleted` is what separates an awaiter from any other object with a `GetResult()`, so
+        // it is required even though this blocking lowering never reads it.
+        if (!AwaiterDeclaresIsCompleted(awaiterType)) {
+            return false
+        }
+        awaitedResultType := getResult.get_ReturnType()
+        if (awaitedResultType != ColumnarTypeOfPlanner.RequiredVoidType() && !ColumnarTypeOfPlanner.IsSupportedType(awaitedResultType)) {
+            return false
+        }
+        EmitAwaitPatternReceiver(awaitableType, getAwaiter)
+        EmitAwaitPatternReceiver(awaiterType, getResult)
+        resultType = awaitedResultType
+        return true
+    }
+
+    // A PARAMETERLESS PUBLIC INSTANCE METHOD OF THAT NAME, wherever the type came from. A type this
+    // compilation is still BUILDING answers no reflection question at all — `TypeBuilder.GetMethod`
+    // throws before `CreateType` — so its own definition is the only place to ask, exactly as every
+    // other member lookup on a source type does.
+    private func TryResolveAwaitPatternMethod(owner: Type, name: string, out method: MethodInfo?): bool {
+        method = null
+        if (owner == null || owner.get_IsGenericParameter()) {
+            return false
+        }
+        let sourceDefinition: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (TryFindSourceDefinitionForType(owner, out sourceDefinition) && sourceDefinition != null) {
+            let sourceMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+            if (!ColumnarSourceMemberChainResolver.TryFindMethodOnChain(sourceDefinition, name, 0, out sourceMethod) || sourceMethod == null || sourceMethod.Generics != null) {
+                return false
+            }
+            method = sourceMethod.Builder
+            return true
+        }
+        if (owner is TypeBuilder) {
+            return false
+        }
+        resolved := owner.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
+        if (resolved == null || resolved.get_IsStatic()) {
+            return false
+        }
+        method = resolved
+        return true
+    }
+
+    private func AwaiterDeclaresIsCompleted(awaiterType: Type): bool {
+        let sourceDefinition: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (TryFindSourceDefinitionForType(awaiterType, out sourceDefinition) && sourceDefinition != null) {
+            let sourceProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+            return ColumnarSourceMemberChainResolver.TryFindPropertyOnChain(sourceDefinition, "IsCompleted", out sourceProperty) && sourceProperty != null && sourceProperty.PropertyType == typeof(bool)
+        }
+        if (awaiterType is TypeBuilder) {
+            return false
+        }
+        isCompleted := awaiterType.GetProperty("IsCompleted", BindingFlags.Public | BindingFlags.Instance)
+        return isCompleted != null && isCompleted.get_PropertyType() == typeof(bool)
+    }
+
+    // THE SOURCE DECLARATION BEHIND A TYPE THIS COMPILATION IS EMITTING, by builder identity.
+    private func TryFindSourceDefinitionForType(candidate: Type, out definition: ColumnarStructDef?): bool {
+        definition = null
+        if (candidate == null || !(candidate is TypeBuilder)) {
+            return false
+        }
+        for pair in _structRegistry {
+            structDefinition := pair.Value
+            structBuilder: Type = structDefinition.Builder
+            if (Object.ReferenceEquals(structBuilder, candidate)) {
+                definition = structDefinition
+                return true
+            }
+        }
         return false
+    }
+
+    // The receiver hop a value-type instance call needs: spill to a local and take its address. A
+    // reference receiver is already on the stack and dispatches virtually.
+    private func EmitAwaitPatternReceiver(receiverType: Type, method: MethodInfo): void {
+        if (receiverType.get_IsValueType()) {
+            receiverLocal := _il.DeclareLocal(receiverType)
+            _il.Emit(OpCodes.Stloc, receiverLocal)
+            _il.Emit(OpCodes.Ldloca, receiverLocal)
+            _il.Emit(OpCodes.Call, method)
+            return
+        }
+        _il.Emit(OpCodes.Callvirt, method)
     }
 
     // The single body-level tail every protected-region `return` leaves to (E2): `done: [ldloc result;] ret`.
@@ -7669,6 +7866,17 @@ sealed class ColumnarIlEmitter {
                 if (!TryEmitInferredZeroParamLambda(Child(idx, 0), out lambdaType)) {
                     return Decline("emit.local.lambda-inference", "local lambda initializer could not be inferred", Child(idx, 0))
                 }
+                // A lifted candidate takes the shared box here for the same reason every other one
+                // does: a local function that captures the name reads it through the display's box,
+                // and a later write must be seen on both sides.
+                if (_liftedCandidates != null && _liftedCandidates.Contains(name) && ColumnarClosureBindingPlanner.IsLiftableValueType(lambdaType)) {
+                    lambdaBoxType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition().MakeGenericType([lambdaType])
+                    lambdaBox := _il.DeclareLocal(lambdaBoxType)
+                    _il.Emit(OpCodes.Newobj, lambdaBoxType.GetConstructor([lambdaType]))
+                    _il.Emit(OpCodes.Stloc, lambdaBox)
+                    _liftedLocals[name] = (lambdaBox, lambdaType)
+                    return HoistCaptureIntoLocalFunctionDisplay(name, lambdaBox, lambdaType)
+                }
                 lambdaLocal := _il.DeclareLocal(lambdaType)
                 _il.Emit(OpCodes.Stloc, lambdaLocal)
                 _locals[name] = lambdaLocal
@@ -7816,9 +8024,12 @@ sealed class ColumnarIlEmitter {
                     }
                 }
             }
-            // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
-            // initializers stay unlifted — a reassigned-and-captured delegate local declines later).
-            if (_nodes.Kind(declaredInit) != 39 && _liftedCandidates != null && _liftedCandidates.Contains(declaredName) && ColumnarClosureBindingPlanner.IsLiftableValueType(declaredType)) {
+            // L3b: a lifted candidate declares as a shared StrongBox<T>. A LAMBDA initializer lifts
+            // like any other value — the delegate is on the stack here exactly as an integer would be,
+            // and a local function that captures the name needs the box whatever produced it. (A
+            // lambda whose own body names the local it initialises still declines: the box does not
+            // exist while that body emits, so the name resolves to nothing.)
+            if (_liftedCandidates != null && _liftedCandidates.Contains(declaredName) && ColumnarClosureBindingPlanner.IsLiftableValueType(declaredType)) {
                 typedBoxType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition().MakeGenericType([declaredType])
                 typedBox := _il.DeclareLocal(typedBoxType)
                 _il.Emit(OpCodes.Newobj, typedBoxType.GetConstructor([declaredType]))
@@ -22051,6 +22262,37 @@ sealed class ColumnarIlEmitter {
     // the scoped sub-emitter below performs the expression-type preflight in the selected binding context.
     // An empty parameterTypes serves a zero-parameter handler body; a single type serves a single-parameter
     // selector/predicate body.
+    // COPY THE CALLER'S FRAME INTO A PREFLIGHT SUB-EMITTER. Only a TYPE comes back out of one, so
+    // the handles are shared rather than rebuilt: the sub-emitter reads them to answer what a name
+    // is, and emits nothing through them.
+    private func SeedPreflightFrame(
+        locals: Dictionary<string, LocalBuilder>,
+        liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>,
+        tupleNames: Dictionary<string, string[]>,
+        labeledTypes: Dictionary<string, string>
+    ) {
+        for local in locals {
+            if (!_paramOrdinals.ContainsKey(local.Key)) {
+                _locals[local.Key] = local.Value
+            }
+        }
+        for lifted in liftedLocals {
+            if (!_paramOrdinals.ContainsKey(lifted.Key)) {
+                _liftedLocals[lifted.Key] = lifted.Value
+            }
+        }
+        for tupleName in tupleNames {
+            if (!_tupleNamesByVariable.ContainsKey(tupleName.Key)) {
+                _tupleNamesByVariable[tupleName.Key] = tupleName.Value
+            }
+        }
+        for labeled in labeledTypes {
+            if (!_labeledTypeByVariable.ContainsKey(labeled.Key)) {
+                _labeledTypeByVariable[labeled.Key] = labeled.Value
+            }
+        }
+    }
+
     private func TryPreflightContextualLambdaReturnType(lambdaNode: int, parameterTypes: Type[], out returnType: Type): bool {
         returnType = null
         isAsyncLambda := ColumnarLambdaNodeFacts.IsAsyncLambda(_nodes.Kind(lambdaNode))
@@ -22067,26 +22309,49 @@ sealed class ColumnarIlEmitter {
         if (signature == null) {
             return false
         }
-        // ARGUMENT ZERO OF AN INSTANCE BODY IS `this`, AND THE LAMBDA'S OWN PARAMETERS CANNOT SIT ON
-        // TOP OF IT. This inference runs inside the ENCLOSING method's frame, so a body that reads
-        // both its own parameter and the enclosing instance — `items.FindAll(x => x == this.Value)` —
-        // planned `x` at ordinal 0 as an `int` and `this` at ordinal 0 as the enclosing type, and the
-        // plan refused the contradiction by throwing: "One argument ordinal cannot carry conflicting
-        // bound-identifier facts" escaped `nlc check` as an unhandled exception. The real lowering
-        // already shifts a lambda's ordinals by one when its method has a receiver; this inference
-        // shifts them for the same reason, and only the TYPE it computes outlives the plan.
-        inferenceOrdinals := signature.Ordinals
+        // THE BODY IS TYPED IN THE ENCLOSING FRAME PLUS ITS OWN PARAMETERS, because that is what it
+        // can see. A lambda body reads its own parameters AND whatever the scope around it binds, and
+        // the type this preflight answers is wrong — or, before this, not answerable at all — if half
+        // of that is missing: `xs.ConvertAll(x => x + bump)` could not type `bump`, so `TOutput` had
+        // nothing to bind it and the whole call declined after the analyzer had accepted it. The
+        // enclosing instance was already in reach through `_currentStruct`, which is why the same
+        // lambda reading a FIELD inferred fine while one reading a parameter or a local did not.
+        //
+        // THE LAMBDA'S OWN ORDINALS MOVE PAST THE ENCLOSING FRAME'S. Two bindings at one argument
+        // ordinal is a contradiction the plan refuses by throwing ("One argument ordinal cannot carry
+        // conflicting bound-identifier facts" once escaped `nlc check` as an unhandled exception), and
+        // argument zero of an instance body is `this`. Only the TYPE outlives this plan, so the
+        // ordinals need only be distinct — the real lowering assigns the ones that reach IL.
+        inferenceShift := 0
         if (_currentStruct != null) {
-            inferenceOrdinals = new Dictionary<string, int>(StringComparer.Ordinal)
-            for pair in signature.Ordinals {
-                inferenceOrdinals[pair.Key] = pair.Value + 1
+            inferenceShift = 1
+        }
+        for enclosingOrdinal in _paramOrdinals {
+            if (enclosingOrdinal.Value >= inferenceShift) {
+                inferenceShift = enclosingOrdinal.Value + 1
             }
+        }
+        inferenceOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+        inferenceParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
+        for enclosingOrdinal in _paramOrdinals {
+            inferenceOrdinals[enclosingOrdinal.Key] = enclosingOrdinal.Value
+        }
+        for enclosingParamType in _paramTypes {
+            inferenceParamTypes[enclosingParamType.Key] = enclosingParamType.Value
+        }
+        // The lambda's own parameters SHADOW an enclosing binding of the same name, so they are
+        // written second and win both maps.
+        for pair in signature.Ordinals {
+            inferenceOrdinals[pair.Key] = pair.Value + inferenceShift
+        }
+        for pair in signature.ParameterTypesByName {
+            inferenceParamTypes[pair.Key] = pair.Value
         }
         subEmitter := new ColumnarIlEmitter(
             _nodes,
             _source,
             inferenceOrdinals,
-            signature.ParameterTypesByName,
+            inferenceParamTypes,
             ColumnarTypeOfPlanner.RequiredVoidType(),
             _il,
             _siblings,
@@ -22101,7 +22366,7 @@ sealed class ColumnarIlEmitter {
             _programType,
             _lambdaCounter,
             _displayClasses,
-            null,
+            _boxedCaptures,
             _localFuncs,
             _declaredLocalFuncNodes,
             _visibleLocalFuncs,
@@ -22117,6 +22382,10 @@ sealed class ColumnarIlEmitter {
             _typeResolutionStructs,
             _typeResolutionUnions
         )
+        // THE ENCLOSING FRAME'S LOCALS, for the same reason its parameters are there: a lambda body
+        // may read one, and this is the only place a preflight can learn its type. The slots are the
+        // caller's live handles — nothing is emitted here, so nothing stores through them.
+        subEmitter.SeedPreflightFrame(_locals, _liftedLocals, _tupleNamesByVariable, _labeledTypeByVariable)
         // AN `async` LAMBDA'S OWN TYPE IS A TASK OF WHAT ITS BODY ANSWERED, which is the same rule
         // `AnalyzerLambdaAnalysis.AsyncWrappedReturnType` states for the analyzer: the body produces
         // the task's RESULT, and what the lambda converts to is the task. Without it the contextual
@@ -22645,7 +22914,9 @@ sealed class ColumnarIlEmitter {
             // nothing, and calling it settled left the delegate's return position open forever, which
             // is why `values.Select(Widen)` with two `Widen` overloads declined while one emitted.
             let overloadedCandidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
-            if (ColumnarContextualExtensionInference.IsDelegatePosition(binding, a) && (TryGetEnclosingMethodGroupCandidates(argNode, out overloadedCandidates) || TryGetExternalStaticMethodGroupCandidates(argNode, out overloadedCandidates))) {
+            let overloadedReceiverNode: int = -1
+            let overloadedReceiverType: System.Type? = null
+            if (ColumnarContextualExtensionInference.IsDelegatePosition(binding, a) && (TryGetEnclosingMethodGroupCandidates(argNode, out overloadedCandidates) || TryGetExternalStaticMethodGroupCandidates(argNode, out overloadedCandidates) || TryGetReceiverInstanceMethodGroup(argNode, out overloadedReceiverNode, out overloadedReceiverType, out overloadedCandidates))) {
                 continue
             }
             let argType: System.Type? = null
