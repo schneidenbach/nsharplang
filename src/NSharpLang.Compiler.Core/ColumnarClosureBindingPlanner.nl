@@ -95,9 +95,30 @@ class ColumnarClosureBindingPlanner {
         parameterOrdinals: Dictionary<string, int>,
         liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>
     ): SortedSet<string> {
+        return PlanOrderedCaptureSet(nodes, source, bodyNode, lambdaOrdinals, locals, parameterOrdinals, liftedLocals, null)
+    }
+
+    // THE SAME SET, ASKED FROM INSIDE A DISPLAY. A body that is itself a closure sees the scope above
+    // it as boxed captures rather than locals — the boxes ride fields of the display it runs on — and
+    // a lambda written there captures those names exactly as the scope above captured them. Leaving
+    // them out of the union is what made a MUTATED local unreachable from a lambda nested one level
+    // deeper than the one that lifted it.
+    static func PlanOrderedCaptureSet(
+        nodes: ColumnarNodeTable,
+        source: string,
+        bodyNode: int,
+        lambdaOrdinals: Dictionary<string, int>,
+        locals: Dictionary<string, LocalBuilder>,
+        parameterOrdinals: Dictionary<string, int>,
+        liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>,
+        boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?
+    ): SortedSet<string> {
         enclosingCapturableNames := new HashSet<string>(locals.Keys, StringComparer.Ordinal)
         enclosingCapturableNames.UnionWith(parameterOrdinals.Keys)
         enclosingCapturableNames.UnionWith(liftedLocals.Keys)
+        if boxedCaptures != null {
+            enclosingCapturableNames.UnionWith(boxedCaptures.Keys)
+        }
         boundParameterNames := new HashSet<string>(lambdaOrdinals.Keys, StringComparer.Ordinal)
         captures := ColumnarLambdaPlacementPlanner.PlanCaptureSet(nodes, source, bodyNode, boundParameterNames, enclosingCapturableNames)
         return new SortedSet<string>(captures, StringComparer.Ordinal)

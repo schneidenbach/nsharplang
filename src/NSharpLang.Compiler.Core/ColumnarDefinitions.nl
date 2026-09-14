@@ -447,6 +447,13 @@ class ColumnarStructDef {
     GenericParameters: Dictionary<string, Type>?
     IsReference: bool
     IsClosureDisplay: bool
+    // THE SCOPE A CLOSURE DISPLAY WAS MADE FOR, and the reason a nested lambda can reach past its own
+    // captures. A display that holds `<>4__this` holds ONE enclosing receiver in it: the declaring
+    // TYPE when the capturing scope is a member body, or the PARENT DISPLAY when the capturing scope
+    // is itself a lambda or local function that made one. Following this link from display to display
+    // is the whole chain a capture at any nesting depth is read through, which is why no arm counts
+    // levels. Null on every type that is not a display, and on a display with no captured receiver.
+    ClosureEnclosingDef: ColumnarStructDef?
     IsRecord: bool
     IsNewtype: bool
     IsInterface: bool
@@ -501,6 +508,7 @@ class ColumnarStructDef {
         NullableFields = new HashSet<string>(StringComparer.Ordinal)
         IsReference = isReference
         IsClosureDisplay = isClosureDisplay
+        ClosureEnclosingDef = null
         IsRecord = isRecord
         IsNewtype = false
         IsInterface = false

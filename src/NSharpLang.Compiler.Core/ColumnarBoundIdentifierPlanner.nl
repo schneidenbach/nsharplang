@@ -40,8 +40,13 @@ class ColumnarBoundIdentifierSelection {
     DeclaringType: Type?
     CurrentInstanceType: Type?
     CurrentInstanceIsAddress: bool
+    // THE RECEIVER HOPS A CAPTURED-INSTANCE SELECTION TAKES FROM ARGUMENT ZERO, in order. One field
+    // for a lambda whose display captured the enclosing instance directly; one per level for a lambda
+    // nested inside another capturing lambda, where each display holds the display of the scope that
+    // made it. Empty for every other kind, whose receiver is argument zero itself.
+    ReceiverFields: FieldInfo[]
 
-    constructor(kind: ColumnarBoundIdentifierKind, resultType: Type, ordinal: int, planLocalIndex: int, local: LocalBuilder?, firstField: FieldInfo?, valueField: FieldInfo?, getter: MethodInfo?, declaringType: Type?, currentInstanceType: Type?, currentInstanceIsAddress: bool) {
+    constructor(kind: ColumnarBoundIdentifierKind, resultType: Type, ordinal: int, planLocalIndex: int, local: LocalBuilder?, firstField: FieldInfo?, valueField: FieldInfo?, getter: MethodInfo?, declaringType: Type?, currentInstanceType: Type?, currentInstanceIsAddress: bool, receiverFields: FieldInfo[]? = null) {
         Kind = kind
         ResultType = resultType
         Ordinal = ordinal
@@ -53,6 +58,7 @@ class ColumnarBoundIdentifierSelection {
         DeclaringType = declaringType
         CurrentInstanceType = currentInstanceType
         CurrentInstanceIsAddress = currentInstanceIsAddress
+        ReceiverFields = receiverFields ?? new FieldInfo[](0)
     }
 }
 
@@ -211,33 +217,21 @@ class ColumnarBoundIdentifierPlanner {
 
             plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), valueFieldIndex)
         } else if selection.Kind == ColumnarBoundIdentifierKind.CapturedInstanceField {
-            // THE CAPTURED-RECEIVER READ. Two `ldfld`s from argument zero — the display's own field
-            // holding the enclosing instance, then that instance's member — which is the boxed-capture
-            // shape with a member field in place of `StrongBox<T>.Value`. The receiver hop is a
-            // reference load, so the member read needs no address and no `constrained` prefix.
-            currentInstanceType := RequiredType(selection.CurrentInstanceType, "Captured-instance-field selection has no current-instance type.")
-
-            argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, false)
-
-            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
-            receiverFieldIndex := plan.AddField(RequiredField(selection.FirstField, "Captured-instance-field selection has no receiver field."))
-
-            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), receiverFieldIndex)
+            // THE CAPTURED-RECEIVER READ. From argument zero, one `ldfld` per display in the chain —
+            // the display's own field holding the scope that made it — and then the member's own
+            // `ldfld` on the instance the last hop produced. With one hop that is the boxed-capture
+            // shape with a member field in place of `StrongBox<T>.Value`; with more, it is the same
+            // shape walked to whatever depth the source nested its lambdas. Every hop is a reference
+            // load, so the member read needs no address and no `constrained` prefix.
+            AppendCapturedReceiver(plan, selection, "Captured-instance-field")
             memberFieldIndex := plan.AddField(RequiredField(selection.ValueField, "Captured-instance-field selection has no member field."))
 
             plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), memberFieldIndex)
         } else if selection.Kind == ColumnarBoundIdentifierKind.CapturedInstanceProperty {
-            // THE SAME RECEIVER HOP, ENDING IN A PROPERTY GETTER. The enclosing instance a display
+            // THE SAME RECEIVER WALK, ENDING IN A PROPERTY GETTER. The enclosing instance a display
             // captured is a reference, so the accessor dispatches virtually exactly as it would on a
             // written receiver of that type — there is no address and no `constrained` prefix.
-            currentInstanceType := RequiredType(selection.CurrentInstanceType, "Captured-instance-property selection has no current-instance type.")
-
-            argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, false)
-
-            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
-            capturedReceiverFieldIndex := plan.AddField(RequiredField(selection.FirstField, "Captured-instance-property selection has no receiver field."))
-
-            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), capturedReceiverFieldIndex)
+            AppendCapturedReceiver(plan, selection, "Captured-instance-property")
             capturedGetter := RequiredMethod(selection.Getter, "Captured-instance-property selection has no exact getter handle.")
 
             capturedDeclaringType := RequiredType(selection.DeclaringType, "Captured-instance-property selection has no exact declaring type.")
@@ -339,6 +333,28 @@ class ColumnarBoundIdentifierPlanner {
 
         resultType = selection.ResultType
         return true
+    }
+
+    // ARGUMENT ZERO FOLLOWED BY EVERY DISPLAY HOP THE SELECTION RECORDED, leaving the captured
+    // instance on the stack for the member read that follows.
+    static func AppendCapturedReceiver(plan: ColumnarCodePlan, selection: ColumnarBoundIdentifierSelection, description: string) {
+        currentInstanceType := RequiredType(selection.CurrentInstanceType, description + " selection has no current-instance type.")
+
+        receiverFields := selection.ReceiverFields
+        if receiverFields.Length == 0 {
+            throw new InvalidOperationException(description + " selection has no receiver field.")
+        }
+
+        argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, false)
+
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+        hop := 0
+        while hop < receiverFields.Length {
+            hopFieldIndex := plan.AddField(RequiredField(receiverFields[hop], description + " selection has no receiver field."))
+
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), hopFieldIndex)
+            hop = hop + 1
+        }
     }
 
     static func TryGetBoundType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out resultType: Type): bool {
@@ -702,7 +718,9 @@ class ColumnarBoundIdentifierPlanner {
             memberType := memberField.get_FieldType()
             RequireStorableValueType(memberType, "Captured-instance-field facts must identify a readable member value.")
 
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, memberType, -1, -1, null, receiverField, memberField, null, null, displayType, false)
+            capturedReceiverChain := new FieldInfo[](1)
+            capturedReceiverChain[0] = receiverField
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, memberType, -1, -1, null, receiverField, memberField, null, null, displayType, false, capturedReceiverChain)
 
             return true
         }
@@ -807,8 +825,20 @@ class ColumnarBoundIdentifierPlanner {
         // A synthesized closure display materializes snapshot captures as exact current-instance
         // fields. Those fields are the storage for names that remain present in the enclosing-name
         // set, so they resolve before the name-only shadow gate.
-        if bindings.CurrentInstance != null && bindings.CurrentInstance.IsClosureDisplay && TryResolveCurrentInstance(name, bindings, out selection) {
-            return true
+        if bindings.CurrentInstance != null && bindings.CurrentInstance.IsClosureDisplay {
+            if TryResolveCurrentInstance(name, bindings, out selection) {
+                return true
+            }
+
+            // A PARENT DISPLAY'S FIELD IS CAPTURE STORAGE TOO, not a member of some type that an
+            // enclosing local could shadow. A lambda nested inside a capturing lambda sees the outer
+            // scope's captures there and nowhere else, and every one of those names is still in the
+            // enclosing-name set — so this resolves ahead of the name-only gate for the same reason
+            // the display's own snapshot fields do. A real enclosing TYPE is deliberately not
+            // reached here: its members do lose to a local of the same name, and they answer below.
+            if TryResolveCapturedParentDisplay(name, bindings, out selection) {
+                return true
+            }
         }
 
         // Name-only facts represent an enclosing or otherwise blocked binding whose storage is not
@@ -956,52 +986,105 @@ class ColumnarBoundIdentifierPlanner {
         return true
     }
 
-    // THE ENCLOSING INSTANCE'S OWN MEMBERS, READ FROM INSIDE A DISPLAY THAT CAPTURED IT.
+    // THE SCOPES A DISPLAY CAPTURED, READ FROM INSIDE IT — TO ANY NESTING DEPTH.
     //
     // A lambda that captures BOTH `this` and a local runs as an instance method on a synthesized
-    // display class, and that display holds the enclosing receiver in one field of its own —
+    // display class, and that display holds the enclosing receiver in one field of its own,
     // `<>4__this`. Argument zero there is the DISPLAY, not the object the source wrote `Factor`
-    // about, so the current-instance walk above finds nothing and the read declined even though the
+    // about, so the current-instance walk finds nothing and the read declined even though the
     // receiver was sitting in a field the same body could reach.
     //
-    // A bare member name written inside such a body means `this.<>4__this.<member>`: one `ldfld` to
-    // the captured receiver, then the ordinary member read on it. That is the same two-hop shape an
-    // instance iterator's state machine already takes through `CapturedInstanceFields`, and the same
-    // receiver `EmitCapturedEnclosingThisCall` loads before a bare call on the lexical owner — so a
-    // READ and a CALL on the captured instance now agree instead of one working and the other not.
+    // A lambda NESTED inside another capturing lambda has the same field holding the PARENT DISPLAY,
+    // because the scope that made it is where its outer captures live. So `<>4__this` is one link of
+    // a chain, not a single step, and following it as a chain is what makes an inner lambda reach an
+    // outer lambda's capture and the method's `this` alike. Nothing here counts levels: it walks
+    // display to display until a level declares the name, and that level may be the enclosing TYPE
+    // (a field, a property, or a member inherited from an external base, by the same ordinary
+    // resolution `this.Member` uses on a written receiver) or another display (a snapshot capture).
     //
-    // Only a REFERENCE enclosing instance can be captured at all (a value type's `this` is a pointer
-    // into its own storage), which is why the hop is a plain reference load with no address and no
-    // `constrained` prefix, and why an inherited EXTERNAL member answers here by the same ordinary
-    // resolution `this.Member` uses on a written receiver.
+    // Only a REFERENCE enclosing instance is ever captured — a value type's `this` is a pointer into
+    // its own storage — which is why every hop is a plain reference load with no address and no
+    // `constrained` prefix.
     static func TryResolveCapturedEnclosingInstance(name: string, bindings: ColumnarFragmentBindings, out selection: ColumnarBoundIdentifierSelection): bool {
+        return TryResolveCapturedScopeChain(name, bindings, false, out selection)
+    }
+
+    static func TryResolveCapturedScopeChain(name: string, bindings: ColumnarFragmentBindings, displayLevelsOnly: bool, out selection: ColumnarBoundIdentifierSelection): bool {
         selection = EmptySelection()
         display := bindings.CurrentInstance
-        enclosingDefinition := bindings.EnclosingTypeDefinition
-        if display == null || !display.IsClosureDisplay || enclosingDefinition == null || !enclosingDefinition.IsReference {
-            return false
-        }
-
-        capturedReceiverField: FieldInfo? = null
-        capturedReceiverDeclaringType := typeof(object)
-        if !ColumnarCurrentInstanceFacts.TryFindField(display, ColumnarClosureBindingPlanner.CapturedEnclosingInstanceFieldName(), out capturedReceiverField, out capturedReceiverDeclaringType) {
-            return false
-        }
-
-        if capturedReceiverField == null || capturedReceiverField.get_IsStatic() {
-            throw new InvalidOperationException("A captured enclosing receiver must be exact instance storage on the display.")
-        }
-
-        enclosingFacts := ColumnarCurrentInstanceFacts.FromSourceDefinition(enclosingDefinition)
-        receiverType := capturedReceiverField.get_FieldType()
-        if receiverType == null || receiverType != enclosingFacts.ExactType {
+        if display == null || !display.IsClosureDisplay {
             return false
         }
 
         displayType := display.ExactType
+        current := display.SourceDefinition
+        if current == null {
+            return false
+        }
+
+        chain := new List<FieldInfo>()
+        while current != null {
+            enclosingDefinition := current.ClosureEnclosingDef
+            if enclosingDefinition == null || !enclosingDefinition.IsReference {
+                return false
+            }
+
+            capturedReceiverField: FieldBuilder? = null
+            if !current.Fields.TryGetValue(ColumnarClosureBindingPlanner.CapturedEnclosingInstanceFieldName(), out capturedReceiverField) || capturedReceiverField == null {
+                throw new InvalidOperationException("A display that names an enclosing scope must hold that scope's captured receiver.")
+            }
+
+            receiverType := capturedReceiverField.get_FieldType()
+            enclosingScopeType: Type = enclosingDefinition.Builder
+            if receiverType == null || receiverType != enclosingScopeType {
+                throw new InvalidOperationException("A display's captured receiver must be typed by the scope it was captured from.")
+            }
+
+            chain.Add(capturedReceiverField)
+            if (enclosingDefinition.IsClosureDisplay || !displayLevelsOnly) && TryResolveCapturedMember(name, enclosingDefinition, receiverType, displayType, chain, out selection) {
+                return true
+            }
+
+            // The name is not declared at this level. A parent DISPLAY may itself have captured the
+            // scope that made it, so the walk continues; a real type ends it.
+            if !enclosingDefinition.IsClosureDisplay {
+                return false
+            }
+
+            current = enclosingDefinition
+        }
+
+        return false
+    }
+
+    // THE SAME WALK, RESTRICTED TO THE DISPLAY LEVELS. A name a parent display declares is the
+    // storage for a capture of the enclosing lambda's scope; a name only the enclosing TYPE declares
+    // is a member, and a member may be shadowed by an enclosing local, so it is left to the ordinary
+    // ordering below.
+    static func TryResolveCapturedParentDisplay(name: string, bindings: ColumnarFragmentBindings, out selection: ColumnarBoundIdentifierSelection): bool {
+        selection = EmptySelection()
+        display := bindings.CurrentInstance
+        if display == null || display.SourceDefinition == null {
+            return false
+        }
+
+        parent := display.SourceDefinition.ClosureEnclosingDef
+        if parent == null || !parent.IsClosureDisplay {
+            return false
+        }
+
+        return TryResolveCapturedScopeChain(name, bindings, true, out selection)
+    }
+
+    // THE MEMBER THAT LEVEL DECLARES, IF ANY, AS A READ THROUGH THE HOPS THAT REACHED IT.
+    static func TryResolveCapturedMember(name: string, level: ColumnarStructDef, levelType: Type, displayType: Type, chain: List<FieldInfo>, out selection: ColumnarBoundIdentifierSelection): bool {
+        selection = EmptySelection()
+        levelFacts := ColumnarCurrentInstanceFacts.FromSourceDefinition(level)
+        receiverChain := chain.ToArray()
+
         field: FieldInfo? = null
         declaringType := typeof(object)
-        if ColumnarCurrentInstanceFacts.TryFindField(enclosingFacts, name, out field, out declaringType) {
+        if ColumnarCurrentInstanceFacts.TryFindField(levelFacts, name, out field, out declaringType) {
             if field == null || field.get_IsStatic() || field.get_DeclaringType() != declaringType {
                 throw new InvalidOperationException("Captured enclosing-instance field facts do not identify exact instance storage.")
             }
@@ -1009,42 +1092,48 @@ class ColumnarBoundIdentifierPlanner {
             fieldType := field.get_FieldType()
             RequireStorableValueType(fieldType, "Captured enclosing-instance field facts must identify a storable value type.")
 
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, fieldType, -1, -1, null, capturedReceiverField, field, null, declaringType, displayType, false)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, fieldType, -1, -1, null, receiverChain[0], field, null, declaringType, displayType, false, receiverChain)
 
             return true
         }
 
         getter: MethodInfo? = null
         propertyType := typeof(object)
-        if ColumnarCurrentInstanceFacts.TryFindProperty(enclosingFacts, name, out getter, out propertyType, out declaringType) {
+        if ColumnarCurrentInstanceFacts.TryFindProperty(levelFacts, name, out getter, out propertyType, out declaringType) {
             if getter == null || propertyType == null || getter.get_IsStatic() || getter.get_DeclaringType() != declaringType || getter.get_ReturnType() != propertyType {
                 throw new InvalidOperationException("Captured enclosing-instance property facts do not identify an exact getter.")
             }
 
             RequireStorableValueType(propertyType, "Captured enclosing-instance property facts must identify a storable value type.")
 
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceProperty, propertyType, -1, -1, null, capturedReceiverField, null, getter, declaringType, displayType, false)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceProperty, propertyType, -1, -1, null, receiverChain[0], null, getter, declaringType, displayType, false, receiverChain)
 
             return true
         }
 
-        inheritedBase := ColumnarInheritedExternalBase.Resolve(enclosingDefinition, receiverType)
+        // A synthesized display declares every name it holds, so only a real type reaches a base
+        // this compilation did not write.
+        if level.IsClosureDisplay {
+            return false
+        }
+
+        inheritedBase := ColumnarInheritedExternalBase.Resolve(level, levelType)
         if inheritedBase == null {
             return false
         }
 
         inherited := EmptySelection()
-        if !TryResolveInheritedExternalMember(inheritedBase, name, ColumnarBoundIdentifierKind.CapturedInstanceField, ColumnarBoundIdentifierKind.CapturedInstanceProperty, receiverType, out inherited) {
+        if !TryResolveInheritedExternalMember(inheritedBase, name, ColumnarBoundIdentifierKind.CapturedInstanceField, ColumnarBoundIdentifierKind.CapturedInstanceProperty, levelType, out inherited) {
             return false
         }
 
         if inherited.Kind == ColumnarBoundIdentifierKind.CapturedInstanceField {
-            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, inherited.ResultType, -1, -1, null, capturedReceiverField, inherited.FirstField, null, inherited.DeclaringType, displayType, false)
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, inherited.ResultType, -1, -1, null, receiverChain[0], inherited.FirstField, null, inherited.DeclaringType, displayType, false, receiverChain)
 
             return true
         }
 
-        selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceProperty, inherited.ResultType, -1, -1, null, capturedReceiverField, null, inherited.Getter, inherited.DeclaringType, displayType, false)
+        selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceProperty, inherited.ResultType, -1, -1, null, receiverChain[0], null, inherited.Getter, inherited.DeclaringType, displayType, false, receiverChain)
 
         return true
     }

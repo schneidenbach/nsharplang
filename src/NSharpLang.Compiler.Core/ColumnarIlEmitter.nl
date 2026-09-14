@@ -1423,7 +1423,8 @@ sealed class ColumnarIlEmitter {
             ordinals,
             _locals,
             _paramOrdinals,
-            _liftedLocals
+            _liftedLocals,
+            _boxedCaptures
         )
 
         if (captures.Count == 0) {
@@ -1556,7 +1557,9 @@ sealed class ColumnarIlEmitter {
         snapshotNames := new List<string>()
         snapshotTypes := new List<Type>()
         boxedNames := new List<string>()
-        boxedSources := new List<(Box: LocalBuilder, ValueType: Type)>()
+        boxedSourceLocals := new List<LocalBuilder?>()
+        boxedSourceFields := new List<FieldInfo?>()
+        boxedValueTypes := new List<Type>()
         for captureName in captures {
             let liftedSourceBox: System.Reflection.Emit.LocalBuilder? = null
             let liftedSourceValueType: System.Type? = null
@@ -1566,7 +1569,26 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 boxedNames.Add(captureName)
-                boxedSources.Add(liftedSource)
+                boxedSourceLocals.Add(liftedSource.Item1)
+                boxedSourceFields.Add(null)
+                boxedValueTypes.Add(liftedSource.Item2)
+                continue
+            }
+            // A MUTATED CAPTURE THE SCOPE ABOVE ALREADY LIFTED. Inside a display, that name's box is
+            // not a local at all — it rides a field of the display this body runs on. Copying the BOX
+            // reference across is exactly what the lifted arm above does with a local, which is why a
+            // write from either depth is seen at every other.
+            let enclosingBoxValueType: System.Type? = null
+            let enclosingBoxField: System.Reflection.FieldInfo? = null
+            let enclosingBox: (BoxField: System.Reflection.FieldInfo, ValueType: System.Type) = (enclosingBoxField, enclosingBoxValueType)
+            if (_boxedCaptures != null && _boxedCaptures.TryGetValue(captureName, out enclosingBox)) {
+                if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(enclosingBox.Item2, _programType)) {
+                    return false
+                }
+                boxedNames.Add(captureName)
+                boxedSourceLocals.Add(null)
+                boxedSourceFields.Add(enclosingBox.Item1)
+                boxedValueTypes.Add(enclosingBox.Item2)
                 continue
             }
             if (_bodyRoot < 0) {
@@ -1640,14 +1662,14 @@ sealed class ColumnarIlEmitter {
         for b := 0; b < boxedNames.Count; b++ {
             openBoxFieldType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition()
             boxFieldTypeArguments := new Type[1]
-            boxFieldValueType: Type = boxedSources[b].Item2
+            boxFieldValueType: Type = boxedValueTypes[b]
             boxFieldTypeArguments[0] = boxFieldValueType
             boxFieldType := openBoxFieldType.MakeGenericType(boxFieldTypeArguments)
             boxedFields[b] = display.DefineField(boxedNames[b], boxFieldType, FieldAttributes.Public)
             boxedCaptureMapTarget := boxedCaptureMap
             boxedCaptureName := boxedNames[b]
             boxedCaptureField: FieldInfo = boxedFields[b]
-            boxedCaptureValueType: Type = boxedSources[b].Item2
+            boxedCaptureValueType: Type = boxedValueTypes[b]
             let boxedCaptureValue: (BoxField: FieldInfo, ValueType: Type) = (boxedCaptureField, boxedCaptureValueType)
             boxedCaptureMapTarget[boxedCaptureName] = boxedCaptureValue
         }
@@ -1679,6 +1701,13 @@ sealed class ColumnarIlEmitter {
             displayDefIsClosureDisplay,
             displayDeclaredTypeName
         )
+        // THE SCOPE THIS DISPLAY WAS MADE FOR, recorded whenever it captured that scope's receiver.
+        // In a member body that receiver is the declaring type's instance; in a body that is ITSELF a
+        // lambda or local function with a display, it is that PARENT DISPLAY — which is what lets a
+        // read inside the nested lambda walk out through one `<>4__this` per level.
+        if enclosingThisField != null {
+            displayDef.ClosureEnclosingDef = _currentStruct
+        }
         // The lambda becomes an INSTANCE method on the display class: arg 0 is the closure, so parameter
         // ordinals shift +1; snapshot names fall through the sub-emitter's locals/params to the
         // `_currentStruct` field chain, boxed names resolve through _boxedCaptures.
@@ -1764,7 +1793,19 @@ sealed class ColumnarIlEmitter {
         }
         for b := 0; b < boxedNames.Count; b++ {
             _il.Emit(OpCodes.Dup)
-            _il.Emit(OpCodes.Ldloc, boxedSources[b].Item1)
+            boxedSourceLocal := boxedSourceLocals[b]
+            if (boxedSourceLocal != null) {
+                _il.Emit(OpCodes.Ldloc, boxedSourceLocal)
+            } else {
+                // The box rides a field of the display this body is running on, so argument zero is
+                // where it is read from — the only difference from the local case above.
+                boxedSourceField := boxedSourceFields[b]
+                if (boxedSourceField == null) {
+                    return false
+                }
+                _il.Emit(OpCodes.Ldarg_0)
+                _il.Emit(OpCodes.Ldfld, boxedSourceField)
+            }
             _il.Emit(OpCodes.Stfld, boxedFields[b])
         }
         _il.Emit(OpCodes.Ldftn, closureMethod)
@@ -1781,6 +1822,11 @@ sealed class ColumnarIlEmitter {
         if (bodyNodeKind == 25) {
             return EmitBody(bodyNode, returnType == ColumnarTypeOfPlanner.RequiredVoidType())
         }
+        // AN EXPRESSION BODY IS ITS OWN ROOT. `EmitBody` sets this for a block; entering here left it
+        // unset, and the never-mutated scan a nested lambda's capture needs reads it — so a lambda
+        // written inside an expression-bodied lambda declined for want of a body to scan. There are no
+        // statements around this expression: scanning it IS scanning the whole body.
+        _bodyRoot = bodyNode
         if (_asyncReturnType != null) {
             return EmitAsyncLambdaExpressionBody(bodyNode, returnType)
         }
@@ -1789,6 +1835,18 @@ sealed class ColumnarIlEmitter {
         // the same shape: there is no value either way.
         if (IsThrowExpressionNode(bodyNode)) {
             return EmitThrowExpressionValue(bodyNode)
+        }
+        // `x => y => …` — A LAMBDA WHOSE WHOLE BODY IS ANOTHER LAMBDA. A lambda literal has no type
+        // of its own, so the outer delegate's RETURN type is what gives the inner one its shape, in
+        // the same reading `return x => …` performs on a delegate-returning function and an argument
+        // position performs on a delegate parameter. Without it the body reached the untyped
+        // expression door and reported an unsupported node kind.
+        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(bodyNode)) && IsContextualLambdaTarget(bodyNode, returnType)) {
+            if (!TryEmitLambdaLiteral(bodyNode, returnType)) {
+                return false
+            }
+            lambdaIl.Emit(OpCodes.Ret)
+            return true
         }
         let bodyType: System.Type? = null
         if (!EmitExpression(bodyNode, out bodyType)) {
@@ -1819,6 +1877,26 @@ sealed class ColumnarIlEmitter {
             if (!EmitThrowExpressionValue(bodyNode)) {
                 return false
             }
+            _il.BeginCatchBlock(typeof(Exception))
+            EmitFaultedAsyncReturnMirror()
+            _il.Emit(OpCodes.Stloc, _protectedResult)
+            _il.Emit(OpCodes.Leave, _protectedDone)
+            _il.EndExceptionBlock()
+            _protectedDepth = _protectedDepth - 1
+            _il.MarkLabel(_protectedDone)
+            _il.Emit(OpCodes.Ldloc, _protectedResult)
+            _il.Emit(OpCodes.Ret)
+            return true
+        }
+        // The same contextual reading an ordinary expression body takes: `async x => y => …` produces
+        // the task's RESULT, and a lambda literal takes its shape from the type that result has.
+        if (_asyncResultType != null && ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(bodyNode)) && IsContextualLambdaTarget(bodyNode, returnType)) {
+            if (!TryEmitLambdaLiteral(bodyNode, returnType)) {
+                return DeclineMember("emit.lambda.async-body-type", "an `async` lambda's body does not produce the task's result type", bodyNode, "lambda")
+            }
+            EmitWrappedAsyncCompletedReturn(true)
+            _il.Emit(OpCodes.Stloc, _protectedResult)
+            _il.Emit(OpCodes.Leave, _protectedDone)
             _il.BeginCatchBlock(typeof(Exception))
             EmitFaultedAsyncReturnMirror()
             _il.Emit(OpCodes.Stloc, _protectedResult)
@@ -6671,7 +6749,9 @@ sealed class ColumnarIlEmitter {
             displayFields["<>4__this"] = enclosingThisField
             displayFieldOrder := new string[1]
             displayFieldOrder[0] = "<>4__this"
-            result.BindDisplayDefinition(new ColumnarStructDef(display, displayFieldOrder, displayFields, true, false, true, displayTypeName))
+            localFunctionDisplayDef := new ColumnarStructDef(display, displayFieldOrder, displayFields, true, false, true, displayTypeName)
+            localFunctionDisplayDef.ClosureEnclosingDef = enclosingDefinition
+            result.BindDisplayDefinition(localFunctionDisplayDef)
         }
         return result
     }
