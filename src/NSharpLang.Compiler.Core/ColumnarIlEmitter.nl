@@ -7425,9 +7425,12 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitArrayLiteralAsType(retNode, _returnType, out retType)) {
                             } else {
                                 // target-typed array literal return.
-                                if (TryEmitZeroLiteralAsType(retNode, _returnType, out retType)) {
+                                if (TryEmitConditionalAsType(retNode, _returnType, out retType)) {
+                                } else if (TryEmitZeroLiteralAsType(retNode, _returnType, out retType)) {
                                 } else {
-                                    // `return null` on a reference-typed function.
+                                    // `return flag ? value : null` — a conditional with a typeless arm
+                                    // takes the declared return type; `return null` on a
+                                    // reference-typed function.
                                     if (ColumnarTypeOfPlanner.IsSupportedNullable(_returnType)) {
                                         // `return 5` / `return null` / `return n` on an int? function — the lifted
                                         // conversion OWNS the emission; failure declines the whole program.
@@ -7605,7 +7608,8 @@ sealed class ColumnarIlEmitter {
                                 } else {
                                     // `values: T[] = [a, b]` — the target array type owns the element type.
                                     let columnarDiscard11: System.Type = null
-                                    if (TryEmitZeroLiteralAsType(declaredInit, declaredType, out columnarDiscard11)) {
+                                    if (TryEmitConditionalAsType(declaredInit, declaredType, out columnarDiscard11)) {
+                                    } else if (TryEmitZeroLiteralAsType(declaredInit, declaredType, out columnarDiscard11)) {
                                     } else {
                                         // `s: string? = null` (a `?`-annotated reference resolves to its element type).
                                         if (ColumnarTypeOfPlanner.IsSupportedNullable(declaredType)) {
@@ -8372,9 +8376,11 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitArrayLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
                             } else {
                                 // target-typed array literal re-store.
-                                if (TryEmitZeroLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
+                                if (TryEmitConditionalAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
+                                } else if (TryEmitZeroLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
                                 } else {
-                                    // `s = null` on a reference-typed local.
+                                    // `local = flag ? value : null` — the local's type decides a
+                                    // typeless arm; `s = null` on a reference-typed local.
                                     if (ColumnarTypeOfPlanner.IsSupportedNullable(assignTarget.get_LocalType())) {
                                         // lifted re-store onto an int? local (owns the emission).
                                         if (!TryEmitValueAsNullable(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
@@ -19258,6 +19264,97 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // `flag ? value : null` AND ITS FAMILY, TARGET-TYPED — a conditional one of whose arms has no type
+    // of its own.
+    //
+    // The ordinary conditional arm unifies the two arms against EACH OTHER, so an arm that is worth
+    // nothing by itself has to borrow the other one's type. That works for a reference pair and fails
+    // everywhere else: `flag ? n : null` on an `int?` had nothing to lift the `int` arm to (declined as
+    // `emit.statement.block-child`, kind 20 — the return statement), and `ok ? null : throw a` had no
+    // arm left to borrow from at all (`emit.conditional.throw-and-null`, documented as a limit in
+    // `website/docs/types.md`). Both are decided by the TARGET instead, which is exactly how C# reads a
+    // conditional with a typeless arm and how every other typeless literal in this emitter is read.
+    //
+    // THE ROUTE IS CHOSEN BEFORE ANYTHING IS EMITTED, because emit-then-check abandons the program: a
+    // conditional whose arms both carry types keeps the unification arm and its IL, and only one with a
+    // `null`, a `default` or a `throw` arm comes here.
+    //
+    // A THROWING ARM EMITS NO BRANCH TO THE MERGE. The exception ends that path, so a `br` after it
+    // would be unreachable IL over an empty stack — the merge label is reached only from the arm that
+    // produces a value, which is the same shape the unification arm writes for a throwing arm.
+    private func IsTypelessConditionalArm(node: int): bool {
+        kind := _nodes.Kind(node)
+        return kind == 5 || kind == ColumnarExpressionNodeKind.DefaultExpression() || IsThrowExpressionNode(node)
+    }
+
+    private func TryEmitConditionalAsType(node: int, target: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (target == null || _nodes.Kind(node) != 13 || _nodes.ChildCount(node) != 3) {
+            return false
+        }
+        thenNode := Child(node, 1)
+        elseNode := Child(node, 2)
+        if (!IsTypelessConditionalArm(thenNode) && !IsTypelessConditionalArm(elseNode)) {
+            return false
+        }
+        thenThrows := IsThrowExpressionNode(thenNode)
+        elseThrows := IsThrowExpressionNode(elseNode)
+        if (thenThrows && elseThrows) {
+            return false
+        }
+        if (!EmitCondition(Child(node, 0))) {
+            return false
+        }
+        elseLabel := _il.DefineLabel()
+        endLabel := _il.DefineLabel()
+        _il.Emit(OpCodes.Brfalse, elseLabel)
+        if (thenThrows) {
+            if (!EmitThrowExpressionValue(thenNode)) {
+                return false
+            }
+        } else {
+            if (!EmitConditionalArmAsType(thenNode, target)) {
+                return false
+            }
+            _il.Emit(OpCodes.Br, endLabel)
+        }
+        _il.MarkLabel(elseLabel)
+        if (elseThrows) {
+            if (!EmitThrowExpressionValue(elseNode)) {
+                return false
+            }
+        } else {
+            if (!EmitConditionalArmAsType(elseNode, target)) {
+                return false
+            }
+        }
+        _il.MarkLabel(endLabel)
+        resolvedClrType = target
+        return true
+    }
+
+    // ONE ARM AS THE TARGET TYPE, through the same three doors the return and typed-local ladders use
+    // for a value written where a type is already known: the lifted conversion when the target is a
+    // `Nullable<T>` (which is what makes the `int` arm of `flag ? n : null` a `Nullable<int>`), the
+    // keyword zero values, an adopted integer literal, and otherwise the ordinary walk measured against
+    // the target.
+    private func EmitConditionalArmAsType(node: int, target: Type): bool {
+        let armType: System.Type? = null
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
+            return TryEmitValueAsNullable(node, target, out armType) && TypesEquivalent(armType, target)
+        }
+        if (TryEmitZeroLiteralAsType(node, target, out armType)) {
+            return true
+        }
+        if (TryEmitIntLiteralAsType(node, target, out armType)) {
+            return true
+        }
+        if (!EmitExpression(node, out armType)) {
+            return false
+        }
+        return TypesEquivalent(armType, target)
+    }
+
     // THE TWO KEYWORD LITERALS THAT SPELL A TARGET TYPE'S ZERO VALUE, in the one place that knows the
     // target. A bare NULL literal (kind 5) adopts any REFERENCE-typed target (`return null` on a string
     // function, `s = null`, a null argument) — N#'s null-assignability for the modelled set; a value-typed
@@ -24412,6 +24509,10 @@ sealed class ColumnarIlEmitter {
         }
         let ignoredNullType: System.Type? = null
         if (TryEmitZeroLiteralAsType(argNode, expectedParamType, out ignoredNullType)) {
+            return true
+        }
+        let ignoredConditionalType: System.Type? = null
+        if (TryEmitConditionalAsType(argNode, expectedParamType, out ignoredConditionalType)) {
             return true
         }
         if (ColumnarTypeOfPlanner.IsSupportedNullable(expectedParamType)) {
