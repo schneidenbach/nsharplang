@@ -74,6 +74,42 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# Match the product gate's Step 3a evidence vocabulary. Both VSTest and N# native
+# test output use these counters, but they must appear together on one summary
+# line: independent greps could combine unrelated output into a false verdict.
+has_nonempty_successful_test_summary() {
+    local output="$1" line passed failed total saw_summary=0
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*Passed![[:space:]]*-[[:space:]]*Failed:[[:space:]]*([0-9]+),[[:space:]]*Passed:[[:space:]]*([0-9]+),[[:space:]]*Skipped:[[:space:]]*([0-9]+),[[:space:]]*Total:[[:space:]]*([0-9]+)([[:space:]]*,|[[:space:]]*$) ]]; then
+            failed="${BASH_REMATCH[1]}"
+            passed="${BASH_REMATCH[2]}"
+            total="${BASH_REMATCH[4]}"
+        elif [[ "$line" =~ ^[[:space:]]*Failed![[:space:]]*-[[:space:]]*Failed:[[:space:]]*([0-9]+),[[:space:]]*Passed:[[:space:]]*([0-9]+),[[:space:]]*Skipped:[[:space:]]*([0-9]+),[[:space:]]*Total:[[:space:]]*([0-9]+)([[:space:]]*,|[[:space:]]*$) ]]; then
+            return 1
+        elif [[ "$line" =~ ^[[:space:]]*Passed:[[:space:]]*([0-9]+),[[:space:]]*Failed:[[:space:]]*([0-9]+),[[:space:]]*Skipped:[[:space:]]*([0-9]+),[[:space:]]*Total:[[:space:]]*([0-9]+)([[:space:]]*,|[[:space:]]*$) ]]; then
+            passed="${BASH_REMATCH[1]}"
+            failed="${BASH_REMATCH[2]}"
+            total="${BASH_REMATCH[4]}"
+        else
+            continue
+        fi
+
+        saw_summary=1
+        if [[ ! "$passed" =~ ^[1-9][0-9]*$ ]] || [ "$failed" != "0" ] || [[ ! "$total" =~ ^[1-9][0-9]*$ ]]; then
+            return 1
+        fi
+    done < "$output"
+
+    [ "$saw_summary" = "1" ]
+}
+
+report_missing_test_evidence() {
+    local label="$1"
+    echo -e "${RED}✗ $label did not produce a nonempty successful test summary${NC}"
+    echo "    Expected one VSTest or N# native summary line with Passed: > 0, Failed: 0, and Total: > 0."
+    echo "    Check the filter; it may have matched no tests."
+}
+
 DO_BUILD=1
 DO_TESTS=1
 RUN_EVERYTHING=0
@@ -368,13 +404,17 @@ if [ "$DO_TESTS" = "1" ] && [ "$WANT_ESTATE" = "1" ]; then
             dotnet test $DOTNET_STABLE_FLAGS "$ESTATE_PROJECT" -p:NSharpExcludeTests=false --no-restore \
                 -v q --nologo > "$ESTATE_OUTPUT" 2>&1 || ESTATE_RC=$?
         fi
-        grep -E "Passed!|Failed!|Passed:|Failed:|error" "$ESTATE_OUTPUT" | head -20 || true
-        if [ "$ESTATE_RC" = "0" ]; then
-            echo -e "${GREEN}✓ Estate rows passed${NC}"
-        else
+        if [ "$ESTATE_RC" != "0" ]; then
             cat "$ESTATE_OUTPUT"
             echo -e "${RED}✗ Estate rows failed${NC}"
             TEST_EXIT=$ESTATE_RC
+        elif has_nonempty_successful_test_summary "$ESTATE_OUTPUT"; then
+            grep -E "Passed!|Failed!|Passed:|Failed:|error" "$ESTATE_OUTPUT" | head -20 || true
+            echo -e "${GREEN}✓ Estate rows passed${NC}"
+        else
+            cat "$ESTATE_OUTPUT"
+            report_missing_test_evidence "Estate rows"
+            TEST_EXIT=1
         fi
         rm -f "$ESTATE_OUTPUT"
     fi
