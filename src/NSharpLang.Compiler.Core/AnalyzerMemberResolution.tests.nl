@@ -676,10 +676,9 @@ test "AN OVERRIDE'S ANNOTATION IS WHAT THE RECEIVER'S TYPE ANSWERS, AND A TYPE W
 // and cannot name `System.Exception` at all.
 //
 // `Finalize` is then refused at the CALL because it is the slot the garbage collector owns (C#
-// CS0245). The refusal is about the SLOT, not the name: the test is whether the method is a virtual,
-// non-`newslot` parameterless `void Finalize()`, which is what an override of `object.Finalize` is in
-// metadata. Reading the name is not the mistake — invoking it is — so the report lives in the member
-// arm's invocation position rather than in resolution.
+// CS0245). The selected method must trace its virtual slot back to `object.Finalize`; an override
+// of an unrelated new slot remains an ordinary call. Overload binding selects the method before
+// reporting the refusal, so a legal overload is not rejected because its group includes a finalizer.
 
 test "`MemberwiseClone` is reachable from inside a type that writes no base" {
     implicitBase := MemberResolutionSourceErrors("namespace P\n\nclass Holder {\n    Tag: int\n\n    public func Copy(): bool {\n        clone := this.MemberwiseClone()\n        return clone != null\n    }\n}\n")

@@ -1481,15 +1481,15 @@ already threads) and opens `NonPublic` on its METHOD arm alone, holding every ca
 stay public-only. The enum surface (`System.Enum`) keeps the public-only flags: it is asked of a
 VALUE, never from inside a declaring type.
 
-`Finalize` is then refused at the invocation position of `AnalyzerMemberAccess`
-(`ReportFinalizerCall`, **NL341**) — the garbage collector owns that slot and calling it runs the
-cleanup twice (C# CS0245). The test is the SLOT, not the name:
-`AnalyzerMemberResolution.IsRuntimeFinalizerMethod` asks for a non-static, virtual, parameterless
-`void Finalize()` that is either declared by `System.Object` or is not `newslot` — which is what an
-override of `object.Finalize` is in metadata. `MethodInfo.GetBaseDefinition()` would say this
-directly and THROWS on every assembly loaded through a `MetadataLoadContext`, so the metadata bits are
-read instead (`MethodAttributes.NewSlot`, 0x0100), and the return type is compared by full name
-because an MLC type is never reference-equal to the running `typeof(void)`.
+`AnalyzerCallAnalysis` reports **NL341** after reflection overload binding selects a method.
+`AnalyzerMemberResolution.IsRuntimeFinalizerMethod` follows that method's virtual slot to
+`System.Object.Finalize`. It requires a non-static, virtual, parameterless `void Finalize()` and
+walks declared base methods until it reaches `System.Object` or an unrelated new slot. An override
+of an ordinary new-slot `Finalize` remains callable, as does a selected overload with parameters.
+`MethodInfo.GetBaseDefinition()` is unavailable in `MetadataLoadContext`, so the walk reads
+`MethodAttributes.NewSlot` (0x0100) and compares reflected type names across the metadata context.
+The backend regression builds a referenced N# fixture, verifies its ordinary base slot with runtime
+reflection, accepts both legal calls, and separately requires NL341 for `object.Finalize`.
 
 **THE FORMATTER STOPPED WIDENING MEMBERS** (2026-09-13, stream INHERIT2, LSP-VISIBLE — format on
 save). `FormatterSyntaxText.ShouldPreserveExplicitCasingVisibility` dropped a written `public`/

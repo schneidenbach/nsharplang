@@ -859,32 +859,10 @@ class AnalyzerMemberResolution {
     // OVERRIDE CHAIN, not the name: `GetBaseDefinition()` of any override of `object.Finalize` is
     // `object.Finalize`, and a parameterless method that merely happens to be called `Finalize` on an
     // unrelated slot is an ordinary method.
-    static func IsRuntimeFinalizer(memberType: TypeInfo): bool {
-        singleMethod := memberType as ReflectionMethodInfo
-        if singleMethod != null {
-            return IsRuntimeFinalizerMethod(singleMethod.Method)
-        }
-
-        methodGroup := memberType as ReflectionMethodGroupInfo
-        if methodGroup != null {
-            index := 0
-            while index < methodGroup.Methods.Length {
-                if IsRuntimeFinalizerMethod(methodGroup.Methods[index]) {
-                    return true
-                }
-
-                index = index + 1
-            }
-        }
-
-        return false
-    }
-
     // THE SLOT, NOT THE NAME. `MethodInfo.GetBaseDefinition()` would say this directly, but it throws
-    // on every assembly the analyzer loads through a `MetadataLoadContext`, so the slot is read off
-    // the metadata bits instead: `object.Finalize` is `protected virtual void Finalize()`, and an
-    // override of it is the same signature, still virtual, and NOT `newslot` — a `newslot` virtual of
-    // that signature is a slot of its own and an ordinary method.
+    // on assemblies the analyzer loads through a `MetadataLoadContext`. Walk the declared base
+    // methods instead: the first matching declaration either introduces an unrelated new slot or
+    // continues the override chain toward object.Finalize.
     static func IsRuntimeFinalizerMethod(method: MethodInfo): bool {
         if method.get_Name() != "Finalize" || method.get_IsStatic() || !method.get_IsVirtual() {
             return false
@@ -902,9 +880,34 @@ class AnalyzerMemberResolution {
             return true
         }
 
-        // ECMA-335 MethodAttributes.NewSlot is the stable 0x0100 metadata bit.
         newSlotFlag := 0x0100
-        return ((int)method.get_Attributes() & newSlotFlag) == 0
+        if ((int)method.get_Attributes() & newSlotFlag) != 0 {
+            return false
+        }
+
+        baseType: Type? = null
+        if declaringType != null {
+            baseType = declaringType.get_BaseType()
+        }
+        while baseType != null {
+            methods := baseType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+            index := 0
+            while index < methods.Length {
+                candidate := methods[index]
+                candidateReturn := candidate.get_ReturnType()
+                if candidate.get_Name() == "Finalize" && !candidate.get_IsStatic() && candidate.get_IsVirtual() && candidate.GetParameters().Length == 0 && candidateReturn != null && candidateReturn.get_FullName() == "System.Void" {
+                    owner := candidate.get_DeclaringType()
+                    if owner != null && owner.get_FullName() == "System.Object" {
+                        return true
+                    }
+                    return ((int)candidate.get_Attributes() & newSlotFlag) == 0 && IsRuntimeFinalizerMethod(candidate)
+                }
+                index = index + 1
+            }
+            baseType = baseType.get_BaseType()
+        }
+
+        return false
     }
 
     // A SOURCE ENUM'S INSTANCE SURFACE IS `System.Enum`, NOT `object`. The CLR gives every enum

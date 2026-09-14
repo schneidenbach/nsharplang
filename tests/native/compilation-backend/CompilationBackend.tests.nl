@@ -203,6 +203,53 @@ test "nlc build with the il backend writes a runnable assembly and generates no 
     }
 }
 
+test "finalizer refusal follows the selected runtime slot and overload" {
+    directory := NewTempDirectory()
+    try {
+        fixture := Path.Combine(directory, "Fixture")
+        consumer := Path.Combine(directory, "Consumer")
+        Directory.CreateDirectory(fixture)
+        Directory.CreateDirectory(consumer)
+        WriteFile(fixture, "project.yml", ProjectYml("FinalizerFixture", "il", "library"))
+        WriteFile(
+            fixture,
+            "Fixture.nl",
+            "namespace FinalizerFixture\n\nclass OrdinaryBase {\n    public virtual func Finalize() {\n    }\n}\n\nclass OrdinaryDerived: OrdinaryBase {\n    public override func Finalize() {\n    }\n}\n\nclass FinalizeOverload {\n    public func Finalize(value: int): int {\n        return value\n    }\n}\n"
+        )
+        fixtureBuild := Nlc("build", fixture)
+        assert fixtureBuild.ExitCode == 0, fixtureBuild.Stdout + fixtureBuild.Stderr
+
+        fixtureAssembly := Path.Combine(fixture, "bin/Debug/net10.0/FinalizerFixture.dll")
+        loaded := Assembly.LoadFile(fixtureAssembly)
+        derivedType := loaded.GetType("FinalizerFixture.OrdinaryDerived")
+        assert derivedType != null
+        ordinaryFinalize := derivedType.GetMethod("Finalize", BindingFlags.Public | BindingFlags.Instance)
+        assert ordinaryFinalize != null
+        baseDefinition := ordinaryFinalize.GetBaseDefinition()
+        baseOwner := baseDefinition.get_DeclaringType()
+        assert baseOwner != null
+        assert baseOwner.get_FullName() == "FinalizerFixture.OrdinaryBase"
+
+        WriteFile(consumer, "project.yml", ProjectYml("FinalizerConsumer", "il", "library") + "dependencies:\n  - dll: " + fixtureAssembly + "\n")
+        WriteFile(
+            consumer,
+            "Probe.nl",
+            "namespace FinalizerConsumer\n\nimport FinalizerFixture\n\nfunc CallOrdinary(value: OrdinaryDerived) {\n    value.Finalize()\n}\n\nclass OverloadConsumer: FinalizeOverload {\n    func Invoke(): int {\n        return this.Finalize(42)\n    }\n}\n"
+        )
+        accepted := Nlc("check --project " + Quote(consumer) + " --text", consumer)
+        assert accepted.ExitCode == 0, accepted.Stdout + accepted.Stderr
+
+        WriteFile(consumer, "Direct.nl", "namespace FinalizerConsumer\n\nclass RuntimeOwned {\n    func Reject() {\n        this.Finalize()\n    }\n}\n")
+        refused := Nlc("check --project " + Quote(consumer) + " --text", consumer)
+        assert refused.ExitCode == 1
+        said := SaidByCheck(refused)
+        assert said.Contains("NL341")
+        assert said.Contains("the runtime's finalizer")
+    } finally {
+        DeleteTempDirectory(directory)
+    }
+}
+
 test "a referenced closed-generic init setter binds from a derived constructor" {
     directory := NewTempDirectory()
     try {
