@@ -124,6 +124,19 @@ class GenericNamedOwner<T> {
         return value
     }
 
+    func Choose<U>(owner: T, value: U): int {
+        _ = owner
+        _ = value
+        return 1
+    }
+
+    func Choose<U>(owner: T, value: U, extra: int = 2): int {
+        _ = owner
+        _ = value
+        _ = extra
+        return 2
+    }
+
     func Pack<U>(owner: T, params values: U[]): int {
         _ = owner
         return values.Length
@@ -133,6 +146,19 @@ class GenericNamedOwner<T> {
         _ = owner
         _ = extra
         return value
+    }
+
+    static func StaticChoose<U>(owner: T, value: U, extra: int = 2): int {
+        _ = owner
+        _ = value
+        _ = extra
+        return 2
+    }
+
+    static func StaticChoose<U>(owner: T, value: U): int {
+        _ = owner
+        _ = value
+        return 1
     }
 }
 

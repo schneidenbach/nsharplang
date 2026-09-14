@@ -367,6 +367,7 @@ class ColumnarDirectCallPlanner {
         selected: ColumnarInstanceMethodDef? = null
         selectedParameters := new Type[](0)
         selectedReturn := typeof(object)
+        selectedUsesParams := false
         bestScore := -1
         tied := false
         for candidate in candidates {
@@ -398,9 +399,20 @@ class ColumnarDirectCallPlanner {
                 selected = candidate
                 selectedParameters = parameters
                 selectedReturn = closedReturn
+                selectedUsesParams = HasExplicitGenericParamsTail(candidate.ParamModifierKinds)
                 tied = false
             } else if score >= 0 && score == bestScore {
-                tied = true
+                candidateUsesParams := HasExplicitGenericParamsTail(candidate.ParamModifierKinds)
+                tieBreak := CompareExplicitGenericBoundTie(selectedUsesParams, selectedParameters.Length, candidateUsesParams, parameters.Length, argumentTypes.Length)
+                if tieBreak == AnalyzerOverloadSpecificity.RightIsBetter {
+                    selected = candidate
+                    selectedParameters = parameters
+                    selectedReturn = closedReturn
+                    selectedUsesParams = candidateUsesParams
+                    tied = false
+                } else if tieBreak == AnalyzerOverloadSpecificity.NeitherIsBetter {
+                    tied = true
+                }
             }
         }
         if selected == null || tied || !AppendNamedReceiver(receiverName, receiverType, definition.IsReference, bindings, plan) {
@@ -1137,6 +1149,26 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
+    static func HasExplicitGenericParamsTail(modifierKinds: int[]): bool {
+        return modifierKinds.Length > 0 && modifierKinds[modifierKinds.Length - 1] == 3
+    }
+
+    // The analyzer compares applicability scores first, then prefers normal form and fewer filled
+    // defaults. Generic source emission already has the same closed candidate facts here; ask the
+    // shared language rule instead of turning equal written-argument scores into an ambiguity.
+    static func CompareExplicitGenericBoundTie(leftUsesParams: bool, leftParameterCount: int, rightUsesParams: bool, rightParameterCount: int, argumentCount: int): int {
+        return AnalyzerOverloadSpecificity.CompareTieBreaks(
+            false,
+            true,
+            true,
+            leftUsesParams,
+            rightUsesParams,
+            Math.Max(0, leftParameterCount - argumentCount),
+            Math.Max(0, rightParameterCount - argumentCount),
+            AnalyzerOverloadSpecificity.NeitherIsBetter
+        )
+    }
+
     static func TryScoreExplicitGenericParamsArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, parameterTypes: Type[], parameterNames: string[], defaultKinds: int[], defaultTexts: string[], modifierKinds: int[], out score: int): bool {
         score = -1
         if parameterTypes.Length == 0 || modifierKinds[parameterTypes.Length - 1] != 3 || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameterTypes[parameterTypes.Length - 1]) {
@@ -1461,6 +1493,7 @@ class ColumnarDirectCallPlanner {
         selected: ColumnarStaticMethodDef? = null
         selectedParameters := new Type[](0)
         selectedReturn := typeof(object)
+        selectedUsesParams := false
         bestScore := -1
         tied := false
         for candidate in candidates {
@@ -1492,9 +1525,20 @@ class ColumnarDirectCallPlanner {
                 selected = candidate
                 selectedParameters = parameters
                 selectedReturn = closedReturn
+                selectedUsesParams = HasExplicitGenericParamsTail(candidate.ParamModifierKinds)
                 tied = false
             } else if score == bestScore && selected != null && !Object.ReferenceEquals(selected.Builder, candidate.Builder) {
-                tied = true
+                candidateUsesParams := HasExplicitGenericParamsTail(candidate.ParamModifierKinds)
+                tieBreak := CompareExplicitGenericBoundTie(selectedUsesParams, selectedParameters.Length, candidateUsesParams, parameters.Length, argumentTypes.Length)
+                if tieBreak == AnalyzerOverloadSpecificity.RightIsBetter {
+                    selected = candidate
+                    selectedParameters = parameters
+                    selectedReturn = closedReturn
+                    selectedUsesParams = candidateUsesParams
+                    tied = false
+                } else if tieBreak == AnalyzerOverloadSpecificity.NeitherIsBetter {
+                    tied = true
+                }
             }
         }
         if selected == null || tied || !TryAppendExplicitGenericBoundArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, argumentTypes, argumentFacts, selectedParameters, selected.ParamNames, selected.ParamDefaultKinds, selected.ParamDefaultTexts, selected.ParamModifierKinds) {

@@ -227,6 +227,12 @@ test "generic source instance and static calls share defaults and params binding
     assert GenericNamedOwner<string>.StaticPick<int>(value: 44, owner: "text") == 44
 }
 
+test "generic source overloads prefer the candidate that consumes fewer defaults" {
+    owner := new GenericNamedOwner<string>()
+    assert owner.Choose<int>(value: 40, owner: "text") == 1
+    assert GenericNamedOwner<string>.StaticChoose<int>(value: 40, owner: "text") == 1
+}
+
 test "attribute constructor arguments bind by name" {
     found := typeof(NamedAttributeTarget).GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
     assert found != null
