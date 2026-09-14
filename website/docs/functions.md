@@ -1320,6 +1320,27 @@ evaluation order, conversions and exceptions behave identically. A yielded value
 conversion a `return` of that value would take — boxing, a reference upcast, or the element type a
 target-typed literal needs.
 
+That includes the three **branch-merge** forms: `??`, the conditional `? :`, and `throw` written as
+an expression.
+
+```n#
+import System
+import System.Collections.Generic
+
+func* resolved(names: string?[], counts: int?[]): IEnumerable<string> {
+    for i := 0; i < names.Length; i += 1 {
+        yield names[i] ?? "(none)"                       // reference `??`
+        yield (counts[i] ?? 0).ToString()                // `Nullable<T>` `??` — worth the element type
+        yield counts[i] > 0 ? "positive" : "other"       // a conditional
+        yield names[i] ?? throw new InvalidOperationException("name " + i.ToString())
+    }
+}
+```
+
+`x ?? throw e` is worth `x` with its nullability removed, and `cond ? v : throw e` is worth `v` — the
+throwing side produces no value, so the other side decides the type. The exception surfaces from the
+`MoveNext` that reached it, after the elements before it have already been produced.
+
 `for..in` inside a generator enumerates any sequence: an array, a `List<T>`, a call result, or another
 generator. The enumerator is disposed when the loop ends, when the consumer stops early, and when the
 sequence itself is disposed. The loop variable may carry a written type — `for v: int in objects` —
@@ -1342,9 +1363,9 @@ func* matchesAtLeast(items: List<string>, minimum: int): IEnumerable<int> {
 }
 ```
 
-The lambda needs a delegate type to convert to — a written local type as above, or a parameter whose
-type names one — and it is lowered as a method on the generator's own state machine, so the capture
-costs no extra allocation.
+The lambda needs a delegate type to convert to — a written local type as above, a parameter whose
+type names one, or the element type when it is `yield`ed (`yield () => total`) — and it is lowered as
+a method on the generator's own state machine, so the capture costs no extra allocation.
 
 Its body may be a **block**. A block body's statements are planned into that same method: expression
 statements, local declarations, assignments to a captured binding or a member, and a `return` as the
@@ -1378,6 +1399,10 @@ The handler may be an inline lambda (block-bodied or not), a delegate value, or 
 named directly. The receiver is any expression whose value owns the event, or a type name for a static
 one. A virtual `remove` accessor is taken over the receiver, so an event overridden by a derived type
 detaches through the override — the same dispatch the subscription used.
+
+A STATIC of a type this program declares is read and written inside a generator exactly as it is
+outside one — `Counter.Total`, `Registry.Current = Registry.Current + 2` — including a static reached
+through a derived type name, which binds the one declaration the base carries.
 
 An assignment may target an indexer or a member as well as a local: `table[key] = value`,
 `box.Field = value`, `builder.Length = 2`, `values[i] = v`. The member a name selects, the indexer an
@@ -1430,6 +1455,33 @@ func* firstTwoLines(path: string): IEnumerable<string?> {
 `catch` and `finally` handlers that contain no `yield` are ordinary protected regions and may be
 written anywhere in a generator body.
 
+A `using` resource may be a **struct** as well as a class. The machine holds the resource in one of
+its own fields and releases it through that field's address with a `constrained.` call, so a struct
+that counts its disposals observes exactly one — the same lowering a plain function writes over a
+local.
+
+```n#
+import System
+import System.Collections.Generic
+
+struct Tick: IDisposable {
+    Log: List<string>
+    constructor(log: List<string>) {
+        Log = log
+    }
+    func Dispose() {
+        Log.Add("released")
+    }
+}
+
+func* ticks(log: List<string>): IEnumerable<int> {
+    using t := new Tick(log) {
+        yield 1
+        yield 2
+    }
+}
+```
+
 ### What a generator body may not contain
 
 - `return <value>` — a generator produces values with `yield` and stops with `yield break`.
@@ -1438,10 +1490,6 @@ written anywhere in a generator body.
   re-entered that way.
 - a `return` anywhere but the END of a block-bodied lambda's body, and an assignment inside one whose
   target is neither a captured binding nor a member.
-- a `using` whose resource is a **struct**. Releasing a value in a state machine would have to reach
-  through the machine's own field, which the generator's instruction plan cannot spell, and releasing
-  a copy of it would run `Dispose` on something nobody can observe. Hold the resource in a class, or
-  put the `using` outside the generator.
 - `await using` — releasing asynchronously needs an `await` inside a handler, where a suspension has
   no resume point to come back to. This is the same wall `await foreach` meets in a generator body.
 - a lambda that captures a variable declared INSIDE a loop — a generator holds one field per local,

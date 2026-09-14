@@ -4089,10 +4089,76 @@ accepts a complete external DELEGATE type as a hoisted field type; the general s
 has not been widened, because that is a question about the whole value surface.
 
 Not yet lowered inside a generator body, each with its own decline: `return <value>`
-(`emit.iterator.unsupported-shape`), a block-bodied lambda and a loop-scoped capture
+(`emit.iterator.unsupported-shape`), a loop-scoped capture by a lambda
 (`emit.iterator.lambda-unsupported`), a `try` inside an `async func*`
 (`emit.iterator.async-unsupported`), `lock`, an `await` nested in a larger expression, and
-`await foreach`. (`using` is not a statement this language parses at all.)
+`await foreach`.
+
+### The branch-merge value forms on the plan side (census ITER3)
+
+`??`, the conditional and `throw` written as an EXPRESSION are branch-merges, and only the ternary
+had a plan-side owner: `ColumnarIlEmitter`'s own `op == "??"` arm and its throw-arm handling were the
+only lowering, so an iterator body — which plans every value — declined `yield name ?? "d"`,
+`yield name ?? throw e` and `yield flag ? v : throw e` (`node kind 12` / `node kind 13`).
+
+- `ColumnarConditionalPlanner` now owns `??` as its THIRD shape (`IsNullCoalesceBinary`,
+  `TryPlanNullCoalesce`), in the same three left-operand cases the emitter has: a reference left
+  (`dup; brtrue end; pop; <fallback>`), a `Nullable<T>` left (park, `HasValue`, `GetValueOrDefault()`
+  — the RESULT is the ELEMENT type) and a generic-parameter left (one `box` as a TEST, result stays
+  `T`). The fallback takes the ONE argument-conversion owner's conversion to the merge type, and a
+  `null` fallback is the one shape the nested value owner does not claim (it has no type of its own).
+- `ColumnarThrowExpressionPlanner` owns kind 83. `throw` is a METHOD-BODY opcode, so a schema-v3
+  expression fragment declines a throw arm and the legacy emitter arm still serves it there. The
+  stack story is what makes a throw arm safe inside a branch-merge: `ValidateMethodBodyStack` merges
+  no height into the row after a `throw`, so the merge label is reached only from the arm that still
+  produces a value — and the `br` to it is written only when that arm falls through.
+- ⚠ `ColumnarConditionalPlanner.MayPlanRoot` DELIBERATELY still refuses a `??` root. That gate is
+  what the EMITTER's cascade asks; widening it would move a `??` root onto a schema-v3 fragment where
+  `throw` is not an admissible opcode. The claim lives on the METHOD-BODY door
+  (`ColumnarMethodBodyPlanner`'s kind-12 arm and `ColumnarRangeIndexPlanner`'s nested dispatcher),
+  which reaches `TryAppendRoot` directly. The emitter's `??` arm therefore REMAINS, serving the
+  bodies the plan door still declines; collapsing the two owners waits on the plan door claiming
+  every body.
+
+### A source type's statics on the plan side (census ITER3)
+
+`ColumnarExternalStaticMemberPlanner` answers a static that lives in a REFERENCED assembly; nothing
+answered `Counter.Total` where `Counter` is declared in the same program, so an iterator body
+declined it (`node kind 8`) while a plain body emitted through `ColumnarIlEmitter`'s own arm.
+`ColumnarSourceStaticMemberPlanner` is the plan-side twin: it resolves the owner through
+`ColumnarSourceMemberChainResolver` (a static belongs to the type that DECLARES it, so naming a
+derived type binds the base's declaration), loads a field with `ldsfld`, a static property through
+its getter, and a static int constant as its literal. `ColumnarStoreTargetPlanner` asks it BEFORE it
+plans a receiver, because a static target has no receiver to evaluate.
+
+⚠ A definition's `DeclaredTypeName` may carry its NAMESPACE while the source writes the simple name,
+so the lookup matches a declared name it equals OR that ends with `.` + the written name — asked at
+a dot boundary, so `Counter` never matches `RowCounter`. Matching only on equality is why the first
+version of this owner resolved nothing at all.
+
+### A value-typed `using` resource in a generator (census ITER3)
+
+A struct resource lives in one of the machine's FIELDS, so releasing it means `ldflda` for the
+address plus `constrained.` over it — a boxed `Dispose` would release a copy nobody can observe.
+`ColumnarCodePlanContract.Constrained()` is the new row (0xFE 0x16, carried as the negative short
+`-490` exactly as `rethrow` carries 0xFE 0x1A); it is a PREFIX, so its evaluation-stack delta is zero
+and `MethodBodyStackDelta`'s `TypeOperand` fallback already states that. Kind 4 (a value type that
+declares `Dispose` without the interface) has no slot to constrain to and takes a direct `call` over
+the same address; neither shape takes a null guard, because a struct is never null.
+
+⚠ AND THE DISPOSAL SHAPE IS DECIDED FROM THE DEFINITION, NOT FROM REFLECTION. The iterator passed
+`null` for the `ColumnarStructDef`, so `ColumnarUsingResourcePlanner.Plan` asked an UNBAKED
+`TypeBuilder` for its interfaces, got nothing, and reported no release shape at all — a disposable
+source struct looked non-disposable. It now resolves the definition through
+`ColumnarSourceDefinitionResolver.TryResolveStruct`, which is what the plain-body `using` has always
+done.
+
+### A yielded value parses at the LAMBDA level
+
+`return` parsed its value with `ParseLambdaOrAssignmentExpressionNode` and `yield` parsed its own
+with `ParseAssignmentExpressionNode`, so `yield () => v` was a PARSE failure of the whole function
+(`parse.function`) — the one diagnostic that cannot say what it did not understand. `yield` now takes
+the same level; the lambda level falls through to assignment for everything that is not a lambda.
 
 ## The `using` Resource: NL333 and a Read-Only Binding
 
