@@ -4110,6 +4110,7 @@ sealed class ColumnarIlEmitter {
                 def.DeclaredTypeName
             )
             sourceAttributeQueue.QueueType(tb, st.SourceAttributes, typeResolution)
+            def.DeclaredSourceAttributes = st.SourceAttributes
             structTypeResolutions[s] = typeResolution
             if (!ColumnarGenericConstraintPlanner.TryApplyDeclaredTypeConstraints(st.TypeParamNames, typeGenericParams, st.TypeParamSpecialConstraints, st.TypeParamTypeConstraints, typeResolution)) {
                 return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + st.Name + "' are not modeled", st.Name, -1, 0)

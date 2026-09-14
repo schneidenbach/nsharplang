@@ -59,6 +59,17 @@ class AnalyzerAttributeUsageFacts {
         return propertyBit | methodBit
     }
 
+    // WHAT A POSITIONAL CONSTRUCTOR PARAMETER OFFERS. `record Options(Summary: bool)` is one
+    // declaration that becomes two metadata rows — the constructor's parameter and the field it
+    // stores into — and N# has no `[property: ...]`/`[field: ...]` prefix to choose between them. So
+    // the declaration admits an attribute declared for either, and the attribute's own usage decides
+    // which row it is written on: a parameter wherever it allows one, the field otherwise.
+    static func PositionalParameterDeclarationTargets(): int {
+        parameterBit := AnalyzerAttributeUsageFacts.ParameterTarget
+        fieldBit := AnalyzerAttributeUsageFacts.FieldTarget
+        return parameterBit | fieldBit
+    }
+
     // `[AttributeUsage]` OMITTED MEANS ALL TARGETS, ONCE, INHERITED — the CLR's own defaults, which are
     // also the defaults of the attribute class `AttributeUsageAttribute` itself.
     static func DefaultUsage(): AnalyzerAttributeUsage {
@@ -108,6 +119,11 @@ class AnalyzerAttributeUsageFacts {
         // wrote rather than the pair.
         if target == AnalyzerAttributeUsageFacts.PropertyTarget + AnalyzerAttributeUsageFacts.MethodTarget {
             return "a property"
+        }
+
+        // SO DOES A POSITIONAL CONSTRUCTOR PARAMETER, for the same reason: one declaration, two rows.
+        if target == AnalyzerAttributeUsageFacts.PositionalParameterDeclarationTargets() {
+            return "a positional constructor parameter"
         }
 
         return "this declaration"

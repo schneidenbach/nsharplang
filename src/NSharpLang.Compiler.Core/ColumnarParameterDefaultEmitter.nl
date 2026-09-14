@@ -83,6 +83,28 @@ class ColumnarParameterDefaultEmitter {
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
         labeledCanonicals: string[]?
     ): bool {
+        return DefineConstructorParameterMetadataWithAttributes(constructorBuilder, parameterTypes, names, modifierKinds, defaultKinds, defaultTexts, enumRegistry, labeledCanonicals, null, null, null, null)
+    }
+
+    // `memberFields` IS WHAT MAKES A POSITIONAL PARAMETER DIFFERENT FROM EVERY OTHER PARAMETER. A
+    // primary constructor's parameter declares a field as well as a parameter, and the attribute
+    // written on it belongs to whichever of the two its `[AttributeUsage]` admits — a decision the
+    // attribute queue makes once every type in the program has been defined. A null entry, or a null
+    // column, is an ordinary parameter whose attributes have only one place to go.
+    static func DefineConstructorParameterMetadataWithAttributes(
+        constructorBuilder: ConstructorBuilder,
+        parameterTypes: Type[],
+        names: string[],
+        modifierKinds: int[],
+        defaultKinds: int[],
+        defaultTexts: string?[],
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        labeledCanonicals: string[]?,
+        sourceAttributes: ColumnarSourceAttributeInput[][]?,
+        sourceResolution: ColumnarSemanticTypeResolution?,
+        sourceAttributeQueue: ColumnarSourceAttributeQueue?,
+        memberFields: FieldBuilder?[]?
+    ): bool {
         index := 0
         while index < names.Length {
             attributes := ParameterAttributes.None
@@ -94,6 +116,14 @@ class ColumnarParameterDefaultEmitter {
                 attributes = attributes | ParameterAttributes.Optional | ParameterAttributes.HasDefault
             }
             parameter := constructorBuilder.DefineParameter(index + 1, attributes, names[index])
+            if sourceAttributes != null && sourceResolution != null && sourceAttributeQueue != null && index < sourceAttributes.Length {
+                memberField: FieldBuilder? = null
+                if memberFields != null && index < memberFields.Length {
+                    memberField = memberFields[index]
+                }
+
+                sourceAttributeQueue.QueuePositionalParameter(parameter, memberField, sourceAttributes[index], sourceResolution)
+            }
             if labeledCanonicals != null && index < labeledCanonicals.Length {
                 ColumnarTupleElementNameEmitter.ApplyToParameter(parameter, labeledCanonicals[index])
             }

@@ -11484,6 +11484,36 @@ func ParserDeclarationDefaultDottedNameSupported(tokens: ParserDeclarationTokenT
     return !expectIdentifier && identifierCount >= 2 && dotCount >= 1
 }
 
+// THE `[...]` GROUPS WRITTEN BEFORE A PRIMARY CONSTRUCTOR PARAMETER, skipped so the parameter itself
+// parses. The group is not read here: `ColumnarSourceAttributes.ReadParameters` scans back from the
+// parameter's NAME token, exactly the way it does for a method's parameters, so there is one reader
+// for an attribute on a parameter rather than two. -1 means the brackets never closed.
+func SkipPrimaryConstructorParameterAttributeGroups(tokens: ParserDeclarationTokenTable, count: int, start: int): int {
+    pos := start
+    while pos < count && tokens.Kinds[pos] == 131 {
+        depth := 0
+        closed := 0
+        while pos < count && closed == 0 {
+            if tokens.Kinds[pos] == 131 {
+                depth = depth + 1
+            } else if tokens.Kinds[pos] == 132 {
+                depth = depth - 1
+                if depth == 0 {
+                    closed = 1
+                }
+            }
+
+            pos = pos + 1
+        }
+
+        if closed == 0 {
+            return -1
+        }
+    }
+
+    return pos
+}
+
 func ParsePrimaryConstructorParameterSpansCore(_source: string, tokens: ParserDeclarationTokenTable, count: int, leftParenIndex: int, parameters: PrimaryConstructorParameterTable, result: ParserDeclarationResultTable): int {
     if result.Values.Length < 1 || leftParenIndex < 0 || leftParenIndex >= count || tokens.Kinds[leftParenIndex] != 127 {
         return -1
@@ -11496,6 +11526,11 @@ func ParsePrimaryConstructorParameterSpansCore(_source: string, tokens: ParserDe
 
     while pos < count && tokens.Kinds[pos] != 128 {
         if paramCount >= parameters.NameStarts.Length || paramCount >= parameters.TypeStarts.Length || paramCount >= parameters.DefaultKinds.Length {
+            return -1
+        }
+
+        pos = SkipPrimaryConstructorParameterAttributeGroups(tokens, count, pos)
+        if pos < 0 || pos >= count {
             return -1
         }
 

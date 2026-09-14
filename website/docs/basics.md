@@ -454,7 +454,36 @@ class Order {
 
 Parameter attributes are emitted as real CLR parameter metadata, so ASP.NET model-binding attributes
 such as `[FromBody]` and `[FromRoute]`, plus xUnit-style parameter attributes from referenced
-packages, are visible to the framework at runtime.
+packages, are visible to the framework at runtime. A **constructor's** parameters carry them exactly
+the way a function's do.
+
+### An attribute on a positional constructor parameter
+
+A **primary constructor's** parameter is one declaration that becomes two things: the constructor's
+parameter, and the field that parameter stores into.
+
+```n#
+record Options([JsonIgnore] Summary: bool = false, [FromRoute] Id: int = 0) {
+}
+```
+
+C# chooses between the two with a target prefix — `[property: JsonIgnore]`. N# has no target prefix
+at any position, so the **attribute's own `[AttributeUsage]`** chooses:
+
+| The attribute allows | It is written on |
+|---|---|
+| parameters | the **parameter** — what the source literally wrote |
+| fields but not parameters | the **field** that parameter declares |
+| neither | nothing; [`NL933`](./errors/NL933.md) names both rows |
+
+So `[JsonIgnore]` — declared for properties and fields — reaches the member a serializer reads, and
+`[FromRoute]` — declared for parameters — stays on the parameter a model binder reads, without either
+one being spelled differently. The rule is the same for a `record`, a `record struct`, and a `class`
+or `struct` with a primary constructor.
+
+An **ordinary** parameter is not a member, so nothing changes there: an attribute declared only for
+fields is still refused on a `func`'s parameter, and a constructor parameter never routes to a field
+that happens to share its name.
 
 ### Attribute arguments
 

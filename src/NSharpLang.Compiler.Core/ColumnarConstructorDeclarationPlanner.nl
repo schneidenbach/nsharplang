@@ -191,7 +191,7 @@ class ColumnarConstructorDeclarationPlanner {
                                     defaultConstructorJobs
                                 )
                             }
-                            if !ColumnarParameterDefaultEmitter.DefineConstructorParameterMetadataWithTupleNames(
+                            if !ColumnarParameterDefaultEmitter.DefineConstructorParameterMetadataWithAttributes(
                                 builder,
                                 parameterTypes,
                                 ctor.Body.ParamNames,
@@ -199,7 +199,11 @@ class ColumnarConstructorDeclarationPlanner {
                                 ctor.ParamDefaultKinds,
                                 canonicalDefaultTexts,
                                 typeResolution.Enums,
-                                ctor.Body.ParamLabeledCanonicals
+                                ctor.Body.ParamLabeledCanonicals,
+                                ctor.Body.ParameterSourceAttributes,
+                                typeResolution,
+                                sourceAttributeQueue,
+                                PositionalParameterFields(definition, ctor)
                             ) {
                                 return Declined(
                                     "emit.ctor.param-metadata",
@@ -307,6 +311,32 @@ class ColumnarConstructorDeclarationPlanner {
 
     static func IsZeroParamSynthesizedInitializer(ctor: ColumnarConstructorInput): bool {
         return ctor.IsSynthesizedInitializer && ctor.Body.ParamNames.Length == 0
+    }
+
+    // THE FIELD EACH POSITIONAL PARAMETER DECLARES, or null where a parameter declares none. Only a
+    // PRIMARY constructor's parameter list declares members: `record Options(Summary: bool)` writes one
+    // declaration that becomes both a parameter and the field it stores into, so an attribute written
+    // there has two rows it could belong to. An explicit `constructor(...)` declares parameters and
+    // nothing else, and a parameter of one that happens to share a field's name is still only a
+    // parameter — null is returned for the whole list rather than matched by name.
+    static func PositionalParameterFields(definition: ColumnarStructDef, ctor: ColumnarConstructorInput): FieldBuilder?[]? {
+        if !ctor.IsSynthesizedInitializer {
+            return null
+        }
+
+        names := ctor.Body.ParamNames
+        fields := new FieldBuilder?[](names.Length)
+        index := 0
+        while index < names.Length {
+            declared: FieldBuilder = null
+            if definition.Fields.TryGetValue(names[index], out declared) {
+                fields[index] = declared
+            }
+
+            index = index + 1
+        }
+
+        return fields
     }
 
     static func HasCallableConstructor(structInput: ColumnarStructInput): bool {

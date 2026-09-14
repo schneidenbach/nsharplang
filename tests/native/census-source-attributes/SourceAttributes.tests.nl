@@ -3,6 +3,7 @@ namespace NSharpLang.CensusSourceAttributes
 import System
 import System.Reflection
 import System.Runtime.CompilerServices
+import System.Text.Json.Serialization
 
 // EVERY ASSERTION HERE READS THE EMITTED ASSEMBLY. The attribute types and the declarations they are
 // written on live in `SourceAttributes.nl`, in this same project, so a passing test means the
@@ -337,4 +338,132 @@ test "the emitted custom attribute rows name the constructors the source chose" 
         assert named.IsField
     }
     assert marks == 1
+}
+
+// ─── one declaration, two metadata rows ───────────────────────────────────────────────────────
+//
+// Everything below reads the EMITTED assembly for `record Positional(...)`. Before this, an
+// attribute written on a positional parameter made the whole type decline at `parse.struct` — the
+// member scan refused the `[` outright — so none of these rows existed at all.
+func PositionalField(name: string): FieldInfo {
+    return must typeof(Positional).GetField(name)
+}
+
+func PositionalParameter(name: string): ParameterInfo {
+    constructors := typeof(Positional).GetConstructors()
+    assert constructors.Length == 1
+    for parameter in constructors[0].GetParameters() {
+        if parameter.Name == name {
+            return parameter
+        }
+    }
+
+    throw new InvalidOperationException("Positional constructor has no parameter named '" + name + "'.")
+}
+
+test "an attribute declared for fields lands on the field a positional parameter declares" {
+    found := PositionalField("Summary").GetCustomAttribute(typeof(MemberOnlyAttribute), false) as MemberOnlyAttribute
+    assert found.Note == "on the member"
+    assert PositionalParameter("Summary").GetCustomAttribute(typeof(MemberOnlyAttribute), false) == null
+}
+
+test "an attribute declared for parameters lands on the parameter" {
+    assert PositionalParameter("Name").GetCustomAttribute(typeof(ArgumentOnlyAttribute), false) != null
+    assert PositionalField("Name").GetCustomAttribute(typeof(ArgumentOnlyAttribute), false) == null
+}
+
+// THE PARAMETER WINS THE TIE. The source wrote a parameter, and the fallback only moves an attribute
+// that could not have been written there at all.
+test "an attribute declared for both rows lands on the parameter" {
+    assert PositionalParameter("Rank").GetCustomAttribute(typeof(EitherAttribute), false) != null
+    assert PositionalField("Rank").GetCustomAttribute(typeof(EitherAttribute), false) == null
+}
+
+test "an attribute declared for every target lands on the parameter" {
+    found := PositionalParameter("Wide").GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert found.Tag == "wide open"
+    assert PositionalField("Wide").GetCustomAttribute(typeof(MarkAttribute), false) == null
+}
+
+// AN EXTERNAL ATTRIBUTE IS ROUTED BY THE USAGE IT DECLARES, read from metadata rather than from a
+// declaration — and it is the same decision. `[Obsolete]` is declared for every DECLARATION and for
+// no parameter, so it lands on the field; `[CompilerGenerated]` is declared for `All` and stays on
+// the parameter the source wrote it on.
+test "an external attribute whose usage excludes parameters lands on the field" {
+    found := PositionalField("Legacy").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
+    assert found.Message == "the field went away"
+    assert PositionalParameter("Legacy").GetCustomAttribute(typeof(ObsoleteAttribute), false) == null
+}
+
+test "an external attribute whose usage admits parameters stays on the parameter" {
+    assert PositionalParameter("Generated").GetCustomAttribute(typeof(CompilerGeneratedAttribute), false) != null
+    assert PositionalField("Generated").GetCustomAttribute(typeof(CompilerGeneratedAttribute), false) == null
+}
+
+// THE CENSUS SHAPE, VERBATIM. C# writes `[property: JsonIgnore(Condition = ...)] bool Summary =
+// false` on a record parameter to put the attribute where the serializer reads it. N# writes no
+// prefix and reaches the same row, because `JsonIgnore` is declared for properties and fields and
+// for no parameter.
+test "the shape the census found reaches the member the serializer reads" {
+    found := PositionalField("Ignored").GetCustomAttribute(typeof(JsonIgnoreAttribute), false) as JsonIgnoreAttribute
+    assert found.Condition == JsonIgnoreCondition.WhenWritingDefault
+    assert PositionalParameter("Ignored").GetCustomAttribute(typeof(JsonIgnoreAttribute), false) == null
+}
+
+test "a positional parameter the source wrote no attribute on carries none on either row" {
+    assert PositionalField("Plain").GetCustomAttributes(false).Length == 0
+    assert PositionalParameter("Plain").GetCustomAttribute(typeof(MarkAttribute), false) == null
+    assert PositionalParameter("Plain").GetCustomAttribute(typeof(MemberOnlyAttribute), false) == null
+}
+
+// THE DEFAULT VALUE AND THE ATTRIBUTE ARE WRITTEN ON THE SAME DECLARATION and neither displaces the
+// other: this is the exact shape the census found (`[JsonIgnore] Summary: bool = false`).
+test "a positional parameter keeps its default beside its attribute" {
+    parameter := PositionalParameter("Summary")
+    assert parameter.get_HasDefaultValue()
+    assert (must parameter.get_DefaultValue()).ToString() == "False"
+}
+
+test "a class's primary constructor parameter routes the same way" {
+    field := must typeof(PositionalCarrier).GetField("seed", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+    found := field.GetCustomAttribute(typeof(MemberOnlyAttribute), false) as MemberOnlyAttribute
+    assert found.Note == "on the class member"
+
+    constructors := typeof(PositionalCarrier).GetConstructors()
+    assert constructors.Length == 1
+    parameters := constructors[0].GetParameters()
+    assert parameters.Length == 2
+    assert parameters[0].GetCustomAttribute(typeof(MemberOnlyAttribute), false) == null
+    assert parameters[1].GetCustomAttribute(typeof(ArgumentOnlyAttribute), false) != null
+}
+
+test "a value type's primary constructor parameter routes the same way" {
+    field := must typeof(PositionalPoint).GetField("X", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+    found := field.GetCustomAttribute(typeof(MemberOnlyAttribute), false) as MemberOnlyAttribute
+    assert found.Note == "on the struct member"
+
+    constructors := typeof(PositionalPoint).GetConstructors()
+    assert constructors.Length == 1
+    parameters := constructors[0].GetParameters()
+    assert parameters.Length == 2
+    assert parameters[1].GetCustomAttribute(typeof(ArgumentOnlyAttribute), false) != null
+}
+
+// AN EXPLICIT CONSTRUCTOR'S PARAMETER IS ONLY A PARAMETER, and its attribute was dropped from the
+// assembly before this: a constructor's parameter metadata was written without ever asking what the
+// source declared on it.
+test "an explicit constructor's parameter carries its attribute" {
+    constructors := typeof(ExplicitParameterCarrier).GetConstructors()
+    assert constructors.Length == 1
+    parameters := constructors[0].GetParameters()
+    assert parameters.Length == 2
+    found := parameters[0].GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert found.Tag == "on the constructor parameter"
+    assert parameters[1].GetCustomAttribute(typeof(MarkAttribute), false) == null
+}
+
+// A CONSTRUCTOR'S PARAMETER IS NOT A MEMBER, so a field of the same name never takes its attribute.
+test "an explicit constructor's parameter never routes to a field of the same name" {
+    field := must typeof(ExplicitParameterCarrier).GetField("Value")
+    assert field.GetCustomAttribute(typeof(MarkAttribute), false) == null
 }

@@ -1649,6 +1649,49 @@ test "struct parser keeps declaration order for fields split across methods" {
     assert probe.FieldNameTexts[1] == "Y"
 }
 
+// AN ATTRIBUTE ON A PRIMARY CONSTRUCTOR PARAMETER USED TO DECLINE THE WHOLE TYPE. The parameter scan
+// answered -1 at the `[`, which the caller reports as `parse.struct` on the type header — so
+// `record Options([JsonIgnore] Summary: bool = false)` was refused at emission while the analyzer
+// happily bound the attribute. The scan now SKIPS the group; the attribute itself is read back from
+// the parameter's name token by `ColumnarSourceAttributes.ReadParameters`, so there is one reader.
+test "struct parser accepts an attribute written on a primary constructor parameter" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "record Options([JsonIgnore] Summary: bool = false, Name: string = \"x\") {\n}"
+    )
+
+    assert probe.FieldCount == 2
+    assert probe.StructNameTexts[0] == "Options"
+    assert probe.FieldNameTexts[0] == "Summary"
+    assert probe.FieldNameTexts[1] == "Name"
+    assert probe.Result[9] == 2
+}
+
+test "struct parser accepts several attribute groups, with arguments, before one parameter" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Carrier([Mark(\"a\")] [Other] seed: int, [Mark([1, 2])] scale: int) {\n}"
+    )
+
+    assert probe.FieldCount == 2
+    assert probe.FieldNameTexts[0] == "seed"
+    assert probe.FieldNameTexts[1] == "scale"
+    assert probe.Result[9] == 2
+}
+
+// A FIELD SYNTHESIZED FROM A PRIMARY PARAMETER STILL HAS NO MEMBER POSITION OF ITS OWN. Its
+// `FieldDeclTokens` entry stays -1: an attribute written on the parameter is read from the PARAMETER,
+// and routed to the field by the attribute queue, not by a second backward scan from the field.
+test "a primary constructor's synthesized field records no member declaration token" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Carrier([Mark] seed: int) {\n    Kept: int\n}"
+    )
+
+    assert probe.FieldCount == 2
+    assert probe.FieldNameTexts[0] == "Kept"
+    assert probe.FieldDeclTokens[0] >= 0
+    assert probe.FieldNameTexts[1] == "seed"
+    assert probe.FieldDeclTokens[1] == -1
+}
+
 test "struct parser leaves namespace ownership with the file binding scope" {
     probe := new ColumnarStructDeclarationParseProbe(
         "namespace Scope\nclass Widget {}"

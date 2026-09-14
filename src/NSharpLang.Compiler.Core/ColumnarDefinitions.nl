@@ -488,6 +488,12 @@ class ColumnarStructDef {
     RecordEquals: MethodBuilder?
     RecordGetHashCode: MethodBuilder?
     RecordClone: MethodBuilder?
+    // THE ATTRIBUTES THIS TYPE'S OWN DECLARATION CARRIES, kept because a type under construction
+    // answers no reflection question: `TypeBuilder.GetCustomAttributesData` has nothing to read while
+    // the program that declares the type is still being emitted. The one owner that asks is the
+    // routing of an attribute written on a positional constructor parameter, which needs the
+    // `[AttributeUsage]` of a source-declared attribute class.
+    DeclaredSourceAttributes: ColumnarSourceAttributeInput[]?
 
     constructor(builder: TypeBuilder, fieldOrder: string[], fields: Dictionary<string, FieldBuilder>, isReference: bool, isRecord: bool = false, isClosureDisplay: bool = false, declaredTypeName: string = "") {
         if builder == null || fieldOrder == null || fields == null || declaredTypeName == null {

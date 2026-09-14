@@ -506,10 +506,15 @@ class ColumnarSourceAttributeBinder {
 
 // ONE QUEUED ATTACHMENT. Exactly one of the six targets is set; the kind is the target that is not
 // null rather than a separate tag, so a row cannot claim to be a method and carry a type.
+//
+// A POSITIONAL CONSTRUCTOR PARAMETER IS THE ONE DECLARATION THAT IS TWO ROWS, and it is the one row
+// that carries a second target beside its first. `MemberFallbackTarget` is the field that parameter
+// declares, and it is read only when the attribute's own `[AttributeUsage]` refuses a parameter.
 class ColumnarSourceAttributeApplication {
     TypeTarget: TypeBuilder?
     MethodTarget: MethodBuilder?
     ParameterTarget: ParameterBuilder?
+    MemberFallbackTarget: FieldBuilder?
     FieldTarget: FieldBuilder?
     PropertyTarget: PropertyBuilder?
     ConstructorTarget: ConstructorBuilder?
@@ -520,6 +525,7 @@ class ColumnarSourceAttributeApplication {
         TypeTarget = null
         MethodTarget = null
         ParameterTarget = null
+        MemberFallbackTarget = null
         FieldTarget = null
         PropertyTarget = null
         ConstructorTarget = null
@@ -579,6 +585,21 @@ class ColumnarSourceAttributeQueue {
         }
     }
 
+    // A POSITIONAL CONSTRUCTOR PARAMETER DECLARES TWO THINGS AT ONCE — the constructor's parameter and
+    // the field it stores into — and N# has no `[property: ...]`/`[field: ...]` prefix to say which of
+    // them an attribute is for. The attribute's own `[AttributeUsage]` says it instead: a parameter is
+    // what the source literally wrote, so it wins wherever the attribute admits one, and the field is
+    // where an attribute that admits no parameter goes. An attribute that admits neither is left on
+    // the parameter and reported by the analyzer (`NL933`) rather than moved somewhere it does not
+    // belong.
+    func QueuePositionalParameter(target: ParameterBuilder, memberTarget: FieldBuilder?, attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution) {
+        application: ColumnarSourceAttributeApplication = null
+        if TryQueue(attributes, resolution, out application) {
+            application.ParameterTarget = target
+            application.MemberFallbackTarget = memberTarget
+        }
+    }
+
     func QueueField(target: FieldBuilder, attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution) {
         application: ColumnarSourceAttributeApplication = null
         if TryQueue(attributes, resolution, out application) {
@@ -632,6 +653,12 @@ class ColumnarSourceAttributeQueue {
 
                 parameterTarget := application.ParameterTarget
                 if parameterTarget != null {
+                    memberFallback := application.MemberFallbackTarget
+                    if memberFallback != null && !AdmitsParameter(attribute, application.Resolution) {
+                        memberFallback.SetCustomAttribute(plan.Constructor, plan.Blob)
+                        continue
+                    }
+
                     parameterTarget.SetCustomAttribute(plan.Constructor, plan.Blob)
                     continue
                 }
@@ -656,5 +683,31 @@ class ColumnarSourceAttributeQueue {
         }
 
         applications.Clear()
+    }
+
+    // WHETHER THIS ATTRIBUTE MAY BE WRITTEN ON A PARAMETER AT ALL. Only a positional constructor
+    // parameter asks, and only to choose between the two rows its one declaration produces. An
+    // attribute type that cannot be resolved keeps the parameter — the analyzer has already reported
+    // the name — and so does one that admits no field either, because moving it would put the
+    // attribute somewhere the source did not ask for.
+    static func AdmitsParameter(attribute: ColumnarSourceAttributeInput, resolution: ColumnarSemanticTypeResolution): bool {
+        attributeType: Type = null
+        sourceDefinition: ColumnarStructDef = null
+        if !ColumnarSourceAttributeBinder.TryResolveAttributeType(attribute.Name, resolution, out attributeType, out sourceDefinition) {
+            return true
+        }
+
+        targets := ColumnarAttributeUsageTargets.Of(attributeType, sourceDefinition, resolution)
+        parameterBit := AnalyzerAttributeUsageFacts.ParameterTarget
+        if (targets & parameterBit) == parameterBit {
+            return true
+        }
+
+        fieldBit := AnalyzerAttributeUsageFacts.FieldTarget
+        if (targets & fieldBit) == fieldBit {
+            return false
+        }
+
+        return true
     }
 }
