@@ -120,10 +120,12 @@ func MissingDirectoryPath(prefix: string): string {
 
 // ─── READING A JSON ARRAY ─────────────────────────────────────────────────────────────────────
 //
-// A `JsonElement` INDEXER declines at emit — measured here as
-// `emit.local.initializer` on `root.GetProperty("a")[0]` — so arrays are walked with
-// `EnumerateArray`, which is the spelling `tests/native/query-integration` and
-// `tests/native/systems-proof-corpus` already use.
+// This header used to record that a `JsonElement` INDEXER declines at emit
+// (`emit.local.initializer` on `root.GetProperty("a")[0]`). Re-measured on 2026-09-14 against the
+// tip CLI, that shape compiles and RUNS: a `.tests.nl` reading `GetProperty("a")[0].GetInt32()`
+// passes. Arrays are still walked with `EnumerateArray` below, because that is the spelling
+// `tests/native/query-integration` and `tests/native/systems-proof-corpus` already use and one
+// spelling across the corpus is worth keeping — but it is a consistency choice now, not a decline.
 func ElementAt(items: JsonElement, wanted: int): JsonElement {
     enumerator := items.EnumerateArray()
     seen := 0
