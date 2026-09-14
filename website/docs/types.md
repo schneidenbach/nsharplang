@@ -1827,12 +1827,6 @@ Two rules the compiler enforces about the type-argument list itself:
   (`Sink.Accept([1, "b", null])` where `Accept` takes both `int[]` and `object[]`). The emitter picks
   a same-arity candidate before it looks at the argument. A single candidate of that arity, and an
   overload set reached with a literal whose elements DO have a common type, are both unaffected.
-- A **`throw` used as an EXPRESSION** does not emit yet. `value ?? throw new …`,
-  `cond ? value : throw new …` and an expression body `func F(): T => throw new …` all type-check —
-  and `x ?? throw` narrows `x` for the code that survives it, exactly as the guard it stands for
-  does — but the columnar backend reports [NL103](./errors/NL103.md) on the function that spells one.
-  Write the statement form (`if value == null { throw new … }`) until then; `throw` as a STATEMENT,
-  including a bare `throw` rethrow inside a `catch`, is unaffected.
 - A **bare `GetType()`** with no receiver at all reports [NL412](./errors/NL412.md): the members
   `object` declares and your type inherits are reached through a receiver, not through the bare name.
   `this.GetType()`, `other.GetType()` on a parameter or a local, and `(this as object).GetType()` all
