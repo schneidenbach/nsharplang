@@ -499,10 +499,14 @@ custom-attribute blob is written:
 [Mark(["a", "b"])]                                  // an array of constants
 [Mark(null)]                                        // a null reference
 [Mark("text", Count = 42, Note = "named")]          // named arguments
+[Mark("text", Count: 42, Note: "named")]            // the same, in N#'s own spelling
 ```
 
 A named argument binds to a **public settable property** or a **public mutable field** of the
-attribute, declared by it or inherited. Named arguments come after the positional ones.
+attribute, declared by it or inherited. Named arguments come after the positional ones. Either
+separator writes one: `Name = value` is the spelling C# uses, and `Name: value` is the spelling N#
+uses for a named argument everywhere else — a call, an object initializer — so both are accepted and
+emit the same metadata row.
 
 An integer constant fills any numeric parameter whose range contains it, so a `byte` parameter takes
 `[Mark(5)]` and refuses `[Mark(300)]`. A `long` or `ulong` constant that does not fit in an `int`

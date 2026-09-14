@@ -133,6 +133,51 @@ test "an external attribute with only a named argument is emitted" {
     assert found.DiagnosticId == "NL9999"
 }
 
+// `Name: value` IS A NAMED ARGUMENT, AND THE ROW HAS TO BE THERE AT ALL. The emitter's reader knew
+// only `Name = value`, so every attribute below decoded as one unreadable positional argument and
+// was dropped from the metadata entirely — no row, no diagnostic, nothing to see until a framework
+// that reads the attribute behaved differently. Each of these asserts the row exists AND carries the
+// value the named argument set.
+test "a colon-spelled named argument sets an exported field" {
+    named := MarkOn("ColonNamedField")
+    assert named != null, "the attribute row must be emitted for a colon-spelled named argument"
+    assert named.Tag == "colon named"
+    assert named.Count == 43
+}
+
+test "a colon-spelled named argument sets a property through its setter" {
+    found := RequiredMethod("ColonNamedProperty").GetCustomAttribute(typeof(NotedAttribute), false) as NotedAttribute
+    assert found != null, "the attribute row must be emitted for a colon-spelled named argument"
+    assert found.Note == "through a setter, colon"
+}
+
+test "a colon-spelled named argument binds an inherited member" {
+    found := RequiredMethod("ColonDerived").GetCustomAttribute(typeof(DerivedMarkAttribute), false) as DerivedMarkAttribute
+    assert found != null, "the attribute row must be emitted for a colon-spelled named argument"
+    assert found.Tag == "colon derived"
+    assert found.Count == 4
+    assert found.Extra == "colon own"
+}
+
+test "a colon-spelled named argument binds on an external attribute" {
+    found := RequiredMethod("ColonExternalNamedOnly").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
+    assert found != null, "the attribute row must be emitted for a colon-spelled named argument"
+    assert found.DiagnosticId == "NL9998"
+}
+
+// THE READER MUST NOT TURN AN ORDINARY ARGUMENT INTO A NAMED ONE. A positional enum member is a
+// dotted name, and a `|` of two of them is a binary expression; neither is `Identifier` followed by
+// a separator, so both stay positional and land in the constructor's own parameters.
+test "positional arguments stay positional beside the colon spelling" {
+    found := RequiredMethod("ColonPositionalStillPositional").GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute
+    assert found != null, "the attribute row must be emitted"
+    assert found.Level == Level.High
+    expectedTargets := AttributeTargets.Method | AttributeTargets.Class
+    assert found.Targets == expectedTargets
+    payload := must found.Payload
+    assert payload.ToString() == "19"
+}
+
 func DefaultedOn(name: string): DefaultedAttribute {
     declared: MethodInfo? = typeof(DefaultCarrier).GetMethod(name)
     method := must declared
