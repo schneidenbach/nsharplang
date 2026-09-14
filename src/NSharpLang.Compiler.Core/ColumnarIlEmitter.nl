@@ -13744,8 +13744,13 @@ sealed class ColumnarIlEmitter {
             // `null` arm gets one rung up, taken further: a `null` still has to be a value of the
             // other arm's type, while a throw is not a value at all, so the merge label is reached
             // only from the arm that does produce one and the conditional is worth THAT arm's type.
-            // Both arms throwing has no type to be worth; the analyzer refuses it (NL340's sibling
-            // rule) and this guard keeps the emitter honest.
+            //
+            // TWO SHAPES HAVE NO TYPE TO TAKE and decline by name rather than by falling through.
+            // BOTH arms throwing is one — C# refuses it too (there is nothing for the conditional to
+            // be worth), and the analyzer does not, because `never` is assignable to everything here.
+            // A throw against a BARE `null` is the other: the literal has no type of its own and the
+            // arm that would have supplied one raises instead. Both are named in
+            // `website/docs/types.md`'s current limits.
             ternaryThenThrows := IsThrowExpressionNode(ternaryThenNode)
             ternaryElseThrows := IsThrowExpressionNode(ternaryElseNode)
             if (ternaryThenThrows && ternaryElseThrows) {
