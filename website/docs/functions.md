@@ -1383,9 +1383,9 @@ whatever it targets — [`NL319`](./errors/NL319.md) reports it), and a `break` 
 `await foreach` inside an `async func*`, whose exit has a hoisted handler to run on the way that the
 branch cannot re-issue.
 
-A lambda inside a generator captures the body's own bindings — a parameter, a local declared outside
-every loop, and (in an instance generator) the enclosing type's members — and may be handed to
-anything that takes a delegate:
+A lambda inside a generator captures the body's own bindings — parameters, locals, loop variables,
+and (in an instance generator) the enclosing type's members — and may be handed to anything that
+takes a delegate:
 
 ```n#
 import System
@@ -1399,8 +1399,10 @@ func* matchesAtLeast(items: List<string>, minimum: int): IEnumerable<int> {
 ```
 
 The lambda needs a delegate type to convert to — a written local type as above, a parameter whose
-type names one, or the element type when it is `yield`ed (`yield () => total`) — and it is lowered as
-a method on the generator's own state machine, so the capture costs no extra allocation.
+type names one, or the element type when it is `yield`ed (`yield () => total`). Captures declared
+outside loops remain shared through the generator state machine. A loop-declared capture gets a fresh
+mutable cell for each iteration, and the lambda's display retains that cell even after enumeration
+moves on.
 
 Its body may be a **block**. A block body's statements are planned into that same method: expression
 statements, local declarations, assignments to a captured binding or a member, and a `return` as the
@@ -1531,9 +1533,9 @@ func* ticks(log: List<string>): IEnumerable<int> {
   re-entered that way.
 - a `return` anywhere but the END of a block-bodied lambda's body, and an assignment inside one whose
   target is neither a captured binding nor a member.
-- a lambda that captures a variable declared INSIDE a loop — a generator holds one field per local,
-  so every iteration would share it rather than getting the fresh binding the language promises.
 - non-literal unary negation in a generator lambda, such as `() => -value`.
+- mutation of a generator lambda's own parameters or locals, including `x++` and `x = x + 1`.
+  Reads and nonmutating computations are supported; captured generator bindings support assignment.
 - `await` outside an `async func*`, and — inside one — an `await` NESTED in a larger expression;
   bind it first (`value := await ...`).
 - an `await` inside a `catch` handler, and an awaiting `finally` on a `try` that also declares a

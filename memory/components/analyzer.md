@@ -4418,28 +4418,24 @@ at that branch, so the awaited value is produced FIRST, parked in a plan local, 
 `this` loaded and the field written. An `await` nested inside a larger expression needs a spill this
 owner does not yet hold and declines saying so.
 
-### A lambda is a method on the state machine
+### Lambda captures in a generator
 
-A generator has already hoisted every parameter and every local of its body into a field of its own
-machine, so the machine IS the closure's display: there is no second object to synthesize and no
-capture to copy. `ColumnarIteratorBodyPlanner.AppendLambda` defines a private INSTANCE method
-`<>__lambda{k}` on the machine builder, plans its body through the ONE expression door against a scope
-that differs from the body's in exactly one way (the lambda's parameters are its own arguments 1..n),
-and builds the delegate from the machine the body is already running on: `ldarg.0; ldftn <>__lambda0;
-newobj <Delegate>..ctor(object, native int)`. The signature comes from the delegate's own `Invoke`, so
-the target type decides the parameters and the result — the ordinary lambda-conversion rule. An
-instance generator's enclosing members reach through `<>__this`, the same two-hop read the body takes.
+A capture declared outside a loop remains a field of the generator state machine. For that common
+case, `ColumnarIteratorBodyPlanner.AppendLambda` defines the private instance method directly on the
+machine and builds the delegate from the machine receiver. A loop-declared capture instead gets a
+fresh `StrongBox<T>` when its iteration begins. The lambda method lives on a synthesized display that
+stores those box references plus the machine reference. Later writes in the same iteration update the
+same box, while the next iteration gets another box; names declared outside the loop remain shared
+through the machine. The signature still comes from the delegate's own `Invoke`, and both bodies use
+the same expression scope.
 
 `ldftn` is new in the plan schema (`ColumnarCodePlanContract.Ldftn`, 0xFE06): it reads no argument and
 pushes one value, modelled as `IntPtr` because that is exactly what a delegate constructor's second
 parameter is declared as, so the following `newobj` matches with no new stack kind.
 
-TWO SHAPES DECLINE, both precisely. A BLOCK-bodied lambda needs a statement emitter for a method that
-is not a state machine. And a lambda that captures a local declared INSIDE a loop cannot be lowered at
-all: a generator holds ONE field per local, so every iteration would share it where the language
-promises a fresh binding — `ColumnarIteratorWalkState.LocalLoopDepths` records the loop nesting each
-local was declared at, and `ColumnarIteratorPlanner.CapturedLoopLocalName` reads it (the lambda's own
-parameters shadow, so they are skipped).
+`ColumnarIteratorWalkState.LocalLoopDepths` records where each local is declared, and the lambda walk
+records only names it actually captures; the lambda's own parameters shadow body bindings and are
+excluded.
 
 Closing this also fixed a delegate-canonical bug that was never iterator-specific:
 `ColumnarCanonicalTypeResolver.TrySelectDelegateCanonical` split `Func<int, int>` into `int` and
@@ -4448,20 +4444,22 @@ resolve while the same type written without one succeeded. And `TryResolveIterat
 accepts a complete external DELEGATE type as a hoisted field type; the general storable-type catalog
 has not been widened, because that is a question about the whole value surface.
 
-An async lambda inside a generator now uses the same state-machine object as its closure and writes a
-synthesized method returning the target's exact Task/ValueTask family. Its own awaits use the current
+An async lambda inside a generator uses its selected machine or per-iteration display as its closure
+and writes a synthesized method returning the target's exact Task/ValueTask family. Its own awaits use the current
 blocking-await lowering within the generator lambda's supported expression forms, including binary
 operands, call arguments and indexes, and never consume a resume state from
 the enclosing iterator. Successful results are wrapped and synchronous body exceptions become faulted
 tasks. The delegate may return `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>`.
 
 Not yet lowered inside a generator body, each with its own decline: `return <value>`
-(`emit.iterator.unsupported-shape`), a loop-scoped capture by a lambda
-(`emit.iterator.lambda-unsupported`), `lock`, an `await` nested in a larger expression of the
+(`emit.iterator.unsupported-shape`), `lock`, an `await` nested in a larger expression of the
 enclosing async iterator, an `await` inside a `catch` handler and an awaiting `finally` beside a
 `catch` on the same `try` (both `emit.iterator.async-await-unsupported`). Generic async iterator
 methods remain declined at `emit.iterator.async-unsupported`. The existing generator-lambda expression
 boundary still excludes non-literal unary negation, such as `() => -value`, with or without an await.
+Generator lambdas also retain the existing refusal for mutation of their own parameters or locals,
+including postfix steps and plain assignment. Ordinary lambda support for those forms does not
+extend the generator statement planner; captured generator bindings have their own supported storage.
 
 ### Protected regions and awaits in handler positions (census ITER4)
 

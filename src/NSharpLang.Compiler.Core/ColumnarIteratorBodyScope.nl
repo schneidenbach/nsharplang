@@ -206,6 +206,14 @@ class ColumnarIteratorBodyScope {
         instanceFacts.Fields[name] = field
     }
 
+    func PublishBoxedCapture(name: string, boxField: FieldInfo, valueType: Type) {
+        if name == null || name.Length == 0 || boxField == null || valueType == null {
+            throw new InvalidOperationException("A published iterator box requires a name, field and value type.")
+        }
+        let entry: (BoxField: FieldInfo, ValueType: Type) = (boxField, valueType)
+        Bindings.BoxedCaptures[name] = entry
+    }
+
     func HasField(name: string): bool {
         return instanceFacts.Fields.ContainsKey(name)
     }

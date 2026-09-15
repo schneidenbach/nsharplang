@@ -96,3 +96,90 @@ func* AsyncUnitValueTaskCallbacks(log: List<string>): IEnumerable<Func<ValueTask
         log.Add("value task")
     }
 }
+
+func* PerIterationCallbacks(values: int[]): IEnumerable<Func<int>> {
+    for value in values {
+        yield () => value
+    }
+}
+
+func* SharedIterationCallbacks(): IEnumerable<Func<int>> {
+    offset := 10
+    for value in [1, 2] {
+        current := value
+        yield () => current + offset
+        current = current + 100
+        offset = offset + 1
+    }
+}
+
+func* SameIterationCallbacks(): IEnumerable<Func<int>> {
+    for value in [1] {
+        yield () => {
+            value = value + 1
+            return value
+        }
+        yield () => value
+    }
+}
+
+func* CountedIterationCallbacks(): IEnumerable<Func<int>> {
+    for i := 0; i < 2; i++ {
+        current := i
+        yield () => current
+    }
+}
+
+func* CountedInitializerCallbacks(): IEnumerable<Func<int>> {
+    for i := 0; i < 2; i++ {
+        yield () => i
+    }
+}
+
+func* WhileIterationCallbacks(): IEnumerable<Func<int>> {
+    i := 0
+    while i < 2 {
+        current := i
+        yield () => current
+        i++
+    }
+}
+
+func* EnumerableIterationCallbacks(values: List<int>): IEnumerable<Func<int>> {
+    for value in values {
+        yield () => value
+    }
+}
+
+func* MemberSuffixCallbacks(values: int[], items: int[]): IEnumerable<Func<int>> {
+    for Length in values {
+        yield () => items.Length
+    }
+}
+
+interface ILoopMarker {
+}
+
+class LoopBase {
+}
+
+class LoopValue: LoopBase, ILoopMarker {
+}
+
+func* ConstrainedIterationCallbacks<T, U>(item: U): IEnumerable<object> where T: class where U: T, ILoopMarker, new() {
+    for ignored in [0] {
+        value := item
+        callback: Func<object> = () => value
+        yield callback
+    }
+}
+
+func* SharedAsyncIterationCallbacks(): IEnumerable<Func<Task<int>>> {
+    offset := 10
+    for value in [1, 2] {
+        current := value
+        yield async () => (await Task.FromResult(current)) + offset
+        current = current + 100
+        offset = offset + 1
+    }
+}

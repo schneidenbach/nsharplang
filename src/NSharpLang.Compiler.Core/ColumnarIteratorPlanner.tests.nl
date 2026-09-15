@@ -1098,7 +1098,7 @@ test "iterator planner plans a lambda over the machine's own bindings" {
     assert probe.Shape.FieldCanonicals[3] == "Func<int, int>"
 }
 
-test "iterator planner declines a lambda that captures a variable declared inside a loop" {
+test "iterator planner records a lambda capture that needs per-iteration storage" {
     probe := new ColumnarIteratorShapeProbe(
         "func* PerIteration(values: int[]): IEnumerable<int> { for v in values { pick: Func<int, int> = x => x + v\n yield pick(1) } }",
         "IEnumerable<int>",
@@ -1108,9 +1108,25 @@ test "iterator planner declines a lambda that captures a variable declared insid
         false
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.lambda-unsupported"
-    assert probe.Shape.DeclineMessage == "a lambda inside an iterator body cannot capture 'v', which is declared inside a loop: a generator holds one field per local, so every iteration would share it"
+    assert probe.Shape.Supported
+    assert probe.Shape.LoopCaptureNames.Length == 1
+    assert probe.Shape.LoopCaptureNames[0] == "v"
+    assert probe.Shape.FieldNames[probe.Shape.FieldCount - 1] == "<>__loopBox_v"
+    assert probe.Shape.FieldRoles[probe.Shape.FieldCount - 1] == ColumnarIteratorPlanner.LoopCaptureBoxFieldRole()
+}
+
+test "iterator planner does not capture a member suffix that only shares a loop local's spelling" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* MemberName(values: int[], items: int[]): IEnumerable<Func<int>> { for Length in values { yield () => items.Length } }",
+        "IEnumerable<Func<int>>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.LoopCaptureNames.Length == 0
 }
 
 // A BLOCK-BODIED LAMBDA IS CLASSIFIED LIKE ANY OTHER, and its body is still read for captures. This
@@ -1128,8 +1144,7 @@ test "iterator planner classifies a block-bodied lambda inside an iterator body"
 
     assert probe.Shape.Supported
 
-    // The capture rule still reads THROUGH the block: a loop-declared local is one field re-used by
-    // every iteration, so closing over it is refused whichever body shape the lambda has.
+    // The capture walk still reads through the block and records its per-iteration cell.
     looping := new ColumnarIteratorShapeProbe(
         "func* WithLambda(values: int[]): IEnumerable<int> { for v in values { pick: Func<int, int> = x => { return x + v }\n yield pick(1) } }",
         "IEnumerable<int>",
@@ -1139,9 +1154,9 @@ test "iterator planner classifies a block-bodied lambda inside an iterator body"
         false
     )
 
-    assert !looping.Shape.Supported
-    assert looping.Shape.DeclineSite == "emit.iterator.lambda-unsupported"
-    assert looping.Shape.DeclineMessage == "a lambda inside an iterator body cannot capture 'v', which is declared inside a loop: a generator holds one field per local, so every iteration would share it"
+    assert looping.Shape.Supported
+    assert looping.Shape.LoopCaptureNames.Length == 1
+    assert looping.Shape.LoopCaptureNames[0] == "v"
 }
 
 // A LAMBDA'S OWN PARAMETER SHADOWS the body's bindings, so a parameter that happens to share a
