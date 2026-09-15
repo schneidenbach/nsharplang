@@ -3933,7 +3933,7 @@ class ColumnarIteratorBodyPlanner {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
         }
         plan.CompleteMethodBody(methodReturnType)
-        ColumnarCodePlanExecutor.Execute(plan, lambdaMethod.GetILGenerator())
+        ColumnarCodePlanExecutor.Execute(plan, lambdaMethod.GetILGenerator(), context.RequiredScope().Facts.ModifiedMemberReferences)
         return true
     }
 

@@ -2721,6 +2721,13 @@ therefore records the constructed setter and substituted property type, retainin
 only as the modifier source. Unbaked generic parameters use their authoritative type/method kind;
 a missing `DeclaringMethod` does not turn an MVAR into a VAR.
 
+The repair ledger is shared by every plan emitted into the assembly. Iterator realization passes
+that same ledger through synchronous `MoveNext`, asynchronous `MoveNextCore`, and generator lambda
+bodies, so a constructed-generic initializer used by a direct `yield`, a synchronous callback, or
+an async callback contributes its exact setter request to the assembly repair. The direct-call root
+used by ordinary async bodies preserves the ledger as well; wrapping such an initializer in a call
+does not detach its MemberRef from the two-pass repair.
+
 ### Exact Runtime Structural Projections
 
 Some CLR surfaces cannot be reconstructed safely by comparing display names or by mixing runtime

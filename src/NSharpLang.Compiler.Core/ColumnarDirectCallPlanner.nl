@@ -24,7 +24,7 @@ class ColumnarDirectCallPlanner {
         return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.CallExpression()
     }
 
-    static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, il: ILGenerator, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+    static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, il: ILGenerator, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger? = null): bool {
         ownership := ColumnarDirectCallOwnership.NotOwned
         status := Plan(nodes, source, node, bindings, plan, out ownership, out legacyWholeSubtreePlanning, out resultType)
         ValidateOwnershipBoundary(ownership, legacyWholeSubtreePlanning)
@@ -34,7 +34,7 @@ class ColumnarDirectCallPlanner {
         }
 
         nsharpOwned = true
-        ColumnarCodePlanExecutor.Execute(plan, il)
+        ColumnarCodePlanExecutor.Execute(plan, il, modifiedMemberReferences)
         resultType = RequiredResultType(plan)
         return true
     }

@@ -26,6 +26,7 @@ class ColumnarIteratorBodyFacts {
     SiblingNames: IEnumerable<string>
     EnclosingTypeDefinition: ColumnarStructDef?
     StructuralTypeReferences: ColumnarStructuralTypeReferenceTable
+    ModifiedMemberReferences: ColumnarModifiedMemberReferenceLedger?
 
     constructor(
         enums: Dictionary<string, ColumnarEnumDef>,
@@ -48,6 +49,7 @@ class ColumnarIteratorBodyFacts {
         SiblingNames = siblingNames
         EnclosingTypeDefinition = enclosingTypeDefinition
         StructuralTypeReferences = structuralTypeReferences
+        ModifiedMemberReferences = null
     }
 
     // The live emission facts of one program, in the shape the fragment-binding contract wants them.

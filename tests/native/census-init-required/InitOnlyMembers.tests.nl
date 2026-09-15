@@ -196,3 +196,40 @@ test "a generic function initializes a generic struct with its method type param
     assert number.Value == 42
     assert text.Value == "value"
 }
+
+test "iterator plans share generic init metadata through direct and lambda bodies" {
+    for value in GenericInitObjects() {
+        box := value as GenericInitializable<int>
+        assert box != null
+        assert box.Value == 40
+    }
+    for callback in GenericInitCallbacks() {
+        box := callback() as GenericInitializable<int>
+        assert box != null
+        assert box.Value == 41
+    }
+    for callback in GenericAsyncInitCallbacks() {
+        box := (await callback()) as GenericInitializable<int>
+        assert box != null
+        assert box.Value == 42
+    }
+    await foreach value in GenericAsyncInitObjects() {
+        box := value as GenericInitializable<int>
+        assert box != null
+        assert box.Value == 44
+    }
+}
+
+test "a generic iterator init keeps its method parameter owner" {
+    for value in GenericIteratorInitObjects<string>("method-owned") {
+        box := value as GenericInitializable<string>
+        assert box != null
+        assert box.Value == "method-owned"
+    }
+}
+
+test "an async composed call shares generic init metadata" {
+    box := (await AsyncComposedGenericInit()) as GenericInitializable<int>
+    assert box != null
+    assert box.Value == 43
+}

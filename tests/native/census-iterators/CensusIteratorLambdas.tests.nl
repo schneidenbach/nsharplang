@@ -261,3 +261,17 @@ test "async generator lambdas preserve the selected iteration cells across await
     assert second == 114
     assert !Object.ReferenceEquals(callbacks[0].Target, callbacks[1].Target)
 }
+
+test "async iteration captures retain generic init metadata and awaited values" {
+    callbacks := new List<Func<Task<object>>>()
+    for callback in SharedAsyncInitIterationCallbacks() {
+        callbacks.Add(callback)
+    }
+    assert callbacks.Count == 2
+    first := (await callbacks[0]()) as IteratorInitCaptureBox<int>
+    second := (await callbacks[1]()) as IteratorInitCaptureBox<int>
+    assert first != null
+    assert second != null
+    assert first.Value == 113
+    assert second.Value == 114
+}

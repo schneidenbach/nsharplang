@@ -183,3 +183,17 @@ func* SharedAsyncIterationCallbacks(): IEnumerable<Func<Task<int>>> {
         offset = offset + 1
     }
 }
+
+class IteratorInitCaptureBox<T> {
+    init Value: T
+}
+
+func* SharedAsyncInitIterationCallbacks(): IEnumerable<Func<Task<object>>> {
+    offset := 10
+    for value in [1, 2] {
+        current := value
+        yield async () => new IteratorInitCaptureBox<int> { Value: (await Task.FromResult(current)) + offset }
+        current = current + 100
+        offset = offset + 1
+    }
+}
