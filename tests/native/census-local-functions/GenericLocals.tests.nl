@@ -36,6 +36,7 @@ test "a generic local function takes a constraint, recurses and captures" {
     assert NoCaptureDependent<GenericLocalDerived, GenericLocalBase>(derived).Value == "dependent"
     assert CaptureEnclosingBase<GenericLocalDerived>(derived).Value == "dependent"
     assert NoCaptureNew<GenericLocalCreated>(new GenericLocalCreated()) != null
+    assert LocalConstraintNamesEnclosing<string>("dependent local") == "dependent local"
     owner := new GenericLocalMemberOwner()
     assert owner.NoCapture<int>(84) == 84
     assert owner.NoCapture<string>("member outer") == "member outer"
@@ -95,6 +96,13 @@ test "enclosing and local type parameters retain their exact CLR owners and cons
     constructedParameters := constructed.GetGenericArguments()
     assert constructedParameters.Length == 2
     assert (constructedParameters[0].get_GenericParameterAttributes() & GenericParameterAttributes.DefaultConstructorConstraint) == GenericParameterAttributes.DefaultConstructorConstraint
+
+    localDependent := SynthesizedLocal("LocalConstraintNamesEnclosing", "choose")
+    localDependentParameters := localDependent.GetGenericArguments()
+    assert localDependentParameters.Length == 2
+    localDependentConstraints := localDependentParameters[1].GetGenericParameterConstraints()
+    assert localDependentConstraints.Length == 1
+    assert localDependentConstraints[0] == localDependentParameters[0]
 
     memberCaptureFree := SynthesizedLocal("NoCapture", "choose")
     memberCopied := memberCaptureFree.GetGenericArguments()

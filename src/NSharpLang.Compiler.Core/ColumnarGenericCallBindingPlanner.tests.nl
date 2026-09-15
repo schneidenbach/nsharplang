@@ -70,20 +70,20 @@ func GenericCallBindingSubstituteReturn(
     return outcome
 }
 
-test "generic call binding identifies declared parameters by identity and accepts equal repeated actual types" {
+test "generic call binding accepts an alias of the same declared parameter and equal repeated actual types" {
     parameters := GenericCallBindingParameters("Identity", 1)
     declaredAlias: Type = new TypeDelegator(parameters[0])
     assert !Object.ReferenceEquals(declaredAlias, parameters[0])
     assert declaredAlias == parameters[0]
 
     foreignBinding := new Type[](1)
-    assert !ColumnarGenericCallBindingPlanner.TryUnifyTypeParam(
+    assert ColumnarGenericCallBindingPlanner.TryUnifyTypeParam(
         parameters,
         foreignBinding,
         declaredAlias,
         typeof(int)
     )
-    assert foreignBinding[0] == null
+    assert foreignBinding[0] == typeof(int)
 
     firstActual: Type = new TypeDelegator(typeof(int))
     repeatedActual: Type = new TypeDelegator(typeof(int))

@@ -7476,7 +7476,7 @@ sealed class ColumnarIlEmitter {
         ownSpecialConstraints := System.Array.Empty<int>()
         ownBaseConstraints := System.Array.Empty<Type?>()
         ownInterfaceConstraints := System.Array.Empty<Type[]>()
-        if (!ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(ownBuilders, localFn.TypeParamSpecialConstraints, localFn.TypeParamTypeConstraints, typeParamMap, ownTypeParams, typeResolution, out ownSpecialConstraints, out ownBaseConstraints, out ownInterfaceConstraints)) {
+        if (!ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(ownBuilders, localFn.TypeParamSpecialConstraints, localFn.TypeParamTypeConstraints, typeParamMap, localTypeParams, typeResolution, out ownSpecialConstraints, out ownBaseConstraints, out ownInterfaceConstraints)) {
             return false
         }
         for ownConstraintIndex := 0; ownConstraintIndex < ownTypeParams.Length; ownConstraintIndex++ {

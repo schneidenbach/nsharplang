@@ -179,6 +179,14 @@ func NoCaptureNew<T>(value: T): T where T: new() {
     return choose<int>(value, 1)
 }
 
+func LocalConstraintNamesEnclosing<T>(value: T): T where T: class {
+    func choose<U>(input: U): U where U: T {
+        return input
+    }
+
+    return choose<T>(value)
+}
+
 class GenericLocalMemberOwner {
     func NoCapture<T>(value: T): T {
         func choose<U>(outer: T, _other: U): T {

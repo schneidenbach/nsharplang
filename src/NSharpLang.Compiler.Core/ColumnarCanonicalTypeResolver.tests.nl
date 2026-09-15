@@ -265,6 +265,18 @@ test "canonical resolver resolves a read-only collection on either walk and keep
         out exact
     )
     assert exact == typeof(int)
+
+    innermostParameter := typeof(List<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    supplied["CanonicalResolverSelected"] = innermostParameter
+    assert ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+        "CanonicalResolverSelected",
+        supplied,
+        exactResolution.Enums,
+        exactResolution.Structs,
+        exactResolution.Unions,
+        out exact
+    )
+    assert Object.ReferenceEquals(exact, innermostParameter)
 }
 
 test "canonical resolver retains byref and generic construction throw boundaries" {

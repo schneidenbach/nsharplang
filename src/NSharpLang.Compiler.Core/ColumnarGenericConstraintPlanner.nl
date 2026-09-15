@@ -148,15 +148,25 @@ class ColumnarGenericConstraintPlanner {
                 }
                 if isParameter {
                     ownerIndex := 0
+                    ownerParameterFound := false
                     while ownerIndex < ownerTypeParams.Length {
                         if Object.ReferenceEquals(ownerTypeParams[ownerIndex], constraintType) {
-                            baseParamIndices[parameterIndex] = ownerIndex
+                            ownerParameterFound = true
                             break
                         }
                         ownerIndex = ownerIndex + 1
                     }
-                    if baseParamIndices[parameterIndex] < 0 {
+                    if !ownerParameterFound {
                         return false
+                    }
+                    builderIndex := 0
+                    while builderIndex < gpBuilders.Length {
+                        builderAsType: Type = gpBuilders[builderIndex]
+                        if Object.ReferenceEquals(builderAsType, constraintType) {
+                            baseParamIndices[parameterIndex] = builderIndex
+                            break
+                        }
+                        builderIndex = builderIndex + 1
                     }
                 }
                 baseBuilder := gpBuilders[parameterIndex]
@@ -255,7 +265,7 @@ class ColumnarGenericConstraintPlanner {
                 // a synthesized local whose copied/display T carries that same constraint. Do not
                 // ask reflection whether an unknown future T is a value type; compare the promises
                 // recorded on the two parameters. Type/base constraints continue through the
-                // structural checks below once a concrete argument is supplied.
+                // structural checks below against the open parameter's declared constraints.
                 boundAttributes := (int)bound.get_GenericParameterAttributes()
                 requiredAttributes := AttributeBitsFor(special)
                 if (boundAttributes & requiredAttributes) != requiredAttributes {
@@ -266,11 +276,13 @@ class ColumnarGenericConstraintPlanner {
                     if !TrySubstituteGenericTypeArguments(typeParams, binding, baseConstraint, out closedBaseConstraint) || closedBaseConstraint == null {
                         return false
                     }
-                    baseEntailed := false
-                    for declaredBoundConstraint in bound.GetGenericParameterConstraints() {
-                        if ColumnarTypeEquivalenceFacts.TypesEquivalent(declaredBoundConstraint, closedBaseConstraint) || (closedBaseConstraint.get_IsInterface() && BoundSatisfiesInterfaceConstraint(declaredBoundConstraint, closedBaseConstraint, structRegistry)) || (!closedBaseConstraint.get_IsInterface() && !(declaredBoundConstraint.get_Assembly() is AssemblyBuilder) && !(closedBaseConstraint.get_Assembly() is AssemblyBuilder) && closedBaseConstraint.IsAssignableFrom(declaredBoundConstraint)) {
-                            baseEntailed = true
-                            break
+                    baseEntailed := ColumnarTypeEquivalenceFacts.TypesEquivalent(bound, closedBaseConstraint)
+                    if !baseEntailed {
+                        for declaredBoundConstraint in bound.GetGenericParameterConstraints() {
+                            if ColumnarTypeEquivalenceFacts.TypesEquivalent(declaredBoundConstraint, closedBaseConstraint) || (closedBaseConstraint.get_IsInterface() && BoundSatisfiesInterfaceConstraint(declaredBoundConstraint, closedBaseConstraint, structRegistry)) || (!closedBaseConstraint.get_IsInterface() && !(declaredBoundConstraint.get_Assembly() is AssemblyBuilder) && !(closedBaseConstraint.get_Assembly() is AssemblyBuilder) && closedBaseConstraint.IsAssignableFrom(declaredBoundConstraint)) {
+                                baseEntailed = true
+                                break
+                            }
                         }
                     }
                     if !baseEntailed {

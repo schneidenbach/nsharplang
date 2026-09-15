@@ -919,11 +919,12 @@ class ColumnarCanonicalTypeResolver {
         table := structRegistry.StructuralTypeReferences
         selected = ColumnarSelectedTypeReference.Missing(table)
 
-        // The explicitly supplied scope is the innermost generic declaration. A synthesized local
-        // method may copy an enclosing parameter onto a new owner, so its `T` must win over the
-        // resolver view that still contains the enclosing method's `T`.
+        // A generic parameter in the explicitly supplied scope belongs to the innermost generic
+        // declaration. A synthesized local may copy an enclosing parameter onto a new owner, so its
+        // `T` must win over the resolver view that still contains the enclosing method's `T`. A
+        // concrete map entry retains the ordinary exact-declaration precedence below.
         parameterType := typeof(object)
-        if typeParams.TryGetValue(canonical, out parameterType) {
+        if typeParams.TryGetValue(canonical, out parameterType) && parameterType.get_IsGenericParameter() {
             selected = table.SelectRuntimeType(parameterType)
             return true
         }
@@ -976,6 +977,11 @@ class ColumnarCanonicalTypeResolver {
             }
             selected = ColumnarSelectedTypeReference.Missing(table)
             return false
+        }
+
+        if typeParams.TryGetValue(canonical, out parameterType) {
+            selected = table.SelectRuntimeType(parameterType)
+            return true
         }
 
         elementParameter := typeof(object)
