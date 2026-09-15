@@ -210,10 +210,16 @@ class ColumnarBoundIdentifierPlanner {
             argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, false)
 
             plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
-            firstFieldIndex := plan.AddField(RequiredField(selection.FirstField, "Boxed-capture selection has no box field."))
+            boxField := RequiredField(selection.FirstField, "Boxed-capture selection has no box field.")
+            firstFieldIndex := plan.AddField(boxField)
 
             plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), firstFieldIndex)
-            valueFieldIndex := plan.AddField(RequiredField(selection.ValueField, "Boxed-capture selection has no value field."))
+            valueFieldIndex := plan.AddFieldWithSignature(
+                RequiredField(selection.ValueField, "Boxed-capture selection has no value field."),
+                boxField.get_FieldType(),
+                selection.ResultType,
+                false
+            )
 
             plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), valueFieldIndex)
         } else if selection.Kind == ColumnarBoundIdentifierKind.CapturedInstanceField {
@@ -243,7 +249,13 @@ class ColumnarBoundIdentifierPlanner {
             localIndex := plan.AddAmbientLocal(RequiredLocal(selection.Local, "Lifted selection has no box local."))
 
             plan.AppendAmbientLocalInstruction(ColumnarCodePlanContract.Ldloc(), localIndex)
-            valueFieldIndex := plan.AddField(RequiredField(selection.ValueField, "Lifted selection has no value field."))
+            boxLocal := RequiredLocal(selection.Local, "Lifted selection has no box local.")
+            valueFieldIndex := plan.AddFieldWithSignature(
+                RequiredField(selection.ValueField, "Lifted selection has no value field."),
+                boxLocal.get_LocalType(),
+                selection.ResultType,
+                false
+            )
 
             plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), valueFieldIndex)
         } else if selection.Kind == ColumnarBoundIdentifierKind.Local {
@@ -1223,6 +1235,17 @@ class ColumnarBoundIdentifierPlanner {
             throw new InvalidOperationException("Lifted binding storage must be StrongBox<T> for its exact value type.")
         }
 
+        openField := definition.GetField("Value")
+        if openField == null {
+            throw new InvalidOperationException("StrongBox<T>.Value was not found.")
+        }
+        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(boxType) {
+            rebound := TypeBuilder.GetField(boxType, openField)
+            if rebound == null {
+                throw new InvalidOperationException("StrongBox<T>.Value could not be rebound onto its builder-bound instantiation.")
+            }
+            return rebound
+        }
         valueField := boxType.GetField("Value")
         if valueField == null || valueField.get_IsStatic() || valueField.get_DeclaringType() != boxType || valueField.get_FieldType() != valueType {
             throw new InvalidOperationException("Lifted binding storage has no exact StrongBox<T>.Value field.")

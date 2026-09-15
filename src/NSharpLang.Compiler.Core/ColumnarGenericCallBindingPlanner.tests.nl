@@ -70,20 +70,20 @@ func GenericCallBindingSubstituteReturn(
     return outcome
 }
 
-test "generic call binding identifies declared parameters by identity and accepts equal repeated actual types" {
+test "generic call binding accepts an alias of the same declared parameter and equal repeated actual types" {
     parameters := GenericCallBindingParameters("Identity", 1)
     declaredAlias: Type = new TypeDelegator(parameters[0])
     assert !Object.ReferenceEquals(declaredAlias, parameters[0])
     assert declaredAlias == parameters[0]
 
     foreignBinding := new Type[](1)
-    assert !ColumnarGenericCallBindingPlanner.TryUnifyTypeParam(
+    assert ColumnarGenericCallBindingPlanner.TryUnifyTypeParam(
         parameters,
         foreignBinding,
         declaredAlias,
         typeof(int)
     )
-    assert foreignBinding[0] == null
+    assert foreignBinding[0] == typeof(int)
 
     firstActual: Type = new TypeDelegator(typeof(int))
     repeatedActual: Type = new TypeDelegator(typeof(int))
@@ -200,6 +200,24 @@ test "generic member substitution distinguishes enclosing and method parameter i
     arguments := substituted.GetGenericArguments()
     assert arguments[0] == typeof(string)
     assert arguments[1] == typeof(int)
+}
+
+test "generic call identity distinguishes VAR and MVAR owners even at the same ordinal" {
+    owner := TypeOfCreateBuilder(
+        "GenericParameterOwners",
+        "ColumnarGenericCallBinding.GenericParameterOwners",
+        1
+    )
+    ownerParameter := owner.GetGenericArguments()[0]
+    firstMethod := owner.DefineMethod("First", MethodAttributes.Public | MethodAttributes.Static)
+    secondMethod := owner.DefineMethod("Second", MethodAttributes.Public | MethodAttributes.Static)
+    firstParameter := firstMethod.DefineGenericParameters(["T"])[0]
+    secondParameter := secondMethod.DefineGenericParameters(["T"])[0]
+
+    assert ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(ownerParameter, ownerParameter)
+    assert ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(firstParameter, firstParameter)
+    assert !ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(ownerParameter, firstParameter)
+    assert !ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(firstParameter, secondParameter)
 }
 
 test "generic call binding admits direct source shapes but declines a composed builder-bound argument" {

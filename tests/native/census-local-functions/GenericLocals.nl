@@ -2,6 +2,22 @@ namespace NSharpLang.CensusLocalFunctions.Tests
 
 import System.Collections.Generic
 
+interface GenericLocalMarker {
+}
+
+class GenericLocalMarked: GenericLocalMarker {
+    Value: string
+}
+
+class GenericLocalBase {
+    Value: string
+}
+
+class GenericLocalDerived: GenericLocalBase {
+}
+
+class GenericLocalCreated {
+}
 
 // A LOCAL FUNCTION'S TYPE PARAMETERS ARE ITS OWN.
 //
@@ -13,13 +29,11 @@ import System.Collections.Generic
 // parameters, resolve the declared types IN THEIR SCOPE, set the signature), and closed at each call
 // site by the same inference and the same `MakeGenericMethod` the generic sibling arm performs.
 //
-// WHAT IS STILL REFUSED, and why: a local function whose SIGNATURE names the ENCLOSING function's
-// type parameter (generic or not — `func echo(v: T)` inside `func Outer<T>` declines exactly as it
-// did before), because those parameters belong to a different method and C# lowers that shape by
-// COPYING them onto the generated one; and an `async` generic local function, for the same reason a
-// generic `async func` is refused. A generic local function INSIDE a generic function is fine as
-// long as it names only its own parameters — the enclosing `T` can still be a type ARGUMENT at the
-// call site, which is `OwnParametersInsideAGenericFunction` below.
+// Enclosing type parameters remain in scope. A capture-free synthesized method copies them ahead
+// of its own parameters; a capturing local puts them on its display type and keeps its own method
+// parameters on the method. The two CLR owners stay distinct even when both parameters have ordinal
+// zero. An `async` generic local function remains refused for the same reason a generic `async func`
+// is refused.
 
 // The type argument written out.
 func ExplicitIdentity(): int {
@@ -111,4 +125,82 @@ func OwnParametersInsideAGenericFunction<T>(value: T): T {
     }
 
     return id(value)
+}
+
+// CAPTURE-FREE: both T and U are method parameters on the synthesized static method. T is copied
+// from the enclosing declaration and U belongs to the local declaration.
+func NoCaptureEnclosingType<T>(value: T): T {
+    func choose<U>(outer: T, _other: U): T {
+        return outer
+    }
+
+    return choose<int>(value, 1)
+}
+
+// CAPTURING: T belongs to the generic display type and U belongs to its generic instance method.
+// Their constraints must remain on those exact owners.
+func CaptureEnclosingType<T>(value: T): T where T: class {
+    func choose<U>(_other: U): T where U: struct {
+        return value
+    }
+
+    return choose<int>(1)
+}
+
+func CaptureEnclosingInterface<T>(value: T): T where T: GenericLocalMarker {
+    func choose<U>(_other: U): T where U: struct {
+        return value
+    }
+
+    return choose<int>(1)
+}
+
+func NoCaptureDependent<T, U>(value: T): T where T: U where U: class {
+    func choose<V>(outer: T, _other: V): T {
+        return outer
+    }
+
+    return choose<int>(value, 1)
+}
+
+func CaptureEnclosingBase<T>(value: T): T where T: GenericLocalBase {
+    func choose<U>(_other: U): T {
+        return value
+    }
+
+    return choose<int>(1)
+}
+
+func NoCaptureNew<T>(value: T): T where T: new() {
+    func choose<U>(outer: T, _other: U): T {
+        return outer
+    }
+
+    return choose<int>(value, 1)
+}
+
+func LocalConstraintNamesEnclosing<T>(value: T): T where T: class {
+    func choose<U>(input: U): U where U: T {
+        return input
+    }
+
+    return choose<T>(value)
+}
+
+class GenericLocalMemberOwner {
+    func NoCapture<T>(value: T): T {
+        func choose<U>(outer: T, _other: U): T {
+            return outer
+        }
+
+        return choose<int>(value, 1)
+    }
+
+    func Capture<T>(value: T): T where T: class {
+        func choose<U>(_other: U): T where U: struct {
+            return value
+        }
+
+        return choose<int>(1)
+    }
 }

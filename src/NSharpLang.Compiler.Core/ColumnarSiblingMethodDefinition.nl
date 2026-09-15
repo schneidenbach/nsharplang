@@ -28,6 +28,11 @@ class ColumnarSiblingMethodDefinition {
     ParamNames: string[]
     ParamDefaultKinds: int[]
     ParamDefaultTexts: string[]
+    // A synthesized generic local method copies its enclosing method parameters ahead of the
+    // parameters written on the local declaration. Calls supply this prefix from their current
+    // generic scope; inference and explicit arity apply only to the written suffix.
+    EnclosingTypeParameterNames: string[]
+    GenericDeclaringTypeDefinition: Type?
 
     constructor(
         method: MethodInfo,
@@ -44,6 +49,8 @@ class ColumnarSiblingMethodDefinition {
         ParamNames = new string[](0)
         ParamDefaultKinds = new int[](0)
         ParamDefaultTexts = new string[](0)
+        EnclosingTypeParameterNames = new string[](0)
+        GenericDeclaringTypeDefinition = null
         Method = method
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds

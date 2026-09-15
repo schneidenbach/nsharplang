@@ -685,6 +685,10 @@ class ColumnarReferenceConversionFacts {
             return true
         }
 
+        if left.get_IsGenericParameter() || right.get_IsGenericParameter() {
+            return left.get_IsGenericParameter() && right.get_IsGenericParameter() && ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(left, right)
+        }
+
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
             if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
                 return false
