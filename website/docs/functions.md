@@ -1406,6 +1406,12 @@ Its body may be a **block**. A block body's statements are planned into that sam
 statements, local declarations, assignments to a captured binding or a member, and a `return` as the
 last statement.
 
+The lambda may also be `async`. Its target delegate may return `Task`, `Task<T>`, `ValueTask` or
+`ValueTask<T>`; captured values remain on the generator machine, successful results use the target's
+task family, and an exception from the body faults the returned task. An `await` in that lambda belongs
+to the lambda method, including when it is nested in a larger expression, and does not suspend or
+consume a resume state from the enclosing generator.
+
 ### Subscribing with `on` / `off` inside a generator
 
 `on` and `off` work inside a `func*` exactly as they do anywhere else, and the point of writing them
@@ -1527,8 +1533,6 @@ func* ticks(log: List<string>): IEnumerable<int> {
   target is neither a captured binding nor a member.
 - a lambda that captures a variable declared INSIDE a loop — a generator holds one field per local,
   so every iteration would share it rather than getting the fresh binding the language promises.
-- an `async` lambda inside a generator body — the lambda's own body needs an async wrap and a fault
-  guard the generator's lambda lowering does not write.
 - `await` outside an `async func*`, and — inside one — an `await` NESTED in a larger expression;
   bind it first (`value := await ...`).
 - an `await` inside a `catch` handler, and an awaiting `finally` on a `try` that also declares a
@@ -1542,6 +1546,9 @@ func* ticks(log: List<string>): IEnumerable<int> {
 
 `async func*` returns `IAsyncEnumerable<T>` and is consumed with `await foreach`. The same
 ordinary-expression surface applies.
+
+Generic async iterator methods are not yet lowered. This is separate from using a generic value in a
+non-generic async iterator and from yielding an async lambda from an ordinary generator.
 
 An `await` inside one may be a statement, or the whole value of a declaration, an assignment or a
 `yield`:

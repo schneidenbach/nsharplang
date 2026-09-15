@@ -1434,7 +1434,34 @@ class ColumnarIteratorPlanner {
             state.Decline("emit.iterator.lambda-unsupported", "a lambda inside an iterator body cannot capture '" + captured + "', which is declared inside a loop: a generator holds one field per local, so every iteration would share it")
             return
         }
+        if ColumnarLambdaNodeFacts.IsAsyncLambda(nodes.Kind(node)) {
+            // Every await in this subtree belongs to the synthesized lambda method and consumes no
+            // resume state from the enclosing iterator. Keep walking for captures and mutations,
+            // while leaving the lambda body's own await admission to realization.
+            WalkAsyncLambdaExpression(nodes, source, bodyNode, state)
+            return
+        }
         WalkExpression(nodes, source, bodyNode, state)
+    }
+
+    static func WalkAsyncLambdaExpression(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
+        kind := nodes.Kind(node)
+        if kind == 44 {
+            WalkPostfixStep(nodes, source, node, state)
+            return
+        }
+        if ColumnarLambdaNodeFacts.IsLambda(kind) {
+            WalkLambda(nodes, source, node, state)
+            return
+        }
+        child := 0
+        while child < nodes.ChildCount(node) {
+            WalkAsyncLambdaExpression(nodes, source, nodes.Child(node, child), state)
+            if state.Declined {
+                return
+            }
+            child = child + 1
+        }
     }
 
     // The first name the lambda reads that is a hoisted local declared INSIDE a loop, or "" when it
@@ -3278,14 +3305,6 @@ class ColumnarIteratorBodyPlanner {
     static func AppendLambda(emit: ColumnarMoveNextEmit, node: int, delegateType: Type): bool {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
-        if ColumnarLambdaNodeFacts.IsAsyncLambda(nodes.Kind(node)) {
-            // An `async` lambda's body needs the wrap-and-fault-guard shape the ordinary emitter
-            // gives it, and this path plans a bare expression body plus a `ret` into a method on the
-            // state machine. Declining by shape beats emitting a body whose value is the task's
-            // RESULT where the delegate expects the task.
-            emit.Context.Decline("emit.iterator.lambda-async", "an `async` lambda inside a generator body is not yet lowered: its body needs the async wrap and fault guard")
-            return false
-        }
         invoke := DelegateInvokeOrNull(delegateType)
         if invoke == null {
             emit.Context.Decline("emit.iterator.lambda-unsupported", "a lambda in an iterator body needs a delegate type to convert to, not '" + delegateType.Name + "'")
@@ -3320,11 +3339,17 @@ class ColumnarIteratorBodyPlanner {
             p = p + 1
         }
         returnType: Type = invoke.get_ReturnType()
+        bodyReturnType := returnType
+        isAsync := ColumnarLambdaNodeFacts.IsAsyncLambda(nodes.Kind(node))
+        if isAsync && !TryGetAsyncLambdaResultType(returnType, out bodyReturnType) {
+            emit.Context.Decline("emit.iterator.lambda-async-target", "an `async` lambda inside a generator needs a delegate returning Task, Task<T>, ValueTask or ValueTask<T>")
+            return false
+        }
 
         lambdaName := "<>__lambda" + emit.NextLambda.ToString()
         emit.NextLambda = emit.NextLambda + 1
         lambdaMethod := builder.DefineMethod(lambdaName, MethodAttributes.Private | MethodAttributes.HideBySig, returnType, parameterTypes)
-        if !AppendLambdaBody(emit, nodes.Child(node, childCount - 1), lambdaMethod, parameterOrdinals, parameterTypeMap, returnType) {
+        if !AppendLambdaBody(emit, nodes.Child(node, childCount - 1), lambdaMethod, parameterOrdinals, parameterTypeMap, bodyReturnType, returnType, isAsync) {
             return false
         }
 
@@ -3339,9 +3364,9 @@ class ColumnarIteratorBodyPlanner {
         return true
     }
 
-    // The lambda's own body, planned into its own method. It is an EXPRESSION body — a block-bodied
-    // lambda is refused at classification — so the whole method is the value plus a `ret`.
-    static func AppendLambdaBody(emit: ColumnarMoveNextEmit, bodyNode: int, lambdaMethod: MethodBuilder, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, returnType: Type): bool {
+    // The lambda's own expression or block body, planned into its own state-machine method. A sync
+    // body ends in `ret`; an async body is wrapped below in its task-family success/fault contract.
+    static func AppendLambdaBody(emit: ColumnarMoveNextEmit, bodyNode: int, lambdaMethod: MethodBuilder, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, bodyReturnType: Type, methodReturnType: Type, isAsync: bool): bool {
         context := emit.Context
         scope := ColumnarIteratorBodyScope.Create(context.StateMachineType, context.RequiredScope().Facts, null, parameterOrdinals, parameterTypes)
         index := 0
@@ -3362,19 +3387,146 @@ class ColumnarIteratorBodyPlanner {
 
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        thisArgument := plan.AddArgument(0, plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences))
-        if context.Nodes.Kind(bodyNode) == 25 {
-            if !AppendLambdaBlockBody(emit, scope, bodyNode, plan, thisArgument, returnType) {
+        thisArgument := -1
+        if isAsync {
+            if !AppendAsyncLambdaBody(emit, scope, bodyNode, plan, thisArgument, bodyReturnType, methodReturnType) {
                 return false
             }
-        } else if !scope.TryAppendTargetTypedValue(context.Nodes, context.Source, bodyNode, plan, returnType) {
-            context.Decline("emit.iterator.lambda-unsupported", "the body of a lambda in an iterator body could not be lowered as '" + returnType.Name + "'")
-            return false
+        } else {
+            if context.Nodes.Kind(bodyNode) == 25 {
+                if !AppendLambdaBlockBody(emit, scope, bodyNode, plan, thisArgument, bodyReturnType, false) {
+                    return false
+                }
+            } else if !scope.TryAppendTargetTypedValue(context.Nodes, context.Source, bodyNode, plan, bodyReturnType) {
+                context.Decline("emit.iterator.lambda-unsupported", "the body of a lambda in an iterator body could not be lowered as '" + bodyReturnType.Name + "'")
+                return false
+            }
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
         }
-        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
-        plan.CompleteMethodBody(returnType)
+        plan.CompleteMethodBody(methodReturnType)
         ColumnarCodePlanExecutor.Execute(plan, lambdaMethod.GetILGenerator())
         return true
+    }
+
+    // An async lambda on a generator machine keeps the ordinary lambda method placement and capture
+    // scope. Only its body contract changes: the written value is the task's result, every successful
+    // exit wraps that value, and every synchronous exception becomes a faulted task. Await remains the
+    // compiler's current blocking await inside this synthesized method, matching ordinary async lambdas.
+    static func AppendAsyncLambdaBody(emit: ColumnarMoveNextEmit, scope: ColumnarIteratorBodyScope, bodyNode: int, plan: ColumnarCodePlan, thisArgument: int, bodyReturnType: Type, methodReturnType: Type): bool {
+        context := emit.Context
+        scope.Bindings.BlockingAwaitEnabled = true
+        resultLocal := plan.DeclarePlanLocal(plan.AddType(methodReturnType))
+        endLabel := plan.DefineLabel()
+        plan.AppendBeginExceptionBlock(endLabel)
+        if context.Nodes.Kind(bodyNode) == 25 {
+            if !AppendLambdaBlockBody(emit, scope, bodyNode, plan, thisArgument, bodyReturnType, true) {
+                return false
+            }
+        } else if !AppendAsyncLambdaValue(emit, scope, bodyNode, plan, bodyReturnType) {
+            context.Decline("emit.iterator.lambda-unsupported", "the body of an async lambda in an iterator body could not be lowered as '" + bodyReturnType.Name + "'")
+            return false
+        }
+        AppendCompletedAsyncLambdaReturn(plan, methodReturnType, bodyReturnType)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), resultLocal)
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), endLabel)
+        plan.AppendBeginCatchBlock(plan.AddType(typeof(Exception)))
+        AppendFaultedAsyncLambdaReturn(plan, methodReturnType, bodyReturnType)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), resultLocal)
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), endLabel)
+        plan.AppendEndExceptionBlock()
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), resultLocal)
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        return true
+    }
+
+    static func AppendAsyncLambdaValue(emit: ColumnarMoveNextEmit, scope: ColumnarIteratorBodyScope, node: int, plan: ColumnarCodePlan, targetType: Type): bool {
+        nodes := emit.Context.Nodes
+        if nodes.Kind(node) != 53 || nodes.ChildCount(node) != 1 {
+            return scope.TryAppendTargetTypedValue(nodes, emit.Context.Source, node, plan, targetType)
+        }
+        awaitedType := typeof(object)
+        if !AppendAsyncLambdaAwaitExpression(emit, scope, node, plan, out awaitedType) {
+            return false
+        }
+        return awaitedType == targetType || scope.TryAppendStorageConversion(plan, awaitedType, targetType)
+    }
+
+    static func AppendAsyncLambdaAwaitExpression(emit: ColumnarMoveNextEmit, scope: ColumnarIteratorBodyScope, node: int, plan: ColumnarCodePlan, out awaitedType: Type): bool {
+        awaitedType = typeof(object)
+        nodes := emit.Context.Nodes
+        if nodes.Kind(node) != 53 || nodes.ChildCount(node) != 1 {
+            return false
+        }
+        operandType := typeof(object)
+        if !scope.TryAppendValue(nodes, emit.Context.Source, nodes.Child(node, 0), plan, out operandType) {
+            return false
+        }
+        return ColumnarRangeIndexPlanner.AppendBlockingAwaitOfStackValue(plan, operandType, out awaitedType)
+    }
+
+    static func TryGetAsyncLambdaResultType(returnType: Type, out resultType: Type): bool {
+        resultType = ColumnarTypeOfPlanner.RequiredVoidType()
+        if returnType == typeof(System.Threading.Tasks.Task) || returnType == typeof(System.Threading.Tasks.ValueTask) {
+            return true
+        }
+        if !returnType.get_IsGenericType() {
+            return false
+        }
+        definition := returnType.GetGenericTypeDefinition()
+        if definition != typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition() && definition != typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition() {
+            return false
+        }
+        resultType = returnType.GetGenericArguments()[0]
+        return true
+    }
+
+    static func AppendCompletedAsyncLambdaReturn(plan: ColumnarCodePlan, returnType: Type, resultType: Type) {
+        if returnType == typeof(System.Threading.Tasks.Task) {
+            getter := typeof(System.Threading.Tasks.Task).GetProperty("CompletedTask").GetGetMethod()
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(getter))
+            return
+        }
+        if returnType == typeof(System.Threading.Tasks.ValueTask) {
+            local := plan.DeclarePlanLocal(plan.AddType(returnType))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), local)
+            plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), plan.AddType(returnType))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), local)
+            return
+        }
+        if returnType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition() {
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(RequiredTaskFactory("FromResult", true).MakeGenericMethod([resultType])))
+            return
+        }
+        constructorTypes: Type[] = [resultType]
+        plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructor(returnType.GetConstructor(constructorTypes)))
+    }
+
+    static func AppendFaultedAsyncLambdaReturn(plan: ColumnarCodePlan, returnType: Type, resultType: Type) {
+        if returnType == typeof(System.Threading.Tasks.Task) {
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(RequiredTaskFactory("FromException", false)))
+            return
+        }
+        if returnType == typeof(System.Threading.Tasks.ValueTask) {
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(RequiredTaskFactory("FromException", false)))
+            constructorTypes: Type[] = [typeof(System.Threading.Tasks.Task)]
+            plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructor(returnType.GetConstructor(constructorTypes)))
+            return
+        }
+        taskType := typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().MakeGenericType([resultType])
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(RequiredTaskFactory("FromException", true).MakeGenericMethod([resultType])))
+        if returnType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition() {
+            constructorTypes: Type[] = [taskType]
+            plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructor(returnType.GetConstructor(constructorTypes)))
+        }
+    }
+
+    static func RequiredTaskFactory(name: string, generic: bool): MethodInfo {
+        for candidate in typeof(System.Threading.Tasks.Task).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if candidate.get_Name() == name && candidate.get_IsGenericMethodDefinition() == generic && candidate.GetParameters().Length == 1 {
+                return candidate
+            }
+        }
+        throw new InvalidOperationException("Required Task." + name + " factory was not found.")
     }
 
     // A BLOCK-BODIED LAMBDA'S STATEMENTS, PLANNED INTO ITS OWN METHOD.
@@ -3395,7 +3547,7 @@ class ColumnarIteratorBodyPlanner {
     //
     // A `return` is admitted only as the LAST statement, because anything earlier needs a branch to a
     // shared exit this straight-line plan does not build; a handler returning `void` needs none at all.
-    static func AppendLambdaBlockBody(emit: ColumnarMoveNextEmit, scope: ColumnarIteratorBodyScope, blockNode: int, plan: ColumnarCodePlan, thisArgument: int, returnType: Type): bool {
+    static func AppendLambdaBlockBody(emit: ColumnarMoveNextEmit, scope: ColumnarIteratorBodyScope, blockNode: int, plan: ColumnarCodePlan, thisArgument: int, returnType: Type, isAsync: bool): bool {
         context := emit.Context
         nodes := context.Nodes
         source := context.Source
@@ -3404,7 +3556,7 @@ class ColumnarIteratorBodyPlanner {
         while index < statementCount {
             statement := nodes.Child(blockNode, index)
             isLast := index == statementCount - 1
-            if !AppendLambdaBlockStatement(emit, scope, statement, plan, thisArgument, returnType, isLast) {
+            if !AppendLambdaBlockStatement(emit, scope, statement, plan, thisArgument, returnType, isLast, isAsync) {
                 return false
             }
             index = index + 1
@@ -3427,7 +3579,7 @@ class ColumnarIteratorBodyPlanner {
         return nodes.Kind(nodes.Child(blockNode, statementCount - 1)) == 20
     }
 
-    static func AppendLambdaBlockStatement(emit: ColumnarMoveNextEmit, scope: ColumnarIteratorBodyScope, statement: int, plan: ColumnarCodePlan, thisArgument: int, returnType: Type, isLast: bool): bool {
+    static func AppendLambdaBlockStatement(emit: ColumnarMoveNextEmit, scope: ColumnarIteratorBodyScope, statement: int, plan: ColumnarCodePlan, thisArgument: int, returnType: Type, isLast: bool, isAsync: bool): bool {
         context := emit.Context
         nodes := context.Nodes
         source := context.Source
@@ -3435,7 +3587,7 @@ class ColumnarIteratorBodyPlanner {
         if kind == 25 {
             inner := 0
             while inner < nodes.ChildCount(statement) {
-                if !AppendLambdaBlockStatement(emit, scope, nodes.Child(statement, inner), plan, thisArgument, returnType, isLast && inner == nodes.ChildCount(statement) - 1) {
+                if !AppendLambdaBlockStatement(emit, scope, nodes.Child(statement, inner), plan, thisArgument, returnType, isLast && inner == nodes.ChildCount(statement) - 1, isAsync) {
                     return false
                 }
                 inner = inner + 1
@@ -3450,13 +3602,28 @@ class ColumnarIteratorBodyPlanner {
             if nodes.ChildCount(statement) == 0 {
                 return true
             }
-            if !scope.TryAppendTargetTypedValue(nodes, source, nodes.Child(statement, 0), plan, returnType) {
+            appendedReturn := isAsync ? AppendAsyncLambdaValue(emit, scope, nodes.Child(statement, 0), plan, returnType) : scope.TryAppendTargetTypedValue(nodes, source, nodes.Child(statement, 0), plan, returnType)
+            if !appendedReturn {
                 context.Decline("emit.iterator.lambda-unsupported", "the returned value of a lambda in an iterator body could not be lowered as '" + returnType.Name + "'")
                 return false
             }
             return true
         }
         if kind == 24 || kind == 40 {
+            if isAsync && kind == 24 && nodes.ChildCount(statement) == 1 && nodes.Kind(nodes.Child(statement, 0)) == 53 {
+                name := nodes.Text(source, statement)
+                if name.Length == 0 || scope.Bindings.IsVisibleBindingName(name) {
+                    return false
+                }
+                localType := typeof(object)
+                if !AppendAsyncLambdaAwaitExpression(emit, scope, nodes.Child(statement, 0), plan, out localType) || !ColumnarMethodBodyPlanner.IsClaimedLocalType(localType) {
+                    return false
+                }
+                local := plan.DeclarePlanLocal(plan.AddType(localType))
+                plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), local)
+                scope.Bindings.DeclarePlanLocal(name, local, localType)
+                return true
+            }
             if !ColumnarMethodBodyPlanner.TryAppendLocalDeclaration(nodes, source, statement, scope.Bindings, plan) {
                 context.Decline("emit.iterator.lambda-unsupported", "a local declaration inside a block-bodied lambda in an iterator body could not be lowered")
                 return false
@@ -3474,7 +3641,8 @@ class ColumnarIteratorBodyPlanner {
         }
 
         discardedType := typeof(int)
-        if !scope.TryAppendValue(nodes, source, inner, plan, out discardedType) {
+        appendedExpression := isAsync && nodes.Kind(inner) == 53 ? AppendAsyncLambdaAwaitExpression(emit, scope, inner, plan, out discardedType) : scope.TryAppendValue(nodes, source, inner, plan, out discardedType)
+        if !appendedExpression {
             context.Decline("emit.iterator.lambda-unsupported", "an expression statement inside a block-bodied lambda in an iterator body could not be lowered")
             return false
         }
@@ -3503,7 +3671,11 @@ class ColumnarIteratorBodyPlanner {
                 return false
             }
             field := scope.FieldHandle(name)
-            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArgument)
+            receiverArgument := thisArgument
+            if receiverArgument < 0 {
+                receiverArgument = plan.AddArgument(0, plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(emit.Context.StateMachineType), emit.Context.StructuralTypeReferences))
+            }
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), receiverArgument)
             if !scope.TryAppendTargetTypedValue(nodes, source, value, plan, field.get_FieldType()) {
                 context.Decline("emit.iterator.lambda-unsupported", "the value assigned to '" + name + "' inside a lambda in an iterator body could not be lowered")
                 return false

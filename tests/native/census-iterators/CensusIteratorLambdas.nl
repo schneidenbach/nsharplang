@@ -2,6 +2,7 @@ namespace NSharpLang.CensusIterators.Tests
 
 import System
 import System.Collections.Generic
+import System.Threading.Tasks
 
 
 // A LAMBDA INSIDE A GENERATOR BODY.
@@ -40,5 +41,58 @@ class CensusTally {
         for v in values {
             yield shift(v)
         }
+    }
+}
+
+func AsyncIteratorFailure(): int {
+    throw new InvalidOperationException("generator async lambda failure")
+}
+
+func AsyncIdentity(value: int): int {
+    return value
+}
+
+func AwaitedAsyncIteratorFailure(): Task<int> {
+    return Task.FromException<int>(new InvalidOperationException("awaited generator async lambda failure"))
+}
+
+// Control for the disabled recursive-plan capability: outside an iterator the established async
+// lambda emitter retains this same nested-await call shape.
+func OrdinaryAsyncCallback(seed: int): Func<Task<int>> {
+    return async () => AsyncIdentity(await Task.FromResult(seed))
+}
+
+// Async lambdas use the same state-machine object as their closure. Their synchronous body follows
+// the language's current blocking-await model, while success and failure are returned through Task.
+func* AsyncCallbacks(seed: int): IEnumerable<Func<Task<int>>> {
+    captured := seed
+    yield async () => captured + 1
+    yield async () => await Task.FromResult(captured + 2)
+    yield async () => AsyncIteratorFailure()
+    yield async () => {
+        value := await Task.FromResult(captured + 3)
+        return value
+    }
+    yield async () => captured + await new ValueTask<int>(2)
+    yield async () => AsyncIdentity(await Task.FromResult(captured))
+    yield async () => await AwaitedAsyncIteratorFailure()
+}
+
+func* AsyncUnitCallbacks(log: List<string>): IEnumerable<Func<Task>> {
+    yield async () => {
+        await Task.Delay(1)
+        log.Add("task")
+    }
+}
+
+func* AsyncValueTaskCallbacks(seed: int): IEnumerable<Func<ValueTask<int>>> {
+    yield async () => await new ValueTask<int>(seed + 3)
+    yield async () => AsyncIteratorFailure()
+}
+
+func* AsyncUnitValueTaskCallbacks(log: List<string>): IEnumerable<Func<ValueTask>> {
+    yield async () => {
+        await new ValueTask(Task.Delay(1))
+        log.Add("value task")
     }
 }

@@ -4439,11 +4439,18 @@ resolve while the same type written without one succeeded. And `TryResolveIterat
 accepts a complete external DELEGATE type as a hoisted field type; the general storable-type catalog
 has not been widened, because that is a question about the whole value surface.
 
+An async lambda inside a generator now uses the same state-machine object as its closure and writes a
+synthesized method returning the target's exact Task/ValueTask family. Its own awaits use the current
+blocking-await lowering, including nested expression operands, and never consume a resume state from
+the enclosing iterator. Successful results are wrapped and synchronous body exceptions become faulted
+tasks. The delegate may return `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>`.
+
 Not yet lowered inside a generator body, each with its own decline: `return <value>`
 (`emit.iterator.unsupported-shape`), a loop-scoped capture by a lambda
-(`emit.iterator.lambda-unsupported`), an `async` lambda (`emit.iterator.lambda-async`), `lock`, an
-`await` nested in a larger expression, an `await` inside a `catch` handler and an awaiting `finally`
-beside a `catch` on the same `try` (both `emit.iterator.async-await-unsupported`).
+(`emit.iterator.lambda-unsupported`), `lock`, an `await` nested in a larger expression of the
+enclosing async iterator, an `await` inside a `catch` handler and an awaiting `finally` beside a
+`catch` on the same `try` (both `emit.iterator.async-await-unsupported`). Generic async iterator
+methods remain declined at `emit.iterator.async-unsupported`.
 
 ### Protected regions and awaits in handler positions (census ITER4)
 
@@ -4506,13 +4513,12 @@ own handlers with ONE catch-all, so a `catch` clause would have to be re-matched
 parked exception. An `await` inside a `catch`, and an awaiting `finally` on a `try` that also declares
 a `catch`, therefore decline with their own messages.
 
-⚠ THE REPO'S "DECLINING SHAPE" SENTINEL MOVED. `await foreach` inside a generator was it in four N#
-fixtures (`CompilationReferenceResolverTestFixture.tests.nl`,
-`tests/native/reference-resolution/ReferenceResolutionFixture.nl`,
-`columnar-emit-facts/MultiFileCompilerOwnership.tests.nl`,
-`cli-command-contracts/CliCommandContracts.tests.nl`) and three C# strings in
-`tests/CompilationBackendTests.cs`. It is now an `async` LAMBDA inside a generator body
-(`emit.iterator.lambda-async`).
+⚠ THE REPO'S "DECLINING SHAPE" SENTINEL is now a generic async iterator method. Analysis accepts the
+shape, while iterator realization declines at `emit.iterator.async-unsupported` because its generic
+state machine is not yet lowered. The sentinel appears in the compilation-reference fixture and the
+native reference-resolution, columnar-emit-facts, CLI-command-contracts and compilation-backend
+projects. An async lambda inside an ordinary generator is supported and must not be reused as a
+negative sentinel.
 
 ### The branch-merge value forms on the plan side (census ITER3)
 

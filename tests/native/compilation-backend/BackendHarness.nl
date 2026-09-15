@@ -162,9 +162,8 @@ func GeneratedCSharpFileCount(directory: string): int {
     return Directory.GetFiles(directory, "*.g.cs", SearchOption.AllDirectories).Length
 }
 
-// The declining shape the two "requires columnar emission" rows depend on: a generator whose
-// element type is an async lambda. It is the sentinel the repository already uses for "columnar
-// declines", so it moves here verbatim rather than being re-derived.
+// The declining shape the two "requires columnar emission" rows depend on: generic async iterator
+// methods are analyzed, but their generic state-machine context is not lowered yet.
 func DecliningSource(): string {
-    return "import System\nimport System.Collections.Generic\nimport System.Threading.Tasks\nfunc* Relay(): IEnumerable<Func<Task<int>>> {\n    yield async () => 42\n}\n\n\nfunc main() {\n    print \"counted\"\n}\n"
+    return "import System.Collections.Generic\nimport System.Threading.Tasks\nasync func* Pending<T>(value: T): IAsyncEnumerable<T> {\n    await Task.Delay(1)\n    yield value\n}\n\n\nfunc main() {\n    print \"counted\"\n}\n"
 }

@@ -48,6 +48,11 @@ class ColumnarFragmentBindings {
     // Live checked/unchecked context routed mechanically from the emitter. Only checked integral
     // add/sub/mul select the overflow opcode variants; every other family ignores this flag.
     OverflowCheckingEnabled: bool
+    // A synthesized async-lambda method keeps the language's current blocking-await semantics, but
+    // its values still travel through the ordinary recursive expression planner. This capability is
+    // enabled only for that method scope; every other fragment binding set continues to reject kind
+    // 53, so an enclosing iterator's await remains owned by its suspension planner.
+    BlockingAwaitEnabled: bool
     // Union aliases may likewise expose the same definition more than once. Type-expression
     // owners consume the live builders and deduplicate by base identity.
     SourceUnionDefinitions: IEnumerable<ColumnarUnionDef>
@@ -88,6 +93,7 @@ class ColumnarFragmentBindings {
         StructuralTypeReferences = new ColumnarStructuralTypeReferenceTable()
         EnclosingTypeDefinition = null
         OverflowCheckingEnabled = false
+        BlockingAwaitEnabled = false
         SourceUnionDefinitions = new List<ColumnarUnionDef>()
         TupleNames = new Dictionary<string, string[]>(StringComparer.Ordinal)
         LabeledTypes = new Dictionary<string, string>(StringComparer.Ordinal)
