@@ -1428,11 +1428,16 @@ plus the synthesized ordinal — an unregistered parameter is refused outright b
 generic top-level `func` publishes. Both call arms — the bare name and the explicit `id<int>(…)` —
 then reach `TryEmitGenericSiblingCall`, which is where the inference, the constraint check and
 `MakeGenericMethod` already live; a capturing one pushes its display receiver first, exactly as a
-non-generic one does. The generic ones ride a SEPARATE map on `ColumnarLocalFunctionLowering`
+non-generic one does. An enclosing free function's parameters remain in scope: a capture-free local
+copies them ahead of its own method parameters, while a capturing local copies them onto its generic
+display type and leaves its own parameters on the display method. That distinction preserves CLR
+VAR/MVAR ownership even when both parameters have ordinal zero, and copied constraints are emitted
+on the new owner. `StrongBox<T>` construction and field access use `TypeBuilder.GetConstructor` and
+`TypeBuilder.GetField` when T is builder-bound, because reflection cannot query that instantiation
+before bake. The generic ones ride a SEPARATE map on `ColumnarLocalFunctionLowering`
 (`GenericLocalFuncs`) because the direct map's entries are handles a call site dispatches without
-closing. Still refused: a local function whose SIGNATURE names the enclosing method's type parameter
-(pre-existing — C# lowers it by COPYING those parameters onto the generated method), and an `async`
-generic local function (`emit.local-function.generic-async`).
+closing. The same model applies inside a generic method on a non-generic source type. An `async`
+generic local function remains refused (`emit.local-function.generic-async`).
 
 **THE CONTEXTUAL-TIER GATE ASKS ALL THREE METHOD-GROUP SHAPES** (2026-09-14, stream CAPTURE3).
 `ColumnarIlEmitter.IsContextualDelegateValueNode` — the predicate `HasContextualDelegateArgument`
@@ -3998,8 +4003,8 @@ share a scope, which `nlc check` and C# both accept.
 pair of helpers a FREE function's body and a type MEMBER's body both call; the member half also
 needed `ColumnarStructMethodUnsupportedStatus` to stop answering "unsupported" for any member with a
 local function, which used to decline the whole type declaration at `parse.struct`. A local function
-in a GENERIC member still declines (`emit.local-function.generic-member`): a synthesized display
-cannot carry the type parameters in scope.
+in a GENERIC TYPE MEMBER still declines (`emit.local-function.generic-member`); generic free
+functions carry their enclosing parameters as described above.
 
 ### A display chain, not a display level
 

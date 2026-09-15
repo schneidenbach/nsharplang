@@ -919,6 +919,15 @@ class ColumnarCanonicalTypeResolver {
         table := structRegistry.StructuralTypeReferences
         selected = ColumnarSelectedTypeReference.Missing(table)
 
+        // The explicitly supplied scope is the innermost generic declaration. A synthesized local
+        // method may copy an enclosing parameter onto a new owner, so its `T` must win over the
+        // resolver view that still contains the enclosing method's `T`.
+        parameterType := typeof(object)
+        if typeParams.TryGetValue(canonical, out parameterType) {
+            selected = table.SelectRuntimeType(parameterType)
+            return true
+        }
+
         claimed := false
         if structRegistry.Resolver.TryResolveSelected(canonical, out selected, out claimed) {
             if IsOpenGenericUnionDefinition(selected.RuntimeType, unionRegistry) {
@@ -967,12 +976,6 @@ class ColumnarCanonicalTypeResolver {
             }
             selected = ColumnarSelectedTypeReference.Missing(table)
             return false
-        }
-
-        parameterType := typeof(object)
-        if typeParams.TryGetValue(canonical, out parameterType) {
-            selected = table.SelectRuntimeType(parameterType)
-            return true
         }
 
         elementParameter := typeof(object)

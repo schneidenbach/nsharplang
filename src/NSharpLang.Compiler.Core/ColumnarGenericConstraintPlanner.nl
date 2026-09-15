@@ -250,7 +250,53 @@ class ColumnarGenericConstraintPlanner {
 
             bound := boundArgs[parameterIndex]
             if bound.get_IsGenericParameter() {
-                return false
+                // A copied enclosing parameter remains OPEN at this call site. Its declared CLR
+                // special constraints are still authoritative: `Outer<T> where T: class` may call
+                // a synthesized local whose copied/display T carries that same constraint. Do not
+                // ask reflection whether an unknown future T is a value type; compare the promises
+                // recorded on the two parameters. Type/base constraints continue through the
+                // structural checks below once a concrete argument is supplied.
+                boundAttributes := (int)bound.get_GenericParameterAttributes()
+                requiredAttributes := AttributeBitsFor(special)
+                if (boundAttributes & requiredAttributes) != requiredAttributes {
+                    return false
+                }
+                if baseConstraint != null {
+                    let closedBaseConstraint: Type? = null
+                    if !TrySubstituteGenericTypeArguments(typeParams, binding, baseConstraint, out closedBaseConstraint) || closedBaseConstraint == null {
+                        return false
+                    }
+                    baseEntailed := false
+                    for declaredBoundConstraint in bound.GetGenericParameterConstraints() {
+                        if ColumnarTypeEquivalenceFacts.TypesEquivalent(declaredBoundConstraint, closedBaseConstraint) || (closedBaseConstraint.get_IsInterface() && BoundSatisfiesInterfaceConstraint(declaredBoundConstraint, closedBaseConstraint, structRegistry)) || (!closedBaseConstraint.get_IsInterface() && !(declaredBoundConstraint.get_Assembly() is AssemblyBuilder) && !(closedBaseConstraint.get_Assembly() is AssemblyBuilder) && closedBaseConstraint.IsAssignableFrom(declaredBoundConstraint)) {
+                            baseEntailed = true
+                            break
+                        }
+                    }
+                    if !baseEntailed {
+                        return false
+                    }
+                }
+                constraintIndex := 0
+                while constraintIndex < interfaceConstraints.Length {
+                    let closedInterfaceConstraint: Type? = null
+                    if !TrySubstituteGenericTypeArguments(typeParams, binding, interfaceConstraints[constraintIndex], out closedInterfaceConstraint) || closedInterfaceConstraint == null {
+                        return false
+                    }
+                    interfaceEntailed := false
+                    for declaredBoundConstraint in bound.GetGenericParameterConstraints() {
+                        if ColumnarTypeEquivalenceFacts.TypesEquivalent(declaredBoundConstraint, closedInterfaceConstraint) || BoundSatisfiesInterfaceConstraint(declaredBoundConstraint, closedInterfaceConstraint, structRegistry) {
+                            interfaceEntailed = true
+                            break
+                        }
+                    }
+                    if !interfaceEntailed {
+                        return false
+                    }
+                    constraintIndex = constraintIndex + 1
+                }
+                parameterIndex = parameterIndex + 1
+                continue
             }
             if (special & 1) != 0 && bound.get_IsValueType() {
                 return false

@@ -1839,23 +1839,24 @@ func pick(values: List<int>): int {
 }
 ```
 
-The type parameters are the local function's **own**. A local function may be written inside a
-generic function, and the enclosing function's type parameter can be the *argument* at the call:
+The type parameters declared by the local function are its own. Enclosing type parameters also
+remain in scope and may appear in the local function's signature or body:
 
 ```n#
 func passThrough<T>(value: T): T {
-    func id<U>(v: U): U {
-        return v
+    func choose<U>(_other: U): T {
+        return value
     }
 
-    return id(value)              // U is the enclosing T
+    return choose<int>(1)         // returns the enclosing T
 }
 ```
 
-**Two shapes are not supported.** A local function whose *signature* names the enclosing function's
-type parameter (`func echo(v: T): T` inside `func outer<T>`) does not compile — those parameters
-belong to a different method. Neither does an `async` generic local function, for the same reason a
-generic `async func` does not.
+The compiler preserves the two owners in CLR metadata: a capture-free local copies enclosing
+parameters onto its synthesized static method, while a capturing local places them on its display
+type. Declaring a local parameter with the same name as an enclosing parameter is still NL316; use a
+distinct name such as `U`. An `async` generic local function is not supported, for the same reason a
+generic `async func` is not supported.
 
 ### Scope: a local function is visible in its whole block
 

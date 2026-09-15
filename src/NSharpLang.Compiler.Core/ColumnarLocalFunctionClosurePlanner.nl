@@ -221,6 +221,8 @@ class ColumnarLocalFunctionClosurePlanner {
 class ColumnarLocalFunctionDisplay {
     Builder: TypeBuilder
     Constructor: ConstructorInfo
+    RuntimeType: Type
+    RuntimeConstructor: ConstructorInfo
     Plan: ColumnarLocalFunctionClosurePlan
     BoxFields: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>
     EnclosingThisField: FieldBuilder?
@@ -229,16 +231,28 @@ class ColumnarLocalFunctionDisplay {
     DisplayDefinition: ColumnarStructDef?
     Instance: LocalBuilder?
     ReceiverIsArgument: bool
+    EnclosingMethodTypeParameters: Type[]
+    DisplayTypeParameters: Type[]
 
-    constructor(builder: TypeBuilder?, displayConstructor: ConstructorInfo?, plan: ColumnarLocalFunctionClosurePlan) {
+    constructor(builder: TypeBuilder?, displayConstructor: ConstructorInfo?, plan: ColumnarLocalFunctionClosurePlan, runtimeType: Type? = null, runtimeConstructor: ConstructorInfo? = null) {
         Builder = builder
         Constructor = displayConstructor
+        RuntimeType = builder
+        if runtimeType != null {
+            RuntimeType = runtimeType
+        }
+        RuntimeConstructor = displayConstructor
+        if runtimeConstructor != null {
+            RuntimeConstructor = runtimeConstructor
+        }
         Plan = plan
         BoxFields = new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
         EnclosingThisField = null
         DisplayDefinition = null
         Instance = null
         ReceiverIsArgument = false
+        EnclosingMethodTypeParameters = System.Array.Empty<Type>()
+        DisplayTypeParameters = System.Array.Empty<Type>()
     }
 
     func HasDisplay(): bool {
@@ -246,11 +260,13 @@ class ColumnarLocalFunctionDisplay {
     }
 
     func ForDisplayMethodBody(): ColumnarLocalFunctionDisplay {
-        view := new ColumnarLocalFunctionDisplay(Builder, Constructor, Plan)
+        view := new ColumnarLocalFunctionDisplay(Builder, Constructor, Plan, RuntimeType, RuntimeConstructor)
         view.BoxFields = BoxFields
         view.EnclosingThisField = EnclosingThisField
         view.DisplayDefinition = DisplayDefinition
         view.ReceiverIsArgument = true
+        view.EnclosingMethodTypeParameters = EnclosingMethodTypeParameters
+        view.DisplayTypeParameters = DisplayTypeParameters
         return view
     }
 
@@ -267,6 +283,29 @@ class ColumnarLocalFunctionDisplay {
 
     func BindDisplayDefinition(definition: ColumnarStructDef) {
         DisplayDefinition = definition
+    }
+
+    func BindGenericParameters(enclosingParameters: Type[], displayParameters: Type[]) {
+        EnclosingMethodTypeParameters = enclosingParameters
+        DisplayTypeParameters = displayParameters
+    }
+
+    func OpenDisplayType(valueType: Type): Type? {
+        if EnclosingMethodTypeParameters.Length == 0 {
+            return valueType
+        }
+        let result: Type? = null
+        if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(EnclosingMethodTypeParameters, DisplayTypeParameters, valueType, out result) {
+            return null
+        }
+        return result
+    }
+
+    func FieldForRuntimeInstance(field: FieldBuilder): FieldInfo {
+        if EnclosingMethodTypeParameters.Length == 0 {
+            return field
+        }
+        return TypeBuilder.GetField(RuntimeType, field)
     }
 
     func DisplayDefinitionOrNull(): ColumnarStructDef? {

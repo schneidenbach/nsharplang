@@ -202,6 +202,24 @@ test "generic member substitution distinguishes enclosing and method parameter i
     assert arguments[1] == typeof(int)
 }
 
+test "generic call identity distinguishes VAR and MVAR owners even at the same ordinal" {
+    owner := TypeOfCreateBuilder(
+        "GenericParameterOwners",
+        "ColumnarGenericCallBinding.GenericParameterOwners",
+        1
+    )
+    ownerParameter := owner.GetGenericArguments()[0]
+    firstMethod := owner.DefineMethod("First", MethodAttributes.Public | MethodAttributes.Static)
+    secondMethod := owner.DefineMethod("Second", MethodAttributes.Public | MethodAttributes.Static)
+    firstParameter := firstMethod.DefineGenericParameters(["T"])[0]
+    secondParameter := secondMethod.DefineGenericParameters(["T"])[0]
+
+    assert ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(ownerParameter, ownerParameter)
+    assert ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(firstParameter, firstParameter)
+    assert !ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(ownerParameter, firstParameter)
+    assert !ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(firstParameter, secondParameter)
+}
+
 test "generic call binding admits direct source shapes but declines a composed builder-bound argument" {
     parameters := GenericCallBindingParameters("SourceBoundary", 1)
     sourceDefinition := TypeOfCreateBuilder(

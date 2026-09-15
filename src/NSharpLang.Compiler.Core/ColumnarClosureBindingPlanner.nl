@@ -283,7 +283,35 @@ class ColumnarClosureBindingPlanner {
         openStrongBox := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition()
         arguments := new Type[](1)
         arguments[0] = valueType
-        return openStrongBox.MakeGenericType(arguments).GetField("Value")
+        boxType := openStrongBox.MakeGenericType(arguments)
+        openField := openStrongBox.GetField("Value")
+        if openField == null {
+            throw new InvalidOperationException("StrongBox<T>.Value was not found.")
+        }
+        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(boxType) {
+            return TypeBuilder.GetField(boxType, openField)
+        }
+        return boxType.GetField("Value")
+    }
+
+    static func StrongBoxConstructor(valueType: Type): ConstructorInfo {
+        openStrongBox := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition()
+        openArgument := openStrongBox.GetGenericArguments()[0]
+        openConstructor := openStrongBox.GetConstructor([openArgument])
+        if openConstructor == null {
+            throw new InvalidOperationException("StrongBox<T>(T) was not found.")
+        }
+        arguments := new Type[](1)
+        arguments[0] = valueType
+        boxType := openStrongBox.MakeGenericType(arguments)
+        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(boxType) {
+            return TypeBuilder.GetConstructor(boxType, openConstructor)
+        }
+        constructor := boxType.GetConstructor([valueType])
+        if constructor == null {
+            throw new InvalidOperationException("StrongBox<T>(T) was not found on its exact instantiation.")
+        }
+        return constructor
     }
 
     static func ContainsCaptureOpaqueKind(nodes: ColumnarNodeTable, node: int): bool {

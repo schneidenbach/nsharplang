@@ -2678,6 +2678,22 @@ sealed class ColumnarIlEmitter {
     // unbound parameters, composed shapes over T, and user TypeBuilder/EnumBuilder bindings decline. The call
     // binds via MakeGenericMethod on the open MethodBuilder (the de-risking spike's pattern); the result type
     // substitutes the binding into the declared return shape.
+    private func TryCreateGenericLocalBinding(target: ColumnarSiblingMethodDefinition, out binding: Type[]): bool {
+        binding = new Type[target.TypeParams.Length]
+        names := target.EnclosingTypeParameterNames
+        if names.Length > target.TypeParams.Length {
+            return false
+        }
+        for index := 0; index < names.Length; index++ {
+            let argument: Type? = null
+            if _typeParameters == null || !_typeParameters.TryGetValue(names[index], out argument) || argument == null {
+                return false
+            }
+            binding[index] = argument
+        }
+        return true
+    }
+
     private func TryEmitGenericSiblingCall(callIdx: int, target: ColumnarSiblingMethodDefinition, binding: Type[], out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         argCount := _nodes.ChildCount(callIdx) - 1
@@ -2685,7 +2701,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (argCount != target.ParamTypes.Length) {
-            return false
+            return Decline("emit.call.generic-argument-count", "generic call argument count did not match the selected signature", callIdx)
         }
         for a := 1; a <= argCount; a++ {
             declared := target.ParamTypes[a - 1]
@@ -2712,16 +2728,16 @@ sealed class ColumnarIlEmitter {
             }
             let gArgType: System.Type? = null
             if (!EmitExpression(Child(callIdx, a), out gArgType)) {
-                return false
+                return Decline("emit.call.generic-argument", "generic call argument " + a.ToString() + " could not be emitted", Child(callIdx, a))
             }
             if (!ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(target.TypeParams, binding, declared, gArgType)) {
-                return false
+                return Decline("emit.call.generic-unification", "generic call argument " + a.ToString() + " did not unify with the selected signature", Child(callIdx, a))
             }
         }
         boundArgs := new Type[binding.Length]
         for b := 0; b < binding.Length; b++ {
             if (binding[b] == null) {
-                return false
+                return Decline("emit.call.generic-unbound-parameter", "generic call left type parameter " + b.ToString() + " unbound", callIdx)
             }
             // an unbound type parameter (no argument mentions it, no explicit arg) declines.
             boundArgs[b] = binding[b]
@@ -2735,7 +2751,7 @@ sealed class ColumnarIlEmitter {
             boundArgs,
             _structRegistry
         )) {
-            return false
+            return Decline("emit.call.generic-constraint", "generic call arguments did not satisfy the selected constraints", callIdx)
         }
         genericMethodValue := target.Method
         let genericMethodBuilder: MethodBuilder? = null
@@ -2750,9 +2766,28 @@ sealed class ColumnarIlEmitter {
             throw new NullReferenceException()
         }
         genericMethod: MethodInfo = genericMethodBuilder
-        instantiated := genericMethod.MakeGenericMethod(genericMethodArguments)
+        enclosingGenericCount := target.EnclosingTypeParameterNames.Length
+        genericDeclaringType := target.GenericDeclaringTypeDefinition
+        if genericDeclaringType != null {
+            declaringArguments := new Type[enclosingGenericCount]
+            for declaringArgumentIndex := 0; declaringArgumentIndex < declaringArguments.Length; declaringArgumentIndex++ {
+                declaringArguments[declaringArgumentIndex] = boundArgs[declaringArgumentIndex]
+            }
+            closedDeclaringType := genericDeclaringType.MakeGenericType(declaringArguments)
+            genericMethod = TypeBuilder.GetMethod(closedDeclaringType, genericMethodBuilder)
+        }
+        methodArgumentStart := genericDeclaringType == null ? 0 : enclosingGenericCount
+        methodArgumentCount := boundArgs.Length - methodArgumentStart
+        methodArguments := new Type[methodArgumentCount]
+        for methodArgumentIndex := 0; methodArgumentIndex < methodArgumentCount; methodArgumentIndex++ {
+            methodArguments[methodArgumentIndex] = boundArgs[methodArgumentStart + methodArgumentIndex]
+        }
+        instantiated := genericMethod.MakeGenericMethod(methodArguments)
         _il.Emit(OpCodes.Call, instantiated)
-        return ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out columnarResolvedType)
+        if !ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out columnarResolvedType) {
+            return Decline("emit.call.generic-return-substitution", "generic call return type could not be substituted", callIdx)
+        }
+        return true
     }
 
     // One contextual argument of a generic sibling call, or a decline that leaves the ordinary
@@ -6325,7 +6360,7 @@ sealed class ColumnarIlEmitter {
             localFunctionLowering: ColumnarLocalFunctionLowering? = null
             if (fn.LocalFunctions != null) {
                 freeFunctionEnclosingDefinition: ColumnarStructDef? = null
-                if (!TryDeclareLocalFunctions(fn, functionSource, ordinalsByFunc[f], holders.ForFile(fn.SourceFileId), freeFunctionEnclosingDefinition, typeResolution, lambdaCounter, displayClasses, sourceAttributeQueue, out localFunctionLowering)) {
+                if (!TryDeclareLocalFunctions(fn, functionSource, ordinalsByFunc[f], holders.ForFile(fn.SourceFileId), freeFunctionEnclosingDefinition, typeResolution, lambdaCounter, displayClasses, sourceAttributeQueue, siblingDefinitionsByFunc[f], out localFunctionLowering)) {
                     return false
                 }
                 localFuncs = localFunctionLowering.LocalFuncs
@@ -6541,6 +6576,7 @@ sealed class ColumnarIlEmitter {
             memberBodyTypeParameters := job.Item1.GenericParameters
             memberGenericInterfaceConstraints := ColumnarIlEmitter.s_noGenericInterfaceConstraints
             memberMethodBuilder := job.Item3
+            let memberGenerics: ColumnarGenericMethodFacts? = null
             if (memberMethodBuilder.get_IsGenericMethodDefinition()) {
                 memberMethodTypeParams := memberMethodBuilder.GetGenericArguments()
                 mergedMemberTypeParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
@@ -6554,7 +6590,7 @@ sealed class ColumnarIlEmitter {
                     mergedMemberTypeParameters[job.Item2.TypeParamNames[tp]] = memberMethodTypeParams[tp]
                 }
                 memberBodyTypeParameters = mergedMemberTypeParameters
-                memberGenerics := FindSourceMethodGenerics(job.Item1, memberMethodBuilder)
+                memberGenerics = FindSourceMethodGenerics(job.Item1, memberMethodBuilder)
                 if (memberGenerics != null) {
                     memberGenericInterfaceConstraints = ColumnarGenericConstraintPlanner.BuildGenericInterfaceConstraintMap(
                         memberGenerics.TypeParams,
@@ -6598,13 +6634,18 @@ sealed class ColumnarIlEmitter {
             memberDeclaredLocalFuncNodes: Dictionary<int, string>? = null
             memberVisibleLocalFuncNames: List<string>? = null
             if (job.Item2.LocalFunctions != null) {
-                // A generic member has type parameters in scope that a synthesized display class
-                // cannot carry, so those bodies keep their existing decline rather than emitting a
-                // signature whose metadata would not load.
-                if (memberBodyTypeParameters != null || memberMethodBuilder.get_IsGenericMethodDefinition()) {
-                    return DeclineStatic("emit.local-function.generic-member", "a local function in a generic member is not modeled", job.Item1.DeclaredTypeName + "." + job.Item2.Name, -1, 0)
+                // A method parameter can move onto the synthesized static/display owner exactly as
+                // it does for a generic free function. A declaring TYPE's parameters require the
+                // nested-owner substitution used by the broader generic-member backbone and remain
+                // at this existing boundary.
+                if job.Item1.GenericParameters != null {
+                    return DeclineStatic("emit.local-function.generic-member", "a local function in a member of a generic type is not modeled", job.Item1.DeclaredTypeName + "." + job.Item2.Name, -1, 0)
                 }
-                if (!TryDeclareLocalFunctions(job.Item2, methodSource, methodJobOrdinals, job.Item1.Builder, methodJobCurrentStruct, bodyTypeResolution, lambdaCounter, displayClasses, sourceAttributeQueue, out memberLocalFunctionLowering)) {
+                let memberEnclosingMethod: ColumnarSiblingMethodDefinition? = null
+                if !TryCreateLocalFunctionEnclosingMethodDefinition(memberMethodBuilder, memberGenerics, out memberEnclosingMethod) {
+                    return DeclineStatic("emit.local-function.generic-member-facts", "generic member facts were unavailable for a local function", job.Item1.DeclaredTypeName + "." + job.Item2.Name, -1, 0)
+                }
+                if (!TryDeclareLocalFunctions(job.Item2, methodSource, methodJobOrdinals, job.Item1.Builder, methodJobCurrentStruct, bodyTypeResolution, lambdaCounter, displayClasses, sourceAttributeQueue, memberEnclosingMethod, out memberLocalFunctionLowering)) {
                     return DeclineStatic("emit.local-function.declaration", "a local function of this member could not be declared", job.Item1.DeclaredTypeName + "." + job.Item2.Name, -1, 0)
                 }
                 memberLocalFuncs = memberLocalFunctionLowering.LocalFuncs
@@ -7140,6 +7181,33 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    private static func TryCreateLocalFunctionEnclosingMethodDefinition(
+        method: MethodBuilder,
+        generics: ColumnarGenericMethodFacts?,
+        out definition: ColumnarSiblingMethodDefinition
+    ): bool {
+        definition = null
+        if !method.get_IsGenericMethodDefinition() {
+            return true
+        }
+        if generics == null {
+            return false
+        }
+        resolved := must generics
+        methodAsInfo: MethodInfo = method
+        definition = new ColumnarSiblingMethodDefinition(
+            methodAsInfo,
+            System.Type.EmptyTypes,
+            System.Array.Empty<int>(),
+            ColumnarTypeOfPlanner.RequiredVoidType(),
+            resolved.TypeParams,
+            resolved.SpecialConstraints,
+            resolved.BaseConstraints,
+            resolved.InterfaceConstraints
+        )
+        return true
+    }
+
     // DECLARE ONE BODY'S LOCAL FUNCTIONS. Asked before the body emits, because a forward call and a
     // mutually recursive pair both need the MethodBuilder in hand, and because the capture plan
     // decides each one's OWNER: the program/declaring type for a capture-free local, the body's
@@ -7154,6 +7222,7 @@ sealed class ColumnarIlEmitter {
         lambdaCounter: int[],
         displayClasses: List<TypeBuilder>,
         sourceAttributeQueue: ColumnarSourceAttributeQueue,
+        enclosingMethod: ColumnarSiblingMethodDefinition?,
         out lowering: ColumnarLocalFunctionLowering
     ): bool {
         lowering = null
@@ -7171,7 +7240,7 @@ sealed class ColumnarIlEmitter {
         )
         closure: ColumnarLocalFunctionDisplay? = null
         if (plan.NeedsLowering()) {
-            closure = DefineLocalFunctionDisplay(staticOwner, lambdaCounter, plan, enclosingDefinition)
+            closure = DefineLocalFunctionDisplay(staticOwner, lambdaCounter, plan, enclosingDefinition, enclosingMethod, fn.TypeParamNames, fn.SourceFileId, typeResolution)
             if (closure == null) {
                 return false
             }
@@ -7187,7 +7256,7 @@ sealed class ColumnarIlEmitter {
             // may name those parameters — be resolved and set. It is therefore declared by its own arm
             // rather than by the fixed-signature one below.
             if (localFn.TypeParamNames.Length > 0) {
-                if (!TryDeclareGenericLocalFunction(fn, localFn, localFunction.NodeIndex, staticOwner, enclosingDefinition, closure, typeResolution, lambdaCounter, sourceAttributeQueue, genericLocalFuncs, declaredLocalFuncNodes, visibleLocalFuncNames)) {
+                if (!TryDeclareGenericLocalFunction(fn, localFn, localFunction.NodeIndex, staticOwner, enclosingDefinition, closure, typeResolution, lambdaCounter, sourceAttributeQueue, enclosingMethod, genericLocalFuncs, declaredLocalFuncNodes, visibleLocalFuncNames)) {
                     return false
                 }
                 continue
@@ -7284,6 +7353,7 @@ sealed class ColumnarIlEmitter {
         typeResolution: ColumnarSemanticTypeResolution,
         lambdaCounter: int[],
         sourceAttributeQueue: ColumnarSourceAttributeQueue,
+        enclosingMethod: ColumnarSiblingMethodDefinition?,
         genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>,
         declaredLocalFuncNodes: Dictionary<int, string>,
         visibleLocalFuncNames: List<string>
@@ -7314,14 +7384,35 @@ sealed class ColumnarIlEmitter {
         let genericInitialReturnType: System.Type? = null
         let genericInitialParameterTypes: System.Type[]? = null
         localMethod := localMethodOwner.DefineMethod(localMethodName, localMethodAttributes, genericInitialReturnType, genericInitialParameterTypes)
-        gpBuilders := localMethod.DefineGenericParameters(localFn.TypeParamNames)
+        enclosingTypeParameterNames := System.Array.Empty<string>()
+        if enclosingMethod != null {
+            enclosingTypeParameterNames = fn.TypeParamNames
+        }
+        combinedTypeParameterNames := new string[enclosingTypeParameterNames.Length + localFn.TypeParamNames.Length]
+        for outerNameIndex := 0; outerNameIndex < enclosingTypeParameterNames.Length; outerNameIndex++ {
+            combinedTypeParameterNames[outerNameIndex] = enclosingTypeParameterNames[outerNameIndex]
+        }
+        for ownNameIndex := 0; ownNameIndex < localFn.TypeParamNames.Length; ownNameIndex++ {
+            combinedTypeParameterNames[enclosingTypeParameterNames.Length + ownNameIndex] = localFn.TypeParamNames[ownNameIndex]
+        }
+        methodTypeParameterNames := runsOnDisplay ? localFn.TypeParamNames : combinedTypeParameterNames
+        gpBuilders := localMethod.DefineGenericParameters(methodTypeParameterNames)
         typeParamMap := new Dictionary<string, Type>(StringComparer.Ordinal)
-        localTypeParams := new Type[gpBuilders.Length]
+        enclosingCount := enclosingTypeParameterNames.Length
+        localTypeParams := new Type[enclosingCount + localFn.TypeParamNames.Length]
+        if runsOnDisplay {
+            for displayTypeParameterIndex := 0; displayTypeParameterIndex < enclosingCount; displayTypeParameterIndex++ {
+                displayTypeParameter := closure.DisplayTypeParameters[displayTypeParameterIndex]
+                typeParamMap[enclosingTypeParameterNames[displayTypeParameterIndex]] = displayTypeParameter
+                localTypeParams[displayTypeParameterIndex] = displayTypeParameter
+            }
+        }
         for g := 0; g < gpBuilders.Length; g++ {
             genericParameterForMap := gpBuilders[g]
             genericParameterAsType: Type = genericParameterForMap
-            typeParamMap[localFn.TypeParamNames[g]] = genericParameterAsType
-            localTypeParams[g] = genericParameterAsType
+            logicalIndex := runsOnDisplay ? enclosingCount + g : g
+            typeParamMap[methodTypeParameterNames[g]] = genericParameterAsType
+            localTypeParams[logicalIndex] = genericParameterAsType
         }
         // THE PARAMETERS ARE REGISTERED AGAINST AN OWNER, exactly as a generic top-level `func`'s are
         // through `ForSourceMethod`. The structural type-reference registry keys every generic
@@ -7329,24 +7420,79 @@ sealed class ColumnarIlEmitter {
         // which is what a generic local function's `T` did. The owner is a METHOD owner (its
         // parameters are MVARs) named by the enclosing function and the synthesized method's ordinal,
         // which is unique across the assembly being emitted.
+        registeredMethodTypeParameters := typeParamMap
+        if runsOnDisplay {
+            registeredMethodTypeParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
+            for ownRegisteredIndex := 0; ownRegisteredIndex < localFn.TypeParamNames.Length; ownRegisteredIndex++ {
+                registeredMethodTypeParameters[localFn.TypeParamNames[ownRegisteredIndex]] = localTypeParams[enclosingCount + ownRegisteredIndex]
+            }
+        }
         typeResolution.Structs.StructuralTypeReferences.RegisterGenericParameters(
-            typeParamMap,
+            registeredMethodTypeParameters,
             ColumnarStructuralGenericOwnerIdentity.SourceTypeMethod(localFn.SourceFileId, fn.Name + "." + localFn.Name, localMethodOrdinal)
         )
         // Applied AFTER the whole map exists, so a constraint may name another of this local
         // function's own parameters (`where T: U`) — the same reason the top-level arm waits.
-        localSpecialConstraints := System.Array.Empty<int>()
-        localBaseConstraints := System.Array.Empty<Type?>()
-        localInterfaceConstraints := System.Array.Empty<Type[]>()
-        if (!ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(gpBuilders, localFn.TypeParamSpecialConstraints, localFn.TypeParamTypeConstraints, typeParamMap, localTypeParams, typeResolution, out localSpecialConstraints, out localBaseConstraints, out localInterfaceConstraints)) {
+        localSpecialConstraints := new int[localTypeParams.Length]
+        localBaseConstraints := new Type?[](localTypeParams.Length)
+        localInterfaceConstraints := new Type[][](localTypeParams.Length)
+        if (enclosingMethod != null) {
+            for outerConstraintIndex := 0; outerConstraintIndex < enclosingCount; outerConstraintIndex++ {
+                localSpecialConstraints[outerConstraintIndex] = enclosingMethod.SpecialConstraints[outerConstraintIndex]
+                if !runsOnDisplay {
+                    gpBuilders[outerConstraintIndex].SetGenericParameterAttributes((GenericParameterAttributes)ColumnarGenericConstraintPlanner.AttributeBitsFor(enclosingMethod.SpecialConstraints[outerConstraintIndex]))
+                }
+                if enclosingMethod.BaseConstraints[outerConstraintIndex] != null {
+                    let copiedBaseConstraint: Type = null
+                    if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(enclosingMethod.TypeParams, localTypeParams, enclosingMethod.BaseConstraints[outerConstraintIndex], out copiedBaseConstraint) {
+                        return false
+                    }
+                    if !runsOnDisplay {
+                        gpBuilders[outerConstraintIndex].SetBaseTypeConstraint(copiedBaseConstraint)
+                    }
+                    localBaseConstraints[outerConstraintIndex] = copiedBaseConstraint
+                }
+                copiedInterfaces := new Type[enclosingMethod.InterfaceConstraints[outerConstraintIndex].Length]
+                for copiedInterfaceIndex := 0; copiedInterfaceIndex < copiedInterfaces.Length; copiedInterfaceIndex++ {
+                    let copiedInterface: Type = null
+                    if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(enclosingMethod.TypeParams, localTypeParams, enclosingMethod.InterfaceConstraints[outerConstraintIndex][copiedInterfaceIndex], out copiedInterface) {
+                        return false
+                    }
+                    copiedInterfaces[copiedInterfaceIndex] = copiedInterface
+                }
+                if !runsOnDisplay && copiedInterfaces.Length > 0 {
+                    gpBuilders[outerConstraintIndex].SetInterfaceConstraints(copiedInterfaces)
+                }
+                localInterfaceConstraints[outerConstraintIndex] = copiedInterfaces
+            }
+        }
+        ownBuilders := new GenericTypeParameterBuilder[localFn.TypeParamNames.Length]
+        ownTypeParams := new Type[localFn.TypeParamNames.Length]
+        for ownConstraintIndex := 0; ownConstraintIndex < ownBuilders.Length; ownConstraintIndex++ {
+            methodOwnOffset := runsOnDisplay ? 0 : enclosingCount
+            ownBuilders[ownConstraintIndex] = gpBuilders[methodOwnOffset + ownConstraintIndex]
+            ownTypeParams[ownConstraintIndex] = localTypeParams[enclosingCount + ownConstraintIndex]
+        }
+        ownSpecialConstraints := System.Array.Empty<int>()
+        ownBaseConstraints := System.Array.Empty<Type?>()
+        ownInterfaceConstraints := System.Array.Empty<Type[]>()
+        if (!ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(ownBuilders, localFn.TypeParamSpecialConstraints, localFn.TypeParamTypeConstraints, typeParamMap, ownTypeParams, typeResolution, out ownSpecialConstraints, out ownBaseConstraints, out ownInterfaceConstraints)) {
             return false
+        }
+        for ownConstraintIndex := 0; ownConstraintIndex < ownTypeParams.Length; ownConstraintIndex++ {
+            localSpecialConstraints[enclosingCount + ownConstraintIndex] = ownSpecialConstraints[ownConstraintIndex]
+            localBaseConstraints[enclosingCount + ownConstraintIndex] = ownBaseConstraints[ownConstraintIndex]
+            localInterfaceConstraints[enclosingCount + ownConstraintIndex] = ownInterfaceConstraints[ownConstraintIndex]
         }
         let localReturn: System.Type = null
         if (localFn.ReturnCanonical == "void") {
             localReturn = ColumnarTypeOfPlanner.RequiredVoidType()
         } else {
-            if (!ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(localFn.ReturnCanonical, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localReturn) || !IsValidGenericLocalFunctionSignatureType(localReturn, localMethodOwner, localTypeParams)) {
+            if (!ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(localFn.ReturnCanonical, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localReturn)) {
                 return DeclineStatic("emit.local-function.generic-return", "generic local function return type '" + localFn.ReturnCanonical + "' could not be resolved for '" + localFn.Name + "'", fn.Name + "." + localFn.Name, -1, 0)
+            }
+            if !IsValidGenericLocalFunctionSignatureType(localReturn, localMethodOwner, localTypeParams) {
+                return DeclineStatic("emit.local-function.generic-return-owner", "generic local function return type '" + localFn.ReturnCanonical + "' is not owned by the synthesized method for '" + localFn.Name + "'", fn.Name + "." + localFn.Name, -1, 0)
             }
         }
         localParams := new Type[localFn.ParamNames.Length]
@@ -7365,7 +7511,7 @@ sealed class ColumnarIlEmitter {
         }
         ColumnarTupleElementNameEmitter.ApplyToReturn(localMethod, localFn.ReturnLabeledCanonical)
         localMethodAsInfo: MethodInfo = localMethod
-        genericLocalFuncs[localFn.Name] = new ColumnarSiblingMethodDefinition(
+        localDefinition := new ColumnarSiblingMethodDefinition(
             localMethodAsInfo,
             localParams,
             localFn.ParamModifierKinds,
@@ -7375,6 +7521,11 @@ sealed class ColumnarIlEmitter {
             localBaseConstraints,
             localInterfaceConstraints
         )
+        localDefinition.EnclosingTypeParameterNames = enclosingTypeParameterNames
+        if runsOnDisplay && enclosingTypeParameterNames.Length > 0 {
+            localDefinition.GenericDeclaringTypeDefinition = closure.Builder
+        }
+        genericLocalFuncs[localFn.Name] = localDefinition
         declaredLocalFuncNodes[declarationNodeIndex] = localFn.Name
         visibleLocalFuncNames.Add(localFn.Name)
         return true
@@ -7391,7 +7542,7 @@ sealed class ColumnarIlEmitter {
         }
         if valueType.get_IsGenericParameter() {
             for ownTypeParameter in ownTypeParameters {
-                if Object.ReferenceEquals(ownTypeParameter, valueType) {
+                if ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(ownTypeParameter, valueType) {
                     return true
                 }
             }
@@ -7463,8 +7614,12 @@ sealed class ColumnarIlEmitter {
                 localDeclaredParamTypes = genericTarget.ParamTypes
                 localDeclaredReturn = genericTarget.ReturnType
                 localTypeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal)
+                for outerTp := 0; outerTp < genericTarget.EnclosingTypeParameterNames.Length; outerTp++ {
+                    localTypeParamMap[genericTarget.EnclosingTypeParameterNames[outerTp]] = genericTarget.TypeParams[outerTp]
+                }
+                localOwnTypeParameterOffset := genericTarget.EnclosingTypeParameterNames.Length
                 for tp := 0; tp < localFn.TypeParamNames.Length && tp < genericTarget.TypeParams.Length; tp++ {
-                    localTypeParamMap[localFn.TypeParamNames[tp]] = genericTarget.TypeParams[tp]
+                    localTypeParamMap[localFn.TypeParamNames[tp]] = genericTarget.TypeParams[localOwnTypeParameterOffset + tp]
                 }
             } else {
                 directTarget := lowering.LocalFuncs[localFn.Name]
@@ -7501,6 +7656,10 @@ sealed class ColumnarIlEmitter {
                 localClosureView = closure
             } else {
                 localClosureView = closure
+            }
+            localSynthesizedMethodOwner := synthesizedMethodOwner
+            if localClosureView != null && localClosureView.HasDisplay() && localClosureView.ReceiverIsArgument {
+                localSynthesizedMethodOwner = localClosureView.Builder
             }
             localFunctionSource := program.GetSourceForFileId(localFn.SourceFileId)
             // AN ASYNC LOCAL FUNCTION'S BODY IS CHECKED AGAINST THE INNER TYPE, and the async return
@@ -7554,9 +7713,9 @@ sealed class ColumnarIlEmitter {
                 referenceAssemblyPaths,
                 null,
                 localTypeParamMap,
-                typeResolution.Enums.ForSynthesizedMethod(synthesizedMethodOwner),
-                typeResolution.Structs.ForSynthesizedMethod(synthesizedMethodOwner),
-                typeResolution.Unions.ForSynthesizedMethod(synthesizedMethodOwner),
+                typeResolution.Enums.ForSynthesizedMethod(localSynthesizedMethodOwner),
+                typeResolution.Structs.ForSynthesizedMethod(localSynthesizedMethodOwner),
+                typeResolution.Unions.ForSynthesizedMethod(localSynthesizedMethodOwner),
                 localClosureView,
                 lowering.GenericLocalFuncs
             )
@@ -7576,7 +7735,7 @@ sealed class ColumnarIlEmitter {
     // of the same `<>c__DisplayClass{n}` counter a capturing lambda uses, because they are the same
     // lowering. A display that reads the enclosing instance is nested inside that type so a private
     // member stays reachable without widening its metadata; otherwise it is a module-level type.
-    private static func DefineLocalFunctionDisplay(owner: TypeBuilder, lambdaCounter: int[], plan: ColumnarLocalFunctionClosurePlan, enclosingDefinition: ColumnarStructDef?): ColumnarLocalFunctionDisplay? {
+    private static func DefineLocalFunctionDisplay(owner: TypeBuilder, lambdaCounter: int[], plan: ColumnarLocalFunctionClosurePlan, enclosingDefinition: ColumnarStructDef?, enclosingMethod: ColumnarSiblingMethodDefinition?, enclosingTypeParameterNames: string[], sourceFileId: int, typeResolution: ColumnarSemanticTypeResolution): ColumnarLocalFunctionDisplay? {
         if (!plan.NeedsDisplay()) {
             // Only `this` is captured, so no display exists: those local functions are instance
             // methods of the enclosing type itself and reach `this` through their own arg 0.
@@ -7603,8 +7762,35 @@ sealed class ColumnarIlEmitter {
                 TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
             )
         }
+        displayTypeParameters := System.Array.Empty<Type>()
+        runtimeDisplay: Type = display
+        if enclosingMethod != null && enclosingMethod.TypeParams.Length > 0 {
+            displayParameterBuilders := display.DefineGenericParameters(enclosingTypeParameterNames)
+            displayTypeParameters = new Type[displayParameterBuilders.Length]
+            for displayParameterIndex := 0; displayParameterIndex < displayParameterBuilders.Length; displayParameterIndex++ {
+                displayParameterAsType: Type = displayParameterBuilders[displayParameterIndex]
+                displayTypeParameters[displayParameterIndex] = displayParameterAsType
+            }
+            displayParameterMap := new Dictionary<string, Type>(StringComparer.Ordinal)
+            for displayParameterIndex := 0; displayParameterIndex < displayTypeParameters.Length; displayParameterIndex++ {
+                displayParameterMap[enclosingTypeParameterNames[displayParameterIndex]] = displayTypeParameters[displayParameterIndex]
+            }
+            typeResolution.Structs.StructuralTypeReferences.RegisterSynthesizedType(sourceFileId, displayTypeName, displayOrdinal, display, displayParameterMap)
+            if !CopyGenericParameterConstraints(enclosingMethod, displayParameterBuilders, displayTypeParameters) {
+                return null
+            }
+            displayDefinitionAsType: Type = display
+            runtimeDisplay = displayDefinitionAsType.MakeGenericType(enclosingMethod.TypeParams)
+        }
         displayCtor := display.DefineDefaultConstructor(MethodAttributes.Public)
-        result := new ColumnarLocalFunctionDisplay(display, displayCtor, plan)
+        runtimeDisplayCtor: ConstructorInfo = displayCtor
+        if displayTypeParameters.Length > 0 {
+            runtimeDisplayCtor = TypeBuilder.GetConstructor(runtimeDisplay, displayCtor)
+        }
+        result := new ColumnarLocalFunctionDisplay(display, displayCtor, plan, runtimeDisplay, runtimeDisplayCtor)
+        if enclosingMethod != null {
+            result.BindGenericParameters(enclosingMethod.TypeParams, displayTypeParameters)
+        }
         if (plan.ReadsEnclosingInstance) {
             enclosingThisField := display.DefineField("<>4__this", enclosingDefinition.Builder, FieldAttributes.Public)
             result.BindEnclosingThisField(enclosingThisField)
@@ -7623,6 +7809,36 @@ sealed class ColumnarIlEmitter {
         return result
     }
 
+    private static func CopyGenericParameterConstraints(source: ColumnarSiblingMethodDefinition, destinationBuilders: GenericTypeParameterBuilder[], destinationTypes: Type[]): bool {
+        if source.TypeParams.Length != destinationBuilders.Length || destinationBuilders.Length != destinationTypes.Length {
+            return false
+        }
+        for index := 0; index < destinationBuilders.Length; index++ {
+            destinationBuilders[index].SetGenericParameterAttributes((GenericParameterAttributes)ColumnarGenericConstraintPlanner.AttributeBitsFor(source.SpecialConstraints[index]))
+            sourceBase := source.BaseConstraints[index]
+            if sourceBase != null {
+                let destinationBase: Type? = null
+                if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(source.TypeParams, destinationTypes, sourceBase, out destinationBase) || destinationBase == null {
+                    return false
+                }
+                destinationBuilders[index].SetBaseTypeConstraint(destinationBase)
+            }
+            sourceInterfaces := source.InterfaceConstraints[index]
+            destinationInterfaces := new Type[sourceInterfaces.Length]
+            for interfaceIndex := 0; interfaceIndex < sourceInterfaces.Length; interfaceIndex++ {
+                let destinationInterface: Type? = null
+                if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(source.TypeParams, destinationTypes, sourceInterfaces[interfaceIndex], out destinationInterface) || destinationInterface == null {
+                    return false
+                }
+                destinationInterfaces[interfaceIndex] = destinationInterface
+            }
+            if destinationInterfaces.Length > 0 {
+                destinationBuilders[index].SetInterfaceConstraints(destinationInterfaces)
+            }
+        }
+        return true
+    }
+
     // A CAPTURED BINDING'S BOX JOINS THE DISPLAY AT THE POINT THE BOX IS CREATED. The display instance
     // exists from the body's first instruction, but a local's box does not exist until its declaration
     // runs, so the field is defined and stored here rather than up front — which is also why a capture
@@ -7635,12 +7851,25 @@ sealed class ColumnarIlEmitter {
         if (captureInstance == null || _localFunctionDisplay.HasCapture(name)) {
             return false
         }
-        captureField := _localFunctionDisplay.Builder.DefineField(name, box.get_LocalType(), FieldAttributes.Public)
-        _localFunctionDisplay.AddCapture(name, captureField, valueType)
+        openBoxType := _localFunctionDisplay.OpenDisplayType(box.get_LocalType())
+        openValueType := _localFunctionDisplay.OpenDisplayType(valueType)
+        if openBoxType == null || openValueType == null {
+            return false
+        }
+        captureField := _localFunctionDisplay.Builder.DefineField(name, openBoxType, FieldAttributes.Public)
+        runtimeCaptureField := _localFunctionDisplay.FieldForRuntimeInstance(captureField)
+        _localFunctionDisplay.AddCapture(name, captureField, openValueType)
         _il.Emit(OpCodes.Ldloc, captureInstance)
         _il.Emit(OpCodes.Ldloc, box)
-        _il.Emit(OpCodes.Stfld, captureField)
+        _il.Emit(OpCodes.Stfld, runtimeCaptureField)
         return true
+    }
+
+    private func IsLiftableCaptureStorageType(valueType: Type): bool {
+        if ColumnarClosureBindingPlanner.IsLiftableValueType(valueType) {
+            return true
+        }
+        return _localFunctionDisplay != null && _localFunctionDisplay.DisplayTypeParameters.Length > 0 && valueType.get_IsGenericParameter() && _localFunctionDisplay.OpenDisplayType(valueType) != null
     }
 
     // The receiver a call to a local function needs: nothing at all for a capture-free local (still a
@@ -7781,8 +8010,8 @@ sealed class ColumnarIlEmitter {
                 _liftedCandidates = new HashSet<string>(StringComparer.Ordinal)
             }
             _liftedCandidates.UnionWith(_localFunctionDisplay.CaptureNames())
-            displayInstanceLocal := _il.DeclareLocal(_localFunctionDisplay.Builder)
-            _il.Emit(OpCodes.Newobj, _localFunctionDisplay.Constructor)
+            displayInstanceLocal := _il.DeclareLocal(_localFunctionDisplay.RuntimeType)
+            _il.Emit(OpCodes.Newobj, _localFunctionDisplay.RuntimeConstructor)
             _il.Emit(OpCodes.Stloc, displayInstanceLocal)
             _localFunctionDisplay.BindInstance(displayInstanceLocal)
             enclosingThisCaptureField := _localFunctionDisplay.EnclosingThisFieldOrNull()
@@ -7799,14 +8028,14 @@ sealed class ColumnarIlEmitter {
                     continue
                 }
                 liftedParamType := _paramTypes[liftedParam]
-                if (!ColumnarClosureBindingPlanner.IsLiftableValueType(liftedParamType)) {
+                if (!IsLiftableCaptureStorageType(liftedParamType)) {
                     continue
                 }
                 // stays a plain param; a later capture of it declines (written, unlifted).
                 boxType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition().MakeGenericType([liftedParamType])
                 boxLocal := _il.DeclareLocal(boxType)
                 ColumnarArgumentInstructionEmitter.EmitLoad(_il, liftedOrdinal)
-                _il.Emit(OpCodes.Newobj, boxType.GetConstructor([liftedParamType]))
+                _il.Emit(OpCodes.Newobj, ColumnarClosureBindingPlanner.StrongBoxConstructor(liftedParamType))
                 _il.Emit(OpCodes.Stloc, boxLocal)
                 _liftedLocals[liftedParam] = (boxLocal, liftedParamType)
                 if (!HoistCaptureIntoLocalFunctionDisplay(liftedParam, boxLocal, liftedParamType)) {
@@ -8573,10 +8802,10 @@ sealed class ColumnarIlEmitter {
                 // A lifted candidate takes the shared box here for the same reason every other one
                 // does: a local function that captures the name reads it through the display's box,
                 // and a later write must be seen on both sides.
-                if (_liftedCandidates != null && _liftedCandidates.Contains(name) && ColumnarClosureBindingPlanner.IsLiftableValueType(lambdaType)) {
+                if (_liftedCandidates != null && _liftedCandidates.Contains(name) && IsLiftableCaptureStorageType(lambdaType)) {
                     lambdaBoxType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition().MakeGenericType([lambdaType])
                     lambdaBox := _il.DeclareLocal(lambdaBoxType)
-                    _il.Emit(OpCodes.Newobj, lambdaBoxType.GetConstructor([lambdaType]))
+                    _il.Emit(OpCodes.Newobj, ColumnarClosureBindingPlanner.StrongBoxConstructor(lambdaType))
                     _il.Emit(OpCodes.Stloc, lambdaBox)
                     _liftedLocals[name] = (lambdaBox, lambdaType)
                     return HoistCaptureIntoLocalFunctionDisplay(name, lambdaBox, lambdaType)
@@ -8599,10 +8828,10 @@ sealed class ColumnarIlEmitter {
             // L3b: a lifted candidate (captured by some lambda AND bare-assigned) declares as a shared
             // StrongBox<T> — the init value is on the stack; wrap it. A non-liftable type stays plain
             // (a later capture of it declines — written, unlifted).
-            if (_liftedCandidates != null && _liftedCandidates.Contains(name) && ColumnarClosureBindingPlanner.IsLiftableValueType(initType)) {
+            if (_liftedCandidates != null && _liftedCandidates.Contains(name) && IsLiftableCaptureStorageType(initType)) {
                 liftBoxType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition().MakeGenericType([initType])
                 liftBox := _il.DeclareLocal(liftBoxType)
-                _il.Emit(OpCodes.Newobj, liftBoxType.GetConstructor([initType]))
+                _il.Emit(OpCodes.Newobj, ColumnarClosureBindingPlanner.StrongBoxConstructor(initType))
                 _il.Emit(OpCodes.Stloc, liftBox)
                 _liftedLocals[name] = (liftBox, initType)
                 return HoistCaptureIntoLocalFunctionDisplay(name, liftBox, initType)
@@ -8738,10 +8967,10 @@ sealed class ColumnarIlEmitter {
             // and a local function that captures the name needs the box whatever produced it. (A
             // lambda whose own body names the local it initialises still declines: the box does not
             // exist while that body emits, so the name resolves to nothing.)
-            if (_liftedCandidates != null && _liftedCandidates.Contains(declaredName) && ColumnarClosureBindingPlanner.IsLiftableValueType(declaredType)) {
+            if (_liftedCandidates != null && _liftedCandidates.Contains(declaredName) && IsLiftableCaptureStorageType(declaredType)) {
                 typedBoxType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition().MakeGenericType([declaredType])
                 typedBox := _il.DeclareLocal(typedBoxType)
-                _il.Emit(OpCodes.Newobj, typedBoxType.GetConstructor([declaredType]))
+                _il.Emit(OpCodes.Newobj, ColumnarClosureBindingPlanner.StrongBoxConstructor(declaredType))
                 _il.Emit(OpCodes.Stloc, typedBox)
                 _liftedLocals[declaredName] = (typedBox, declaredType)
                 return HoistCaptureIntoLocalFunctionDisplay(declaredName, typedBox, declaredType)
@@ -13098,7 +13327,11 @@ sealed class ColumnarIlEmitter {
                     if (!EmitLocalFunctionCallReceiver(name)) {
                         return false
                     }
-                    return TryEmitGenericSiblingCall(idx, genericLocalTarget, new Type[genericLocalTarget.TypeParams.Length], out columnarResolvedType)
+                    let localBinding: Type[]? = null
+                    if !TryCreateGenericLocalBinding(genericLocalTarget, out localBinding) {
+                        return false
+                    }
+                    return TryEmitGenericSiblingCall(idx, genericLocalTarget, localBinding, out columnarResolvedType)
                 }
                 let localTargetMethod: System.Reflection.Emit.MethodBuilder? = null
                 let localTargetParamTypes: System.Type[]? = null
@@ -13273,23 +13506,31 @@ sealed class ColumnarIlEmitter {
                 // exactly as it is at the bare-name arm.
                 let gLocalTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
                 if (_genericLocalFuncs != null && _visibleLocalFuncs.Contains(gName) && _genericLocalFuncs.TryGetValue(gName, out gLocalTarget) && gLocalTarget != null) {
-                    if (_nodes.ChildCount(callee) != gLocalTarget.TypeParams.Length) {
-                        return Decline("emit.call.generic-arity", "generic local function '" + gName + "' takes " + gLocalTarget.TypeParams.Length.ToString() + " type argument(s)", idx)
+                    enclosingGenericCount := gLocalTarget.EnclosingTypeParameterNames.Length
+                    writtenGenericCount := gLocalTarget.TypeParams.Length - enclosingGenericCount
+                    if (_nodes.ChildCount(callee) != writtenGenericCount) {
+                        return Decline("emit.call.generic-arity", "generic local function '" + gName + "' takes " + writtenGenericCount.ToString() + " type argument(s)", idx)
                     }
-                    localExplicitBinding := new Type[gLocalTarget.TypeParams.Length]
-                    for lta := 0; lta < gLocalTarget.TypeParams.Length; lta++ {
+                    let localExplicitBinding: Type[]? = null
+                    if !TryCreateGenericLocalBinding(gLocalTarget, out localExplicitBinding) {
+                        return Decline("emit.call.generic-local-enclosing-binding", "generic local function '" + gName + "' could not bind its enclosing type parameters", idx)
+                    }
+                    for lta := 0; lta < writtenGenericCount; lta++ {
                         localTypeArgNode := Child(callee, lta)
                         let localCanonicalTypeArg: string? = null
                         let localTaType: System.Type? = null
                         if (!TryBuildTypeNodeCanonical(localTypeArgNode, out localCanonicalTypeArg) || !TryResolveBodyType(localCanonicalTypeArg, out localTaType) || !ColumnarTypeOfPlanner.IsSupportedType(localTaType)) {
                             return false
                         }
-                        localExplicitBinding[lta] = localTaType
+                        localExplicitBinding[enclosingGenericCount + lta] = localTaType
                     }
                     if (!EmitLocalFunctionCallReceiver(gName)) {
-                        return false
+                        return Decline("emit.call.generic-local-receiver", "generic local function '" + gName + "' could not load its closure receiver", idx)
                     }
-                    return TryEmitGenericSiblingCall(idx, gLocalTarget, localExplicitBinding, out columnarResolvedType)
+                    if !TryEmitGenericSiblingCall(idx, gLocalTarget, localExplicitBinding, out columnarResolvedType) {
+                        return Decline("emit.call.generic-local-instantiation", "generic local function '" + gName + "' could not instantiate its selected signature", idx)
+                    }
+                    return true
                 }
                 let gTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
                 if (!_siblings.TryGetValue(gName, out gTarget) || gTarget.TypeParams.Length == 0) {

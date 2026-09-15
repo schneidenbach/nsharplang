@@ -11,6 +11,23 @@ import System.Reflection.Emit
 // own definition, and every other constructed head is admitted by the backend's type-admissibility
 // question rather than by the broader constraint-substitution behavior.
 class ColumnarGenericCallBindingPlanner {
+    static func SameTypeParameterIdentity(left: Type, right: Type): bool {
+        if Object.ReferenceEquals(left, right) || left == right {
+            return true
+        }
+        if !left.get_IsGenericParameter() || !right.get_IsGenericParameter() || left.get_IsGenericMethodParameter() != right.get_IsGenericMethodParameter() || left.get_IsGenericTypeParameter() != right.get_IsGenericTypeParameter() || left.get_GenericParameterPosition() != right.get_GenericParameterPosition() {
+            return false
+        }
+        if left.get_IsGenericMethodParameter() {
+            leftMethod := left.get_DeclaringMethod()
+            rightMethod := right.get_DeclaringMethod()
+            return leftMethod != null && rightMethod != null && Object.ReferenceEquals(leftMethod, rightMethod)
+        }
+        leftType := left.get_DeclaringType()
+        rightType := right.get_DeclaringType()
+        return leftType != null && rightType != null && (Object.ReferenceEquals(leftType, rightType) || leftType == rightType)
+    }
+
     static func TryUnifyTypeParam(
         typeParams: Type[],
         binding: Type[],
@@ -20,7 +37,7 @@ class ColumnarGenericCallBindingPlanner {
         position := -1
         parameterIndex := 0
         while parameterIndex < typeParams.Length {
-            if Object.ReferenceEquals(typeParams[parameterIndex], declared) {
+            if SameTypeParameterIdentity(typeParams[parameterIndex], declared) {
                 position = parameterIndex
                 break
             }
@@ -130,7 +147,7 @@ class ColumnarGenericCallBindingPlanner {
         if declaredReturn.get_IsGenericParameter() {
             parameterIndex := 0
             while parameterIndex < typeParams.Length {
-                if Object.ReferenceEquals(typeParams[parameterIndex], declaredReturn) {
+                if SameTypeParameterIdentity(typeParams[parameterIndex], declaredReturn) {
                     substituted = binding[parameterIndex]
                     return true
                 }
@@ -143,7 +160,7 @@ class ColumnarGenericCallBindingPlanner {
             element := declaredReturn.GetElementType()
             parameterIndex := 0
             while parameterIndex < typeParams.Length {
-                if Object.ReferenceEquals(typeParams[parameterIndex], element) {
+                if SameTypeParameterIdentity(typeParams[parameterIndex], element) {
                     substituted = binding[parameterIndex].MakeArrayType()
                     return true
                 }

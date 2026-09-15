@@ -154,10 +154,10 @@ test "a capturing scope gets exactly one display class and a capture-free local 
     // the lambda that makes the delegate captures `seed`, and the local function that calls it
     // captures the delegate local — two capturing scopes, two displays.
     //
-    // Plus ShiftedLength in GenericLocals.nl, whose GENERIC local function captures `bump`: a
-    // generic local function is lowered through the same display a non-generic one is, because its
-    // captures are the enclosing scope's and never name its own type parameters.
-    assert displayCount == 20
+    // Plus ShiftedLength, CaptureEnclosingType, CaptureEnclosingInterface and
+    // GenericLocalMemberOwner.Capture in GenericLocals.nl. The latter three displays own their
+    // enclosing method's T while each generic instance method owns its local function's U.
+    assert displayCount == 23
 
     // CountSteps declares two mutually recursive capturing local functions. They share ONE display,
     // which is the whole reason each sees the other's writes to the captured counter.
