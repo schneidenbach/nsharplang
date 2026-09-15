@@ -16,6 +16,9 @@ class GenericLocalBase {
 class GenericLocalDerived: GenericLocalBase {
 }
 
+class GenericLocalCreated {
+}
+
 // A LOCAL FUNCTION'S TYPE PARAMETERS ARE ITS OWN.
 //
 // The statement kernel refused a local function that declared any (`isLocalFunction != 0 &&
@@ -154,6 +157,22 @@ func CaptureEnclosingInterface<T>(value: T): T where T: GenericLocalMarker {
 
 func NoCaptureDependent<T, U>(value: T): T where T: U where U: class {
     func choose<V>(outer: T, _other: V): T {
+        return outer
+    }
+
+    return choose<int>(value, 1)
+}
+
+func CaptureEnclosingBase<T>(value: T): T where T: GenericLocalBase {
+    func choose<U>(_other: U): T {
+        return value
+    }
+
+    return choose<int>(1)
+}
+
+func NoCaptureNew<T>(value: T): T where T: new() {
+    func choose<U>(outer: T, _other: U): T {
         return outer
     }
 
