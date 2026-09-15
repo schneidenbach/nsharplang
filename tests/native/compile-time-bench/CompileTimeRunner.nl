@@ -224,6 +224,53 @@ func BenchDeleteDirectory(directory: string) {
     }
 }
 
+class BenchPhaseCanaryObservation {
+    ExitCode: int
+    DiagnosticMultiset: string
+    Stderr: string
+    SawBuildFailedBanner: bool
+
+    constructor(exitCode: int, diagnosticMultiset: string, stderr: string, sawBuildFailedBanner: bool) {
+        ExitCode = exitCode
+        DiagnosticMultiset = diagnosticMultiset
+        Stderr = stderr
+        SawBuildFailedBanner = sawBuildFailedBanner
+    }
+}
+
+// A deliberately tiny real `build` that distinguishes the old lint-first pipeline from the live
+// analyzer-first pipeline. `Semantic.nl` contributes NL202 only after semantic analysis; `Lint.nl`
+// contributes NL011 only when strict lint runs. Their exact multiset therefore identifies the phase
+// ordering even though both pipelines exit 1. The ordinary build runner owns the process invocation.
+func BenchObserveBuildPhase(cliDll: string): BenchPhaseCanaryObservation {
+    directory := Path.Combine(Path.GetTempPath(), "nsharp-compile-bench-phase-" + BenchLongText(DateTime.UtcNow.Ticks))
+    BenchDeleteDirectory(directory)
+    Directory.CreateDirectory(directory)
+    try {
+        File.WriteAllText(
+            Path.Combine(directory, "project.yml"),
+            "name: NSharpCompileBenchPhase\nbackend: il\noutputType: library\ntargetFramework: net10.0\n"
+        )
+        File.WriteAllText(
+            Path.Combine(directory, "Semantic.nl"),
+            "namespace NSharpCompileBenchPhase\n\nfunc TakeNumber(value: int): int {\n    return value\n}\n\nfunc WrongArgument(): int {\n    return TakeNumber(\"wrong\")\n}\n"
+        )
+        File.WriteAllText(
+            Path.Combine(directory, "Lint.nl"),
+            "namespace NSharpCompileBenchPhase\n\nfunc EmptyCatch(): void {\n    try {\n        _ = 1\n    } catch {\n    }\n}\n"
+        )
+        measured := BenchMeasureOnce(cliDll, directory, "build", 0)
+        return new BenchPhaseCanaryObservation(
+            measured.ExitCode,
+            BenchRenderedBuildDiagnosticMultiset(measured.CliStderr),
+            measured.CliStderr,
+            measured.SawBuildFailedBanner
+        )
+    } finally {
+        BenchDeleteDirectory(directory)
+    }
+}
+
 // THE ONE OWNER of "run a build and measure it". `command` is `build` or `check`.
 func BenchMeasureOnce(cliDll: string, projectDirectory: string, command: string, sequence: int): BenchCommandRun {
     if command == "check" {
@@ -240,7 +287,7 @@ func BenchMeasureOnce(cliDll: string, projectDirectory: string, command: string,
     outputDirectory := BenchFreshOutputDirectory(sequence)
     before := BenchSnapshotDirectory(projectDirectory)
     run := BenchRunUnderTimeUtility(
-        BenchQuote(cliDll) + " build --project " + BenchQuote(projectDirectory) + " --timings -o " + BenchQuote(outputDirectory),
+        BenchQuote(cliDll) + " build --color=never --project " + BenchQuote(projectDirectory) + " --timings -o " + BenchQuote(outputDirectory),
         Path.GetTempPath()
     )
     after := BenchSnapshotDirectory(projectDirectory)

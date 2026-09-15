@@ -684,6 +684,115 @@ func BenchDiagnosticCensus(stdout: string): string {
     return builder.ToString() ?? ""
 }
 
+// The build command has no JSON diagnostics mode. Its two supported terminal renderers nevertheless
+// carry the diagnostic identity in stable structure: compact diagnostics start with `error NLnnn:`
+// (or `warning`), while rich diagnostics end with the canonical `/docs/errors/NLnnn` URL. The phase
+// canary reads only those positions, so an NL-looking word in source, a hint, or prose is not evidence.
+func BenchRenderedBuildDiagnosticMultiset(stderr: string): string {
+    codes := new List<string>()
+    counts := new List<int>()
+    lines := BenchSplitLines(stderr)
+    i := 0
+    while i < lines.Count {
+        trimmed := lines[i].Trim()
+        code := ""
+        diagnosticMarker := false
+        if trimmed.StartsWith("error NL") {
+            diagnosticMarker = true
+            code = BenchDiagnosticCodeAt(trimmed, 6, true)
+        } else if trimmed.StartsWith("warning NL") {
+            diagnosticMarker = true
+            code = BenchDiagnosticCodeAt(trimmed, 8, true)
+        } else if trimmed.StartsWith("Read more:") {
+            diagnosticMarker = true
+            marker := "/docs/errors/"
+            markerIndex := trimmed.LastIndexOf(marker, StringComparison.Ordinal)
+            if markerIndex >= 0 {
+                code = BenchDiagnosticCodeAt(trimmed, markerIndex + marker.Length, false)
+            }
+        }
+
+        if code != "" {
+            BenchTallyCode(codes, counts, code)
+        } else if diagnosticMarker {
+            BenchTallyCode(codes, counts, "(unrecognized diagnostic rendering)")
+        }
+        i = i + 1
+    }
+
+    if codes.Count == 0 {
+        return ""
+    }
+
+    BenchSortCensus(codes, counts)
+    builder := new StringBuilder()
+    j := 0
+    while j < codes.Count {
+        if j > 0 {
+            builder.Append(", ")
+        }
+        builder.Append(codes[j])
+        builder.Append(" ×")
+        builder.Append(BenchIntText(counts[j]))
+        j = j + 1
+    }
+    return builder.ToString() ?? ""
+}
+
+func BenchDiagnosticCodeAt(text: string, start: int, requireColon: bool): string {
+    if start < 0 || start + 5 > text.Length {
+        return ""
+    }
+    if text[start] != 'N' || text[start + 1] != 'L' {
+        return ""
+    }
+    i := start + 2
+    while i < start + 5 {
+        if text[i] < '0' || text[i] > '9' {
+            return ""
+        }
+        i = i + 1
+    }
+    if requireColon && (start + 5 >= text.Length || text[start + 5] != ':') {
+        return ""
+    }
+    if !requireColon && start + 5 != text.Length {
+        return ""
+    }
+    return text.Substring(start, 5)
+}
+
+func BenchCurrentPhaseContract(): string {
+    return "analysis-before-strict-lint/v1"
+}
+
+func BenchCurrentPhaseDiagnosticMultiset(): string {
+    return "NL011 ×1, NL202 ×1"
+}
+
+func BenchPhaseContractRefusal(expectedContract: string, expectedDiagnostics: string, observedDiagnostics: string, observedExitCode: int, sawFailureBanner: bool): string {
+    if expectedContract == "" || expectedDiagnostics == "" {
+        return "phase contract is missing from the baseline"
+    }
+    if observedExitCode != 1 {
+        return "phase canary exited " + BenchIntText(observedExitCode) + " instead of its required diagnostic exit 1; the measured pipeline stage is unknown"
+    }
+    if !sawFailureBanner {
+        return "phase canary exited 1 without the CLI's own build-failure banner; the measured pipeline stage is unknown"
+    }
+    if observedDiagnostics == "" {
+        return "phase canary produced no recognizable build diagnostics; the measured pipeline stage is unknown"
+    }
+    if observedDiagnostics != expectedDiagnostics {
+        return "phase canary diagnostics changed: expected [" + expectedDiagnostics + "] for '" + expectedContract + "', observed [" + observedDiagnostics + "]"
+    }
+    return ""
+}
+
+func BenchAbsoluteSelfHostScopeDetail(currentFiles: int, currentLines: long, baseline: BenchBaseline): string {
+    return "currentFiles=" + BenchIntText(currentFiles) + " currentLines=" + BenchLongText(currentLines) + " baselineFiles=" + BenchIntText(baseline.Files) + " baselineLines=" + BenchLongText(baseline.Lines) + " budget=absolute-live-selfhost"
+}
+
 // A diagnostic with no `code` is still a result, and is counted under `(no code)` rather than
 // dropped, so the per-code counts always add up to the total the census states.
 func BenchTallyCode(codes: List<string>, counts: List<int>, code: string) {
@@ -1015,23 +1124,19 @@ func BenchDiffSnapshots(before: string, after: string): string {
 
 // ─── THE CHECKED-IN BASELINE ──────────────────────────────────────────────────────────────────
 
-// THE BASELINE SAYS WHAT STAGE IT COVERS, AND WHAT EXIT CODE THAT STAGE PRODUCES.
+// THE BASELINE SAYS AND PROVES WHAT STAGE IT COVERS.
 //
-// `nlc build` runs `MultiFileCompiler.CompileToIlAssembly(validateStrictLint: true)`, and
-// `RunLegacyValidationPipeline` RETURNS before `AnalyzeAllFiles()` as soon as strict lint reports an
-// error. On `src/NSharpLang.Compiler.Core` it does: `nlc check --json` reports 243
-// error-severity results there, 45 of them lint findings that stop the build at that gate, so a
-// "build" of that project today measures PARSE + STRICT LINT and nothing after it. The product
-// itself builds this project through the MSBuild SDK with legacy analysis switched off by project
-// name (`src/NSharpLang.Sdk/Sdk/Sdk.targets:16`), which is why the failure is not visible in a
-// normal `dotnet build`.
+// Exit 1 is not a stage identity. The original schema-1 baseline measured 403 files / 172,653 lines
+// while strict lint returned before analysis. Commit 7733ece06 moved analysis before strict lint;
+// the command still exited 1, so the old exit-code guard compared 126 seconds of a different phase
+// against 7.868 seconds and called the machine load the only uncertainty.
 //
-// A benchmark that reported that number as "build time" would be claiming coverage it does not
-// have. So the baseline carries `stage` — prose naming exactly what the measurement covers, carried
-// in every failure message the gate can produce — and `expectedExitCode`, which the gate requires
-// each run to MATCH. Matching, not merely tolerating: an exit 0 where 1 was baselined means the
-// front-end stopped failing and the run now reaches analysis and emit, so the number is no longer
-// comparable and the baseline has to be re-measured. That is a gate failure, not a quiet pass.
+// Schema 2 pairs the human-readable `stage` with a semantic phase canary. A tiny real build has one
+// semantic-only error and one strict-lint-only error in separate files. Their exact diagnostic
+// multiset proves that both analysis and lint ran, independent of the final exit code. Missing or
+// changed canary evidence refuses the baseline before the three expensive runs. The live Core tree
+// remains an ABSOLUTE self-host latency budget: its current file and line counts are reported with
+// every measurement, but ordinary source growth does not force a baseline rewrite.
 class BenchBaseline {
     SchemaVersion: int
     Project: string
@@ -1047,6 +1152,8 @@ class BenchBaseline {
     MedianWallMs: long
     MedianPeakRssBytes: long
     ToleranceThousandths: long
+    PhaseContract: string
+    PhaseDiagnosticMultiset: string
 
     constructor(
         schemaVersion: int,
@@ -1062,7 +1169,9 @@ class BenchBaseline {
         lines: long,
         medianWallMs: long,
         medianPeakRssBytes: long,
-        toleranceThousandths: long
+        toleranceThousandths: long,
+        phaseContract: string = "",
+        phaseDiagnosticMultiset: string = ""
     ) {
         SchemaVersion = schemaVersion
         Project = project
@@ -1078,12 +1187,13 @@ class BenchBaseline {
         MedianWallMs = medianWallMs
         MedianPeakRssBytes = medianPeakRssBytes
         ToleranceThousandths = toleranceThousandths
+        PhaseContract = phaseContract
+        PhaseDiagnosticMultiset = phaseDiagnosticMultiset
     }
 }
 
-// `stage` and `expectedExitCode` are read SOFTLY — absent means the empty string and `-1` — so that
-// a baseline written before those keys existed is REFUSED BY NAME by `BenchBaselineRefusal` instead
-// of throwing an unreadable `KeyNotFoundException` out of the gate.
+// Stage-contract fields are read SOFTLY so an older baseline is refused by name instead of throwing
+// an unreadable `KeyNotFoundException` out of the gate.
 func BenchJsonStringOrEmpty(root: JsonElement, name: string): string {
     try {
         return root.GetProperty(name).GetString() ?? ""
@@ -1117,7 +1227,9 @@ func BenchParseBaseline(json: string): BenchBaseline {
         root.GetProperty("lines").GetInt64(),
         root.GetProperty("medianWallMs").GetInt64(),
         root.GetProperty("medianPeakRssBytes").GetInt64(),
-        BenchParseFixed3(root.GetProperty("toleranceFactor").GetRawText() ?? "")
+        BenchParseFixed3(root.GetProperty("toleranceFactor").GetRawText() ?? ""),
+        BenchJsonStringOrEmpty(root, "phaseContract"),
+        BenchJsonStringOrEmpty(root, "phaseDiagnosticMultiset")
     )
     document.Dispose()
     return baseline
@@ -1127,8 +1239,11 @@ func BenchParseBaseline(json: string): BenchBaseline {
 // print. The `medianWallMs == 0` arm is the one that matters most: the file is checked in with
 // placeholder zeros, and a placeholder must never be able to pass the gate it guards.
 func BenchBaselineRefusal(baseline: BenchBaseline): string {
-    if baseline.SchemaVersion != 1 {
-        return "baseline schemaVersion " + BenchIntText(baseline.SchemaVersion) + " is not the supported version 1"
+    if baseline.SchemaVersion != 2 {
+        if baseline.SchemaVersion == 1 {
+            return "baseline schemaVersion 1 measured parse plus strict lint before analysis; commit 7733ece06 moved analysis before strict lint, so those milliseconds cannot be reused. Measure the current phase and write one schemaVersion 2 record"
+        }
+        return "baseline schemaVersion " + BenchIntText(baseline.SchemaVersion) + " is not the supported version 2"
     }
 
     if baseline.Project != BenchBootstrapProjectPath() {
@@ -1140,7 +1255,23 @@ func BenchBaselineRefusal(baseline: BenchBaseline): string {
     }
 
     if baseline.Stage == "" {
-        return "baseline stage is missing: the baseline must say in prose which stage of the command" + " its milliseconds cover, because `nlc build` stops at strict lint on this project and" + " does not reach analysis or emit"
+        return "baseline stage is missing: the baseline must say in prose which stage of the command its milliseconds cover"
+    }
+
+    if baseline.PhaseContract == "" {
+        return "baseline phaseContract is missing: schemaVersion 2 must pin the semantic build canary before timing"
+    }
+
+    if baseline.PhaseContract != BenchCurrentPhaseContract() {
+        return "baseline phaseContract '" + baseline.PhaseContract + "' is not the live contract '" + BenchCurrentPhaseContract() + "'"
+    }
+
+    if baseline.PhaseDiagnosticMultiset == "" {
+        return "baseline phaseDiagnosticMultiset is missing: schemaVersion 2 must pin the canary's exact diagnostics"
+    }
+
+    if baseline.PhaseDiagnosticMultiset != BenchCurrentPhaseDiagnosticMultiset() {
+        return "baseline phaseDiagnosticMultiset [" + baseline.PhaseDiagnosticMultiset + "] is not the live canary contract [" + BenchCurrentPhaseDiagnosticMultiset() + "]"
     }
 
     if baseline.ExpectedExitCode < 0 {

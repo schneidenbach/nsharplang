@@ -46,20 +46,24 @@ func BenchTestBaselinePath(): string {
 }
 
 func BenchTestStageText(): string {
-    return "front-end (parse + strict lint)"
+    return "front-end (parse + semantic analysis + strict lint); build rejects Core before emission"
 }
 
 func BenchTestPlaceholderBaselineJson(): string {
-    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"0000000000000000000000000000000000000000\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":0,\"lines\":0,\"medianWallMs\":0,\"medianPeakRssBytes\":0,\"toleranceFactor\":1.5}"
+    return "{\"schemaVersion\":2,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1," + "\"phaseContract\":\"" + BenchCurrentPhaseContract() + "\",\"phaseDiagnosticMultiset\":\"NL011 ×1, NL202 ×1\"," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"0000000000000000000000000000000000000000\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":0,\"lines\":0,\"medianWallMs\":0,\"medianPeakRssBytes\":0,\"toleranceFactor\":1.5}"
+}
+
+func BenchTestHistoricalStageBaselineJson(): string {
+    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.Core\",\"command\":\"build\",\"stage\":\"front-end (parse + strict lint); analysis and emit are NOT covered\",\"expectedExitCode\":1,\"measuredAt\":\"2026-09-01\",\"cliCommit\":\"8cf40128a2175ecf5a61196a6ab7f7911ded5afc\",\"machine\":\"Apple M4\",\"runs\":5,\"files\":403,\"lines\":172653,\"medianWallMs\":7868,\"medianPeakRssBytes\":180584448,\"toleranceFactor\":1.5}"
 }
 
 func BenchTestMeasuredBaselineJson(): string {
-    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000," + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
+    return "{\"schemaVersion\":2,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1," + "\"phaseContract\":\"" + BenchCurrentPhaseContract() + "\",\"phaseDiagnosticMultiset\":\"NL011 ×1, NL202 ×1\"," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000," + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
 }
 
 // The same baseline with `expectedExitCode` 0, for the arm where a run is supposed to SUCCEED.
 func BenchTestSuccessBaselineJson(): string {
-    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"stage\":\"parse, analysis and emit\",\"expectedExitCode\":0," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000," + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
+    return "{\"schemaVersion\":2,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"stage\":\"parse, analysis and emit\",\"expectedExitCode\":0," + "\"phaseContract\":\"" + BenchCurrentPhaseContract() + "\",\"phaseDiagnosticMultiset\":\"NL011 ×1, NL202 ×1\"," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000," + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
 }
 
 // Three runs' worth of "the CLI printed its own failure banner".
@@ -317,15 +321,34 @@ test "compile-time bench: only `\\n`-terminated lines are counted, so a trailing
 
 // ─── THE BASELINE ─────────────────────────────────────────────────────────────────────────────
 
-test "compile-time bench: the checked-in baseline file parses into every field the gate compares" {
+test "compile-time bench: the checked-in baseline is either the recorded historical phase or a complete measured schema two" {
     baseline := BenchParseBaseline(File.ReadAllText(BenchTestBaselinePath()))
-    assert baseline.SchemaVersion == 1
     assert baseline.Project == "src/NSharpLang.Compiler.Core"
     assert baseline.Command == "build"
     assert baseline.ExpectedExitCode == 1
-    assert baseline.Stage.IndexOf("strict lint", StringComparison.Ordinal) > 0
-    assert baseline.Stage.IndexOf("analysis and emit are NOT covered", StringComparison.Ordinal) > 0
+    assert baseline.Files > 0
+    assert baseline.Lines > 0
+    assert baseline.MedianWallMs > 0
     assert baseline.ToleranceThousandths == 1500
+    if baseline.SchemaVersion == 1 {
+        assert BenchBaselineRefusal(baseline).IndexOf("cannot be reused", StringComparison.Ordinal) > 0
+    } else {
+        assert baseline.SchemaVersion == 2
+        assert baseline.PhaseContract == BenchCurrentPhaseContract()
+        assert baseline.PhaseDiagnosticMultiset == BenchCurrentPhaseDiagnosticMultiset()
+        assert BenchBaselineRefusal(baseline) == ""
+    }
+}
+
+test "compile-time bench: the historical 7868ms lint-first record is refused after analysis moved before lint" {
+    baseline := BenchParseBaseline(BenchTestHistoricalStageBaselineJson())
+    assert baseline.SchemaVersion == 1
+    assert baseline.Files == 403
+    assert baseline.Lines == 172653
+    assert baseline.MedianWallMs == 7868
+    refusal := BenchBaselineRefusal(baseline)
+    assert refusal.IndexOf("commit 7733ece06 moved analysis before strict lint", StringComparison.Ordinal) > 0
+    assert refusal.IndexOf("cannot be reused", StringComparison.Ordinal) > 0
 }
 
 test "compile-time bench: a baseline whose medianWallMs is still the placeholder ZERO is REFUSED, so a placeholder can never pass the gate it guards" {
@@ -344,25 +367,24 @@ test "compile-time bench: a measured baseline is accepted, and its tolerance is 
 }
 
 test "compile-time bench: a baseline for another schema version, project or command is REFUSED by name" {
-    wrongSchema := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
-    assert BenchBaselineRefusal(wrongSchema) == "baseline schemaVersion 2 is not the supported version 1"
+    wrongSchema := new BenchBaseline(3, "src/NSharpLang.Compiler.Core", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
+    assert BenchBaselineRefusal(wrongSchema) == "baseline schemaVersion 3 is not the supported version 2"
 
-    wrongProject := new BenchBaseline(1, "examples/01-hello-world", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
+    wrongProject := new BenchBaseline(2, "examples/01-hello-world", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500, BenchCurrentPhaseContract(), BenchCurrentPhaseDiagnosticMultiset())
     assert BenchBaselineRefusal(wrongProject) == "baseline project 'examples/01-hello-world' is not 'src/NSharpLang.Compiler.Core'"
 
-    wrongCommand := new BenchBaseline(1, "src/NSharpLang.Compiler.Core", "check", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
+    wrongCommand := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "check", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500, BenchCurrentPhaseContract(), BenchCurrentPhaseDiagnosticMultiset())
     assert BenchBaselineRefusal(wrongCommand) == "baseline command 'check' is not 'build'"
 }
 
 test "compile-time bench: a baseline with NO stage is REFUSED, because milliseconds that do not say which stage they cover cannot be compared" {
-    noStage := new BenchBaseline(1, "src/NSharpLang.Compiler.Core", "build", "", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
+    noStage := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "", 1, "", "", "", 5, 0, 0, 1, 0, 1500, BenchCurrentPhaseContract(), BenchCurrentPhaseDiagnosticMultiset())
     refusal := BenchBaselineRefusal(noStage)
     assert refusal.IndexOf("baseline stage is missing", StringComparison.Ordinal) == 0
-    assert refusal.IndexOf("does not reach analysis or emit", StringComparison.Ordinal) > 0
 }
 
 test "compile-time bench: a baseline with a MISSING or negative expectedExitCode is REFUSED, and a JSON without the key parses to the missing marker rather than throwing" {
-    noExit := new BenchBaseline(1, "src/NSharpLang.Compiler.Core", "build", "s", -1, "", "", "", 5, 0, 0, 1, 0, 1500)
+    noExit := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "s", -1, "", "", "", 5, 0, 0, 1, 0, 1500, BenchCurrentPhaseContract(), BenchCurrentPhaseDiagnosticMultiset())
     refusal := BenchBaselineRefusal(noExit)
     assert refusal.IndexOf("baseline expectedExitCode is missing or negative", StringComparison.Ordinal) == 0
 
@@ -371,7 +393,18 @@ test "compile-time bench: a baseline with a MISSING or negative expectedExitCode
     )
     assert legacy.Stage == ""
     assert legacy.ExpectedExitCode == -1
-    assert BenchBaselineRefusal(legacy).IndexOf("baseline stage is missing", StringComparison.Ordinal) == 0
+    assert BenchBaselineRefusal(legacy).StartsWith("baseline schemaVersion 1 measured parse plus strict lint")
+}
+
+test "compile-time bench: schema two refuses a missing phase contract or exact canary multiset" {
+    noContract := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
+    assert BenchBaselineRefusal(noContract).StartsWith("baseline phaseContract is missing")
+    wrongContract := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500, "lint-before-analysis/v1", BenchCurrentPhaseDiagnosticMultiset())
+    assert BenchBaselineRefusal(wrongContract).IndexOf("is not the live contract", StringComparison.Ordinal) > 0
+    noDiagnostics := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500, BenchCurrentPhaseContract(), "")
+    assert BenchBaselineRefusal(noDiagnostics).StartsWith("baseline phaseDiagnosticMultiset is missing")
+    wrongDiagnostics := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500, BenchCurrentPhaseContract(), "NL011 ×1")
+    assert BenchBaselineRefusal(wrongDiagnostics).IndexOf("is not the live canary contract", StringComparison.Ordinal) > 0
 }
 
 test "compile-time bench: a tolerance factor is read as thousandths and rendered back without trailing zeros" {
@@ -407,7 +440,7 @@ test "compile-time bench: a median past the tolerance is a REGRESSION whose mess
     assert verdict.IndexOf("tolerance=x1.5", StringComparison.Ordinal) > 0
     assert verdict.IndexOf("limit=180000ms", StringComparison.Ordinal) > 0
     assert verdict.IndexOf("expectedExitCode=1", StringComparison.Ordinal) > 0
-    assert verdict.IndexOf("stage=front-end (parse + strict lint)", StringComparison.Ordinal) > 0
+    assert verdict.IndexOf("stage=" + BenchTestStageText(), StringComparison.Ordinal) > 0
     assert verdict.IndexOf("cliCommit=deadbeef", StringComparison.Ordinal) > 0
 }
 
@@ -482,6 +515,39 @@ test "compile-time bench: an envelope with an EMPTY results array, no results ar
 test "compile-time bench: a result carrying no code is still counted, so the per-code counts always add up to the stated total" {
     envelope := "{\"results\":[{\"severity\":\"error\"},{\"code\":\"NL202\",\"severity\":\"error\"}]}"
     assert BenchDiagnosticCensus(envelope) == "2 results: (no code) ×1, NL202 ×1"
+}
+
+test "compile-time bench: rendered build diagnostics read compact headers and rich canonical URLs as one exact multiset" {
+    rendered := "-- TYPE MISMATCH -- Semantic.nl\n" + "8| return TakeNumber(\"NL999\")\n" + "Read more: https://schneidenbach.github.io/nsharplang/docs/errors/NL202\n\n" + "error NL011: This catch block is empty\n" + "error NL011: This second catch block is empty\n"
+    assert BenchRenderedBuildDiagnosticMultiset(rendered) == "NL011 ×2, NL202 ×1"
+}
+
+test "compile-time bench: rendered diagnostic extraction fails closed on prose and malformed identities" {
+    malformed := BenchRenderedBuildDiagnosticMultiset("hint: see NL202\nRead more: https://example.test/NL011\nerror NL12: short\nerror NL202 missing colon\n")
+    assert malformed == "(unrecognized diagnostic rendering) ×3", malformed
+    assert BenchDiagnosticCodeAt("NL202:", 0, true) == "NL202"
+    assert BenchDiagnosticCodeAt("NL202x", 0, true) == ""
+    assert BenchDiagnosticCodeAt("NL202", 0, false) == "NL202"
+    assert BenchDiagnosticCodeAt("NL202/extra", 0, false) == ""
+}
+
+test "compile-time bench: the phase contract accepts only its exact diagnostic multiset and calls no evidence unknown" {
+    expected := BenchCurrentPhaseDiagnosticMultiset()
+    assert BenchPhaseContractRefusal(BenchCurrentPhaseContract(), expected, expected, 1, true) == ""
+    assert BenchPhaseContractRefusal(BenchCurrentPhaseContract(), expected, "", 1, true).IndexOf("stage is unknown", StringComparison.Ordinal) > 0
+    assert BenchPhaseContractRefusal(BenchCurrentPhaseContract(), expected, expected, 0, false).IndexOf("diagnostic exit 1", StringComparison.Ordinal) > 0
+    assert BenchPhaseContractRefusal(BenchCurrentPhaseContract(), expected, expected, 1, false).IndexOf("without the CLI's own build-failure banner", StringComparison.Ordinal) > 0
+    mismatch := BenchPhaseContractRefusal(BenchCurrentPhaseContract(), expected, "NL011 ×1", 1, true)
+    assert mismatch.IndexOf("expected [NL011 ×1, NL202 ×1]", StringComparison.Ordinal) > 0
+    assert mismatch.IndexOf("observed [NL011 ×1]", StringComparison.Ordinal) > 0
+    malformed := BenchPhaseContractRefusal(BenchCurrentPhaseContract(), expected, "NL011 ×1, NL202 ×1, (unrecognized diagnostic rendering) ×1", 1, true)
+    assert malformed.IndexOf("unrecognized diagnostic rendering", StringComparison.Ordinal) > 0
+}
+
+test "compile-time bench: the gate reports live and baseline source sizes as an absolute self-host budget" {
+    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
+    detail := BenchAbsoluteSelfHostScopeDetail(526, 288640, baseline)
+    assert detail == "currentFiles=526 currentLines=288640 baselineFiles=403 baselineLines=250000 budget=absolute-live-selfhost"
 }
 
 // ─── THE SOURCE-SELECTION RULE ────────────────────────────────────────────────────────────────
@@ -729,6 +795,21 @@ test "compile-time bench: this platform answers with a POSITIVE load average and
     }
 }
 
+test "compile-time bench: the live two-file build canary proves analysis runs before strict lint" {
+    root := BenchRepositoryRoot()
+    cliDll := BenchDefaultCliDll(root)
+    assert File.Exists(cliDll), "build the CLI before running the phase canary: " + cliDll
+    observed := BenchObserveBuildPhase(cliDll)
+    refusal := BenchPhaseContractRefusal(
+        BenchCurrentPhaseContract(),
+        BenchCurrentPhaseDiagnosticMultiset(),
+        observed.DiagnosticMultiset,
+        observed.ExitCode,
+        observed.SawBuildFailedBanner
+    )
+    assert refusal == "", refusal + "\n" + observed.Stderr
+}
+
 // ─── THE GATE'S TWO HALVES ────────────────────────────────────────────────────────────────────
 
 test "compile-time bench: a median past the tolerance on a LOADED machine is SKIPPED-BY-LOAD rather than a regression, and the skip carries every number" {
@@ -862,7 +943,19 @@ test "compile-time gate: nlc build on src/NSharpLang.Compiler.Core stays inside 
         cliDll := BenchDefaultCliDll(repositoryRoot)
         assert File.Exists(cliDll), "compile-time gate: the CLI under test was not found at " + cliDll + ". Build it with: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug"
 
+        phase := BenchObserveBuildPhase(cliDll)
+        phaseRefusal := BenchPhaseContractRefusal(
+            baseline.PhaseContract,
+            baseline.PhaseDiagnosticMultiset,
+            phase.DiagnosticMultiset,
+            phase.ExitCode,
+            phase.SawBuildFailedBanner
+        )
+        assert phaseRefusal == "", "compile-time gate: " + phaseRefusal + "\n" + phase.Stderr
+
         projectDirectory := BenchAbsoluteProjectPath(repositoryRoot, baseline.Project)
+        sourceMeasure := BenchMeasureProjectSources(projectDirectory)
+        sourceScope := BenchAbsoluteSelfHostScopeDetail(sourceMeasure.Files, sourceMeasure.Lines, baseline)
 
         // BEFORE the runs, so the figure describes the machine these medians were taken on rather
         // than the machine after three builds of the compiler have loaded it.
@@ -883,10 +976,14 @@ test "compile-time gate: nlc build on src/NSharpLang.Compiler.Core stays inside 
         median := BenchMedian(wallMs, 3)
         cliCommit := BenchReadCliCommit(repositoryRoot)
         outcome := BenchGateOutcome(wallMs, exitCodes, banners, 3, median, baseline, cliCommit, load)
+        recordedOutcome := outcome
+        if outcome != "ok" {
+            recordedOutcome = outcome + " " + sourceScope
+        }
 
         // The one place a GREEN gate can still say what it did: a skipped timing judgement nobody
         // can see is the failure mode being removed, and the block may not print.
-        BenchWriteGateRecord(repositoryRoot, BenchGateRecordLine(outcome, BenchGateDetail(wallMs, exitCodes, 3, median, baseline, cliCommit, load)))
-        assert BenchGateOutcomeIsSilent(outcome), outcome
+        BenchWriteGateRecord(repositoryRoot, BenchGateRecordLine(recordedOutcome, BenchGateDetail(wallMs, exitCodes, 3, median, baseline, cliCommit, load) + " " + sourceScope))
+        assert BenchGateOutcomeIsSilent(recordedOutcome), recordedOutcome
     }
 }
