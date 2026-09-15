@@ -41,7 +41,7 @@ class ColumnarRangeIndexPlanner {
             return ColumnarConstructionPlanner.TryEmit(nodes, source, node, bindings, plan, il, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType, modifiedMemberReferences)
         }
         if ColumnarDirectCallPlanner.MayPlanRoot(nodes, node) {
-            return ColumnarDirectCallPlanner.TryEmit(nodes, source, node, bindings, plan, il, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType)
+            return ColumnarDirectCallPlanner.TryEmit(nodes, source, node, bindings, plan, il, out nsharpOwned, out legacyWholeSubtreePlanning, out resultType, modifiedMemberReferences)
         }
         if ColumnarPrimitiveBinaryPlanner.MayPlanRoot(nodes, source, node) {
             handles := ColumnarRangeIndexHandles.Resolve()

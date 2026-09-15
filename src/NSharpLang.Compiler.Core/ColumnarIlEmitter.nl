@@ -6330,6 +6330,7 @@ sealed class ColumnarIlEmitter {
                         null,
                         typeResolution.StructuralTypeReferences
                     )
+                    generatorFacts.ModifiedMemberReferences = modifiedMemberReferences
                     if (fn.IsAsync ? !TryEmitAsyncIteratorStateMachine(
                         module,
                         fn,
@@ -6568,6 +6569,16 @@ sealed class ColumnarIlEmitter {
                 bodyTypeResolution2 := typeResolutionCatalog.For(job.Item2.SourceFileId, null, null)
                 ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId, job.Item2.Name)
                 try {
+                    memberGeneratorFacts := ColumnarIteratorBodyFacts.FromEmissionFacts(
+                        enumRegistry,
+                        structRegistry,
+                        unionRegistry,
+                        freeFunctionScope.ViewFor(job.Item2.SourceFileId),
+                        bodyTypeResolution2.Structs.Resolver.ExactSourceTypes,
+                        job.Item1,
+                        bodyTypeResolution2.StructuralTypeReferences
+                    )
+                    memberGeneratorFacts.ModifiedMemberReferences = modifiedMemberReferences
                     if (!TryEmitMemberIterator(
                         module,
                         job.Item1,
@@ -6579,15 +6590,7 @@ sealed class ColumnarIlEmitter {
                         methodSource,
                         displayClasses,
                         lambdaCounter,
-                        ColumnarIteratorBodyFacts.FromEmissionFacts(
-                            enumRegistry,
-                            structRegistry,
-                            unionRegistry,
-                            freeFunctionScope.ViewFor(job.Item2.SourceFileId),
-                            bodyTypeResolution2.Structs.Resolver.ExactSourceTypes,
-                            job.Item1,
-                            bodyTypeResolution2.StructuralTypeReferences
-                        )
+                        memberGeneratorFacts
                     )) {
                         return false
                     }

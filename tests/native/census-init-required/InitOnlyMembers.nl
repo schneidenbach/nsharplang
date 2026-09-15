@@ -1,6 +1,8 @@
 namespace NSharpLang.CensusInitRequired.Tests
 
 import System
+import System.Collections.Generic
+import System.Threading.Tasks
 
 
 // The shape the docs promise: an `init` member is set by an object initializer and is a PROPERTY in
@@ -142,4 +144,46 @@ func GenericMeasurementFrom<U>(value: U): GenericMeasurement<U> {
     return new GenericMeasurement<U> {
         Value: value
     }
+}
+
+func* GenericInitObjects(): IEnumerable<object> {
+    yield new GenericInitializable<int> {
+        Value: 40
+    }
+}
+
+func* GenericInitCallbacks(): IEnumerable<Func<object>> {
+    yield () => new GenericInitializable<int> {
+        Value: 41
+    }
+}
+
+func* GenericAsyncInitCallbacks(): IEnumerable<Func<Task<object>>> {
+    yield async () => new GenericInitializable<int> {
+        Value: 42
+    }
+}
+
+async func* GenericAsyncInitObjects(): IAsyncEnumerable<object> {
+    await Task.Yield()
+    yield new GenericInitializable<int> {
+        Value: 44
+    }
+}
+
+func* GenericIteratorInitObjects<U>(value: U): IEnumerable<object> {
+    yield new GenericInitializable<U> {
+        Value: value
+    }
+}
+
+func AcceptInitialized(value: object): object {
+    return value
+}
+
+async func AsyncComposedGenericInit(): object {
+    await Task.Yield()
+    return AcceptInitialized(new GenericInitializable<int> {
+        Value: 43
+    })
 }

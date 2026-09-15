@@ -287,6 +287,40 @@ test "a referenced closed-generic init setter binds from a derived constructor" 
     }
 }
 
+test "iterator and async call plans retain an exact closed-generic init setter MemberRef" {
+    directory := NewTempDirectory()
+    try {
+        fixture := Path.Combine(directory, "Fixture")
+        consumer := Path.Combine(directory, "Consumer")
+        Directory.CreateDirectory(fixture)
+        Directory.CreateDirectory(consumer)
+        WriteFile(fixture, "project.yml", ProjectYml("InitSetterFixture", "il", "library"))
+        WriteFile(fixture, "Fixture.nl", "namespace InitSetterFixture\n\nclass Box<T> {\n    init Value: T\n}\n")
+        fixtureBuild := Nlc("build", fixture)
+        assert fixtureBuild.ExitCode == 0, fixtureBuild.Stdout + fixtureBuild.Stderr
+
+        fixtureAssembly := Path.Combine(fixture, "bin/Debug/net10.0/InitSetterFixture.dll")
+        consumerProject := ProjectYml("IteratorInitSetterConsumer", "il", "exe") + "dependencies:\n  - dll: " + fixtureAssembly + "\n"
+        WriteFile(consumer, "project.yml", consumerProject)
+        WriteFile(
+            consumer,
+            "Program.nl",
+            "namespace IteratorInitSetterConsumer\n\nimport System\nimport System.Collections.Generic\nimport System.Threading.Tasks\nimport InitSetterFixture\n\nfunc* Direct(): IEnumerable<object> {\n    yield new Box<int> { Value: 40 }\n}\n\nfunc* Callbacks(): IEnumerable<Func<object>> {\n    yield () => new Box<int> { Value: 41 }\n}\n\nfunc Accept(value: object): object { return value }\n\nasync func Composed(): object {\n    await Task.Yield()\n    return Accept(new Box<int> { Value: 43 })\n}\n\nasync func main() {\n    count := 0\n    for value in Direct() {\n        box := value as Box<int>\n        if box != null && box.Value == 40 { count = count + 1 }\n    }\n    for callback in Callbacks() {\n        box := callback() as Box<int>\n        if box != null && box.Value == 41 { count = count + 1 }\n    }\n    box := (await Composed()) as Box<int>\n    if box != null && box.Value == 43 { count = count + 1 }\n    print count\n}\n"
+        )
+        consumerBuild := Nlc("build", consumer)
+        assert consumerBuild.ExitCode == 0, consumerBuild.Stdout + consumerBuild.Stderr
+
+        consumerAssembly := Path.Combine(consumer, "bin/Debug/net10.0/IteratorInitSetterConsumer.dll")
+        assert HasClosedGenericInitSetterMemberReference(consumerAssembly), "iterator init setter MemberRef return position did not carry modreq"
+        // Generic method-owned iterator construction is covered by the source runtime fixture; external generic iterator ownership is a separate baseline limit.
+        executed := DotnetApp(consumerAssembly, consumer)
+        assert executed.ExitCode == 0, executed.Stdout + executed.Stderr
+        assert executed.Stdout.Trim() == "3"
+    } finally {
+        DeleteTempDirectory(directory)
+    }
+}
+
 test "nlc build accepts a single source file after the options and builds it with the il backend" {
     directory := NewTempDirectory()
     try {

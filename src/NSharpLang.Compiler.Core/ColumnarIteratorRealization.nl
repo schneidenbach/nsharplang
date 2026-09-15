@@ -26,6 +26,13 @@ class ColumnarIteratorRealizationResult {
 // Owns iterator-specific canonical resolution together with the CLR declaration and plan-execution
 // sequence. The old-signature C# entry points remain mechanical tracing adapters only.
 class ColumnarIteratorRealization {
+    static func ModifiedMemberReferencesOf(bodyFacts: ColumnarIteratorBodyFacts?): ColumnarModifiedMemberReferenceLedger? {
+        if bodyFacts == null {
+            return null
+        }
+        return bodyFacts.ModifiedMemberReferences
+    }
+
     static func EmitMember(
         module: ModuleBuilder,
         structDef: ColumnarStructDef,
@@ -267,6 +274,7 @@ class ColumnarIteratorRealization {
         enclosingMethods: MethodInfo[]? = null,
         bodyFacts: ColumnarIteratorBodyFacts? = null
     ): ColumnarIteratorRealizationResult {
+        modifiedMemberReferences := ModifiedMemberReferencesOf(bodyFacts)
         declineLabel := memberLabel.Length == 0 ? fn.Name : memberLabel
         shape := SyncShape(fn, funcOrdinal, functionSource, precomputedShape)
         if !shape.Supported {
@@ -408,7 +416,7 @@ class ColumnarIteratorRealization {
             return Declined(context.DeclineSite, context.DeclineMessage + " in '" + declineLabel + "'", declineLabel)
         }
         moveNextIl := moveNext.GetILGenerator()
-        ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNextIl)
+        ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNextIl, modifiedMemberReferences)
         // `Dispose` drives this exact handle to unwind a machine abandoned inside a protected region.
         // A generic machine's members are taken on the instantiation its fields already came from.
         moveNextHandle: MethodInfo = moveNext
@@ -495,7 +503,7 @@ class ColumnarIteratorRealization {
             )
         }
         factoryPlan := ColumnarIteratorBodyPlanner.BuildFactoryPlan(factoryContext)
-        ColumnarCodePlanExecutor.Execute(factoryPlan, factoryIl)
+        ColumnarCodePlanExecutor.Execute(factoryPlan, factoryIl, modifiedMemberReferences)
         synthesizedTypes.Add(sm)
         return Completed()
     }
@@ -510,6 +518,7 @@ class ColumnarIteratorRealization {
         synthesizedTypes: List<TypeBuilder>,
         bodyFacts: ColumnarIteratorBodyFacts? = null
     ): ColumnarIteratorRealizationResult {
+        modifiedMemberReferences := ModifiedMemberReferencesOf(bodyFacts)
         shape := ColumnarIteratorPlanner.AnalyzeShape(
             fn.BodyNodes,
             functionSource,
@@ -663,7 +672,7 @@ class ColumnarIteratorRealization {
             return Declined(context.DeclineSite, context.DeclineMessage + " in '" + fn.Name + "'", fn.Name)
         }
         coreIl := core.GetILGenerator()
-        ColumnarCodePlanExecutor.Execute(corePlan, coreIl)
+        ColumnarCodePlanExecutor.Execute(corePlan, coreIl, modifiedMemberReferences)
 
         moveNextAsync := sm.DefineMethod(
             shape.MemberNames[2],
@@ -674,7 +683,7 @@ class ColumnarIteratorRealization {
         shape.MemberOverrideRows[2].Apply(overrideContext, sm, moveNextAsync)
         moveNextAsyncPlan := ColumnarIteratorBodyPlanner.BuildMoveNextAsyncPlan(context)
         moveNextAsyncIl := moveNextAsync.GetILGenerator()
-        ColumnarCodePlanExecutor.Execute(moveNextAsyncPlan, moveNextAsyncIl)
+        ColumnarCodePlanExecutor.Execute(moveNextAsyncPlan, moveNextAsyncIl, modifiedMemberReferences)
 
         getCurrent := sm.DefineMethod(
             shape.MemberNames[3],
@@ -685,7 +694,7 @@ class ColumnarIteratorRealization {
         shape.MemberOverrideRows[3].Apply(overrideContext, sm, getCurrent)
         getCurrentPlan := ColumnarIteratorBodyPlanner.BuildGetCurrentPlan(context)
         getCurrentIl := getCurrent.GetILGenerator()
-        ColumnarCodePlanExecutor.Execute(getCurrentPlan, getCurrentIl)
+        ColumnarCodePlanExecutor.Execute(getCurrentPlan, getCurrentIl, modifiedMemberReferences)
 
         disposeAsync := sm.DefineMethod(
             shape.MemberNames[4],
@@ -696,7 +705,7 @@ class ColumnarIteratorRealization {
         shape.MemberOverrideRows[4].Apply(overrideContext, sm, disposeAsync)
         disposeAsyncPlan := ColumnarIteratorBodyPlanner.BuildDisposeAsyncPlan(context)
         disposeAsyncIl := disposeAsync.GetILGenerator()
-        ColumnarCodePlanExecutor.Execute(disposeAsyncPlan, disposeAsyncIl)
+        ColumnarCodePlanExecutor.Execute(disposeAsyncPlan, disposeAsyncIl, modifiedMemberReferences)
 
         cancellationParameters := new Type[](1)
         cancellationParameters[0] = typeof(System.Threading.CancellationToken)
@@ -709,10 +718,10 @@ class ColumnarIteratorRealization {
         shape.MemberOverrideRows[5].Apply(overrideContext, sm, getAsyncEnumerator)
         getAsyncEnumeratorPlan := ColumnarIteratorBodyPlanner.BuildGetAsyncEnumeratorPlan(context)
         getAsyncEnumeratorIl := getAsyncEnumerator.GetILGenerator()
-        ColumnarCodePlanExecutor.Execute(getAsyncEnumeratorPlan, getAsyncEnumeratorIl)
+        ColumnarCodePlanExecutor.Execute(getAsyncEnumeratorPlan, getAsyncEnumeratorIl, modifiedMemberReferences)
 
         factoryPlan := ColumnarIteratorBodyPlanner.BuildAsyncFactoryPlan(context)
-        ColumnarCodePlanExecutor.Execute(factoryPlan, factoryIl)
+        ColumnarCodePlanExecutor.Execute(factoryPlan, factoryIl, modifiedMemberReferences)
         synthesizedTypes.Add(sm)
         return Completed()
     }
