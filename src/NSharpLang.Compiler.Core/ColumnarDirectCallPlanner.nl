@@ -3616,6 +3616,13 @@ class ColumnarDirectCallPlanner {
             return target >= 0 && nodes.Kind(target) == ColumnarExpressionNodeKind.IdentifierExpression() && nodes.ChildCount(target) == 0
         }
 
+        // Await is admitted as nested value syntax only so the recursive planner can ask the live
+        // scope whether blocking await is enabled. With the default disabled binding the append is
+        // atomic and the ordinary emitter retains ownership.
+        if kind == 53 {
+            return nodes.ChildCount(node) == 1 && IsAdmittedValueSyntax(nodes, source, nodes.Child(node, 0), depth + 1)
+        }
+
         if kind == ColumnarExpressionNodeKind.ParenthesizedExpression() {
             return nodes.ChildCount(node) == 1 && IsAdmittedValueSyntax(nodes, source, nodes.Child(node, 0), depth + 1)
         }

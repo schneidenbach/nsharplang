@@ -124,6 +124,7 @@ test "build and check retain the exact child AOT diagnostic and produce no child
         build := ResolverRunCli("build --project " + ResolverQuote(buildRoot) + " --backend il --aot -o " + ResolverQuote(buildOutput), buildRoot)
         assert build.ExitCode == 1
         assert (build.Stdout + build.Stderr).Contains("AOT builds require successful N# columnar emission", StringComparison.Ordinal)
+        assert (build.Stdout + build.Stderr).Contains("emit.iterator.async-unsupported: generic async iterator methods are not yet lowered", StringComparison.Ordinal)
         assert !File.Exists(Path.Combine(buildOutput, "SharedLib.dll"))
 
         checkRoot := Path.Combine(scratch, "check")
@@ -135,6 +136,7 @@ test "build and check retain the exact child AOT diagnostic and produce no child
         assert !document.RootElement.GetProperty("ok").GetBoolean()
         document.Dispose()
         assert ResolverJsonErrorMessageContains(check.Stdout, "AOT builds require successful N# columnar emission")
+        assert ResolverJsonErrorMessageContains(check.Stdout, "emit.iterator.async-unsupported: generic async iterator methods are not yet lowered")
     } finally {
         Directory.Delete(scratch, true)
     }

@@ -1281,7 +1281,7 @@ test "nlc check reports the AOT columnar requirement after analysis declines" {
         WriteProjectYml(directory, "name: AotCheckRequiresColumnar\noutputType: library\ntargetFramework: net10.0\n")
         File.WriteAllText(
             Path.Combine(directory, "Program.nl"),
-            "import System\nimport System.Collections.Generic\nimport System.Threading.Tasks\n\nfunc* Relay(): IEnumerable<Func<Task<int>>> {\n    yield async () => 42\n}\n"
+            "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* Pending<T>(value: T): IAsyncEnumerable<T> {\n    await Task.Delay(1)\n    yield value\n}\n"
         )
 
         run := NlcIn(directory, "check --aot")
@@ -1293,6 +1293,7 @@ test "nlc check reports the AOT columnar requirement after analysis declines" {
         assert !root.GetProperty("ok").GetBoolean()
         assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("code")) == "NL103"
         assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("message")).Contains("Columnar AOT emission is required")
+        assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("message")).Contains("emit.iterator.async-unsupported: generic async iterator methods are not yet lowered")
         document.Dispose()
     } finally {
         Directory.Delete(directory, true)
@@ -1307,7 +1308,7 @@ test "nlc check AOT project references report the referenced source decline" {
         WriteProjectYml(sharedDirectory, "name: SharedLib\noutputType: library\ntargetFramework: net10.0\n")
         File.WriteAllText(
             Path.Combine(sharedDirectory, "Shared.nl"),
-            "import System\nimport System.Collections.Generic\nimport System.Threading.Tasks\n\nfunc* Relay(): IEnumerable<Func<Task<int>>> {\n    yield async () => 42\n}\n"
+            "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* Pending<T>(value: T): IAsyncEnumerable<T> {\n    await Task.Delay(1)\n    yield value\n}\n"
         )
         WriteProjectYml(
             directory,

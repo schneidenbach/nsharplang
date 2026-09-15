@@ -614,7 +614,7 @@ test "an aot build over a project reference fails when the referenced library de
         Directory.CreateDirectory(sharedDirectory)
         WriteVersionedSdkProject(sharedDirectory, "SharedLib")
         WriteFile(sharedDirectory, "project.yml", ProjectYml("SharedLib", "", "library"))
-        WriteFile(sharedDirectory, "Shared.nl", "import System\nimport System.Collections.Generic\nimport System.Threading.Tasks\nfunc* Relay(): IEnumerable<Func<Task<int>>> {\n    yield async () => 42\n}\n\n")
+        WriteFile(sharedDirectory, "Shared.nl", "import System.Collections.Generic\nimport System.Threading.Tasks\nasync func* Pending<T>(value: T): IAsyncEnumerable<T> {\n    await Task.Delay(1)\n    yield value\n}\n\n")
 
         WriteFile(directory, "project.yml", "name: App\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - project: Shared/project.yml\n")
         WriteFile(directory, "Program.nl", "func main() {\n    print \"root\"\n}\n")

@@ -473,6 +473,12 @@ class ColumnarRangeIndexPlanner {
             if !planned && ownership == ColumnarDirectCallOwnership.OwnedRejected {
                 nestedOwnership = ColumnarDirectCallOwnership.OwnedRejected
             }
+        } else if kind == 53 && bindings.BlockingAwaitEnabled && nodes.ChildCount(node) == 1 {
+            awaitableType := typeof(object)
+            planned = TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out awaitableType, out nestedOwnership)
+            if planned {
+                planned = AppendBlockingAwaitOfStackValue(plan, awaitableType, out resultType)
+            }
         } else if kind == ColumnarExpressionNodeKind.BinaryExpression() {
             // Short-circuit `&&`/`||` is a Boolean control-flow form owned by the conditional
             // planner in every value position; the remaining primitive binaries stay gated to the
@@ -525,6 +531,51 @@ class ColumnarRangeIndexPlanner {
         }
 
         plan.CompleteFragment(fragment, resultType)
+        return true
+    }
+
+    // The async-lambda expression scope's await owner. This mirrors the ordinary emitter's current
+    // BLOCKING semantics, including ValueTask.AsTask before waiting and an address call for the
+    // value-type awaiter. It receives the awaitable already on the stack so nested expression order
+    // remains the recursive value planner's order.
+    static func AppendBlockingAwaitOfStackValue(plan: ColumnarCodePlan, awaitableType: Type, out resultType: Type): bool {
+        resultType = typeof(object)
+        if awaitableType == null || awaitableType.get_IsGenericParameter() {
+            return false
+        }
+
+        if awaitableType == typeof(System.Threading.Tasks.ValueTask) || (awaitableType.get_IsGenericType() && !awaitableType.get_IsGenericTypeDefinition() && awaitableType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition()) {
+            valueTaskLocal := plan.DeclarePlanLocal(plan.AddType(awaitableType))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), valueTaskLocal)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), valueTaskLocal)
+            asTask := awaitableType.GetMethod("AsTask", BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
+            if asTask == null {
+                return false
+            }
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(asTask))
+            return AppendBlockingAwaitOfStackValue(plan, asTask.get_ReturnType(), out resultType)
+        }
+
+        getAwaiter := awaitableType.GetMethod("GetAwaiter", BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
+        if getAwaiter == null {
+            return false
+        }
+        awaiterType := getAwaiter.get_ReturnType()
+        getResult := awaiterType.GetMethod("GetResult", BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
+        if getResult == null {
+            return false
+        }
+        if awaitableType.get_IsValueType() {
+            awaitableLocal := plan.DeclarePlanLocal(plan.AddType(awaitableType))
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), awaitableLocal)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), awaitableLocal)
+        }
+        plan.AppendMethodInstruction(awaitableType.get_IsValueType() ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt(), plan.AddMethod(getAwaiter))
+        awaiterLocal := plan.DeclarePlanLocal(plan.AddType(awaiterType))
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), awaiterLocal)
+        plan.AppendPlanLocalInstruction(awaiterType.get_IsValueType() ? ColumnarCodePlanContract.Ldloca() : ColumnarCodePlanContract.Ldloc(), awaiterLocal)
+        plan.AppendMethodInstruction(awaiterType.get_IsValueType() ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt(), plan.AddMethod(getResult))
+        resultType = getResult.get_ReturnType()
         return true
     }
 

@@ -131,14 +131,12 @@ func ResolverWriteAotProjectFixture(projectRoot: string, rootOutputType: string)
     // to a struct's own field from its own method, which emits since the call site loads an
     // addressable receiver by address, and then a bare STATIC FIELD as a call receiver, which emits
     // since a static member of the enclosing type is a value binding, and then an `await foreach`
-    // INSIDE a generator body, which emits now that an awaiting handler is hoisted out of its
-    // protected region; an `async` LAMBDA inside a generator body is the shape that declines today,
-    // because the lambda's own body needs an async wrap and a fault guard the generator's lambda
-    // lowering does not write. When that one lands, replace it with another declining shape rather
-    // than deleting this fixture.
+    // inside a generator body. The remaining sentinel is a generic async iterator method: analysis
+    // accepts it, while its generic state-machine context is not lowered yet. Replace it when that
+    // capability lands rather than deleting this fixture.
     ResolverWrite(
         Path.Combine(sharedDir, "Shared.nl"),
-        "import System\nimport System.Collections.Generic\nimport System.Threading.Tasks\n\nfunc* Relay(): IEnumerable<Func<Task<int>>> {\n    yield async () => 42\n}"
+        "import System.Collections.Generic\nimport System.Threading.Tasks\n\nasync func* Pending<T>(value: T): IAsyncEnumerable<T> {\n    await Task.Delay(1)\n    yield value\n}"
     )
     ResolverWrite(
         Path.Combine(projectRoot, "project.yml"),

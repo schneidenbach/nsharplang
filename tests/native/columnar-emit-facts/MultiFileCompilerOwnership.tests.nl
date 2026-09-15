@@ -456,22 +456,20 @@ test "MultiFileCompiler validation failure retains live errors and precedes outp
 // a `string`, which the backend now emits as an index loop, then assigning to a struct's own field
 // from its own method, which emits since the call site loads an addressable receiver by address, and
 // then a bare STATIC FIELD as a call receiver, which emits since a static member of the enclosing
-// type is a value binding, and then an `await foreach` INSIDE a generator body, which emits now that
-// an awaiting handler is hoisted out of its protected region; an `async` LAMBDA inside a generator
-// body is the shape that declines today, because the lambda's own body needs an async wrap and a
-// fault guard the generator's lambda lowering does not write. When that one lands, replace it with
-// another declining shape rather than deleting this contract.
+// type is a value binding, and then an `await foreach` inside a generator body. The remaining
+// sentinel is a generic async iterator method: analysis accepts it, while its generic state-machine
+// context is not lowered yet. Replace it when that capability lands rather than deleting this contract.
 test "MultiFileCompiler ordinary CLI pipeline requires columnar emission for a declining fixture" {
     compilation := MultiFileOwnerCompileWithPipelineFlags(
         "Program",
         EmitterCanonicalProjectYml("Program", "exe"),
         """
-import System
 import System.Collections.Generic
 import System.Threading.Tasks
 
-func* Relay(): IEnumerable<Func<Task<int>>> {
-    yield async () => 42
+async func* Pending<T>(value: T): IAsyncEnumerable<T> {
+    await Task.Delay(1)
+    yield value
 }
 
 func main() {
@@ -492,6 +490,7 @@ func main() {
             "Columnar emission is required for 'Program', but the columnar backend declined.",
             StringComparison.Ordinal
         )
+        assert EmitterCanonicalErrorText(error, "Message").Contains("emit.iterator.async-unsupported: generic async iterator methods are not yet lowered", StringComparison.Ordinal)
         assert EmitterCanonicalErrorText(error, "HumanExplanation") == "This product path requires successful N# columnar emission after analysis passes."
         assert EmitterCanonicalErrorText(error, "Suggestion") == "Port the rejected source shape to the columnar backend before using this product path."
     } finally {

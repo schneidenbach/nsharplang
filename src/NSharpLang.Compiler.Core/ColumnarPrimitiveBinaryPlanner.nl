@@ -686,6 +686,9 @@ class ColumnarPrimitiveBinaryPlanner {
         if nodes.Kind(candidate) == ColumnarExpressionNodeKind.BinaryExpression() {
             return IsAdmittedSyntax(nodes, source, candidate, depth)
         }
+        if nodes.Kind(candidate) == 53 {
+            return nodes.ChildCount(candidate) == 1 && IsAdmittedOperandSyntax(nodes, source, nodes.Child(candidate, 0), depth + 1)
+        }
         if ColumnarConstructionPlanner.MayPlanRoot(nodes, candidate) {
             return ColumnarConstructionPlanner.IsAdmittedValueSyntax(nodes, source, candidate, depth)
         }
