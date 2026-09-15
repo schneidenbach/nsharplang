@@ -350,12 +350,22 @@ test "Array Empty explicit generic ownership observes value and source owner sha
     genericSourceParameters := new Type[](0)
     genericSourceMethod := SourceCallPublicStatic(genericSourceOwner, "Empty", genericSourceParameters, typeof(string[]))
     SourceCallMakeGeneric(genericSourceMethod.Builder)
+    genericSourceMethod.Generics = new ColumnarGenericMethodFacts(
+        genericSourceMethod.Builder.GetGenericArguments(),
+        new int[](0),
+        new Type[](0),
+        new Type[][](0)
+    )
     genericSourceTree := DirectCallParsedTree("Array.Empty<string>()")
-    ownership = ColumnarDirectCallOwnership.OwnedRejected
-    legacyWholeSubtreePlanning = false
-    _genericSource := DirectCallRejected(genericSourceTree, DirectCallSingleDefinitionBindings(genericSourceOwner), out ownership, out legacyWholeSubtreePlanning)
-    assert ownership == ColumnarDirectCallOwnership.NotOwned
-    assert legacyWholeSubtreePlanning
+    ExternalStampScopeFull(genericSourceTree, "class Array {}", "", visibleTypeParameters, sourceInputs, null)
+    genericSourcePlan := DirectCallPlan(genericSourceTree, DirectCallSingleDefinitionBindings(genericSourceOwner))
+    assert genericSourcePlan.ResultType == typeof(string[])
+    assert genericSourcePlan.OperationCount == 1
+    assert genericSourcePlan.OpCodeValues[0] == ColumnarCodePlanContract.Call()
+    selectedSourceMethod := genericSourcePlan.Methods[genericSourcePlan.OperandIndices[0]]
+    assert selectedSourceMethod.get_Name() == "Empty"
+    assert selectedSourceMethod.get_IsGenericMethod()
+    assert Object.ReferenceEquals(selectedSourceMethod.get_DeclaringType(), genericSourceOwner.Builder)
 }
 
 test "Array Empty source-element admission keeps the exact direct class boundary" {

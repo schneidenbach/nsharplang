@@ -233,6 +233,30 @@ test "generic source overloads prefer the candidate that consumes fewer defaults
     assert GenericNamedOwner<string>.StaticChoose<int>(value: 40, owner: "text") == 1
 }
 
+test "same-type generic names preserve placement and written evaluation order" {
+    freeCounter := new GenericSeedCounter()
+    assert GenericOptionalOrder<int>(extra: freeCounter.NextOrdinal(), value: freeCounter.NextOrdinal()) == 1
+    assert freeCounter.Count == 2
+
+    owner := new GenericNamedOwner<string>()
+    instanceCounter := new GenericSeedCounter()
+    assert owner.OptionalOrder<int>(extra: instanceCounter.NextOrdinal(), value: instanceCounter.NextOrdinal()) == 1
+    assert instanceCounter.Count == 2
+
+    staticCounter := new GenericSeedCounter()
+    assert GenericNamedOwner<string>.StaticOptionalOrder<int>(extra: staticCounter.NextOrdinal(), value: staticCounter.NextOrdinal()) == 1
+    assert staticCounter.Count == 2
+}
+
+test "explicit generic static calls preserve their source owner" {
+    values := Array.Empty<string>()
+    assert values.Length == 1
+    assert values[0] == "source"
+    sourceMethod := typeof(Array).GetMethod("Empty")
+    assert sourceMethod != null
+    assert Object.ReferenceEquals(sourceMethod.get_DeclaringType(), typeof(Array))
+}
+
 test "attribute constructor arguments bind by name" {
     found := typeof(NamedAttributeTarget).GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
     assert found != null

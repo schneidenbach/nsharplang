@@ -4,6 +4,14 @@ import System
 import System.Collections.Generic
 import NSharpLang.CensusNamedArguments.MetadataDefaults
 
+// A source declaration with the framework type's short name proves that explicit generic static
+// lowering retains the source owner selected by semantic lookup.
+class Array {
+    static func Empty<T>(): string[] {
+        return ["source"]
+    }
+}
+
 [Obsolete(error: true, message: "named attribute", DiagnosticId = "named-id")]
 class NamedAttributeTarget {
 }
@@ -53,6 +61,11 @@ func GenericOptional<T>(first: T, second: int = 2): T {
     return first
 }
 
+func GenericOptionalOrder<T>(value: T, extra: int = 42): int {
+    _ = value
+    return extra
+}
+
 func GenericSet<T>(value: T, ref target: T): T {
     target = value
     return target
@@ -78,6 +91,11 @@ class GenericSeedCounter {
     func Next(): int {
         Count = Count + 1
         return 40
+    }
+
+    func NextOrdinal(): int {
+        Count = Count + 1
+        return Count
     }
 }
 
@@ -137,6 +155,11 @@ class GenericNamedOwner<T> {
         return 2
     }
 
+    func OptionalOrder<U>(value: U, extra: int = 42): int {
+        _ = value
+        return extra
+    }
+
     func Pack<U>(owner: T, params values: U[]): int {
         _ = owner
         return values.Length
@@ -159,6 +182,11 @@ class GenericNamedOwner<T> {
         _ = owner
         _ = value
         return 1
+    }
+
+    static func StaticOptionalOrder<U>(value: U, extra: int = 42): int {
+        _ = value
+        return extra
     }
 }
 

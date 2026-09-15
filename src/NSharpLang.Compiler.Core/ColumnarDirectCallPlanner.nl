@@ -1118,6 +1118,10 @@ class ColumnarDirectCallPlanner {
         if TryScoreExplicitGenericParamsArguments(nodes, source, callNode, bindings, argumentTypes, argumentFacts, parameterTypes, parameterNames, defaultKinds, defaultTexts, modifierKinds, out score) {
             return true
         }
+        if argumentTypes.Length == 0 && parameterTypes.Length == 0 {
+            score = 0
+            return true
+        }
 
         placement := new int[](0)
         claimed := new bool[](0)
@@ -1248,7 +1252,19 @@ class ColumnarDirectCallPlanner {
         }
         plan.Rollback(checkpoint)
         directScore := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts)
-        if directScore >= 0 && AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth, ArgumentsAdmitPrimitiveBinary(), argumentTypes, parameterTypes, argumentFacts) {
+        directPlacement := new int[](0)
+        directArgumentsInOrder := argumentTypes.Length == 0 && parameterTypes.Length == 0
+        if argumentTypes.Length > 0 && parameterTypes.Length == argumentTypes.Length && ColumnarNamedArgumentBinder.TryPlace(nodes, source, callNode, 1, argumentTypes.Length, parameterNames, parameterTypes.Length, out directPlacement) {
+            directArgumentsInOrder = true
+            directWritten := 0
+            while directWritten < directPlacement.Length {
+                if directPlacement[directWritten] != directWritten {
+                    directArgumentsInOrder = false
+                }
+                directWritten += 1
+            }
+        }
+        if (argumentFacts.RequiresReorder || directArgumentsInOrder) && directScore >= 0 && AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth, ArgumentsAdmitPrimitiveBinary(), argumentTypes, parameterTypes, argumentFacts) {
             return true
         }
         plan.Rollback(checkpoint)
@@ -1482,12 +1498,18 @@ class ColumnarDirectCallPlanner {
         if scope == null {
             return false
         }
-        ownerType := typeof(object)
-        ownerClaimed := false
-        if !scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, ownerName, bindings, out ownerType, out ownerClaimed) {
-            return false
-        }
+        // The outer resolver has already selected this exact source declaration. Its live builder
+        // is therefore the owner identity for a non-generic type; asking the file scope to resolve
+        // the short spelling again can lose an otherwise valid source owner. A constructed generic
+        // receiver still needs that scope lookup to recover its written owner arguments.
+        ownerType: Type = owner.Builder
         ownerParameters := owner.Builder.GetGenericArguments()
+        if ownerParameters.Length > 0 {
+            ownerClaimed := false
+            if !scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, ownerName, bindings, out ownerType, out ownerClaimed) {
+                return false
+            }
+        }
         ownerArguments := ownerType.get_IsGenericType() ? ownerType.GetGenericArguments() : new Type[](0)
 
         selected: ColumnarStaticMethodDef? = null
@@ -1624,7 +1646,6 @@ class ColumnarDirectCallPlanner {
             typeArguments[typeArgumentIndex] = resolvedType
             typeArgumentIndex += 1
         }
-
 
         exactSourceOwnerName := ""
         sourceOwnerBlocked := false
