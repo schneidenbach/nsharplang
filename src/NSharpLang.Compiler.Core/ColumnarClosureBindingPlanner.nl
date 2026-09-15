@@ -404,7 +404,20 @@ class ColumnarClosureBindingPlanner {
 
     static func CollectUnboundNames(nodes: ColumnarNodeTable, source: string, node: int, bound: HashSet<string>, names: SortedSet<string>) {
         kind := nodes.Kind(node)
-        if kind == 38 || kind == 42 || kind == 55 {
+        if kind == 38 {
+            // GenericCallee stores the CALLEE in its own value span and its children are TYPE
+            // arguments. A bare callee can therefore be a local-function sibling edge, while
+            // walking the children would incorrectly capture `T`/`U` type names. Qualified
+            // spellings are not lexical local-function names and remain with their receiver/type
+            // owners; the closure planner later intersects this candidate with exact declarations
+            // from the same local-function scope.
+            callee := nodes.Text(source, node)
+            if callee.Length > 0 && callee.IndexOf(".", StringComparison.Ordinal) < 0 && !bound.Contains(callee) {
+                names.Add(callee)
+            }
+            return
+        }
+        if kind == 42 || kind == 55 {
             return
         }
         if ColumnarLambdaNodeFacts.IsLambda(kind) {

@@ -117,6 +117,53 @@ func Layered(values: List<int>): int {
     return scaledCount(values, 7)
 }
 
+// A capture requirement flows through an EXPLICIT generic sibling call. `Forward` does not read
+// `value` itself, but it needs the same display receiver as `Read` in order to make `Read<V>`.
+func GenericSiblingCapture<T>(value: T): T {
+    func Read<U>(unused: U): T {
+        _ = unused
+        return value
+    }
+
+    func Forward<V>(other: V): T {
+        return Read<V>(other)
+    }
+
+    return Forward<int>(1)
+}
+
+// The call edge is about the local declarations, not about whether the enclosing function itself is
+// generic. This is the same forwarding shape under a concrete enclosing signature.
+func NongenericSiblingCapture(value: int): int {
+    func Read<U>(unused: U): int {
+        _ = unused
+        return value
+    }
+
+    func Forward<V>(other: V): int {
+        return Read<V>(other)
+    }
+
+    return Forward<int>(1)
+}
+
+class GenericSiblingReceiver {
+    Value: int
+
+    func ReadThroughSibling(): int {
+        func Read<U>(unused: U): int {
+            _ = unused
+            return Value
+        }
+
+        func Forward<V>(other: V): int {
+            return Read<V>(other)
+        }
+
+        return Forward<int>(1)
+    }
+}
+
 // INSIDE a generic function, naming only its OWN parameter. The enclosing `T` reaches the call as a
 // type ARGUMENT, which is an ordinary closed instantiation over an open parameter.
 func OwnParametersInsideAGenericFunction<T>(value: T): T {

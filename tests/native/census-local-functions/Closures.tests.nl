@@ -157,7 +157,9 @@ test "a capturing scope gets exactly one display class and a capture-free local 
     // Plus ShiftedLength, CaptureEnclosingType, CaptureEnclosingInterface, CaptureEnclosingBase and
     // GenericLocalMemberOwner.Capture in GenericLocals.nl. The latter four displays own their
     // enclosing method's T while each generic instance method owns its local function's U.
-    assert displayCount == 24
+    // GenericSiblingCapture and NongenericSiblingCapture each add the one display shared by their
+    // capturing `Read` method and the `Forward` method that calls it explicitly as `Read<V>`.
+    assert displayCount == 26
 
     // CountSteps declares two mutually recursive capturing local functions. They share ONE display,
     // which is the whole reason each sees the other's writes to the captured counter.
