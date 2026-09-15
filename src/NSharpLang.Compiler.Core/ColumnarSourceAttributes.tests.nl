@@ -236,9 +236,9 @@ test "an enum's and its members' attributes are read from their own declaration 
     assert declared.SourceAttributes.Length == 1
     assert declared.SourceAttributes[0].Name == "Flags"
     assert declared.MemberSourceAttributes != null
-    assert declared.MemberSourceAttributesAt(0).Length == 1
-    assert declared.MemberSourceAttributesAt(0)[0].Name == "Obsolete"
-    assert declared.MemberSourceAttributesAt(1).Length == 0
+    assert (must declared.MemberSourceAttributesAt(0)).Length == 1
+    assert (must declared.MemberSourceAttributesAt(0))[0].Name == "Obsolete"
+    assert (must declared.MemberSourceAttributesAt(1)).Length == 0
     assert declared.MemberSourceAttributesAt(9) == null
 }
 
@@ -290,7 +290,7 @@ test "an omitted optional attribute argument is written as its declared default"
     assert NullabilityProbeSequenceCount(attributes) == 1
     arguments := attributes.get_Item(0).get_ConstructorArguments()
     assert arguments.Count == 1
-    assert arguments.get_Item(0).get_Value().ToString() == "4"
+    assert (must arguments.get_Item(0).get_Value()).ToString() == "4"
 }
 
 // A METADATA PARAMETER'S DEFAULT ARRIVES BOXED, and the binder turns it into the same argument SHAPE

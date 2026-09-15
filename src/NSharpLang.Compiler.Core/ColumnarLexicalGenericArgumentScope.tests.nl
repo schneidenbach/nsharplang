@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
-import System.Reflection.Emit
 
 
 // THE LEXICAL SCOPE OWNS EVERY POSITION IN A TYPE SPELLING, NOT ONLY ITS HEAD.
@@ -139,7 +138,7 @@ test "every position of a composed spelling carries the lexical scope" {
     assert LexicalArgumentSelects("List<Cached[]>", "LexicalArguments.Outer", out arrayOfNested)
     element := LexicalArgumentSingleArgument(arrayOfNested)
     assert element.get_IsArray()
-    assert element.GetElementType().FullName == "LexicalArguments.Outer.Cached"
+    assert (must element.GetElementType()).FullName == "LexicalArguments.Outer.Cached"
 
     nestedGeneric: Type = null
     assert LexicalArgumentSelects("Dictionary<string,List<Cached>>", "LexicalArguments.Outer", out nestedGeneric)

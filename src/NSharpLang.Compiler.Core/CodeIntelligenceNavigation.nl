@@ -280,7 +280,7 @@ class CodeIntelligenceNavigation {
         }
 
         location := new LocationResult(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, declarationFile), declaration.Line, declaration.Column)
-        resolvedType := NullabilityMetadataReflection.FormatTypeInfo(typeInfo)
+        resolvedType := NullabilityMetadataReflection.FormatTypeInfo(must typeInfo)
         nullability := NullStateFacts.GetSchemaText(CodeIntelligenceTypeResolution.DefaultNullState(typeInfo))
         return new TypeResult(declaration.Name, resolvedType, declaration.Kind, location, nullability)
     }

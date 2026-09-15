@@ -3047,13 +3047,13 @@ class ColumnarIteratorBodyPlanner {
             return
         }
 
-        emit.Plan.AppendLabelInstruction(emit.RegionDepth > 0 ? ColumnarCodePlanContract.Leave() : ColumnarCodePlanContract.Br(), label)
+        emit.Plan.AppendLabelInstruction((short)(emit.RegionDepth > 0 ? ColumnarCodePlanContract.Leave() : ColumnarCodePlanContract.Br()), label)
     }
 
     // A branch to the label past EVERY region — where the method's single `ret` stands. It crosses
     // the outer fault wrapper as well, so any open region at all makes it a `leave`.
     static func AppendMethodExit(emit: ColumnarMoveNextEmit, label: int) {
-        emit.Plan.AppendLabelInstruction(emit.InsideRegion ? ColumnarCodePlanContract.Leave() : ColumnarCodePlanContract.Br(), label)
+        emit.Plan.AppendLabelInstruction((short)(emit.InsideRegion ? ColumnarCodePlanContract.Leave() : ColumnarCodePlanContract.Br()), label)
     }
 
     // THE ONE EXPRESSION DOOR. A value inside a `func*` body is planned by the SAME owner that plans a
@@ -4011,7 +4011,7 @@ class ColumnarIteratorBodyPlanner {
 
     static func AppendCompletedAsyncLambdaReturn(plan: ColumnarCodePlan, returnType: Type, resultType: Type) {
         if returnType == typeof(System.Threading.Tasks.Task) {
-            getter := typeof(System.Threading.Tasks.Task).GetProperty("CompletedTask").GetGetMethod()
+            getter := (must typeof(System.Threading.Tasks.Task).GetProperty("CompletedTask")).GetGetMethod()
             plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(getter))
             return
         }
@@ -4555,7 +4555,7 @@ class ColumnarIteratorBodyPlanner {
         }
 
         crossesRegion := emit.RegionDepth > emit.LoopRegionDepths[frame]
-        emit.Plan.AppendLabelInstruction(crossesRegion ? ColumnarCodePlanContract.Leave() : ColumnarCodePlanContract.Br(), target)
+        emit.Plan.AppendLabelInstruction((short)(crossesRegion ? ColumnarCodePlanContract.Leave() : ColumnarCodePlanContract.Br()), target)
         return false
     }
 
@@ -6243,15 +6243,15 @@ class ColumnarIteratorBodyPlanner {
     // field (a copy would throw the continuation state away); a reference awaiter is loaded.
     static func AppendAwaiterReceiver(emit: ColumnarMoveNextEmit, awaiterPool: int, byAddress: bool) {
         LoadThis(emit)
-        emit.Plan.AppendFieldInstruction(byAddress ? ColumnarCodePlanContract.Ldflda() : ColumnarCodePlanContract.Ldfld(), awaiterPool)
+        emit.Plan.AppendFieldInstruction((short)(byAddress ? ColumnarCodePlanContract.Ldflda() : ColumnarCodePlanContract.Ldfld()), awaiterPool)
     }
 
     static func AwaiterCallOpcode(byAddress: bool): short {
-        return byAddress ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()
+        return (short)(byAddress ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt())
     }
 
     static func InstanceCallOpcode(receiverType: Type): short {
-        return receiverType.get_IsValueType() ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()
+        return (short)(receiverType.get_IsValueType() ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt())
     }
 
     // A public parameterless instance method, by ordinary CLR lookup. `null` when the type does not
@@ -6301,7 +6301,7 @@ class ColumnarIteratorBodyPlanner {
             emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), boxPool)
             emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), valuePool)
             EmitInt(emit, 1)
-            emit.Plan.AppendInstructionWithoutOperand(nodes.Text(source, node) == "++" ? ColumnarCodePlanContract.Add() : ColumnarCodePlanContract.Sub())
+            emit.Plan.AppendInstructionWithoutOperand((short)(nodes.Text(source, node) == "++" ? ColumnarCodePlanContract.Add() : ColumnarCodePlanContract.Sub()))
             emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), valuePool)
             return
         }

@@ -415,7 +415,8 @@ class ColumnarNamedArgumentBinder {
             return
         }
 
-        for method in ownerType.GetMethods() {
+        reflectableOwner := must ownerType
+        for method in reflectableOwner.GetMethods() {
             parameters := method.GetParameters()
             if method.get_Name() != memberName || method.get_IsStatic() != requireStatic || parameters.Length != arity || method.get_ContainsGenericParameters() {
                 continue
@@ -596,7 +597,8 @@ class ColumnarNamedArgumentBinder {
             return
         }
 
-        for method in ownerType.GetMethods() {
+        reflectableOwner := must ownerType
+        for method in reflectableOwner.GetMethods() {
             if method.get_Name() != memberName || method.get_IsStatic() != requireStatic || method.GetParameters().Length != arity {
                 continue
             }
@@ -611,7 +613,8 @@ class ColumnarNamedArgumentBinder {
             return
         }
 
-        for constructor in ownerType.GetConstructors() {
+        reflectableOwner := must ownerType
+        for constructor in reflectableOwner.GetConstructors() {
             if constructor.GetParameters().Length != arity {
                 continue
             }

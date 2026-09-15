@@ -288,7 +288,7 @@ class ColumnarIteratorRealization {
         smTypeParamMap: Dictionary<string, Type>? = null
         smTypeParams := System.Type.EmptyTypes
         smSpecialConstraints := System.Array.Empty<int>()
-        smBaseConstraints := System.Array.Empty<Type?>()
+        smBaseConstraints := System.Array.Empty<Type>()
         smInterfaceConstraints := System.Array.Empty<Type[]>()
         table := typeResolution.StructuralTypeReferences
         if fn.TypeParamNames.Length > 0 {

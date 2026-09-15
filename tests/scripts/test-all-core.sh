@@ -345,7 +345,7 @@ section "Step 2c: Self-Host Front Door"
 # `src/NSharpLang.Build.Tasks` has no N# sources yet (it is MSBuild targets plus C# tasks), so it is
 # listed and checked rather than assumed: the day it grows one, this step covers it.
 #
-# COST: the whole step is dominated by Core, whose front door walks 819 files. It sits inside the
+# COST: the whole step is dominated by Core, whose front door walks 946 files. It sits inside the
 # validated step cache on the UNIT input set, so it runs only when the compiler's own sources move.
 if step_cache_hit "self-host-front-door" "$UNIT_INPUTS_HASH"; then
     step_skip_banner "self-host-front-door" "$UNIT_INPUTS_HASH"
@@ -366,7 +366,7 @@ else
     # step prints the reason and moves on; the day Core reaches 0 their ceilings become real numbers
     # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
     SELF_HOST_CEILINGS=(
-        1374
+        1342
         -1
         -1
         0

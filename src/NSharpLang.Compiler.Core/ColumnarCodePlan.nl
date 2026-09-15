@@ -2177,7 +2177,7 @@ class ColumnarCodePlan {
             MethodDeclaringTypes = GrowTypeArray(MethodDeclaringTypes, capacity)
             MethodReturnTypes = GrowTypeArray(MethodReturnTypes, capacity)
             MethodParameterTypes = GrowTypeArrayArray(MethodParameterTypes, capacity)
-            MethodModifiedSignatureSources = GrowMethodArray(MethodModifiedSignatureSources, capacity)
+            MethodModifiedSignatureSources = GrowNullableMethodArray(MethodModifiedSignatureSources, capacity)
             MethodIsStatic = GrowBoolArray(MethodIsStatic, capacity)
             MethodIsAbstract = GrowBoolArray(MethodIsAbstract, capacity)
         }
@@ -2416,6 +2416,19 @@ class ColumnarCodePlan {
 
     static func GrowMethodArray(values: MethodInfo[], capacity: int): MethodInfo[] {
         result := new MethodInfo[](capacity)
+        if values != null {
+            count := values.Length < capacity ? values.Length : capacity
+            i := 0
+            while i < count {
+                result[i] = values[i]
+                i += 1
+            }
+        }
+        return result
+    }
+
+    static func GrowNullableMethodArray(values: MethodInfo?[], capacity: int): MethodInfo?[] {
+        result := new MethodInfo?[](capacity)
         if values != null {
             count := values.Length < capacity ? values.Length : capacity
             i := 0

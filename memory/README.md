@@ -53,24 +53,27 @@ holes, ambiguous simple names). They exist to be driven to zero and must never b
 inside the validated step cache on the UNIT input set, so it runs only when the compiler's own
 sources move.
 
-**Measured 2026-09-14 on the tip CLI** (`0.1.0+12cf4b384`, loaded machine): Core 1374 diagnostics in
-**19m20s** — the brief's "Core check is seconds" is wrong by three orders of magnitude, and the cost
-is the reason the step lives behind the step cache. `src/NSharpLang.Build.Tasks` has no `.nl` sources
-at all today (MSBuild targets plus C# tasks): 0 diagnostics in 0.1s.
+**Measured 2026-09-14 after the wave-12 source repair** (`388a6b9e6`): Core reports
+**1,342 diagnostics across 946 files** (1,329 errors and 13 warnings). Comparing diagnostic identities
+(file, code, severity, message and source snippet) against the original 1,374-diagnostic baseline
+finds **zero additions and 32 removals**. The gate ceiling is now 1,342. Explicit nullable contracts,
+short opcode conversions, qualified reflection types and import cleanup removed the new source
+regressions without suppressions or a ceiling increase.
+
+The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
+integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
 
 `src/NSharpLang.Compiler` and `src/NSharpLang.Playground` carry the ceiling **-1, meaning BLOCKED**.
 `check` on a project builds its project references first, and that build fails while Core's own front
 door is not clean — so both answer an `error` envelope rather than a diagnostic list and there is
-nothing to count. Their own `.nl` sources report ZERO today (measured through `--text`, which renders
-the failed reference build's 287 Core errors instead of aborting). When Core reaches 0 their ceilings
-become real numbers.
+nothing to count. The original SELFHOST measurement found zero diagnostics in their own `.nl` sources
+through `--text`; that observation does not make their blocked project checks clean. When Core reaches
+0 their ceilings become real numbers.
 
-The classification of Core's 1374, and what is left to drive it to zero, is the SELFHOST stream
-report: the large buckets are NL905 (432 possible null dereference), NL202 (366 nullable argument),
-NL002 (244 type used without its import), NL010 (192 unused import), NL012/NL011/NL304 (96 unused
-parameters, empty catches and definite-assignment holes). Every one of those is a REAL source defect
-that the emit-only path never asked about — not an analyzer bug — and fixing them touches roughly 300
-of Core's 819 files, which is why they were not done inside a parallel census stream.
+The remaining backlog includes NL905 (429 possible null dereferences), NL202 (351 argument type
+mismatches), NL002 (239 missing imports), NL010 (187 unused imports), and 96 NL012/NL011/NL304 findings
+(unused parameters, empty catches and definite-assignment holes). The source cleanup campaign remains
+open; a successful seed build through the emit-only path does not prove that this front door is clean.
 
 ### Republishing the seed
 
