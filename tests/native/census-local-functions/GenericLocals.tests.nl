@@ -21,6 +21,12 @@ test "a generic local function takes a constraint, recurses and captures" {
     assert DepthOf(values) == 2
     assert ShiftedLength(10) == 12
     assert Layered(values) == 14
+    assert GenericSiblingCapture<int>(42) == 42
+    assert GenericSiblingCapture<string>("sibling") == "sibling"
+    assert NongenericSiblingCapture(84) == 84
+    receiver := new GenericSiblingReceiver()
+    receiver.Value = 126
+    assert receiver.ReadThroughSibling() == 126
 
     // The enclosing function's own type parameter as the call's type ARGUMENT.
     assert OwnParametersInsideAGenericFunction<string>("through") == "through"
@@ -41,6 +47,35 @@ test "a generic local function takes a constraint, recurses and captures" {
     assert owner.NoCapture<int>(84) == 84
     assert owner.NoCapture<string>("member outer") == "member outer"
     assert owner.Capture<string>("member captured") == "member captured"
+}
+
+test "generic sibling forwarding preserves the exact display or instance receiver" {
+    genericMethods := SynthesizedLocals("GenericSiblingCapture")
+    assert genericMethods.Count == 2
+    genericOwner := must genericMethods[0].get_DeclaringType()
+    assert genericOwner.get_IsGenericTypeDefinition()
+    assert genericOwner.get_Name().StartsWith("<>c__DisplayClass")
+    for method in genericMethods {
+        assert !method.get_IsStatic()
+        assert method.get_DeclaringType() == genericOwner
+        assert method.get_IsGenericMethodDefinition()
+    }
+
+    concreteMethods := SynthesizedLocals("NongenericSiblingCapture")
+    assert concreteMethods.Count == 2
+    concreteOwner := must concreteMethods[0].get_DeclaringType()
+    assert concreteOwner.get_Name().StartsWith("<>c__DisplayClass")
+    for method in concreteMethods {
+        assert !method.get_IsStatic()
+        assert method.get_DeclaringType() == concreteOwner
+    }
+
+    receiverMethods := SynthesizedLocals("ReadThroughSibling")
+    assert receiverMethods.Count == 2
+    for method in receiverMethods {
+        assert !method.get_IsStatic()
+        assert method.get_DeclaringType() == typeof(GenericSiblingReceiver)
+    }
 }
 
 test "enclosing and local type parameters retain their exact CLR owners and constraints" {
@@ -153,6 +188,19 @@ func SynthesizedLocal(enclosing: string, sourceName: string): MethodInfo {
     }
 
     throw new System.InvalidOperationException("No generic local function was emitted for '" + enclosing + "." + sourceName + "'.")
+}
+
+func SynthesizedLocals(enclosing: string): List<MethodInfo> {
+    result := new List<MethodInfo>()
+    prefix := "<" + enclosing + ">g__"
+    for candidate in typeof(Marker).get_Assembly().GetTypes() {
+        for method in candidate.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static) {
+            if method.get_Name().StartsWith(prefix) {
+                result.Add(method)
+            }
+        }
+    }
+    return result
 }
 
 class Marker {

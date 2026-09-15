@@ -1974,7 +1974,9 @@ func walk(items: List<string>): int {
 ```
 
 Two local functions that call each other share the same captures, so mutual recursion through
-captured state works the way ordinary recursion does.
+captured state works the way ordinary recursion does. The same propagation applies when the sibling
+call writes explicit type arguments: if `forward<V>` calls `read<V>` and only `read` names an
+enclosing value or `this`, `forward` still uses the receiver and storage that `read` requires.
 
 **What the compiler emits.** A local function that captures nothing stays a plain private method. A
 local function that captures becomes a method of one **closure object** created for the scope that

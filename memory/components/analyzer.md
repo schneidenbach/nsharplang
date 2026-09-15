@@ -4017,7 +4017,11 @@ declarations) and against the enclosing type's instance members.
 BOTH REQUIREMENTS FLOW BACKWARDS ALONG THE CALL GRAPH, IN ONE FIXPOINT. A capture-free local function
 that calls a capturing one needs the receiver that sibling runs on, and one that calls a
 `this`-reading sibling needs the instance; mutual recursion is a cycle in that graph and settles in
-the same loop.
+the same loop. An explicit generic call such as `Read<V>(other)` contributes the bare callee from the
+`GenericCallee` node's value span. Its child nodes are TYPE arguments and are deliberately not scanned
+as value names; a qualified spelling is likewise not treated as a local sibling by its short name.
+The bare candidate is matched against the exact local declarations in the same scope before it
+becomes a call-graph edge.
 
 THE DECLARING SCOPE IS NOT THE WHOLE BODY. `CollectDeclaringScopeBindingNames` reads the enclosing
 parameters plus the ROOT BLOCK's declarations. Reading every name the body binds anywhere refused

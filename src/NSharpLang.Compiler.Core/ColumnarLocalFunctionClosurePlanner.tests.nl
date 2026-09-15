@@ -50,6 +50,25 @@ class LocalFunctionPlannerFixture {
         Declarations.Add(new ColumnarLocalFunctionInput(Declarations.Count, new ColumnarFunctionInput(name, "void", parameters, parameterTypes, nodes.Nodes, root, false, new string[](0))))
     }
 
+    // One explicit generic call. GenericCallee's value is the callee name; its children are type
+    // syntax and must never enter capture-name collection.
+    func DeclareGenericCall(name: string, callee: string, typeArgument: string, parameter: string) {
+        typeNode := Builder.AddLeaf(0, typeArgument)
+        calleeStart := Builder.AddToken(callee)
+        calleeChildren: int[] = [typeNode]
+        genericCallee := Builder.AddNode(38, calleeStart, callee.Length, calleeStart, callee.Length, calleeChildren)
+        argument := Builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), parameter)
+        callChildren: int[] = [genericCallee, argument]
+        call := Builder.AddNode(ColumnarExpressionNodeKind.CallExpression(), -1, 0, calleeStart, Builder.Source.Length - calleeStart, callChildren)
+        blockChildren: int[] = [call]
+        root := Builder.AddNode(25, -1, 0, calleeStart, Builder.Source.Length - calleeStart, blockChildren)
+        nodes := Builder.Build(root)
+        parameters: string[] = [parameter]
+        parameterTypes: string[] = ["int"]
+        typeParameters: string[] = [typeArgument]
+        Declarations.Add(new ColumnarLocalFunctionInput(Declarations.Count, new ColumnarFunctionInput(name, "void", parameters, parameterTypes, nodes.Nodes, root, false, typeParameters)))
+    }
+
     // The plan, read against the tree as it stands now — the builder's table is rebuilt per call, so
     // every declaration is asked against the SAME finished table and source.
     func Plan(scopeBindings: string[], instanceNames: string[]): ColumnarLocalFunctionClosurePlan {
@@ -113,6 +132,33 @@ test "a capture-free local function that calls a capturing sibling joins the dis
     // `outer` captures nothing itself, but it cannot call `add` without the receiver `add` runs on.
     assert plan.IsDisplayMethod("add")
     assert plan.IsDisplayMethod("outer")
+    assert plan.CaptureNames.Count == 1
+    assert plan.CaptureNames.Contains("total")
+}
+
+test "an explicit generic sibling call propagates capture without treating type arguments as values" {
+    fixture := new LocalFunctionPlannerFixture()
+    fixture.DeclareGenericCall("outer", "add", "V", "other")
+    fixture.Declare("add", ["total"], [])
+
+    plan := fixture.Plan(["total", "V"], [])
+
+    assert plan.IsDisplayMethod("add")
+    assert plan.IsDisplayMethod("outer")
+    assert plan.CaptureNames.Count == 1
+    assert plan.CaptureNames.Contains("total")
+    assert !plan.CaptureNames.Contains("V")
+}
+
+test "a qualified explicit generic callee is not a local sibling edge by short name" {
+    fixture := new LocalFunctionPlannerFixture()
+    fixture.DeclareGenericCall("outer", "Other.add", "V", "other")
+    fixture.Declare("add", ["total"], [])
+
+    plan := fixture.Plan(["total", "V"], [])
+
+    assert plan.IsDisplayMethod("add")
+    assert !plan.IsDisplayMethod("outer")
     assert plan.CaptureNames.Count == 1
     assert plan.CaptureNames.Contains("total")
 }
