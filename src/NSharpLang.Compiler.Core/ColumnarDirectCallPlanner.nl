@@ -333,7 +333,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
         candidates: List<ColumnarInstanceMethodDef>? = null
-        current := definition
+        let current: ColumnarStructDef? = definition
         while current != null && candidates == null {
             current.MethodOverloads.TryGetValue(memberName, out candidates)
             current = current.BaseDef
@@ -435,7 +435,7 @@ class ColumnarDirectCallPlanner {
         }
         closedMethod := definitionMethod.MakeGenericMethod(methodArguments)
         methodIndex := plan.AddMethodWithSignature(closedMethod, receiverType, selectedParameters, selectedReturn, false, selected.Builder.get_IsAbstract())
-        plan.AppendMethodInstruction(definition.IsReference ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+        plan.AppendMethodInstruction((short)(definition.IsReference ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
         resultType = selectedReturn
         ownership = ColumnarDirectCallOwnership.Planned
         return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
@@ -457,12 +457,12 @@ class ColumnarDirectCallPlanner {
     static func AppendNamedReceiver(name: string, receiverType: Type, isReference: bool, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
         if bindings.Locals.ContainsKey(name) {
             local := plan.AddAmbientLocal(bindings.Locals[name])
-            plan.AppendAmbientLocalInstruction(isReference ? ColumnarCodePlanContract.Ldloc() : ColumnarCodePlanContract.Ldloca(), local)
+            plan.AppendAmbientLocalInstruction((short)(isReference ? ColumnarCodePlanContract.Ldloc() : ColumnarCodePlanContract.Ldloca()), local)
             return true
         }
         if bindings.PlanLocals.ContainsKey(name) {
             local := bindings.PlanLocals[name].Item1
-            plan.AppendPlanLocalInstruction(isReference ? ColumnarCodePlanContract.Ldloc() : ColumnarCodePlanContract.Ldloca(), local)
+            plan.AppendPlanLocalInstruction((short)(isReference ? ColumnarCodePlanContract.Ldloc() : ColumnarCodePlanContract.Ldloca()), local)
             return true
         }
         if bindings.ParameterOrdinals.ContainsKey(name) {
@@ -479,7 +479,7 @@ class ColumnarDirectCallPlanner {
             if argumentIndex < 0 {
                 argumentIndex = plan.AddArgument(ordinal, plan.AddType(receiverType), false)
             }
-            plan.AppendArgumentInstruction(isReference ? ColumnarCodePlanContract.Ldarg() : ColumnarCodePlanContract.Ldarga(), argumentIndex)
+            plan.AppendArgumentInstruction((short)(isReference ? ColumnarCodePlanContract.Ldarg() : ColumnarCodePlanContract.Ldarga()), argumentIndex)
             return true
         }
         return false
@@ -606,7 +606,7 @@ class ColumnarDirectCallPlanner {
         }
         memberName := nodes.Text(source, callee)
         candidates := new List<ColumnarInstanceMethodDef>()
-        current := definition
+        let current: ColumnarStructDef? = definition
         while current != null {
             foundAtLevel := false
             single: ColumnarInstanceMethodDef? = null
@@ -712,7 +712,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
         methodIndex := plan.AddMethodWithSignature(selected.Builder, declaringType, selected.ParamTypes, selected.ReturnType, false, selected.Builder.get_IsAbstract())
-        plan.AppendMethodInstruction(definition.IsReference ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+        plan.AppendMethodInstruction((short)(definition.IsReference ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
         resultType = selected.ReturnType
         return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
@@ -940,7 +940,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
         methodIndex := plan.AddMethodWithSignature(selected, declaringType, selectedTypes, selected.get_ReturnType(), isStatic, selected.get_IsAbstract())
-        plan.AppendMethodInstruction(!isStatic && !lookupType.get_IsValueType() ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+        plan.AppendMethodInstruction((short)(!isStatic && !lookupType.get_IsValueType() ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
         resultType = selected.get_ReturnType()
         return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
@@ -2069,7 +2069,7 @@ class ColumnarDirectCallPlanner {
 
         methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, false, method.get_IsAbstract())
 
-        plan.AppendMethodInstruction(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+        plan.AppendMethodInstruction((short)(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
 
         resultType = selection.ReturnType
         return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
@@ -2096,7 +2096,7 @@ class ColumnarDirectCallPlanner {
 
         methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, false, method.get_IsAbstract())
 
-        plan.AppendMethodInstruction(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+        plan.AppendMethodInstruction((short)(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
 
         resultType = selection.ReturnType
         return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
@@ -2802,7 +2802,7 @@ class ColumnarDirectCallPlanner {
 
         methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, parameterTypes, selection.ReturnType, selection.IsStatic, method.get_IsAbstract())
 
-        plan.AppendMethodInstruction(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+        plan.AppendMethodInstruction((short)(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
 
         resultType = selection.ReturnType
         return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
@@ -2910,7 +2910,7 @@ class ColumnarDirectCallPlanner {
 
         methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, selection.IsStatic, selection.IsAbstract)
 
-        opcode := selection.Dispatch == ColumnarSourceDirectCallDispatch.CallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()
+        opcode := (short)(selection.Dispatch == ColumnarSourceDirectCallDispatch.CallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call())
 
         plan.AppendMethodInstruction(opcode, methodIndex)
         resultType = selection.ReturnType
@@ -2934,7 +2934,7 @@ class ColumnarDirectCallPlanner {
 
         methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, selection.IsStatic, method.get_IsAbstract())
 
-        plan.AppendMethodInstruction(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+        plan.AppendMethodInstruction((short)(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
 
         resultType = selection.ReturnType
         return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
@@ -3058,7 +3058,7 @@ class ColumnarDirectCallPlanner {
         // Nothing is spilled when the two orders agree, which is every call whose names were written
         // where the signature keeps them.
         if argumentFacts.RequiresReorder {
-            return AppendReorderedArguments(nodes, source, callNode, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts)
+            return AppendReorderedArguments(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, parameterTypes, argumentFacts)
         }
 
         index := 0
@@ -3077,7 +3077,7 @@ class ColumnarDirectCallPlanner {
     // type, then load the temporaries in the order the signature keeps. A by-reference parameter's
     // type is itself a managed pointer, so its temporary holds the caller's ADDRESS and preserves the
     // alias across later argument evaluation; it must not copy the pointed-to value.
-    static func AppendReorderedArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
+    static func AppendReorderedArguments(nodes: ColumnarNodeTable, source: string, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
         slotLocals := new int[](parameterTypes.Length)
         guard := 0
         while guard < parameterTypes.Length {

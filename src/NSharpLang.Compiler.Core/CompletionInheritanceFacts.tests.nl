@@ -115,7 +115,7 @@ test "recorded references stay with the owning model and recognize nested declar
 
     assert CompletionInheritanceFacts.SemanticModelOwnsDeclaration(owningModel, nestedOwner)
     resolved := CompletionInheritanceFacts.RecordedTypeReferenceType(resolvedReference, models, nestedOwner)
-    assert TypeInfoIdentityFacts.AreEqual(resolved, BuiltInTypes.Int)
+    assert TypeInfoIdentityFacts.AreEqual(must resolved, BuiltInTypes.Int)
 
     // The same source position appears in another file, but the owner model has no record for it.
     // Completion must leave that edge unresolved rather than read the other file's String record.
@@ -195,7 +195,7 @@ test "completion substitution closes tuple and function type trees" {
         assert substitutedFunction.ParameterModifiers[0] == ParameterModifier.Ref
         assert substitutedFunction.ParameterTypes != null
         assert TypeInfoIdentityFacts.AreEqual(substitutedFunction.ParameterTypes[0], BuiltInTypes.String)
-        assert TypeInfoIdentityFacts.AreEqual(substitutedFunction.ReturnType, BuiltInTypes.String)
+        assert TypeInfoIdentityFacts.AreEqual(must substitutedFunction.ReturnType, BuiltInTypes.String)
         assert NullabilityMetadataReflection.FormatTypeInfo(substitutedFunction) == "(string) -> string"
     }
 }

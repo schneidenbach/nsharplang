@@ -6264,7 +6264,7 @@ test "016 enums: several attributed members keep their own attributes beside the
 
 // The first `EnumDeclaration` in a parsed file, for the enum-member attribute tests above.
 func EnumMemberAttributeDeclaration(ast: FileParseAst): EnumDeclaration {
-    for declaration in ast.CompilationUnit.Declarations {
+    for declaration in (must ast.CompilationUnit).Declarations {
         enumDeclaration := declaration as EnumDeclaration
         if enumDeclaration != null {
             return enumDeclaration

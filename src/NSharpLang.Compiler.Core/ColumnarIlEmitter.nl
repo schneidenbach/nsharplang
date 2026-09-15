@@ -1663,7 +1663,7 @@ sealed class ColumnarIlEmitter {
         if (!closureEmitter.EmitLambdaBody(closureIl, bodyNode, bodyReturnType)) {
             return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda")
         }
-        _displayClasses.Add(display)
+        (must _displayClasses).Add(display)
         if (!TryEmitLambdaDisplayConstruction(displayBuild)) {
             return false
         }
@@ -1758,7 +1758,7 @@ sealed class ColumnarIlEmitter {
         if (delegateCtor == null) {
             return false
         }
-        _displayClasses.Add(display)
+        (must _displayClasses).Add(display)
         if (!TryEmitLambdaDisplayConstruction(displayBuild)) {
             return false
         }
@@ -1873,10 +1873,10 @@ sealed class ColumnarIlEmitter {
             snapshotNames.Add(captureName)
             snapshotTypes.Add(captureType)
         }
-        programTypeAsType: Type = _programType
+        programTypeAsType: Type = must _programType
         moduleObject: object? = programTypeAsType.get_Module()
         moduleBuilder := (ModuleBuilder)moduleObject
-        lambdaCounterForDisplay := _lambdaCounter
+        lambdaCounterForDisplay := must _lambdaCounter
         displayOrdinal := lambdaCounterForDisplay[0]
         lambdaCounterForDisplay[0] = displayOrdinal + 1
         displayOrdinalText := displayOrdinal.ToString()
@@ -4352,11 +4352,11 @@ sealed class ColumnarIlEmitter {
     /// <summary>
     /// Build a single assembly from one parsed columnar program bundle.
     /// </summary>
-    static func TryEmitColumnarAssembly(assemblyName: string, typeName: string, program: ColumnarProgramInput, isExecutable: bool, out assembly: byte[], assemblyVersion: Version? = null, referenceAssemblyPaths: IReadOnlyList<string>? = null): bool {
+    static func TryEmitColumnarAssembly(assemblyName: string, typeName: string, program: ColumnarProgramInput, isExecutable: bool, out assembly: byte[], assemblyVersion: System.Version? = null, referenceAssemblyPaths: IReadOnlyList<string>? = null): bool {
         return TryEmitColumnarAssemblyPass(assemblyName, typeName, program, isExecutable, out assembly, assemblyVersion, referenceAssemblyPaths, null)
     }
 
-    private static func TryEmitColumnarAssemblyPass(assemblyName: string, typeName: string, program: ColumnarProgramInput, isExecutable: bool, out assembly: byte[], assemblyVersion: Version?, referenceAssemblyPaths: IReadOnlyList<string>?, repairPlan: ColumnarModifiedMemberReferencePlan?): bool {
+    private static func TryEmitColumnarAssemblyPass(assemblyName: string, typeName: string, program: ColumnarProgramInput, isExecutable: bool, out assembly: byte[], assemblyVersion: System.Version?, referenceAssemblyPaths: IReadOnlyList<string>?, repairPlan: ColumnarModifiedMemberReferencePlan?): bool {
         assembly = Array.Empty<byte>()
         modifiedMemberReferences := new ColumnarModifiedMemberReferenceLedger()
         funcs := program.Functions
@@ -7187,7 +7187,7 @@ sealed class ColumnarIlEmitter {
             let ilStream: System.Reflection.Metadata.BlobBuilder? = null
             let mappedFieldData: System.Reflection.Metadata.BlobBuilder? = null
             metadataBuilder := builder.GenerateMetadata(out ilStream, out mappedFieldData)
-            rawIl := ilStream.ToArray()
+            rawIl := (must ilStream).ToArray()
             rawMethodBodies = rawIl
             finalIl := ilStream
             if repairPlan != null {
@@ -7250,7 +7250,7 @@ sealed class ColumnarIlEmitter {
         if generics == null {
             return false
         }
-        resolved := must generics
+        resolved := generics
         methodAsInfo: MethodInfo = method
         definition = new ColumnarSiblingMethodDefinition(
             methodAsInfo,
@@ -7422,7 +7422,7 @@ sealed class ColumnarIlEmitter {
         runsOnEnclosingInstance := closure != null && closure.IsInstanceMethod(localFn.Name)
         let localMethodOwner: TypeBuilder = staticOwner
         if (runsOnDisplay) {
-            localMethodOwner = closure.Builder
+            localMethodOwner = (must closure).Builder
         } else if (runsOnEnclosingInstance) {
             if (enclosingDefinition == null) {
                 return false
@@ -7459,7 +7459,7 @@ sealed class ColumnarIlEmitter {
         localTypeParams := new Type[enclosingCount + localFn.TypeParamNames.Length]
         if runsOnDisplay {
             for displayTypeParameterIndex := 0; displayTypeParameterIndex < enclosingCount; displayTypeParameterIndex++ {
-                displayTypeParameter := closure.DisplayTypeParameters[displayTypeParameterIndex]
+                displayTypeParameter := (must closure).DisplayTypeParameters[displayTypeParameterIndex]
                 typeParamMap[enclosingTypeParameterNames[displayTypeParameterIndex]] = displayTypeParameter
                 localTypeParams[displayTypeParameterIndex] = displayTypeParameter
             }
@@ -7531,7 +7531,7 @@ sealed class ColumnarIlEmitter {
             ownTypeParams[ownConstraintIndex] = localTypeParams[enclosingCount + ownConstraintIndex]
         }
         ownSpecialConstraints := System.Array.Empty<int>()
-        ownBaseConstraints := System.Array.Empty<Type?>()
+        ownBaseConstraints := System.Array.Empty<Type>()
         ownInterfaceConstraints := System.Array.Empty<Type[]>()
         if (!ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(ownBuilders, localFn.TypeParamSpecialConstraints, localFn.TypeParamTypeConstraints, typeParamMap, localTypeParams, typeResolution, out ownSpecialConstraints, out ownBaseConstraints, out ownInterfaceConstraints)) {
             return false
@@ -7580,7 +7580,7 @@ sealed class ColumnarIlEmitter {
         )
         localDefinition.EnclosingTypeParameterNames = enclosingTypeParameterNames
         if runsOnDisplay && enclosingTypeParameterNames.Length > 0 {
-            localDefinition.GenericDeclaringTypeDefinition = closure.Builder
+            localDefinition.GenericDeclaringTypeDefinition = (must closure).Builder
         }
         genericLocalFuncs[localFn.Name] = localDefinition
         declaredLocalFuncNodes[declarationNodeIndex] = localFn.Name
@@ -9539,7 +9539,9 @@ sealed class ColumnarIlEmitter {
                             if (!TryEmitAssignableValue(Child(expr, 1), staticPropWrite.PropertyType, out columnarDiscard16)) {
                                 return false
                             }
-                            _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.BindSetter(staticPropWrite))
+                            staticProperty := must staticPropWrite
+                            staticSetter := ColumnarSourceSelfInstantiation.BindSetter(staticProperty)
+                            _il.Emit(OpCodes.Call, staticSetter)
                             return true
                         }
                         return false
@@ -9974,7 +9976,9 @@ sealed class ColumnarIlEmitter {
                 if (!TryEmitAssignableValue(Child(expr, 1), thisPropertyTarget.PropertyType, out columnarDiscard21)) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.BindSetter(thisPropertyTarget))
+                thisProperty := must thisPropertyTarget
+                thisSetter := ColumnarSourceSelfInstantiation.BindSetter(thisProperty)
+                _il.Emit(OpCodes.Callvirt, thisSetter)
                 return true
             }
             // Bare STATIC-field write inside ANY member body of the declaring type (`count = expr` where count
@@ -29472,7 +29476,7 @@ sealed class ColumnarIlEmitter {
             } else if (typeName == "StringBuilder") {
                 columnarResolvedType = typeof(System.Text.StringBuilder)
             } else if (typeName == "Version") {
-                columnarResolvedType = typeof(Version)
+                columnarResolvedType = typeof(System.Version)
             } else if (typeName == "object") {
                 columnarResolvedType = typeof(object)
             } else if (typeName == "ProcessStartInfo") {

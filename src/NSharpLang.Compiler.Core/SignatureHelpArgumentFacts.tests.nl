@@ -1,5 +1,7 @@
 namespace NSharpLang.Compiler
 
+import System
+
 test "signature help selects the unmatched outer call after a completed nested call" {
     source := "func main(): void\n    Outer(Build(1, 2), second: "
     context := SignatureHelpArgumentFacts.ActiveCallAtPosition(source, 1, 39)
@@ -37,13 +39,13 @@ test "signature help retains generic and qualified generic receivers" {
     qualified := SignatureHelpArgumentFacts.ActiveCallAtPosition("func main(): void\n    Catalog.Box<int>.Method<string>(first: ", 1, 51)
     assert qualified != null
     assert qualified.ReceiverName == "Catalog.Box<int>"
-    assert SignatureHelpArgumentFacts.DeclarationReceiverName(qualified.ReceiverName, "Catalog") == "Box"
+    assert SignatureHelpArgumentFacts.DeclarationReceiverName(must qualified.ReceiverName, "Catalog") == "Box"
     assert SignatureHelpArgumentFacts.DeclarationReceiverName(qualified.ReceiverName, "Other") == "Catalog.Box"
 
     nested := SignatureHelpArgumentFacts.ActiveCallAtPosition("func main(): void\n    Catalog.Outer<int>.Inner<string>.Method<bool>(first: ", 1, 70)
     assert nested != null
     assert nested.ReceiverName == "Catalog.Outer<int>.Inner<string>"
-    assert SignatureHelpArgumentFacts.DeclarationReceiverName(nested.ReceiverName, "Catalog") == "Catalog.Outer.Inner"
+    assert SignatureHelpArgumentFacts.DeclarationReceiverName(must nested.ReceiverName, "Catalog") == "Catalog.Outer.Inner"
 }
 
 test "signature help follows the parameter named by the current argument" {

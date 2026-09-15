@@ -570,11 +570,11 @@ class ColumnarRangeIndexPlanner {
             plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), awaitableLocal)
             plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), awaitableLocal)
         }
-        plan.AppendMethodInstruction(awaitableType.get_IsValueType() ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt(), plan.AddMethod(getAwaiter))
+        plan.AppendMethodInstruction((short)(awaitableType.get_IsValueType() ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()), plan.AddMethod(getAwaiter))
         awaiterLocal := plan.DeclarePlanLocal(plan.AddType(awaiterType))
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), awaiterLocal)
-        plan.AppendPlanLocalInstruction(awaiterType.get_IsValueType() ? ColumnarCodePlanContract.Ldloca() : ColumnarCodePlanContract.Ldloc(), awaiterLocal)
-        plan.AppendMethodInstruction(awaiterType.get_IsValueType() ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt(), plan.AddMethod(getResult))
+        plan.AppendPlanLocalInstruction((short)(awaiterType.get_IsValueType() ? ColumnarCodePlanContract.Ldloca() : ColumnarCodePlanContract.Ldloc()), awaiterLocal)
+        plan.AppendMethodInstruction((short)(awaiterType.get_IsValueType() ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()), plan.AddMethod(getResult))
         resultType = getResult.get_ReturnType()
         return true
     }
