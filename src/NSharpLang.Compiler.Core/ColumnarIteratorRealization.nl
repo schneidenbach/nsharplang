@@ -279,6 +279,10 @@ class ColumnarIteratorRealization {
         )
         smTypeParamMap: Dictionary<string, Type>? = null
         smTypeParams := System.Type.EmptyTypes
+        smSpecialConstraints := System.Array.Empty<int>()
+        smBaseConstraints := System.Array.Empty<Type?>()
+        smInterfaceConstraints := System.Array.Empty<Type[]>()
+        table := typeResolution.StructuralTypeReferences
         if fn.TypeParamNames.Length > 0 {
             smGps := sm.DefineGenericParameters(fn.TypeParamNames)
             smTypeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal)
@@ -290,9 +294,20 @@ class ColumnarIteratorRealization {
                 smTypeParams[g] = parameter
                 g = g + 1
             }
+            // A dependent constraint such as `where U: T` resolves T through this exact structural
+            // owner. Publish the machine's generic parameters before asking the shared constraint
+            // planner to resolve those rows; the runtime type itself is still unbaked, as intended.
+            table.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, smTypeParamMap)
+            if !ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(smGps, fn.TypeParamSpecialConstraints, fn.TypeParamTypeConstraints, smTypeParamMap, smTypeParams, typeResolution, out smSpecialConstraints, out smBaseConstraints, out smInterfaceConstraints) {
+                return Declined(
+                    "emit.iterator.generic-constraints",
+                    "iterator generic constraints could not be preserved for '" + declineLabel + "'",
+                    declineLabel
+                )
+            }
+        } else {
+            table.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, null)
         }
-        table := typeResolution.StructuralTypeReferences
-        table.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, smTypeParamMap)
         elementType: Type = null
         if !TryResolveIteratorCanonical(shape.ElementCanonical, smTypeParamMap, typeResolution, out elementType) {
             return Declined(
@@ -329,6 +344,9 @@ class ColumnarIteratorRealization {
                     "iterator hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + declineLabel + "'",
                     declineLabel
                 )
+            }
+            if shape.FieldRoles[i] == ColumnarIteratorPlanner.LoopCaptureBoxFieldRole() {
+                fieldType = ColumnarIteratorPlanner.LoopCaptureBoxType(fieldType)
             }
             fieldBuilder := sm.DefineField(shape.FieldNames[i], fieldType, FieldAttributes.Public)
             fieldHandle: FieldInfo = fieldBuilder
@@ -395,7 +413,14 @@ class ColumnarIteratorRealization {
             bodyFacts,
             sm,
             genericMemberType,
-            smTypeParamMap
+            smTypeParamMap,
+            fieldBuilders,
+            synthesizedTypes,
+            fn.SourceFileId,
+            smSpecialConstraints,
+            smBaseConstraints,
+            smInterfaceConstraints,
+            smTypeParams
         )
         overrideContext := ColumnarIteratorOverrideContext.ForSync(table, elementType, enumerableOfT, enumeratorOfT)
         publicImpl := MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot
@@ -595,6 +620,9 @@ class ColumnarIteratorRealization {
                     fn.Name
                 )
             }
+            if role == ColumnarIteratorPlanner.LoopCaptureBoxFieldRole() {
+                fieldType = ColumnarIteratorPlanner.LoopCaptureBoxType(fieldType)
+            }
             fieldBuilder := sm.DefineField(shape.FieldNames[i], fieldType, FieldAttributes.Public)
             fieldHandle: FieldInfo = fieldBuilder
             fields[i] = fieldHandle
@@ -653,7 +681,11 @@ class ColumnarIteratorRealization {
             coreHandle,
             bodyFacts,
             sm,
-            null
+            null,
+            null,
+            fields,
+            synthesizedTypes,
+            fn.SourceFileId
         )
         overrideContext := ColumnarIteratorOverrideContext.ForAsync(table, elementType, asyncEnumerable, asyncEnumerator)
         publicImpl := MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot
