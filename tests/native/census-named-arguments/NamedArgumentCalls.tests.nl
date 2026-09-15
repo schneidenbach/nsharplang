@@ -216,6 +216,47 @@ test "a generic source owner keeps enclosing and method type arguments distinct"
     assert owner.Order[1] == "owner"
 }
 
+test "generic source instance and static calls share defaults and params binding" {
+    owner := new GenericNamedOwner<string>()
+    assert owner.Pick<int>(value: 43, owner: "text") == 43
+    assert owner.Pack<int>(owner: "text") == 0
+    assert owner.Pack<int>(owner: "text", 1, 2) == 2
+    values: int[] = [1, 2]
+    assert owner.Pack<int>(values: values, owner: "text") == 2
+    assert owner.Pack<int>(owner: "text", ...values) == 2
+    assert GenericNamedOwner<string>.StaticPick<int>(value: 44, owner: "text") == 44
+}
+
+test "generic source overloads prefer the candidate that consumes fewer defaults" {
+    owner := new GenericNamedOwner<string>()
+    assert owner.Choose<int>(value: 40, owner: "text") == 1
+    assert GenericNamedOwner<string>.StaticChoose<int>(value: 40, owner: "text") == 1
+}
+
+test "same-type generic names preserve placement and written evaluation order" {
+    freeCounter := new GenericSeedCounter()
+    assert GenericOptionalOrder<int>(extra: freeCounter.NextOrdinal(), value: freeCounter.NextOrdinal()) == 1
+    assert freeCounter.Count == 2
+
+    owner := new GenericNamedOwner<string>()
+    instanceCounter := new GenericSeedCounter()
+    assert owner.OptionalOrder<int>(extra: instanceCounter.NextOrdinal(), value: instanceCounter.NextOrdinal()) == 1
+    assert instanceCounter.Count == 2
+
+    staticCounter := new GenericSeedCounter()
+    assert GenericNamedOwner<string>.StaticOptionalOrder<int>(extra: staticCounter.NextOrdinal(), value: staticCounter.NextOrdinal()) == 1
+    assert staticCounter.Count == 2
+}
+
+test "explicit generic static calls preserve their source owner" {
+    values := Array.Empty<string>()
+    assert values.Length == 1
+    assert values[0] == "source"
+    sourceMethod := typeof(Array).GetMethod("Empty")
+    assert sourceMethod != null
+    assert Object.ReferenceEquals(sourceMethod.get_DeclaringType(), typeof(Array))
+}
+
 test "attribute constructor arguments bind by name" {
     found := typeof(NamedAttributeTarget).GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
     assert found != null
