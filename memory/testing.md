@@ -948,20 +948,27 @@ found by walking up from the test assembly's directory) three times as
 the median wall clock, and compares it to the checked-in baseline
 `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json` (the `tests/fixtures/*.golden.json`
 path is the ratchet's one JSON exemption). The baseline pins `medianWallMs`, a `toleranceFactor`
-(1.5: the median must be at or under 1.5× the baseline), an `expectedExitCode` and a `stage`. Every
-run must exit with exactly the pinned code, and when that code is non-zero the CLI's own
+(1.5: the median must be at or under 1.5× the baseline), an `expectedExitCode`, a `stage`, and a
+semantic phase contract. Before the three measured runs, a tiny real two-file build produces one
+semantic-only NL202 and one strict-lint-only NL011. Its exact diagnostic multiset must match the
+schema-2 baseline, so a pipeline reorder is refused even when its exit code stays the same. Every
+measured run must exit with exactly the pinned code, and when that code is non-zero the CLI's own
 `Build failed in` banner must be on stdout, so a crash or a missing CLI can never pass as "the
 expected failure". A placeholder baseline (`medianWallMs: 0`) is refused by name, so the gate can
 never pass on an unmeasured file.
 
-Why the pinned exit code is 1 today: `nlc build` runs strict lint and legacy analysis, and on the
-compiler's own sources strict lint reports 45 findings (NL012 ×20, NL011 ×17, NL010 ×7, NL002 ×1)
-before `AnalyzeAllFiles()` runs; `nlc check` on the same tree reports 243 error-severity results.
-The product builds Compiler Core through the MSBuild SDK with legacy analysis switched off by
-project name (`src/NSharpLang.Sdk/Sdk/Sdk.targets`). So the gated number is the FRONT-END time
-(parse + strict lint) of 403 files / 172,653 lines, and the baseline's `stage` field says so. When
-those diagnostics are fixed and `nlc build` exits 0 on this project, the gate fails on purpose
-("re-measure the baseline") and the re-measured baseline then covers analysis and emit too.
+The original schema-1 baseline is intentionally still checked in with its measured 7,868 ms, 403
+files, and 172,653 lines. It is no longer usable: commit `7733ece06` moved semantic analysis before
+strict lint while leaving the final exit code at 1. The current Core tree is 526
+non-test files / 288,640 lines at `fd08ab819`. Schema 2 therefore refuses the historical baseline
+before running the expensive measurement. Replace it only with an idle-machine measurement of the
+current analysis-before-lint phase and its exact canary contract; never copy the old milliseconds
+into a schema-2 record.
+
+This is an **absolute live self-host latency budget**, not a fixed-corpus or normalized-throughput
+comparison. Each measurement reports its actual Core file and line counts so source growth is
+visible, but count changes do not waive the latency limit and do not require a baseline rewrite.
+Changing the covered compiler phase does require a new phase contract and a fresh measurement.
 
 The gate refuses to judge a LOADED machine. The baseline is measured on an idle box (its `machine`
 field says so), so a median taken while the machine is busy measures the machine, not the compiler:
@@ -990,7 +997,7 @@ SYSTEMS_BENCH=skip VSCODE_TESTS=skip ./scripts/test-all.sh --commit   # the gate
 ```
 
 A native test must write nothing to stdout or stderr: Step 3a captures both streams into one file
-and `json.load`s the whole thing, so a single printed line turns 66 passed tests into a red step.
+and `json.load`s the whole thing, so a single printed line turns a passing test document into a red step.
 The gate block's numbers therefore appear only in its failure message (`runs=[…] exitCodes=[…]
 median= baseline= tolerance= limit= cliCommit= stage= load= cores= loadThreshold=`); a green block is
 silent. Because a skipped timing judgement is green and therefore silent too, every run — judged,
