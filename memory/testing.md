@@ -957,20 +957,23 @@ measured run must exit with exactly the pinned code, and when that code is non-z
 expected failure". A placeholder baseline (`medianWallMs: 0`) is refused by name, so the gate can
 never pass on an unmeasured file.
 
-The original schema-1 baseline is intentionally still checked in with its measured 7,868 ms, 403
-files, and 172,653 lines. It is no longer usable: commit `7733ece06` moved semantic analysis before
-strict lint while leaving the final exit code at 1. The current Core tree is 526
-non-test files / 288,640 lines at `fd08ab819`. Schema 2 therefore refuses the historical baseline
-before running the expensive measurement. Replace it only with an idle-machine measurement of the
-current analysis-before-lint phase and its exact canary contract; never copy the old milliseconds
-into a schema-2 record.
+The checked-in schema-2 baseline is the 2026-09-16 live-source measurement at commit
+`88cf7534c4603f33583f5f1ad1c9de920a2824c2`: five validated rejected front-end builds of the
+then-current 526 non-test files / 288,658 lines, with a 123,885 ms median wall clock and a
+1,521,696,768-byte median peak RSS. Its machine provenance is the Apple M4 (10 logical cores),
+macOS 15.6.1 (build 24G90, Darwin 24.6.0), .NET SDK 10.0.105, and the observed idle start had a
+one-minute load of 1.91 below the 2.0 threshold. The runs were rejected at the
+`analysis-before-strict-lint/v1` phase and did not complete emission; this is not evidence of full
+gate or full-emission success. The former schema-1 measurement remains historical context in the
+2026-09 measurement verdict: its 7,868 ms covered only parse plus strict lint on 403 files /
+172,653 lines, so it is not comparable to the current phase or live source size.
 
-This is an **absolute live self-host latency budget**, not a fixed-corpus or normalized-throughput
+This is an **absolute live-source latency budget**, not a fixed-corpus or normalized-throughput
 comparison. Each measurement reports its actual Core file and line counts so source growth is
 visible, but count changes do not waive the latency limit and do not require a baseline rewrite.
 Changing the covered compiler phase does require a new phase contract and a fresh measurement.
 
-The gate refuses to judge a LOADED machine. The baseline is measured on an idle box (its `machine`
+The gate refuses to judge a LOADED machine. The baseline records observed idle at its start (its `machine`
 field says so), so a median taken while the machine is busy measures the machine, not the compiler:
 five product gates in two days went red at one-minute load averages of 4.4–8.1 on this 10-core M4,
 with medians of 11,941–17,010 ms against the 11,802 ms limit, while the same code measured 6–7 s on
