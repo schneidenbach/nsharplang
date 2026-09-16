@@ -117,6 +117,14 @@ twelve rows are a contract. `gate --print-baseline` prints the measured medians 
 of `SystemsThroughputBaseline.nl`, so refreshing the baseline on an idle machine is a paste rather
 than twelve hand edits.
 
+Every gate run also writes its raw kernel stdout/stderr and a context record to
+`artifacts/native-comparison/<date>/gate-<UTC-timestamp>/`; `compare` itself still uses the parent
+`<date>/` directory. The raw logs keep the stability lines (including min/IQR/quartiles), and the
+context records measurement start/end UTC plus pre/post load. The runner prints the three artifact
+paths. This is observability only and does not change the timing protocol, tolerance, or exit
+status. An isolated product-gate copy is deleted after the run unless `NSHARP_TEST_KEEP_RUN=1`
+retains it, so copy those artifacts out of the retained tree when diagnosing an isolated failure.
+
 It compares MEDIANS, not means: the BenchmarkDotNet gate this replaces compared means and flaked
 under load, because a handful of thermally-throttled iterations move a mean and do not move the
 median of 15 trials. 20 percent is wide enough to absorb run-to-run noise on an idle Apple M4 (the

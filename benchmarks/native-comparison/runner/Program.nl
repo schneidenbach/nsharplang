@@ -670,6 +670,39 @@ func CompareCommands(options: RunnerOptions, portSet: NativePortSet, temporaryDi
 
 // ─── MODE: gate ───────────────────────────────────────────────────────────────────────────────
 
+func UtcTimestamp(): string {
+    return DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+}
+
+// A timestamped gate directory keeps one failed run from overwriting the raw evidence a reader
+// needs to diagnose the next one. It stays under the existing date directory used by `compare`.
+func GateOutputDirectory(options: RunnerOptions): string {
+    stamp := DateTime.UtcNow.ToString("yyyy-MM-ddTHH-mm-ssZ")
+    return Path.Combine(DefaultOutputDirectory(options.RepoRoot), "gate-" + stamp)
+}
+
+func BuildGateContext(
+    measurementStartUtc: string,
+    measurementEndUtc: string,
+    preRunLoad: string,
+    postRunLoad: string,
+    runtimePath: string,
+    kernelAssemblyPath: string,
+    kernelCommand: string
+): string {
+    builder := new StringBuilder()
+    builder.AppendLine("# systems throughput gate context")
+    builder.AppendLine("")
+    builder.AppendLine("- Measurement start UTC: " + measurementStartUtc)
+    builder.AppendLine("- Measurement end UTC: " + measurementEndUtc)
+    builder.AppendLine("- Pre-run load average: " + preRunLoad)
+    builder.AppendLine("- Post-run load average: " + postRunLoad)
+    builder.AppendLine("- Runtime: `" + runtimePath + "`")
+    builder.AppendLine("- Kernel assembly: `" + kernelAssemblyPath + "`")
+    builder.AppendLine("- Kernel command: `" + kernelCommand + "`")
+    return builder.ToString()
+}
+
 func RunGate(options: RunnerOptions): int {
     // Read before the runtime build, so the figure describes the machine the medians were taken on
     // rather than the machine after this runner has finished loading it.
@@ -693,7 +726,40 @@ func RunGate(options: RunnerOptions): int {
         return 1
     }
 
+    measurementStartUtc := UtcTimestamp()
+    preRunLoad := LoadAverageText()
     run := RunKernelProgram(options, "", true)
+    measurementEndUtc := UtcTimestamp()
+    postRunLoad := LoadAverageText()
+
+    outputDirectory := GateOutputDirectory(options)
+    Directory.CreateDirectory(outputDirectory)
+    captures := new List<RunCapture>()
+    captures.Add(new RunCapture(NsharpLanguageKey(), "gate", run.Stdout, run.Stderr))
+    rawStdoutPath := Path.Combine(outputDirectory, "gate-raw-stdout.log")
+    rawStderrPath := Path.Combine(outputDirectory, "gate-raw-stderr.log")
+    contextPath := Path.Combine(outputDirectory, "gate-context.md")
+    WriteReportFile(outputDirectory, "gate-raw-stdout.log", BuildRawLog(captures, false))
+    WriteReportFile(outputDirectory, "gate-raw-stderr.log", BuildRawLog(captures, true))
+    WriteReportFile(
+        outputDirectory,
+        "gate-context.md",
+        BuildGateContext(
+            measurementStartUtc,
+            measurementEndUtc,
+            preRunLoad,
+            postRunLoad,
+            runtime.Path,
+            KernelAssemblyPath(options.RepoRoot),
+            KernelRunCommand(options, "", true)
+        )
+    )
+
+    print ""
+    print "Gate artifacts: " + rawStdoutPath
+    print "Gate artifacts: " + rawStderrPath
+    print "Gate artifacts: " + contextPath
+
     if !run.Succeeded() {
         reason := KernelRunCommand(options, "", true) + " failed: " + run.FailureReason()
         Console.Error.WriteLine(AppendOutput(reason, run.Stderr))
