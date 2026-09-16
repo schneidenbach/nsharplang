@@ -38,21 +38,15 @@ import System.Globalization
 // work was elided.
 //
 // WHY THERE IS A JIT SETTLE PHASE THAT NO PORT HAS, AND WHY THE PER-TRIAL WARMUP DOES NOT REPLACE IT.
-// Rust and C hand the CPU fully compiled code; the CLR does not. Both halves of a vectorized kernel —
-// `Kernels.<name>` and the `SimdReductions` helper it calls — start at Tier 0, and promotion to Tier 1
-// needs about 30 calls, THEN a ~100 ms call-counting delay, THEN a background compilation that is slow
-// to get scheduled on a loaded machine. The ports' per-trial warmup is a cache/branch-predictor warmup
-// and is far too short to cover that. Measured on this project: a `--trials 2` run reported
-// checksum-sum at 64 elements as ~66 ns, while a 15-trial run of the same binary reported 14 ns
-// (min 12.7, q3 14.7) and `DOTNET_TieredCompilation=0` reported ~15 ns. The first trial or two of every
-// cell were timing Tier-0 code, and because the ports' quantile convention takes the UPPER sample of a
-// two-sample set, the reported median was the Tier-0 one. Fifteen and twenty-one trials bury it, but
-// promotion timing under load must not be able to move a median at all, so each (workload, size) is
-// settled ONCE before its first trial: the kernel is called until at least 500 ms of wall time has
-// passed, long enough for both halves to reach Tier 1 even when the compile queue is contended. The
-// settle phase is not timed and adds no token to either output line; its results are xor-folded into
-// the same sink, which is why `sink` is no longer always `0` — the fold count now depends on how many
-// calls fitted in 500 ms.
+// Rust and C hand the CPU fully compiled code; the CLR does not. The native ports' per-trial warmup is
+// a cache/branch-predictor warmup, while CLR tiering and OSR depend on call counts, elapsed policy
+// time, and queued background compilation. Measured on this project, early runs have varied between
+// Tier-0 and Tier-1 shapes across trial counts and load conditions. To reduce that sensitivity, each
+// (workload, size) is settled ONCE before its first trial by invoking the actual trial path until at
+// least 500 ms and 40 calls have passed. Those minima are empirical preparation; they do not guarantee
+// Tier 1. The settle phase is not timed and adds no token to either output line; its results are
+// xor-folded into the same sink, which is why `sink` is no longer always `0` — the fold count now
+// depends on how many settle calls were made.
 //
 // WHY THE CLOCK IS `GetElapsedTime` AND NOT `GetTimestamp` / `Frequency`. `Stopwatch.Frequency` declines
 // to emit on the columnar backend (`emit.local.initializer`), so the tick-to-nanosecond conversion is
@@ -202,20 +196,25 @@ func SettleMilliseconds(): double {
 
 [boundary]
 func SettleJit(workload: int, values: int[]): long {
-    // Run this cell's kernel until the CLR has had time to tier it up. See the header: 500 ms is
-    // chosen to cover ~30 calls plus the ~100 ms call-counting delay plus a background compilation
-    // that schedules slowly on a loaded machine, for BOTH the kernel and its `SimdReductions` helper.
-    // Nothing here is timed, so the batch's dispatch costs nothing that is reported; the clock is read
-    // once per batch rather than once per call only to keep the loop's shape close to the timed one.
+    // Prepare the selected trial path until at least 500 ms has passed AND its wrapper has been
+    // invoked at least 40 times. Invoking it throughout the interval gives the wrapper, kernel, and
+    // helper repeated call-count observations while the elapsed budget covers policy and compile-queue
+    // timing. The 500 ms and 40 invocation minima are empirical; they do not guarantee Tier 1. The
+    // 100/1000 iteration counts are deliberately small and fixed, and their nanosecond samples are
+    // discarded. The returned results stay folded in the existing settle sink.
     folded: long = 0
+    settleWarmup := 100
+    settleMeasured := 1000
+    minimumWrapperCalls := 40
+    settleSample := 0.0
+    wrapperCalls := 0
     budget := SettleMilliseconds()
     start := Stopwatch.GetTimestamp()
     elapsed := 0.0
-    while elapsed < budget {
-        for i := 0; i < 1000; i++ {
-            folded = folded ^ (long)RunWorkload(workload, values)
-        }
-
+    while elapsed < budget || wrapperCalls < minimumWrapperCalls {
+        settleTrialSink := RunTrial(workload, values, settleWarmup, settleMeasured, out settleSample)
+        folded = folded ^ settleTrialSink
+        wrapperCalls = wrapperCalls + 1
         elapsed = ElapsedMilliseconds(start, Stopwatch.GetTimestamp())
     }
 

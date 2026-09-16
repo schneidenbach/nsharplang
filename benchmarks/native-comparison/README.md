@@ -58,6 +58,19 @@ clang -O3           -o <tmp>/<workload>_c  benchmarks/native-comparison/<workloa
 `source "$HOME/.cargo/env"` is needed. The binaries go in a temporary directory that is removed at
 the end of the run.
 
+### N# JIT settle preparation
+
+Before its measured trials, each N# workload/size cell invokes the actual `RunTrial` path until at
+least 500 ms has elapsed and that cell's selected timed-loop wrapper has been invoked at least 40
+times. Settle invocations run 100 warmup and 1,000 measured iterations, but their nanosecond-per-op
+samples are discarded and they are not reported as trials. The settle interval also keeps folding
+results into the printed sink, so its exact fold count can vary.
+
+This preparation is empirical: the 500 ms and 40 invocation minima are chosen to give CLR tiering and
+OSR a chance to observe and compile the wrapper, kernel, and helper paths. They do not guarantee that
+all code reaches Tier 1, and they are not evidence that any particular gate failure is solved. The
+port-matched warmup, measured iteration, and trial counts remain unchanged.
+
 ### The runtime the kernels are measured against
 
 Both modes replace the kernel program's `NSharpLang.Runtime.dll` before running it, and this is
