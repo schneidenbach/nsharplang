@@ -212,6 +212,7 @@ verify_local_toolchain() {
 deploy_local_toolset() {
     local skip_vscode="$1"
     local vscode_vsix=""
+    local package_spec
 
     nsharp_require_command dotnet
 
@@ -231,7 +232,8 @@ deploy_local_toolset() {
 
     nsharp_log "Packing N# packages"
     nsharp_run mkdir -p "$LOCAL_FEED"
-    while IFS='|' read -r package_id _label _project; do
+    for package_spec in "${NSHARP_PACKAGE_SPECS[@]}"; do
+        IFS='|' read -r package_id _label _project <<<"$package_spec"
         normalized_id="$(nsharp_lowercase "$package_id")"
         if [[ "$DRY_RUN" -eq 0 ]]; then
             rm -f "$LOCAL_FEED"/"$package_id".*.nupkg
@@ -240,7 +242,7 @@ deploy_local_toolset() {
             echo "+ rm -f $LOCAL_FEED/$package_id.*.nupkg"
             echo "+ rm -rf $HOME/.nuget/packages/$normalized_id"
         fi
-    done < <(nsharp_each_package_spec)
+    done
     nsharp_pack_package_set "$LOCAL_FEED" q
 
     nsharp_log "Publishing and installing local app payloads"

@@ -93,6 +93,7 @@ nsharp_prepare_stage0_sdk_for_pack() {
 nsharp_pack_package_set() {
     local output_dir="$1"
     local verbosity="${2:-q}"
+    local package_spec
     local runtime_project="src/NSharpLang.Runtime/NSharpLang.Runtime.csproj"
 
     nsharp_configure_stable_dotnet_build_flags
@@ -107,7 +108,10 @@ nsharp_pack_package_set() {
     echo "Building NSharpLang.Build.Tasks in Release mode..."
     nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet build "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release -v "$verbosity"
 
-    while IFS='|' read -r _package_id label project; do
+    # A synchronous array walk avoids Bash 3.2 SIGCHLD interrupting pipe writes from an async
+    # producer. The incident cause is inferred from that reproduction, not claimed as proven.
+    for package_spec in "${NSHARP_PACKAGE_SPECS[@]}"; do
+        IFS='|' read -r _package_id label project <<<"$package_spec"
         if [[ "$project" == "$runtime_project" ]]; then
             continue
         fi
@@ -118,9 +122,9 @@ nsharp_pack_package_set() {
             # Direct N# IL emits no PDB. Tell NuGet the actual output shape for the compiler assemblies.
             nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet pack "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$project" -c Release -o "$output_dir" -p:DebugSymbols=false -p:DebugType=None -v "$verbosity"
         else
-        nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet pack "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$project" -c Release -o "$output_dir" -v "$verbosity"
+            nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet pack "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$project" -c Release -o "$output_dir" -v "$verbosity"
         fi
-    done < <(nsharp_each_package_spec)
+    done
 }
 
 nsharp_print_release_artifact_set() {

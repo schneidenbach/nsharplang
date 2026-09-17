@@ -1371,6 +1371,14 @@ of DECLARATIONS added. Its reported total runs ~22 above a `grep -c '^test "'` c
 at the `OperatorFacts` slice), so measure the estate with `dotnet test` before and after and diff;
 never quote the grep as the contract count.
 
+## Installer package iteration
+
+As of 2026-09-16, the installer package loops read the quoted `NSHARP_PACKAGE_SPECS` array
+synchronously, avoiding the reproduced Bash 3.2 async-producer SIGCHLD/pipe-write failure; the
+original incident cause remains inferred. The `SetupLocalScripts` probe compares the full argv trace
+(runtime first, restore/build, package order, compiler-only PDB flags, spaced dry-run, no `dotnet`
+PATH). `nsharp_each_package_spec` remains for `scripts/publish-packages.sh`.
+
 ## Validation cadence
 
 Use the narrowest relevant inner loop while editing:

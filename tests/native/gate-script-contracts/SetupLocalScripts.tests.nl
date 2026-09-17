@@ -12,7 +12,8 @@ import System.IO
 // `HOME` pointed at a throwaway directory, so nothing is ever installed and nothing outside that
 // directory is written. The one row that does a real (non-dry-run) install points `--source` and
 // `--install-dir` at fake trees under that same throwaway HOME, with a fake `dotnet` and a fake
-// `nlc` on PATH.
+// `nlc` on PATH. One additional row sources the shipped package helper directly under dry-run so
+// its package loop and command boundary can be observed without invoking the entire installer.
 //
 // The generous 180s ceiling is inherited from the deleted C#: these scripts finish in well under a
 // second normally, but a tight cap intermittently tripped under the full product gate's concurrent
@@ -29,6 +30,65 @@ func RunInstaller(home: string, command: string): ProcessRun {
     launch.WithEnvironment("SHELL", "/bin/zsh")
     launch.WithEnvironment("DOTNET_CLI_HOME", home)
     return Run(launch)
+}
+
+func PackageLoopTraceScript(repositoryRoot: string, outputDirectory: string): string {
+    return """set -euo pipefail
+export PATH=/usr/bin:/bin
+export NLC_MSBUILD_SINGLE_NODE=0
+export NSHARP_REPO_ROOT='""" + repositoryRoot.Replace("'", "'\\''") + """'
+export NSHARP_TEST_OUTPUT='""" + outputDirectory.Replace("'", "'\\''") + """'
+source "$NSHARP_REPO_ROOT/scripts/lib/common.sh"
+source "$NSHARP_REPO_ROOT/scripts/lib/packages.sh"
+
+# Record every argv value so the exact command boundary is observable.
+nsharp_run_in_dir() {
+    local directory="$1"
+    shift
+
+    printf 'DIR<%s>|' "$directory" >> "$HOME/package loop trace.log"
+    for argument in "$@"; do
+        printf '<arg>%s|' "$argument" >> "$HOME/package loop trace.log"
+    done
+    printf '\n' >> "$HOME/package loop trace.log"
+}
+
+DRY_RUN=1
+nsharp_pack_package_set "$NSHARP_TEST_OUTPUT" q
+"""
+}
+
+test "the synchronous package loop traces runtime once and exact compiler PDB flags in dry-run" {
+    home := NewTempDirectory("nsharp-package-loop-test")
+    try {
+        outputDirectory := Path.Combine(home, "package output")
+        probe := Path.Combine(home, "package loop probe.sh")
+        tracePath := Path.Combine(home, "package loop trace.log")
+        File.WriteAllText(probe, PackageLoopTraceScript(RepositoryRoot(), outputDirectory))
+
+        run := RunInstaller(home, "bash \"$HOME/package loop probe.sh\"")
+        assert run.ExitCode == 0, "package-loop probe failed with " + run.Report()
+
+        repositoryRoot := RepositoryRoot()
+        flags := "<arg>--disable-build-servers|<arg>-nr:false|"
+        boundary := "DIR<" + repositoryRoot + ">|"
+        output := "<arg>" + outputDirectory + "|"
+        runtime := "src/NSharpLang.Runtime/NSharpLang.Runtime.csproj"
+        restore := "src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
+        buildTasks := "src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj"
+        expected := boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>" + runtime + "|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-v|<arg>q|\n"
+        expected = expected + boundary + "<arg>dotnet|<arg>restore|" + flags + "<arg>" + restore + "|<arg>--force-evaluate|<arg>-v|<arg>q|\n"
+        expected = expected + boundary + "<arg>dotnet|<arg>build|" + flags + "<arg>" + buildTasks + "|<arg>-c|<arg>Release|<arg>-v|<arg>q|\n"
+        expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>src/NSharpLang.Sdk/NSharpLang.Sdk.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-v|<arg>q|\n"
+        expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>templates/NSharpLang.Templates.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-v|<arg>q|\n"
+        expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>" + restore + "|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-p:DebugSymbols=false|<arg>-p:DebugType=None|<arg>-v|<arg>q|\n"
+        expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>src/NSharpLang.Compiler/Compiler.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-p:DebugSymbols=false|<arg>-p:DebugType=None|<arg>-v|<arg>q|\n"
+
+        traceText := File.ReadAllText(tracePath)
+        assert traceText == expected, "unexpected package-loop trace:\n" + traceText + "\n--- expected ---\n" + expected
+    } finally {
+        DeleteTempDirectory(home)
+    }
 }
 
 test "install-local dry-run installs the first-class N# toolchain with VS Code on by default and never touches dotnet tool" {
