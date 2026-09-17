@@ -483,7 +483,7 @@ vectorizer should measure. The **historical** N#/C# column (C# 3.9-5.9× slower 
 vectorized kernels, a tie elsewhere) has no lane today: its BenchmarkDotNet harness was deleted
 with the C# export tooling and is not restored.
 
-The product gate holds these medians: Step 3c of `scripts/test-all.sh` runs the same six
+The product gate holds these medians: Step 2c of `scripts/test-all.sh` runs the same six
 kernels and fails any cell that regresses more than 20% against
 `benchmarks/native-comparison/runner/SystemsThroughputBaseline.nl` (`SYSTEMS_BENCH=skip` skips it
 on a loaded machine). The compiler-owned evidence is the IL shape, pinned by

@@ -43,7 +43,7 @@ carried a dead trailing `return` that the old seed accepted and the tip refuses
 (`emit.statement.unreachable-after-transfer`, NL312), and it surfaced only during a hand republish of
 the seed.
 
-`Step 2c: Self-Host Front Door` in `tests/scripts/test-all-core.sh` closes that blind spot. It runs
+`Step 2d: Self-Host Front Door` in `tests/scripts/test-all-core.sh` closes that blind spot. It runs
 `nlc check --json` over `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler`,
 `src/NSharpLang.Playground` and `src/NSharpLang.Build.Tasks` with the CLI the gate just built and
 fails on any INCREASE over the committed ceilings. **The ceilings are a backlog, not a target**: the

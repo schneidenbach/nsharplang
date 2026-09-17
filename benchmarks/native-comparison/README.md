@@ -95,7 +95,7 @@ there. `--runtime <dll>` skips the build and uses the assembly you name; either 
 refuses to run the kernels if that assembly is missing, and `results.md` records the path and size it
 used. This is not working around a product defect: the published toolset already packs the runtime
 with `-c Release` (`scripts/lib/packages.sh`), so a user's install is optimized — only a dev CLI's
-copy is not. `tests/scripts/test-all-core.sh` step 3c needs no change, because the runner builds the
+copy is not. `tests/scripts/test-all-core.sh` step 2c needs no change, because the runner builds the
 Release runtime itself inside whatever isolated copy of the tree the gate runs from.
 
 Four files land in the output directory:
@@ -114,8 +114,11 @@ the 2026-06-07 N# median, `today/June N#` (flagged `**REGRESSED**` above 1.15x),
 ## Throughput gate
 
 `gate` is the pass/fail form, and it is what the product gate runs (`tests/scripts/test-all-core.sh`,
-step 3c, skipped when `SYSTEMS_BENCH=skip` is set). It builds the Release runtime, builds and runs the
-N# kernel program against it, and compares its twelve medians with
+step 2c, skipped when `SYSTEMS_BENCH=skip` is set). The gate runs it immediately after compiler build
+and formatting, before prolonged self-host, native, and VS Code phases; that avoids preconditioning
+from later gate work, though build and format necessarily run first and an idle host is still required.
+It builds the Release runtime, builds and
+runs the N# kernel program against it, and compares its twelve medians with
 `runner/SystemsThroughputBaseline.nl`. It runs no native compilers and no `git`, because the gate
 executes from a copy of the tree without `.git/`. Its header line names the runtime it used.
 

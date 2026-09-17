@@ -321,7 +321,24 @@ else
 fi
 rm -f "$FORMAT_OUTPUT"
 
-section "Step 2c: Self-Host Front Door"
+# The throughput baseline is calibrated on an idle host. Measure immediately after build/format and
+# before prolonged self-host/test phases can precondition the machine; this also exposes a benchmark
+# failure early.
+section "Step 2c: Systems Throughput Gate"
+if [ "${SYSTEMS_BENCH:-}" = "skip" ]; then
+    echo -e "${YELLOW}Skipping systems throughput gate (SYSTEMS_BENCH=skip)${NC}"
+elif step_cache_hit "systems-throughput" "$BENCH_INPUTS_HASH"; then
+    step_skip_banner "systems-throughput" "$BENCH_INPUTS_HASH"
+    handle_success "Systems throughput gate (validated step cache)"
+elif dotnet "$CLI_DLL" build --project benchmarks/native-comparison/runner \
+        && dotnet benchmarks/native-comparison/runner/bin/Debug/net10.0/NSharpLang.NativeComparisonRunner.dll gate --cli "$CLI_DLL" --repo "$REPO_ROOT"; then
+    handle_success "Systems throughput gate"
+    step_cache_store "systems-throughput" "$BENCH_INPUTS_HASH"
+else
+    handle_error "Systems throughput gate"
+fi
+
+section "Step 2d: Self-Host Front Door"
 # THE COMPILER'S OWN SOURCE, THROUGH THE COMPILER'S OWN FRONT DOOR.
 #
 # Everything else in this gate compiles `src/NSharpLang.Compiler.Core` with the PINNED stage-0 seed
@@ -602,20 +619,6 @@ else
         fi
         rm -f "$VSCODE_OUTPUT"
     fi
-fi
-
-section "Step 3c: Systems Throughput Gate"
-if [ "${SYSTEMS_BENCH:-}" = "skip" ]; then
-    echo -e "${YELLOW}Skipping systems throughput gate (SYSTEMS_BENCH=skip)${NC}"
-elif step_cache_hit "systems-throughput" "$BENCH_INPUTS_HASH"; then
-    step_skip_banner "systems-throughput" "$BENCH_INPUTS_HASH"
-    handle_success "Systems throughput gate (validated step cache)"
-elif dotnet "$CLI_DLL" build --project benchmarks/native-comparison/runner \
-        && dotnet benchmarks/native-comparison/runner/bin/Debug/net10.0/NSharpLang.NativeComparisonRunner.dll gate --cli "$CLI_DLL" --repo "$REPO_ROOT"; then
-    handle_success "Systems throughput gate"
-    step_cache_store "systems-throughput" "$BENCH_INPUTS_HASH"
-else
-    handle_error "Systems throughput gate"
 fi
 
 section "Step 4: Pack and Install MSBuild SDK"

@@ -854,7 +854,7 @@ sample, the systems audit). There are three sets: UNIT (the `unit-tests` and `na
 steps), EXAMPLES (`templates-examples-ilverify`), and BENCH — `src/` plus
 `benchmarks/native-comparison/` plus the common gate files (both gate scripts, `global.json`,
 `Directory.Build.props`, `Directory.Build.targets`, `NuGet.config`, `NSharpLang.sln`) — which keys
-the `systems-throughput` step of Step 3c. Step keys are also salted with the behavior-changing
+the `systems-throughput` step of Step 2c. Step keys are also salted with the behavior-changing
 environment (the same env_names as the whole-gate signature, including `NSHARP_EXPERIMENTAL_SOA`
 and `SYSTEMS_BENCH`) and the installed dotnet-ilverify tool
 version. Practical effect for local development: docs-only changes re-run unit
@@ -870,11 +870,15 @@ input-set prefixes next to the step wrappers in test-all-core.sh —
 `tests/GateStepInputSetGuardTests.cs`) enforces coverage of repo files tests read, the env-list
 sync between the two scripts, and the hash-step behavior itself.
 
-### 6. Step 3c: The Systems Throughput Gate
-Step 3c builds the N#-owned native-comparison runner
+### 6. Step 2c: The Systems Throughput Gate
+Step 2c runs immediately after compiler build and formatting, before the prolonged self-host, native
+N#, and VS Code phases. That placement avoids the benchmark being preconditioned by that later gate
+work; build and format necessarily run first, and this is not a substitute for an idle host. Step 2c
+builds the N#-owned native-comparison runner
 (`dotnet "$CLI_DLL" build --project benchmarks/native-comparison/runner`) and runs it in `gate`
 mode against the repo root. The runner executes the six systems kernels at both sizes (64 and 4096)
-and compares the MEDIAN of 15 trials per (kernel, size) against
+and compares the MEDIAN of the source-default trials—15 for four kernels and 21 for rolling hash and
+min-max delta—per (kernel, size) against
 `benchmarks/native-comparison/runner/SystemsThroughputBaseline.nl` at a 20 percent tolerance: a cell
 fails when `measured / baseline > 1.20`, and any failing cell fails the step.
 
@@ -899,7 +903,7 @@ It must print nothing. A timing taken beside another agent's build is not a meas
 
 ### 7. Gate Profiling And Slicing Guidance
 Current gate profiling must be refreshed: the old BenchmarkDotNet wall-clock
-lane was removed, and a throughput lane returned as Step 3c above. Use a fresh
+lane was removed, and a throughput lane returned as Step 2c above. Use a fresh
 `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` run when updating this
 section.
 
@@ -1387,7 +1391,7 @@ non-VS-Code product gate:
 VSCODE_TESTS=skip ./scripts/test-all.sh --commit
 ```
 
-Add `SYSTEMS_BENCH=skip` to that line when the machine is hot or busy: it skips the Step 3c
+Add `SYSTEMS_BENCH=skip` to that line when the machine is hot or busy: it skips the Step 2c
 throughput gate, whose timings are meaningless under load (section 6).
 
 For Language Server, LSP, extension, or other IDE-affecting work, do not skip VS Code tests:
