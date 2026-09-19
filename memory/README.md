@@ -54,6 +54,21 @@ reflectable interface list, so the relation answered `false`. The seed predated 
 gate step stayed green; only the republish could see it. `tests/native/source-typed-explicit-generic-extension`
 pins the shape.
 
+**A SEED-HIDDEN DEFECT NEED NOT BE ABOUT COMPILING CORE AT ALL — it can be about what the compiled
+assembly LOOKS LIKE.** The third and fourth (2026-09-19, at `f369e5d22`) were both in emitted
+METADATA, and neither could fail a build the old seed produced. `[Required]`/`[Output]` on an
+MSBuild task property had two writers, so every task property carried the attribute twice and
+`Attribute.GetCustomAttribute` threw `AmbiguousMatchException`. Then
+`ColumnarFreeFunctionHolders.ForFile` — which DEFINES the type it returns — was called eagerly for
+every body the emitter ran, so every namespace that declared so much as one method got an empty
+public `Program`: 11 in `NSharpLang.Compiler.Core`, 2 in `Compiler`, and `dotnet build
+src/NSharpLang.Cli` then failed CS0433 on `NSharpLang.Cli.Commands.Program`. The rule the source
+already stated — a holder exists "only once something is placed in it" — is now enforced by
+`ColumnarFreeFunctionHolderSlot`, and `tests/native/census-free-function-identity` sweeps the
+emitted assembly for empty holders. **So the republish is not green when step 8 passes: build every
+C# consumer of the self-compiled assemblies (`Cli`, `Build.Tasks`, `LanguageServer`, `Playground`)
+against the stage-2 seed before believing it.**
+
 `Step 2d: Self-Host Front Door` in `tests/scripts/test-all-core.sh` closes that blind spot. It runs
 `nlc check --json` over `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler`,
 `src/NSharpLang.Playground` and `src/NSharpLang.Build.Tasks` with the CLI the gate just built and
