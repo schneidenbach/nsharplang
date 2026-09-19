@@ -582,7 +582,20 @@ class ColumnarContextualExtensionInference {
     // of written down here. Nothing names an interface, so a framework that adds one to the vector
     // contract needs no change.
     static func FindClosedArrayImplementation(candidate: Type, openDefinition: Type): Type? {
-        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(candidate) || !openDefinition.get_IsGenericType() {
+        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(candidate) {
+            return null
+        }
+
+        // THE NON-GENERIC HALF OF THE SAME VECTOR CONTRACT. `E[]` also implements `IEnumerable`,
+        // `ICollection` and `IList`, and those carry no element at all — the shape a `Query[]`
+        // receiver has IS the interface, with nothing to substitute. `OfType<T>` and `Cast<T>`
+        // declare exactly this slot, so leaving it out made a source-element array the one vector
+        // they could not be called on. The list is still read off the CLR's own `object[]`.
+        if !openDefinition.get_IsGenericType() {
+            if SzArrayImplementsDefinition(openDefinition) {
+                return openDefinition
+            }
+
             return null
         }
 
@@ -613,8 +626,7 @@ class ColumnarContextualExtensionInference {
 
         index := 0
         while index < vectorInterfaces.Length {
-            implemented := vectorInterfaces[index]
-            if implemented.get_IsGenericType() && implemented.GetGenericTypeDefinition() == openDefinition {
+            if InterfaceMatchesDefinition(vectorInterfaces[index], openDefinition) {
                 return true
             }
 

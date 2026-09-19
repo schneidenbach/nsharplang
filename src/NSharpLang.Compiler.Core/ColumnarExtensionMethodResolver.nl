@@ -1052,12 +1052,21 @@ class ColumnarExtensionMethodResolver {
         }
 
         // A TYPE CLOSED OVER A TYPE THIS COMPILATION IS WRITING answers `IsAssignableFrom` with a
-        // throw, because its interface list is not reflectable: `List<Query>` and `Query[]` both do,
-        // for a source class `Query`. The closed shapes such a receiver HAS are the same question
-        // method type inference asks of it, so the same owner answers both — there is one notion of
-        // "what interface does this receiver have" and not two.
-        if expectedType.get_IsGenericType() && !expectedType.get_IsGenericTypeDefinition() {
-            implementation := ColumnarContextualExtensionInference.FindClosedImplementation(actualType, expectedType.GetGenericTypeDefinition())
+        // throw or a flat `false`, because its interface list is not reflectable: `List<Query>` and
+        // `Query[]` both do, for a source class `Query`. The closed shapes such a receiver HAS are
+        // the same question method type inference asks of it, so the same owner answers both — there
+        // is one notion of "what interface does this receiver have" and not two.
+        //
+        // THE SLOT BEING NON-GENERIC DOES NOT CHANGE THE QUESTION. `Cast<T>` and `OfType<T>` declare
+        // the NON-GENERIC `System.Collections.IEnumerable`, and `List<Query>` implements it exactly
+        // as it implements `IEnumerable<Query>`; gating this walk on a CONSTRUCTED slot left every
+        // such call to the reflection answer that cannot be given, so
+        // `unit.FileImports.OfType<FileImport>()` — the compiler's own source — declined. A
+        // non-generic slot is its own definition and `FindClosedImplementation` already matches one
+        // by identity, so the two slots share the single relation instead of one having none.
+        expectedDefinition := ExpectedSlotDefinitionOrNull(expectedType)
+        if expectedDefinition != null {
+            implementation := ColumnarContextualExtensionInference.FindClosedImplementation(actualType, expectedDefinition)
             if implementation != null && ColumnarTypeEquivalenceFacts.TypesEquivalent(implementation, expectedType) {
                 return true
             }
@@ -1068,5 +1077,26 @@ class ColumnarExtensionMethodResolver {
         } catch {
             return false
         }
+    }
+
+    // The shape `FindClosedImplementation` searches for, for one declared receiver slot. A
+    // CONSTRUCTED generic slot is searched by its definition, because what the receiver has is a
+    // different instantiation of it; a slot with nothing open in it IS the shape to look for. A slot
+    // that is still open — a bare type parameter, or anything containing one — names no shape a
+    // receiver can be said to have, and keeps the ordinary reflection answer.
+    static func ExpectedSlotDefinitionOrNull(expectedType: Type): Type? {
+        if expectedType.get_IsGenericTypeDefinition() {
+            return null
+        }
+
+        if expectedType.get_IsGenericType() {
+            return expectedType.GetGenericTypeDefinition()
+        }
+
+        if expectedType.get_IsGenericParameter() || expectedType.get_ContainsGenericParameters() {
+            return null
+        }
+
+        return expectedType
     }
 }

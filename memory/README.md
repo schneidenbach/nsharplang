@@ -43,6 +43,17 @@ carried a dead trailing `return` that the old seed accepted and the tip refuses
 (`emit.statement.unreachable-after-transfer`, NL312), and it surfaced only during a hand republish of
 the seed.
 
+It has happened twice. The second time (2026-09-19, found by `./scripts/reseed.sh` at `9b4c46174`) it
+was not the source: `compilationUnit.FileImports.OfType<FileImport>()` in `MultiFileCompiler.nl`
+declined at `emit.call.generic-unresolved` because the wave-12 change that replaced the emitter's
+hard-coded `Cast`/`OfType` table with the ordinary extension index matched the receiver against the
+candidate's closed slot — and that slot is the NON-GENERIC `System.Collections.IEnumerable`, which
+`ColumnarExtensionMethodResolver.ReferenceAssignableFrom` only asked the builder-bound owner about
+for a CONSTRUCTED slot. A receiver whose element is a type the compilation is writing has no
+reflectable interface list, so the relation answered `false`. The seed predated the change, so every
+gate step stayed green; only the republish could see it. `tests/native/source-typed-explicit-generic-extension`
+pins the shape.
+
 `Step 2d: Self-Host Front Door` in `tests/scripts/test-all-core.sh` closes that blind spot. It runs
 `nlc check --json` over `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler`,
 `src/NSharpLang.Playground` and `src/NSharpLang.Build.Tasks` with the CLI the gate just built and

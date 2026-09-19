@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections
 import System.Collections.Generic
 import System.Linq
 import System.Reflection
@@ -269,6 +270,22 @@ test "an array is the sequence interfaces the CLR says a vector implements, clos
     assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IEnumerable<int>).GetGenericTypeDefinition()) == typeof(IEnumerable<string>)
     assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IReadOnlyList<int>).GetGenericTypeDefinition()) == typeof(IReadOnlyList<string>)
     assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IList<int>).GetGenericTypeDefinition()) == typeof(IList<string>)
+}
+
+test "the NON-GENERIC half of the vector contract reads off the same object[] list" {
+    // `OfType<T>` and `Cast<T>` declare `System.Collections.IEnumerable`, which carries no element:
+    // the shape a vector HAS is the interface itself, with nothing to substitute. Leaving this half
+    // out made a source-element array the one vector those two could not be called on.
+    assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IEnumerable)) == typeof(IEnumerable)
+    assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(ICollection)) == typeof(ICollection)
+    assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IList)) == typeof(IList)
+    assert ColumnarContextualExtensionInference.SzArrayImplementsDefinition(typeof(IEnumerable))
+    assert ColumnarContextualExtensionInference.FindClosedImplementationThroughDefinition(typeof(List<string>), typeof(IEnumerable)) == typeof(IEnumerable)
+}
+
+test "a NON-GENERIC interface a vector does not implement is not manufactured for it either" {
+    assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IDisposable)) == null
+    assert !ColumnarContextualExtensionInference.SzArrayImplementsDefinition(typeof(IDisposable))
 }
 
 test "an interface a vector does NOT implement is not manufactured for it" {

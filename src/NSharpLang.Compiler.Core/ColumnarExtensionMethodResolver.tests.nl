@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections
 import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler
@@ -348,4 +349,22 @@ test "a value-type receiver slot is indexed, because an extension's receiver is 
     assert ColumnarExtensionMethodResolver.IsSupportedReceiverParameter(typeof(string))
     assert !ColumnarExtensionMethodResolver.IsSupportedReceiverParameter(typeof(int).MakeByRefType())
     assert !ColumnarExtensionMethodResolver.IsSupportedReceiverParameter(typeof(List<int>).GetGenericTypeDefinition().GetGenericArguments()[0])
+}
+
+test "the shape a receiver is searched for is the SLOT ITSELF when nothing in it is open" {
+    // The receiver relation is answered by `FindClosedImplementation`, and what it searches for is a
+    // DEFINITION. A constructed slot searches by its definition, because the receiver has a different
+    // instantiation of it. A slot with nothing open in it — `System.Collections.IEnumerable`, which
+    // `Cast<T>` and `OfType<T>` declare — is already the shape to look for; gating the walk on a
+    // CONSTRUCTED slot left those two with no relation at all over a builder-bound receiver.
+    assert ColumnarExtensionMethodResolver.ExpectedSlotDefinitionOrNull(typeof(IEnumerable)) == typeof(IEnumerable)
+    assert ColumnarExtensionMethodResolver.ExpectedSlotDefinitionOrNull(typeof(string)) == typeof(string)
+    assert ColumnarExtensionMethodResolver.ExpectedSlotDefinitionOrNull(typeof(IEnumerable<string>)) == typeof(IEnumerable<int>).GetGenericTypeDefinition()
+}
+
+test "a slot that is still OPEN names no shape a receiver can be said to have" {
+    openDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    assert ColumnarExtensionMethodResolver.ExpectedSlotDefinitionOrNull(openDefinition) == null
+    assert ColumnarExtensionMethodResolver.ExpectedSlotDefinitionOrNull(openDefinition.GetGenericArguments()[0]) == null
+    assert ColumnarExtensionMethodResolver.ExpectedSlotDefinitionOrNull(openDefinition.GetGenericArguments()[0].MakeArrayType()) == null
 }
