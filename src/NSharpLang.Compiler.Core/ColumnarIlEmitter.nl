@@ -5431,25 +5431,15 @@ sealed class ColumnarIlEmitter {
                     staticProperty := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
                     ColumnarTupleElementNameEmitter.ApplyToProperty(staticProperty, prop.TypeCanonical)
                     def.MemberLabeledCanonicals[prop.Name] = prop.TypeCanonical
+                    // THE QUEUE IS THE ONLY WRITER OF A PROPERTY'S SOURCE ATTRIBUTES, INCLUDING THE
+                    // MSBUILD MARKERS. `[Microsoft.Build.Framework.Required]` and `[…Output]` once had a
+                    // second, hard-coded writer here, from before attribute attachment reached property
+                    // rows at all; keeping both wrote the row TWICE, which is invalid metadata for an
+                    // attribute that is not `AllowMultiple`. The declaration scanner still records the
+                    // exact marker (`ColumnarPropertyRows.HasMsBuild*Attribute`) as a parser fact, but
+                    // emission is the binder's, which resolves the name the way every other attribute is
+                    // resolved and therefore also honours the imported `[Required]` spelling.
                     sourceAttributeQueue.QueueProperty(staticProperty, prop.Getter.SourceAttributes, typeResolution)
-                    if declarationPlan.Properties.HasMsBuildRequiredAttribute[s][pi] {
-                        requiredConstructor := typeof(Microsoft.Build.Framework.RequiredAttribute).GetConstructor(Type.EmptyTypes)
-                        if requiredConstructor == null {
-                            return false
-                        }
-                        resolvedRequiredConstructor: ConstructorInfo = requiredConstructor
-                        requiredBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
-                        staticProperty.SetCustomAttribute(resolvedRequiredConstructor, requiredBlob)
-                    }
-                    if declarationPlan.Properties.HasMsBuildOutputAttribute[s][pi] {
-                        outputConstructor := typeof(Microsoft.Build.Framework.OutputAttribute).GetConstructor(Type.EmptyTypes)
-                        if outputConstructor == null {
-                            return false
-                        }
-                        resolvedOutputConstructor: ConstructorInfo = outputConstructor
-                        outputBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
-                        staticProperty.SetCustomAttribute(resolvedOutputConstructor, outputBlob)
-                    }
                     if prop.IsRequired {
                         ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToProperty(staticProperty)
                     }
@@ -5512,25 +5502,8 @@ sealed class ColumnarIlEmitter {
                 property := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
                 ColumnarTupleElementNameEmitter.ApplyToProperty(property, prop.TypeCanonical)
                 def.MemberLabeledCanonicals[prop.Name] = prop.TypeCanonical
+                // One writer, for the reason spelled out on the static property above.
                 sourceAttributeQueue.QueueProperty(property, prop.Getter.SourceAttributes, typeResolution)
-                if declarationPlan.Properties.HasMsBuildRequiredAttribute[s][pi] {
-                    requiredConstructor := typeof(Microsoft.Build.Framework.RequiredAttribute).GetConstructor(Type.EmptyTypes)
-                    if requiredConstructor == null {
-                        return false
-                    }
-                    resolvedRequiredConstructor: ConstructorInfo = requiredConstructor
-                    requiredBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
-                    property.SetCustomAttribute(resolvedRequiredConstructor, requiredBlob)
-                }
-                if declarationPlan.Properties.HasMsBuildOutputAttribute[s][pi] {
-                    outputConstructor := typeof(Microsoft.Build.Framework.OutputAttribute).GetConstructor(Type.EmptyTypes)
-                    if outputConstructor == null {
-                        return false
-                    }
-                    resolvedOutputConstructor: ConstructorInfo = outputConstructor
-                    outputBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
-                    property.SetCustomAttribute(resolvedOutputConstructor, outputBlob)
-                }
                 if prop.IsRequired {
                     ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToProperty(property)
                 }
