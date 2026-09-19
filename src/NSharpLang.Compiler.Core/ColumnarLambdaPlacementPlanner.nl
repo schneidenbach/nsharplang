@@ -305,8 +305,13 @@ class ColumnarLambdaPlacementPlanner {
     // resolved fact that the body references the enclosing reference type's member chain (and so needs
     // `this`); when false a type-owned lambda remains a static method on that type, while a file-level
     // lambda is program-static.
-    static func PlanNonCapturingPlacement(programType: TypeBuilder, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, returnType: Type, parameterTypes: Type[], hasThisCapture: bool): ColumnarLambdaPlacement? {
-        if programType == null || lambdaCounter == null || visibleTypeParameters == null || returnType == null || parameterTypes == null {
+    //
+    // `programType` IS THE FILE-LEVEL PLACEMENT'S OWNER AND NOTHING ELSE, so it is null whenever the
+    // lambda is written inside a type: those two shapes put their method on `enclosing` and never
+    // touch the holder. The host resolves it only for the file-level shape, because resolving a
+    // holder is what CREATES it — see `ColumnarFreeFunctionHolders`.
+    static func PlanNonCapturingPlacement(programType: TypeBuilder?, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, returnType: Type, parameterTypes: Type[], hasThisCapture: bool): ColumnarLambdaPlacement? {
+        if lambdaCounter == null || visibleTypeParameters == null || returnType == null || parameterTypes == null {
             throw new InvalidOperationException("Lambda placement planning requires non-null placement facts.")
         }
 
@@ -346,6 +351,9 @@ class ColumnarLambdaPlacementPlanner {
             return placement
         }
 
+        if programType == null {
+            throw new InvalidOperationException("A file-level lambda's placement requires its namespace's program holder.")
+        }
         if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(returnType, parameterTypes, programType) {
             return null
         }
@@ -364,8 +372,9 @@ class ColumnarLambdaPlacementPlanner {
     // only a file-level lambda uses the program type.
     // Asking it only for a lambda with a delegate target is why `f := () => this.Value` declined at
     // `emit.body` while `f: Func<int> = () => this.Value` emitted.
-    static func PlanInferredPlacement(programType: TypeBuilder, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, parameterTypes: Type[], hasThisCapture: bool): ColumnarLambdaPlacement? {
-        if programType == null || lambdaCounter == null || visibleTypeParameters == null || parameterTypes == null {
+    // `programType` is null for a lambda written inside a type, for the same reason as above.
+    static func PlanInferredPlacement(programType: TypeBuilder?, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, parameterTypes: Type[], hasThisCapture: bool): ColumnarLambdaPlacement? {
+        if lambdaCounter == null || visibleTypeParameters == null || parameterTypes == null {
             throw new InvalidOperationException("Lambda placement planning requires non-null placement facts.")
         }
 
@@ -392,6 +401,9 @@ class ColumnarLambdaPlacementPlanner {
             return placement
         }
 
+        if programType == null {
+            throw new InvalidOperationException("A file-level lambda's placement requires its namespace's program holder.")
+        }
         staticMethod := programType.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes())
 
         return new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticProgram, staticMethod, programType)

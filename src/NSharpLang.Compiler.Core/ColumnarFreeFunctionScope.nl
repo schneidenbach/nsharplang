@@ -241,6 +241,15 @@ class ColumnarFreeFunctionScope {
 // declared there, or a synthesized method (a lambda, a capture-free local function) lifted out of a
 // body in one of its files. A project whose every file says `namespace App` therefore emits
 // `App.Program` and nothing else, rather than an `App.Program` beside an empty global `Program`.
+//
+// ON DEMAND MEANS `ColumnarFreeFunctionHolderSlot`, NOT `For`. Every body the emitter runs is handed
+// a SLOT, because most bodies never place anything on a holder: a lambda written inside a type lands
+// on that type, a display class and an anonymous object type are module-level, and a body with no
+// lambda at all asks for nothing. Resolving the `TypeBuilder` up front instead — merely to have one
+// ready in case the body lifted something — gave EVERY namespace that declared so much as one method
+// an empty public `Program`, which a C# consumer referencing two such assemblies then saw as CS0433
+// (measured on the tip compiler at `f369e5d22`: 11 of them in `NSharpLang.Compiler.Core` and 2 in
+// `Compiler`, and `dotnet build src/NSharpLang.Cli` could not name `Program` at all).
 class ColumnarFreeFunctionHolders {
     module: ModuleBuilder
     rootTypeName: string
@@ -258,8 +267,17 @@ class ColumnarFreeFunctionHolders {
 
     // The holder a body emitted out of this file places its free functions and its synthesized
     // methods on. Every caller has a source file id, so nobody has to spell a namespace.
+    //
+    // CALLING THIS CREATES THE TYPE. Ask for it only where a member is about to be declared on it;
+    // a body that MIGHT lift something takes a `ColumnarFreeFunctionHolderSlot` instead.
     func ForFile(sourceFileId: int): TypeBuilder {
         return For(program.NamespaceNameForFile(sourceFileId))
+    }
+
+    // The module every synthesized type this program defines goes into — a display class, an
+    // anonymous object type. Reaching it through the holder used to mean CREATING the holder.
+    func Module(): ModuleBuilder {
+        return module
     }
 
     func For(namespaceName: string): TypeBuilder {
@@ -291,5 +309,36 @@ class ColumnarFreeFunctionHolders {
     // Every holder that was actually needed, in creation order, for the final `CreateType` pass.
     func Created(): List<TypeBuilder> {
         return ordered
+    }
+}
+
+// ONE BODY'S HOLDER, BEFORE IT EXISTS.
+//
+// The emitter carries this instead of a `TypeBuilder`, so that asking WHERE a file's free functions
+// and lifted methods would go is not the same act as CREATING the type they would go on. Only
+// `Builder()` creates it, and only three placements ever call it: a file-level lambda, a file-level
+// capture-free local function, and the free functions themselves. Everything else a body needs from
+// the holder — the module a display class or an anonymous object type is defined in — is available
+// without one.
+class ColumnarFreeFunctionHolderSlot {
+    holders: ColumnarFreeFunctionHolders
+    sourceFileId: int
+
+    constructor(freeFunctionHolders: ColumnarFreeFunctionHolders, holderSourceFileId: int) {
+        if freeFunctionHolders == null {
+            throw new InvalidOperationException("A free-function holder slot requires the program's holder table.")
+        }
+        holders = freeFunctionHolders
+        sourceFileId = holderSourceFileId
+    }
+
+    // CREATES the holder if this is the first member placed on it. Call it at the point of
+    // declaration, never to have one in hand.
+    func Builder(): TypeBuilder {
+        return holders.ForFile(sourceFileId)
+    }
+
+    func Module(): ModuleBuilder {
+        return holders.Module()
     }
 }

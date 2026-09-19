@@ -24,7 +24,11 @@ class ColumnarSemanticTypeRegistryBridge {
         return owned
     }
 
-    static func IsValidSynthesizedMethodSignatureType(valueType: Type, declaringType: TypeBuilder): bool {
+    // `declaringType` is NULL for a synthesized owner that does not exist yet and never will be
+    // generic — a display class, an anonymous object type. The rule is unchanged: no enclosing type
+    // parameter is owned by such an owner, which is the same answer a non-generic `Program` holder
+    // gave when one was materialized just to ask this question.
+    static func IsValidSynthesizedMethodSignatureType(valueType: Type, declaringType: TypeBuilder?): bool {
         if valueType.get_IsGenericParameter() {
             return IsTypeParameterOwnedByType(valueType, declaringType)
         }
@@ -46,7 +50,10 @@ class ColumnarSemanticTypeRegistryBridge {
     // A generic parameter selected through a synthesized semantic view can be a distinct reflection
     // wrapper for the same unbaked declaring-type slot. Position and declared name are the stable CLR
     // identity available before bake; method parameters are always excluded.
-    static func IsTypeParameterOwnedByType(valueType: Type, declaringType: TypeBuilder): bool {
+    static func IsTypeParameterOwnedByType(valueType: Type, declaringType: TypeBuilder?): bool {
+        if declaringType == null {
+            return false
+        }
         if !valueType.get_IsGenericParameter() || valueType.get_DeclaringMethod() != null {
             return false
         }

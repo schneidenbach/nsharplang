@@ -1,9 +1,11 @@
 namespace Census.FreeFunctionIdentity.Tests
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import Census.FreeFunctionIdentity.Holder
 import Census.FreeFunctionIdentity.Spread
+import Census.FreeFunctionIdentity.TypesOnly
 import Census.FreeFunctionIdentity.X
 import Census.FreeFunctionIdentity.X.Deep
 import Census.FreeFunctionIdentity.X.Deeper
@@ -47,6 +49,27 @@ class IdentityFacts {
         }
 
         return owner.FullName ?? "<unnamed>"
+    }
+
+    // Every type in this assembly whose NAME is a holder spelling and which declares nothing —
+    // no method, no field. A holder exists to hold something; one that holds nothing is a type row
+    // the emitter wrote for a namespace that never asked for it, and it is PUBLIC, so a C# consumer
+    // that references two such assemblies cannot name `Program` at all (CS0433).
+    static func EmptyHolderNames(): List<string> {
+        empty := new List<string>()
+        for candidate in Assembly().GetTypes() {
+            candidateName := candidate.Name
+            if candidateName != "Program" && candidateName != "<Program>" {
+                continue
+            }
+
+            declaredMethods := candidate.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            declaredFields := candidate.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            if declaredMethods.Length == 0 && declaredFields.Length == 0 {
+                empty.Add(candidate.FullName ?? candidateName)
+            }
+        }
+        return empty
     }
 
     static func HolderMethodCount(namespaceName: string, name: string): int {
@@ -183,4 +206,35 @@ test "a namespace that declares nothing gets no holder at all" {
     // emit an empty global `Program` beside the real ones.
     assert IdentityFacts.Assembly().GetType("Program") == null
     assert IdentityFacts.Holder("Census.FreeFunctionIdentity") == null
+}
+
+test "a namespace that declares only types emits no holder" {
+    // `Census.FreeFunctionIdentity.TypesOnly` declares one class and no free function. Its
+    // constructor, its instance methods, its two lambdas and its anonymous object all place their
+    // members somewhere else, so the namespace has nothing to put on a `Program` and gets none.
+    //
+    // ON DEMAND USED TO MEAN "THE MOMENT ANY BODY IS EMITTED". Every body was handed a resolved
+    // holder `TypeBuilder` in case it lifted something, and resolving one is what defines it, so a
+    // namespace acquired an empty public `Program` for owning a single method. The type IS reachable
+    // — `Calc` is the proof the namespace emitted — so a missing holder here is the rule, not an
+    // empty assembly.
+    calc := new Calc(21)
+    assert calc.Doubled() == 42
+    assert calc.PlusOne(1) == 2
+    assert calc.PlusSeed(1) == 22
+    assert calc.Described() != null
+
+    assert IdentityFacts.Assembly().GetType("Census.FreeFunctionIdentity.TypesOnly.Calc") != null
+    assert IdentityFacts.Holder("Census.FreeFunctionIdentity.TypesOnly") == null
+    assert IdentityFacts.Assembly().GetType("Census.FreeFunctionIdentity.TypesOnly.<Program>") == null
+}
+
+test "no holder type in the emitted assembly is empty" {
+    // The whole-assembly form of the rule above, so a namespace this file has not named cannot
+    // acquire an empty holder unnoticed — including this test file's own
+    // `Census.FreeFunctionIdentity.Tests`, which declares no free function. A holder that DOES
+    // declare something is not reported: the two real ones and the reserved `<Program>` each carry
+    // their functions.
+    empty := IdentityFacts.EmptyHolderNames()
+    assert empty.Count == 0
 }
