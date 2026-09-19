@@ -66,7 +66,7 @@ evidence copy: `/Users/spencer/repos/nsharp-worktrees/evidence/astra-c6ab6f2e/`
 | Compiler-service estate | **9,291/9,291**, zero skips |
 | Native sweep | **109 rows, 4,536 passed, 0 failed, 1 intentional skip** |
 | Gate-script contracts | **38/38** |
-| Ownership audit | **25/25** (both reviewed heads `head-v2:490beddb1e8a3181`) |
+| Ownership audit | **25/25** (both reviewed heads `head-v2:5ce298ee5fe53bf8`) |
 | Pack, templates, example build, check | pass |
 | IL verification | **80 assemblies, no new errors** against the unchanged baseline |
 | Compile-time benchmark | **74 functional pass; timing UNJUDGED** |

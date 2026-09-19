@@ -51,7 +51,7 @@ the threshold of 2), runs 144,486 / 147,030 / 145,668 ms, median 145,668 ms, whi
 the 185,827 ms budget. A skipped-by-load measurement is not a timing pass and must never be recorded as
 one.
 
-Ownership head pins at this tip: both reviewed heads are `head-v2:490beddb1e8a3181`; packages delivery
+Ownership head pins at this tip: both reviewed heads are `head-v2:5ce298ee5fe53bf8`; packages delivery
 `text-v1:ef8f2afcc9069810` (138 lines / 115 nonblank), setup delivery `text-v1:4b95c568a243574b4`
 (401 lines / 352 nonblank).
 
