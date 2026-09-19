@@ -312,9 +312,9 @@ test "a namespace spread over two files with distinct names emits one type each"
         }
 
         names.Sort()
-        // `Catalog.Program` is the synthesised entry-point holder every emitted assembly carries; the
-        // two DECLARED types are what this row is about, and each appears exactly once.
-        assert DupJoin(names) == "Catalog.Gadget;Catalog.Program;Catalog.Widget", DupJoin(names)
+        // A namespace that declares only types places nothing on a free-function holder, so no
+        // `Catalog.Program` is synthesised: the two DECLARED types are the whole namespace, once each.
+        assert DupJoin(names) == "Catalog.Gadget;Catalog.Widget", DupJoin(names)
     } finally {
         DupDelete(directory)
     }
