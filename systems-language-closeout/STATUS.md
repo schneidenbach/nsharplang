@@ -31,10 +31,264 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-**Active follow-on, 2026-09-09:** [managed toolchain conversion](../tasks/TOOLCHAIN-NATIVE.md)
-is authorized. Astra integrates and Luna Max implements complete owners and N# assertions.
-Facade and MSBuild task lanes are running from `06186dc6d`; CLI/LSP/Playground/Runtime/Wasm follow.
-Visual Studio is deferred; compiler completion and rename evidence below remain accepted.
+### Census wave 12 — current closeout cursor (2026-09-16)
+
+**Tip.** Wave 12 compiler prerequisites and native-test migration are integrated through
+`c6ab6f2e7b69cda86c7503736c186b0e9ea647db` on `census/merge`. The integration checkout is clean and is
+145 commits ahead of `systems-language` `9faf75a1c72e84133e9b02694bf6b77a1ba351e2`. **Nothing has been
+pushed, reseeded, or retired.** The only conversion run since is the read-only pre-seed converter
+census of 2026-09-19 recorded below; no production reconversion has landed.
+
+**Ownership rule (supersedes every earlier assignment in this file).** Root (Fable) plans, reviews,
+integrates, runs shared builds and the product gates, performs extension reload and visual IDE
+verification, owns the bootstrap seed, package publication, the shared caches and the worktree/branch
+lifecycle, and makes every commit and push. **Implementation is delegated to Opus** in bounded
+worktrees from the accepted tip; workers run no shared builds, product gates, cache operations or
+commits. The Luna Max, Sol, Terra and GLM-CLI implementation assignments recorded throughout this file
+and in `tasks/TOOLCHAIN-NATIVE.md` are **historical** and no longer in force.
+
+**Not a completion claim.** The managed-toolchain production migration is NOT complete. CLI,
+LanguageServer, Playground, Runtime and Wasm-hosting owners and their assertions are still outstanding,
+and the CLI/LanguageServer reconversion is seed-blocked. No Runtime C# source changed in this wave.
+
+#### First valid fresh non-VS product gate — PASSED at `c6ab6f2e7`
+
+`NSHARP_TEST_KEEP_RUN=1 VSCODE_TESTS=skip ./scripts/test-all.sh --commit` finished **EXIT 0 in 36m36s
+(2,196s)**; a full-log audit found zero `FAILED:` markers and zero JSON `"failed": [1-9]` rows. Durable
+evidence copy: `/Users/spencer/repos/nsharp-worktrees/evidence/astra-c6ab6f2e/`
+(`astra-c6ab6f2e-product-non-vscode.log`, with `SHA256SUMS`).
+
+| Stage | Result |
+|---|---|
+| Build, format | pass |
+| Systems throughput | **12/12**, max ratio 1.06, baseline and ×1.20 tolerance unchanged |
+| Self-host front door (Step 2d) | pass at the immutable Core ceiling **1,342**; `Build.Tasks` 0; `Compiler`/`Playground` remain the known blocked (-1) rows |
+| Compiler-service estate | **9,291/9,291**, zero skips |
+| Native sweep | **109 rows, 4,536 passed, 0 failed, 1 intentional skip** |
+| Gate-script contracts | **38/38** |
+| Ownership audit | **25/25** (both reviewed heads `head-v2:490beddb1e8a3181`) |
+| Pack, templates, example build, check | pass |
+| IL verification | **80 assemblies, no new errors** against the unchanged baseline |
+| Compile-time benchmark | **74 functional pass; timing UNJUDGED** |
+
+**Do not call the compile-time stage a timing pass.** Its timing was not judged: load 3.43 (threshold
+2), runs 144,486 / 147,030 / 145,668 ms, median 145,668 ms — numerically under the 185,827 ms budget,
+but skipped-by-load is not green.
+
+**The judged timing evidence is separate and earlier** (standalone, not a gate, at `edcd6294`): the
+root-only idle five-build baseline measured 125,410 / 123,533 / 123,885 / 123,124 / 126,452 ms — median
+**123,885 ms**, median RSS 1,521,696,768 bytes, 526 non-test files / 288,658 lines, idle load 1.91
+(`artifacts/astra-build-baseline-measurement`). The full 74-test benchmark then passed 74/74 with 0
+failed and 0 skipped and its verdict **was judged ok** at load 1.89: runs 126,462 / 141,056 /
+148,862 ms, median 141,056 ms against baseline 123,885 ms and the ×1.5 limit 185,827 ms. Keep the two
+apart in every future record.
+
+**Seven prior full-gate attempts failed or were aborted** before this one — the analyzer-clean-source
+EF fixture, repeated Systems throughput cells, a stale delivery fingerprint, and an intermittent
+`setup-local.sh` dry-run row traced to a Bash 3.2 `EINTR` silent-helper failure. None is a receipt.
+All were fixed in `8f4fd091`, `fc2ae92a`, `d8553f18`, `2602fa07` and `c6ab6f2e` with no baseline,
+tolerance, ceiling or allowlist relaxed.
+
+#### Fresh VS Code-enabled product gate — PASSED at `c6ab6f2e7`, 2026-09-19
+
+`./scripts/test-all.sh --commit` with the VS Code stage **enabled** (no `VSCODE_TESTS=skip`), run
+fresh at `c6ab6f2e7` on 2026-09-19, finished **EXIT 0**. Forced-fresh isolated run; it stored the
+validated isolated cache result **`37b5ea361a7805a7` (1858s)**, and the gate's own timing summary
+totals **30m57s**. Full-log audit: **zero `FAILED:` markers**, zero JSON `"failed": [1-9]` rows.
+Evidence: `evidence/astra-c6ab6f2e/product-vscode-20260919.log` with its `SHA256SUMS` entry.
+
+| Stage | Result (VS Code enabled) |
+|---|---|
+| Clean, build, format | pass (incremental clean; build 1m08s) |
+| Systems throughput | **12 cells, 0 failed**, tolerance **1.20x**, worst ratio **1.03x** (`rolling-hash` 64), load average `{ 2.11 2.21 1.79 }` / 10 cores, baseline unchanged (2026-09-01, `8cf40128a`) |
+| Self-host front door | pass, 11m14s — `Compiler.Core` **1342** *(at the ceiling)*, `Build.Tasks` **0**; `Compiler` / `Playground` BLOCKED behind `Compiler.Core` and not counted |
+| Compiler-service estate | **Passed 9291 / Failed 0 / Skipped 0 / Total 9291** (17s) |
+| Native sweep | **109 rows, 4,536 passed, 0 failed, 1 skipped, 4,537 total**; the one skip is `tests/native/census-testrefs` (7/1/8) |
+| Gate-script contracts | **38 passed, 0 failed, 0 skipped** |
+| Ownership audit | **25 passed, 0 failed, 0 skipped** |
+| Compile-time benchmark | `tests/native/compile-time-bench` **74 passed, 0 failed, 0 skipped** — functional only, see below |
+| VS Code integration smoke | **36 passing (42s)**, 0 pending/skipped (extension, diagnostics, hover, completion) |
+| Pack, templates, template project, examples, `nlc check` (26 dirs) | pass |
+| IL verification | **80 assemblies pass, no new errors** vs baseline |
+
+**This log judges nothing about compile-time timing.** The benchmark appears only as the native row
+above: 74 passed, 0 failed, 0 skipped. There is **no timing verdict, no load reading and no
+millisecond figure** for it anywhere in the log — so record 74 functional pass, timing **not judged**,
+never a timing pass. The single `load average` line in the log belongs to the Systems throughput
+gate, which passed its own tolerance check.
+
+#### Extension reload — DONE; visual IDE proof — STILL OWED
+
+The extension was rebuilt and reinstalled on 2026-09-19 via `./scripts/reload-vscode-extension.sh`
+(`nsharp-0.6.0.vsix` from this worktree at `c6ab6f2e7`, installed to
+`~/.vscode/extensions/nsharp.nsharp-0.6.0`, VS Code 1.137.0, language-server process confirmed
+running).
+
+**No screenshots were taken and no rendered UI was observed** — computer-use access to VS Code was
+unavailable. The visual IDE proof **remains owed**. Only protocol-level evidence exists
+(`evidence/astra-c6ab6f2e/visual-ide-20260919/RECEIPT.md`): `NL202` published on a deliberate error
+with correct range and severity; **0** diagnostics on the clean hello-world; hover **4/4** correct;
+completion **39** `string` members after `greeting.`; output channel and server log free of
+exceptions, crashes and `[ERR]` entries.
+
+Signature help works for same-document user functions but returns **null** for external/BCL members
+and for cross-file N# types. This is **pre-existing, not a regression** — identical on `systems-language`
+`9faf75a1c` — and is tracked as **SIGHELP** in `census-briefs/FOLLOWUPS.md`: the C#
+`SignatureHelpHandler` reads only the current document's `SymbolsInfo`. Fix it in the LanguageServer
+N# conversion as a project-snapshot-driven overload-signature owner; do not grow the C# handler.
+
+The user explicitly directed on 2026-09-19 to proceed with other work rather than block on flaky VS
+Code computer-use. Proceeding is sanctioned; the visual proof stays an open debt.
+
+**History, superseded:** an earlier VS Code-enabled attempt at `c6ab6f2e7` was interrupted by the user
+at the throughput stage and terminated with exit 143 (`astra-c6ab6f2e-product-vscode.log`). An
+interrupted gate is neither a pass nor a failure receipt; it is kept here as history only and no
+longer describes the current state.
+
+#### Converter census at `c6ab6f2e7` — a pre-seed census, not proof of migration
+
+`ROOT=/Users/spencer/repos/nsharp-worktrees/census-merge ./convert-all.sh` (exit 0) plus `run.sh census`,
+2026-09-19, converter `b9a49e0` with `nlc 0.1.0+c6ab6f2e7` (the stale `88cf7534c` CLI binary was
+rebuilt first). Receipt: `evidence/astra-c6ab6f2e/converter-20260919/RECEIPT.md`.
+
+**51 files, 86 diagnostics, 11 `// CONVERT:` stubs** — runtime **0**, languageserver **10**, cli **26**,
+playground-wasm **22**, tests **28** — against **109** on 2026-09-14. It measures converter output
+against the pre-seed compiler and **closes nothing**: 45 of the 86 rows are missing-reference-root
+artifacts rather than language gaps, and the `tests` row is not comparable to 2026-09-14 because the
+C# unit suite was deleted (19 files → 3). `census-merge` was clean before and after; nothing was
+committed. The post-push and post-seed converter reruns remain outstanding.
+
+#### Retirement precheck — read-only; nothing retired
+
+`census-briefs/FABLE-RETIREMENT-AND-STALE-LANES-REVIEW.md` (2026-09-19) checked all 19 manifest
+candidates against `c6ab6f2e7`: **19/19 clean**, **19/19 ancestors**, 0 unique commits each, no
+process holding a cwd in any of them. Four stale codex lanes are recommended for retirement —
+`codex/toolchain-integration` (`5ebd18b72`), `codex/check-remaining-assertions` (`537e248ac`, tag
+first), `codex/cli-native-owner` (`89ed8508f`), `codex/runtime-owner` (`0e61b67fe`). `census-merge`
+and the unmerged `census/lsconvert-source-wip` (`f81e37df2`) are must-preserve. **Nothing has been
+retired**; every row is re-checked against the actual pushed ref before removal.
+
+#### Wave-12 stream classification
+
+| Stream | Classification | Evidence / next required action |
+|---|---|---|
+| CLICONVERT | Accepted checkpoint | N# `DocCommand` owns project loading, symbol ordering, HTML/JSON/text results and browser launch. Rerun CLI and LanguageServer conversion from the published seed. |
+| ENUMATTR | Accepted historical implementation | Preserve the enum declaration/member attribute evidence; revalidate through the gates and conversion results. |
+| SELFHOST | Accepted repair; front door still a backlog | `88cf7534` set the ceiling to 1,342 after a 946-file report (1,329 errors, 13 warnings), zero stable-identity additions and 32 removals versus the fixed 1,374 baseline; the gate re-proved 1,342 at `c6ab6f2e7`. The ceiling is a backlog to drive to zero and must never be raised. |
+| TESTSCONVERT / DEV-EVIDENCE | Accepted migration / checkpoint | Native N# tests own the migrated C# unit coverage; the estate wrapper rejects zero-executed, unmatched, skipped-only, split and mixed-failure output. Contracts 38/38 at this tip. |
+| GENERICSIG | Accepted checkpoint (`580c4347`) | Retain the generic-signature, typed-lambda and lexical-owner evidence. |
+| COMPLETION / EDITOR PROJECTIONS | Accepted checkpoints with read-only visual evidence | Inherited `Name: string` / CLR `Count: int`, `required init User: string` and lambda `value: int` with zero Problems. Repeat the affected-editor proof with the IDE gate. |
+| INITREQ | Accepted checkpoint (`2db3c5f0`) | Metadata and method-owned generic initializer repair; ancestor of `c6ab6f2e7`. |
+| STATICRECV | Accepted checkpoint (`96c51cef`) | Qualified static receivers, `must` rollback, real OmniSharp delegate initialization. |
+| NAMEDARGS | Accepted checkpoint (`b21fd876`) | Final placement and source-owner repair; qualified `second: int` / `first: U` signature help proven read-only. |
+| CAPTURE3 | Accepted implementation checkpoint | Generic-local `e75764af`, async `2a28e38e`, sibling `1550db30`, loop `f0c0aa55`, ledger `fd08ab819` — all ancestors of `c6ab6f2e7`. `ColumnarModifiedMemberReferenceLedger` is the one assembly-local ledger, carried through `BodyFacts`, forwarding ordinary async DirectCall, expanding no public host signature. Postfix mutation of a lambda's own parameter or local stays a documented refusal in sync and async. |
+| BENCHMARK STAGE / BASELINE / WARMUP / ORDER | Accepted checkpoints | Schema-2 phase guard `602da978` (73/73, BUILD canary 0.183s, schema-1 baseline intentionally refused before timing); measured baseline `edcd6294`; warmup coverage `fc2ae92a`; stage reordering that runs throughput after build+format and before the long self-host/native stages `d8553f18`; reviewed delivery and head repin `2602fa07`. |
+| INSTALLER ITERATION | Accepted checkpoint (`c6ab6f2e7`) | `packages.sh` and `setup-local.sh` package loops moved to synchronous array iteration after a proven Bash 3.2 `EINTR` silent-helper failure. Contracts 38/38, ownership 25/25; packages delivery `text-v1:ef8f2afcc9069810` (138/115), setup delivery `text-v1:4b95c568a243574b4` (401/352). |
+| RESEED CACHE VERIFICATION | Script contract accepted; actual reseed OPEN | `46e22009` fail-closes on missing, mismatched or invalid hash evidence and compares restored SDK/runtime cache nupkgs against bootstrap bytes before each build. No bootstrap seed, shared cache or actual reseed has been touched. |
+| IVT2 | OPEN — only after the actual reseed | No IVT2 validation is recorded; COMPLETION's historical IVT 14 evidence does not substitute for it. |
+| CLI / LanguageServer / Playground / Runtime / Wasm-hosting conversion | OPEN | Owner and assertion conversion unfinished. Preserve `census/lsconvert-source-wip` (`f81e37df2`, no registered worktree, **not** an ancestor of `c6ab6f2e7`) until post-seed reconversion documents its disposition. |
+| SIGHELP | OPEN — pre-existing, fix in the LS conversion | `textDocument/signatureHelp` returns null for external/BCL members and cross-file N# types; the C# handler reads only the current document's `SymbolsInfo`. Identical on `9faf75a1c`, so not a regression. Fix as an N# overload-signature owner over the project snapshot with native regressions; do not grow the C# handler. |
+| CONVERTER CENSUS | Pre-seed census taken; reruns OPEN | 2026-09-19 at `c6ab6f2e7`, converter `b9a49e0`: 51 files / 86 diagnostics / 11 stubs versus 109 on 2026-09-14. A census, not a migration proof. |
+| RETIREMENT PRECHECK | Precheck done; retirement OPEN | 19/19 clean ancestors, 0 unique commits each; four stale codex lanes recommended for retirement; `census/lsconvert-source-wip` preserved. Nothing removed. |
+| FINAL GATES / PUSH / RETIREMENT | Gates PASSED; visual proof, push and retirement OPEN | Both required fresh gates have passed at `c6ab6f2e7` — the non-VS gate and the VS Code-enabled gate of 2026-09-19. The visual IDE proof is still owed; nothing has been pushed, reseeded, reconverted or retired. Follow the sequence below exactly. |
+
+#### Accounting — re-measure after the actual reseed
+
+Checkpoint accounting carried from `88cf7534`: catalog 108 (98 compiler plus 10 linter), 103 native
+projects, corpus pin 134, and a net 10,919 C# lines removed versus `systems-language`; no Runtime source
+changed. The `c6ab6f2e7` gate reported **109 native rows**, so the project count has moved since that
+accounting was taken. Re-measure and repin catalog, native-project, corpus, line-delta and ownership
+facts after the actual reseed. Do not infer a Runtime conversion, a completed production migration, or
+a push receipt from these numbers.
+
+#### Required closeout sequence — only step 1 and half of step 2 have receipts
+
+1. ~~**Fresh VS Code-enabled gate** at the accepted tip.~~ **DONE 2026-09-19** — EXIT 0, isolated cache
+   result `37b5ea361a7805a7` (1858s); receipt above. Its compile-time timing was **not judged** and must
+   not be restated as a timing pass.
+2. **Extension reload and visual IDE verification** — ~~rebuild and reinstall the extension (DONE
+   2026-09-19, `nsharp-0.6.0.vsix` via `./scripts/reload-vscode-extension.sh`)~~; **visual verification
+   still OWED**: observe the affected completion, hover, signature-help and diagnostic behavior in the
+   real rendered editor and capture screenshots. The 2026-09-19 protocol-level probes do not discharge
+   this.
+3. **Tracked closeout documents**, reviewed root commit, fast-forward the main checkout from
+   `census/merge`, push the first finalized integration ref.
+4. **Converter rerun after each push** from the retained integration worktree:
+   `ROOT=/Users/spencer/repos/nsharp-worktrees/census-merge ./convert-all.sh`. Root owns the generated
+   output; preserve the pre-existing dirty `out/languageserver/project.yml` until reviewed. Only the
+   post-seed run can close LS/CLI reconversion.
+5. **Worktree retirement — 19 candidates**, only after a successful gated publication and only after
+   re-running `git -C <worktree> status --porcelain=v1` and
+   `git merge-base --is-ancestor <recorded-tip> <first-pushed-finalized-integration-ref>` per row against
+   the **actual pushed ref**, not against any snapshot recorded in the retirement manifest. Preserve
+   `census/merge`, the unmerged `census/lsconvert-source-wip`, active worktrees and unrelated user
+   worktrees; clean up the owned ignored CLI-bin symlink and APFS clones as part of each removal.
+6. **Actual two-pass reseed**, root alone with no agents running: `./scripts/reseed.sh` — pack, install,
+   evict the exact SDK/runtime cache directories, verify bootstrap, restore, verify each restored cache
+   nupkg SHA-256 against bootstrap bytes before building, rebuild twice, run the tests-enabled estate.
+   Record both stage receipts and the exact hash matches.
+7. **Repin** bootstrap fingerprints and the ownership head; commit the exact packed source, the
+   bootstrap `.nupkg` files and `SHA256SUMS` together, never separately.
+8. **Post-seed gates** — the bootstrap commit changes the shared SDK/runtime used by both IDE and build
+   paths, so run both fresh gates again on it, with reload and visual IDE proof, then push the post-seed
+   ref and rerun the converter.
+9. **IVT2** in an isolated worktree from the accepted tip: resolve actual accessibility by reflection,
+   preserve the semantic non-friend refusal, cover source grants, the metadata attribute and
+   editor/query behavior, keep one `InternalsVisibleToGrants` owner.
+10. **Remaining CLI, LanguageServer, Playground, Runtime and Wasm-hosting owner and assertion
+    conversion** from the exact tip with explicit `ROOT` and serialized converter ownership. Compiler
+    defects either worker finds go to root for exclusive ownership; the workers must not edit shared
+    compiler sources concurrently. No legacy fallback, no C# or allowlist growth, no boundary-only slice
+    that leaves the old owner required. Dispose of `census/lsconvert-source-wip` only after its
+    documented post-seed disposition.
+11. **SIGHELP**, inside step 10's LanguageServer conversion: an N# overload-signature owner returning
+    per-overload parameter rows from the project snapshot, the C# `SymbolsInfo` path deleted, and native
+    regressions in `tests/native/language-server-handlers` for external instance and static members,
+    overloads, active parameter and cross-file types. Fix `website/docs/getting-started.md:165` with it.
+
+#### Evidence — filled receipts and the placeholders still open
+
+- **FILLED — fresh VS Code-enabled gate:** `c6ab6f2e7`, 2026-09-19, EXIT 0, `37b5ea361a7805a7` (1858s),
+  30m57s; throughput 12/12 at worst 1.03x; self-host 1342/0; estate 9291/9291; native 109 rows /
+  4,536 / 0 / 1 skip; contracts 38/38; ownership 25/25; VS Code smoke 36 passing; IL 80 assemblies;
+  compile-time 74 functional pass with **no timing verdict emitted**. `product-vscode-20260919.log` +
+  `SHA256SUMS`.
+- **PARTIALLY FILLED — reload done, visual IDE proof OWED:** `nsharp-0.6.0.vsix` rebuilt and reinstalled
+  2026-09-19; protocol-level evidence only in `visual-ide-20260919/RECEIPT.md`. **No rendered UI was
+  observed and no screenshots exist.**
+- **FILLED — pre-seed converter census:** converter `b9a49e0` + `nlc +c6ab6f2e7`, 51 files / 86
+  diagnostics / 11 stubs (0 / 10 / 26 / 22 / 28) versus 109 on 2026-09-14 —
+  `converter-20260919/RECEIPT.md`. A census, **not** proof of migration.
+- **FILLED — retirement precheck only:** 19/19 clean ancestors, four stale codex lanes recommended for
+  retirement, `census/lsconvert-source-wip` preserved. **Nothing retired.**
+- [PLACEHOLDER: rendered-editor visual IDE proof with screenshots.]
+- [PLACEHOLDER: first main fast-forward and remote push receipt.]
+- [PLACEHOLDER: converter revision, `ROOT` input and results after the first push.]
+- [PLACEHOLDER: per-row clean/ancestor checks against the pushed ref and removal receipts for the 19
+  retirement candidates.]
+- [PLACEHOLDER: reseed stage-one and stage-two package/cache/bootstrap SHA-256 receipts, package
+  identities and the tests-enabled estate result.]
+- [PLACEHOLDER: bootstrap fingerprint and ownership-head repin, and the exact packed-source commit.]
+- [PLACEHOLDER: post-seed non-VS and VS Code-enabled gate outcomes with visual IDE proof, the post-seed
+  push, and the converter run.]
+- [PLACEHOLDER: IVT2 result.]
+- [PLACEHOLDER: SIGHELP — the N# overload-signature owner, the deleted C# `SymbolsInfo` path, and its
+  native regressions.]
+- [PLACEHOLDER: final CLI/LanguageServer/Playground/Runtime/Wasm-hosting conversion results, remaining
+  diagnostics or stubs, and the `census/lsconvert-source-wip` disposition.]
+
+### Historical cursor records
+
+The census wave-11 and earlier entries below are historical proof. Their text, commit references, gate
+timings and owner names are preserved exactly as written and are no longer the operative state; the
+wave-12 cursor above supersedes them. The standing subsections that follow them — queue state, the
+verification bar, baselines, harness state, toolset republish and the growth-ratchet repin — remain
+operative procedure.
+
+**Active follow-on, 2026-09-09 (historical):** [managed toolchain conversion](../tasks/TOOLCHAIN-NATIVE.md)
+was authorized. Astra integrated and Luna Max implemented complete owners and N# assertions.
+Facade and MSBuild task lanes ran from `06186dc6d`; CLI/LSP/Playground/Runtime/Wasm followed.
+Visual Studio was deferred; the compiler completion and rename evidence below remains accepted.
 Shared compiler prerequisites, seeds and integration gates remain root-owned.
 
 **Census wave 11 integrating, 2026-09-14** (systems-language `5e547f458` → this push): eight streams merged in landing order
