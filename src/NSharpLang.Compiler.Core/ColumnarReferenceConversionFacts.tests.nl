@@ -983,3 +983,61 @@ test "structural reference facts follow exact reordered dynamic generic base cha
         closedDerived
     )
 }
+
+// ── declared variance on the target's slot ───────────────────────────────────
+
+test "a covariant slot widens a reference argument and an invariant one does not" {
+    listOfString := ReferenceConversionClosedType(typeof(List<int>).GetGenericTypeDefinition(), typeof(string))
+    readOnlyListOfObject := ReferenceConversionClosedType(typeof(IReadOnlyList<int>).GetGenericTypeDefinition(), typeof(object))
+    readOnlyCollectionOfObject := ReferenceConversionClosedType(typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition(), typeof(object))
+    enumerableOfObject := ReferenceConversionClosedType(typeof(IEnumerable<int>).GetGenericTypeDefinition(), typeof(object))
+    listOfObject := ReferenceConversionClosedType(typeof(List<int>).GetGenericTypeDefinition(), typeof(object))
+    invariantListOfObject := ReferenceConversionClosedType(typeof(IList<int>).GetGenericTypeDefinition(), typeof(object))
+
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(listOfString, readOnlyListOfObject)
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(listOfString, readOnlyCollectionOfObject)
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(listOfString, enumerableOfObject)
+    assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(listOfString, readOnlyListOfObject)
+
+    // `List<T>` is a CLASS with an invariant parameter, and `IList<T>` is an invariant interface;
+    // neither widens, and the strict validator must agree with emission on both.
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(listOfString, listOfObject)
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(listOfString, invariantListOfObject)
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(listOfString, listOfObject)
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(listOfString, invariantListOfObject)
+}
+
+test "a covariant slot does not widen a value-type argument" {
+    listOfInt := ReferenceConversionClosedType(typeof(List<int>).GetGenericTypeDefinition(), typeof(int))
+    readOnlyListOfObject := ReferenceConversionClosedType(typeof(IReadOnlyList<int>).GetGenericTypeDefinition(), typeof(object))
+
+    // Boxing is not a reference conversion, so `List<int>` is not an `IReadOnlyList<object>` and the
+    // CLR agrees: this is not variance-valid at all.
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(listOfInt, readOnlyListOfObject)
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(listOfInt, readOnlyListOfObject)
+    assert !ColumnarReferenceConversionFacts.IsVarianceCompatibleReferenceArgument(typeof(int), typeof(object))
+    assert !ColumnarReferenceConversionFacts.IsVarianceCompatibleReferenceArgument(typeof(object), typeof(int))
+}
+
+test "the slot relation reads variance off the target's own definition" {
+    readOnlyListOfObject := ReferenceConversionClosedType(typeof(IReadOnlyList<int>).GetGenericTypeDefinition(), typeof(object))
+    invariantListOfObject := ReferenceConversionClosedType(typeof(IList<int>).GetGenericTypeDefinition(), typeof(object))
+
+    assert ColumnarReferenceConversionFacts.IsCovariantSlotConversion(readOnlyListOfObject, 0, typeof(string), typeof(object))
+    assert !ColumnarReferenceConversionFacts.IsCovariantSlotConversion(invariantListOfObject, 0, typeof(string), typeof(object))
+
+    // A slot index the target does not have answers no rather than throwing.
+    assert !ColumnarReferenceConversionFacts.IsCovariantSlotConversion(readOnlyListOfObject, 1, typeof(string), typeof(object))
+
+    // An identity slot is answered by equivalence, before variance is consulted at all.
+    assert ColumnarReferenceConversionFacts.TargetSlotAcceptsArgument(invariantListOfObject, 0, typeof(object), typeof(object))
+}
+
+test "a covariant slot widens to an intermediate base, not only to object" {
+    listOfString := ReferenceConversionClosedType(typeof(List<int>).GetGenericTypeDefinition(), typeof(string))
+    enumerableOfComparable := ReferenceConversionClosedType(typeof(IEnumerable<int>).GetGenericTypeDefinition(), typeof(IComparable))
+    enumerableOfException := ReferenceConversionClosedType(typeof(IEnumerable<int>).GetGenericTypeDefinition(), typeof(Exception))
+
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(listOfString, enumerableOfComparable)
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(listOfString, enumerableOfException)
+}

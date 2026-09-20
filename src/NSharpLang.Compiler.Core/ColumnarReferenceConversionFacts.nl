@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Reflection
 import System.Reflection.Emit
 
 
@@ -59,7 +60,7 @@ class ColumnarReferenceConversionFacts {
             targetDefinition := targetType.GetGenericTypeDefinition()
             sourceArguments := sourceType.GetGenericArguments()
             targetArguments := targetType.GetGenericArguments()
-            if targetArguments.Length == 1 && sourceArguments.Length >= 1 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArguments[0], targetArguments[0]) && ((sourceDefinition == typeof(List<int>).GetGenericTypeDefinition() && (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) || (sourceDefinition == typeof(HashSet<int>).GetGenericTypeDefinition() && (targetDefinition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) || (sourceDefinition == typeof(SortedSet<int>).GetGenericTypeDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()) || (sourceDefinition == typeof(Stack<int>).GetGenericTypeDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) {
+            if targetArguments.Length == 1 && sourceArguments.Length >= 1 && TargetSlotAcceptsArgument(targetType, 0, sourceArguments[0], targetArguments[0]) && ((sourceDefinition == typeof(List<int>).GetGenericTypeDefinition() && (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) || (sourceDefinition == typeof(HashSet<int>).GetGenericTypeDefinition() && (targetDefinition == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) || (sourceDefinition == typeof(SortedSet<int>).GetGenericTypeDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()) || (sourceDefinition == typeof(Stack<int>).GetGenericTypeDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition())) {
                 return true
             }
             // Dictionary<TKey, TValue>.ValueCollection retains both declaring-type arguments while
@@ -490,7 +491,7 @@ class ColumnarReferenceConversionFacts {
             sourceDictionaryDefinition := sourceType.GetGenericTypeDefinition()
             return sourceDictionaryDefinition == typeof(Dictionary<int, int>).GetGenericTypeDefinition() || sourceDictionaryDefinition == typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()
         }
-        if sourceArguments.Length < 1 || targetArguments.Length != 1 || !ExactTypeShapeMatches(sourceArguments[0], targetArguments[0]) {
+        if sourceArguments.Length < 1 || targetArguments.Length != 1 || !(ExactTypeShapeMatches(sourceArguments[0], targetArguments[0]) || IsCovariantSlotConversion(targetType, 0, sourceArguments[0], targetArguments[0])) {
             return false
         }
 
@@ -671,6 +672,84 @@ class ColumnarReferenceConversionFacts {
             return ExactTypeShapeMatches(substituted, targetType)
         }
         return ColumnarTypeEquivalenceFacts.TypesEquivalent(substituted, targetType)
+    }
+
+    // DECLARED VARIANCE -- the one argument relation neither equivalence predicate can express.
+    //
+    // `IReadOnlyList<out T>` says that a `List<Item>` IS an `IReadOnlyList<object>` whenever `Item`
+    // is a reference type, and the conversion costs no IL at all: it is the same object. Both
+    // equivalence predicates compare the argument slots for IDENTITY, so the whole collection
+    // upcast family answered no for every widening element, and `rows: IReadOnlyList<object> =
+    // items` declined at `emit.typed-local.type-mismatch`.
+    //
+    // Reflection answers this for two baked types through `IsAssignableFrom` at the top of
+    // `TryEmitReferenceConversion`, and refuses the whole question the moment an argument is a type
+    // this compilation is still emitting -- which is exactly the case that reaches here. So the
+    // slot's variance is read off the target's DEFINITION, where the `out` is recorded, and the
+    // argument relation is answered below.
+    static func TargetSlotAcceptsArgument(targetType: Type, position: int, sourceArgument: Type, targetArgument: Type): bool {
+        if ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceArgument, targetArgument) {
+            return true
+        }
+
+        return IsCovariantSlotConversion(targetType, position, sourceArgument, targetArgument)
+    }
+
+    static func IsCovariantSlotConversion(targetType: Type, position: int, sourceArgument: Type, targetArgument: Type): bool {
+        if sourceArgument == null || targetArgument == null || targetType == null {
+            return false
+        }
+
+        if !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        parameters := targetType.GetGenericTypeDefinition().GetGenericArguments()
+        if position < 0 || position >= parameters.Length {
+            return false
+        }
+
+        variance := parameters[position].get_GenericParameterAttributes() & GenericParameterAttributes.VarianceMask
+        if variance != GenericParameterAttributes.Covariant {
+            return false
+        }
+
+        return IsVarianceCompatibleReferenceArgument(sourceArgument, targetArgument)
+    }
+
+    // A covariant slot widens only by REFERENCE conversion. A value-type argument makes the whole
+    // constructed type a different type with no conversion at all, and a bare type parameter is not
+    // a known reference type, so both are refused.
+    static func IsVarianceCompatibleReferenceArgument(sourceArgument: Type, targetArgument: Type): bool {
+        if sourceArgument.get_IsValueType() || targetArgument.get_IsValueType() {
+            return false
+        }
+
+        if sourceArgument.get_IsGenericParameter() || targetArgument.get_IsGenericParameter() {
+            return false
+        }
+
+        if sourceArgument.get_IsPointer() || targetArgument.get_IsPointer() || sourceArgument.get_IsByRef() || targetArgument.get_IsByRef() {
+            return false
+        }
+
+        // Every reference type is an object, and that is the one edge that stays answerable while
+        // the source argument is a type this compilation is still emitting.
+        if (targetArgument.FullName ?? "") == "System.Object" {
+            return true
+        }
+
+        if IsDynamicDeclarationType(sourceArgument) || IsDynamicDeclarationType(targetArgument) {
+            return false
+        }
+
+        try {
+            return targetArgument.IsAssignableFrom(sourceArgument)
+        } catch ex: NotSupportedException {
+
+            // An unbaked participant cannot be asked; the slot stays unwidened.
+            return false
+        }
     }
 
     static func IsDynamicDeclarationType(valueType: Type): bool {
