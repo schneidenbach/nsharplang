@@ -3263,11 +3263,22 @@ simple name**, without regard to case; a strong-name key after a comma is ignore
 merely resembles the granted one (`MyLibrary.Tests.Unit`, `MyLibrary.Test`) is not a friend. Without
 a grant those names stay [NL301](errors/NL301.md) / [NL201](errors/NL201.md).
 
-N# cannot yet WRITE such a declaration — an N# library has no way to make another assembly its
-friend — so this rule is about consuming grants from assemblies compiled elsewhere. One gap remains
-on the refusing side: a **fully qualified** spelling of an internal type is not reported by the
-analyzer today (unresolved dotted names are deliberately lenient), so without a grant it reaches
-emission rather than `NL301`. Write the bare name under an `import` to get the diagnostic.
+The **spelling does not change the rule**: a fully qualified internal name is refused with the same
+`NL201` the bare one gets, and accepted wherever the bare one is.
+
+An N# project writes its own grants in `project.yml`:
+
+```yaml
+internalsVisibleTo:
+  - MyLibrary.Tests
+```
+
+Each entry becomes an `[assembly: InternalsVisibleTo("…")]` row on the assembly you build. What it
+exposes is narrower than C#'s, because N# emits every type and field as CLR `public`: the members a
+grant admits out of an N# library are its **unexported (camelCase) functions and methods**, which
+are the only ones emitted as CLR `internal`. See
+[Reaching a reference's internals](types.md#reaching-a-references-internals) in the types guide for
+the full table.
 
 ## Next Steps
 

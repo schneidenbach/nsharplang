@@ -217,7 +217,41 @@ test "the test framework is read, defaulted, and refused when it is neither" {
     Directory.Delete(directory, true)
 }
 
-// ── the refusals, all nine of them, as whole sentences ────────────────────────────────────────
+// ── the friend declarations this project makes ────────────────────────────────────────────────
+
+// `internalsVisibleTo:` IS THE WRITING HALF OF THE FRIEND RULE. Each entry becomes an
+// `[assembly: InternalsVisibleTo(...)]` row on the emitted assembly, so the list is read exactly as
+// written — including a strong-name key after a comma, which is part of the display name a grant
+// carries even though the reader compares only the simple name in front of it.
+test "internalsVisibleTo is read as a list, defaults to empty, and keeps each entry as written" {
+    directory := PfpTempDirectory("ivt")
+
+    none := ProjectFileParser.Parse(PfpWrite(directory, "name: MyLib\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\n"))
+    assert none.InternalsVisibleTo.Count == 0
+
+    granted := ProjectFileParser.Parse(PfpWrite(directory, "name: MyLib\nversion: 1.0.0\noutputType: library\ntargetFramework: net10.0\ninternalsVisibleTo:\n  - MyLib.Tests\n  - Contoso.Widgets, PublicKey=00240000\n"))
+    assert granted.InternalsVisibleTo.Count == 2
+    assert granted.InternalsVisibleTo[0] == "MyLib.Tests"
+    assert granted.InternalsVisibleTo[1] == "Contoso.Widgets, PublicKey=00240000"
+
+    Directory.Delete(directory, true)
+}
+
+// A GRANT WITH NO ASSEMBLY NAME IN IT WOULD EMIT A ROW NO READER CAN EVER MATCH, so the project
+// file is refused rather than silently producing dead metadata.
+test "an internalsVisibleTo entry that names no assembly is refused with its own spelling quoted" {
+    directory := PfpTempDirectory("ivt-bad")
+
+    assert PfpOutcomeOf(directory, "name: MyLib\ninternalsVisibleTo:\n  - \"   \"\n") == "InvalidOperationException|Invalid internalsVisibleTo entry: '   '. Each entry must be an assembly name."
+    assert PfpOutcomeOf(directory, "name: MyLib\ninternalsVisibleTo:\n  - \", PublicKey=0024\"\n") == "InvalidOperationException|Invalid internalsVisibleTo entry: ', PublicKey=0024'. Each entry must be an assembly name."
+
+    // The control: a legal entry beside the same shape parses, so the refusal is about the VALUE.
+    assert PfpOutcomeOf(directory, "name: MyLib\ninternalsVisibleTo:\n  - MyLib.Tests\n") == "<parsed:MyLib>"
+
+    Directory.Delete(directory, true)
+}
+
+// ── the refusals, all ten of them, as whole sentences ─────────────────────────────────────────
 
 test "EVERY VALIDATION REFUSES WITH ITS OWN SENTENCE, AND THE DELETED FILE REACHED THREE OF NINE" {
     directory := PfpTempDirectory("refusals")
@@ -233,6 +267,9 @@ test "EVERY VALIDATION REFUSES WITH ITS OWN SENTENCE, AND THE DELETED FILE REACH
     assert PfpOutcomeOf(directory, "name: BadProject\nlanguage:\n  systems:\n    unknownExternalCalls: shout\n") == "InvalidOperationException|Invalid language.systems.unknownExternalCalls: 'shout'. Must be 'allow', 'warn', or 'error'."
     assert PfpOutcomeOf(directory, "name: BadProject\nlanguage:\n  systems:\n    aotTarget: jvm\n") == "InvalidOperationException|Invalid language.systems.aotTarget: 'jvm'. Must be 'nativeaot', 'coreclr', or 'mono-wasm'."
     assert PfpOutcomeOf(directory, "name: BadProject\nlanguage:\n  systems:\n    stackBudgetBytes: 0\n") == "InvalidOperationException|Invalid language.systems.stackBudgetBytes: '0'. Must be greater than zero."
+
+    // The tenth, which arrived with the friend declarations a project WRITES.
+    assert PfpOutcomeOf(directory, "name: BadProject\ninternalsVisibleTo:\n  - \"\"\n") == "InvalidOperationException|Invalid internalsVisibleTo entry: ''. Each entry must be an assembly name."
 
     // And the ORDER of the walk, which no single-refusal document can show: a document that is wrong
     // in two places reports the FIRST check, not the loudest one.

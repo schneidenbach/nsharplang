@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Collections.Generic
 import System.Reflection
 
 
@@ -26,14 +27,27 @@ class InternalsVisibleToEmissionScope {
     [System.ThreadStatic]
     private static Current: InternalsVisibleToGrants?
 
-    static func Begin(assemblyName: string?) {
+    // THE FRIEND DECLARATIONS THIS EMISSION WRITES, beside the ones it READS.
+    //
+    // Both are the identity of the assembly being emitted: its name decides which references
+    // befriend it, and `internalsVisibleTo:` decides which assemblies it befriends. The back end
+    // learns both from this one scope rather than from a parameter threaded through the emitter's
+    // entry point, so a caller cannot open the scope and forget the grants — and a planner test
+    // that emits with no scope open declares none, which is the right answer for a compilation
+    // that has no project behind it.
+    [System.ThreadStatic]
+    private static CurrentDeclaredGrants: IReadOnlyList<string>?
+
+    static func Begin(assemblyName: string?, declaredGrants: IReadOnlyList<string>?) {
         scope := new InternalsVisibleToGrants()
         scope.SetCompilingAssemblyName(assemblyName)
         InternalsVisibleToEmissionScope.Current = scope
+        InternalsVisibleToEmissionScope.CurrentDeclaredGrants = declaredGrants
     }
 
     static func End() {
         InternalsVisibleToEmissionScope.Current = null
+        InternalsVisibleToEmissionScope.CurrentDeclaredGrants = null
     }
 
     static func CompilingAssemblyName(): string {
@@ -43,6 +57,10 @@ class InternalsVisibleToEmissionScope {
         }
 
         return scope.CompilingAssemblyName
+    }
+
+    static func DeclaredGrants(): IReadOnlyList<string>? {
+        return InternalsVisibleToEmissionScope.CurrentDeclaredGrants
     }
 
     // Does the assembly that DECLARES this member (or this type) make the assembly being emitted a

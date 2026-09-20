@@ -102,6 +102,19 @@ class ProjectFileParser {
             Console.Error.WriteLine("Warning: Target framework '" + config.TargetFramework + "' may not be valid. Expected format: netX.Y")
         }
 
+        // A FRIEND DECLARATION THAT NAMES NOTHING IS A CONFIGURATION MISTAKE, not a silent no-op.
+        // An entry with no simple name in front of its comma would emit a metadata row no reader
+        // can ever match, so the project file is refused with the entry's own spelling quoted.
+        grantIndex := 0
+        while grantIndex < config.InternalsVisibleTo.Count {
+            declaredGrant := config.InternalsVisibleTo[grantIndex]
+            if !ColumnarInternalsVisibleToEmitter.IsUsableDeclaredName(declaredGrant) {
+                throw new InvalidOperationException("Invalid internalsVisibleTo entry: '" + (declaredGrant ?? "") + "'. Each entry must be an assembly name.")
+            }
+
+            grantIndex = grantIndex + 1
+        }
+
         config.Dependencies = FilterReferences(config.Dependencies)
         config.TestDependencies = FilterReferences(config.TestDependencies)
 

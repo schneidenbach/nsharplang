@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Collections.Generic
 import System.Reflection
 
 
@@ -130,8 +131,9 @@ test "the emission scope grants nothing until it is opened, and nothing again on
     // A VISIBLE type is nameable with no scope at all: the scope only widens.
     assert InternalsVisibleToEmissionScope.CanNameType(typeof(string))
     assert !InternalsVisibleToEmissionScope.CanNameType(null)
+    assert InternalsVisibleToEmissionScope.DeclaredGrants() == null
 
-    InternalsVisibleToEmissionScope.Begin("Tests")
+    InternalsVisibleToEmissionScope.Begin("Tests", null)
     try {
         assert InternalsVisibleToEmissionScope.CompilingAssemblyName() == "Tests"
         assert !InternalsVisibleToEmissionScope.GrantsAccess(GrantsCoreAssembly())
@@ -142,6 +144,36 @@ test "the emission scope grants nothing until it is opened, and nothing again on
     }
 
     assert InternalsVisibleToEmissionScope.CompilingAssemblyName() == ""
+}
+
+// THE OTHER HALF OF THE SCOPE'S IDENTITY: the grants this emission WRITES. They travel with the
+// name for the same reason — the attribute writer is a static function deep in the emit walk — and
+// they are cleared by the same `End`, so one emission cannot leak its friend declarations into the
+// next one on the same thread.
+test "the emission scope carries the friend declarations the assembly being emitted writes" {
+    InternalsVisibleToEmissionScope.End()
+    assert InternalsVisibleToEmissionScope.DeclaredGrants() == null
+
+    declared := new List<string>()
+    declared.Add("Tests")
+    declared.Add("Contoso.Widgets, PublicKey=0024")
+
+    InternalsVisibleToEmissionScope.Begin("MyLib", declared)
+    try {
+        carried := InternalsVisibleToEmissionScope.DeclaredGrants()
+        assert carried != null
+        assert carried.Count == 2
+        assert carried[0] == "Tests"
+
+        rows := ColumnarInternalsVisibleToEmitter.ResolveDeclaredNames(carried)
+        assert rows.Count == 2
+        assert rows[0] == "Tests"
+        assert rows[1] == "Contoso.Widgets, PublicKey=0024"
+    } finally {
+        InternalsVisibleToEmissionScope.End()
+    }
+
+    assert InternalsVisibleToEmissionScope.DeclaredGrants() == null
 }
 
 // THE LEVEL RELATION THE BACK-END FILTERS ASK. `public` always; the three assembly-bound levels only

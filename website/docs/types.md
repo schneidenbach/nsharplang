@@ -582,14 +582,47 @@ that merely resembles the granted one — `MyLibrary.Tests.Unit`, `MyLibrary.Tes
 and an `internal` type of an assembly that granted nobody (or granted a different name) stays
 [NL301](./errors/NL301.md) or [NL201](./errors/NL201.md) exactly as before.
 
-N# does not yet EMIT an `InternalsVisibleTo` of its own: an N# library cannot currently make another
-assembly its friend, so this rule is about consuming grants written by assemblies compiled elsewhere.
+The **spelling does not change the rule**. A fully qualified internal name
+(`My.Library.Internals.InternalCounter`) is refused with the same `NL201` the bare name gets when
+no grant names your project, and accepted in exactly the same places when one does.
 
-One gap remains on the refusing side. A **fully qualified** spelling of an internal type
-(`My.Library.Internals.InternalCounter`, rather than the bare name under an `import`) is not
-reported by the analyzer today — unresolved dotted names are deliberately lenient — so without a
-grant it reaches emission instead of `NL301`. Write the bare name under an `import` to get the
-diagnostic.
+### Making another assembly your friend
+
+An N# project writes its own grants in `project.yml`:
+
+```yaml
+name: MyLibrary
+version: 1.0.0
+outputType: library
+
+internalsVisibleTo:
+  - MyLibrary.Tests
+```
+
+Each entry becomes an `[assembly: InternalsVisibleTo("…")]` row on the assembly you build — the
+same metadata a C# project produces — so a project named `MyLibrary.Tests` reads it through the
+rule above. The entry is an assembly **display name**, so a strong-name key after a comma is
+written through unchanged; the comparison still uses only the simple name in front of it. An entry
+that names no assembly is a project-file error, and repeating the same simple name writes one row,
+not two.
+
+**What a grant exposes out of an N# assembly is narrower than you may expect**, because N# has no
+member-level `internal` of its own. Measured on an emitted assembly:
+
+| N# declaration | CLR accessibility emitted |
+| --- | --- |
+| `class Ledger` / `class ledger` | `public` — casing decides *package* export, which the CLR knows nothing about |
+| `func Exported()` (PascalCase) | `public` |
+| `func unexported()` (camelCase) | `internal` |
+| a field, whatever its casing | `public` |
+| an enum, struct, record or its members | `public` |
+
+So the members an `internalsVisibleTo:` grant admits out of an N# library are exactly its
+**unexported (camelCase) functions and methods**. Types and fields are already public in metadata,
+and N#'s package rule — which is what actually hides a camelCase name from another namespace — is
+enforced by the compiler in every assembly and is not lifted by a friend grant. Write the grant
+when a consumer needs those unexported methods (a test project is the usual case); a consumer that
+only needs exported names never needs one.
 
 Those `protected virtual` members are extension points, so you may **override** them, and the same
 three levels are the ones you may take the slot of:
@@ -2013,7 +2046,9 @@ Two rules the compiler enforces about the type-argument list itself:
   place where a prefix would otherwise be needed and is not: the attribute's own `[AttributeUsage]`
   picks between the parameter
   and the field that parameter declares (see [Attributes](./basics.md#attributes)). Assembly-level
-  attributes that the toolchain owns are written in `project.yml` rather than in source. Generic
+  attributes that the toolchain owns are written in `project.yml` rather than in source — the friend
+  declarations `[assembly: InternalsVisibleTo(...)]` writes are the `internalsVisibleTo:` key (see
+  [Making another assembly your friend](#making-another-assembly-your-friend)). Generic
   attributes (`class Mark<T>: Attribute`) are not supported either.
 - A **catch clause's exception type must be a simple name**: `catch ex: System.InvalidOperationException`
   does not parse, `import System` plus `catch ex: InvalidOperationException` does. (A type used only

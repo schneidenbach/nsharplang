@@ -4397,6 +4397,18 @@ sealed class ColumnarIlEmitter {
         coreObjectAssembly := coreObjectType.get_Assembly()
         persistedCustomAttributes: IEnumerable<CustomAttributeBuilder>? = null
         builder := new PersistedAssemblyBuilder(persistedAssemblyIdentity, coreObjectAssembly, persistedCustomAttributes)
+        // THE FRIEND DECLARATIONS THIS ASSEMBLY MAKES, written before any type exists: an
+        // assembly-level attribute belongs to the assembly table and nothing in the walk below
+        // depends on it, so it is attached where the assembly is created rather than queued with
+        // the source attributes that must wait for their targets.
+        //
+        // They are read from the EMISSION SCOPE rather than passed down this function's parameter
+        // list, because the scope is already what carries the identity of the assembly being
+        // emitted — its name, and therefore which references befriend it. Its friend declarations
+        // are the other half of that same identity, they are opened and closed by the same owner
+        // (`MultiFileCompiler.RunColumnarEmissionOnCurrentThread`), and a planner test that emits
+        // with no scope open declares no grants and gets no attribute, which is right.
+        ColumnarInternalsVisibleToEmitter.Apply(builder, InternalsVisibleToEmissionScope.DeclaredGrants())
         module := builder.DefineDynamicModule(declarationPlan.ModuleName)
         // Written attributes are collected here and attached in one phase before the first CreateType;
         // see ColumnarSourceAttributeQueue for why attachment cannot happen where the attribute is met.

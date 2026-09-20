@@ -17,6 +17,7 @@ class ProjectConfig {
     excludeValue: List<string>?
     testFrameworkValue: string?
     definesValue: List<string>?
+    internalsVisibleToValue: List<string>?
     languageValue: LanguageConfig?
     packageValue: PackageConfig?
 
@@ -168,6 +169,29 @@ class ProjectConfig {
                 definesValue = new List<string>()
             } else {
                 definesValue = value
+            }
+        }
+    }
+
+    // THE ASSEMBLIES THIS PROJECT MAKES ITS FRIENDS. Each entry is an assembly DISPLAY name, and
+    // each one is emitted as an `[assembly: InternalsVisibleTo(...)]` row on the produced assembly,
+    // which is the only way an N# library can let another assembly reach the members it emits as
+    // CLR `internal`. It is the WRITING half of the rule `InternalsVisibleToGrants` reads: a
+    // consumer compiled under one of these names sees this assembly's internals, and the CLR
+    // re-checks the same rows when it loads the consumer.
+    InternalsVisibleTo: List<string> {
+        get {
+            if internalsVisibleToValue == null {
+                internalsVisibleToValue = new List<string>()
+            }
+
+            return internalsVisibleToValue
+        }
+        set {
+            if value == null {
+                internalsVisibleToValue = new List<string>()
+            } else {
+                internalsVisibleToValue = value
             }
         }
     }
