@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import Microsoft.Extensions.Logging.Abstractions
 import NSharpLang.Compiler
+import NSharpLang.Compiler.CodeIntelligence
 import NSharpLang.LanguageServer.Handlers
 import NSharpLang.LanguageServer.Models
 import NSharpLang.LanguageServer.Services
@@ -12,11 +13,11 @@ import NSharpLang.LanguageServer.Services
 // ---------------------------------------------------------------------------
 // Semantic token classification.
 //
-// SemanticTokensHandler exposes its classification helpers as `internal`
-// members (the C# suite reached them through InternalsVisibleTo). N# cannot
-// bind an internal member of a referenced assembly directly, so these rows
-// drive the same members through reflection. They are still the handler's own
-// classification surface, not private implementation detail of some other type.
+// The classification itself is `EditorSemanticTokenFacts`, which these rows
+// bind directly. What still needs reflection is the handler's own LEGEND --
+// the array whose ORDER is the promise the server made to the client, and
+// which is `internal` -- so that a row can keep asserting the wire index a
+// kind word lands on rather than only the word itself.
 // ---------------------------------------------------------------------------
 func LshPut(values: object?[], index: int, value: object?) {
     values[index] = value
@@ -50,52 +51,132 @@ func LshSemanticStatic(name: string, doc: DocumentState): object {
     return result
 }
 
-// The five name sets ClassifyToken consults, in the order it takes them.
-func LshSemanticSets(doc: DocumentState): object?[] {
-    sets := new object?[](5)
-    LshPut(sets, 0, LshSemanticStatic("BuildTypeNameSet", doc))
-    LshPut(sets, 1, LshSemanticStatic("BuildFunctionNameSet", doc))
-    LshPut(sets, 2, LshSemanticStatic("BuildParameterNameSet", doc))
-    LshPut(sets, 3, LshSemanticStatic("BuildPropertyNameSet", doc))
-    LshPut(sets, 4, LshSemanticStatic("BuildEnumMemberNameSet", doc))
-    return sets
+func LshNameSet(name: string, doc: DocumentState): HashSet<string> {
+    result := LshSemanticStatic(name, doc) as HashSet<string>
+    if result == null {
+        throw new InvalidOperationException("SemanticTokensHandler." + name + " was not a name set.")
+    }
+    return result
+}
+
+// The name sets and the kind map the classification consults. Four come from the
+// editor's own C# symbol tables; the parameter set is the owner's, because it is
+// read off the syntax tree rather than off a table.
+class LshNameSets {
+    TypeNames: HashSet<string>
+    TypeKinds: Dictionary<string, string>
+    FunctionNames: HashSet<string>
+    ParameterNames: HashSet<string>
+    PropertyNames: HashSet<string>
+    EnumMemberNames: HashSet<string>
+
+    constructor(
+        typeNames: HashSet<string>,
+        typeKinds: Dictionary<string, string>,
+        functionNames: HashSet<string>,
+        parameterNames: HashSet<string>,
+        propertyNames: HashSet<string>,
+        enumMemberNames: HashSet<string>
+    ) {
+        TypeNames = typeNames
+        TypeKinds = typeKinds
+        FunctionNames = functionNames
+        ParameterNames = parameterNames
+        PropertyNames = propertyNames
+        EnumMemberNames = enumMemberNames
+    }
+}
+
+class LshClassification {
+    TokenType: int
+    Modifiers: int
+
+    constructor(tokenType: int, modifiers: int) {
+        TokenType = tokenType
+        Modifiers = modifiers
+    }
+}
+
+func LshSemanticSets(doc: DocumentState): LshNameSets {
+    kinds := LshSemanticStatic("BuildTypeKindMap", doc) as Dictionary<string, string>
+    if kinds == null {
+        throw new InvalidOperationException("SemanticTokensHandler.BuildTypeKindMap was not a kind map.")
+    }
+    return new LshNameSets(
+        LshNameSet("BuildTypeNameSet", doc),
+        kinds,
+        LshNameSet("BuildFunctionNameSet", doc),
+        EditorSemanticTokenFacts.ParameterNames(doc.CompilationUnit),
+        LshNameSet("BuildPropertyNameSet", doc),
+        LshNameSet("BuildEnumMemberNameSet", doc)
+    )
 }
 
 func LshCatchResultBindings(doc: DocumentState): object {
-    return LshSemanticStatic("BuildCatchResultBindingSet", doc)
+    return EditorSemanticTokenFacts.CatchResultBindings(doc.CompilationUnit, LshDocumentTokens(doc))
 }
 
-func LshClassify(handler: SemanticTokensHandler, token: Token, doc: DocumentState, sets: object?[], bindings: object?): object? {
-    arguments := new object?[](8)
-    LshPut(arguments, 0, token)
-    LshPut(arguments, 1, doc)
-    LshPut(arguments, 2, sets[0])
-    LshPut(arguments, 3, sets[1])
-    LshPut(arguments, 4, sets[2])
-    LshPut(arguments, 5, sets[3])
-    LshPut(arguments, 6, sets[4])
-    LshPut(arguments, 7, bindings)
-    return LshSemanticMethod("ClassifyToken", false).Invoke(handler, arguments)
+func LshCatchResultSet(bindings: object?): HashSet<string> {
+    resolved := bindings as HashSet<string>
+    if resolved == null {
+        return new HashSet<string>()
+    }
+    return resolved
 }
 
-func LshTupleItem(classification: object, name: string): int {
-    field := classification.GetType().GetField(name)
+// The kind word placed in the handler's legend -- the same lookup the handler
+// itself does, so a row asserting an index is asserting the wire answer.
+func LshLegendIndex(kind: string): int {
+    field := typeof(SemanticTokensHandler).GetField(
+        "TokenTypes",
+        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic
+    )
     if field == null {
-        throw new InvalidOperationException("Classification tuple had no field " + name + ".")
+        throw new InvalidOperationException("SemanticTokensHandler.TokenTypes was not found.")
     }
-    value := field.GetValue(classification)
-    if value == null {
-        throw new InvalidOperationException("Classification tuple field " + name + " was null.")
+    legend := field.GetValue(null) as string[]
+    if legend == null {
+        throw new InvalidOperationException("SemanticTokensHandler.TokenTypes was not a string array.")
     }
-    return Convert.ToInt32(value)
+    index := 0
+    while index < legend.Length {
+        if legend[index] == kind {
+            return index
+        }
+        index = index + 1
+    }
+    throw new InvalidOperationException("Kind '" + kind + "' is not in the legend.")
 }
 
-func LshClassifiedTokenType(classification: object): int {
-    return LshTupleItem(classification, "Item1")
+func LshClassify(token: Token, doc: DocumentState, sets: LshNameSets, bindings: object?): LshClassification? {
+    catchResults := LshCatchResultSet(bindings)
+    kind := EditorSemanticTokenFacts.Classify(
+        token,
+        doc.SemanticModel,
+        sets.TypeNames,
+        sets.TypeKinds,
+        sets.FunctionNames,
+        sets.ParameterNames,
+        sets.PropertyNames,
+        sets.EnumMemberNames,
+        catchResults
+    )
+    if kind == null {
+        return null
+    }
+    modifiers := 0
+    if EditorSemanticTokenFacts.IsCatchResultBinding(token, catchResults) {
+        modifiers = LshCatchResultModifierMask()
+    }
+    return new LshClassification(LshLegendIndex(kind), modifiers)
 }
 
-func LshClassifiedModifiers(classification: object): int {
-    return LshTupleItem(classification, "Item2")
+func LshClassifiedTokenType(classification: LshClassification): int {
+    return classification.TokenType
+}
+
+func LshClassifiedModifiers(classification: LshClassification): int {
+    return classification.Modifiers
 }
 
 func LshCatchResultModifierMask(): int {
@@ -114,23 +195,7 @@ func LshCatchResultModifierMask(): int {
 }
 
 func LshInterpolatedExpressionTokens(token: Token): List<Token> {
-    arguments := new object?[](1)
-    LshPut(arguments, 0, token)
-    result := LshSemanticMethod("GetInterpolatedStringExpressionTokens", true).Invoke(null, arguments)
-    if result == null {
-        throw new InvalidOperationException("GetInterpolatedStringExpressionTokens returned null.")
-    }
-    items := result as IReadOnlyList<Token>
-    if items == null {
-        throw new InvalidOperationException("GetInterpolatedStringExpressionTokens did not return a token list.")
-    }
-    tokens := new List<Token>()
-    index := 0
-    while index < items.Count {
-        tokens.Add(items[index])
-        index = index + 1
-    }
-    return tokens
+    return EditorSemanticTokenFacts.InterpolationTokens(token)
 }
 
 // ---------------------------------------------------------------------------
@@ -245,62 +310,18 @@ func LshSingleIdentifierOnLine(doc: DocumentState, name: string, line: int): Tok
 }
 
 // ---------------------------------------------------------------------------
-// Catch-result binding set assertions (the element type is internal).
+// Catch-result binding set assertions.
+//
+// The owner keys a binding by WHERE it is written, so these read the set by the
+// owner's own key rather than by reflecting over an element type.
 // ---------------------------------------------------------------------------
 
 func LshBindingCount(bindings: object): int {
-    items := bindings as System.Collections.IEnumerable
-    if items == null {
-        throw new InvalidOperationException("Catch-result binding set was not enumerable.")
-    }
-    count := 0
-    for item in items {
-        count = count + 1
-    }
-    return count
-}
-
-func LshIntProperty(value: object, name: string): int {
-    property := value.GetType().GetProperty(name)
-    if property == null {
-        throw new InvalidOperationException("Binding had no property " + name + ".")
-    }
-    raw := property.GetValue(value)
-    if raw == null {
-        throw new InvalidOperationException("Binding property " + name + " was null.")
-    }
-    return Convert.ToInt32(raw)
-}
-
-func LshTextProperty(value: object, name: string): string {
-    property := value.GetType().GetProperty(name)
-    if property == null {
-        throw new InvalidOperationException("Binding had no property " + name + ".")
-    }
-    raw := property.GetValue(value)
-    if raw == null {
-        throw new InvalidOperationException("Binding property " + name + " was null.")
-    }
-    text := raw.ToString()
-    if text == null {
-        throw new InvalidOperationException("Binding property " + name + " rendered as null.")
-    }
-    return text
+    return LshCatchResultSet(bindings).Count
 }
 
 func LshBindingsContain(bindings: object, line: int, column: int, name: string): bool {
-    items := bindings as System.Collections.IEnumerable
-    if items == null {
-        throw new InvalidOperationException("Catch-result binding set was not enumerable.")
-    }
-    for item in items {
-        if LshIntProperty(item, "Line") == line && LshIntProperty(item, "Column") == column {
-            if LshTextProperty(item, "Name") == name {
-                return true
-            }
-        }
-    }
-    return false
+    return LshCatchResultSet(bindings).Contains(EditorSemanticTokenFacts.BindingKey(line, column, name))
 }
 
 func LshSetContains(set: object, value: string): bool {

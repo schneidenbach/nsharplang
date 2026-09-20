@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NSharpLang.Compiler;
-using NSharpLang.Compiler.Ast;
 using NSharpLang.LanguageServer.Models;
 using NSharpLang.LanguageServer.Services;
 using ServerSymbolKind = NSharpLang.LanguageServer.Models.SymbolKind;
@@ -13,10 +11,60 @@ using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using CodeIntel = NSharpLang.Compiler.CodeIntelligence;
 using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 using LspSymbolKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind;
 
 namespace NSharpLang.LanguageServer.Handlers;
+
+/// <summary>
+/// The protocol side of the call-hierarchy view.
+///
+/// WHICH function is declared where, WHICH function encloses a line, HOW FAR a function reaches
+/// and WHAT it calls are all N#-owned by <c>EditorCallHierarchyFacts</c> — one nested member walk
+/// instead of the three near-copies that used to live in the three handlers below. What is left
+/// here is the protocol and the document manager: OmniSharp's CallHierarchyItem, the symbol tables
+/// the editor keeps, and the project-wide reference search.
+/// </summary>
+internal static class CallHierarchyProtocol
+{
+    internal static CallHierarchyItem ToItem(string name, string uri, CodeIntel.EditorCallHierarchyRange range)
+    {
+        return new CallHierarchyItem
+        {
+            Name = name,
+            Kind = LspSymbolKind.Function,
+            Uri = DocumentUri.From(uri),
+            Range = new LspRange(range.StartLine, range.StartCharacter, range.EndLine, range.EndCharacter),
+            SelectionRange = new LspRange(range.StartLine, range.StartCharacter, range.StartLine, range.SelectionEndCharacter)
+        };
+    }
+
+    /// <summary>
+    /// A node built from a symbol location alone, where the whole node IS the name — no AST was
+    /// consulted, so there is no wider extent to report.
+    /// </summary>
+    internal static CallHierarchyItem ToItem(SymbolLocation location)
+    {
+        var range = new LspRange(
+            location.Line, location.Column,
+            location.Line, location.Column + Math.Max(1, location.Length));
+
+        return new CallHierarchyItem
+        {
+            Name = location.Name,
+            Kind = LspSymbolKind.Function,
+            Uri = DocumentUri.From(location.Uri),
+            Range = range,
+            SelectionRange = range
+        };
+    }
+
+    internal static bool IsFunctionLocation(SymbolLocation location)
+    {
+        return location.Kind is ServerSymbolKind.Function or ServerSymbolKind.Method;
+    }
+}
 
 /// <summary>
 /// Handles textDocument/prepareCallHierarchy requests.
@@ -48,10 +96,7 @@ public class CallHierarchyPrepareHandler : CallHierarchyPrepareHandlerBase
 
         try
         {
-            var line = request.Position.Line;
-            var character = request.Position.Character;
-
-            var word = EditorUtilities.GetWordAtPosition(doc.Text, line, character);
+            var word = EditorUtilities.GetWordAtPosition(doc.Text, request.Position.Line, request.Position.Character);
             if (string.IsNullOrWhiteSpace(word))
             {
                 return Task.FromResult<Container<CallHierarchyItem>?>(null);
@@ -59,28 +104,47 @@ public class CallHierarchyPrepareHandler : CallHierarchyPrepareHandlerBase
 
             _logger.LogDebug("Call hierarchy prepare for: {Word}", word);
 
-            // Check if the word is a known function/method symbol
             if (!IsFunctionSymbol(doc, word))
             {
                 _logger.LogDebug("Symbol '{Word}' is not a function or method", word);
                 return Task.FromResult<Container<CallHierarchyItem>?>(null);
             }
 
-            // Find the declaration location for this function
-            var declLocation = FindFunctionDeclarationLocation(doc, word);
-            if (declLocation == null)
+            if (doc.SymbolLocations == null
+                || !doc.SymbolLocations.TryGetValue(word, out var locations))
             {
                 return Task.FromResult<Container<CallHierarchyItem>?>(null);
             }
 
-            var (declUri, declRange, selectionRange) = declLocation.Value;
+            var funcLoc = locations.FirstOrDefault(CallHierarchyProtocol.IsFunctionLocation);
+            if (funcLoc == null)
+            {
+                return Task.FromResult<Container<CallHierarchyItem>?>(null);
+            }
+
+            // The selection range is where the editor recorded the NAME, in the symbol location's
+            // own 0-based coordinates. Only the wider range comes from the AST, and only when the
+            // declaration is found there — otherwise the node is exactly the name.
+            var selectionRange = new LspRange(
+                funcLoc.Line, funcLoc.Column,
+                funcLoc.Line, funcLoc.Column + Math.Max(1, funcLoc.Length));
+
+            var declaration = CodeIntel.EditorCallHierarchyFacts.FunctionAtLine(
+                doc.CompilationUnit, word, funcLoc.Line + 1);
+
+            var range = selectionRange;
+            if (declaration != null)
+            {
+                var astRange = CodeIntel.EditorCallHierarchyFacts.FunctionRange(declaration, word, funcLoc.Line);
+                range = new LspRange(astRange.StartLine, astRange.StartCharacter, astRange.EndLine, astRange.EndCharacter);
+            }
 
             var item = new CallHierarchyItem
             {
                 Name = word,
                 Kind = LspSymbolKind.Function,
-                Uri = DocumentUri.From(declUri),
-                Range = declRange,
+                Uri = DocumentUri.From(funcLoc.Uri),
+                Range = range,
                 SelectionRange = selectionRange
             };
 
@@ -94,119 +158,19 @@ public class CallHierarchyPrepareHandler : CallHierarchyPrepareHandlerBase
         }
     }
 
-    /// <summary>
-    /// Checks whether the given word corresponds to a function or method in the document's symbol info.
-    /// </summary>
-    private static bool IsFunctionSymbol(DocumentState doc, string word)
+    private static bool IsFunctionSymbol(Models.DocumentState doc, string word)
     {
         if (doc.SymbolsInfo != null && doc.SymbolsInfo.TryGetValue(word, out var symbolInfo))
         {
             return symbolInfo.Kind is ServerSymbolKind.Function or ServerSymbolKind.Method;
         }
 
-        // Also check if there are symbol locations with function/method kind
         if (doc.SymbolLocations != null && doc.SymbolLocations.TryGetValue(word, out var locations))
         {
-            return locations.Any(loc => loc.Kind is ServerSymbolKind.Function or ServerSymbolKind.Method);
+            return locations.Any(CallHierarchyProtocol.IsFunctionLocation);
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Finds the declaration location for a function, returning the full range and selection range.
-    /// Returns null if the function cannot be located.
-    /// </summary>
-    private (string Uri, LspRange Range, LspRange SelectionRange)? FindFunctionDeclarationLocation(
-        DocumentState doc,
-        string functionName)
-    {
-        // Try symbol locations first (these have precise line/column info)
-        if (doc.SymbolLocations != null && doc.SymbolLocations.TryGetValue(functionName, out var locations))
-        {
-            var funcLoc = locations.FirstOrDefault(
-                loc => loc.Kind is ServerSymbolKind.Function or ServerSymbolKind.Method);
-
-            if (funcLoc != null)
-            {
-                // SymbolLocation uses 0-based line/column
-                var selectionRange = new LspRange(
-                    funcLoc.Line, funcLoc.Column,
-                    funcLoc.Line, funcLoc.Column + Math.Max(1, funcLoc.Length));
-
-                // Walk the AST to find the full function range
-                var fullRange = FindFunctionRangeInAst(doc, functionName, funcLoc.Line);
-                var range = fullRange ?? selectionRange;
-
-                return (funcLoc.Uri, range, selectionRange);
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Walks the AST to find the full range of a function declaration at the given 0-based line.
-    /// </summary>
-    private static LspRange? FindFunctionRangeInAst(DocumentState doc, string name, int line0)
-    {
-        if (doc.CompilationUnit?.Declarations == null)
-            return null;
-
-        var funcDecl = FindFunctionDeclarationAtLine(doc.CompilationUnit.Declarations, name, line0 + 1);
-        if (funcDecl == null)
-            return null;
-
-        var startLine = Math.Max(0, funcDecl.Line - 1);
-        var startCol = Math.Max(0, funcDecl.Column - 1);
-        var endLine = GetFunctionEndLine(funcDecl);
-        // Ensure end character >= start character when on the same line
-        var endCol = endLine == startLine ? startCol + name.Length : 0;
-
-        return new LspRange(startLine, startCol, endLine, endCol);
-    }
-
-    /// <summary>
-    /// Finds a function declaration at a specific 1-based line number.
-    /// </summary>
-    private static FunctionDeclaration? FindFunctionDeclarationAtLine(List<Declaration> declarations, string name, int line1)
-    {
-        foreach (var decl in declarations)
-        {
-            if (decl is FunctionDeclaration func
-                && string.Equals(func.Name, name, StringComparison.Ordinal)
-                && func.Line == line1)
-            {
-                return func;
-            }
-
-            var members = decl switch
-            {
-                ClassDeclaration c => c.Members,
-                StructDeclaration s => s.Members,
-                RecordDeclaration r => r.Members,
-                InterfaceDeclaration i => i.Members,
-                _ => null
-            };
-
-            if (members != null)
-            {
-                var nested = FindFunctionDeclarationAtLine(members, name, line1);
-                if (nested != null) return nested;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// The 0-based end line of a function. `DeclarationFacts.EstimateDeclarationEndLine` owns the
-    /// estimate — including the "+1 for the closing brace" this handler used to guess for itself,
-    /// in three separate copies across two of its classes — and answers in 1-based lines.
-    /// </summary>
-    private static int GetFunctionEndLine(FunctionDeclaration func)
-    {
-        return Math.Max(0, DeclarationFacts.EstimateDeclarationEndLine(func) - 1);
     }
 
     protected override CallHierarchyRegistrationOptions CreateRegistrationOptions(
@@ -243,7 +207,6 @@ public class CallHierarchyIncomingHandler : CallHierarchyIncomingHandlerBase
         {
             _logger.LogDebug("Call hierarchy incoming calls for: {Name}", item.Name);
 
-            // Use semantic project references to find all call sites for this function
             var references = _documentManager.FindProjectReferences(
                 uri,
                 item.SelectionRange.Start.Line,
@@ -252,7 +215,7 @@ public class CallHierarchyIncomingHandler : CallHierarchyIncomingHandlerBase
             if (references != null && references.Count > 0)
             {
                 return Task.FromResult<Container<CallHierarchyIncomingCall>?>(
-                    BuildIncomingCallsFromProjectReferences(uri, item.Name, references));
+                    BuildIncomingCalls(uri, references));
             }
 
             return Task.FromResult<Container<CallHierarchyIncomingCall>?>(
@@ -267,68 +230,45 @@ public class CallHierarchyIncomingHandler : CallHierarchyIncomingHandlerBase
     }
 
     /// <summary>
-    /// Builds incoming calls from semantic project reference results.
-    /// Groups references by enclosing function to produce one CallHierarchyIncomingCall per caller.
+    /// Groups the project's reference results by the function that encloses each one, so the view
+    /// shows one caller with several call sites rather than several identical callers.
     /// </summary>
-    private Container<CallHierarchyIncomingCall> BuildIncomingCallsFromProjectReferences(
+    private Container<CallHierarchyIncomingCall> BuildIncomingCalls(
         string originUri,
-        string targetFunctionName,
-        List<Compiler.CodeIntelligence.ReferenceResult> references)
+        List<NSharpLang.Compiler.CodeIntelligence.ReferenceResult> references)
     {
         var projectRoot = _documentManager.GetProjectRootForUri(originUri);
-
-        // Group references by their enclosing function
         var callerGroups = new Dictionary<string, (CallHierarchyItem Item, List<LspRange> Ranges)>();
 
         foreach (var reference in references)
         {
             if (reference.IsDefinition)
+            {
                 continue;
+            }
 
             var filePath = _documentManager.ResolveProjectFilePath(projectRoot, reference.File);
             var fileUri = new Uri(filePath).AbsoluteUri;
             var doc = _documentManager.GetDocument(fileUri);
 
-            // Convert 1-based reference coords to 0-based LSP coords
             var refLine0 = reference.Line - 1;
             var refCol0 = reference.Column - 1;
-
             var callRange = new LspRange(
                 refLine0, refCol0,
                 refLine0, refCol0 + Math.Max(1, reference.Length));
 
-            // Determine enclosing function for this reference
-            var enclosingFunc = doc?.CompilationUnit?.Declarations != null
-                ? FindEnclosingFunction(doc.CompilationUnit.Declarations, reference.Line, reference.Column)
-                : null;
+            var enclosing = CodeIntel.EditorCallHierarchyFacts.EnclosingFunction(
+                doc?.CompilationUnit, reference.Line);
 
-            var callerName = enclosingFunc?.Name ?? reference.Context ?? "<unknown>";
+            var callerName = enclosing?.Name ?? reference.Context ?? "<unknown>";
             var callerKey = $"{fileUri}:{callerName}";
 
             if (!callerGroups.TryGetValue(callerKey, out var group))
             {
-                var callerLine = enclosingFunc != null ? Math.Max(0, enclosingFunc.Line - 1) : refLine0;
-                var callerCol = enclosingFunc != null ? Math.Max(0, enclosingFunc.Column - 1) : 0;
-                var callerEndLine = enclosingFunc != null
-                    ? GetFunctionEndLine(enclosingFunc)
-                    : callerLine;
+                var callerRange = CodeIntel.EditorCallHierarchyFacts.FunctionRange(
+                    enclosing, callerName, refLine0);
 
-                // Ensure end character >= start character when on the same line
-                var callerEndChar = callerEndLine == callerLine
-                    ? callerCol + callerName.Length : 0;
-
-                var callerItem = new CallHierarchyItem
-                {
-                    Name = callerName,
-                    Kind = LspSymbolKind.Function,
-                    Uri = DocumentUri.From(fileUri),
-                    Range = new LspRange(callerLine, callerCol, callerEndLine, callerEndChar),
-                    SelectionRange = new LspRange(
-                        callerLine, callerCol,
-                        callerLine, callerCol + callerName.Length)
-                };
-
-                group = (callerItem, new List<LspRange>());
+                group = (CallHierarchyProtocol.ToItem(callerName, fileUri, callerRange), new List<LspRange>());
                 callerGroups[callerKey] = group;
             }
 
@@ -343,59 +283,6 @@ public class CallHierarchyIncomingHandler : CallHierarchyIncomingHandlerBase
 
         return new Container<CallHierarchyIncomingCall>(results);
     }
-
-    /// <summary>
-    /// Finds the enclosing FunctionDeclaration for a given 1-based line/column position.
-    /// </summary>
-    private static FunctionDeclaration? FindEnclosingFunction(List<Declaration> declarations, int line1, int column1)
-    {
-        foreach (var decl in declarations)
-        {
-            if (decl is FunctionDeclaration func)
-            {
-                if (IsPositionInsideFunction(func, line1))
-                {
-                    return func;
-                }
-            }
-
-            var members = decl switch
-            {
-                ClassDeclaration c => c.Members,
-                StructDeclaration s => s.Members,
-                RecordDeclaration r => r.Members,
-                InterfaceDeclaration i => i.Members,
-                _ => null
-            };
-
-            if (members != null)
-            {
-                var nested = FindEnclosingFunction(members, line1, column1);
-                if (nested != null) return nested;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Checks whether a 1-based line position falls within a function's body. The extent is the
-    /// owner's, so "which function encloses this call" and "how far does this function reach"
-    /// cannot disagree.
-    /// </summary>
-    private static bool IsPositionInsideFunction(FunctionDeclaration func, int line1)
-    {
-        return line1 >= func.Line && line1 <= DeclarationFacts.EstimateDeclarationEndLine(func);
-    }
-
-    /// <summary>
-    /// The 0-based end line of a function, from the same owner the prepare handler asks.
-    /// </summary>
-    private static int GetFunctionEndLine(FunctionDeclaration func)
-    {
-        return Math.Max(0, DeclarationFacts.EstimateDeclarationEndLine(func) - 1);
-    }
-
 }
 
 /// <summary>
@@ -431,33 +318,24 @@ public class CallHierarchyOutgoingHandler : CallHierarchyOutgoingHandlerBase
         {
             _logger.LogDebug("Call hierarchy outgoing calls for: {Name}", item.Name);
 
-            // Find the function declaration in the AST
-            var funcDecl = FindFunctionDeclaration(
-                doc.CompilationUnit.Declarations,
-                item.Name,
-                item.SelectionRange.Start.Line + 1); // Convert 0-based LSP to 1-based AST
+            var declaration = CodeIntel.EditorCallHierarchyFacts.FunctionAtLine(
+                doc.CompilationUnit, item.Name, item.SelectionRange.Start.Line + 1);
 
-            if (funcDecl == null)
+            if (declaration == null)
             {
                 return Task.FromResult<Container<CallHierarchyOutgoingCall>?>(
                     new Container<CallHierarchyOutgoingCall>());
             }
 
-            // Walk the function body to find all outgoing call expressions
-            var callExpressions = new List<(string Name, int Line, int Column)>();
-            CollectOutgoingCalls(funcDecl, callExpressions);
-
-            if (callExpressions.Count == 0)
+            var sites = CodeIntel.EditorCallHierarchyFacts.OutgoingCallSites(declaration);
+            if (sites.Count == 0)
             {
                 return Task.FromResult<Container<CallHierarchyOutgoingCall>?>(
                     new Container<CallHierarchyOutgoingCall>());
             }
-
-            // Group by callee name and resolve each to a CallHierarchyItem
-            var outgoingCalls = BuildOutgoingCalls(doc, callExpressions);
 
             return Task.FromResult<Container<CallHierarchyOutgoingCall>?>(
-                new Container<CallHierarchyOutgoingCall>(outgoingCalls));
+                new Container<CallHierarchyOutgoingCall>(BuildOutgoingCalls(doc, sites)));
         }
         catch (Exception ex)
         {
@@ -467,209 +345,25 @@ public class CallHierarchyOutgoingHandler : CallHierarchyOutgoingHandlerBase
         }
     }
 
-    /// <summary>
-    /// Finds a FunctionDeclaration by name at a specific 1-based AST line.
-    /// </summary>
-    private static FunctionDeclaration? FindFunctionDeclaration(
-        List<Declaration> declarations,
-        string name,
-        int line1)
-    {
-        return FindFunctionByNameAndLine(declarations, name, line1);
-    }
-
-    private static FunctionDeclaration? FindFunctionByNameAndLine(List<Declaration> declarations, string name, int line1)
-    {
-        foreach (var decl in declarations)
-        {
-            if (decl is FunctionDeclaration func
-                && string.Equals(func.Name, name, StringComparison.Ordinal)
-                && func.Line == line1)
-            {
-                return func;
-            }
-
-            var members = decl switch
-            {
-                ClassDeclaration c => c.Members,
-                StructDeclaration s => s.Members,
-                RecordDeclaration r => r.Members,
-                InterfaceDeclaration i => i.Members,
-                _ => null
-            };
-
-            if (members != null)
-            {
-                var nested = FindFunctionByNameAndLine(members, name, line1);
-                if (nested != null) return nested;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Walks a function's body to collect all outgoing call expression targets.
-    /// </summary>
-    private static void CollectOutgoingCalls(FunctionDeclaration func, List<(string Name, int Line, int Column)> results)
-    {
-        if (func.Body != null)
-        {
-            CollectCallsFromStatements(func.Body.Statements, results);
-        }
-
-        if (func.ExpressionBody != null)
-        {
-            CollectCallsFromExpression(func.ExpressionBody, results);
-        }
-    }
-
-    private static void CollectCallsFromStatements(List<Statement> statements, List<(string Name, int Line, int Column)> results)
-    {
-        foreach (var stmt in statements)
-        {
-            switch (stmt)
-            {
-                case ExpressionStatement exprStmt:
-                    CollectCallsFromExpression(exprStmt.Expression, results);
-                    break;
-
-                case VariableDeclarationStatement varDecl:
-                    if (varDecl.Initializer != null)
-                        CollectCallsFromExpression(varDecl.Initializer, results);
-                    break;
-
-                case ReturnStatement ret:
-                    if (ret.Value != null)
-                        CollectCallsFromExpression(ret.Value, results);
-                    break;
-
-                case BlockStatement block:
-                    CollectCallsFromStatements(block.Statements, results);
-                    break;
-
-                case IfStatement ifStmt:
-                    CollectCallsFromExpression(ifStmt.Condition, results);
-                    CollectCallsFromStatement(ifStmt.ThenStatement, results);
-                    if (ifStmt.ElseStatement != null)
-                        CollectCallsFromStatement(ifStmt.ElseStatement, results);
-                    break;
-
-                case WhileStatement whileStmt:
-                    CollectCallsFromExpression(whileStmt.Condition, results);
-                    CollectCallsFromStatement(whileStmt.Body, results);
-                    break;
-
-                case ForStatement forStmt:
-                    CollectCallsFromStatement(forStmt.Body, results);
-                    break;
-
-                case ForeachStatement foreachStmt:
-                    CollectCallsFromExpression(foreachStmt.Collection, results);
-                    CollectCallsFromStatement(foreachStmt.Body, results);
-                    break;
-            }
-        }
-    }
-
-    private static void CollectCallsFromStatement(Statement stmt, List<(string Name, int Line, int Column)> results)
-    {
-        if (stmt is BlockStatement block)
-        {
-            CollectCallsFromStatements(block.Statements, results);
-        }
-        else
-        {
-            CollectCallsFromStatements(new List<Statement> { stmt }, results);
-        }
-    }
-
-    private static void CollectCallsFromExpression(Expression expr, List<(string Name, int Line, int Column)> results)
-    {
-        switch (expr)
-        {
-            case CallExpression call:
-                var calleeName = call.Callee switch
-                {
-                    IdentifierExpression id => id.Name,
-                    MemberAccessExpression member => member.MemberName,
-                    _ => null
-                };
-
-                if (calleeName != null)
-                {
-                    results.Add((calleeName, call.Callee.Line, call.Callee.Column));
-                }
-
-                // Recurse into arguments
-                foreach (var arg in call.Arguments)
-                {
-                    CollectCallsFromExpression(arg.Value, results);
-                }
-
-                // Recurse into callee for chained calls
-                CollectCallsFromExpression(call.Callee, results);
-                break;
-
-            case MemberAccessExpression memberAccess:
-                CollectCallsFromExpression(memberAccess.Object, results);
-                break;
-
-            case BinaryExpression binary:
-                CollectCallsFromExpression(binary.Left, results);
-                CollectCallsFromExpression(binary.Right, results);
-                break;
-
-            case UnaryExpression unary:
-                CollectCallsFromExpression(unary.Operand, results);
-                break;
-
-            case IndexAccessExpression indexAccess:
-                CollectCallsFromExpression(indexAccess.Object, results);
-                CollectCallsFromExpression(indexAccess.Index, results);
-                break;
-
-            case AssignmentExpression assignment:
-                CollectCallsFromExpression(assignment.Target, results);
-                CollectCallsFromExpression(assignment.Value, results);
-                break;
-
-            case LambdaExpression lambda:
-                if (lambda.BlockBody != null)
-                    CollectCallsFromStatement(lambda.BlockBody, results);
-                if (lambda.ExpressionBody != null)
-                    CollectCallsFromExpression(lambda.ExpressionBody, results);
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Builds CallHierarchyOutgoingCall entries by grouping call sites by callee name
-    /// and resolving each callee to a CallHierarchyItem using symbol info.
-    /// </summary>
     private List<CallHierarchyOutgoingCall> BuildOutgoingCalls(
-        DocumentState doc,
-        List<(string Name, int Line, int Column)> callExpressions)
+        Models.DocumentState doc,
+        List<CodeIntel.EditorCallSiteRow> sites)
     {
-        // Group by callee name
-        var groups = callExpressions
-            .GroupBy(c => c.Name, StringComparer.Ordinal)
-            .ToList();
-
         var results = new List<CallHierarchyOutgoingCall>();
 
-        foreach (var group in groups)
+        foreach (var group in sites.GroupBy(site => site.Name, StringComparer.Ordinal))
         {
-            var calleeName = group.Key;
-            var calleeItem = ResolveCalleeItem(doc, calleeName);
+            var calleeItem = ResolveCalleeItem(doc, group.Key);
             if (calleeItem == null)
+            {
                 continue;
+            }
 
             var fromRanges = group.Select(site =>
             {
                 var line0 = Math.Max(0, site.Line - 1);
                 var col0 = Math.Max(0, site.Column - 1);
-                return new LspRange(line0, col0, line0, col0 + calleeName.Length);
+                return new LspRange(line0, col0, line0, col0 + group.Key.Length);
             }).ToList();
 
             results.Add(new CallHierarchyOutgoingCall
@@ -683,52 +377,23 @@ public class CallHierarchyOutgoingHandler : CallHierarchyOutgoingHandlerBase
     }
 
     /// <summary>
-    /// Resolves a callee function name to a CallHierarchyItem by looking up symbol info
-    /// and locations across all open documents.
+    /// Resolves a callee name to a node through the symbol locations the editor keeps: the origin
+    /// document first, then every open document.
     /// </summary>
-    private CallHierarchyItem? ResolveCalleeItem(DocumentState originDoc, string calleeName)
+    private CallHierarchyItem? ResolveCalleeItem(Models.DocumentState originDoc, string calleeName)
     {
-        // Try symbol locations in the origin document first
         if (originDoc.SymbolLocations != null && originDoc.SymbolLocations.TryGetValue(calleeName, out var locations))
         {
-            var funcLoc = locations.FirstOrDefault(
-                loc => loc.Kind is ServerSymbolKind.Function or ServerSymbolKind.Method);
-
+            var funcLoc = locations.FirstOrDefault(CallHierarchyProtocol.IsFunctionLocation);
             if (funcLoc != null)
             {
-                return CreateCallHierarchyItemFromLocation(funcLoc);
+                return CallHierarchyProtocol.ToItem(funcLoc);
             }
         }
 
-        // Search all documents for the callee declaration
-        var allLocations = _documentManager.FindSymbolLocations(calleeName);
-        var bestLoc = allLocations.FirstOrDefault(
-            loc => loc.Kind is ServerSymbolKind.Function or ServerSymbolKind.Method);
+        var bestLoc = _documentManager.FindSymbolLocations(calleeName)
+            .FirstOrDefault(CallHierarchyProtocol.IsFunctionLocation);
 
-        if (bestLoc != null)
-        {
-            return CreateCallHierarchyItemFromLocation(bestLoc);
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Creates a CallHierarchyItem from a SymbolLocation.
-    /// </summary>
-    private static CallHierarchyItem CreateCallHierarchyItemFromLocation(SymbolLocation loc)
-    {
-        var selectionRange = new LspRange(
-            loc.Line, loc.Column,
-            loc.Line, loc.Column + Math.Max(1, loc.Length));
-
-        return new CallHierarchyItem
-        {
-            Name = loc.Name,
-            Kind = LspSymbolKind.Function,
-            Uri = DocumentUri.From(loc.Uri),
-            Range = selectionRange,
-            SelectionRange = selectionRange
-        };
+        return bestLoc == null ? null : CallHierarchyProtocol.ToItem(bestLoc);
     }
 }

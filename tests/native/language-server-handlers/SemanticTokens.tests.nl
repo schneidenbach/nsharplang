@@ -15,14 +15,13 @@ func main() {
     doc := LshDocument(docs, uri)
     assert doc.Tokens != null
 
-    handler := LshSemanticHandler(docs)
     sets := LshSemanticSets(doc)
 
-    funcClassification := LshClassify(handler, LshFirstTokenOfType(doc, "Func"), doc, sets, null)
+    funcClassification := LshClassify(LshFirstTokenOfType(doc, "Func"), doc, sets, null)
     assert funcClassification != null
     assert LshClassifiedTokenType(funcClassification) == 12
 
-    letClassification := LshClassify(handler, LshFirstTokenOfType(doc, "Let"), doc, sets, null)
+    letClassification := LshClassify(LshFirstTokenOfType(doc, "Let"), doc, sets, null)
     assert letClassification != null
     assert LshClassifiedTokenType(letClassification) == 12
 }
@@ -41,14 +40,13 @@ func main() {
     LshOpen(docs, uri, source)
 
     doc := LshDocument(docs, uri)
-    handler := LshSemanticHandler(docs)
     sets := LshSemanticSets(doc)
 
-    intClassification := LshClassify(handler, LshFirstTokenOfType(doc, "IntLiteral"), doc, sets, null)
+    intClassification := LshClassify(LshFirstTokenOfType(doc, "IntLiteral"), doc, sets, null)
     assert intClassification != null
     assert LshClassifiedTokenType(intClassification) == 15
 
-    floatClassification := LshClassify(handler, LshFirstTokenOfType(doc, "FloatLiteral"), doc, sets, null)
+    floatClassification := LshClassify(LshFirstTokenOfType(doc, "FloatLiteral"), doc, sets, null)
     assert floatClassification != null
     assert LshClassifiedTokenType(floatClassification) == 15
 }
@@ -66,10 +64,9 @@ func main() {
     LshOpen(docs, uri, source)
 
     doc := LshDocument(docs, uri)
-    handler := LshSemanticHandler(docs)
     sets := LshSemanticSets(doc)
 
-    classification := LshClassify(handler, LshFirstTokenOfType(doc, "StringLiteral"), doc, sets, null)
+    classification := LshClassify(LshFirstTokenOfType(doc, "StringLiteral"), doc, sets, null)
     assert classification != null
     assert LshClassifiedTokenType(classification) == 14
 }
@@ -88,17 +85,16 @@ func main() {
     LshOpen(docs, uri, source)
 
     doc := LshDocument(docs, uri)
-    handler := LshSemanticHandler(docs)
     sets := LshSemanticSets(doc)
 
     interpolated := LshFirstInterpolatedStringToken(doc)
-    assert LshClassify(handler, interpolated, doc, sets, null) == null
+    assert LshClassify(interpolated, doc, sets, null) == null
 
     embedded := LshSingleIdentifier(LshInterpolatedExpressionTokens(interpolated), "name")
     assert embedded.Line == 3
     assert embedded.Column == 21
 
-    classification := LshClassify(handler, embedded, doc, sets, null)
+    classification := LshClassify(embedded, doc, sets, null)
     assert classification != null
     assert LshClassifiedTokenType(classification) == 8
 }
@@ -110,17 +106,16 @@ test "an interpolated raw string is not classified as one flat string token" {
     LshOpen(docs, uri, source)
 
     doc := LshDocument(docs, uri)
-    handler := LshSemanticHandler(docs)
     sets := LshSemanticSets(doc)
 
     interpolated := LshFirstTokenOfType(doc, "InterpolatedRawStringLiteral")
-    assert LshClassify(handler, interpolated, doc, sets, null) == null
+    assert LshClassify(interpolated, doc, sets, null) == null
 
     embedded := LshSingleIdentifier(LshInterpolatedExpressionTokens(interpolated), "name")
     assert embedded.Line == 3
     assert embedded.Column == 23
 
-    classification := LshClassify(handler, embedded, doc, sets, null)
+    classification := LshClassify(embedded, doc, sets, null)
     assert classification != null
     assert LshClassifiedTokenType(classification) == 8
 }
@@ -179,14 +174,13 @@ func main() {
     LshOpen(docs, uri, source)
 
     doc := LshDocument(docs, uri)
-    handler := LshSemanticHandler(docs)
     sets := LshSemanticSets(doc)
     bindings := LshCatchResultBindings(doc)
 
     errToken := LshSingleIdentifierOnLine(doc, "err", 6)
     assert LshBindingsContain(bindings, errToken.Line, errToken.Column, errToken.Value)
 
-    classification := LshClassify(handler, errToken, doc, sets, bindings)
+    classification := LshClassify(errToken, doc, sets, bindings)
     assert classification != null
     assert LshClassifiedTokenType(classification) == 8
     assert LshClassifiedModifiers(classification) == LshCatchResultModifierMask()
@@ -209,7 +203,6 @@ func main() {
     LshOpen(docs, uri, source)
 
     doc := LshDocument(docs, uri)
-    handler := LshSemanticHandler(docs)
     sets := LshSemanticSets(doc)
     bindings := LshCatchResultBindings(doc)
 
@@ -219,7 +212,7 @@ func main() {
 
     index := 0
     while index < errTokens.Count {
-        classification := LshClassify(handler, errTokens[index], doc, sets, bindings)
+        classification := LshClassify(errTokens[index], doc, sets, bindings)
         assert classification != null
         assert LshClassifiedTokenType(classification) == 8
         assert LshClassifiedModifiers(classification) == 0
