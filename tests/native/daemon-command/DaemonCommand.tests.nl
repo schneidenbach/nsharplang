@@ -1,6 +1,7 @@
 namespace NSharpLang.DaemonCommand.Tests
 
 import System
+import System.Diagnostics
 import System.IO
 import System.Text.Json
 import NSharpLang.Cli.Daemon
@@ -421,6 +422,126 @@ test "a daemon whose idle timeout elapses shuts itself down and removes its sock
     try {
         assert File.Exists(socketPath)
         assert WaitUntil(() => !File.Exists(socketPath), 10000)
+    } finally {
+        server.Stop()
+        DeleteTempDirectory(projectDirectory)
+    }
+}
+
+// ═══ WHAT THE SERVER ITSELF BUILDS ════════════════════════════════════════════════════════════
+//
+// Four rows added when `DaemonServer` moved out of C# and into
+// `src/NSharpLang.Compiler/DaemonServer.nl`. Each one pins a payload the C# built with an ANONYMOUS
+// TYPE — a shape N# has no spelling for, so each became a written-out carrier — or a value the
+// server can only get from the operating system. Nothing here agrees with the owner by
+// construction: every expected key and every bound is written as a literal.
+
+test "a malformed daemon request reports the path, line and byte position where the bytes stopped being JSON" {
+    projectDirectory := NewTempProject()
+    server := StartDaemonServer(projectDirectory)
+    try {
+        malformedJson := SendRawDaemonRequest(projectDirectory, "{\"jsonrpc\":\"2.0\",\"id\":4,")
+        document := JsonDocument.Parse(malformedJson)
+        try {
+            data := document.RootElement.GetProperty("error").GetProperty("data")
+
+            // The three member names are CAMEL-CASED by the daemon's serializer options, exactly as
+            // they were when this payload was a C# anonymous type over `JsonException`.
+            assert HasProperty(data, "path")
+            assert HasProperty(data, "lineNumber")
+            assert HasProperty(data, "bytePositionInLine")
+            assert !HasProperty(data, "Path")
+            assert !HasProperty(data, "LineNumber")
+
+            // The request is one line long and ends after 24 bytes, so the position is reported on
+            // line 0 and cannot be zero bytes in.
+            assert data.GetProperty("lineNumber").GetInt64() == 0
+            assert data.GetProperty("bytePositionInLine").GetInt64() > 0
+        } finally {
+            document.Dispose()
+        }
+    } finally {
+        server.Stop()
+        DeleteTempDirectory(projectDirectory)
+    }
+}
+
+// The daemon under test runs on a thread of THIS process, so the uptime it reports must be this
+// process's own age. A counter that started when the server object was constructed would read a
+// second or two; the real answer is however long the test host has been alive, and this row is
+// written so that only the real answer passes.
+test "daemon status reports the age of the serving process, not the age of the server object" {
+    projectDirectory := NewTempProject()
+    startedAt := Process.GetCurrentProcess().StartTime.ToUniversalTime()
+    expectedSeconds := (long)(DateTime.UtcNow - startedAt).TotalSeconds
+    server := StartDaemonServer(projectDirectory)
+    try {
+        uptime := StatusText(projectDirectory, "uptime")
+        reportedSeconds := UptimeTextToSeconds(uptime)
+
+        // Within ten seconds of the age measured just above, and never the near-zero a per-object
+        // counter would give for a host that has already been running for a while.
+        assert reportedSeconds >= expectedSeconds
+        assert reportedSeconds - expectedSeconds <= 10
+        assert StatusNumber(projectDirectory, "pid") == Environment.ProcessId
+    } finally {
+        server.Stop()
+        DeleteTempDirectory(projectDirectory)
+    }
+}
+
+// `QueryErrorDetailKernels.Position` — what the in-process `nlc query` route uses — NORMALIZES the
+// path it echoes. The daemon never did: its detail payload was a C# anonymous type built straight
+// from the request parameter. This row sends a spelling the normalizer would change and requires it
+// back unchanged, so the two routes keep the difference they have always had.
+test "a daemon type query with no symbol echoes the file parameter exactly as the client spelled it" {
+    projectDirectory := NewTempProject()
+    server := StartDaemonServer(projectDirectory)
+    try {
+        response := DaemonClient.Query(
+            projectDirectory,
+            DaemonConstants.MethodType,
+            FilePositionParameters("sub\\Missing.nl", "1:1")
+        )
+        assert response != null
+
+        document := JsonDocument.Parse(response)
+        try {
+            details := document.RootElement.GetProperty("error").GetProperty("details")
+            assert TextOf(details.GetProperty("file")) == "sub\\Missing.nl"
+            assert details.GetProperty("position").GetProperty("line").GetInt32() == 1
+            assert details.GetProperty("position").GetProperty("column").GetInt32() == 1
+            assert TextOf(document.RootElement.GetProperty("error").GetProperty("code")) == "noSymbol"
+        } finally {
+            document.Dispose()
+        }
+    } finally {
+        server.Stop()
+        DeleteTempDirectory(projectDirectory)
+    }
+}
+
+// A parameter whose JSON type the server cannot read is TOLERATED — the request is still answered
+// as though the parameter were absent — rather than failing the whole call. `kind` is a string
+// slot; sending a number must not turn a symbols query into an error response.
+test "a daemon parameter of the wrong json type is treated as absent instead of failing the request" {
+    projectDirectory := NewTempProject()
+    server := StartDaemonServer(projectDirectory)
+    try {
+        wrongTypeJson := SendRawDaemonRequest(
+            projectDirectory,
+            "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"query/symbols\",\"params\":{\"kind\":42}}"
+        )
+        wrongType := JsonSerializer.Deserialize<DaemonResponse>(wrongTypeJson)
+        assert wrongType != null
+        assert wrongType.Error == null
+        assert wrongType.Result != null
+
+        unfilteredJson := DaemonClient.Query(projectDirectory, DaemonConstants.MethodSymbols)
+        assert unfilteredJson != null
+
+        // Same answer as asking with no `kind` at all: the broken filter was dropped, not applied.
+        assert wrongType.Result == unfilteredJson
     } finally {
         server.Stop()
         DeleteTempDirectory(projectDirectory)

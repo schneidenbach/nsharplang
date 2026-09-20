@@ -378,3 +378,18 @@ func PositionComponent(responseJson: string, component: string): int {
         document.Dispose()
     }
 }
+
+// `daemon status` reports uptime as `<h>h <m>m <s>s`. The rows that check it need the number of
+// seconds back, and re-deriving it here — rather than asking the kernel that formatted it — is what
+// keeps the assertion from agreeing with its subject by construction.
+func UptimeTextToSeconds(uptime: string): long {
+    parts := uptime.Split(' ')
+    if parts.Length != 3 {
+        throw new InvalidOperationException("Unexpected uptime spelling: " + uptime)
+    }
+
+    hours := long.Parse(parts[0].TrimEnd('h'))
+    minutes := long.Parse(parts[1].TrimEnd('m'))
+    seconds := long.Parse(parts[2].TrimEnd('s'))
+    return hours * 3600 + minutes * 60 + seconds
+}
