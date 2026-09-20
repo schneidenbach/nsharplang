@@ -4,7 +4,7 @@
   "codeEpochFileCount": 223,
   "codeEpochPathFingerprint": "pathset-v2:fbda7fc3d5053525",
   "codeEpochFactFingerprint": "epochfacts-v2:05f608333cab8ef7",
-  "reviewedHeadFingerprint": "head-v2:307593aa96b59dd7",
+  "reviewedHeadFingerprint": "head-v2:3e7878a4ebedde22",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":163,"currentNonBlankLines":137,"currentBytes":0,"currentFingerprint":"text-v1:bc7886703362adb1"},
@@ -194,7 +194,7 @@
     {"path":"src/NSharpLang.Cli/Daemon/DaemonServer.cs","language":"csharp","surface":"cli","campaignScope":"closeout","state":"removed","epochLines":632,"currentLines":0,"epochNonBlankLines":552,"currentNonBlankLines":0,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
     {"path":"src/NSharpLang.Cli/Program.Backends.cs","language":"csharp","surface":"cli","campaignScope":"closeout","state":"removed","epochLines":366,"currentLines":0,"epochNonBlankLines":328,"currentNonBlankLines":0,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
     {"path":"src/NSharpLang.Cli/Program.Testing.cs","language":"csharp","surface":"cli","campaignScope":"closeout","state":"existing-debt","epochLines":617,"currentLines":614,"epochNonBlankLines":538,"currentNonBlankLines":535,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:4ac24bbedea23ed6"},
-    {"path":"src/NSharpLang.Cli/Program.cs","language":"csharp","surface":"cli","campaignScope":"closeout","state":"existing-debt","epochLines":786,"currentLines":757,"epochNonBlankLines":682,"currentNonBlankLines":656,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:bb613e1c2d7cebb2"},
+    {"path":"src/NSharpLang.Cli/Program.cs","language":"csharp","surface":"cli","campaignScope":"closeout","state":"existing-debt","epochLines":786,"currentLines":163,"epochNonBlankLines":682,"currentNonBlankLines":142,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:0cfc7daeb7560933"},
     {"path":"src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj","language":"msbuild","surface":"compiler-core","campaignScope":"closeout","state":"reviewed","currentLines":16,"currentNonBlankLines":16,"currentBytes":0,"currentFingerprint":"text-v1:d1e6f701b9e0e552"},
     {"path":"src/NSharpLang.Compiler.Core/global.json","language":"json-config","surface":"compiler-core","campaignScope":"closeout","state":"reviewed","currentLines":9,"currentNonBlankLines":9,"currentBytes":0,"currentFingerprint":"text-v1:224b2c9ed64bcc89"},
     {"path":"src/NSharpLang.Compiler/Analyzer.cs","language":"csharp","surface":"compiler-core","campaignScope":"closeout","state":"removed","epochLines":23451,"currentLines":0,"epochNonBlankLines":20537,"currentNonBlankLines":0,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
