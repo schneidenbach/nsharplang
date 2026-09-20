@@ -4807,3 +4807,78 @@ test "managed-pointer provenance merges only the same definitely assigned target
         ColumnarCodePlanExecutor.Validate(differentTargets)
     }
 }
+
+test "schema v3 executor admits ldsflda over a mutable static field and refuses literal and init-only ones" {
+    sink := ExecutorRequiredField(typeof(ColumnarMethodBodyStaticProbe), "Sink")
+    assert sink.get_IsStatic()
+    assert !sink.get_IsLiteral()
+    assert !sink.get_IsInitOnly()
+
+    // The address is proved by DEREFERENCING it: the fragment's declared result is the field's
+    // value, so a row that pushed a value instead of an address would not type-check here.
+    address := new ColumnarCodePlan()
+    address.PrepareV3()
+    addressRoot := address.BeginFragment(-1, 1186, 0)
+    addressField := address.AddField(sink)
+    address.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), addressField)
+    address.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdindI4())
+    address.CompleteFragment(addressRoot, typeof(int))
+    address.CompleteV3(typeof(int))
+    ColumnarCodePlanExecutor.Validate(address)
+    ColumnarMethodBodyStaticProbe.Sink = 314
+    assert ExecutorRunV3ScalarPlan(address, typeof(int)) == "314"
+
+    // `string.Empty` is init-only: it HAS storage, which is what separates it from a literal, and
+    // handing a body a writable reference to it is exactly what the language's NL309 refuses.
+    initOnly := ExecutorRequiredField(typeof(string), "Empty")
+    assert initOnly.get_IsInitOnly()
+    initOnlyPlan := new ColumnarCodePlan()
+    initOnlyPlan.PrepareV3()
+    initOnlyRoot := initOnlyPlan.BeginFragment(-1, 1187, 0)
+    initOnlyField := initOnlyPlan.AddField(initOnly)
+    initOnlyPlan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), initOnlyField)
+    initOnlyPlan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdindRef())
+    initOnlyPlan.CompleteFragment(initOnlyRoot, typeof(string))
+    initOnlyPlan.CompleteV3(typeof(string))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(initOnlyPlan)
+    }
+
+    // A literal has no storage at all, so neither ldsfld nor ldsflda may name one.
+    literalHandle := ExecutorRequiredField(typeof(int), "MaxValue")
+    assert literalHandle.get_IsLiteral()
+    literalPlan := new ColumnarCodePlan()
+    literalPlan.PrepareV3()
+    literalRoot := literalPlan.BeginFragment(-1, 1188, 0)
+    literalField := literalPlan.AddField(literalHandle)
+    literalPlan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), literalField)
+    literalPlan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdindI4())
+    literalPlan.CompleteFragment(literalRoot, typeof(int))
+    literalPlan.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(literalPlan)
+    }
+
+    // An INSTANCE field is not addressable by ldsflda; that is ldflda's row.
+    instanceHandle := ExecutorRequiredField(typeof(ColumnarExecutorFieldProbe), "Value")
+    instancePlan := new ColumnarCodePlan()
+    instancePlan.PrepareV3()
+    instanceRoot := instancePlan.BeginFragment(-1, 1189, 0)
+    instanceField := instancePlan.AddField(instanceHandle)
+    instancePlan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), instanceField)
+    instancePlan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdindI4())
+    instancePlan.CompleteFragment(instanceRoot, typeof(int))
+    instancePlan.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(instancePlan)
+    }
+
+    // The scalar/method-body schemas are the only ones that carry this row at all.
+    schemaV2 := new ColumnarCodePlan()
+    schemaV2.PrepareV2()
+    _schemaV2AddressRoot := schemaV2.BeginFragment(-1, 1190, 0)
+    schemaV2Field := schemaV2.AddField(sink)
+    assert throws InvalidOperationException {
+        schemaV2.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), schemaV2Field)
+    }
+}

@@ -145,6 +145,62 @@ class ColumnarSourceStaticMemberPlanner {
         return false
     }
 
+    // THE ADDRESS of a static field of a source type, which is what a `ref`/`out`/`in` argument
+    // naming `Counter.Total` needs. A static INT CONSTANT is a literal with no storage, so it is
+    // refused here exactly as the write half refuses it; a static PROPERTY has no address either,
+    // and declining leaves the caller's own diagnostic in place.
+    static func TryAppendStaticFieldAddress(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out elementType: Type): bool {
+        elementType = typeof(int)
+        fieldOwner: ColumnarStructDef? = null
+        field: FieldBuilder? = null
+        if !TryFindQualifiedStaticField(nodes, source, node, bindings, out fieldOwner, out field) || field == null {
+            return false
+        }
+
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), AddStaticField(plan, fieldOwner, field))
+        elementType = field.get_FieldType()
+        return true
+    }
+
+    // The type half of the same selection, so the argument type a call binds and the storage it
+    // addresses are answered by one relation.
+    static func TryGetStaticFieldStorageType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out storageType: Type?): bool {
+        storageType = null
+        fieldOwner: ColumnarStructDef? = null
+        field: FieldBuilder? = null
+        if !TryFindQualifiedStaticField(nodes, source, node, bindings, out fieldOwner, out field) || field == null {
+            return false
+        }
+
+        storageType = field.get_FieldType()
+        return true
+    }
+
+    static func TryFindQualifiedStaticField(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out fieldOwner: ColumnarStructDef?, out field: FieldBuilder?): bool {
+        fieldOwner = null
+        field = null
+        owner: ColumnarStructDef? = null
+        if !TryResolveOwner(nodes, source, node, bindings, out owner) || owner == null {
+            return false
+        }
+
+        memberName := nodes.Text(source, node)
+        selectedOwner: ColumnarStructDef? = null
+        selectedField: FieldBuilder? = null
+        if !ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(owner, memberName, out selectedOwner, out selectedField) || selectedField == null {
+            return false
+        }
+
+        literalValue := 0
+        if selectedOwner != null && selectedOwner.StaticIntConstants.TryGetValue(memberName, out literalValue) {
+            return false
+        }
+
+        fieldOwner = selectedOwner
+        field = selectedField
+        return true
+    }
+
     // A `FieldBuilder` carries its declaring type and value type from its own definition, which is
     // what the pool needs: reading them back through reflection off an unbaked type is exactly the
     // question `AddFieldWithSignature` exists to avoid asking.

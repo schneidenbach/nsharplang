@@ -376,6 +376,8 @@ class ColumnarCodePlanExecutor {
         } else if operandKind == ColumnarCodePlanContract.FieldOperand() {
             if opCodeValue == ColumnarCodePlanContract.Ldsfld() {
                 il.Emit(OpCodes.Ldsfld, plan.Fields[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Ldsflda() {
+                il.Emit(OpCodes.Ldsflda, plan.Fields[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Stsfld() {
                 il.Emit(OpCodes.Stsfld, plan.Fields[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Ldflda() {
@@ -944,7 +946,7 @@ class ColumnarCodePlanExecutor {
             return 1
         }
         if operandKind == ColumnarCodePlanContract.FieldOperand() {
-            if opCodeValue == ColumnarCodePlanContract.Ldsfld() {
+            if opCodeValue == ColumnarCodePlanContract.Ldsfld() || opCodeValue == ColumnarCodePlanContract.Ldsflda() {
                 return 1
             }
             if opCodeValue == ColumnarCodePlanContract.Stsfld() {
@@ -1943,8 +1945,8 @@ class ColumnarCodePlanExecutor {
             ApplyField(plan, operandIndex, opCodeValue == ColumnarCodePlanContract.Ldflda(), state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Stfld() {
             ApplyFieldStore(plan, operandIndex, state, schemaName)
-        } else if opCodeValue == ColumnarCodePlanContract.Ldsfld() {
-            ApplyStaticField(plan, operandIndex, state, schemaName)
+        } else if opCodeValue == ColumnarCodePlanContract.Ldsfld() || opCodeValue == ColumnarCodePlanContract.Ldsflda() {
+            ApplyStaticField(plan, operandIndex, opCodeValue == ColumnarCodePlanContract.Ldsflda(), state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Ldtoken() {
             state.Push(typeof(RuntimeTypeHandle), false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
         } else if opCodeValue == ColumnarCodePlanContract.Box() {
@@ -2581,14 +2583,21 @@ class ColumnarCodePlanExecutor {
         state.Push(usesDeclaredSignature ? plan.FieldValueTypes[fieldIndex] : field.get_FieldType(), loadAddress, ColumnarCodePlanStackValueKind.Exact(), false, 0)
     }
 
-    static func ApplyStaticField(plan: ColumnarCodePlan, fieldIndex: int, state: ColumnarCodePlanStackState, schemaName: string) {
+    // `loadAddress` is the `ldsflda` half. An init-only static has storage a constructor writes, so
+    // taking its address in an ordinary body would hand out a writable reference to a field the
+    // language calls readonly; that is refused here rather than at the planner, so no caller can
+    // reach it. A literal has no storage at all and neither row may name one.
+    static func ApplyStaticField(plan: ColumnarCodePlan, fieldIndex: int, loadAddress: bool, state: ColumnarCodePlanStackState, schemaName: string) {
         field := plan.Fields[fieldIndex]
         usesDeclaredSignature := plan.FieldUsesDeclaredSignature[fieldIndex]
         isStatic := usesDeclaredSignature ? plan.FieldIsStatic[fieldIndex] : field.get_IsStatic()
         if !isStatic || field.get_IsLiteral() {
             throw new InvalidOperationException(schemaName + " ldsfld handles must name non-literal static fields.")
         }
-        state.Push(usesDeclaredSignature ? plan.FieldValueTypes[fieldIndex] : field.get_FieldType(), false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
+        if loadAddress && field.get_IsInitOnly() {
+            throw new InvalidOperationException(schemaName + " ldsflda handles cannot name init-only fields.")
+        }
+        state.Push(usesDeclaredSignature ? plan.FieldValueTypes[fieldIndex] : field.get_FieldType(), loadAddress, ColumnarCodePlanStackValueKind.Exact(), false, 0)
     }
 
     static func ApplyFieldStore(plan: ColumnarCodePlan, fieldIndex: int, state: ColumnarCodePlanStackState, schemaName: string) {

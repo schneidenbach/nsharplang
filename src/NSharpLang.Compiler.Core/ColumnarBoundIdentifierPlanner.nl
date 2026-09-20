@@ -380,6 +380,94 @@ class ColumnarBoundIdentifierPlanner {
         return true
     }
 
+    // THE STORAGE TYPE UNDER A `ref`/`out` ARGUMENT. It is deliberately a different question from
+    // `TryGetBoundType`: a bare identifier that names a STATIC field of the enclosing type has no
+    // `ColumnarBoundIdentifierKind`, because every kind there describes a value read whose selection
+    // the value walk consumes, and a static read is owned by `ColumnarSourceStaticMemberPlanner`
+    // instead. A by-reference argument asks only for the STORAGE, so the two static arms answer it
+    // here and `TryAppendAddressOf` appends the matching `ldsflda`. Asking `TryGetBoundType` alone
+    // is what made `Interlocked.Increment(ref Total)` fail before it ever reached the address-of
+    // walk: the argument type could not be named, so the call declined at argument collection.
+    static func TryGetByRefTargetType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out resultType: Type): bool {
+        resultType = typeof(int)
+        if TryGetBoundType(nodes, source, node, bindings, out resultType) {
+            return true
+        }
+
+        if nodes == null || source == null || bindings == null {
+            return false
+        }
+
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 {
+            return false
+        }
+
+        staticFieldType: Type? = null
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression() {
+            if ColumnarSourceStaticMemberPlanner.TryGetStaticFieldStorageType(nodes, source, candidate, bindings, out staticFieldType) && staticFieldType != null {
+                resultType = staticFieldType
+                return true
+            }
+
+            return false
+        }
+
+        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, candidate) {
+            return false
+        }
+
+        if TryGetEnclosingStaticFieldType(bindings, nodes.Text(source, candidate), out staticFieldType) && staticFieldType != null {
+            resultType = staticFieldType
+            return true
+        }
+
+        return false
+    }
+
+    // The bare-name half of the relation above, shared with the address-of walk so the type a call
+    // binds and the storage it addresses can never disagree. A static INT CONSTANT is a literal
+    // with no storage and answers no.
+    static func TryGetEnclosingStaticFieldType(bindings: ColumnarFragmentBindings, name: string, out fieldType: Type?): bool {
+        fieldType = null
+        fieldOwner: ColumnarStructDef? = null
+        field: FieldBuilder? = null
+        if !TryFindEnclosingStaticField(bindings, name, out fieldOwner, out field) || field == null {
+            return false
+        }
+
+        fieldType = field.get_FieldType()
+        return true
+    }
+
+    static func TryFindEnclosingStaticField(bindings: ColumnarFragmentBindings, name: string, out fieldOwner: ColumnarStructDef?, out field: FieldBuilder?): bool {
+        fieldOwner = null
+        field = null
+        if bindings == null || name == null || name.Length == 0 {
+            return false
+        }
+
+        enclosing := bindings.EnclosingTypeDefinition
+        if enclosing == null {
+            return false
+        }
+
+        selectedOwner: ColumnarStructDef? = null
+        selectedField: FieldBuilder? = null
+        if !ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(enclosing, name, out selectedOwner, out selectedField) || selectedField == null {
+            return false
+        }
+
+        literalValue := 0
+        if selectedOwner != null && selectedOwner.StaticIntConstants.TryGetValue(name, out literalValue) {
+            return false
+        }
+
+        fieldOwner = selectedOwner
+        field = selectedField
+        return true
+    }
+
     // Member planning needs the semantic receiver type before it chooses a field/getter and,
     // for source value types, must preserve the original local/argument storage address. Ref/out
     // parameters with typed-ldind elements resolve directly (value reads deref through the table);
@@ -574,7 +662,25 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         candidate := UnwrapParentheses(nodes, node)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 {
+        if candidate < 0 {
+            return false
+        }
+
+        // `Counter.Total` written out in full is the same storage as the bare `Total` below, and a
+        // by-reference argument may name it from anywhere the type is visible.
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression() {
+            staticMemberElement: Type = typeof(int)
+            if ColumnarSourceStaticMemberPlanner.TryAppendStaticFieldAddress(nodes, source, candidate, bindings, plan, out staticMemberElement) {
+                RequireStorableValueType(staticMemberElement, "A by-reference static field must have a storable type.")
+
+                elementType = staticMemberElement
+                return true
+            }
+
+            return false
+        }
+
+        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 {
             return false
         }
 
@@ -624,6 +730,27 @@ class ColumnarBoundIdentifierPlanner {
                 plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), argumentIndex)
 
                 elementType = parameterType
+                return true
+            }
+        }
+
+        // A STATIC FIELD OF THE ENCLOSING TYPE, named bare. This is the arm that was missing, and
+        // its absence is the whole of `Interlocked.Increment(ref Total)` declining while the
+        // identical call over an instance field, a local or a parameter emitted. A static member
+        // belongs to the TYPE, so it is addressable from every body the type owns -- static methods
+        // and instance methods alike -- which is why it is asked before the current-instance walk
+        // rather than inside it. An explicit `this.` spelling never names a static, so it is
+        // excluded here exactly as it is for the local and parameter arms above.
+        if !explicitThis {
+            staticFieldOwner: ColumnarStructDef? = null
+            staticField: FieldBuilder? = null
+            if TryFindEnclosingStaticField(bindings, name, out staticFieldOwner, out staticField) && staticField != null {
+                staticFieldType := staticField.get_FieldType()
+                RequireStorableValueType(staticFieldType, "A by-reference static field must have a storable type.")
+
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), ColumnarSourceStaticMemberPlanner.AddStaticField(plan, staticFieldOwner, staticField))
+
+                elementType = staticFieldType
                 return true
             }
         }

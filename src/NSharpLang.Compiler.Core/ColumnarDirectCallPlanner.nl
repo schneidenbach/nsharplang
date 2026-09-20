@@ -3474,7 +3474,7 @@ class ColumnarDirectCallPlanner {
             byRefTarget := ByRefArgumentTarget(nodes, source, argumentNode)
             if byRefTarget >= 0 {
                 byRefStorageType := typeof(int)
-                if !ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, byRefTarget, bindings, out byRefStorageType) || IsVoidType(byRefStorageType) {
+                if !ColumnarBoundIdentifierPlanner.TryGetByRefTargetType(nodes, source, byRefTarget, bindings, out byRefStorageType) || IsVoidType(byRefStorageType) {
                     return false
                 }
 

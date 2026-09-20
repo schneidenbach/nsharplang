@@ -330,6 +330,13 @@ class ColumnarCodePlanContract {
     static func Ldsfld(): short {
         return 126
     }
+    // ldsflda (0x7F) is to `ldsfld` what `ldflda` is to `ldfld`: the ADDRESS of the static field's
+    // storage rather than a copy of its value. It is the only way a by-reference argument can name
+    // a static field, which `Interlocked.Increment(ref Total)` and `Volatile.Write(ref Flag, ...)`
+    // both require, and the plan contract carried no such row.
+    static func Ldsflda(): short {
+        return 127
+    }
     static func Box(): short {
         return 140
     }
@@ -1405,7 +1412,7 @@ class ColumnarCodePlan {
 
     func AppendFieldInstruction(opCodeValue: short, fieldIndex: int) {
         EnsureV2Building()
-        if (opCodeValue != ColumnarCodePlanContract.Ldfld() && (!AllowsScalarOrMethodBodyInstructions() || (opCodeValue != ColumnarCodePlanContract.Ldflda() && opCodeValue != ColumnarCodePlanContract.Stfld() && opCodeValue != ColumnarCodePlanContract.Ldsfld())) && !(IsMethodBodySchema() && opCodeValue == ColumnarCodePlanContract.Stsfld())) || fieldIndex < 0 || fieldIndex >= FieldCount {
+        if (opCodeValue != ColumnarCodePlanContract.Ldfld() && (!AllowsScalarOrMethodBodyInstructions() || (opCodeValue != ColumnarCodePlanContract.Ldflda() && opCodeValue != ColumnarCodePlanContract.Stfld() && opCodeValue != ColumnarCodePlanContract.Ldsfld() && opCodeValue != ColumnarCodePlanContract.Ldsflda())) && !(IsMethodBodySchema() && opCodeValue == ColumnarCodePlanContract.Stsfld())) || fieldIndex < 0 || fieldIndex >= FieldCount {
             throw new InvalidOperationException("The opcode does not use this field pool entry.")
         }
         AppendV2Row(ColumnarCodePlanContract.EmitInstructionOperation(), opCodeValue, ColumnarCodePlanContract.FieldOperand(), fieldIndex)
@@ -2073,7 +2080,7 @@ class ColumnarCodePlan {
         if opCodeValue == ColumnarCodePlanContract.Newobj() {
             return operandKind == ColumnarCodePlanContract.ConstructorOperand() && operandIndex >= 0 && operandIndex < ConstructorCount
         }
-        if opCodeValue == ColumnarCodePlanContract.Ldfld() || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion() && (opCodeValue == ColumnarCodePlanContract.Ldflda() || opCodeValue == ColumnarCodePlanContract.Stfld() || opCodeValue == ColumnarCodePlanContract.Ldsfld())) {
+        if opCodeValue == ColumnarCodePlanContract.Ldfld() || (SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion() && (opCodeValue == ColumnarCodePlanContract.Ldflda() || opCodeValue == ColumnarCodePlanContract.Stfld() || opCodeValue == ColumnarCodePlanContract.Ldsfld() || opCodeValue == ColumnarCodePlanContract.Ldsflda())) {
             return operandKind == ColumnarCodePlanContract.FieldOperand() && operandIndex >= 0 && operandIndex < FieldCount
         }
         if opCodeValue == ColumnarCodePlanContract.Br() || opCodeValue == ColumnarCodePlanContract.Brfalse() || opCodeValue == ColumnarCodePlanContract.Brtrue() {
