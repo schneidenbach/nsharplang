@@ -295,14 +295,18 @@ func CachedFileCount(projectDirectory: string): int {
     return StatusNumber(projectDirectory, DaemonProtocolKernels.GetStatusCachedFilesField())
 }
 
-func QueryParameters(firstName: string, firstValue: string): Dictionary<string, object?> {
-    parameters := new Dictionary<string, object?>()
+// The value slot is `object`, not `object?`, because an N#-EMITTED signature carries no nullability
+// in metadata (see census-briefs/CLI2-COMPILER-BLOCKERS.md): `DaemonClient.Query` now lives in an N#
+// assembly, so its parameter reads back as `Dictionary<string!, object!>!`. The dictionaries sent
+// are byte-for-byte the same — every value written here is a non-null string.
+func QueryParameters(firstName: string, firstValue: string): Dictionary<string, object> {
+    parameters := new Dictionary<string, object>()
     parameters[firstName] = firstValue
     return parameters
 }
 
-func FilePositionParameters(relativePath: string, position: string): Dictionary<string, object?> {
-    parameters := new Dictionary<string, object?>()
+func FilePositionParameters(relativePath: string, position: string): Dictionary<string, object> {
+    parameters := new Dictionary<string, object>()
     parameters["file"] = relativePath
     parameters["pos"] = position
     return parameters
