@@ -2517,8 +2517,31 @@ class ColumnarDirectCallPlanner {
 
             lookupType := typeof(object)
             if scope == null || !scope.TryResolveExternalStaticOwnerType(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out lookupType) {
-                legacyWholeSubtreePlanning = true
+                // A DOTTED RECEIVER THE SCOPE CANNOT NAME AS A TYPE IS A VALUE, NOT A DEAD END.
+                // `Encoding.UTF8`, `Console.Out`, `CultureInfo.InvariantCulture` — a type name followed
+                // by a static PROPERTY read — is an ordinary instance receiver, and the value-receiver
+                // owner below already plans exactly that shape. Handing the whole subtree to the legacy
+                // emitter arm instead meant such a call could be a STATEMENT but never an ARGUMENT: a
+                // nested value is typed by PLANNING it, and there is no legacy arm inside a plan, so
+                // `Convert.ToHexString(Encoding.UTF8.GetBytes(root))` declined while the identical call
+                // bound to a local emitted.
+                //
+                // THE LEGACY HAND-OFF IS STILL THE ANSWER WHEN THE VALUE ROUTE DECLINES, and it is
+                // restored verbatim rather than replaced by whatever the value route reported: a chain
+                // this owner has never claimed must not start hard-declining shapes the legacy arm
+                // still emits.
                 plan.Rollback(checkpoint)
+                chainOwnership := ColumnarDirectCallOwnership.NotOwned
+                chainLegacy := false
+                if TryAppendValueReceiverMemberCall(nodes, source, callNode, receiverNode, memberName, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out chainOwnership, out chainLegacy, out resultType) {
+                    ownership = chainOwnership
+                    legacyWholeSubtreePlanning = chainLegacy
+                    return true
+                }
+
+                plan.Rollback(checkpoint)
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
                 return false
             }
 
@@ -2579,6 +2602,16 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
+        return TryAppendValueReceiverMemberCall(nodes, source, callNode, receiverNode, memberName, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
+    }
+
+    // THE RECEIVER-IS-A-VALUE HALF of a member call, reached both by an ordinary `value.Member(...)`
+    // and by a dotted chain whose head the scope could not name as a type (see the static arm above).
+    static func TryAppendValueReceiverMemberCall(nodes: ColumnarNodeTable, source: string, callNode: int, receiverNode: int, memberName: string, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+        ownership = ColumnarDirectCallOwnership.NotOwned
+        legacyWholeSubtreePlanning = false
+        resultType = typeof(int)
+        scope := nodes.BindingScope
         receiverType := typeof(int)
         receiverOwnership := ColumnarDirectCallOwnership.NotOwned
         // The RECEIVER surface stays the plain one: its append side (`AppendReceiver`) is the plain

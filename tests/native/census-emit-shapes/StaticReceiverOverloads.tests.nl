@@ -28,3 +28,15 @@ test "an argument containing a coalesce is typed, so the overload is still chose
 test "a collection expression at a tied external overload selects the candidate that accepts it" {
     assert StaticReceiverOverloads.DecodedFromLiteral() == "Hi"
 }
+
+test "a call through a static-member receiver is a value, so it can be an argument" {
+    // "Hi" is 0x48 0x69.
+    assert NestedStaticReceiverCalls.HexOfBytes("Hi") == "4869"
+    assert NestedStaticReceiverCalls.RoundTrip("banana") == "banana"
+    assert NestedStaticReceiverCalls.UpperRoundTrip("banana") == "BANANA"
+}
+
+test "a nested static-receiver call keeps its place among the arguments around it" {
+    assert NestedStaticReceiverCalls.TaggedLength("len=", "banana") == "len=6"
+    assert NestedStaticReceiverCalls.LengthOfOwnText() == 2
+}

@@ -61,3 +61,42 @@ class StaticReceiverOverloads {
         return haystack.IndexOf("na" + (suffix ?? ""), StringComparison.Ordinal)
     }
 }
+
+// THE SAME RECEIVER, ONE LEVEL IN: A CALL THROUGH A STATIC-MEMBER RECEIVER AS AN ARGUMENT.
+//
+// The planner read a dotted callee as `owner.member`, asked the scope to name `Encoding.UTF8` as a
+// TYPE, and — when it could not — handed the whole subtree to the emitter's own runtime-call tier.
+// That is a fine answer for a statement, and no answer at all for an ARGUMENT: a nested value is
+// typed by PLANNING it, and there is no emitter tier inside a plan. So
+// `Convert.ToHexString(Encoding.UTF8.GetBytes(root))` declined at
+// `emit.call.static-member-unmodeled` — naming the OUTER call, because the inner one could not be
+// typed — while the identical call bound to a local emitted. A dotted head the scope cannot name as
+// a type is a static property READ, which is an ordinary receiver value, so the planner now asks
+// its own value-receiver owner before the hand-off.
+class NestedStaticReceiverCalls {
+    static func HexOfBytes(text: string): string {
+        return Convert.ToHexString(Encoding.UTF8.GetBytes(text))
+    }
+
+    // Two levels of the same shape, and the inner one is itself an argument.
+    static func RoundTrip(text: string): string {
+        return Encoding.UTF8.GetString(Encoding.UTF8.GetBytes(text))
+    }
+
+    // The nested call feeds an argument that is not the first, so the receiver and the earlier
+    // argument must still be emitted in written order ahead of it.
+    static func TaggedLength(tag: string, text: string): string {
+        return string.Concat(tag, Encoding.UTF8.GetByteCount(text).ToString())
+    }
+
+    // A SOURCE static-member receiver, one level in — the same relation over a type this
+    // compilation declares rather than a referenced one.
+    static func LengthOfOwnText(): int {
+        return Convert.ToInt32(StaticReceiverOverloads.Text.IndexOf("na"))
+    }
+
+    // The nested call as the receiver of a further call, rather than as an argument.
+    static func UpperRoundTrip(text: string): string {
+        return Encoding.UTF8.GetString(Encoding.UTF8.GetBytes(text)).ToUpperInvariant()
+    }
+}
