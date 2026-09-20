@@ -820,3 +820,129 @@ test "the remaining query subcommands honour --text, and their failures speak pr
     assert referencesError.Stderr.Contains("No symbol found at Program.nl:1:1")
     assert !referencesError.Stderr.Contains("\"command\"")
 }
+
+// ═══ WHAT THE QUERY OWNER ITSELF BUILDS ═══════════════════════════════════════════════════════
+//
+// Four rows added when `QueryCommand` moved out of C# and into
+// `src/NSharpLang.Compiler/QueryCommand.nl`. Each pins something the C# expressed in a shape N#
+// cannot spell — an anonymous type, a `??=` over a captured local, a LINQ `OrderBy` with an
+// explicit comparer, an alignment specifier inside an interpolation hole — so each is a place the
+// translation could have drifted and nothing else would have noticed.
+
+// `nlc query perf` builds its facts as objects whose MEMBER NAMES the output kernel reads by
+// reflection. In C# those were anonymous types; they are written-out classes now, and a misspelled
+// member would silently drop its key rather than fail. `Hi` is a function in the hello-world
+// example, so its line carries a `systemsFunction` fact with every member below.
+test "nlc query perf emits a systemsFunction fact with all seven of its members under camelCase keys" {
+    hiLine := QcHelloWorldLineStartingWith("func Hi(")
+
+    run := Nlc("query perf --project " + QcQuoted(QcHelloWorld()) + " --file Program.nl --pos " + hiLine.ToString() + ":1")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+    assert root.GetProperty("ok").GetBoolean()
+
+    fact := ElementAt(root.GetProperty("facts"), 0)
+    assert TextOf(fact.GetProperty("source")) == "systemsFunction"
+    assert TextOf(fact.GetProperty("name")) == "Hi"
+    assert !fact.GetProperty("isHot").GetBoolean()
+    assert !fact.GetProperty("isBoundary").GetBoolean()
+    assert !fact.GetProperty("allocNone").GetBoolean()
+    assert TextOf(fact.GetProperty("summarySource")).Length > 0
+    assert QcHasMember(fact, "effects")
+    assert QcHasMember(fact, "calls")
+    document.Dispose()
+}
+
+// The same envelope on a line that carries NO fact: the list is present and empty rather than the
+// key being dropped, and the position still echoes what was asked for.
+test "nlc query perf on a line with no facts answers an empty list, not a missing one" {
+    run := Nlc("query perf --project " + QcQuoted(QcHelloWorld()) + " --file Program.nl --pos 1:1")
+
+    assert run.ExitCode == 0
+
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+    assert root.GetProperty("ok").GetBoolean()
+    assert QcElementCount(root.GetProperty("facts")) == 0
+    assert root.GetProperty("position").GetProperty("line").GetInt32() == 1
+    assert root.GetProperty("position").GetProperty("column").GetInt32() == 1
+    document.Dispose()
+}
+
+// `nlc query batch` took its snapshot through `() => snapshot ??= LoadProjectOrThrow(options)`, so
+// a batch of nothing but `doc` never loads a project — and `LoadProjectOrThrow` THROWS on a
+// directory that does not exist. Pointing `--project` at a missing directory is therefore the
+// sharpest available statement that the thunk was not called: if the cache ran eagerly, this row
+// would answer `invalidRequestsFile`/`executionFailed` instead of a documentation hit.
+test "a batch of only doc requests answers without ever loading the project" {
+    requestsPath := Path.Combine(NewTempDirectory("nlc-batch-doc"), "requests.json")
+    File.WriteAllText(requestsPath, "[{\"id\":\"a\",\"command\":\"doc\",\"query\":\"System.String\"}]")
+
+    run := Nlc("query batch --project " + QcQuoted(MissingDirectoryPath("nlc-not-a-project")) + " --requests " + QcQuoted(requestsPath))
+
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+    assert TextOf(root.GetProperty("command")) == "batch"
+    answer := ElementAt(root.GetProperty("results"), 0)
+    assert TextOf(answer.GetProperty("id")) == "a"
+    assert answer.GetProperty("ok").GetBoolean()
+    document.Dispose()
+}
+
+// `nlc query help` laid its table out with `$"  {command.Name,-13} {description}"`. N# has no
+// alignment specifier in an interpolation hole, so the owner pads instead; a padding that is off
+// by one would go unnoticed by every other row in this file.
+test "nlc query help pads every command name to a 13-column field" {
+    run := Nlc("query help")
+
+    assert run.ExitCode == 0
+
+    // `symbols` is 7 characters, so its description starts at column 2 + 13 + 1 = 16.
+    line := QcLineContaining(run.Stdout, "  symbols ")
+    assert line.StartsWith("  symbols       ", StringComparison.Ordinal)
+    assert !line.StartsWith("  symbols        ", StringComparison.Ordinal)
+
+    // `diagnostics` is 11 characters and must reach the same column.
+    diagnostics := QcLineContaining(run.Stdout, "  diagnostics ")
+    assert diagnostics.StartsWith("  diagnostics   ", StringComparison.Ordinal)
+    assert !diagnostics.StartsWith("  diagnostics    ", StringComparison.Ordinal)
+}
+
+func QcHasMember(element: JsonElement, memberName: string): bool {
+    enumerator := element.EnumerateObject()
+    while enumerator.MoveNext() {
+        if enumerator.Current.Name == memberName {
+            return true
+        }
+    }
+
+    return false
+}
+
+func QcElementCount(array: JsonElement): int {
+    enumerator := array.EnumerateArray()
+    count := 0
+    while enumerator.MoveNext() {
+        count = count + 1
+    }
+
+    return count
+}
+
+func QcLineContaining(text: string, needle: string): string {
+    lines := text.Split('\n')
+    index := 0
+    while index < lines.Length {
+        if lines[index].Contains(needle) {
+            return lines[index]
+        }
+
+        index = index + 1
+    }
+
+    throw new InvalidOperationException("No line of the output contains '" + needle + "'.")
+}

@@ -126,7 +126,7 @@ public static class WatchCommand
         try
         {
             Directory.SetCurrentDirectory(projectRoot);
-            return Program.Execute(new[] { watchedCommand }.Concat(forwardedArgs).ToArray());
+            return NSharpLang.Cli.Program.Execute(new[] { watchedCommand }.Concat(forwardedArgs).ToArray());
         }
         finally
         {
