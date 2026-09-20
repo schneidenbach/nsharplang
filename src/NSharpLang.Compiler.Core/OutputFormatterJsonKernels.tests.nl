@@ -601,6 +601,138 @@ test "the perf envelope root keys are exactly schemaVersion, command, ok, projec
     assert OfjkRootKeysValidated(json) == "schemaVersion,command,ok,projectRoot,file,position,facts"
 }
 
+// ---- A PERF FACT'S `file` KEY IS READ FROM A MEMBER NOT CALLED `file` -----------------------------
+//
+// `BuildPerfFact`'s non-systems branch reads its members BY NAME off whatever object the caller put
+// in the list, and it used to read one called `file`. `file` is a HARD KEYWORD in N# with no escape
+// (census-briefs/CLI2-COMPILER-BLOCKERS.md, entry 16), so that branch could only ever be fed by a
+// C# anonymous type — which is why `nlc query perf` was the last thing keeping `QueryCommand` in C#.
+// The member is now `filePath`. THE EMITTED KEY IS STILL `file`, and these rows are what says so:
+// the fixture below is an ordinary N# class, which is the proof the shape is now writable at all.
+class OfjkPerfFactFixture {
+    filePathValue: string
+    lineValue: int
+    columnValue: int
+
+    constructor(filePath: string, line: int, column: int) {
+        filePathValue = filePath
+        lineValue = line
+        columnValue = column
+    }
+
+    source: string {
+        get {
+            return "performanceFacts"
+        }
+    }
+
+    filePath: string {
+        get {
+            return filePathValue
+        }
+    }
+
+    line: int {
+        get {
+            return lineValue
+        }
+    }
+
+    column: int {
+        get {
+            return columnValue
+        }
+    }
+
+    allocation: string {
+        get {
+            return "Heap"
+        }
+    }
+
+    capture: string {
+        get {
+            return "None"
+        }
+    }
+
+    dispatch: string {
+        get {
+            return "Static"
+        }
+    }
+
+    escape: string {
+        get {
+            return "NoEscape"
+        }
+    }
+
+    valueLayout: string {
+        get {
+            return "Inline"
+        }
+    }
+
+    aotSafety: string {
+        get {
+            return "Safe"
+        }
+    }
+}
+
+// A carrier with no `filePath` at all, to state the other half: the key appears BECAUSE the member
+// is there, not because the branch always writes it.
+class OfjkPerfFactWithoutFile {
+    source: string {
+        get {
+            return "performanceFacts"
+        }
+    }
+
+    allocation: string {
+        get {
+            return "Heap"
+        }
+    }
+}
+
+func OfjkPerfFacts(): List<object> {
+    facts := new List<object>()
+    facts.Add(new OfjkPerfFactFixture("Services/TaskService.nl", 5, 12))
+    return facts
+}
+
+test "a perf fact carrier spells its path `filePath` and still lands under the json key `file`" {
+    json := OutputFormatterJsonKernels.PerfToJson("Program.nl", 5, 12, "/project", OfjkPerfFacts())
+
+    // The envelope's own `file` is the queried file; the FACT's `file` is the one under test.
+    assert OfjkKeyValues(json, "file") == "\"Program.nl\",\"Services/TaskService.nl\""
+    assert !OfjkKeyValues(json, "filePath").Contains("Services/TaskService.nl")
+}
+
+test "a perf fact carries source, position and all six performance verdicts under their own keys" {
+    json := OutputFormatterJsonKernels.PerfToJson("Program.nl", 5, 12, "/project", OfjkPerfFacts())
+
+    assert OfjkKeyValues(json, "source") == "\"performanceFacts\""
+    assert OfjkKeyValues(json, "allocation") == "\"Heap\""
+    assert OfjkKeyValues(json, "capture") == "\"None\""
+    assert OfjkKeyValues(json, "dispatch") == "\"Static\""
+    assert OfjkKeyValues(json, "escape") == "\"NoEscape\""
+    assert OfjkKeyValues(json, "valueLayout") == "\"Inline\""
+    assert OfjkKeyValues(json, "aotSafety") == "\"Safe\""
+}
+
+test "a perf fact with no filePath member emits no file key of its own" {
+    facts := new List<object>()
+    facts.Add(new OfjkPerfFactWithoutFile())
+    json := OutputFormatterJsonKernels.PerfToJson("Program.nl", 5, 12, "/project", facts)
+
+    // Only the envelope's own `file` remains.
+    assert OfjkKeyValues(json, "file") == "\"Program.nl\""
+    assert OfjkKeyValues(json, "allocation") == "\"Heap\""
+}
+
 // ---- INSPECT, FULL AND COMPACT -------------------------------------------------------------------
 
 test "the inspect envelope bundles the symbol, the reference counts and the completion receiver" {

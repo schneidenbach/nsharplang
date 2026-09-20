@@ -291,7 +291,12 @@ class OutputFormatterJsonKernels {
             return payload
         }
 
-        AddObjectProperty(payload, "file", fact, "file")
+        // The JSON KEY is `file` and stays `file`; the MEMBER it is read from is `filePath`.
+        // `file` is a hard keyword in N# with no escape, so no N# type can declare a member called
+        // `file` and this branch — written for a C# anonymous type — had no N# producer at all
+        // (census-briefs/CLI2-COMPILER-BLOCKERS.md, entry 16). Renaming the member is the whole of
+        // the change: the bytes this function emits do not move.
+        AddObjectProperty(payload, "file", fact, "filePath")
         AddObjectProperty(payload, "line", fact, "line")
         AddObjectProperty(payload, "column", fact, "column")
         AddObjectProperty(payload, "allocation", fact, "allocation")

@@ -239,7 +239,7 @@ public static class QueryCommand
                     facts.Add(new
                     {
                         source = "performanceFacts",
-                        file = NormalizePath(keyFile ?? file),
+                        filePath = NormalizePath(keyFile ?? file),
                         line = keyLine,
                         column = keyColumn,
                         allocation = value.Allocation.ToString(),
