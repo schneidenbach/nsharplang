@@ -136,3 +136,67 @@ test "the granted name is matched without regard to case" {
 
     assert errors.Count == 0, NotAFriendCodes(errors)
 }
+
+// ── THE SPELLING MUST NOT DECIDE THE RULE ─────────────────────────────────────────────────────
+//
+// The simple name of an internal type is NL201 for a project no reference befriends. The FULLY
+// QUALIFIED spelling of the very same type used to fall through the analyzer's deliberate leniency
+// for dotted names — a dotted miss can legitimately resolve through another channel — and then
+// BIND in the back end's `Assembly.GetType` lookup, which answers for internal types too. The
+// measured result was a successful `NotTests.dll` whose parameter signatures name
+// `NSharpLang.LanguageServer.Handlers.SemanticTokenLocation`: an assembly the CLR refuses at load,
+// produced by a compiler that reported nothing.
+//
+// A name this compilation is not ALLOWED to spell resolves through no channel, so the leniency
+// does not apply to it and the qualified spelling is refused exactly as the simple one is.
+func NotAFriendQualifiedSource(): string {
+    return "namespace Consumer\n\nfunc Take(location: NSharpLang.LanguageServer.Handlers.SemanticTokenLocation): int {\n    return location.Line\n}\n\nfunc Make(): int {\n    made := new NSharpLang.LanguageServer.Handlers.SemanticTokenLocation(4, 5, \"x\")\n    return made.Column\n}\n"
+}
+
+func NotAFriendCompileSource(assemblyName: string, source: string): IReadOnlyList<CompilerError> {
+    root := Path.Combine(Path.GetTempPath(), "nsharp-ivt-q-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(root)
+    File.WriteAllText(
+        Path.Combine(root, "project.yml"),
+        "name: " + assemblyName + "\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n\ndependencies:\n" + NotAFriendReferenceLines()
+    )
+    File.WriteAllText(Path.Combine(root, "Consumer.nl"), source)
+
+    config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
+    compiler := new MultiFileCompiler(root, config)
+    compiler.CompileForAnalysis()
+    return compiler.AllErrors
+}
+
+test "a fully qualified internal name is refused for a non-friend, in every type position" {
+    errors := NotAFriendCompileSource("NotAFriend", NotAFriendQualifiedSource())
+
+    // One report per written position — the annotation and the `new` — with the SAME code and the
+    // same sentence the simple spelling gets.
+    assert NotAFriendCount(errors, "NL201") == 2, NotAFriendCodes(errors)
+    assert NotAFriendCodes(errors).IndexOf("Type 'NSharpLang.LanguageServer.Handlers.SemanticTokenLocation' not found", StringComparison.Ordinal) >= 0, NotAFriendCodes(errors)
+}
+
+test "the same fully qualified name is accepted for the compilation the reference names" {
+    errors := NotAFriendCompileSource("Tests", NotAFriendQualifiedSource())
+
+    assert errors.Count == 0, NotAFriendCodes(errors)
+}
+
+// THE REFUSAL IS ABOUT THE GRANT, NOT ABOUT THE DOT. A qualified PUBLIC type of the very same
+// reference set still resolves for the very same non-friend project, so the leniency every other
+// dotted name relies on is untouched.
+test "a qualified PUBLIC type of the same references still resolves for a non-friend" {
+    errors := NotAFriendCompileSource("NotAFriend", "namespace Consumer\n\nfunc Take(location: NSharpLang.Compiler.Location): int {\n    return location.Line\n}\n")
+
+    assert NotAFriendCount(errors, "NL201") == 0, NotAFriendCodes(errors)
+}
+
+// AND A DOTTED NAME NOTHING DECLARES IS STILL LENIENT, which is the pre-existing behaviour this
+// change deliberately did not widen: the analyzer reports a dotted miss only when the metadata
+// really declares the name and the friend rule is the only reason it was rejected.
+test "a dotted name no reference declares at all keeps its pre-existing leniency" {
+    errors := NotAFriendCompileSource("NotAFriend", "namespace Consumer\n\nfunc Take(value: Totally.Made.Up.Name): int {\n    return 1\n}\n")
+
+    assert NotAFriendCount(errors, "NL201") == 0, NotAFriendCodes(errors)
+}

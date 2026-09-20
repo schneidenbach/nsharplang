@@ -122,6 +122,65 @@ class AnalyzerExternalTypeProbe {
         return false
     }
 
+    // WHY A FULLY-QUALIFIED SPELLING FAILED: because the type IS THERE and this compilation may not
+    // name it.
+    //
+    // `TryResolveFullName` answers a single yes/no, and a `no` reaches the resolver's fall-through
+    // where a DOTTED name is deliberately left unreported — namespace-qualified externals and
+    // `Union.Case` references legitimately resolve through other channels, so a dotted miss is not
+    // evidence of a typo. That leniency let `new <namespace>.<InternalType>()` compile and EMIT a
+    // reference the CLR refuses at load, while the very same type written as a SIMPLE name was
+    // NL201: one rule, two answers, decided by the spelling.
+    //
+    // This question closes exactly that hole and nothing wider. It says yes only when a referenced
+    // assembly really declares the name and the friend rule is the only reason it was rejected, so
+    // the resolver can report the SAME NL201 the simple spelling reports, for the same reason, and
+    // every other dotted miss keeps the leniency it had. The nested spelling is walked the way
+    // `ExternalQualifiedTypeResolver` walks it, because `A.B.C` may be `A.B+C` in metadata.
+    func DeclaresUnnameableFullName(fullName: string): bool {
+        if fullName == null || fullName.Length == 0 || !fullName.Contains(".") {
+            return false
+        }
+
+        candidate := fullName
+        searchEnd := candidate.Length
+        while searchEnd > 0 {
+            if DeclaredButUnnameable(candidate) {
+                return true
+            }
+
+            separator := candidate.LastIndexOf('.', searchEnd - 1)
+            if separator <= 0 {
+                return false
+            }
+
+            candidate = candidate.Substring(0, separator) + "+" + candidate.Substring(separator + 1)
+            searchEnd = separator
+        }
+
+        return false
+    }
+
+    private func DeclaredButUnnameable(fullName: string): bool {
+        assemblyIndex := 0
+        while assemblyIndex < assemblies.Count {
+            declared: Type? = null
+            try {
+                declared = assemblies[assemblyIndex].GetType(fullName)
+            } catch {
+                declared = null
+            }
+
+            if declared != null && !grants.IsNameableType(declared) {
+                return true
+            }
+
+            assemblyIndex = assemblyIndex + 1
+        }
+
+        return false
+    }
+
     // The ordered probe. A fresh ReflectionTypeInfo per call, exactly as the analyzer's own resolver
     // produced: callers compare these by TYPE identity, never by reference.
     func ResolveExternalType(name: string): TypeInfo? {

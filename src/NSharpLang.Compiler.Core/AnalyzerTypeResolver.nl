@@ -729,7 +729,16 @@ class AnalyzerTypeResolver {
         // IL emission. At declared-type positions (ResolveDeclaredType) report undotted names
         // as NL201; dotted names stay lenient for now because namespace-qualified externals
         // and `new Union.Case` references legitimately resolve through other channels.
-        if reportUnresolvedTypesValue && line > 0 && !writtenName.Contains(".") {
+        //
+        // A DOTTED NAME THE FRIEND RULE REFUSED IS NOT ONE OF THOSE. `SemanticTokenLocation` written
+        // as a simple name in a project no reference befriends is NL201; written as
+        // `NSharpLang.LanguageServer.Handlers.SemanticTokenLocation` it used to fall through here in
+        // silence and EMIT — a `NotTests.dll` whose signatures name an internal type the CLR refuses
+        // to load. The leniency exists for names that may resolve elsewhere, and a type this
+        // compilation is not allowed to name resolves nowhere: the probe says the metadata declares
+        // it and only the grant is missing, so the qualified spelling is refused exactly as the
+        // simple one is, with the same code and the same sentence.
+        if reportUnresolvedTypesValue && line > 0 && (!writtenName.Contains(".") || externalTypeProbeValue.DeclaresUnnameableFullName(lookupName)) {
             if MarkUnresolvedTypeReported(writtenName, line, column) {
                 diagnosticsValue.Report(ErrorCode.TypeNotFound, "Type '" + writtenName + "' not found", line, column, AnalyzerDiagnostics.UnresolvedTypeSuggestion(writtenName, scopesValue.AllTypeNamesInScope()), writtenName.Length)
             }
