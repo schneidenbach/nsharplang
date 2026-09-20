@@ -58,7 +58,7 @@ partial class Program
             24 => TreeCommand.Execute(GetCommandArgs(args)),
             25 => AuditCommand.Execute(GetCommandArgs(args)),
             26 => PackCommand.Execute(GetCommandArgs(args)),
-            _ => Error(ProgramCommandKernels.GetUnknownCommandMessage(
+            _ => CliError.Report(ProgramCommandKernels.GetUnknownCommandMessage(
                 args.Length == 0 ? string.Empty : args[0]))
         };
     }
@@ -94,7 +94,7 @@ partial class Program
                 var buildResult = RunBuildEmittingPerfReport(
                     buildOptions.PerfReport,
                     projectRoot,
-                    () => BuildWithIlBackend(
+                    () => CliIlBackend.BuildWithIlBackend(
                         projectRoot,
                         buildOptions.Release,
                         buildOptions.OutputDir,
@@ -108,7 +108,7 @@ partial class Program
             var sourceFile = args[buildOperands.FirstOperandIndex];
             if (!File.Exists(sourceFile))
             {
-                return Error(BuildCommandKernels.GetFileNotFoundMessage(sourceFile));
+                return CliError.Report(BuildCommandKernels.GetFileNotFoundMessage(sourceFile));
             }
 
             var sourceDir = BuildCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory());
@@ -117,7 +117,7 @@ partial class Program
             var singleFileResult = RunBuildEmittingPerfReport(
                 buildOptions.PerfReport,
                 sourceDir,
-                () => BuildSingleFileWithIlBackend(
+                () => CliIlBackend.BuildSingleFileWithIlBackend(
                     sourceFile,
                     sourceProjectConfig,
                     buildOptions.Release,
@@ -128,7 +128,7 @@ partial class Program
         }
         catch (Exception ex)
         {
-            return Error(BuildCommandKernels.GetFailedMessage(ex.Message));
+            return CliError.Report(BuildCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
@@ -179,30 +179,6 @@ partial class Program
         return result.ExitCode;
     }
 
-    static string CreateTempBuildDirectory()
-    {
-        var tempDir = BuildCommandKernels.GetTempBuildDirectory(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        return tempDir;
-    }
-
-    static void CleanupDirectory(string path)
-    {
-        if (!Directory.Exists(path))
-        {
-            return;
-        }
-
-        try
-        {
-            Directory.Delete(path, true);
-        }
-        catch
-        {
-            // Ignore cleanup errors for temp directories
-        }
-    }
-
     static int RunCommand(string[] args)
     {
         var helpOptions = RunCommandKernels.GetOptionSummary(args);
@@ -227,12 +203,12 @@ partial class Program
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
                 CompilationBackendSelectionKernels.Validate(backendOption, currentProjectConfig);
 
-                return RunWithIlBackend(projectRoot, cliDefines);
+                return CliIlBackend.RunWithIlBackend(projectRoot, cliDefines);
             }
 
             if (!File.Exists(sourceFile))
             {
-                return Error(RunCommandKernels.GetFileNotFoundMessage(sourceFile));
+                return CliError.Report(RunCommandKernels.GetFileNotFoundMessage(sourceFile));
             }
 
             Console.WriteLine(RunCommandKernels.GetSourceStartingMessage(sourceFile));
@@ -240,11 +216,11 @@ partial class Program
             var sourceDir = RunCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory());
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
             CompilationBackendSelectionKernels.Validate(backendOption, sourceProjectConfig);
-            return RunSingleFileWithIlBackend(sourceFile, sourceProjectConfig, cliDefines);
+            return CliIlBackend.RunSingleFileWithIlBackend(sourceFile, sourceProjectConfig, cliDefines);
         }
         catch (Exception ex)
         {
-            return Error(RunCommandKernels.GetFailedMessage(ex.Message));
+            return CliError.Report(RunCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
@@ -259,7 +235,7 @@ partial class Program
 
         if (publishArguments.ValidationError != null)
         {
-            return Error(publishArguments.ValidationError);
+            return CliError.Report(publishArguments.ValidationError);
         }
 
         var projectRoot = PublishCommandKernels.GetProjectRoot(publishArguments.ProjectOption, Directory.GetCurrentDirectory());
@@ -272,7 +248,7 @@ partial class Program
             var projectYmlPath = CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot);
             if (!File.Exists(projectYmlPath))
             {
-                return Error(PublishCommandKernels.GetMissingProjectFileMessage());
+                return CliError.Report(PublishCommandKernels.GetMissingProjectFileMessage());
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
@@ -283,7 +259,7 @@ partial class Program
             var runtime = publishArguments.Runtime;
             if (publishArguments.SelfContained)
             {
-                return Error(PublishCommandKernels.GetSelfContainedUnsupportedMessage());
+                return CliError.Report(PublishCommandKernels.GetSelfContainedUnsupportedMessage());
             }
 
             if (publishArguments.Aot)
@@ -296,13 +272,13 @@ partial class Program
                 var currentRuntime = RuntimeInformation.RuntimeIdentifier;
                 if (!PublishCommandKernels.RuntimeMatchesRequestedRuntime(runtime, currentRuntime))
                 {
-                    return Error(PublishCommandKernels.GetCrossRuntimeUnsupportedMessage(runtime, currentRuntime));
+                    return CliError.Report(PublishCommandKernels.GetCrossRuntimeUnsupportedMessage(runtime, currentRuntime));
                 }
             }
 
             var publishDir = PublishCommandKernels.GetPublishDirectory(projectRoot, configuration, config.TargetFramework, output);
 
-            var outputPath = BuildProjectWithIlBackendForCommand(
+            var outputPath = CliIlBackend.BuildProjectWithIlBackendForCommand(
                 projectRoot,
                 config,
                 configuration,
@@ -311,7 +287,7 @@ partial class Program
                 aotMode: publishArguments.Aot);
             if (outputPath == null)
             {
-                return Error(PublishCommandKernels.GetBuildFailureMessage(publishArguments.Aot));
+                return CliError.Report(PublishCommandKernels.GetBuildFailureMessage(publishArguments.Aot));
             }
 
             if (PublishCommandKernels.ShouldWriteRuntimeLauncher(runtime))
@@ -324,7 +300,7 @@ partial class Program
         }
         catch (Exception ex)
         {
-            return Error(PublishCommandKernels.GetExceptionFailureMessage(ex.Message));
+            return CliError.Report(PublishCommandKernels.GetExceptionFailureMessage(ex.Message));
         }
     }
 
@@ -369,7 +345,7 @@ partial class Program
             arguments.SecondPositional);
         if (projectName == null)
         {
-            return Error(NewCommandKernels.GetUsageMessage());
+            return CliError.Report(NewCommandKernels.GetUsageMessage());
         }
 
         var requestedTemplate = NewCommandKernels.GetEffectiveRequestedTemplate(
@@ -382,14 +358,14 @@ partial class Program
             NewCommandKernels.ResolveTemplateKind(requestedTemplate ?? "console", systemsFlag));
         if (template == null)
         {
-            return Error(NewCommandKernels.GetInvalidTemplateMessage());
+            return CliError.Report(NewCommandKernels.GetInvalidTemplateMessage());
         }
 
         var projectDir = NewCommandKernels.GetProjectDirectory(Directory.GetCurrentDirectory(), projectName);
 
         if (Directory.Exists(projectDir))
         {
-            return Error(NewCommandKernels.GetDirectoryExistsMessage(projectDir));
+            return CliError.Report(NewCommandKernels.GetDirectoryExistsMessage(projectDir));
         }
 
         try
@@ -431,7 +407,7 @@ partial class Program
         }
         catch (Exception ex)
         {
-            return Error(NewCommandKernels.GetFailedMessage(ex.Message));
+            return CliError.Report(NewCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
@@ -491,7 +467,7 @@ partial class Program
                     return 1;
                 }
 
-                return Error(message);
+                return CliError.Report(message);
             }
         }
 
@@ -509,7 +485,7 @@ partial class Program
                     return 1;
                 }
 
-                return Error(message);
+                return CliError.Report(message);
             }
 
             // Find all .tests.nl files
@@ -548,7 +524,7 @@ partial class Program
             if (outputMode == 2)
                 Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)));
             if (outputMode == 1) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, ex.Message); return 1; }
-            return Error(TestCommandKernels.GetFailedMessage(ex.Message));
+            return CliError.Report(TestCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
@@ -677,7 +653,7 @@ partial class Program
         }
         catch (Exception ex)
         {
-            return Error(FormatCommandKernels.GetFailedMessage(ex.Message));
+            return CliError.Report(FormatCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
@@ -778,9 +754,4 @@ partial class Program
             ?? "unknown";
     }
 
-    static int Error(string message)
-    {
-        Console.Error.WriteLine(ProgramCommandKernels.GetErrorLine(message));
-        return 1;
-    }
 }

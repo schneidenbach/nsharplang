@@ -53,7 +53,7 @@ partial class Program
                 return TestCommandKernels.GetExitCode(false);
             }
 
-            return Error(message);
+            return CliError.Report(message);
         }
 
         if (collectCoverage || coverageReport)
@@ -65,7 +65,7 @@ partial class Program
                 return TestCommandKernels.GetExitCode(false);
             }
 
-            return Error(message);
+            return CliError.Report(message);
         }
 
         projectConfig ??= ProjectFileParser.Parse(projectYmlPath);
@@ -77,7 +77,7 @@ partial class Program
 
         try
         {
-            var outputPath = BuildProjectWithIlBackendForCommand(
+            var outputPath = CliIlBackend.BuildProjectWithIlBackendForCommand(
                 projectRoot,
                 projectConfig,
                 TestCommandKernels.GetTestBuildConfiguration(),
@@ -94,7 +94,7 @@ partial class Program
                     return TestCommandKernels.GetExitCode(false);
                 }
 
-                return Error(message);
+                return CliError.Report(message);
             }
 
             var stdout = Console.Out; // JSON mode: the document is alone on stdout, a test's own writes go to stderr
@@ -129,7 +129,7 @@ partial class Program
                 return TestCommandKernels.GetExitCode(false);
             }
 
-            return Error(TestCommandKernels.GetFailedMessage(ex.Message));
+            return CliError.Report(TestCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 

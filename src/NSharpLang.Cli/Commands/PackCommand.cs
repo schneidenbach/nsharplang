@@ -78,7 +78,7 @@ public static class PackCommand
             }
 
             var buildOutputDir = PackCommandKernels.GetBuildOutputDirectory(projectRoot, configuration, config.TargetFramework);
-            var assemblyPath = Program.BuildProjectWithIlBackendForCommand(
+            var assemblyPath = CliIlBackend.BuildProjectWithIlBackendForCommand(
                 projectRoot,
                 config,
                 configuration,
