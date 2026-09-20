@@ -1072,6 +1072,7 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler/CheckCommand.nl`, `FixCommand.nl`, `LintCommand.nl`, `DocCommand.nl` | `nlc check` / `fix` / `lint` / `doc` (N#-owned) |
 | `src/NSharpLang.Cli/Commands/QueryCommand.cs` | All `nlc query` subcommands |
 | `src/NSharpLang.Cli/Commands/DaemonCommand.cs` | `nlc daemon` commands |
+| `src/NSharpLang.Compiler/DaemonProtocol.nl` | The JSON-RPC 2.0 wire types and the constants reader `DaemonConstants` (N#-owned) |
 | `src/NSharpLang.Cli/Daemon/DaemonServer.cs` | Background daemon (Unix socket) |
 | `src/NSharpLang.Cli/Daemon/DaemonClient.cs` | Daemon client for QueryCommand |
 | `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` | Shared analysis engine |
@@ -1148,9 +1149,13 @@ Protocol: JSON-RPC 2.0 over Unix socket
 
 Every request and response is one JSON-RPC 2.0 message, sent and then half-closed. The envelope's own
 member names — `jsonrpc`, `id`, `method`, `params`, `result`, `error`, `code`, `message`, `data` — are
-the specification's, and they live on `[JsonPropertyName]` attributes in
-`src/NSharpLang.Cli/Daemon/DaemonProtocol.cs` because a C# attribute argument must be a compile-time
-constant. **Everything the specification does not fix is owned by
+the specification's, and they live on `[JsonPropertyName]` attributes in the N#-owned
+`src/NSharpLang.Compiler/DaemonProtocol.nl`. (That file used to be C#, on the reasoning that an
+attribute argument must be a compile-time constant and so could not be produced by a kernel call.
+The constraint is real; the conclusion was not. N# takes `[JsonPropertyName("jsonrpc")]` on a
+property, emits it, and `System.Text.Json` honours it in both directions — so the wire types are
+N# and the fixed names are still written exactly once each.) **Everything the specification does not
+fix is owned by
 `src/NSharpLang.Compiler.Core/DaemonProtocolKernels.nl` and pinned block by block in
 `DaemonServerAndClientKernels.tests.nl`:**
 
