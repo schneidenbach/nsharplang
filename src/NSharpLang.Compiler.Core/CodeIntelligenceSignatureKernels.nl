@@ -172,6 +172,55 @@ class CodeIntelligenceSignatureKernels {
         return "member"
     }
 
+    // THE DECLARED LEVEL OF A REFLECTED MEMBER, IN THE WORD THE LANGUAGE USES FOR IT — and nothing
+    // at all for the ordinary public case, so the editor decorates only the members whose presence
+    // needs explaining. `MemberAccessibility` owns both the level and the word, which is why a
+    // granted `internal` member is labelled with the same term the refusal for a non-friend quotes.
+    //
+    // A PROPERTY HAS NO LEVEL OF ITS OWN in CLR metadata; its accessors carry it, and the widest of
+    // the two is the property's effective level — the same reading `MemberAccessibility` applies
+    // everywhere else a property is asked about.
+    static func GetReflectedMemberAccessibility(handle: ReflectedMemberHandle): string? {
+        level := MemberAccessibility.Public
+
+        field := handle.Field
+        property := handle.Property
+        method := handle.Method
+        if field != null {
+            level = MemberAccessibility.LevelOfField(field)
+        } else if property != null {
+            level = ReflectedPropertyAccessibilityLevel(property)
+        } else if method != null {
+            level = MemberAccessibility.LevelOfMethod(method)
+        } else {
+            return null
+        }
+
+        if level == MemberAccessibility.Public {
+            return null
+        }
+
+        return MemberAccessibility.LevelWord(level)
+    }
+
+    static func ReflectedPropertyAccessibilityLevel(property: PropertyInfo): int {
+        level := MemberAccessibility.Private
+        getter := property.GetGetMethod(true)
+        if getter != null {
+            level = MemberAccessibility.LevelOfMethod(getter)
+        }
+
+        setter := property.GetSetMethod(true)
+        if setter != null {
+            setterLevel := MemberAccessibility.LevelOfMethod(setter)
+            if getter == null || setterLevel > level {
+                level = setterLevel
+            }
+        }
+
+        return level
+    }
+
     static func GetReflectedMemberSignatureText(handle: ReflectedMemberHandle): string? {
         typeOverride := handle.TypeOverride
         try {

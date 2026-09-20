@@ -221,6 +221,11 @@ class OutputFormatterTextBuilders {
         builder.AppendLine(OutputFormatterTextKernels.GetHoverSignatureLineText(result.Signature))
         builder.AppendLine(OutputFormatterTextKernels.GetHoverKindLineText(result.Kind))
 
+        accessibility := result.Accessibility
+        if accessibility != null {
+            builder.AppendLine(OutputFormatterTextKernels.GetHoverAccessibilityLineText(accessibility ?? ""))
+        }
+
         declaringType := result.DeclaringType
         if declaringType != null {
             builder.AppendLine(OutputFormatterTextKernels.GetHoverDeclaringTypeLineText(declaringType ?? ""))

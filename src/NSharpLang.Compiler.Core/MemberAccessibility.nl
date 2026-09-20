@@ -163,9 +163,10 @@ class MemberAccessibility {
     //   declaring type itself counts, so a caller never has to pass both).
     // `receiverIsAccessingTypeOrDerived` — the receiver's static type is the accessing type or a
     //   type derived from it, which is the second half of the `protected` rule.
-    // `sameAssembly` — the member is declared in the assembly being compiled. Source members always
-    //   are; a member read off a referenced assembly never is, because N# models no
-    //   `InternalsVisibleTo` and a friend claim it cannot see is one it must not act on.
+    // `sameAssembly` — the member is declared in the assembly being compiled, OR in one that made
+    //   this compilation a friend. Source members always are; a member read off a referenced
+    //   assembly counts exactly when `InternalsVisibleToGrants` says that assembly named this one
+    //   in an `InternalsVisibleTo`, which is the CLR's own rule and the one it re-checks at load.
     static func IsAccessible(level: int, isDeclaringType: bool, derivesFromDeclaringType: bool, receiverIsAccessingTypeOrDerived: bool, sameAssembly: bool): bool {
         if level == Public {
             return true

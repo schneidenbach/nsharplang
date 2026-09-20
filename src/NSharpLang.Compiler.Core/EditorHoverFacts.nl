@@ -64,6 +64,15 @@ class EditorHoverFacts {
             builder.AppendLine(documentation ?? "")
         }
 
+        // WHY IT RESOLVED, when that is not obvious. A member the friend grant admitted is the one
+        // case a reader cannot infer from the signature, and it is read in the editor far more
+        // often than through the CLI, so the markdown says it too.
+        accessibility := result.Accessibility
+        if accessibility != null && !String.IsNullOrWhiteSpace(accessibility ?? "") {
+            builder.AppendLine()
+            builder.AppendLine("*Accessibility:* `" + (accessibility ?? "") + "`")
+        }
+
         // A metadata member has no file, so this line is the whole of "where is this from" for it.
         declaringType := result.DeclaringType
         if declaringType != null && !String.IsNullOrWhiteSpace(declaringType ?? "") {

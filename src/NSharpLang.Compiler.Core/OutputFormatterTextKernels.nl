@@ -174,6 +174,13 @@ class OutputFormatterTextKernels {
         return "Declaring:  " + declaringType
     }
 
+    // The same twelve-character label width as the lines around it. Written only for a member whose
+    // declared level is not `public` — the friend-granted `internal` member is the reason the line
+    // exists, and a public member has nothing to explain.
+    static func GetHoverAccessibilityLineText(accessibility: string): string {
+        return "Access:     " + accessibility
+    }
+
     static func GetHoverDocumentationHeaderText(): string {
         return "Documentation:"
     }

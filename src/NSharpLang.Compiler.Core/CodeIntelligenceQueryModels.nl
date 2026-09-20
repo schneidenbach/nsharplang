@@ -115,6 +115,7 @@ class HoverResult {
     definedInValue: string?
     kindValue: string
     declaringTypeValue: string?
+    accessibilityValue: string?
 
     Signature: string => signatureValue
     Documentation: string? => documentationValue
@@ -127,11 +128,27 @@ class HoverResult {
     // because every existing caller is answering about source, where there is nothing to say.
     DeclaringType: string? => declaringTypeValue
 
-    constructor(Signature: string, Documentation: string?, DefinedIn: string?, Kind: string, DeclaringType: string? = null) {
+    // WHY THIS NAME RESOLVED AT ALL, when the reason is not "it is public".
+    //
+    // Reaching an `internal` member of a referenced assembly is legal exactly when that assembly
+    // named this compilation in an `InternalsVisibleTo`, and the editor used to say nothing about
+    // it: the member hovered as an ordinary `method`, identical to a public one. A reader who then
+    // moved the call into a project the reference does NOT befriend met NL301 with no hint of what
+    // had changed, and a reader looking at the granted call had no way to know the friend grant was
+    // load-bearing.
+    //
+    // So a member whose DECLARED level is not `public` carries that level's own word — `internal`,
+    // `protected`, `protected internal` — beside its kind. It is a separate field rather than a
+    // decoration on `Kind` because `kind` is a stable schema value the editor switches on, and an
+    // absent field means the ordinary public case, so nothing that reads the envelope today changes.
+    Accessibility: string? => accessibilityValue
+
+    constructor(Signature: string, Documentation: string?, DefinedIn: string?, Kind: string, DeclaringType: string? = null, Accessibility: string? = null) {
         signatureValue = Signature
         documentationValue = Documentation
         definedInValue = DefinedIn
         kindValue = Kind
         declaringTypeValue = DeclaringType
+        accessibilityValue = Accessibility
     }
 }

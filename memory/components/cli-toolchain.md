@@ -402,7 +402,9 @@ project's `InternalsVisibleToGrants` (the ONE owner of the grant) out of the ana
 reflected-member walk asks it alongside `MemberAccessibility.IsAccessible` (the ONE owner of the
 relation): a friend reaches `internal` and `protected internal`, never `private`, and `private
 protected` still needs the derived-type half as well. A project the reference does not name sees the
-public surface only.
+public surface only. Hovering one of those offered members names the level as well — see
+`accessibility` under [`nlc query hover`](#nlc-query-hover--signature-and-docs-at-a-position) — so
+the editor both offers the member and says why it is reachable.
 
 **Visibility is package-scoped, and the list obeys it.** N# spells visibility the way Go does — PascalCase (or a written `public`) exports, camelCase does not — and an unexported member stays readable from any file in the *same* namespace. A member access completion therefore offers an unexported member only when the caret shares the declaring package; asking from another package drops it, because the analyzer answers `NL308` on that read. When the declaring package cannot be established (no project behind the buffer, a receiver that is not source-declared, two files declaring the same simple name in different namespaces with nothing to tell them apart) the list fails open and offers everything, since a hidden legal member is a defect the developer cannot see past while an offered illegal one is explained by the very next diagnostic.
 
@@ -569,6 +571,17 @@ A member that comes from METADATA rather than from the project — `summary.ToUp
 ```
 
 `declaringType` is an optional addition at `schemaVersion` 1: it is present only for metadata members, and `definedIn` remains a file path for project-declared symbols. One overload is rendered and the rest are counted. The language server shows the same two facts as `*Declaring Type:*` and `*Defined in:*`, because both surfaces are answered by the same owner.
+
+**`accessibility` says WHY a name resolves, when that is not "it is public".** A metadata member whose DECLARED level is not `public` carries that level's own word — `internal`, `protected`, `protected internal` — beside its kind, and a public one carries no key at all. The case this exists for is the friend grant: reaching `WorkspaceSymbolHandler.MatchesQuery` is legal only because `LanguageServer.dll` names this project in an `InternalsVisibleTo`, and hover used to render it identically to a public member, so the one fact the reader needed was the one the editor never said. The word comes from `MemberAccessibility.LevelWord` — the same owner whose word a refusal quotes — so the editor and the diagnostic cannot disagree. Like `declaringType` this is an optional addition at `schemaVersion` 1 (`kind` is unchanged, because editors switch on it), and the language server renders it as `*Accessibility:*` while `--text` prints `Access:`.
+
+```json
+  "result": {
+    "signature": "method MatchesQuery: bool MatchesQuery(string name, string query)",
+    "declaringType": "NSharpLang.LanguageServer.Handlers.WorkspaceSymbolHandler",
+    "accessibility": "internal",
+    "kind": "method"
+  }
+```
 
 A metadata member also carries `documentation`: the first sentence of its .NET XML summary, read from the reference packs — the same source `nlc query doc` uses. This is the key the envelope already had (a project symbol's `documentation` is its doc comment), so nothing about the schema moves; what changed is that a metadata member now has something to put in it. The language server renders it under the signature, as it always has for source symbols.
 

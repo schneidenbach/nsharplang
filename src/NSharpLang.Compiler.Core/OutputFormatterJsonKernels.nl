@@ -204,6 +204,14 @@ class OutputFormatterJsonKernels {
             payload["definedIn"] = OutputFormatterNormalizationKernels.NormalizePath(result.DefinedIn) ?? ""
         }
 
+        // Present only for a member whose declared level is not `public` — an `internal` member of
+        // a reference that made this project a friend is the case this key exists for. An ordinary
+        // public member writes no key at all, so the envelope is unchanged for every reader that
+        // was already parsing it.
+        if result.Accessibility != null {
+            payload["accessibility"] = result.Accessibility ?? ""
+        }
+
         payload["kind"] = result.Kind
         return payload
     }

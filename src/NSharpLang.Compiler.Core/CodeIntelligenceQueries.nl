@@ -233,7 +233,7 @@ class CodeIntelligenceQueries {
             return null
         }
 
-        return new HoverResult(line ?? "", CodeIntelligenceMemberDocs.SummaryForReflectedMember(snapshot.Documentation(), handle), null, CodeIntelligenceSignatureKernels.GetReflectedMemberKind(handle), handle.DeclaringType)
+        return new HoverResult(line ?? "", CodeIntelligenceMemberDocs.SummaryForReflectedMember(snapshot.Documentation(), handle), null, CodeIntelligenceSignatureKernels.GetReflectedMemberKind(handle), handle.DeclaringType, CodeIntelligenceSignatureKernels.GetReflectedMemberAccessibility(handle))
     }
 
     // ── Call graph and implementors ─────────────────────────────────────

@@ -4958,29 +4958,70 @@ What each reader changed:
   the shapes that broke (a tuple over a source type, a qualified name, a named tuple) say the
   perturbation is not about internals at all. The filter was reverted whole; see STILL OPEN.
 
-STILL OPEN, and none of it this rule's to close alone:
+### IVT2: the grants a project WRITES, the qualified spelling, and what the editor says (2026-09-19)
 
-* `AnalyzerTypeResolver` deliberately does not report an unresolved DOTTED type name (it returns an
-  `ExternalTypeInfo` placeholder and says so), so `new System.TokenType()` and
-  `new <granting-namespace>.<InternalType>()` written with a FULLY QUALIFIED spelling still compile
-  and EMIT for a project no reference befriended. The emitted reference is one the CLR refuses at
-  load. Closing it means either making dotted names non-lenient in the analyzer or finding the one
-  back-end lookup that can carry the filter without the collateral above; the six-project failure
-  is the evidence that the obvious place is not it. `typeof(<unresolved name>)` reports nothing at
-  all, for the same leniency.
-* Member-level COMPLETION (`CompletionReflectionFacts`) still offers only the public surface of a
-  granting reference. That is a missing ADDITION, not an unsound answer, and wiring it means
-  threading the grants through `CompletionReceiverFacts` and the completion engine.
-* N# cannot WRITE an `InternalsVisibleTo`: `AssemblyBuilder.SetCustomAttribute(ConstructorInfo,
-  byte[])` is not on the PINNED stage-0 emit surface (measured: `emit.call.instance-member-unmodeled`
-  when Compiler.Core spells it), so `project.yml` has no `internalsVisibleTo:` key yet and an N#
-  library cannot make another assembly its friend. It becomes possible the moment the bootstrap seed
-  is republished from a tip that models that call.
+Three of the four items above are closed; the fourth (member-level completion) was closed at the
+merge by `8f22c251c`.
 
-Contracts: `InternalsVisibleToGrants.tests.nl` (the rule, and the scope's open/closed answers) and
-`tests/native/census-internals-visible-to` (the end of it, RUN: the project is named `Tests`, which
-`LanguageServer.csproj` and `Cli.csproj` both declare as a friend, and `NotAFriend.tests.nl`
-compiles the same source under five names through `MultiFileCompiler`).
+**`project.yml` `internalsVisibleTo:` emits the attribute.** Each entry becomes an
+`[assembly: InternalsVisibleTo("…")]` row on the produced assembly, written by
+`ColumnarInternalsVisibleToEmitter` where the `PersistedAssemblyBuilder` is created — an
+assembly-level attribute belongs to the assembly table and waits for no target, so it is not queued
+with the source attributes. The stage-0 wall is gone: the republished seed compiles
+`PersistedAssemblyBuilder.SetCustomAttribute(ConstructorInfo, byte[])` from Core's own source.
+
+The declared grants travel to the back end **through `InternalsVisibleToEmissionScope`**, not
+through `TryEmitColumnarAssembly`'s parameter list. That is not only tidiness: adding a defaulted
+eighth parameter to that entry point made the SEED decline the six estate call sites that pass
+seven arguments (`emit.statement.block-child`, node kind 61) and took `columnar-emit-facts` from
+206 to 183. The scope already carries the identity of the assembly being emitted — its NAME decides
+which references befriend it — and its own friend declarations are the other half of that identity,
+opened and closed by the same owner (`MultiFileCompiler.RunColumnarEmissionOnCurrentThread`). A
+planner test that emits with no scope open declares no grants and gets no attribute.
+
+**What a grant EXPOSES out of an N# assembly, measured by reflection on an emitted dll:** N# emits
+every TYPE as CLR `public` (casing decides PACKAGE export, which the CLR knows nothing about) and
+every FIELD as `public`; a camelCase — unexported — FUNCTION or METHOD is emitted as CLR `assembly`.
+So the grant admits exactly the unexported functions and methods, and nothing else. The package rule
+itself is not lifted by a grant: it is the compiler's, enforced in every assembly, so a consumer in
+another namespace still cannot name an unexported FREE function of a referenced N# assembly at all
+(free functions of a reference are unreachable regardless of casing — a separate gap, not this
+rule's). `website/docs/types.md` carries the table for readers.
+
+**The qualified spelling is refused where the simple one is, and the back end was left alone.** The
+fix is in the ANALYZER, not in `ExternalAssemblyScan` — the six-project collateral above stands as
+the evidence against the back-end filter. `AnalyzerExternalTypeProbe.DeclaresUnnameableFullName`
+answers ONE narrow question: does a referenced assembly really declare this exact full name (walking
+the `A.B.C` → `A.B+C` nested spellings) and is the friend rule the only reason it was rejected?
+`AnalyzerTypeResolver`'s fall-through reports NL201 for a dotted name when that is true, and keeps
+the pre-existing leniency for every other dotted miss — a name that resolves through no channel
+because this compilation is not ALLOWED to spell it is not a name that might resolve elsewhere.
+Measured before: a project named `NotTests` compiled
+`new NSharpLang.LanguageServer.Handlers.SemanticTokenLocation(4, 5, "x")` and a parameter of that
+type into a successful `NotTests.dll` the CLR refuses at load, with no diagnostic; `System.TokenType`
+did the same. After: NL201 per written position, the same code and sentence the simple name gets,
+while the same source under the granted name `Tests` still compiles, and a qualified PUBLIC type of
+the same references is untouched.
+
+**The editor says why a name resolves.** `HoverResult.Accessibility` carries the DECLARED level's
+word (`internal`, `protected`, `protected internal`) for a metadata member, and nothing for a public
+one; `CodeIntelligenceSignatureKernels.GetReflectedMemberAccessibility` reads it through
+`MemberAccessibility` (a property's effective level is the wider of its accessors), so the editor's
+word and a refusal's word are the same word. It is a separate optional key rather than a decoration
+on `kind`, which editors switch on, so `schemaVersion` stays 1. Three surfaces move together:
+`accessibility` in the JSON envelope, `Access:` in `--text`, `*Accessibility:*` in the language
+server's markdown.
+
+Contracts: `InternalsVisibleToGrants.tests.nl` (the rule, and the scope's open/closed answers, and
+the grants the scope carries), `ColumnarInternalsVisibleToEmitter.tests.nl` (which spellings become
+rows, the attribute, the pinned blob), `ProjectFileParser.tests.nl` (the key and its refusal) and
+`tests/native/census-internals-visible-to` 27/27 (the end of it, RUN: the project is named `Tests`,
+which `LanguageServer.csproj` and `Cli.csproj` both declare as a friend; `NotAFriend.tests.nl`
+compiles the same source under five names and both spellings through `MultiFileCompiler`;
+`SourceGrants.tests.nl` builds an N# library with `internalsVisibleTo:`, reads its metadata back,
+compiles a named consumer and a stranger against it, and LOADS the consumer so the CLR performs its
+own friend check; `GrantedEditorVisibility.tests.nl` hovers the granted member through
+`CodeIntelligenceService`).
 
 ## A static member receiver is an ordinary call, and `typeof(void)` (census 2026-09-14, EMIT5)
 
