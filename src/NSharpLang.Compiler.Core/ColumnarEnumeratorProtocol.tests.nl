@@ -204,9 +204,10 @@ test "IEnumerator admits the already-owned closed KeyValuePair shell with a sour
         new Type[](0),
         false
     )
-    wrongKeySequenceArguments := new Type[](1)
-    wrongKeySequenceArguments[0] = typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(wrongKeyArguments)
-    wrongKeySequence := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(wrongKeySequenceArguments)
+    wrongKeySequence := EnumeratorProtocolClosed1(
+        "System.Collections.Generic.IEnumerable`1",
+        EnumeratorProtocolRequiredType("System.Collections.Generic.KeyValuePair`2").MakeGenericType(wrongKeyArguments)
+    )
     assert wrongKeyAcquisition.IsSelected
     assert wrongKeyAcquisition.LookupType == wrongKeyDictionary
     assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(wrongKeyAcquisition.DeclaringType, wrongKeySequence)
