@@ -173,10 +173,10 @@ test "the analyzer pre-loads exactly the table the columnar scan pre-loads — o
     assert JoinNames(AnalyzerMetadataLoadPolicy.CommonAssemblyNames()) == JoinNames(ExternalAssemblyScan.CommonAssemblyNames())
 }
 
-test "the table is the 32 names the drift is measured against, and it still opens with the core assembly" {
+test "the table is the 33 names the drift is measured against, and it still opens with the core assembly" {
     names := AnalyzerMetadataLoadPolicy.CommonAssemblyNames()
 
-    assert names.Length == 32
+    assert names.Length == 33
     assert names[0] == AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName()
     assert names[0] == "System.Runtime"
 
@@ -286,6 +286,29 @@ test "the persisted assembly builder's own assembly is in the table, and the typ
     assert Type.GetType("System.Reflection.Emit.PersistedAssemblyBuilder") == null
     assert Type.GetType("System.Reflection.Emit.AssemblyBuilder") != null
     assert Type.GetType("System.Reflection.Emit.PersistedAssemblyBuilder, System.Reflection.Emit") != null
+}
+
+// THE PIPE, which is the one framework assembly a long-running stdio server needs and no other
+// entry supplies. `import System.IO.Pipelines` reported NL704 "namespace not found" because nothing
+// in the loaded set declared it, and a fully-qualified `new System.IO.Pipelines.Pipe()` then passed
+// `check` and declined at emit.
+test "the pipelines assembly is in the table, and CoreLib does not answer for its types" {
+    names := AnalyzerMetadataLoadPolicy.CommonAssemblyNames()
+
+    pipelines := false
+    index := 0
+    while index < names.Length {
+        if names[index] == "System.IO.Pipelines" {
+            pipelines = true
+        }
+
+        index = index + 1
+    }
+
+    assert pipelines
+
+    assert Type.GetType("System.IO.Pipelines.Pipe") == null
+    assert Type.GetType("System.IO.Pipelines.Pipe, System.IO.Pipelines") != null
 }
 
 // ── THE ASP.NET TABLE AND WHAT SELECTS IT ────────────────────────────────────────────────────────

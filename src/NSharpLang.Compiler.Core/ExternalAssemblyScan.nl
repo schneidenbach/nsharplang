@@ -1234,7 +1234,7 @@ class ExternalAssemblyScan {
     }
 
     static func CommonAssemblyNames(): string[] {
-        names := new string[](32)
+        names := new string[](33)
         names[0] = "System.Runtime"
         names[1] = "System.Console"
         names[2] = "System.Collections"
@@ -1300,6 +1300,14 @@ class ExternalAssemblyScan {
         // System.Reflection.Emit` that supplies it was then reported NL010 as unused. Neither could
         // be worked around by fully qualifying the name.
         names[31] = "System.Reflection.Emit"
+        // THE PIPE. `System.IO.Pipelines` ships in Microsoft.NETCore.App and declares `Pipe`,
+        // `PipeReader`, `PipeWriter`, `PipeOptions`, `PipeScheduler`, `ReadResult` and
+        // `FlushResult` — the stdin pump a long-running stdio server needs so that EOF on its input
+        // terminates it, which is the language server's "must not outlive its client" behaviour.
+        // Nothing else declares the namespace, so without this entry `import System.IO.Pipelines`
+        // was NL704 and a fully-qualified `new System.IO.Pipelines.Pipe()` passed `check` and then
+        // declined at emit with no name the scan could resolve.
+        names[32] = "System.IO.Pipelines"
         return names
     }
 }
