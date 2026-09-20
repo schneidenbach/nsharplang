@@ -77,8 +77,14 @@ test "the call hierarchy finds a function by its name and its declaration line t
     method := EchFunction("Helper", EchBlock([], 30), 30, 5)
     unit := EchUnit([EchDeclaration(outer), EchClass("Box", [EchDeclaration(method)], 20)])
 
-    assert EditorCallHierarchyFacts.FunctionAtLine(unit, "Helper", 10).Column == 1
-    assert EditorCallHierarchyFacts.FunctionAtLine(unit, "Helper", 30).Column == 5
+    topLevel := EditorCallHierarchyFacts.FunctionAtLine(unit, "Helper", 10)
+    assert topLevel != null
+    assert topLevel.Column == 1
+
+    nested := EditorCallHierarchyFacts.FunctionAtLine(unit, "Helper", 30)
+    assert nested != null
+    assert nested.Column == 5
+
     assert EditorCallHierarchyFacts.FunctionAtLine(unit, "Helper", 11) == null
     assert EditorCallHierarchyFacts.FunctionAtLine(unit, "Missing", 10) == null
     assert EditorCallHierarchyFacts.FunctionAtLine(null, "Helper", 10) == null
@@ -102,8 +108,14 @@ test "the call hierarchy finds the function a line falls inside" {
     second := EchFunction("Second", EchBlock([EchCallStatement("y", 21, 5)], 20), 20, 1)
     unit := EchUnit([EchDeclaration(first), EchDeclaration(second)])
 
-    assert EditorCallHierarchyFacts.EnclosingFunction(unit, 11).Name == "First"
-    assert EditorCallHierarchyFacts.EnclosingFunction(unit, 21).Name == "Second"
+    inFirst := EditorCallHierarchyFacts.EnclosingFunction(unit, 11)
+    assert inFirst != null
+    assert inFirst.Name == "First"
+
+    inSecond := EditorCallHierarchyFacts.EnclosingFunction(unit, 21)
+    assert inSecond != null
+    assert inSecond.Name == "Second"
+
     assert EditorCallHierarchyFacts.EnclosingFunction(unit, 15) == null
     assert EditorCallHierarchyFacts.EnclosingFunction(null, 11) == null
 }

@@ -97,9 +97,18 @@ test "the type hierarchy prepares a node for five kinds and nothing else" {
     assert greeter.EndCharacter == 11
     assert greeter.Uri == "file:///a.nl"
 
-    assert EditorTypeHierarchyFacts.PrepareRow(symbols, "IGreeter", "file:///a.nl").Kind == EditorSymbolKind.Interface
-    assert EditorTypeHierarchyFacts.PrepareRow(symbols, "Pair", "file:///a.nl").Kind == EditorSymbolKind.Struct
-    assert EditorTypeHierarchyFacts.PrepareRow(symbols, "Options", "file:///a.nl").Kind == EditorSymbolKind.Class
+    contract := EditorTypeHierarchyFacts.PrepareRow(symbols, "IGreeter", "file:///a.nl")
+    assert contract != null
+    assert contract.Kind == EditorSymbolKind.Interface
+
+    pair := EditorTypeHierarchyFacts.PrepareRow(symbols, "Pair", "file:///a.nl")
+    assert pair != null
+    assert pair.Kind == EditorSymbolKind.Struct
+
+    options := EditorTypeHierarchyFacts.PrepareRow(symbols, "Options", "file:///a.nl")
+    assert options != null
+    assert options.Kind == EditorSymbolKind.Class
+
     assert EditorTypeHierarchyFacts.PrepareRow(symbols, "Missing", "file:///a.nl") == null
     assert EditorTypeHierarchyFacts.PrepareRow(null, "Greeter", "file:///a.nl") == null
 }
