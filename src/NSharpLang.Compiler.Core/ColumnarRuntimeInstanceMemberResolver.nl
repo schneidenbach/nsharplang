@@ -3,7 +3,6 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections
 import System.Collections.Generic
-import System.Diagnostics
 import System.IO
 import System.Reflection
 import System.Reflection.Emit
@@ -56,7 +55,12 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if receiverType == typeof(DateTime) || receiverType == typeof(Type) || receiverType == typeof(Process) || receiverType == typeof(IList) || receiverType == typeof(JsonSerializerOptions) {
+        // `Process` was named here beside these and then CLAIMED BY AN EXCLUSIVE ARM in `TrySelect`
+        // that answered three members and refused every other one, so `p.Id`, `p.StartTime` and
+        // `p.MainModule` could not be read at all. The arm is gone and the class reaches the general
+        // ordinary-reference arm like any other referenced class, which is what this row would have
+        // admitted it as anyway.
+        if receiverType == typeof(DateTime) || receiverType == typeof(Type) || receiverType == typeof(IList) || receiverType == typeof(JsonSerializerOptions) {
             return true
         }
 
@@ -307,18 +311,6 @@ class ColumnarRuntimeInstanceMemberResolver {
 
         if receiverType == yamlScalarType && member == "Value" {
             return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(string), out selection)
-        }
-
-        if receiverType == typeof(Process) {
-            if member == "ExitCode" {
-                return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(int), out selection)
-            }
-
-            if member == "StandardOutput" || member == "StandardError" {
-                return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(StreamReader), out selection)
-            }
-
-            return false
         }
 
         if IsSupportedTaskReceiver(receiverType) && member == "Result" {

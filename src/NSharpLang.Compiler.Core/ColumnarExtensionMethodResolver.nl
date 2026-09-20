@@ -817,11 +817,15 @@ class ColumnarExtensionMethodResolver {
         return 8
     }
 
-    // `Nullable<T>` WITH NO VALUE — the `kind: SymbolKind? = null` an optional enum or number is
-    // spelled with, and the one default that is not a single literal instruction: it needs a local to
-    // `initobj` into. A NON-null nullable default (`n: int? = 5`) declines; it would have to construct
-    // the value as well, and no call site here asked for that yet.
-    static func OptionalDefaultKindNullableNoValue(): int {
+    // A STRUCT'S `default` — the one default that is not a single literal instruction: it needs a
+    // local to `initobj` into. `Nullable<T>` with no value (`kind: SymbolKind? = null`) is the case
+    // that was needed first and this row was named after it, but `default(T)` for ANY struct reads
+    // back the same way and emits the same three instructions: `Process.WaitForExitAsync()`
+    // (`CancellationToken cancellationToken = default`) is the call that needed the general answer,
+    // and it declined as unmodeled while every reference-typed optional filled. A NON-null value
+    // default (`n: int? = 5`) still declines; it would have to construct the value as well, and no
+    // call site here has asked for that yet.
+    static func OptionalDefaultKindZeroValue(): int {
         return 9
     }
 
@@ -858,13 +862,14 @@ class ColumnarExtensionMethodResolver {
         }
 
         if value == null {
-            // A value-typed parameter whose default reads back as null is a `Nullable<T>` with no
-            // value; nothing else can be spelled that way.
-            if ColumnarTypeOfPlanner.IsSupportedNullable(resolvedType) {
-                return OptionalDefaultKindNullableNoValue()
-            }
-
-            return OptionalDefaultKindNone()
+            // A VALUE-TYPED PARAMETER WHOSE DEFAULT READS BACK AS NULL IS `default(T)`. That is how a
+            // `Nullable<T>` with no value is spelled and it is also how `= default` on any other
+            // struct is: the metadata carries `[opt]` with a null constant either way, and the value
+            // the call must push is the zeroed struct in both. Asking only about `Nullable<T>` made
+            // every other struct's `default` unfillable, which is what refused
+            // `p.WaitForExitAsync()`. `resolvedType` is known to be a value type here, and the
+            // signature admission above has already accepted it, so `initobj` is exact.
+            return OptionalDefaultKindZeroValue()
         }
 
         // `[Optional]` with no constant at all reads back as `DBNull`/`Missing`, which is not a value
@@ -939,12 +944,12 @@ class ColumnarExtensionMethodResolver {
             return true
         }
 
-        if kind == OptionalDefaultKindNullableNoValue() {
-            nullableTypeIndex := plan.AddType(resolvedType)
-            nullableLocal := plan.DeclarePlanLocal(nullableTypeIndex)
-            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), nullableLocal)
-            plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), nullableTypeIndex)
-            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), nullableLocal)
+        if kind == OptionalDefaultKindZeroValue() {
+            zeroTypeIndex := plan.AddType(resolvedType)
+            zeroLocal := plan.DeclarePlanLocal(zeroTypeIndex)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), zeroLocal)
+            plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), zeroTypeIndex)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), zeroLocal)
             return true
         }
 
@@ -1000,11 +1005,11 @@ class ColumnarExtensionMethodResolver {
             return true
         }
 
-        if kind == OptionalDefaultKindNullableNoValue() {
-            nullableLocal := il.DeclareLocal(resolvedType)
-            il.Emit(OpCodes.Ldloca, nullableLocal)
+        if kind == OptionalDefaultKindZeroValue() {
+            zeroLocal := il.DeclareLocal(resolvedType)
+            il.Emit(OpCodes.Ldloca, zeroLocal)
             il.Emit(OpCodes.Initobj, resolvedType)
-            il.Emit(OpCodes.Ldloc, nullableLocal)
+            il.Emit(OpCodes.Ldloc, zeroLocal)
             return true
         }
 
