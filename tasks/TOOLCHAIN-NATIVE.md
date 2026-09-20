@@ -1,17 +1,37 @@
 # Managed toolchain conversion and census closeout
 
-## Census wave 12 — current status (2026-09-16)
+## Census wave 12 — current status (2026-09-19)
 
-Wave 12 compiler prerequisites and native-test migration are integrated through
-`c6ab6f2e7b69cda86c7503736c186b0e9ea647db` on `census/merge`. The integration checkout is clean and
-sits 145 commits ahead of `systems-language` `9faf75a1c72e84133e9b02694bf6b77a1ba351e2`. Nothing has
-been pushed, reseeded, or retired. The only conversion run since is the read-only pre-seed converter
-census of 2026-09-19 (recorded below); no production reconversion has landed.
+Wave 12 is integrated, **pushed, reseeded and gated** through
+`d932566aae5fc9522b558941704292f415c1b5e9` on `census/merge`, which equals `origin/systems-language`.
+The push happened in two steps on 2026-09-19: `9b4c46174` (the docs closeout at `c6ab6f2e7`) and then
+`d932566aa`. Between them sit the reseed repairs, the bench-corpus repin, the republished bootstrap
+seed `6a50c373e`, and the test correction `d932566aa` that the seed's first gate forced. The
+integration checkout is clean. Nineteen census worktrees and branches plus `codex/toolchain-integration`
+have been **retired**; three stale lanes were archived by tag.
 
 **This is not a completion record.** The managed-toolchain conversion objective this file was opened
 for is NOT finished. CLI, LanguageServer, Playground, Runtime and Wasm-hosting production owners and
-their assertions are still outstanding, and the CLI/LanguageServer reconversion is seed-blocked. Do
-not read the accepted checkpoints below as a complete production migration.
+their assertions are still outstanding; the post-seed converter census measured **zero movement**
+against the pre-seed one because no owner was converted between them. The rendered visual IDE proof
+and the post-seed extension reload are both still owed. Do not read the accepted checkpoints below as
+a complete production migration.
+
+### Status of the required sequence at a glance (2026-09-19)
+
+| Step | State | Where the receipt is |
+|---|---|---|
+| Fresh VS Code-enabled gate at the pre-seed tip | DONE | `c6ab6f2e7` sections below (pre-seed history) |
+| Pre-seed extension reload | DONE | `astra-c6ab6f2e/` |
+| Rendered visual IDE proof | **OWED** | nothing rendered has ever been observed |
+| Tracked docs, review, push | DONE | `9b4c46174` then `d932566aa`, pushed to `origin/systems-language` |
+| Retirement of 19 worktrees/branches | DONE | retirement section below |
+| Two-pass reseed | DONE, after three failures | reseed-history section below |
+| Repin bootstrap + ownership head, commit packed source | DONE | seed commit `6a50c373e` |
+| Post-seed gates (non-VS and VS Code-enabled) | DONE, both PASS at `d932566aa` | `evidence/seed-6a50c373e/` |
+| Post-seed converter rerun | DONE | `evidence/seed-6a50c373e/converter/RECEIPT.md` |
+| Post-seed extension reload | **FAILED, owed** | `reload-extension.log` |
+| IVT2, SIGHELP, remaining owner conversion | **OPEN** | not started |
 
 ### Current ownership rule (supersedes every earlier assignment in this file)
 
@@ -25,6 +45,206 @@ Every earlier implementation-model assignment recorded in this file and in
 `systems-language-closeout/STATUS.md` — Luna Max, Sol, Terra, and the GLM CLI profile — is
 **historical**. Those names remain in the retained sections below as a record of who did the work; they
 do not describe current dispatch.
+
+### Verified receipt: the push to `origin/systems-language` (2026-09-19)
+
+Two pushes landed on `origin/systems-language`, both from `census/merge`:
+
+- **`9b4c46174`** — "docs: census wave 12 closeout receipts at c6ab6f2e7". The reviewed docs closeout
+  described by the `c6ab6f2e7` sections below.
+- **`d932566aa`** — "Expect no empty Program holder in a types-only namespace". The current tip;
+  `census/merge` and `origin/systems-language` are the same commit.
+
+The seven commits between them, in order: `b73d55d41` (receiver relation for a non-generic extension
+slot), `f369e5d22` (write a property's MSBuild marker exactly once), `ca8381cdb` (create a
+namespace's `Program` holder only when something is placed on it), `23ed2f0bc` (repin the
+compile-time bench corpus at its real 135 projects), `5d9e2de4b` (record the two metadata-shaped
+seed-hidden defects in the self-host runbook), `6a50c373e` (republish the two-pass bootstrap seed
+from `5d9e2de4b`), `d932566aa`. Six of those seven exist because the reseed and the post-seed gate
+found defects — see the two sections below.
+
+### Verified receipt: worktree and branch retirement — DONE (2026-09-19)
+
+Retirement ran **after** the push, and every row was re-checked against the **actual pushed ref**,
+not against the snapshot in the retirement manifest: `git -C <worktree> status --porcelain=v1` for
+dirt, `git merge-base --is-ancestor <recorded-tip> <pushed ref>` for ancestry, and a check that no
+process held a cwd inside the worktree.
+
+- **19 census worktrees and their branches removed**, plus **`codex/toolchain-integration`**
+  (`5ebd18b72`, fully absorbed) — 20 refs gone. All passed clean / ancestor / not-in-use.
+- **Three stale lanes: worktrees removed, branches KEPT and tagged** `archive/<branch>` —
+  `codex/check-remaining-assertions`, `codex/cli-native-owner`, `codex/runtime-owner`. The branches
+  survive under `archive/codex/check-remaining-assertions`, `archive/codex/cli-native-owner` and
+  `archive/codex/runtime-owner`.
+- **`census/lsconvert-source-wip` KEPT and tagged** `archive/census/lsconvert-source-wip`. It is the
+  **sole copy of the non-compiling full LanguageServer conversion** and is not an ancestor of the
+  pushed ref. Do not delete it; its disposition is decided only by the post-seed LS reconversion
+  (step 10 below), which has not run.
+
+`census/merge` itself is preserved as the retained integration worktree.
+
+### Verified receipt: the reseed — three failures, then success
+
+The two-pass reseed did not work the first time, or the second, or the third. Each failure is a real
+defect the gates could not have caught, and each has its own evidence directory under
+`/Users/spencer/repos/nsharp-worktrees/evidence/`.
+
+| attempt | evidence dir | outcome | defect and fix |
+|---|---|---|---|
+| at `9b4c46174` | `reseed-9b4c46174/` | **FAILED** in stage-1 self-rebuild | `NL103` on `OfType` — the compiler could not answer the receiver relation for a **non-generic** extension slot. Fixed by **`b73d55d41`**. |
+| at `b73d55d41` | `reseed-b73d55d41/` | **FAILED** in the estate, **2 of 9,295** | duplicate MSBuild attribute — a property's MSBuild marker was written twice. Fixed by **`f369e5d22`**. |
+| scratch validation | — | **FAILED** the CLI build | empty `public Program` holders were emitted for types-only namespaces, colliding as **`CS0433`**. Fixed by **`ca8381cdb`**. |
+| corpus repin | — | — | **`23ed2f0bc`** repinned the compile-time bench corpus at its real **135** projects. |
+| runbook | — | — | **`5d9e2de4b`** recorded the two metadata-shaped seed-hidden defects in the self-host runbook. |
+| at `5d9e2de4b` | `reseed-5d9e2de4b/`, copied to `seed-6a50c373e/reseed.log` | **SUCCESS** | see below. |
+
+**The successful reseed**, `./scripts/reseed.sh` at `5d9e2de4b`, EXIT 0:
+
+- **Both stages clean: 0 warnings, 0 errors.** Stage-1 Build.Tasks 54.73s and Compiler.Core rebuild
+  1m07.43s; stage-2 Build.Tasks 1m11.00s and Compiler.Core rebuild 1m07.50s.
+- **Compiler-service estate against the new seed: `Failed: 0, Passed: 9295, Skipped: 0, Total: 9295`**
+  (15s), run with `-p:NSharpExcludeTests=false`.
+- **Exact hash equality: bootstrap == stage-2 == restored cache.** `verify-bootstrap.py` passed after
+  each stage, and the restored cache nupkg bytes were verified against bootstrap bytes before each
+  build. The pinned seed is
+  `NSharpLang.Sdk.0.1.0.nupkg` **`bf4a1f9c663aa1343306137adb761c440b767ba7aa02115e9e4f6fc24a0154c4`**
+  and `NSharpLang.Runtime.0.1.0.nupkg`
+  **`35f1a2271f2498fbaf79bd2cfc088ed025bd4836c28d592c661cbc6bdd3ad9f6`** — the two lines now in
+  `bootstrap/SHA256SUMS`.
+
+**Seed commit `6a50c373e`** — "Republish the two-pass bootstrap seed from `5d9e2de4b`" — commits the
+two `.nupkg` files and `SHA256SUMS` together, as the procedure requires. The **packed source is
+`5d9e2de4b`**; the seed commit is `6a50c373e`. The ownership head is repinned at
+**`head-v2:5ce298ee5fe53bf8`** and the ownership audit reads **25/25**.
+
+### Verified receipt: post-seed product gates at `d932566aa` — both PASS
+
+Evidence directory: `/Users/spencer/repos/nsharp-worktrees/evidence/seed-6a50c373e/`, with
+`SHA256SUMS` covering all four logs.
+
+**The first non-VS gate on the seed FAILED, and that is the point.** Run at the seed commit
+`6a50c373e`, it finished **EXIT 1, FAILURES: 1**, total 31m49s, after 1,909s, and the cache was **not**
+updated (`product-non-vscode.FAILED-at-6a50c373e.log`). The single failing row was
+`tests/native/census-duplicate-declarations`, which **pinned the old empty `Catalog.Program` holder**
+that `ca8381cdb` had just stopped emitting — the test asserted the defect. Corrected by
+**`d932566aa`**, which expects no empty `Program` holder in a types-only namespace. Nothing was
+relaxed: the fix moved the assertion onto the correct behavior.
+
+Both gates were then re-run fresh at `d932566aa` and both passed.
+
+| Gate stage | non-VS at `d932566aa` | VS Code-enabled at `d932566aa` |
+|---|---|---|
+| Result | **EXIT 0**, timing summary **31m39s**, cache `e0e1da00c8cb7ec0` (1899s) | **EXIT 0**, timing summary **32m30s**, cache `d6778e34d329aa6c` (1950s) |
+| Build, format | pass (build 1m23s, format 0m03s) | pass (build 1m23s, format 0m04s) |
+| Systems throughput | **PASS: 12 cells, 0 failed**, tolerance **1.20x**, worst measured ratio **1.04x** (`rolling-hash` at both 64 and 4096); load average `{ 3.61 3.87 3.82 }` / 10 cores; baseline unchanged (2026-09-01, idle Apple M4, `8cf40128a`) | same 12/12 pass, same tolerance and baseline |
+| Self-host front door | pass, 11m14s — `Compiler.Core` **1342** *(at the ceiling)*, `Build.Tasks` **0** *(at the ceiling)*; `Compiler` and `Playground` BLOCKED behind `Compiler.Core` and not counted | pass, 11m11s — identical rows |
+| Compiler-service estate | **Failed: 0, Passed: 9295, Skipped: 0, Total: 9295** (15s) | identical |
+| Native sweep | **110 project rows, 4,552 passed, 0 failed, 1 skipped**. The one skip is `tests/native/census-testrefs` (7 passed / 1 skipped / 8 total) | identical |
+| — ownership audit | `tests/native/ownership-audit` **25 passed, 0 failed, 0 skipped** | identical |
+| — compile-time benchmark | `tests/native/compile-time-bench` **74 passed, 0 failed, 0 skipped** — functional only, see below | identical |
+| — `census-duplicate-declarations` | **9 passed, 0 failed, 0 skipped** (was the failing row at `6a50c373e`) | identical |
+| VS Code integration | skipped (`VSCODE_TESTS=skip`) | **36 passing (42s)**, 0 pending, 0 skipped — extension, diagnostics, hover, completion |
+| Pack, templates, template project, examples, single-file examples | pass | pass |
+| `nlc check` on examples | pass, **26 directories** | pass, 26 directories |
+| IL verification | **all 80 N# assemblies pass**, no new errors vs baseline (0m20s) | same 80, no new errors (0m19s) |
+
+**The native sweep moved from 109 rows to 110, and passed rows from 4,536 to 4,552 (+16).** Row and
+count diffs against the `c6ab6f2e7` log account for all of it: the one added project is
+`tests/native/source-typed-explicit-generic-extension` (**9 passed**, the regression for the
+`OfType` defect, landed with `b73d55d41`); `tests/native/sdk-project-reference-boundary` rose
+20 → 25 (`f369e5d22` added its MSBuild-attribute regression as a second `*.tests.nl` inside the
+existing project, so it registers no new project); and `tests/native/census-free-function-identity`
+rose 18 → 20 (`ca8381cdb`). No other row moved in either direction.
+
+**Gate-script contracts: the logs do not print a contracts row.** Neither log contains a
+`tests/native/gate-script-contracts` line, so the 38/38 figure carried from `c6ab6f2e7` is **not
+restated by these runs** and must not be quoted as a `d932566aa` measurement.
+
+**Compile-time: 74 functional pass; timing NOT judged.** The benchmark appears in both logs only as
+the native row `tests/native/compile-time-bench`, **74 passed, 0 failed, 0 skipped**. Neither log
+prints a timing verdict, a load reading or a millisecond figure for it. The only `load average` line
+in either log belongs to the Systems throughput gate. Record 74 functional pass and timing **not
+judged** — never as a timing pass.
+
+### Verified receipt: post-seed converter census at `d932566aa` — zero delta
+
+`ROOT=/Users/spencer/repos/nsharp-worktrees/census-merge ./convert-all.sh` (exit 0) and the follow-on
+`run.sh census` (exit 0) were run on **2026-09-19** with converter `b9a49e0` and
+`nlc 0.1.0+d932566aae5fc9522b558941704292f415c1b5e9`. The `Cli.dll` in the worktree was stale — it
+reported `+6a50c373e`, the seed commit, one behind the pushed tip — so Cli, LanguageServer and Runtime
+were rebuilt first (`dotnet build --disable-build-servers -nr:false`; Cli and Runtime 0 warnings /
+0 errors, LanguageServer 0 errors with 7 pre-existing CS86xx nullable warnings). Receipt:
+`evidence/seed-6a50c373e/converter/RECEIPT.md`.
+
+**51 converted files, 86 diagnostics, 11 `// CONVERT:` stubs** — runtime **0**, languageserver **10**,
+cli **26**, playground-wasm **22**, tests **28**.
+
+**The delta against the pre-seed census is zero on every row**, and the per-code histogram is
+identical code-for-code and count-for-count (NL907 31, NL412 26, NL201 18, NL202 3, NL301 2, NL010 2,
+NL002 1, NL303 1, NL402 1, NL905 1), down to the first-site file, line and column. Mapped constructs
+are 32,591 in both runs.
+
+**Zero is the expected result and it is not progress.** No C# file under the five converted projects
+changed between `c6ab6f2e7` and `d932566aa` — the eight intervening commits touched only `.nl` native
+tests, the bench corpus pin, the growth-ratchet JSON and the bootstrap seed. With identical converter
+and identical inputs, byte-identical output is what correctness demands, and it is what happened: the
+converter repo's `git status --porcelain` and `git diff --stat` are byte-identical before and after
+this run. What the zero delta **does** establish is that the reseed perturbed neither conversion nor
+diagnosis — a compiler built from the republished seed yields exactly the same diagnostic set, so no
+seed-introduced regression reaches the converted estate. What it **does not** establish is any
+migration: the two censuses measure the same unconverted corpus twice, 45 of the 86 rows remain
+missing-reference-root artifacts rather than language gaps, and CLI/LanguageServer reconversion is
+untouched.
+
+**The converter repo is dirty and stays dirty — 22 paths, exactly the 22 it started with.** That dirt
+is the pre-seed run's own regenerated output, never committed; this run reproduced it byte-for-byte
+and added nothing. It shows as dirt because the committed `out/` tree still reflects the product repo
+of 2026-09-14 — before `DocCommand.cs` was deleted, before the C# unit suite was removed, and before
+the signature-help work landed — so any regeneration against today's sources differs from what is
+committed until the regenerated `out/` is itself committed. Nothing was committed or pushed in the
+converter repo.
+
+### Still OWED after the seed: extension reload and rendered visual IDE proof
+
+**The post-seed extension reload FAILED.** `./scripts/reload-vscode-extension.sh` could not get VS
+Code to exit: *"VS Code is still running after 30s — a pending self-update can hold it open. Quit it
+by hand and re-run."* (`evidence/seed-6a50c373e/reload-extension.log`). **The installed extension is
+therefore still the 13:01 build from `c6ab6f2e7`** — it does not contain the language server built
+from the reseeded tip. Any IDE observation made right now describes the pre-seed extension.
+
+**The rendered visual IDE verification remains owed**, exactly as it was before the seed. No
+screenshot has ever been taken and no rendered UI has ever been observed in this closeout; only
+protocol-level probes exist, and those were taken against the pre-seed build.
+
+The user explicitly directed on **2026-09-19** to proceed with other work rather than block on VS
+Code, which has been flaky. Proceeding is sanctioned. Both debts stay open and must be discharged
+before this closeout is called complete.
+
+### Lessons the seed taught — binding for the next reseed
+
+- **The gates cannot see seed-hidden defects.** Every estate probe is compiled *by the seed*, so a
+  defect baked into the seed is invisible to the estate that the seed compiles. All three reseed
+  failures were found by the reseed itself, never by a passing gate. A green gate at a tip says
+  nothing about whether that tip can reseed.
+- **A test can pin the defect.** `census-duplicate-declarations` asserted the empty `Catalog.Program`
+  holder and so failed the moment `ca8381cdb` fixed it. When a seed-hidden defect is fixed, re-read
+  the tests that cover it before assuming a gate failure is a regression.
+- **Reseed scratch mode requires temporarily repointing the root `NuGet.config` feed, and this is
+  undocumented.** It cost a debugging cycle. Filed as a runbook/script fix in the pending list below
+  and in `census-briefs/FOLLOWUPS.md`.
+- **Two language declines were re-confirmed on the emit-only columnar path**, both filed in
+  `census-briefs/FOLLOWUPS.md`: `this` as a value declines at `parse.struct`, and a call-expression
+  receiver `MakeList().OfType<T>()` still declines.
+
+### Pre-seed history: the `c6ab6f2e7` receipts
+
+The next five subsections — the two `c6ab6f2e7` gate receipts, the pre-seed extension-reload
+receipt, the pre-seed converter census and the retirement precheck, ending where **Wave-12 lane
+classification** begins — describe the **pre-seed** tip `c6ab6f2e7`. All five were superseded on
+2026-09-19 by the push, the reseed and the post-seed gates recorded above. They are retained as the
+record of how the pre-seed tip was validated; do not quote their numbers as current. In particular
+their native sweep is 109 rows / 4,536 passed and their estate is 9,291 — the current tip reads 110
+rows / 4,552 passed and 9,295.
 
 ### Verified receipt: first valid fresh non-VS product gate at `c6ab6f2e7`
 
@@ -184,6 +404,22 @@ The historical lane tables and findings retained below are evidence, not a dispa
 historical `Active`, `Queued`, `final gate pending`, owner name or worktree claim in those sections
 overrides this table.
 
+**Rows updated 2026-09-19 for the pushed, reseeded tip `d932566aa`.** The five rows whose state
+actually moved are RESEED, RETIREMENT, PUSH/GATES, CONVERTER CENSUS and the new SEED-HIDDEN DEFECTS
+row; the rest are unchanged and are re-validated by the post-seed gates.
+
+| Lane | State at `d932566aa` | Receipt |
+|---|---|---|
+| RESEED | **DONE** after three failures | `reseed-9b4c46174` (NL103 `OfType`) → `b73d55d41`; `reseed-b73d55d41` (2/9295 duplicate MSBuild attribute) → `f369e5d22`; scratch CS0433 empty `Program` holders → `ca8381cdb`; `reseed-5d9e2de4b` SUCCESS, both stages 0W/0E, estate 9295/0, exact bootstrap == stage2 == restored-cache hash equality. Seed commit `6a50c373e`, packed source `5d9e2de4b`. |
+| SEED-HIDDEN DEFECTS | **New durable finding** | Three defects reached a green gate and were caught only by the reseed, because estate probes are compiled by the seed. `census-duplicate-declarations` had pinned one of them and failed when it was fixed; corrected in `d932566aa`. |
+| RETIREMENT | **DONE** | 19 census worktrees/branches + `codex/toolchain-integration` removed after clean/ancestry/in-use checks **against the pushed ref**. `check-assertions`, `cli-native-owner`, `runtime-owner`: worktrees removed, branches kept and tagged `archive/<branch>`. `census/lsconvert-source-wip` kept and tagged `archive/census/lsconvert-source-wip` — sole copy of the non-compiling full LS conversion. |
+| PUSH / POST-SEED GATES | **DONE** | `9b4c46174` then `d932566aa` pushed to `origin/systems-language`. First non-VS gate on the seed FAILED 1 at `6a50c373e`; both gates then PASS at `d932566aa` — non-VS exit 0 / 31m39s / cache `e0e1da00c8cb7ec0`, VS-enabled exit 0 / 32m30s / cache `d6778e34d329aa6c`, 36 VS Code smoke passing. |
+| CONVERTER CENSUS | **Post-seed run DONE; reconversion still OPEN** | 51 files / 86 diagnostics / 11 stubs at `nlc +d932566aa` — **zero delta** against the pre-seed census on every row. No C# input changed, so this is a reproducibility and no-seed-regression result, not migration. |
+| EXTENSION RELOAD / VISUAL IDE | **OWED** | Post-seed reload FAILED (VS Code would not exit within 30s); the installed extension is still the 13:01 build from `c6ab6f2e7`. No rendered UI has ever been observed. |
+| IVT2 · SIGHELP · CLI/LS/Playground/Runtime/Wasm conversion | **OPEN** | Unchanged; see the rows in the historical table below and steps 9–11 of the sequence. |
+
+The historical wave-12 table follows and is retained as written at `c6ab6f2e7`.
+
 | Wave-12 lane | Classification | Evidence / required follow-up |
 |---|---|---|
 | CLICONVERT | Accepted checkpoint | The N# `DocCommand` owns project loading, symbol ordering, HTML/JSON/text results and browser launch. CLI/LanguageServer reconversion stays open until the seed is actually republished. |
@@ -203,65 +439,65 @@ overrides this table.
 | RETIREMENT PRECHECK | Precheck done; retirement OPEN | 19/19 candidates clean ancestors of `c6ab6f2e7` with 0 unique commits; four stale codex lanes recommended for retirement; `census/lsconvert-source-wip` preserved. Nothing removed; recheck every row against the actual pushed ref. |
 | FINAL GATES / PUSH / RETIREMENT | Gates PASSED; visual IDE proof, push and retirement OPEN | Both required fresh gates have now passed at `c6ab6f2e7` — the non-VS gate and the VS Code-enabled gate of 2026-09-19. The visual IDE proof is still owed, and nothing has been pushed, reseeded, reconverted or retired. See the sequence below. |
 
-### Accounting — re-measure after the actual reseed
+### Accounting — the repin is now unblocked and still owed
 
 Checkpoint accounting carried from `88cf7534` is catalog 108 (98 compiler plus 10 linter), 103 native
 projects, corpus pin 134, and a net 10,919 C# lines removed versus `systems-language`; no Runtime
-source changed. The `c6ab6f2e7` gate reported **109 native rows**, so the project count has moved since
-that accounting was taken. Re-measure and repin catalog, native-project, corpus, line-delta and
-ownership facts after the actual reseed; do not infer a Runtime conversion, a completed production
-migration, or a push receipt from these numbers.
+source changed. **These numbers are now two moves stale.** The `c6ab6f2e7` gate reported **109
+native rows**, and the post-seed gates at `d932566aa` report **110** (the added project is
+`tests/native/source-typed-explicit-generic-extension`, landed with `b73d55d41`). The compile-time
+bench corpus pin was separately corrected by `23ed2f0bc` from **134** to its real **135** — the pin
+had missed that same new project, so the row whose job is to notice a corpus change was the one
+thing the change did not reach. The reseed has
+now happened, so the repin is unblocked: re-measure and repin catalog, native-project, corpus,
+line-delta and ownership facts. Do not infer a Runtime conversion or a completed production
+migration from any of these numbers.
 
-### Remaining required sequence — steps 1 and 2 are the only ones with any receipt
+### Remaining required sequence — steps 1 and 3–8 have receipts; 2, 9, 10 and 11 do not
 
-Steps 1 and 2 are struck through only where a receipt exists. **Nothing from step 2's visual proof
-onward has occurred.**
+**Updated 2026-09-19.** Steps 3 through 8 have executed and are struck through below. What remains
+is step 2's visual proof, the failed post-seed extension reload, and steps 9–11, none of which has
+started.
 
 1. ~~**Fresh VS Code-enabled product gate** at the accepted tip, run serially with every worker
    stopped.~~ **DONE 2026-09-19** — `./scripts/test-all.sh --commit`, VS Code enabled, EXIT 0, isolated
    cache result `37b5ea361a7805a7` (1858s); receipt above. Compile-time timing was not judged by that
    run and must not be recorded as a timing pass.
-2. **Extension reload and visual IDE verification.** Rebuild and reinstall — ~~DONE 2026-09-19 via
-   `./scripts/reload-vscode-extension.sh` (`nsharp-0.6.0.vsix`)~~. **Visual verification still OWED:**
-   observe the affected completion, hover, signature-help and diagnostic behavior in the real rendered
-   editor and capture screenshots. Protocol-level probes and unit tests are not sufficient, and the
-   2026-09-19 protocol receipt does not discharge this.
-3. **Tracked closeout documents**, reviewed root commit, fast-forward the main checkout from
-   `census/merge`, and push the first finalized integration ref.
-4. **Converter rerun after each push**, from the retained integration worktree:
-
-   ```bash
-   ROOT=/Users/spencer/repos/nsharp-worktrees/census-merge ./convert-all.sh
-   ```
-
-   Root controls the generated output; preserve the pre-existing dirty `out/languageserver/project.yml`
-   until reviewed. Only the post-seed run can close LS/CLI reconversion.
-5. **Worktree retirement — 19 candidates.** Only after a successful gated publication, and only after
-   re-running both checks per row against the **actual pushed ref**, not against any snapshot in the
-   retirement manifest:
-
-   ```bash
-   git -C <worktree> status --porcelain=v1
-   git merge-base --is-ancestor <recorded-tip> <first-pushed-finalized-integration-ref>
-   ```
-
-   Preserve `census/merge`, the unmerged `census/lsconvert-source-wip`, active worktrees and unrelated
-   user worktrees. Remove the owned ignored CLI-bin symlink/APFS clones inside the retiring worktrees as
-   part of their cleanup.
-6. **Actual two-pass reseed**, root alone with no agents running:
-
-   ```bash
-   ./scripts/reseed.sh
-   ```
-
-   Pack, install, evict the exact SDK/runtime cache directories, verify bootstrap, restore, verify each
-   restored cache nupkg SHA-256 against bootstrap bytes before building, rebuild twice, and run the
-   tests-enabled compiler-service estate. Record both stage receipts and the exact hash matches.
-7. **Repin** bootstrap fingerprints and the ownership head, and commit the exact packed source, the
-   bootstrap `.nupkg` files and `SHA256SUMS` together — never separately.
-8. **Post-seed gates.** The bootstrap commit changes the shared SDK/runtime used by both IDE and build
-   paths, so run both fresh gates again on that commit, with extension reload and visual IDE proof, then
-   push the post-seed ref and rerun the converter.
+2. **Extension reload and visual IDE verification.** Pre-seed rebuild and reinstall — ~~DONE
+   2026-09-19 via `./scripts/reload-vscode-extension.sh` (`nsharp-0.6.0.vsix`)~~. **The post-seed
+   reload FAILED** and must be redone: VS Code would not exit within 30s, so the installed extension
+   is still the 13:01 build from `c6ab6f2e7` and carries a pre-seed language server. **Visual
+   verification still OWED:** observe the affected completion, hover, signature-help and diagnostic
+   behavior in the real rendered editor and capture screenshots — after a successful reload, so that
+   what is observed is the reseeded build. Protocol-level probes and unit tests are not sufficient.
+3. ~~**Tracked closeout documents**, reviewed root commit, fast-forward the main checkout from
+   `census/merge`, and push the first finalized integration ref.~~ **DONE 2026-09-19** — `9b4c46174`
+   (docs closeout) and then `d932566aa` pushed to `origin/systems-language`; `census/merge` equals
+   that ref.
+4. ~~**Converter rerun after each push**, from the retained integration worktree
+   (`ROOT=/Users/spencer/repos/nsharp-worktrees/census-merge ./convert-all.sh`).~~ **DONE 2026-09-19
+   at `d932566aa`** — 51 / 86 / 11, zero delta; `evidence/seed-6a50c373e/converter/RECEIPT.md`. Note
+   that the previously dirty `out/languageserver/project.yml` was absorbed by the pre-seed run and no
+   longer appears; the converter repo's remaining 22 dirty paths are prior regenerated output.
+   **This run did not close LS/CLI reconversion** — nothing was converted, so nothing moved.
+5. ~~**Worktree retirement — 19 candidates**, re-checked per row against the actual pushed ref.~~
+   **DONE 2026-09-19** — 19 census worktrees/branches plus `codex/toolchain-integration` removed;
+   three stale lanes kept as `archive/<branch>` tags; `census/lsconvert-source-wip` kept and tagged.
+   `census/merge` preserved.
+6. ~~**Actual two-pass reseed** (`./scripts/reseed.sh`), root alone with no agents running.~~ **DONE
+   2026-09-19 at `5d9e2de4b`, after three failed attempts** — both stages 0 warnings / 0 errors,
+   estate 9,295/0/0, exact bootstrap == stage-2 == restored-cache hash equality. **Next time:**
+   scratch mode requires temporarily repointing the root `NuGet.config` feed; that step is
+   undocumented and is filed as a runbook/script fix in the pending list below.
+7. ~~**Repin** bootstrap fingerprints and the ownership head, and commit the exact packed source, the
+   bootstrap `.nupkg` files and `SHA256SUMS` together.~~ **DONE** — seed commit `6a50c373e` from
+   packed source `5d9e2de4b`; Sdk `bf4a1f9c…0154c4`, Runtime `35f1a227…3ad9f6` (full digests above);
+   ownership head `head-v2:5ce298ee5fe53bf8`, audit 25/25.
+8. ~~**Post-seed gates** on the bootstrap commit.~~ **DONE 2026-09-19** — the first non-VS gate on
+   the seed itself FAILED 1 and produced the fix `d932566aa`; both gates then passed at `d932566aa`
+   (non-VS exit 0 / 31m39s / `e0e1da00c8cb7ec0`; VS-enabled exit 0 / 32m30s / `d6778e34d329aa6c`,
+   36 VS Code smoke passing), the ref was pushed and the converter was rerun. **The reload and
+   visual IDE proof this step also required are the parts that did NOT happen** — see step 2.
 9. **IVT2** in an isolated worktree from the accepted tip
    (`STREAM-IVT2-emit-internals-visible-to-and-qualified-internals.md`): resolve actual accessibility by
    reflection, preserve the semantic non-friend refusal, cover source grants, the metadata attribute and
@@ -280,8 +516,57 @@ onward has occurred.**
 
 ### Evidence — filled receipts and the placeholders still open
 
-The first two lines below now carry executed results. No other line is a receipt until an executed
-result replaces it.
+**Updated 2026-09-19.** Six placeholders are now filled with executed results. The remaining
+placeholders are still placeholders: no line below is a receipt until an executed result replaces
+it.
+
+- **FILLED — first main fast-forward and remote push:** `9b4c46174` (docs closeout) then
+  `d932566aa`, both pushed to `origin/systems-language` on 2026-09-19. `census/merge` equals
+  `origin/systems-language` at `d932566aa`.
+- **FILLED — retirement removal receipts against the pushed ref:** 19 census worktrees and branches
+  plus `codex/toolchain-integration` removed after per-row clean, ancestry and in-use checks against
+  the **pushed** ref. `codex/check-remaining-assertions`, `codex/cli-native-owner` and
+  `codex/runtime-owner`: worktrees removed, branches kept and tagged `archive/<branch>`.
+  `census/lsconvert-source-wip` kept and tagged `archive/census/lsconvert-source-wip` as the sole
+  copy of the non-compiling full LS conversion. `census/merge` preserved.
+- **FILLED — reseed stage-one and stage-two receipts:** three failures then success. `reseed-9b4c46174`
+  FAILED stage-1 self-rebuild on `NL103` `OfType` → `b73d55d41`; `reseed-b73d55d41` FAILED the estate
+  2/9295 on a duplicate MSBuild attribute → `f369e5d22`; scratch validation found empty public
+  `Program` holders breaking the CLI build with `CS0433` → `ca8381cdb`; bench corpus repin
+  `23ed2f0bc` (135 projects); runbook note `5d9e2de4b`. `reseed-5d9e2de4b` **SUCCESS**: both stages
+  0 warnings / 0 errors, tests-enabled estate **9,295 passed / 0 failed / 0 skipped**, and exact hash
+  equality bootstrap == stage-2 == restored cache. Logs: `evidence/reseed-*/reseed.log` and
+  `evidence/seed-6a50c373e/reseed.log`.
+- **FILLED — bootstrap fingerprint and ownership-head repin, and the exact packed-source commit:**
+  **packed source `5d9e2de4b`**, **seed commit `6a50c373e`**. `NSharpLang.Sdk.0.1.0.nupkg`
+  **`bf4a1f9c663aa1343306137adb761c440b767ba7aa02115e9e4f6fc24a0154c4`**,
+  `NSharpLang.Runtime.0.1.0.nupkg`
+  **`35f1a2271f2498fbaf79bd2cfc088ed025bd4836c28d592c661cbc6bdd3ad9f6`**; the `.nupkg` files and
+  `SHA256SUMS` were committed together. Ownership head **`head-v2:5ce298ee5fe53bf8`**,
+  ownership-audit **25/25**.
+- **FILLED — post-seed gate outcomes and the post-seed push:** first non-VS gate at the seed
+  `6a50c373e` **FAILED 1** (`census-duplicate-declarations` pinned the old empty `Catalog.Program`
+  holder) → test corrected in `d932566aa`; then at `d932566aa` non-VS **PASS exit 0, 31m39s, cache
+  `e0e1da00c8cb7ec0`** and VS-enabled **PASS exit 0, 32m30s, cache `d6778e34d329aa6c`**, with **36**
+  VS Code smoke tests passing. Both: throughput 12/12 at worst 1.04x; self-host `Compiler.Core`
+  **1342** and `Build.Tasks` **0** at the ceiling; estate **9,295/0/0**; native sweep **110 rows,
+  4,552 passed, 0 failed, 1 skip**; ownership **25/25**; IL **80 assemblies**, no new errors;
+  compile-time **74 functional pass, timing NOT judged**. Contracts are **not printed** by either
+  log. Logs and `SHA256SUMS`: `evidence/seed-6a50c373e/`.
+  **This line does NOT include the visual IDE proof that step 8 also required** — see the two owed
+  items below.
+- **FILLED — post-seed converter rerun:** 2026-09-19, converter `b9a49e0` with `nlc +d932566aa`
+  (the worktree binary was stale at `+6a50c373e` and was rebuilt first), 51 files / 86 diagnostics /
+  11 stubs (runtime 0, languageserver 10, cli 26, playground-wasm 22, tests 28) — **zero delta**
+  against the pre-seed census on every row and every code. `evidence/seed-6a50c373e/converter/RECEIPT.md`.
+  A reproducibility and no-seed-regression result, **not** proof of migration; no owner was converted.
+- **OWED — post-seed extension reload FAILED:** `reload-extension.log` records *"VS Code is still
+  running after 30s"*; the installed extension remains the **13:01 build from `c6ab6f2e7`**. Must be
+  redone before any post-seed IDE observation means anything.
+- [PLACEHOLDER: rendered-editor visual IDE proof — screenshots of the affected completion, hover,
+  signature-help and diagnostic behavior, taken against a successfully reloaded post-seed extension.]
+
+The pre-seed evidence list follows, retained as written at `c6ab6f2e7`.
 
 - **FILLED — fresh VS Code-enabled gate:** `c6ab6f2e7`, 2026-09-19, EXIT 0, isolated cache result
   `37b5ea361a7805a7` (1858s), timing summary 30m57s; 12/12 throughput cells at worst ratio 1.03x;
@@ -300,22 +585,43 @@ result replaces it.
 - **FILLED — retirement precheck only:** 19/19 candidates clean ancestors with 0 unique commits, four
   stale codex lanes recommended for retirement, `census/lsconvert-source-wip` preserved —
   `census-briefs/FABLE-RETIREMENT-AND-STALE-LANES-REVIEW.md`. **Nothing retired.**
-- [PLACEHOLDER: rendered-editor visual IDE proof — screenshots of the affected completion, hover,
-  signature-help and diagnostic behavior.]
-- [PLACEHOLDER: first main fast-forward and remote push receipt.]
-- [PLACEHOLDER: converter revision, `ROOT` input, and results after the first push.]
-- [PLACEHOLDER: per-row clean/ancestor checks against the pushed ref and removal receipts for the 19
-  retirement candidates.]
-- [PLACEHOLDER: reseed stage-one and stage-two package/cache/bootstrap SHA-256 receipts, package
-  identities, and the tests-enabled estate result.]
-- [PLACEHOLDER: bootstrap fingerprint and ownership-head repin, and the exact packed-source commit.]
-- [PLACEHOLDER: post-seed non-VS and VS Code-enabled gate outcomes, including visual IDE proof, and the
-  post-seed push and converter run.]
+- ~~[PLACEHOLDER: rendered-editor visual IDE proof.]~~ **Still open** — restated in the post-seed
+  list above, now also blocked on redoing the failed reload.
+- ~~[PLACEHOLDER: first main fast-forward and remote push receipt.]~~ **FILLED 2026-09-19** — see
+  the post-seed list above.
+- ~~[PLACEHOLDER: converter revision, `ROOT` input, and results after the first push.]~~ **FILLED
+  2026-09-19** — see the post-seed list above.
+- ~~[PLACEHOLDER: per-row clean/ancestor checks against the pushed ref and removal receipts for the
+  19 retirement candidates.]~~ **FILLED 2026-09-19** — see the post-seed list above.
+- ~~[PLACEHOLDER: reseed stage-one and stage-two package/cache/bootstrap SHA-256 receipts, package
+  identities, and the tests-enabled estate result.]~~ **FILLED 2026-09-19** — see the post-seed list
+  above.
+- ~~[PLACEHOLDER: bootstrap fingerprint and ownership-head repin, and the exact packed-source
+  commit.]~~ **FILLED 2026-09-19** — packed source `5d9e2de4b`, seed commit `6a50c373e`; digests and
+  ownership head in the post-seed list above.
+- ~~[PLACEHOLDER: post-seed non-VS and VS Code-enabled gate outcomes, and the post-seed push and
+  converter run.]~~ **FILLED 2026-09-19 except the visual IDE proof**, which that placeholder also
+  named and which remains owed.
 - [PLACEHOLDER: IVT2 result.]
 - [PLACEHOLDER: SIGHELP — the N# overload-signature owner, the deleted C# `SymbolsInfo` path, and the
   native regressions covering external, overloaded and cross-file signature help.]
 - [PLACEHOLDER: final CLI/LanguageServer/Playground/Runtime/Wasm-hosting conversion results, remaining
   diagnostics or stubs, and the `census/lsconvert-source-wip` disposition.]
+
+### Remaining pending work (2026-09-19) — nothing here is claimed complete
+
+| Pending item | Why it is open |
+|---|---|
+| **Rendered visual IDE proof** | Never produced. No screenshot has ever been taken in this closeout. |
+| **Post-seed extension reload** | FAILED — VS Code would not exit within 30s; the installed extension is still the 13:01 build from `c6ab6f2e7`. The visual proof cannot be meaningful until this succeeds. |
+| **IVT2** | Not started. Was gated on the actual reseed, which has now happened, so this is unblocked. |
+| **SIGHELP — N# overload-signature owner** | Not started; belongs inside the LanguageServer conversion. |
+| **Remaining CLI / LanguageServer / Playground / Runtime / Wasm-hosting owner and assertion conversion** | Not started. The post-seed converter census measured zero movement precisely because none of it has happened. |
+| **Runbook/script fix: reseed scratch mode and the root `NuGet.config` feed** | Reseed scratch mode requires **temporarily repointing the root `NuGet.config` feed**. This is undocumented, was discovered by debugging, and must be written into the reseed runbook or automated in `scripts/reseed.sh` so the next reseed does not rediscover it. |
+| **Language decline: `this` as a value** | On the emit-only columnar path, `this` used as a value declines at `parse.struct`. Filed in `census-briefs/FOLLOWUPS.md`. |
+| **Language decline: call-expression receiver** | `MakeList().OfType<T>()` — a call expression as the receiver of an extension call — still declines, after `b73d55d41` fixed only the non-generic extension-slot receiver relation. Filed in `census-briefs/FOLLOWUPS.md`. |
+| **Gate-script contracts at `d932566aa`** | The two post-seed logs print no contracts row, so 38/38 is carried from `c6ab6f2e7` and is unmeasured at the current tip. Re-measure at the next gate. |
+| **Accounting repin** | Catalog, native-project count, corpus pin, line delta and ownership facts still carry `88cf7534` numbers; the native sweep has now moved 109 → 110 rows. Re-measure. |
 
 ## Historical managed-toolchain conversion record
 
