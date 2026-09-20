@@ -1066,8 +1066,11 @@ nlc query <cmd>
 | File | Purpose |
 |------|---------|
 | `src/NSharpLang.Cli/Program.cs` | CLI entry point, command dispatch |
+| `src/NSharpLang.Compiler/CliIlBackend.nl` | The whole project/single-file route to an emitted IL assembly, and the two `run` routes that execute it. `build`, `run`, `publish`, `test` and `pack` all arrive here (N#-owned; replaced `Program.Backends.cs`) |
+| `src/NSharpLang.Compiler/CliError.nl` | The one-line `Error: …` failure report — STDERR, exit 1 — shared by every command (N#-owned) |
+| `src/NSharpLang.Compiler/PackCommand.nl` | `nlc pack`: metadata, build, nuspec and archive (N#-owned) |
+| `src/NSharpLang.Compiler/CheckCommand.nl`, `FixCommand.nl`, `LintCommand.nl`, `DocCommand.nl` | `nlc check` / `fix` / `lint` / `doc` (N#-owned) |
 | `src/NSharpLang.Cli/Commands/QueryCommand.cs` | All `nlc query` subcommands |
-| `src/NSharpLang.Cli/Commands/FixCommand.cs` | `nlc fix` command |
 | `src/NSharpLang.Cli/Commands/DaemonCommand.cs` | `nlc daemon` commands |
 | `src/NSharpLang.Cli/Daemon/DaemonServer.cs` | Background daemon (Unix socket) |
 | `src/NSharpLang.Cli/Daemon/DaemonClient.cs` | Daemon client for QueryCommand |

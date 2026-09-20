@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Diagnostics
 import System.IO
+import System.IO.Compression
 import System.Text
 import System.Text.Json
 
@@ -3826,4 +3827,165 @@ test "nlc test discovers a test carrying a derived fact attribute and honours it
     } finally {
         Directory.Delete(directory, true)
     }
+}
+
+// ═══ `nlc pack` ═══════════════════════════════════════════════════════════════════════════════
+//
+// `nlc pack`'s whole route — read project.yml, build through the shared IL backend, write the
+// archive — moved from C# to `src/NSharpLang.Compiler/PackCommand.nl`. `tests/native/
+// compilation-backend` already proves the SUCCESS path lays the assembly into `lib/<tfm>/`. These
+// rows are about what that project does not read: the two output modes and which STREAM each one
+// reaches, the versioned envelope's own keys, and the metadata the archive carries.
+//
+// The stdout/stderr silence claims are paired the way this file requires: the `--help` row claims
+// stderr is silent, and the two missing-project rows on the SAME command prove stderr is reachable.
+
+func PkProject(prefix: string): string {
+    directory := NewTempDirectory(prefix)
+    WriteProjectYml(
+        directory,
+        "name: Packy\n" + "version: 1.0.0\n" + "backend: il\n" + "outputType: library\n" + "targetFramework: net10.0\n" + "\n" + "package:\n" + "  id: Packy\n" + "  author: Test Author\n" + "  description: A packed thing\n" + "  license: MIT\n" + "  repository: https://example.invalid/packy\n" + "  icon: logo.png\n" + "  tags:\n" + "    - alpha\n" + "    - beta\n"
+    )
+    File.WriteAllText(Path.Combine(directory, "Program.nl"), "namespace Packy\n\nclass Greeter {\n    static func Greet(): string {\n        return \"hi\"\n    }\n}\n")
+    File.WriteAllText(Path.Combine(directory, "logo.png"), "PNGSTUB")
+    return directory
+}
+
+// Every entry name in a .nupkg, comma-joined in ORDINAL order — `List<string>.Sort()` is
+// culture-aware and would order these differently on another machine's locale.
+func PkArchiveEntries(archivePath: string): string {
+    names := new List<string>()
+    using archive := ZipFile.OpenRead(archivePath)
+    entries := archive.Entries
+    index := 0
+    while index < entries.Count {
+        names.Add(entries[index].FullName)
+        index = index + 1
+    }
+
+    names.Sort(StringComparer.Ordinal)
+    return string.Join(",", names)
+}
+
+func PkArchiveText(archivePath: string, entryName: string): string {
+    using archive := ZipFile.OpenRead(archivePath)
+    entry := archive.GetEntry(entryName)
+    if entry == null {
+        return ""
+    }
+
+    using reader := new StreamReader(entry.Open())
+    return reader.ReadToEnd()
+}
+
+test "nlc pack --help exits 0, writes its usage to stdout, and says nothing on stderr" {
+    run := Nlc("pack --help")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Trim().Length == 0
+    assert run.Stdout.Contains("N# Pack"), run.Stdout
+    assert run.Stdout.Contains("Usage: nlc pack [options]"), run.Stdout
+}
+
+test "nlc pack with no project.yml exits 1 and puts its two-line refusal on STDERR" {
+    directory := NewTempDirectory("nlc-pack-noproject")
+
+    run := NlcIn(directory, "pack")
+
+    assert run.ExitCode == 1
+    assert run.Stdout.Trim().Length == 0, run.Stdout
+    assert run.Stderr.Contains("Error: No project.yml found in current directory."), run.Stderr
+    assert run.Stderr.Contains("Run 'nlc new <name>' to create a project."), run.Stderr
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc pack --json with no project.yml exits 1 and puts the error envelope on STDOUT" {
+    // THE SAME FAILURE, THE OTHER STREAM. The text arm above writes two lines to stderr and
+    // nothing to stdout; the JSON arm writes one envelope to stdout and nothing to stderr, and the
+    // sentence inside it is the JSON one, which is NOT the text one.
+    directory := NewTempDirectory("nlc-pack-nojson")
+
+    run := NlcIn(directory, "pack --json")
+
+    assert run.ExitCode == 1
+    assert run.Stderr.Trim().Length == 0, run.Stderr
+
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+    assert root.GetProperty("schemaVersion").GetInt32() == 1, run.Stdout
+    assert TextOf(root.GetProperty("command")) == "pack", run.Stdout
+    assert !root.GetProperty("ok").GetBoolean(), run.Stdout
+    assert TextOf(root.GetProperty("error").GetProperty("message")) == "No project.yml found. Run 'nlc new <name>' to create a project.", run.Stdout
+    document.Dispose()
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc pack --json answers the versioned success envelope and the .nupkg it names exists" {
+    directory := PkProject("nlc-pack-jsonok")
+
+    run := NlcIn(directory, "pack --json")
+
+    assert run.ExitCode == 0, run.Stdout + run.Stderr
+
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+    assert root.GetProperty("schemaVersion").GetInt32() == 1, run.Stdout
+    assert TextOf(root.GetProperty("command")) == "pack", run.Stdout
+    assert root.GetProperty("ok").GetBoolean(), run.Stdout
+    assert TextOf(root.GetProperty("name")) == "Packy", run.Stdout
+    assert TextOf(root.GetProperty("version")) == "1.0.0", run.Stdout
+
+    packagePath := TextOf(root.GetProperty("packagePath"))
+    document.Dispose()
+
+    assert packagePath.EndsWith("Packy.1.0.0.nupkg"), packagePath
+    assert File.Exists(packagePath), packagePath
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc pack writes the declared metadata into the nuspec and the declared icon into the archive" {
+    directory := PkProject("nlc-pack-metadata")
+
+    run := NlcIn(directory, "pack")
+
+    assert run.ExitCode == 0, run.Stdout + run.Stderr
+    assert run.Stdout.Contains("Packing Packy 1.0.0..."), run.Stdout
+    assert run.Stdout.Contains("Pack successful!"), run.Stdout
+
+    packagePath := Path.Combine(Path.Combine(Path.Combine(directory, "bin"), "Release"), "Packy.1.0.0.nupkg")
+    assert File.Exists(packagePath), packagePath
+
+    // The icon is a package entry at the archive ROOT, not under lib/.
+    assert PkArchiveEntries(packagePath) == "Packy.nuspec,lib/net10.0/Packy.dll,logo.png", PkArchiveEntries(packagePath)
+
+    nuspec := PkArchiveText(packagePath, "Packy.nuspec")
+    assert nuspec.Contains("<id>Packy</id>"), nuspec
+    assert nuspec.Contains("<version>1.0.0</version>"), nuspec
+    assert nuspec.Contains("<authors>Test Author</authors>"), nuspec
+    assert nuspec.Contains("<description>A packed thing</description>"), nuspec
+    // Two declared tags arrive space-joined, in declaration order.
+    assert nuspec.Contains("<tags>alpha beta</tags>"), nuspec
+    assert nuspec.Contains("<license type=\"expression\">MIT</license>"), nuspec
+    assert nuspec.Contains("<repository type=\"git\" url=\"https://example.invalid/packy\" />"), nuspec
+
+    Directory.Delete(directory, true)
+}
+
+test "nlc pack --version overrides the project version in the package name and the nuspec" {
+    directory := PkProject("nlc-pack-versionoverride")
+
+    run := NlcIn(directory, "pack --version 9.9.9")
+
+    assert run.ExitCode == 0, run.Stdout + run.Stderr
+    // The START line reports the version project.yml declares; the PACKAGE carries the override.
+    assert run.Stdout.Contains("Packing Packy 1.0.0..."), run.Stdout
+
+    overriddenPath := Path.Combine(Path.Combine(Path.Combine(directory, "bin"), "Release"), "Packy.9.9.9.nupkg")
+    assert File.Exists(overriddenPath), overriddenPath
+    assert PkArchiveText(overriddenPath, "Packy.nuspec").Contains("<version>9.9.9</version>"), PkArchiveText(overriddenPath, "Packy.nuspec")
+
+    Directory.Delete(directory, true)
 }
