@@ -2169,6 +2169,13 @@ class ColumnarMoveNextEmit {
     // Async mode: yields and awaits share ONE resume-state counter (walk order), awaits number their
     // awaiter fields with NextAwait, and suspension/completion go through the promise/result fields.
     IsAsync: bool
+    // THE DRIVE'S DEFERRED COMPLETION FLAG (async only). Completing the pending `MoveNextAsync`
+    // RELEASES THE CONSUMER, and a released consumer immediately re-drives this same machine on
+    // another thread — so the completion cannot happen while this drive still has rows to run. The
+    // suspension/finish sites set this local and `leave` instead; the one completion stands past
+    // every protected region, as the last thing the core does. -1 in a synchronous machine, which
+    // has no promise to complete.
+    AsyncCompletionLocal: int
     NextResume: int
     NextAwait: int
     NextAsyncEnumerator: int
@@ -2214,6 +2221,7 @@ class ColumnarMoveNextEmit {
         ResultLocal = resultLocal
         RegionEndLabel = regionEndLabel
         IsAsync = isAsync
+        AsyncCompletionLocal = -1
         NextResume = 0
         NextAwait = 0
         NextAsyncEnumerator = 0
@@ -2390,6 +2398,13 @@ class ColumnarIteratorBodyPlanner {
             k = k + 1
         }
         emit := new ColumnarMoveNextEmit(plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, true, 0, regionEnd, true, true, regionEntryLabels)
+        // The deferred-completion flag, cleared before the region opens: every suspension/finish site
+        // raises it and leaves, and the single completion past the region reads it.
+        boolTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(typeof(bool)), context.StructuralTypeReferences)
+        completionLocal := plan.DeclarePlanLocal(boolTypeIdx)
+        emit.AsyncCompletionLocal = completionLocal
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), completionLocal)
 
         plan.AppendBeginExceptionBlock(regionEnd)
         AppendMoveNextDispatch(emit, resumeCount)
@@ -2414,6 +2429,11 @@ class ColumnarIteratorBodyPlanner {
 
         plan.AppendBeginCatchBlock(exTypeIdx)
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), exLocal)
+        // A handler that threw WHILE the drive was already leaving for its completion lands here: the
+        // promise now carries the exception, so the deferred completion past the region must not also
+        // set a result on it.
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_0())
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), completionLocal)
         StoreState(emit, ColumnarIteratorPlanner.DoneState())
         // The exceptional path releases whatever the body was enumerating. A synchronous machine
         // does this from a FAULT handler; the async core already has to catch — an exception has to
@@ -2437,6 +2457,22 @@ class ColumnarIteratorBodyPlanner {
         // same fallthrough discipline as the sync fault handler's disposal tail).
         plan.AppendEndExceptionBlock()
 
+        // THE ONE COMPLETION, AND IT IS THE LAST THING THIS DRIVE DOES. Everything the drive still
+        // owed — the `leave` out of every protected region, and the state-guarded handlers that
+        // `leave` runs on the way out — has already happened, so the consumer this releases cannot
+        // observe a half-left machine, and the re-drive it issues on another thread races nothing.
+        completeLabel := plan.DefineLabel()
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), completionLocal)
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), completeLabel)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), plan.AddField(context.FieldForName("<>__promise")))
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), completeLabel)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), plan.AddField(context.FieldForName("<>__promise")))
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), plan.AddField(context.FieldForName("<>__result")))
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethod(PromiseSetResultMethod()))
+        plan.AppendMarkLabel(completeLabel)
         plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
         plan.CompleteMethodBody(VoidReturnType())
         return plan
@@ -6080,24 +6116,23 @@ class ColumnarIteratorBodyPlanner {
         AppendDisposeModeExit(emit, resumeState)
     }
 
-    // Complete one MoveNextAsync call with `value` (1 = yielded, 0 = finished) and leave the region.
-    // A live promise means a suspension already returned a pending ValueTask — complete through it;
-    // otherwise the drive is synchronous and the result flag feeds MoveNextAsync's fast path.
+    // ANSWER one MoveNextAsync call with `value` (1 = yielded, 0 = finished) and leave the region.
+    //
+    // The answer is RECORDED, not delivered: `<>__result` carries it and the drive's completion flag
+    // says there is one, and the single delivery stands past every protected region at the end of the
+    // core. Delivering it here would be a data race — a pending promise's `SetResult` releases the
+    // consumer, whose very next act is to re-drive this machine on another thread, while THIS thread
+    // still has the `leave` to run and the `leave` walks handlers that read `<>__state` to decide
+    // whether the machine is merely suspended. The loser of that race runs a `finally` twice.
+    //
+    // A synchronous drive left no promise, and `<>__result` is exactly the flag MoveNextAsync's fast
+    // path reads; the completion past the region sees no promise and delivers nothing.
     static func EmitAsyncComplete(emit: ColumnarMoveNextEmit, value: int) {
-        promPool := FieldPool(emit, "<>__promise")
-        viaPromise := emit.Plan.DefineLabel()
-        LoadThis(emit)
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), promPool)
-        emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), viaPromise)
         LoadThis(emit)
         EmitInt(emit, value)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, "<>__result"))
-        emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), emit.RegionEndLabel)
-        emit.Plan.AppendMarkLabel(viaPromise)
-        LoadThis(emit)
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), promPool)
-        EmitInt(emit, value)
-        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), emit.Plan.AddMethod(PromiseSetResultMethod()))
+        emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), emit.AsyncCompletionLocal)
         emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), emit.RegionEndLabel)
     }
 

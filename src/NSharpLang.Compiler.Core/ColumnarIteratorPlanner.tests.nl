@@ -19,6 +19,9 @@ class ColumnarAsyncProbeMachine {
     Shape: ColumnarIteratorShape
     StructuralTypeReferences: ColumnarStructuralTypeReferenceTable
     PlanningContext: ColumnarIteratorEmitContext
+    // The MoveNextCore plan the probe realized, kept so a contract can read the rows the machine
+    // actually runs rather than re-planning against an already-baked context.
+    CorePlan: ColumnarCodePlan
     StructuralRowsValidated: bool
     AwaiterStructuralRowRetained: bool
 
@@ -167,6 +170,7 @@ class ColumnarAsyncProbeMachine {
         PlanningContext = context
 
         corePlan := ColumnarIteratorBodyPlanner.BuildAsyncMoveNextCorePlan(context)
+        CorePlan = corePlan
         AssertIteratorPlanTypesAreKeyed(corePlan, structuralTypeReferences)
         assert IteratorPlanHasRuntimeType(corePlan, context.StateMachineType)
         assert IteratorPlanHasRuntimeType(corePlan, typeof(Exception))
@@ -2920,6 +2924,55 @@ test "async iterator planner core plan completes a fast-path await and yield syn
     host.InvokeVoidMember(machine, "MoveNextCore")
     assert host.ReadInt(machine, "<>__state") == -2
     assert !host.ReadBool(machine, "<>__result")
+}
+
+// THE PENDING CALL IS COMPLETED LAST, PAST EVERY PROTECTED REGION. `SetResult` RELEASES the
+// consumer, and a released consumer's very next act is to re-drive this same machine on another
+// thread — so a drive that still owes rows cannot complete yet. The rows it still owes are the
+// `leave` out of the body's regions, and a `leave` WALKS the handlers, each of which reads
+// `<>__state` to decide whether the machine is merely suspended. Completing inside the region let
+// the re-drive change that state under the handler's feet, and the handler then ran a `finally` a
+// second time — observed as a doubled release when an `await foreach` relayed one machine's
+// sequence to another.
+//
+// So the core records its answer in `<>__result`, leaves, and completes ONCE, after the last
+// `EndExceptionBlock` row. That is a plan fact, and this reads it off the rows the probe realized.
+test "async iterator core plan completes its promise after leaving every protected region" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Guarded(): IAsyncEnumerable<int> { try { await Task.Delay(1)\n yield 1\n yield 2 } finally { } }",
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+    assert probe.Shape.Supported
+    assert probe.Shape.TryRegionCount == 1
+    assert probe.Shape.YieldReturnCount == 2
+
+    host := new ColumnarAsyncProbeMachine(probe, "AsyncProbeCompletionOrder")
+    plan := host.CorePlan
+
+    completions := 0
+    lastCompletion := 0 - 1
+    lastRegionEnd := 0 - 1
+    i := 0
+    while i < plan.OperationCount {
+        if plan.OperationKinds[i] == ColumnarCodePlanContract.EndExceptionBlockOperation() {
+            lastRegionEnd = i
+        }
+        if plan.OperandKinds[i] == ColumnarCodePlanContract.MethodOperand() && plan.Methods[plan.OperandIndices[i]].Name == "SetResult" {
+            completions = completions + 1
+            lastCompletion = i
+        }
+        i = i + 1
+    }
+
+    // Two yields and a finish share ONE completion row, and it stands past the last region end.
+    assert completions == 1
+    assert lastRegionEnd >= 0
+    assert lastCompletion > lastRegionEnd
 }
 
 test "async iterator machine suspends on a real delay and resumes through the continuation" {
