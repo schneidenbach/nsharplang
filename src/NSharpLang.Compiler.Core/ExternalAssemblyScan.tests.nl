@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import System.Runtime.InteropServices
+import System.Runtime.Loader
 import NSharpLang.Cli
 
 func ExternalCopyAsset(sourcePath: string, destinationPath: string) {
@@ -526,4 +527,53 @@ test "a name no directory carries resolves to the empty string" {
     assert ExternalAssemblyScan.CommonAssemblyMetadataPath(directories, "NSharp.NotAnAssembly") == ""
     empty := new string[](0)
     assert ExternalAssemblyScan.CommonAssemblyMetadataPath(empty, "System.Runtime") == ""
+}
+
+// ── the exact-identity runtime handle ─────────────────────────────────────────
+
+test "an exact identity the default context already carries is answered by the default context" {
+    loaded := Assembly.Load("System.Text.Json")
+    path := loaded.get_Location()
+    assert path.Length > 0
+    identity := loaded.GetName().get_FullName()
+    resolved := ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, identity)
+    assert resolved != null
+    assert Object.ReferenceEquals(resolved, loaded)
+    assert Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(resolved), AssemblyLoadContext.Default)
+}
+
+test "an identity the file does not carry is refused by both routes" {
+    loaded := Assembly.Load("System.Text.Json")
+    path := loaded.get_Location()
+    assert path.Length > 0
+
+    // The FILE is real and loadable; only the demanded identity is wrong, which is exactly the
+    // shape a host-owned same-name assembly produces. Neither route may substitute another build.
+    assert ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, "System.Text.Json, Version=1.2.3.4, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51") == null
+    assert ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, "NSharp.NotAnAssembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null") == null
+}
+
+test "a file that is not an assembly at all has no executable handle" {
+    scratch := Path.Combine(Path.GetTempPath(), "nsharp-exact-identity-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(scratch)
+    try {
+        notAnAssembly := Path.Combine(scratch, "NotAnAssembly.dll")
+        File.WriteAllText(notAnAssembly, "this is not metadata")
+        assert ExternalAssemblyScan.TryLoadExactIdentityAssembly(notAnAssembly, "NotAnAssembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null") == null
+        assert ExternalAssemblyScan.TryLoadExactIdentityAssembly(Path.Combine(scratch, "Missing.dll"), "Missing, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null") == null
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
+
+test "the compiler's own reference context is a stable context that is not the default one" {
+    first := ExternalAssemblyScan.ExactIdentityLoadContext()
+    second := ExternalAssemblyScan.ExactIdentityLoadContext()
+    assert first != null
+    assert Object.ReferenceEquals(first, second)
+    assert !Object.ReferenceEquals(first, AssemblyLoadContext.Default)
+
+    // A second copy of a name the default context already holds is what this context exists for,
+    // so it must never be the context the host's own assemblies were loaded into.
+    assert !Object.ReferenceEquals(first, AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).get_Assembly()))
 }

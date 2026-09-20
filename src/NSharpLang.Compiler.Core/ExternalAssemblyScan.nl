@@ -80,6 +80,61 @@ class ExternalAssemblyScanResult {
 // handle. The two identities must match byte-for-byte. Arbitrary AppDomain assemblies never enter
 // semantic order, and a broken later slot cannot invalidate an earlier winner.
 class ExternalAssemblyScan {
+
+    // WHY THE COMPILER OWNS A LOAD CONTEXT OF ITS OWN.
+    //
+    // `Assembly.LoadFrom` binds into the DEFAULT load context, and the default context holds at
+    // most one assembly per SIMPLE NAME. That is invisible under the standalone CLI, whose default
+    // context carries nothing but the compiler. It is decisive when the compiler runs as an MSBuild
+    // task: the .NET SDK directory ships `Microsoft.Extensions.Logging.Abstractions`,
+    // `Microsoft.Extensions.DependencyInjection.Abstractions` and the rest of that family at the
+    // SDK's own version, so `LoadFrom` of a project's 9.0.0 package FILE answers with the host's
+    // 10.0.0 assembly. The identity does not match, the reference is correctly refused as an
+    // executable handle, and the entry stays metadata-only -- so every signature naming one of its
+    // types declines at `emit.declaration.field-type`, while the identical project builds through
+    // `nlc build`. MEASURED: a field typed `ILogger` from the 9.0.0 package declines through the
+    // SDK and emits through the CLI; the same field from the 10.0.0 package, whose identity is the
+    // one the host already holds, emits through both.
+    //
+    // A context of the compiler's own gives the requested FILE an executable handle without
+    // displacing the host's. Unresolved dependencies of an assembly loaded here still fall back to
+    // the default context, so it keeps binding `System.Runtime` and friends exactly as before, and
+    // the context is consulted ONLY after the default context has failed to answer with the exact
+    // identity -- a same-name build the host already owns is still preferred when its identity is
+    // the requested one.
+    private static readonly s_exactIdentityReferences: AssemblyLoadContext = new AssemblyLoadContext("nsharp-exact-identity-references", false)
+
+    static func ExactIdentityLoadContext(): AssemblyLoadContext {
+        return s_exactIdentityReferences
+    }
+
+    // The default context first, exactly as before, and the compiler's own context only for the
+    // file the default context declined to answer for. Both answers are checked against the exact
+    // identity, so neither route can substitute a different build.
+    static func TryLoadExactIdentityAssembly(path: string, identity: string): Assembly? {
+        try {
+            loaded := Assembly.LoadFrom(path)
+            if RuntimeAssemblyHasIdentity(loaded, identity) {
+                return loaded
+            }
+        } catch {
+
+            // A file the default context cannot take is still a candidate for the owned context.
+        }
+
+        try {
+            owned := ExactIdentityLoadContext().LoadFromAssemblyPath(Path.GetFullPath(path))
+            if RuntimeAssemblyHasIdentity(owned, identity) {
+                return owned
+            }
+        } catch {
+
+            // An image that will not load at all has no executable handle; stay metadata-only.
+        }
+
+        return null
+    }
+
     static func Loaded(): Assembly[] {
         assemblies := AppDomain.CurrentDomain.GetAssemblies()
         loaded := new List<Assembly>()
@@ -1180,16 +1235,13 @@ class ExternalAssemblyScan {
                 return null
             }
 
-            try {
-                loaded := Assembly.LoadFrom(path)
-                if RuntimeAssemblyHasIdentity(loaded, identity) {
-                    if selectedModuleVersionId.Length > 0 && RuntimeAssemblyModuleVersionId(loaded) == selectedModuleVersionId {
-                        return selected
-                    }
-
-                    return loaded
+            exactLoaded := TryLoadExactIdentityAssembly(path, identity)
+            if exactLoaded != null {
+                if selectedModuleVersionId.Length > 0 && RuntimeAssemblyModuleVersionId(exactLoaded) == selectedModuleVersionId {
+                    return selected
                 }
-            } catch {
+
+                return exactLoaded
             }
 
             // An incompatible runtime image cannot satisfy this exact identity. Let the metadata
@@ -1208,12 +1260,9 @@ class ExternalAssemblyScan {
             return null
         }
 
-        try {
-            loaded := Assembly.LoadFrom(path)
-            if RuntimeAssemblyHasIdentity(loaded, identity) {
-                return loaded
-            }
-        } catch {
+        exactPathLoaded := TryLoadExactIdentityAssembly(path, identity)
+        if exactPathLoaded != null {
+            return exactPathLoaded
         }
 
         // Reference assemblies and incompatible runtime images intentionally remain metadata-only.
