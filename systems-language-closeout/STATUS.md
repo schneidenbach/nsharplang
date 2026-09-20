@@ -31,7 +31,132 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-### Census wave 12 — current closeout cursor (2026-09-19)
+### Census wave 13 — current closeout cursor (2026-09-20)
+
+**Tip.** Wave 13 is integrated, **pushed and gated** through `d57586f54` on `census/merge`, which
+**equals `origin/systems-language`** (pushed 2026-09-20). Sixteen commits since the wave-12 tip
+`01f10ddfd`. The integration checkout is clean. The five lane worktrees — `ivt2`, `cli2`, `cli3`,
+`ls2`, `blockers` — were **retired after ancestry and cleanliness checks**. **No new bootstrap seed
+was published**; the seed is still `6a50c373e` and the compiler has changed since.
+
+| Required step | State | Receipt |
+|---|---|---|
+| IVT2 | **LANDED**, three gaps open | `d6a1b2684`, `881d330f2`, `02b879b7e` |
+| SIGHELP — N# overload-signature owner | **LANDED** | `750e10a28`; `evidence/ls2-sighelp/` |
+| CLI owner conversion | **PARTIAL** — 5 owners, 6 C# files left | `5b69d1646` … `68f1b4c8e` |
+| LanguageServer owner conversion | **BLOCKED**, flip reverted | `census-briefs/LS2-COMPILER-BLOCKERS.md` |
+| Playground / Runtime / Wasm-hosting | **NOT STARTED** | — |
+| Non-VS gate at `d57586f54` | **PASS on rerun**, after 1 load-caused FAIL | `evidence/combined-d57586f54/` |
+| VS-enabled gate at `d57586f54` | **PASS** | `evidence/combined-d57586f54/product-vscode.log` |
+| Push to `origin/systems-language` | DONE 2026-09-20 | `d57586f54` |
+| Lane retirement (5) | DONE | ancestry + clean checks |
+| Rendered visual IDE proof | **OWED** | never produced |
+| Extension reload | **OWED** | VS Code would not quit |
+| New seed / reseed | **NOT DONE**, decision deferred | scratch validation only, `combined-e5ce20f39/` |
+
+**Not a completion claim.** The managed-toolchain production migration is NOT complete. Measured at
+`d57586f54` with `find <project> -name '*.cs' -not -path '*/obj/*' -not -path '*/bin/*' | xargs wc -l`:
+
+| Project | C# lines | Files |
+|---|---:|---:|
+| `src/NSharpLang.LanguageServer` | 8,167 | 31 |
+| `src/NSharpLang.Cli` | 3,335 | 6 |
+| `src/NSharpLang.Runtime` | 861 | 4 |
+| `src/NSharpLang.Playground.Wasm` | 71 | 2 |
+| `src/NSharpLang.Playground` | 0 | 0 |
+| `.Compiler`, `.Compiler.Core`, `.Build.Tasks`, `.Sdk` | 0 | 0 |
+
+Remaining CLI C#: `QueryCommand.cs` 1,081 · `Program.cs` 757 (down from 786) · `DaemonServer.cs` 632
+· `Program.Testing.cs` 614 · `WatchCommand.cs` 155 · `DaemonCommand.cs` 96. Largest LanguageServer
+survivors: `DocumentManager.cs` 1,449 · `SemanticTokensHandler.cs` 842 · `CallHierarchyHandler.cs`
+734 · `CompletionHandler.cs` 620 · `SelectionRangeHandler.cs` 552.
+
+**What moved.** IVT2: qualified-internal refusal `NL201` (`d6a1b2684`); `internalsVisibleTo:` emitted
+from `project.yml` via the new `ColumnarInternalsVisibleToEmitter.nl` (`881d330f2`); `internal` said
+in hover and reachable from `query` (`02b879b7e`); `census-internals-visible-to` **14 → 27** (the
+dispatch brief's "10" is wrong — 14 is what `evidence/seed-6a50c373e/product-non-vscode.log` prints).
+CLI: `Program.Backends.cs` (366) → `CliIlBackend.nl` (346); `PackCommand.cs` (204); `DaemonProtocol.cs`
+(100); `DaemonClient.cs` (233) → `DaemonClient.nl` (258); `BatchQueryRunner.cs` (505) →
+`BatchQueryRunner.nl` (703) — all five C# files **deleted**. LanguageServer: signature help resolved
+through the **project snapshot** in N# (`SignatureHelpOverloadFacts.nl` 429 + `SignatureHelpEngine.nl`),
+`SignatureHelpHandler.cs` **382 → 151**, `language-server-handlers` **132 → 139**; folding →
+`EditorFoldingFacts.nl`, `FoldingRangeHandler.cs` **299 → 81**; a declaration's source is now read
+only when its doc comment is wanted (`c7333e15a`).
+
+**Compiler blockers fixed on merge** (the `a2b98cd11`-equivalents): declared parameterless ctor bound
+for object initializers (`c8f0ddec9`); a positional call may omit a defaulted parameter **in its own
+compilation** (`90e2f21f3`); a call whose receiver is a **static-member read** can be an argument
+(`e5ce20f39`).
+
+**Still open.** IVT2: non-friend **member** refusals still arrive as emit-time `NL103`; `query def`
+on a metadata member returns `noSymbol`; free functions of a referenced N# assembly are unreachable.
+CLI2 defects 3–8 (`SHA256.HashData`/`ComputeHash` unmodeled; string literal in an interpolation hole;
+`catch` of a type not in the core assembly; `Interlocked.Increment(ref <static field>)`;
+`Process.MainModule`; **N#-emitted metadata carries no nullability across the assembly boundary**).
+LS2 BLOCK-1 … BLOCK-5 (`nlc restore` writes no `PackageReference`; instance call through an
+`External<SourceType>` receiver; `System.IO.Pipelines`; Serilog `AddFile`; `Process.WaitForExitAsync`).
+
+**Gate history — three failures before the accepted pair, recorded honestly.**
+
+1. **`e5ce20f39` non-VS FAILED (`EXIT=1`)** at the self-host front door:
+   `Compiler.Core: 1351 diagnostics, ceiling 1342 — the compiler's own source got WORSE through its
+   own front door` — nine new diagnostics from the round's own new N#.
+2. **`c751edd7e`** took the front door back under its ceiling at **1,340** (including a checker
+   false-positive fix adding `System.Reflection.Emit` to `ExternalAssemblyScan.CommonAssemblyNames`)
+   and **ratcheted the ceiling DOWN to 1340** — then its own non-VS gate **FAILED (`EXIT=1`)** on
+   `ownership-audit` `OWN005 [tests/scripts/test-all-core.sh]: reviewed delivery snapshot drift;
+   expected text-v1:d2b8de9771eb4ebf; observed text-v1:919e5bfcaac33f8c at lines=1019, nonblank=916`.
+3. **`d57586f54`** repins that row (ownership head **`head-v2:9754bd17b78a7d95`**). Its **first**
+   non-VS run **FAILED (`EXIT=1`, 36m38s)** on throughput —
+   `count-transitions | 4096 | 583.086 | 718.006 | 1.23x | FAIL`, `load average { 5.53 5.08 4.75 }`,
+   10 cores — caused by a **leaked subagent spin-loop shell, not a product change**; the log is
+   retained as `product-non-vscode.FAILED-throughput-under-load.log`.
+
+**Accepted gate pair at `d57586f54`** (`evidence/combined-d57586f54/`, pinned in `SHA256SUMS`;
+`load-before-gate.txt` records `load averages: 1.71 2.61 2.82`): non-VS **PASS `EXIT=0`, 32m11s,
+cache `71aa565f2527174a`** (1931s); VS-enabled **PASS `EXIT=0`, 33m09s, cache `f1aad93e8d2e9483`**
+(1989s) with **36 VS Code smoke passing, 0 pending/skipped** in 42s. Stage numbers exactly as the
+non-VS log prints them:
+
+- **Format contract gate** PASSED.
+- **Throughput:** `PASS: 12 cells, 0 failed, tolerance 1.20x`; **worst 1.01x** (`count-transitions`/4096,
+  583.086 → 588.018 ns); **load average { 2.81 2.76 2.86 }**, 10 cores; baseline unchanged
+  (2026-09-01, idle Apple M4, `8cf40128a`). VS run: **worst 1.05x** (`rolling-hash`, both sizes) at
+  **load { 4.17 4.10 3.83 }**.
+- **Self-host front door:** `Compiler.Core: 1340 diagnostics (at the ceiling)`; `Build.Tasks: 0
+  diagnostics (at the ceiling)`; **`Compiler` and `Playground` BLOCKED behind Compiler.Core, not
+  counted**. 11m19s.
+- **Estate:** `Failed: 0, Passed: 9326, Skipped: 0, Total: 9326`, 17s (VS run 15s).
+- **Native:** **110 rows, 4,593 passed, 0 failed, 1 skipped, 4,594 total**, 16m55s. Within it:
+  **gate-script contracts 38/38 — MEASURED at this tip**, closing the "no contracts row printed" gap
+  carried from `d932566aa`; **ownership audit 25/25**; **compile-time bench 74 functional pass with
+  the timing still UNJUDGED** — the log prints no verdict, no load and no ms for that row.
+- **`nlc check`:** 26 example directories, all PASSED. **IL:** `All 80 N# assemblies pass IL
+  verification (no new errors vs baseline)`.
+- **Row delta fully accounted:** 110 rows both runs (no new project); 4,552 → 4,593 (+41) =
+  `census-internals-visible-to` +13, `language-server-handlers` +7, `census-named-arguments` +7,
+  `cli-command-contracts` +6, `construction-arrays` +6, `census-emit-shapes` +2. The one skip is the
+  same intentional `census-testrefs` 7/0/1/8. Estate 9,295 → 9,326 (+31).
+
+**Scratch self-host at `e5ce20f39`** (`combined-e5ce20f39/scratch-selfhost.log`): both stages clean,
+`RESEED_EXIT=0`, estate against the new scratch seed **9,325 / 0 / 0** in 18s. The two
+`RESULT … FAILED` lines in that log are `MSB1009: Project file does not exist` for the retired
+`NSharpLang.Cli.csproj` / `NSharpLang.LanguageServer.csproj` names — **not build failures**; the real
+`Cli.csproj` and `LanguageServer.csproj` both built OK in the same log. **Nothing was published.**
+
+**OWED, and now larger:** the **extension reload** still fails because **VS Code would not quit**, so
+the installed extension predates this wave; the **rendered visual IDE proof** has never been produced
+and must now **also cover the new signature help and the new hover accessibility marker**.
+
+**Lessons (also filed in §2):** no spin-wait loops in agents — one cost a 36-minute gate; measure the
+front door before reporting done; re-run the ownership audit **last** after any tracked non-N# edit;
+clean stale `obj/` before a scratch reseed; the Cli build emits **3 `CS0436` duplicate-`Program`
+warnings** from the `Compiler` assembly (`Program.cs:750`, `Program.cs:753`,
+`Commands/WatchCommand.cs:129`) — followup, not a gate failure.
+
+### Census wave 12 — superseded cursor (2026-09-19)
+
+*Superseded by the wave-13 cursor above. Retained as written.*
 
 **Tip.** Wave 12 is integrated, **pushed, reseeded and gated** through
 `d932566aae5fc9522b558941704292f415c1b5e9` on `census/merge`, which **equals
