@@ -221,10 +221,53 @@ class ColumnarInterpolationSplitter {
         return partCount + 1
     }
 
+    // THE END OF A STRING LITERAL WRITTEN INSIDE A HOLE. `start` is the index of its opening quote
+    // and the answer is the index just PAST the closing quote, or -1 when nothing closes it before
+    // `end`. A backslash escape consumes the character after it, so `"\""` is one literal and not
+    // two -- which is the whole reason this cannot be a search for the next quote.
+    //
+    // Every hole scan below consults it because a quoted region is OPAQUE to the hole grammar: the
+    // `}`, `:` and `,` that decide where a hole ends, where its format specifier begins and where
+    // its arguments divide are structure only OUTSIDE quotes. Reading them inside a literal is what
+    // made `$"{name.Replace("o", "0")}"` unsplittable.
+    static func ColumnarInterpolatedStringQuotedRegionEnd(literal: string, start: int, end: int): int {
+        if start < 0 || start >= end || literal[start] != '"' {
+            return -1
+        }
+
+        i := start + 1
+        while i < end {
+            ch := literal[i]
+            if ch == '\\' {
+                i = i + 2
+                continue
+            }
+
+            if ch == '"' {
+                return i + 1
+            }
+
+            i = i + 1
+        }
+
+        return -1
+    }
+
     static func FindColumnarInterpolatedStringClose(literal: string, start: int, end: int): int {
         i := start
         while i < end {
-            if literal[i] == '}' {
+            ch := literal[i]
+            if ch == '"' {
+                quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, i, end)
+                if quotedEnd < 0 {
+                    return -1
+                }
+
+                i = quotedEnd
+                continue
+            }
+
+            if ch == '}' {
                 return i
             }
 
@@ -248,11 +291,26 @@ class ColumnarInterpolationSplitter {
         return false
     }
 
+    // The FORMAT SPECIFIER boundary, which is the first colon that is part of the hole's structure.
+    // A colon inside a string literal operand is content: `$"{Join(": ", parts):X}"` has exactly
+    // one format specifier and it is the trailing `X`.
     static func FindColumnarInterpolatedStringColon(literal: string, start: int, length: int): int {
-        i := 0
-        while i < length {
-            if literal[start + i] == ':' {
-                return start + i
+        end := start + length
+        i := start
+        while i < end {
+            ch := literal[i]
+            if ch == '"' {
+                quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, i, end)
+                if quotedEnd < 0 {
+                    return -1
+                }
+
+                i = quotedEnd
+                continue
+            }
+
+            if ch == ':' {
+                return i
             }
 
             i = i + 1
@@ -323,8 +381,13 @@ class ColumnarInterpolationSplitter {
             return true
         }
 
+        // A no-argument call on an identifier chain. It is a MATCH, not a decision: a chain that is
+        // not a bare identifier chain -- `name.Contains("zz").ToString()`, whose receiver holds a
+        // string literal -- must still be offered to the arms below rather than refused here.
         if length > 2 && literal[start + length - 2] == '(' && literal[start + length - 1] == ')' {
-            return ColumnarInterpolatedStringIsIdentifierChain(literal, start, length - 2)
+            if ColumnarInterpolatedStringIsIdentifierChain(literal, start, length - 2) {
+                return true
+            }
         }
 
         if length > 4 && literal[start + length - 1] == ')' {
@@ -332,6 +395,16 @@ class ColumnarInterpolationSplitter {
             i := 0
             while i < length {
                 ch := literal[start + i]
+                if ch == '"' {
+                    quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, start + i, start + length)
+                    if quotedEnd < 0 {
+                        return false
+                    }
+
+                    i = quotedEnd - start
+                    continue
+                }
+
                 if ch == '(' {
                     if openParen >= 0 {
                         return false
@@ -374,7 +447,21 @@ class ColumnarInterpolationSplitter {
         i := 0
         while i < length {
             ch := literal[start + i]
-            if ch == '{' || ch == '}' || ch == ':' || ch == '"' || ch == '\\' {
+
+            // A STRING LITERAL IS AN OPERAND. Its contents are skipped whole, so the braces,
+            // colons and commas inside it are content rather than hole structure -- and an
+            // unterminated one is still refused.
+            if ch == '"' {
+                quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, start + i, start + length)
+                if quotedEnd < 0 {
+                    return false
+                }
+
+                i = quotedEnd - start
+                continue
+            }
+
+            if ch == '{' || ch == '}' || ch == ':' || ch == '\\' {
                 return false
             }
 
@@ -601,6 +688,16 @@ class ColumnarInterpolationSplitter {
         j := openParen + 1
         while j < length - 1 {
             ch := literal[start + j]
+            if ch == '"' {
+                quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, start + j, start + length - 1)
+                if quotedEnd < 0 {
+                    return false
+                }
+
+                j = quotedEnd - start
+                continue
+            }
+
             if ch == ',' && parenDepth == 0 && bracketDepth == 0 {
                 if !ColumnarInterpolatedStringIsSupportedCallArgument(literal, start + segmentStart, j - segmentStart) {
                     return false
@@ -642,10 +739,22 @@ class ColumnarInterpolationSplitter {
         parenDepth := 0
         bracketDepth := 0
         sawOperator := false
+        sawQuotedOperand := false
         i := 0
         while i < length {
             ch := literal[start + i]
-            if ch == '{' || ch == '}' || ch == ':' || ch == '"' || ch == '\\' {
+            if ch == '"' {
+                quotedEnd := ColumnarInterpolatedStringQuotedRegionEnd(literal, start + i, start + length)
+                if quotedEnd < 0 {
+                    return false
+                }
+
+                sawQuotedOperand = true
+                i = quotedEnd - start
+                continue
+            }
+
+            if ch == '{' || ch == '}' || ch == ':' || ch == '\\' {
                 return false
             }
 
@@ -674,7 +783,9 @@ class ColumnarInterpolationSplitter {
             i = i + 1
         }
 
-        return sawOperator && parenDepth == 0 && bracketDepth == 0
+        // A hole that is nothing but a string literal (`{"literal"}`) has no operator and is still
+        // a value the parsed-hole plan can type, so the quoted operand admits it on its own.
+        return (sawOperator || sawQuotedOperand) && parenDepth == 0 && bracketDepth == 0
     }
 
     static func ColumnarInterpolatedStringIsSupportedCastHoleExpression(literal: string, start: int, length: int): bool {

@@ -37,8 +37,10 @@ test "the splitter rejects malformed multi argument call holes" {
     unbalanced := new List<ColumnarInterpolationPart>()
     assert !ColumnarInterpolationSplitter.TrySplit("$\"bad={String.Join(a, b))}\"", unbalanced), "An unbalanced argument list must not split."
 
-    stringArgument := new List<ColumnarInterpolationPart>()
-    assert !ColumnarInterpolationSplitter.TrySplit("$\"bad={String.Join(a, \\\"x\\\")}\"", stringArgument), "A nested string-literal argument must not split."
+    // A nested string-literal argument SPLITS now; the row that used to assert the opposite was
+    // pinning the limitation this family exists to remove. Its positive form is below.
+    unterminatedString := new List<ColumnarInterpolationPart>()
+    assert !ColumnarInterpolationSplitter.TrySplit("$\"bad={String.Join(a, \"x)}\"", unterminatedString), "An unterminated string-literal argument must not split."
 
     trailingComma := new List<ColumnarInterpolationPart>()
     assert !ColumnarInterpolationSplitter.TrySplit("$\"bad={String.Join(a,)}\"", trailingComma), "An empty trailing argument must not split."
@@ -429,4 +431,86 @@ test "the splitter accepts both equality holes" {
     assert notEqual.Count == 2
     assert notEqual[1].IsHole
     assert notEqual[1].Text == "a != c"
+}
+
+// ── a string literal written inside a hole ────────────────────────────────────
+//
+// A quoted region is OPAQUE to the hole grammar. Before this family the scans read the `}`, `:`
+// and `,` inside one as structure, so the hole ended at the wrong brace, the format specifier was
+// taken from the wrong colon, and every operand scan rejected a quote outright besides.
+
+test "a string literal is an operand inside a call hole" {
+    single := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"hello {name.Replace(\"o\", \"0\")}\"", single)
+    assert single.Count == 2
+    assert !single[0].IsHole
+    assert single[0].Text == "hello "
+    assert single[1].IsHole
+    assert single[1].Text == "name.Replace(\"o\", \"0\")"
+    assert single[1].Format == null
+
+    // A COMMA inside the literal is content, so the argument list still has exactly two slots.
+    comma := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"joined {String.Join(\", \", parts)}\"", comma)
+    assert comma.Count == 2
+    assert comma[1].IsHole
+    assert comma[1].Text == "String.Join(\", \", parts)"
+
+    // And so is a BRACE, which would otherwise close the hole early.
+    brace := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"x {Wrap(\"}\")} y\"", brace)
+    assert brace.Count == 3
+    assert brace[1].IsHole
+    assert brace[1].Text == "Wrap(\"}\")"
+    assert brace[2].Text == " y"
+}
+
+test "a colon inside a string literal is content and the format specifier is still the trailing one" {
+    inside := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"{String.Join(\": \", parts)}\"", inside)
+    assert inside.Count == 1
+    assert inside[0].IsHole
+    assert inside[0].Text == "String.Join(\": \", parts)"
+    assert inside[0].Format == null
+
+    after := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"{Count(\"a:b\"):X4}\"", after)
+    assert after.Count == 1
+    assert after[0].IsHole
+    assert after[0].Text == "Count(\"a:b\")"
+    assert after[0].Format == "X4"
+}
+
+test "an escaped quote inside a hole literal does not end it" {
+    escaped := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"{name.Replace(\"\\\"\", \"'\")}\"", escaped)
+    assert escaped.Count == 1
+    assert escaped[0].IsHole
+    assert escaped[0].Text == "name.Replace(\"\\\"\", \"'\")"
+}
+
+test "a hole that is nothing but a string literal splits, and escaped braces around it stay text" {
+    bare := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"bare {\"literal\"}\"", bare)
+    assert bare.Count == 2
+    assert !bare[0].IsHole
+    assert bare[0].Text == "bare "
+    assert bare[1].IsHole
+    assert bare[1].Text == "\"literal\""
+
+    braces := new List<ColumnarInterpolationPart>()
+    assert ColumnarInterpolationSplitter.TrySplit("$\"{{not a hole}} {Quote(\"x\")}\"", braces)
+    assert braces.Count == 2
+    assert !braces[0].IsHole
+    assert braces[0].Text == "{not a hole} "
+    assert braces[1].IsHole
+    assert braces[1].Text == "Quote(\"x\")"
+}
+
+test "an unterminated literal inside a hole still declines the whole split" {
+    unterminatedHole := new List<ColumnarInterpolationPart>()
+    assert !ColumnarInterpolationSplitter.TrySplit("$\"{Quote(\"x)}\"", unterminatedHole), "An unterminated hole literal must not split."
+
+    quotedFormat := new List<ColumnarInterpolationPart>()
+    assert !ColumnarInterpolationSplitter.TrySplit("$\"{value:\"X\"}\"", quotedFormat), "A quoted format specifier must not split."
 }
