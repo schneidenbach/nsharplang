@@ -1077,6 +1077,7 @@ nlc query <cmd>
 | `src/NSharpLang.Cli/Daemon/DaemonClient.cs` | Daemon client for QueryCommand |
 | `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` | Shared analysis engine |
 | `src/NSharpLang.Compiler/CodeIntelligence/CompletionEngine.nl` | LLM-optimized completions (snapshot plumbing; policy lives in `NSharpLang.Compiler.Core/CompletionEngineKernels.nl`) |
+| `src/NSharpLang.Compiler/CodeIntelligence/SignatureHelpEngine.nl` | Overload signatures for a call being typed (snapshot plumbing; policy lives in `NSharpLang.Compiler.Core/SignatureHelpOverloadFacts.nl`). It resolves through the PROJECT SNAPSHOT, the same program completion asks, so an external instance or static method, a whole overload set and a type declared in another file all answer — the current document's own declaration table, which is all `textDocument/signatureHelp` used to read, could answer none of them |
 | `src/NSharpLang.Compiler/CodeIntelligence/OutputFormatter.cs` | JSON + Elm-style formatters |
 | `src/NSharpLang.Compiler/CodeIntelligence/FixApplicator.cs` | TextEdit application |
 | `src/NSharpLang.Compiler.Core/CodeIntelligenceModels.nl` | Result types (SymbolResult, etc.) |

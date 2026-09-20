@@ -274,3 +274,167 @@ func main(): void
     assert signature.Label.Contains("name: string", StringComparison.Ordinal)
     assert signature.Label.Contains("greeting: string", StringComparison.Ordinal)
 }
+
+// ---------------------------------------------------------------------------
+// Signature help beyond the current document.
+//
+// Signature help used to read only the open buffer's own declaration table, so a
+// BCL method, an overload set and a type declared in the file next door all
+// answered null. It now resolves through the same project snapshot completion
+// uses, and these are the shapes that regression covers.
+// ---------------------------------------------------------------------------
+
+test "signature help resolves an external instance method on a typed local" {
+    docs := LshNewDocs()
+    uri := "file:///external-instance.nl"
+    source := "\nfunc main(): void\n    greeting := \"hello\"\n    greeting.CompareTo("
+    LshOpen(docs, uri, source)
+
+    help := LshSignatureHelp(docs, uri, 3, 23)
+
+    assert help != null
+    assert LshSignatureCount(help) > 0
+    assert LshHasSignatureContaining(help, "CompareTo(")
+    signature := LshSignatureContaining(help, "CompareTo(")
+    assert LshParameterCount(signature) >= 1
+}
+
+test "signature help shows every overload of an external instance method" {
+    docs := LshNewDocs()
+    uri := "file:///external-overloads.nl"
+    source := "\nfunc main(): void\n    greeting := \"hello\"\n    greeting.IndexOf("
+    LshOpen(docs, uri, source)
+
+    help := LshSignatureHelp(docs, uri, 3, 21)
+
+    assert help != null
+    // `string.IndexOf` is an overload set, and the old current-document path could
+    // only ever answer one signature for a name.
+    assert LshSignatureCount(help) > 1
+}
+
+test "signature help resolves an external static method" {
+    docs := LshNewDocs()
+    uri := "file:///external-static.nl"
+    source := "\nfunc main(): void\n    Console.WriteLine("
+    LshOpen(docs, uri, source)
+
+    help := LshSignatureHelp(docs, uri, 2, 22)
+
+    assert help != null
+    assert LshSignatureCount(help) > 0
+    assert LshHasSignatureContaining(help, "WriteLine(")
+}
+
+test "signature help follows the active parameter into an external overload" {
+    docs := LshNewDocs()
+    uri := "file:///external-active-parameter.nl"
+    source := "\nfunc main(): void\n    Math.Max(1, "
+    LshOpen(docs, uri, source)
+
+    help := LshSignatureHelp(docs, uri, 2, 16)
+
+    assert help != null
+    assert LshSignatureCount(help) > 0
+    assert help.ActiveParameter == 1
+}
+
+test "signature help names the active parameter of an external overload by its own name" {
+    docs := LshNewDocs()
+    uri := "file:///external-parameter-rows.nl"
+    source := "\nfunc main(): void\n    Math.Max(1, "
+    LshOpen(docs, uri, source)
+
+    help := LshSignatureHelp(docs, uri, 2, 16)
+
+    assert help != null
+    signature := LshSignatureAt(help, help.ActiveSignature ?? 0)
+    assert LshParameterCount(signature) == 2
+    // Reflected rows carry the declared parameter NAME, not a positional placeholder.
+    assert signature.Label.Contains("val1", StringComparison.Ordinal)
+    assert signature.Label.Contains("val2", StringComparison.Ordinal)
+}
+
+test "signature help resolves a method on a type declared in another file" {
+    docs := LshNewDocs()
+    root := LshTempRoot("nsharp-lsp-signature-cross-file-")
+    try {
+        LshWrite(root, "Greeter.nl", LshRaw(
+            """
+namespace CrossFileSignature
+
+class Greeter {
+    func Greet(name: string, times: int): string {
+        return name
+    }
+}
+"""
+        ))
+        usePath := LshWrite(root, "UseGreeter.nl", LshRaw(
+            """
+namespace CrossFileSignature
+
+func main(): void
+    greeter := new Greeter()
+    greeter.Greet(
+"""
+        ))
+
+        docs.ScanWorkspaceDirectory(root)
+        useUri := LshFileUri(usePath)
+
+        help := LshSignatureHelp(docs, useUri, 4, 18)
+
+        assert help != null
+        assert LshSignatureCount(help) > 0
+        signature := LshSignatureContaining(help, "Greet(")
+        assert signature.Label.Contains("name: string", StringComparison.Ordinal)
+        assert signature.Label.Contains("times: int", StringComparison.Ordinal)
+        assert signature.Label.Contains(": string", StringComparison.Ordinal)
+        assert LshParameterCount(signature) == 2
+    } finally {
+        LshDeleteTree(root)
+    }
+}
+
+test "signature help resolves a constructor of a type declared in another file" {
+    docs := LshNewDocs()
+    root := LshTempRoot("nsharp-lsp-signature-cross-file-ctor-")
+    try {
+        LshWrite(root, "Person.nl", LshRaw(
+            """
+namespace CrossFileConstructor
+
+class Person {
+    Name: string
+
+    constructor(name: string, age: int) {
+        Name = name
+    }
+}
+"""
+        ))
+        usePath := LshWrite(root, "UsePerson.nl", LshRaw(
+            """
+namespace CrossFileConstructor
+
+func main(): void
+    person := new Person(
+"""
+        ))
+
+        docs.ScanWorkspaceDirectory(root)
+        useUri := LshFileUri(usePath)
+
+        help := LshSignatureHelp(docs, useUri, 3, 25)
+
+        assert help != null
+        assert LshSignatureCount(help) > 0
+        signature := LshSignatureContaining(help, "Person(")
+        assert signature.Label.Contains("name: string", StringComparison.Ordinal)
+        assert signature.Label.Contains("age: int", StringComparison.Ordinal)
+        assert LshParameterCount(signature) == 2
+    } finally {
+        LshDeleteTree(root)
+    }
+}

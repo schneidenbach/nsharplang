@@ -1,26 +1,31 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
-using NSharpLang.LanguageServer.Models;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
-using CompilerTypeInfo = NSharpLang.Compiler.TypeInfo;
+using CodeIntel = NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
 /// <summary>
 /// Handles signature help (parameter info when typing method calls).
+///
+/// Every decision is N#-owned: <c>SignatureHelpArgumentFacts</c> finds the call the caret is inside
+/// and <c>CodeIntel.SignatureHelpEngine</c> resolves it against the PROJECT SNAPSHOT — the same
+/// program completion asks — so a BCL method, an overload set and a type declared in another file
+/// all answer. What is left here is the protocol: OmniSharp's SignatureHelp, SignatureInformation,
+/// ParameterInformation and MarkupContent, which N# cannot name.
 /// </summary>
 public class SignatureHelpHandler : SignatureHelpHandlerBase
 {
     private readonly DocumentManager _documentManager;
     private readonly ILogger<SignatureHelpHandler> _logger;
+    private readonly CodeIntel.SignatureHelpEngine _signatureHelpEngine = new();
 
     public SignatureHelpHandler(
         DocumentManager documentManager,
@@ -28,6 +33,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     {
         _documentManager = documentManager;
         _logger = logger;
+        _signatureHelpEngine.UseAnalyzer(documentManager.SharedAnalyzer);
     }
 
     public override Task<SignatureHelp?> Handle(SignatureHelpParams request, CancellationToken cancellationToken)
@@ -53,66 +59,25 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
 
             _logger.LogDebug("Signature help for: {Method}", callInfo.MethodName);
 
-            var argumentText = callInfo.ArgumentText;
-            var argumentCount = SignatureHelpArgumentFacts.ArgumentCount(argumentText);
-
-            // Constructor call (new TypeName(...)) — look up constructors for the type
-            if (callInfo.IsConstructor)
-            {
-                var ctorSignatures = BuildNSharpConstructorSignatures(doc, callInfo.MethodName);
-                if (ctorSignatures.Count > 0)
-                {
-                    _logger.LogDebug("Found N# constructor for {Type} with {Count} signature(s)",
-                        callInfo.MethodName, ctorSignatures.Count);
-
-                    return Task.FromResult<SignatureHelp?>(CreateSignatureHelp(
-                        ctorSignatures,
-                        argumentText,
-                        argumentCount));
-                }
-
-                return Task.FromResult<SignatureHelp?>(null);
-            }
-
-            // Bare function call (no dot) — try N# function lookup first
-            if (callInfo.ReceiverName == null)
-            {
-                var nsharpSignatures = BuildNSharpFunctionSignatures(doc, callInfo.MethodName);
-                if (nsharpSignatures.Count > 0)
-                {
-                    _logger.LogDebug("Found N# function: {Name} with {Count} signature(s)",
-                        callInfo.MethodName, nsharpSignatures.Count);
-
-                    return Task.FromResult<SignatureHelp?>(CreateSignatureHelp(
-                        nsharpSignatures,
-                        argumentText,
-                        argumentCount));
-                }
-
-                return Task.FromResult<SignatureHelp?>(null);
-            }
-
-            // Dot-qualified call — resolve the receiver as a value first, then as a type.
-            var typeName = callInfo.ReceiverName;
-            var methodName = callInfo.MethodName;
-
-            _logger.LogDebug("Method call: {Type}.{Method}", typeName, methodName);
-
-            var signatures = ResolveMemberSignatures(
-                doc,
-                typeName,
-                methodName,
-                request.Position.Line,
-                request.Position.Character);
-            if (signatures.Count == 0)
+            var overloads = ResolveOverloads(uri, doc, callInfo, request.Position.Line, request.Position.Character);
+            if (overloads.Count == 0)
             {
                 return Task.FromResult<SignatureHelp?>(null);
             }
 
-            return Task.FromResult<SignatureHelp?>(CreateSignatureHelp(
-                signatures,
-                argumentText,
-                argumentCount));
+            var activeOverload = CodeIntel.SignatureHelpOverloadFacts.SelectActiveOverload(
+                overloads,
+                SignatureHelpArgumentFacts.ArgumentCount(callInfo.ArgumentText));
+
+            return Task.FromResult<SignatureHelp?>(new SignatureHelp
+            {
+                Signatures = new Container<SignatureInformation>(BuildSignatures(overloads)),
+                ActiveSignature = activeOverload,
+                ActiveParameter = CodeIntel.SignatureHelpOverloadFacts.ActiveParameter(
+                    overloads,
+                    activeOverload,
+                    callInfo.ArgumentText)
+            });
         }
         catch (Exception ex)
         {
@@ -132,240 +97,45 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     }
 
     /// <summary>
-    /// Build signatures for a user-defined N# function.
+    /// The project snapshot answers when the buffer is backed by one — the same snapshot, and so
+    /// the same answer, that <c>nlc query</c> gives. A loose buffer is served by its own parsed
+    /// unit and bound model.
     /// </summary>
-    private List<SignatureInformation> BuildNSharpFunctionSignatures(DocumentState doc, string functionName)
+    private List<CodeIntel.SignatureHelpOverload> ResolveOverloads(
+        string uri,
+        Models.DocumentState doc,
+        SignatureHelpCallContext callInfo,
+        int line,
+        int character)
+    {
+        if (_documentManager.TryGetSynchronizedProjectSnapshot(uri, out _, out var filePath, out var snapshot))
+        {
+            return _signatureHelpEngine.GetOverloads(snapshot, filePath, callInfo, line + 1, character + 1);
+        }
+
+        return _signatureHelpEngine.GetOverloads(doc.CompilationUnit, doc.SemanticModel, doc.Text, callInfo, line + 1, character + 1);
+    }
+
+    private static List<SignatureInformation> BuildSignatures(List<CodeIntel.SignatureHelpOverload> overloads)
     {
         var signatures = new List<SignatureInformation>();
-
-        if (signatures.Count == 0 && doc.SymbolsInfo != null)
+        foreach (var overload in overloads)
         {
-            if (doc.SymbolsInfo.TryGetValue(functionName, out var symbolInfo) &&
-                symbolInfo.Kind == Models.SymbolKind.Function)
+            var parameters = new List<ParameterInformation>();
+            foreach (var parameterLabel in overload.ParameterLabels)
             {
-                signatures.Add(BuildSignatureFromSymbolInfo(symbolInfo));
-            }
-        }
-
-        return signatures;
-    }
-
-    /// <summary>
-    /// Build signatures for constructors of a user-defined N# type.
-    /// </summary>
-    private List<SignatureInformation> BuildNSharpConstructorSignatures(DocumentState doc, string typeName)
-    {
-        var signatures = new List<SignatureInformation>();
-
-        if (doc.SymbolsInfo == null)
-        {
-            return signatures;
-        }
-
-        if (!doc.SymbolsInfo.TryGetValue(typeName, out var typeSymbol))
-        {
-            return signatures;
-        }
-
-        if (typeSymbol.Kind is not (Models.SymbolKind.Class or Models.SymbolKind.Struct
-            or Models.SymbolKind.Record))
-        {
-            return signatures;
-        }
-
-        foreach (var member in typeSymbol.Members)
-        {
-            if (member.Kind == Models.SymbolKind.Constructor)
-            {
-                signatures.Add(BuildSignatureFromSymbolInfo(member));
-            }
-        }
-
-        return signatures;
-    }
-
-    /// <summary>
-    /// Build signatures for a method on a user-defined N# type.
-    /// </summary>
-    private List<SignatureInformation> BuildNSharpMemberSignatures(DocumentState doc, string typeName, string methodName)
-    {
-        var signatures = new List<SignatureInformation>();
-
-        if (doc.SymbolsInfo == null)
-        {
-            return signatures;
-        }
-
-        if (!doc.SymbolsInfo.TryGetValue(typeName, out var typeSymbol))
-        {
-            return signatures;
-        }
-
-        // Only look at type symbols that have members
-        if (typeSymbol.Kind is not (Models.SymbolKind.Class or Models.SymbolKind.Struct
-            or Models.SymbolKind.Record or Models.SymbolKind.Interface))
-        {
-            return signatures;
-        }
-
-        foreach (var member in typeSymbol.Members)
-        {
-            if (member.Name == methodName &&
-                member.Kind is Models.SymbolKind.Method or Models.SymbolKind.Function or Models.SymbolKind.Constructor)
-            {
-                signatures.Add(BuildSignatureFromSymbolInfo(member));
-            }
-        }
-
-        return signatures;
-    }
-
-    private List<SignatureInformation> ResolveMemberSignatures(
-        DocumentState doc,
-        string receiverName,
-        string methodName,
-        int lspLine,
-        int lspCharacter)
-    {
-        if (TryLookupReceiverTypeInfo(doc, receiverName, lspLine, lspCharacter, out var receiverTypeInfo))
-        {
-            var nsharpTypeName = GetNSharpTypeName(doc, receiverTypeInfo);
-            if (nsharpTypeName != null)
-            {
-                var nsharpInstanceSignatures = BuildNSharpMemberSignatures(doc, nsharpTypeName, methodName);
-                if (nsharpInstanceSignatures.Count > 0)
-                {
-                    _logger.LogDebug("Resolved receiver '{Receiver}' as N# type '{Type}'",
-                        receiverName, nsharpTypeName);
-                    return nsharpInstanceSignatures;
-                }
+                parameters.Add(new ParameterInformation { Label = parameterLabel });
             }
 
-        }
-
-        // Direct N# type access, e.g. Person.Create(
-        var nsharpMemberSignatures = BuildNSharpMemberSignatures(doc, SignatureHelpArgumentFacts.DeclarationReceiverName(receiverName, doc.CompilationUnit?.Namespace?.Name), methodName);
-        if (nsharpMemberSignatures.Count > 0)
-        {
-            return nsharpMemberSignatures;
-        }
-
-            _logger.LogDebug("Could not resolve receiver: {Receiver}", receiverName);
-            return new List<SignatureInformation>();
-    }
-
-    private bool TryLookupReceiverTypeInfo(
-        DocumentState doc,
-        string receiverName,
-        int lspLine,
-        int lspCharacter,
-        out CompilerTypeInfo receiverTypeInfo)
-    {
-        receiverTypeInfo = null!;
-
-        if (doc.SemanticModel == null || !IdentifierText.IsValid(receiverName))
-        {
-            return false;
-        }
-
-        // SemanticModel stores source positions as 1-based coordinates.
-        var typeInfo = doc.SemanticModel.LookupIdentifierAtPosition(receiverName, lspLine + 1, lspCharacter + 1);
-
-        if (typeInfo == null)
-        {
-            return false;
-        }
-
-        receiverTypeInfo = typeInfo;
-        return true;
-    }
-
-    private static string? GetNSharpTypeName(DocumentState doc, CompilerTypeInfo typeInfo)
-    {
-        var typeName = typeInfo switch
-        {
-            ClassTypeInfo classType => classType.Name,
-            StructTypeInfo structType => structType.Name,
-            RecordTypeInfo recordType => recordType.Name,
-            InterfaceTypeInfo interfaceType => interfaceType.Name,
-            _ => typeInfo.ToString()
-        };
-
-        if (doc.SymbolsInfo?.TryGetValue(typeName, out var symbolInfo) == true &&
-            symbolInfo.Kind is Models.SymbolKind.Class or Models.SymbolKind.Struct
-                or Models.SymbolKind.Record or Models.SymbolKind.Interface)
-        {
-            return typeName;
-        }
-
-        return null;
-    }
-
-    private SignatureHelp CreateSignatureHelp(
-        List<SignatureInformation> signatures,
-        string argumentText,
-        int argumentCount)
-    {
-        var activeSignature = SelectActiveSignature(signatures, argumentCount);
-        var parameterLabels = signatures[activeSignature].Parameters?
-            .Select(parameter => parameter.Label.ToString())
-            .ToArray() ?? Array.Empty<string>();
-        return new SignatureHelp
-        {
-            Signatures = new Container<SignatureInformation>(signatures),
-            ActiveSignature = activeSignature,
-            ActiveParameter = SignatureHelpArgumentFacts.ActiveParameterIndex(argumentText, parameterLabels)
-        };
-    }
-
-    private static int SelectActiveSignature(List<SignatureInformation> signatures, int argumentCount)
-    {
-        if (signatures.Count == 0)
-        {
-            return 0;
-        }
-
-        var exactArity = signatures.FindIndex(signature => GetParameterCount(signature) == argumentCount);
-        if (exactArity >= 0)
-        {
-            return exactArity;
-        }
-
-        var canStillAcceptArguments = signatures.FindIndex(signature => GetParameterCount(signature) > argumentCount);
-        return canStillAcceptArguments >= 0 ? canStillAcceptArguments : 0;
-    }
-
-    private static int GetParameterCount(SignatureInformation signature)
-    {
-        return signature.Parameters?.Count() ?? 0;
-    }
-
-    /// <summary>
-    /// Build a SignatureInformation from a SymbolInfo (for N# type members).
-    /// </summary>
-    private SignatureInformation BuildSignatureFromSymbolInfo(Models.SymbolInfo symbolInfo)
-    {
-        var paramInfos = new List<ParameterInformation>();
-
-        foreach (var param in symbolInfo.Parameters)
-        {
-            var paramLabel = $"{param.Name}: {param.TypeName}";
-            paramInfos.Add(new ParameterInformation
+            signatures.Add(new SignatureInformation
             {
-                Label = paramLabel
+                Label = overload.Label,
+                Documentation = CreateDocumentationMarkup(overload.Documentation),
+                Parameters = new Container<ParameterInformation>(parameters)
             });
         }
 
-        var returnType = symbolInfo.TypeName ?? "void";
-        var paramList = string.Join(", ", paramInfos.Select(p => p.Label));
-        var label = $"{symbolInfo.Name}({paramList}): {returnType}";
-
-        return new SignatureInformation
-        {
-            Label = label,
-            Documentation = CreateDocumentationMarkup(symbolInfo.Documentation),
-            Parameters = new Container<ParameterInformation>(paramInfos)
-        };
+        return signatures;
     }
 
     private static MarkupContent? CreateDocumentationMarkup(string? documentation)
@@ -378,5 +148,4 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                 Value = documentation
             };
     }
-
 }
