@@ -3,15 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NSharpLang.Compiler;
-using NSharpLang.Compiler.Ast;
-using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using CodeIntel = NSharpLang.Compiler.CodeIntelligence;
 using LspLocation = OmniSharp.Extensions.LanguageServer.Protocol.Models.Location;
 using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 
@@ -20,6 +18,12 @@ namespace NSharpLang.LanguageServer.Handlers;
 /// <summary>
 /// Handles go-to-implementation requests (Ctrl+F12 in VS Code).
 /// Finds all types that implement an interface or extend a base/abstract class.
+///
+/// WHETHER the caret is on something that has implementations, WHICH declarations count as one,
+/// and the semantic check that keeps a same-spelled name in an unrelated file out, are all
+/// N#-owned by <c>EditorImplementationFacts</c>. What is left here is the protocol — the word
+/// under the caret, the walk over the open buffers with its cancellation check, and OmniSharp's
+/// Location.
 /// </summary>
 public class GoToImplementationHandler : ImplementationHandlerBase
 {
@@ -44,10 +48,7 @@ public class GoToImplementationHandler : ImplementationHandlerBase
 
         try
         {
-            var line = request.Position.Line;
-            var character = request.Position.Character;
-
-            var word = EditorUtilities.GetWordAtPosition(doc.Text, line, character);
+            var word = EditorUtilities.GetWordAtPosition(doc.Text, request.Position.Line, request.Position.Character);
             if (string.IsNullOrWhiteSpace(word))
             {
                 return Task.FromResult<LocationOrLocationLinks?>(null);
@@ -55,24 +56,37 @@ public class GoToImplementationHandler : ImplementationHandlerBase
 
             _logger.LogDebug("Go to implementation for: {Word}", word);
 
-            // Determine whether the target symbol is an interface or abstract/base class.
-            // Only these kinds make sense for "go to implementation."
-            if (!TryGetTargetSymbolKind(doc, word, out var targetKind))
+            var targetKind = CodeIntel.EditorImplementationFacts.TargetKind(doc.Symbols, word);
+            if (targetKind == CodeIntel.EditorImplementationTarget.None)
             {
                 _logger.LogDebug("Symbol '{Word}' is not an interface or class — skipping implementation search", word);
                 return Task.FromResult<LocationOrLocationLinks?>(null);
             }
 
-            // Walk all open documents to find implementors
-            var locations = FindImplementors(word, targetKind, cancellationToken);
+            var rows = new List<CodeIntel.EditorImplementorRow>();
+            foreach (var candidate in _documentManager.GetAllDocuments())
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
 
-            if (locations.Count == 0)
+                CodeIntel.EditorImplementationFacts.AppendImplementorRows(
+                    candidate.CompilationUnit, candidate.Symbols, candidate.Uri, word, targetKind, rows);
+            }
+
+            if (rows.Count == 0)
             {
                 return Task.FromResult<LocationOrLocationLinks?>(null);
             }
 
-            return Task.FromResult<LocationOrLocationLinks?>(
-                new LocationOrLocationLinks(locations.Select(loc => new LocationOrLocationLink(loc))));
+            var locations = rows.Select(row => new LocationOrLocationLink(new LspLocation
+            {
+                Uri = DocumentUri.From(row.Uri),
+                Range = new LspRange(row.Line, row.StartCharacter, row.Line, row.EndCharacter)
+            }));
+
+            return Task.FromResult<LocationOrLocationLinks?>(new LocationOrLocationLinks(locations));
         }
         catch (Exception ex)
         {
@@ -81,192 +95,10 @@ public class GoToImplementationHandler : ImplementationHandlerBase
         }
     }
 
-    /// <summary>
-    /// Checks whether <paramref name="word"/> is an interface or class in the document's symbol table.
-    /// Returns false (and does not set <paramref name="kind"/>) if the symbol is not found or is
-    /// neither an interface nor a class.
-    /// </summary>
-    private static bool TryGetTargetSymbolKind(Models.DocumentState doc, string word, out TargetSymbolKind kind)
-    {
-        kind = default;
-
-        if (doc.Symbols == null || !doc.Symbols.TryGetValue(word, out var typeInfo))
-        {
-            return false;
-        }
-
-        if (typeInfo is InterfaceTypeInfo)
-        {
-            kind = TargetSymbolKind.Interface;
-            return true;
-        }
-
-        if (typeInfo is ClassTypeInfo)
-        {
-            kind = TargetSymbolKind.Class;
-            return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Walks every tracked document's AST declarations to find types that implement or extend the target.
-    /// </summary>
-    private List<LspLocation> FindImplementors(string targetName, TargetSymbolKind targetKind, CancellationToken cancellationToken)
-    {
-        var results = new List<LspLocation>();
-
-        foreach (var doc in _documentManager.GetAllDocuments())
-        {
-            if (cancellationToken.IsCancellationRequested)
-                break;
-
-            if (doc.CompilationUnit?.Declarations == null)
-                continue;
-
-            foreach (var decl in doc.CompilationUnit.Declarations)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
-
-                if (TryMatchImplementor(decl, targetName, targetKind, doc, out var location))
-                {
-                    results.Add(location!);
-                }
-            }
-        }
-
-        return results;
-    }
-
-    /// <summary>
-    /// Tests whether a single declaration implements or extends the target type.
-    /// Requires semantic comparison against the document's symbol table.
-    /// </summary>
-    private bool TryMatchImplementor(
-        Declaration decl,
-        string targetName,
-        TargetSymbolKind targetKind,
-        Models.DocumentState doc,
-        out LspLocation? location)
-    {
-        location = null;
-
-        switch (decl)
-        {
-            case ClassDeclaration classDecl:
-            {
-                bool matches = false;
-
-                // Check base class (only relevant when target is a class)
-                if (targetKind == TargetSymbolKind.Class && classDecl.BaseClass != null)
-                {
-                    matches = CodeIntelligenceDisplayText.InterfaceNameMatches(classDecl.BaseClass, targetName);
-                }
-
-                // Check interfaces (relevant for both interface and class targets,
-                // since a class could appear in an implements list if it is the base)
-                if (!matches)
-                {
-                    matches = classDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName));
-                }
-
-                if (matches && VerifySemantic(doc, classDecl.Name, targetName))
-                {
-                    location = CreateLocation(doc.Uri, classDecl.Name, classDecl.Line, classDecl.Column);
-                    return true;
-                }
-
-                break;
-            }
-
-            case StructDeclaration structDecl:
-            {
-                if (structDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName)))
-                {
-                    if (VerifySemantic(doc, structDecl.Name, targetName))
-                    {
-                        location = CreateLocation(doc.Uri, structDecl.Name, structDecl.Line, structDecl.Column);
-                        return true;
-                    }
-                }
-
-                break;
-            }
-
-            case RecordDeclaration recordDecl:
-            {
-                if (recordDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName)))
-                {
-                    if (VerifySemantic(doc, recordDecl.Name, targetName))
-                    {
-                        location = CreateLocation(doc.Uri, recordDecl.Name, recordDecl.Line, recordDecl.Column);
-                        return true;
-                    }
-                }
-
-                break;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Semantic verification: the implementing document must have a Symbols dictionary, the
-    /// implementor type must resolve to a known type, and the target name must resolve to a
-    /// matching kind. This prevents false positives from coincidental name collisions across
-    /// unrelated namespaces.
-    /// </summary>
-    private static bool VerifySemantic(Models.DocumentState doc, string implementorName, string targetName)
-    {
-        if (doc.Symbols == null)
-            return false;
-
-        if (!doc.Symbols.TryGetValue(implementorName, out var implementorType))
-            return false;
-
-        // Verify the implementor is a concrete type (class/struct/record), not an interface itself
-        // An interface extending another interface is not an "implementation"
-        if (implementorType is InterfaceTypeInfo)
-            return false;
-
-        if (doc.Symbols.TryGetValue(targetName, out var targetType))
-        {
-            return targetType is InterfaceTypeInfo or ClassTypeInfo;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Creates a Location for a declaration. Line/column from the AST are 1-based;
-    /// LSP expects 0-based positions.
-    /// </summary>
-    private static LspLocation CreateLocation(string docUri, string name, int line, int column)
-    {
-        // AST line/column are 1-based; LSP is 0-based
-        var lspLine = Math.Max(0, line - 1);
-        var lspColumn = Math.Max(0, column - 1);
-
-        return new LspLocation
-        {
-            Uri = DocumentUri.From(docUri),
-            Range = new LspRange(lspLine, lspColumn, lspLine, lspColumn + Math.Max(1, name.Length))
-        };
-    }
-
     protected override ImplementationRegistrationOptions CreateRegistrationOptions(
         ImplementationCapability capability,
         ClientCapabilities clientCapabilities)
     {
         return new ImplementationRegistrationOptions();
-    }
-
-    private enum TargetSymbolKind
-    {
-        Interface,
-        Class
     }
 }

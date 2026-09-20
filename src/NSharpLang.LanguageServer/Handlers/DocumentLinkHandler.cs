@@ -1,27 +1,28 @@
 using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using NSharpLang.Compiler;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using CodeIntel = NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
 /// <summary>
 /// Handles textDocument/documentLink requests to detect clickable URLs
 /// in comments and string literals.
+///
+/// WHICH spans are links is N#-owned by <c>EditorDocumentLinkFacts</c>: the token kinds that are
+/// searched, the comment trivia that is searched beside them, the order of the two, and the walk
+/// that places a URL found on a later line of a block comment. What is left here is the protocol —
+/// OmniSharp's DocumentLink, and <c>System.Uri</c>, which canonicalises the target and which the
+/// columnar backend cannot construct yet.
 /// </summary>
 public class DocumentLinkHandler : DocumentLinkHandlerBase
 {
-    private static readonly Regex UrlRegex = new(
-        @"https?://[^\s)>""']+",
-        RegexOptions.Compiled);
-
     private readonly DocumentManager _documentManager;
     private readonly ILogger<DocumentLinkHandler> _logger;
 
@@ -42,51 +43,19 @@ public class DocumentLinkHandler : DocumentLinkHandlerBase
         }
 
         var links = new List<DocumentLink>();
-
-        // Scan tokens for URLs in string literals and comment tokens
-        foreach (var token in doc.Tokens)
+        foreach (var row in CodeIntel.EditorDocumentLinkFacts.LinkRows(doc.Tokens, doc.Comments))
         {
-            if (token.Type != TokenType.Comment
-                && token.Type != TokenType.MultiLineComment
-                && token.Type != TokenType.StringLiteral)
+            if (!Uri.TryCreate(row.Text, UriKind.Absolute, out var parsedUri))
             {
                 continue;
             }
 
-            var matches = UrlRegex.Matches(token.Value);
-            foreach (Match match in matches)
+            links.Add(new DocumentLink
             {
-                if (!Uri.TryCreate(match.Value, UriKind.Absolute, out var parsedUri))
-                    continue;
-
-                var range = ComputeRange(token, match);
-                links.Add(new DocumentLink
-                {
-                    Range = range,
-                    Target = parsedUri.ToString()
-                });
-            }
-        }
-
-        // Also scan comments (CommentTrivia) which may not appear in the token stream
-        if (doc.Comments != null)
-        {
-            foreach (var comment in doc.Comments)
-            {
-                var matches = UrlRegex.Matches(comment.Text);
-                foreach (Match match in matches)
-                {
-                    if (!Uri.TryCreate(match.Value, UriKind.Absolute, out var parsedUri))
-                        continue;
-
-                    var range = ComputeCommentRange(comment, match);
-                    links.Add(new DocumentLink
-                    {
-                        Range = range,
-                        Target = parsedUri.ToString()
-                    });
-                }
-            }
+                Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
+                    row.StartLine, row.StartCharacter, row.EndLine, row.EndCharacter),
+                Target = parsedUri.ToString()
+            });
         }
 
         _logger.LogDebug("Returning {Count} document links for {Uri}", links.Count, uri);
@@ -104,83 +73,5 @@ public class DocumentLinkHandler : DocumentLinkHandlerBase
         ClientCapabilities clientCapabilities)
     {
         return new DocumentLinkRegistrationOptions();
-    }
-
-    /// <summary>
-    /// Computes the LSP range (0-based) for a regex match within a CommentTrivia.
-    /// CommentTrivia has 1-based Line and Column. The match offset is relative
-    /// to the start of comment.Text.
-    /// </summary>
-    private static OmniSharp.Extensions.LanguageServer.Protocol.Models.Range ComputeCommentRange(
-        Compiler.CommentTrivia comment, Match match)
-    {
-        // Walk through the comment text up to the match start to find the line/column offset
-        var commentLine = comment.Line - 1;  // Convert to 0-based
-        var commentColumn = comment.Column - 1;  // Convert to 0-based
-
-        var currentLine = commentLine;
-        var currentColumn = commentColumn;
-
-        for (int i = 0; i < match.Index; i++)
-        {
-            if (comment.Text[i] == '\n')
-            {
-                currentLine++;
-                currentColumn = 0;
-            }
-            else
-            {
-                currentColumn++;
-            }
-        }
-
-        var startLine = currentLine;
-        var startColumn = currentColumn;
-
-        // URLs don't span lines, so the end is on the same line
-        var endLine = startLine;
-        var endColumn = startColumn + match.Length;
-
-        return new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
-            startLine, startColumn, endLine, endColumn);
-    }
-
-    /// <summary>
-    /// Computes the LSP range (0-based) for a regex match within a token.
-    /// The token's Line and Column are 1-based. The match offset is relative
-    /// to the start of token.Value.
-    /// </summary>
-    private static OmniSharp.Extensions.LanguageServer.Protocol.Models.Range ComputeRange(
-        Token token, Match match)
-    {
-        // Walk through the token value up to the match start to find the line/column offset
-        var tokenLine = token.Line - 1;  // Convert to 0-based
-        var tokenColumn = token.Column - 1;  // Convert to 0-based
-
-        var currentLine = tokenLine;
-        var currentColumn = tokenColumn;
-
-        for (int i = 0; i < match.Index; i++)
-        {
-            if (token.Value[i] == '\n')
-            {
-                currentLine++;
-                currentColumn = 0;
-            }
-            else
-            {
-                currentColumn++;
-            }
-        }
-
-        var startLine = currentLine;
-        var startColumn = currentColumn;
-
-        // URLs don't span lines, so the end is on the same line
-        var endLine = startLine;
-        var endColumn = startColumn + match.Length;
-
-        return new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
-            startLine, startColumn, endLine, endColumn);
     }
 }

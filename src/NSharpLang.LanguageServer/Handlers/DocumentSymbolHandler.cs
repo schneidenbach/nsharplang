@@ -1,14 +1,13 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NSharpLang.Compiler.Ast;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using CodeIntel = NSharpLang.Compiler.CodeIntelligence;
 using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 using LspSymbolKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind;
 
@@ -17,6 +16,11 @@ namespace NSharpLang.LanguageServer.Handlers;
 /// <summary>
 /// Handles textDocument/documentSymbol requests to provide the Outline panel in VS Code.
 /// Maps N# declarations (types, functions, fields, etc.) to LSP DocumentSymbol hierarchy.
+///
+/// WHICH declarations appear, in WHAT order, nested under what, with what detail text, and the
+/// two spans — including the clamps that keep the full range containing the selection range — are
+/// N#-owned by <c>EditorDocumentSymbolFacts</c>. What is left here is the protocol: OmniSharp's
+/// DocumentSymbol and the wire numbers of its symbol kinds, which N# cannot name.
 /// </summary>
 public class DocumentSymbolHandler : DocumentSymbolHandlerBase
 {
@@ -42,22 +46,10 @@ public class DocumentSymbolHandler : DocumentSymbolHandlerBase
 
         _logger.LogDebug("Document symbol request for {Uri}", uri);
 
-        // Split source lines once and reuse for all EstimateEndLine calls
-        var sourceLines = doc.Text?.Split('\n');
-
-        var symbols = new List<DocumentSymbol>();
-
-        foreach (var decl in doc.CompilationUnit.Declarations)
-        {
-            var symbol = DeclarationToDocumentSymbol(decl, sourceLines);
-            if (symbol != null)
-            {
-                symbols.Add(symbol);
-            }
-        }
+        var rows = CodeIntel.EditorDocumentSymbolFacts.SymbolRows(doc.CompilationUnit, doc.Text?.Split('\n'));
 
         var result = new SymbolInformationOrDocumentSymbolContainer(
-            symbols.Select(s => new SymbolInformationOrDocumentSymbol(s)));
+            rows.Select(row => new SymbolInformationOrDocumentSymbol(ToDocumentSymbol(row))));
 
         return Task.FromResult<SymbolInformationOrDocumentSymbolContainer?>(result);
     }
@@ -69,194 +61,39 @@ public class DocumentSymbolHandler : DocumentSymbolHandlerBase
         return new DocumentSymbolRegistrationOptions();
     }
 
-    private DocumentSymbol? DeclarationToDocumentSymbol(Declaration decl, string[]? sourceLines)
+    private static DocumentSymbol ToDocumentSymbol(CodeIntel.EditorDocumentSymbolRow row)
     {
-        return decl switch
+        var children = new List<DocumentSymbol>();
+        foreach (var child in row.Children)
         {
-            FunctionDeclaration f => MakeSymbol(
-                f.Name, LspSymbolKind.Function, f.Line,
-                EstimateEndLine(f, sourceLines), sourceLines, FormatReturnType(f.ReturnType)),
-
-            ClassDeclaration c => MakeSymbol(
-                c.Name, LspSymbolKind.Class, c.Line,
-                EstimateEndLine(c, sourceLines), sourceLines, null,
-                ConvertMembers(c.Members, sourceLines)),
-
-            StructDeclaration s => MakeSymbol(
-                s.Name, LspSymbolKind.Struct, s.Line,
-                EstimateEndLine(s, sourceLines), sourceLines, null,
-                ConvertMembers(s.Members, sourceLines)),
-
-            RecordDeclaration r => MakeSymbol(
-                r.Name, LspSymbolKind.Class, r.Line,
-                EstimateEndLine(r, sourceLines), sourceLines, "record",
-                ConvertMembers(r.Members, sourceLines)),
-
-            SoaRecordDeclaration soa => MakeSymbol(
-                soa.Name, LspSymbolKind.Class, soa.Line,
-                EstimateEndLine(soa, sourceLines), sourceLines, "soa",
-                ConvertSoaColumns(soa, sourceLines)),
-
-            InterfaceDeclaration i => MakeSymbol(
-                i.Name, LspSymbolKind.Interface, i.Line,
-                EstimateEndLine(i, sourceLines), sourceLines, null,
-                ConvertMembers(i.Members, sourceLines)),
-
-            EnumDeclaration e => MakeSymbol(
-                e.Name, LspSymbolKind.Enum, e.Line,
-                EstimateEndLine(e, sourceLines), sourceLines, null,
-                ConvertEnumMembers(e, sourceLines)),
-
-            UnionDeclaration u => MakeSymbol(
-                u.Name, LspSymbolKind.Enum, u.Line,
-                EstimateEndLine(u, sourceLines), sourceLines, "union"),
-
-            FieldDeclaration fd => MakeSymbol(
-                fd.Name, LspSymbolKind.Field, fd.Line, fd.Line, sourceLines,
-                FormatTypeRef(fd.Type)),
-
-            PropertyDeclaration pd => MakeSymbol(
-                pd.Name, LspSymbolKind.Property, pd.Line, pd.Line, sourceLines,
-                FormatTypeRef(pd.Type)),
-
-            TestDeclaration td => MakeSymbol(
-                td.Description, LspSymbolKind.Method, td.Line,
-                EstimateEndLine(td, sourceLines), sourceLines, "test"),
-
-            SetupDeclaration sd => MakeSymbol(
-                "setup", LspSymbolKind.Constructor, sd.Line,
-                EstimateEndLine(sd, sourceLines), sourceLines, "setup"),
-
-            TeardownDeclaration td2 => MakeSymbol(
-                "teardown", LspSymbolKind.Constructor, td2.Line,
-                EstimateEndLine(td2, sourceLines), sourceLines, "teardown"),
-
-            _ => null
-        };
-    }
-
-    private static DocumentSymbol MakeSymbol(
-        string name, LspSymbolKind kind, int startLine, int endLine,
-        string[]? sourceLines, string? detail, IEnumerable<DocumentSymbol>? children = null)
-    {
-        // LSP uses 0-based lines; N# AST uses 1-based lines
-        var line0 = Math.Max(0, startLine - 1);
-        var endLine0 = Math.Max(line0, endLine - 1);
-
-        // Compute the end column so Range fully contains SelectionRange.
-        // For the end line, use the actual line length if available; otherwise use a safe max.
-        int endCol = 0;
-        if (sourceLines != null && endLine0 < sourceLines.Length)
-        {
-            endCol = sourceLines[endLine0].TrimEnd('\r').Length;
+            children.Add(ToDocumentSymbol(child));
         }
-        else
-        {
-            endCol = int.MaxValue;
-        }
-
-        // Compute selection range end column, clamped to fit within the full range.
-        // For single-line symbols (line0 == endLine0), the selection end must not exceed endCol.
-        // For multi-line symbols, the selection is on the start line — use that line's length.
-        int startLineLength = endCol; // default for single-line
-        if (sourceLines != null && line0 < sourceLines.Length)
-        {
-            startLineLength = sourceLines[line0].TrimEnd('\r').Length;
-        }
-        var selectionEndChar = Math.Min(name.Length, startLineLength);
-
-        // Ensure endCol is at least as large as selectionEndChar when on the same line
-        if (line0 == endLine0 && endCol < selectionEndChar)
-        {
-            endCol = selectionEndChar;
-        }
-
-        var childArray = children?.ToArray();
 
         return new DocumentSymbol
         {
-            Name = name,
-            Kind = kind,
-            Range = new LspRange(line0, 0, endLine0, endCol),
-            SelectionRange = new LspRange(line0, 0, line0, selectionEndChar),
-            Detail = detail,
-            Children = childArray is { Length: > 0 }
-                ? new Container<DocumentSymbol>(childArray)
-                : null
+            Name = row.Name,
+            Kind = ToSymbolKind(row.Kind),
+            Range = new LspRange(row.StartLine, 0, row.EndLine, row.EndCharacter),
+            SelectionRange = new LspRange(row.StartLine, 0, row.StartLine, row.SelectionEndCharacter),
+            Detail = row.Detail,
+            Children = children.Count > 0 ? new Container<DocumentSymbol>(children) : null
         };
     }
 
-    private IEnumerable<DocumentSymbol> ConvertMembers(List<Declaration> members, string[]? sourceLines)
+    private static LspSymbolKind ToSymbolKind(CodeIntel.EditorSymbolKind kind)
     {
-        return members
-            .Select(m => DeclarationToDocumentSymbol(m, sourceLines))
-            .Where(s => s != null)!;
-    }
-
-    private static IEnumerable<DocumentSymbol> ConvertEnumMembers(EnumDeclaration e, string[]? sourceLines)
-    {
-        return e.Members.Select(m => MakeSymbol(
-            m.Name, LspSymbolKind.EnumMember, m.Line, m.Line, sourceLines, null));
-    }
-
-    private static IEnumerable<DocumentSymbol> ConvertSoaColumns(SoaRecordDeclaration soa, string[]? sourceLines)
-    {
-        return soa.Columns.Select(c => MakeSymbol(
-            c.Name, LspSymbolKind.Field, c.Line, c.Line, sourceLines, FormatTypeRef(c.Type)));
-    }
-
-    private static int EstimateEndLine(Declaration decl, string[]? sourceLines)
-    {
-        if (sourceLines != null && decl.Line > 0)
+        return kind switch
         {
-            var startLine = decl.Line - 1; // 0-based index
-            int braceDepth = 0;
-            bool foundOpen = false;
-
-            for (int i = startLine; i < sourceLines.Length; i++)
-            {
-                foreach (var ch in sourceLines[i])
-                {
-                    if (ch == '{')
-                    {
-                        braceDepth++;
-                        foundOpen = true;
-                    }
-                    else if (ch == '}')
-                    {
-                        braceDepth--;
-                        if (foundOpen && braceDepth == 0)
-                        {
-                            return i + 1; // 1-based
-                        }
-                    }
-                }
-            }
-        }
-
-        // Fallback: return start line
-        return decl.Line;
-    }
-
-    private static string? FormatReturnType(TypeReference? typeRef)
-    {
-        return typeRef == null ? null : FormatTypeRef(typeRef);
-    }
-
-    private static string? FormatTypeRef(TypeReference? typeRef)
-    {
-        if (typeRef == null) return null;
-
-        return typeRef switch
-        {
-            SimpleTypeReference s => s.Name,
-            GenericTypeReference g =>
-                $"{g.Name}<{string.Join(", ", g.TypeArguments.Select(FormatTypeRef))}>",
-            ArrayTypeReference a => $"{FormatTypeRef(a.ElementType)}[]",
-            NullableTypeReference n => $"{FormatTypeRef(n.InnerType)}?",
-            FunctionTypeReference f =>
-                $"({string.Join(", ", f.ParameterTypes.Select(FormatTypeRef))}) -> {FormatTypeRef(f.ReturnType)}",
-            _ => typeRef.ToString()
+            CodeIntel.EditorSymbolKind.Function => LspSymbolKind.Function,
+            CodeIntel.EditorSymbolKind.Method => LspSymbolKind.Method,
+            CodeIntel.EditorSymbolKind.Class => LspSymbolKind.Class,
+            CodeIntel.EditorSymbolKind.Struct => LspSymbolKind.Struct,
+            CodeIntel.EditorSymbolKind.Interface => LspSymbolKind.Interface,
+            CodeIntel.EditorSymbolKind.Enum => LspSymbolKind.Enum,
+            CodeIntel.EditorSymbolKind.EnumMember => LspSymbolKind.EnumMember,
+            CodeIntel.EditorSymbolKind.Field => LspSymbolKind.Field,
+            CodeIntel.EditorSymbolKind.Property => LspSymbolKind.Property,
+            _ => LspSymbolKind.Constructor
         };
     }
 }

@@ -1,21 +1,52 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NSharpLang.Compiler;
-using NSharpLang.Compiler.Ast;
-using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using CodeIntel = NSharpLang.Compiler.CodeIntelligence;
 using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 using LspSymbolKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind;
 
 namespace NSharpLang.LanguageServer.Handlers;
+
+/// <summary>
+/// The protocol side of the type-hierarchy view. All three requests — preparing the node under
+/// the caret, walking up to the supertypes and walking down to the subtypes — are decided by
+/// <c>EditorTypeHierarchyFacts</c>, including the asymmetry between the two walks. What is left
+/// here is OmniSharp's TypeHierarchyItem and the wire numbers of its symbol kinds.
+/// </summary>
+internal static class TypeHierarchyProtocol
+{
+    internal static TypeHierarchyItem ToItem(CodeIntel.EditorTypeHierarchyRow row)
+    {
+        var range = new LspRange(row.Line, row.StartCharacter, row.Line, row.EndCharacter);
+
+        return new TypeHierarchyItem
+        {
+            Name = row.Name,
+            Kind = ToSymbolKind(row.Kind),
+            Uri = DocumentUri.From(row.Uri),
+            Range = range,
+            SelectionRange = range
+        };
+    }
+
+    internal static LspSymbolKind ToSymbolKind(CodeIntel.EditorSymbolKind kind)
+    {
+        return kind switch
+        {
+            CodeIntel.EditorSymbolKind.Interface => LspSymbolKind.Interface,
+            CodeIntel.EditorSymbolKind.Struct => LspSymbolKind.Struct,
+            CodeIntel.EditorSymbolKind.Enum => LspSymbolKind.Enum,
+            _ => LspSymbolKind.Class
+        };
+    }
+}
 
 /// <summary>
 /// Handles textDocument/prepareTypeHierarchy requests.
@@ -44,10 +75,7 @@ public class TypeHierarchyPrepareHandler : TypeHierarchyPrepareHandlerBase
 
         try
         {
-            var line = request.Position.Line;
-            var character = request.Position.Character;
-
-            var word = EditorUtilities.GetWordAtPosition(doc.Text, line, character);
+            var word = EditorUtilities.GetWordAtPosition(doc.Text, request.Position.Line, request.Position.Character);
             if (string.IsNullOrWhiteSpace(word))
             {
                 return Task.FromResult<Container<TypeHierarchyItem>?>(null);
@@ -55,32 +83,14 @@ public class TypeHierarchyPrepareHandler : TypeHierarchyPrepareHandlerBase
 
             _logger.LogDebug("Type hierarchy prepare for: {Word}", word);
 
-            // Resolve the type from the document's symbol table
-            if (doc.Symbols == null || !doc.Symbols.TryGetValue(word, out var typeInfo))
+            var row = CodeIntel.EditorTypeHierarchyFacts.PrepareRow(doc.Symbols, word, uri);
+            if (row == null)
             {
                 return Task.FromResult<Container<TypeHierarchyItem>?>(null);
             }
-
-            // Only type declarations produce hierarchy items
-            var (name, kind, declLine, declColumn) = typeInfo switch
-            {
-                ClassTypeInfo c => (c.Name, LspSymbolKind.Class, c.Line, c.Column),
-                InterfaceTypeInfo i => (i.Name, LspSymbolKind.Interface, i.Line, i.Column),
-                StructTypeInfo s => (s.Name, LspSymbolKind.Struct, s.Line, s.Column),
-                RecordTypeInfo r => (r.Name, LspSymbolKind.Class, r.Line, r.Column),
-                EnumTypeInfo e => (e.Declaration.Name, LspSymbolKind.Enum, e.Declaration.Line, e.Declaration.Column),
-                _ => (null, default(LspSymbolKind), 0, 0)
-            };
-
-            if (name == null)
-            {
-                return Task.FromResult<Container<TypeHierarchyItem>?>(null);
-            }
-
-            var item = CreateTypeHierarchyItem(name, kind, uri, declLine, declColumn);
 
             return Task.FromResult<Container<TypeHierarchyItem>?>(
-                new Container<TypeHierarchyItem>(item));
+                new Container<TypeHierarchyItem>(TypeHierarchyProtocol.ToItem(row)));
         }
         catch (Exception ex)
         {
@@ -94,24 +104,6 @@ public class TypeHierarchyPrepareHandler : TypeHierarchyPrepareHandlerBase
         ClientCapabilities clientCapabilities)
     {
         return new TypeHierarchyRegistrationOptions();
-    }
-
-    internal static TypeHierarchyItem CreateTypeHierarchyItem(string name, LspSymbolKind kind, string uri, int line, int column)
-    {
-        // AST line/column are 1-based; LSP is 0-based
-        var lspLine = Math.Max(0, line - 1);
-        var lspColumn = Math.Max(0, column - 1);
-
-        var range = new LspRange(lspLine, lspColumn, lspLine, lspColumn + Math.Max(1, name.Length));
-
-        return new TypeHierarchyItem
-        {
-            Name = name,
-            Kind = kind,
-            Uri = DocumentUri.From(uri),
-            Range = range,
-            SelectionRange = range
-        };
     }
 }
 
@@ -139,62 +131,28 @@ public class TypeHierarchySupertypesHandler : TypeHierarchySupertypesHandlerBase
 
         try
         {
-            // Find the declaration for the target type
             var doc = _documentManager.GetDocument(targetUri);
             if (doc?.CompilationUnit?.Declarations == null)
             {
                 return Task.FromResult<Container<TypeHierarchyItem>?>(null);
             }
 
-            // Collect supertype references from the AST
-            var supertypeRefs = new List<TypeReference>();
-            foreach (var decl in doc.CompilationUnit.Declarations)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
-
-                switch (decl)
-                {
-                    case ClassDeclaration c when c.Name == targetName:
-                        if (c.BaseClass != null)
-                            supertypeRefs.Add(c.BaseClass);
-                        supertypeRefs.AddRange(c.Interfaces);
-                        break;
-
-                    case StructDeclaration s when s.Name == targetName:
-                        supertypeRefs.AddRange(s.Interfaces);
-                        break;
-
-                    case RecordDeclaration r when r.Name == targetName:
-                        supertypeRefs.AddRange(r.Interfaces);
-                        break;
-
-                    case InterfaceDeclaration i when i.Name == targetName:
-                        supertypeRefs.AddRange(i.BaseInterfaces);
-                        break;
-                }
-            }
-
-            if (supertypeRefs.Count == 0)
-            {
-                return Task.FromResult<Container<TypeHierarchyItem>?>(null);
-            }
-
-            // Resolve each supertype reference to a TypeHierarchyItem
             var results = new List<TypeHierarchyItem>();
-            foreach (var typeRef in supertypeRefs)
+            foreach (var name in CodeIntel.EditorTypeHierarchyFacts.SupertypeNames(doc.CompilationUnit, targetName))
             {
                 if (cancellationToken.IsCancellationRequested)
-                    break;
-
-                var refName = GetTypeReferenceName(typeRef);
-                if (refName == null)
-                    continue;
-
-                var item = TryResolveTypeHierarchyItem(refName);
-                if (item != null)
                 {
-                    results.Add(item);
+                    break;
+                }
+
+                foreach (var candidate in _documentManager.GetAllDocuments())
+                {
+                    var row = CodeIntel.EditorTypeHierarchyFacts.ResolveRow(candidate.Symbols, name, candidate.Uri);
+                    if (row != null)
+                    {
+                        results.Add(TypeHierarchyProtocol.ToItem(row));
+                        break;
+                    }
                 }
             }
 
@@ -212,54 +170,11 @@ public class TypeHierarchySupertypesHandler : TypeHierarchySupertypesHandlerBase
             return Task.FromResult<Container<TypeHierarchyItem>?>(null);
         }
     }
-
-    /// <summary>
-    /// Attempts to find a type declaration across all loaded documents and build a TypeHierarchyItem for it.
-    /// </summary>
-    private TypeHierarchyItem? TryResolveTypeHierarchyItem(string typeName)
-    {
-        foreach (var doc in _documentManager.GetAllDocuments())
-        {
-            if (doc.Symbols != null && doc.Symbols.TryGetValue(typeName, out var typeInfo))
-            {
-                var (kind, line, column) = typeInfo switch
-                {
-                    ClassTypeInfo c => (LspSymbolKind.Class, c.Line, c.Column),
-                    InterfaceTypeInfo i => (LspSymbolKind.Interface, i.Line, i.Column),
-                    StructTypeInfo s => (LspSymbolKind.Struct, s.Line, s.Column),
-                    RecordTypeInfo r => (LspSymbolKind.Class, r.Line, r.Column),
-                    EnumTypeInfo e => (LspSymbolKind.Enum, e.Declaration.Line, e.Declaration.Column),
-                    _ => (default(LspSymbolKind), 0, 0)
-                };
-
-                if (line > 0)
-                {
-                    return TypeHierarchyPrepareHandler.CreateTypeHierarchyItem(typeName, kind, doc.Uri, line, column);
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Extracts the name from a TypeReference.
-    /// </summary>
-    private static string? GetTypeReferenceName(TypeReference typeRef)
-    {
-        return typeRef switch
-        {
-            SimpleTypeReference simple => simple.Name,
-            GenericTypeReference generic => generic.Name,
-            _ => null
-        };
-    }
 }
 
 /// <summary>
 /// Handles typeHierarchy/subtypes requests.
 /// Given a TypeHierarchyItem, finds all types that inherit or implement it.
-/// Same logic as GoToImplementationHandler but returns TypeHierarchyItems.
 /// </summary>
 public class TypeHierarchySubtypesHandler : TypeHierarchySubtypesHandlerBase
 {
@@ -275,37 +190,33 @@ public class TypeHierarchySubtypesHandler : TypeHierarchySubtypesHandlerBase
     public override Task<Container<TypeHierarchyItem>?> Handle(TypeHierarchySubtypesParams request, CancellationToken cancellationToken)
     {
         var targetName = request.Item.Name;
-        var targetKind = request.Item.Kind;
+        var targetIsInterface = request.Item.Kind == LspSymbolKind.Interface;
 
         _logger.LogDebug("Type hierarchy subtypes for: {Name}", targetName);
 
         try
         {
-            var results = new List<TypeHierarchyItem>();
-
+            var rows = new List<CodeIntel.EditorTypeHierarchyRow>();
             foreach (var doc in _documentManager.GetAllDocuments())
             {
                 if (cancellationToken.IsCancellationRequested)
-                    break;
-
-                if (doc.CompilationUnit?.Declarations == null)
-                    continue;
-
-                foreach (var decl in doc.CompilationUnit.Declarations)
                 {
-                    if (cancellationToken.IsCancellationRequested)
-                        break;
-
-                    if (TryMatchSubtype(decl, targetName, targetKind, doc, out var item))
-                    {
-                        results.Add(item!);
-                    }
+                    break;
                 }
+
+                CodeIntel.EditorTypeHierarchyFacts.AppendSubtypeRows(
+                    doc.CompilationUnit, doc.Uri, targetName, targetIsInterface, rows);
             }
 
-            if (results.Count == 0)
+            if (rows.Count == 0)
             {
                 return Task.FromResult<Container<TypeHierarchyItem>?>(null);
+            }
+
+            var results = new List<TypeHierarchyItem>();
+            foreach (var row in rows)
+            {
+                results.Add(TypeHierarchyProtocol.ToItem(row));
             }
 
             return Task.FromResult<Container<TypeHierarchyItem>?>(
@@ -316,87 +227,5 @@ public class TypeHierarchySubtypesHandler : TypeHierarchySubtypesHandlerBase
             _logger.LogError(ex, "Error handling type hierarchy subtypes");
             return Task.FromResult<Container<TypeHierarchyItem>?>(null);
         }
-    }
-
-    /// <summary>
-    /// Tests whether a declaration is a subtype of the target type (implements or extends it).
-    /// </summary>
-    private static bool TryMatchSubtype(
-        Declaration decl,
-        string targetName,
-        LspSymbolKind targetKind,
-        Models.DocumentState doc,
-        out TypeHierarchyItem? item)
-    {
-        item = null;
-
-        switch (decl)
-        {
-            case ClassDeclaration classDecl:
-            {
-                bool matches = false;
-
-                // Check base class
-                if (classDecl.BaseClass != null)
-                {
-                    matches = CodeIntelligenceDisplayText.InterfaceNameMatches(classDecl.BaseClass, targetName);
-                }
-
-                // Check implemented interfaces
-                if (!matches)
-                {
-                    matches = classDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName));
-                }
-
-                if (matches)
-                {
-                    item = TypeHierarchyPrepareHandler.CreateTypeHierarchyItem(
-                        classDecl.Name, LspSymbolKind.Class, doc.Uri, classDecl.Line, classDecl.Column);
-                    return true;
-                }
-
-                break;
-            }
-
-            case StructDeclaration structDecl:
-            {
-                if (structDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName)))
-                {
-                    item = TypeHierarchyPrepareHandler.CreateTypeHierarchyItem(
-                        structDecl.Name, LspSymbolKind.Struct, doc.Uri, structDecl.Line, structDecl.Column);
-                    return true;
-                }
-
-                break;
-            }
-
-            case RecordDeclaration recordDecl:
-            {
-                if (recordDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName)))
-                {
-                    item = TypeHierarchyPrepareHandler.CreateTypeHierarchyItem(
-                        recordDecl.Name, LspSymbolKind.Class, doc.Uri, recordDecl.Line, recordDecl.Column);
-                    return true;
-                }
-
-                break;
-            }
-
-            case InterfaceDeclaration interfaceDecl:
-            {
-                // An interface extending the target interface is a subtype
-                if (targetKind == LspSymbolKind.Interface &&
-                    interfaceDecl.BaseInterfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName)))
-                {
-                    item = TypeHierarchyPrepareHandler.CreateTypeHierarchyItem(
-                        interfaceDecl.Name, LspSymbolKind.Interface, doc.Uri, interfaceDecl.Line, interfaceDecl.Column);
-                    return true;
-                }
-
-                break;
-            }
-        }
-
-        return false;
     }
 }
