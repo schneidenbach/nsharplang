@@ -15053,10 +15053,12 @@ sealed class ColumnarIlEmitter {
                 closedAssigned := new HashSet<string>(StringComparer.Ordinal)
 
                 if (closedInitDef.IsReference) {
-                    if (closedInitDef.DefaultCtor == null) {
+                    // The parameterless constructor, synthesized or declared — see the bare-name arm.
+                    let closedInitCtor: System.Reflection.Emit.ConstructorBuilder? = ColumnarConstructorDeclarationPlanner.ResolveParameterlessCtor(closedInitDef)
+                    if (closedInitCtor == null) {
                         return false
                     }
-                    _il.Emit(OpCodes.Newobj, TypeBuilder.GetConstructor(closedInitType, closedInitDef.DefaultCtor))
+                    _il.Emit(OpCodes.Newobj, TypeBuilder.GetConstructor(closedInitType, closedInitCtor))
                     for p := 0; p < pairCount; p++ {
                         nameNode := Child(idx, 1 + (2 * p))
                         valueNode := Child(idx, 2 + (2 * p))
@@ -15143,14 +15145,17 @@ sealed class ColumnarIlEmitter {
             // a GENERIC type's bare name is an arity error (NL207) — `new Pair { ... }`
             // never constructs the open definition; the closed form is the kind-1 branch.
             if (initStructDef.IsReference) {
-                // RECORD/CLASS (reference type): `newobj <default ctor>` then per named field `dup; <value>;
-                // stfld`. The object ref stays on the stack between assignments (and as the result) via dup —
-                // mirrors N#'s reference-type object initializer. A class with a USER constructor has NO default
-                // (parameterless) ctor, so object-init on it declines (it must be constructed positionally).
-                if (initStructDef.DefaultCtor == null) {
+                // RECORD/CLASS (reference type): `newobj <parameterless ctor>` then per named field `dup;
+                // <value>; stfld`. The object ref stays on the stack between assignments (and as the result)
+                // via dup — mirrors N#'s reference-type object initializer. The constructor is the
+                // PARAMETERLESS one, synthesized or declared: a class that spells its own `constructor()`
+                // has no SYNTHESIZED default, and reading `DefaultCtor` alone declined it even though
+                // `new T() { … }` — the same program before `nlc format` drops the `()` — emits.
+                let bareInitCtor: System.Reflection.Emit.ConstructorBuilder? = ColumnarConstructorDeclarationPlanner.ResolveParameterlessCtor(initStructDef)
+                if (bareInitCtor == null) {
                     return false
                 }
-                _il.Emit(OpCodes.Newobj, initStructDef.DefaultCtor)
+                _il.Emit(OpCodes.Newobj, bareInitCtor)
                 for p := 0; p < pairCount; p++ {
                     nameNode := Child(idx, 1 + (2 * p))
                     valueNode := Child(idx, 2 + (2 * p))
@@ -21258,7 +21263,8 @@ sealed class ColumnarIlEmitter {
         if (initDef == null) {
             return false
         }
-        if (initDef.IsReference && initDef.DefaultCtor == null) {
+        // Same relation the emit arm binds: the PARAMETERLESS constructor, synthesized or declared.
+        if (initDef.IsReference && ColumnarConstructorDeclarationPlanner.ResolveParameterlessCtor(initDef) == null) {
             return false
         }
 

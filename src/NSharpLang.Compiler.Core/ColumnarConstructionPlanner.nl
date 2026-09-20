@@ -704,12 +704,19 @@ class ColumnarConstructionPlanner {
         closed := targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition()
 
         if definition.IsReference {
-            if definition.DefaultCtor == null {
+            // `new T { … }` AND `new T() { … }` NAME THE SAME CONSTRUCTOR — the parameterless one.
+            // `DefaultCtor` holds only the SYNTHESIZED default, which is defined only for a type that
+            // declares no callable constructor at all, so reading it alone declined every object
+            // initializer over a class that spells its own `constructor()`. `nlc format`'s canonical
+            // shape DROPS the `()`, which made formatting a compiling program produce a declining one;
+            // the parameterless constructor a caller actually reaches is what both spellings bind.
+            parameterless := ColumnarConstructorDeclarationPlanner.ResolveParameterlessCtor(definition)
+            if parameterless == null {
                 return false
             }
-            constructor: ConstructorInfo = definition.DefaultCtor
+            constructor: ConstructorInfo = parameterless
             if closed {
-                constructor = TypeBuilder.GetConstructor(targetType, definition.DefaultCtor)
+                constructor = TypeBuilder.GetConstructor(targetType, parameterless)
             }
             constructorIndex := plan.AddConstructorWithSignature(constructor, targetType, new Type[](0))
             plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)

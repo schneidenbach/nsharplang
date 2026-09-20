@@ -452,3 +452,79 @@ func RetainedNullableLiteralObjectInitializer(
         Marker: left + right
     }
 }
+
+// ---- THE PARAMETERLESS CONSTRUCTOR AN OBJECT INITIALIZER BINDS -------------------------------
+//
+// `new T { … }` and `new T() { … }` are the SAME program: both construct with the parameterless
+// constructor and then assign the named members. The emitter used to read only the SYNTHESIZED
+// default constructor, which exists only for a type that declares no constructor at all, so every
+// class that spells its own `constructor()` emitted for `new T() { … }` and DECLINED for
+// `new T { … }`. That is exactly the pair `nlc format` converts between — its canonical shape drops
+// the `()` before an initializer (pinned by `FormatterWalk.tests.nl`) — so formatting a compiling
+// file produced one the backend refused. These types all DECLARE their parameterless constructor.
+class DeclaredParameterlessSeeded {
+    static Constructions: int = 0
+
+    Name: string
+    Quiet: bool
+    Seed: int
+    order: string
+
+    Order: string {
+        get {
+            return order
+        }
+        set {
+            order = value
+        }
+    }
+
+    constructor() {
+        // A body with observable effects: if the initializer ever skipped the declared constructor
+        // the seeds would be default rather than these values, and the counter would not move.
+        Name = "seeded"
+        Quiet = true
+        Seed = 11
+        order = "ctor"
+        Constructions = Constructions + 1
+    }
+}
+
+class DeclaredParameterlessGeneric<T> {
+    Value: T
+    Marker: string
+
+    constructor() {
+        Marker = "generic-ctor"
+    }
+}
+
+class DeclaredParameterlessBase {
+    BaseTag: string
+
+    constructor() {
+        BaseTag = "base-ctor"
+    }
+}
+
+class DeclaredParameterlessDerived: DeclaredParameterlessBase {
+    Leaf: int
+
+    constructor() {
+        Leaf = 5
+    }
+}
+
+func DeclaredParameterlessConstructionCount(): int {
+    return DeclaredParameterlessSeeded.Constructions
+}
+
+func AcceptDeclaredParameterless(count: int, options: DeclaredParameterlessSeeded): string {
+    return count.ToString() + ":" + options.Name + ":" + options.Quiet.ToString()
+}
+
+// The same spelling in a RETURN position, over a value the caller supplies, so the shape is
+// planned somewhere other than a local initializer too.
+func RetainedParenlessDeclaredParameterless(label: string, verbose: bool): DeclaredParameterlessSeeded {
+    return new DeclaredParameterlessSeeded { Name: label, Quiet: !verbose }
+}

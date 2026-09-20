@@ -381,3 +381,92 @@ test "object initializers persist source runtime generic and union assignments" 
     assert (nullableNested[0].ByteValue ?? 0) == (byte)31, "nested nullable initializer first element"
     assert (nullableNested[1].UIntValue ?? 0) == (uint)37, "nested nullable initializer second element"
 }
+
+// ---- an object initializer over a DECLARED parameterless constructor --------------------------
+//
+// `new T { … }` and `new T() { … }` are the SAME program: both construct with the parameterless
+// constructor and then assign the named members. The emitter used to read only the SYNTHESIZED
+// default constructor — which is defined only for a type that declares no constructor at all — so
+// every class that spells its own `constructor()` emitted for `new T() { … }` and DECLINED at
+// `emit.local.initializer` for `new T { … }`.
+//
+// THAT PAIR IS EXACTLY WHAT `nlc format` CONVERTS BETWEEN. Its canonical shape drops the `()`
+// before an initializer (`FormatterWalk.tests.nl`: "new Foo with an object initializer drops the
+// empty parentheses"), so formatting a compiling file produced one the backend refused. The
+// parenthesised spelling therefore CANNOT appear below — the format gate rewrites it on sight, and
+// that is the whole defect: this file, as the formatter insists on writing it, must compile and
+// run. Each row EXECUTES, because a declared type proves nothing about which constructor ran.
+
+test "the parenless object initializer runs the DECLARED parameterless constructor" {
+    before := DeclaredParameterlessConstructionCount()
+
+    parenless := new DeclaredParameterlessSeeded { Name: "written" }
+
+    // The declared constructor ran: `Quiet`, `Seed` and `Order` are its seeds, not defaults.
+    assert parenless.Name == "written", "the initializer wins over the constructor's seed"
+    assert parenless.Quiet, "an unassigned member keeps the declared constructor's value"
+    assert parenless.Seed == 11, "the declared constructor body ran"
+    assert parenless.Order == "ctor", "an unassigned property keeps the declared constructor's value"
+    assert DeclaredParameterlessConstructionCount() == before + 1, "exactly one construction"
+}
+
+test "a unary negation is the value an initializer member stores" {
+    before := DeclaredParameterlessConstructionCount()
+    label := "arg"
+    verbose := false
+
+    written := new DeclaredParameterlessSeeded { Name: label, Quiet: !verbose }
+
+    assert written.Name == "arg", "the member value reached the field"
+    assert written.Quiet, "the unary negation is what was stored"
+    assert written.Seed == 11, "the declared constructor's seed survives"
+    assert written.Order == "ctor", "the declared constructor's property seed survives"
+    assert DeclaredParameterlessConstructionCount() == before + 1, "one construction"
+
+    // The same shape in a RETURN position rather than a local initializer.
+    returned := RetainedParenlessDeclaredParameterless(label, verbose)
+    assert returned.Name == "arg", "returned Name"
+    assert returned.Quiet, "returned negation"
+    assert returned.Seed == 11, "returned value carries the constructor's seed"
+}
+
+test "the constructor runs BEFORE the initializer's member values are evaluated" {
+    // `Order` is written by the constructor and then overwritten by the initializer, so the final
+    // text states which of the two ran last.
+    staged := new DeclaredParameterlessSeeded { Order: "ctor" + "|init" }
+
+    assert staged.Order == "ctor|init", "the declared constructor precedes the member assignment"
+}
+
+test "the parenless spelling binds in an argument position and when nested" {
+    label := "call"
+    verbose := true
+
+    assert AcceptDeclaredParameterless(2, new DeclaredParameterlessSeeded { Name: label, Quiet: !verbose }) == "2:call:False", "argument position"
+
+    holder := new NestedObjectInitializerOuter {
+        Inner: new NestedObjectInitializerInner { Value: 26 }
+    }
+    assert holder.Inner.Value == 26, "the nested initializer is unchanged"
+}
+
+test "a closed generic and an inheritance chain bind their declared parameterless constructors" {
+    closed := new DeclaredParameterlessGeneric<int> { Value: 41 }
+
+    assert closed.Value == 41, "closed generic member assignment"
+    assert closed.Marker == "generic-ctor", "closed generic declared constructor ran"
+
+    derived := new DeclaredParameterlessDerived { Leaf: 9 }
+
+    assert derived.Leaf == 9, "derived member assignment"
+    assert derived.BaseTag == "base-ctor", "the base constructor ran through the chain"
+}
+
+test "a type with NO declared constructor still binds its synthesized default" {
+    // The relation was widened, not replaced: the synthesized default is still what a class that
+    // declares no constructor constructs with.
+    synthesized := new ObjectInitializerClass { FieldValue: 3, PropertyValue: 4 }
+
+    assert synthesized.FieldValue == 3, "synthesized default field assignment"
+    assert synthesized.PropertyValue == 4, "synthesized default property assignment"
+}
