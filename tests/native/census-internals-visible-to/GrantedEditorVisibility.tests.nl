@@ -27,8 +27,10 @@ func EditorVisibilityRoot(): string {
     return root
 }
 
+// A PUBLIC ANCHOR: this only answers WHICH assembly and WHERE, so it must not also be a bet on
+// some particular internal of that assembly surviving the N# ownership lanes.
 func EditorVisibilityLanguageServerPath(): string {
-    located := typeof(SemanticTokenLocation).Assembly.Location
+    located := typeof(WorkspaceSymbolHandler).Assembly.Location
     if located.Length > 0 && File.Exists(located) {
         return located
     }

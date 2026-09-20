@@ -21,8 +21,11 @@ import NSharpLang.LanguageServer.Handlers
 // THE REFERENCE UNDER TEST IS THE ONE THIS ASSEMBLY IS ALREADY BOUND TO. Asking the loaded
 // assembly for its own location is the only spelling that is right wherever the test host puts the
 // emitted test assembly; `AppContext.BaseDirectory` is the CLI's directory, not this project's.
+//
+// THE ANCHOR IS A PUBLIC TYPE ON PURPOSE. All this function wants is WHICH assembly and WHERE; it
+// is not the thing under test, so it must not also be a bet on some particular internal surviving.
 func NotAFriendLanguageServerPath(): string {
-    located := typeof(SemanticTokenLocation).Assembly.Location
+    located := typeof(WorkspaceSymbolHandler).Assembly.Location
     if located.Length > 0 && File.Exists(located) {
         return located
     }
@@ -30,12 +33,29 @@ func NotAFriendLanguageServerPath(): string {
     throw new InvalidOperationException("The referenced LanguageServer assembly had no readable location: '" + located + "'")
 }
 
-// THE CONSUMER WRITES THE INTERNAL NAME IN TWO POSITIONS, because an annotation and an expression
-// are resolved by different arms: `SemanticTokenLocation` as a PARAMETER TYPE (refused as NL201
+// ── WHICH INTERNAL NAMES THIS FILE STANDS ON, AND WHY THOSE ───────────────────────────────────
+//
+// The refused name has to be a SIMPLE name here, which rules out the entry-point class
+// `GrantedInternals.tests.nl` stands on: N# puts a file's free functions in `Program`, so a bare
+// `Program` in the consumer source below would resolve to the consumer's OWN `Program` and the
+// arms would differ by nothing.
+//
+// SO THE SUBJECT IS `CallHierarchyProtocol`, an `internal static class` in
+// `NSharpLang.LanguageServer.Handlers`. It is the residue the N# ownership lanes PRODUCE rather
+// than delete: `EditorCallHierarchyFacts` owns which function is declared where and what it calls,
+// and what stays behind in C# is the mapping onto OmniSharp's `CallHierarchyItem` — wire types N#
+// does not own. Its predecessor here, `SemanticTokenLocation`, was the opposite kind of thing, an
+// incidental helper struct, and a conversion lane deleted it. If this one ever goes too, the
+// `LanguageServer.dll` reference and the `InternalsVisibleTo("Tests")` grant this whole project
+// reads have gone with it, and the fixture is rewritten whole rather than re-pointed.
+//
+// THE CONSUMER WRITES AN INTERNAL NAME IN TWO POSITIONS, because an annotation and an expression
+// are resolved by different arms: `CallHierarchyProtocol` as a PARAMETER TYPE (refused as NL201
 // "type not found") and `LspDiagnosticConverter` as a STATIC RECEIVER (refused as NL301, which is
-// exactly the code the census finding reported x23).
+// exactly the code the census finding reported x23). The parameter is `_`-prefixed because a
+// static class has no values to read — the annotation IS what is being written.
 func NotAFriendConsumerSource(): string {
-    return "namespace Consumer\n\nimport NSharpLang.Compiler\nimport NSharpLang.LanguageServer.Handlers\nimport NSharpLang.LanguageServer.Services\n\nfunc Take(location: SemanticTokenLocation): int {\n    return location.Line\n}\n\nfunc Convert(): int {\n    diagnostic := new Diagnostic(\"NL012\", \"message\", new Location(1, 12, \"Program.nl\"), DiagnosticSeverity.Info, \"hint\", 10)\n    converted := LspDiagnosticConverter.FromLinterDiagnostic(diagnostic)\n    return (int)converted.Range.Start.Character\n}\n"
+    return "namespace Consumer\n\nimport NSharpLang.Compiler\nimport NSharpLang.LanguageServer.Handlers\nimport NSharpLang.LanguageServer.Services\n\nfunc Take(_protocol: CallHierarchyProtocol): int {\n    return 1\n}\n\nfunc Convert(): int {\n    diagnostic := new Diagnostic(\"NL012\", \"message\", new Location(1, 12, \"Program.nl\"), DiagnosticSeverity.Info, \"hint\", 10)\n    converted := LspDiagnosticConverter.FromLinterDiagnostic(diagnostic)\n    return (int)converted.Range.Start.Character\n}\n"
 }
 
 // The reference set is the whole directory the bound assembly came from: `LanguageServer.dll` alone
@@ -114,7 +134,7 @@ test "the same internal names are refused for a compilation the reference does n
 
     assert NotAFriendCount(errors, "NL201") == 1, NotAFriendCodes(errors)
     assert NotAFriendCount(errors, "NL301") == 1, NotAFriendCodes(errors)
-    assert NotAFriendCodes(errors).IndexOf("SemanticTokenLocation", StringComparison.Ordinal) >= 0, NotAFriendCodes(errors)
+    assert NotAFriendCodes(errors).IndexOf("CallHierarchyProtocol", StringComparison.Ordinal) >= 0, NotAFriendCodes(errors)
     assert NotAFriendCodes(errors).IndexOf("LspDiagnosticConverter", StringComparison.Ordinal) >= 0, NotAFriendCodes(errors)
 }
 
@@ -143,14 +163,19 @@ test "the granted name is matched without regard to case" {
 // QUALIFIED spelling of the very same type used to fall through the analyzer's deliberate leniency
 // for dotted names — a dotted miss can legitimately resolve through another channel — and then
 // BIND in the back end's `Assembly.GetType` lookup, which answers for internal types too. The
-// measured result was a successful `NotTests.dll` whose parameter signatures name
-// `NSharpLang.LanguageServer.Handlers.SemanticTokenLocation`: an assembly the CLR refuses at load,
-// produced by a compiler that reported nothing.
+// measured result was a successful `NotTests.dll` whose parameter signatures name an internal type
+// of the reference: an assembly the CLR refuses at load, produced by a compiler that reported
+// nothing.
 //
 // A name this compilation is not ALLOWED to spell resolves through no channel, so the leniency
 // does not apply to it and the qualified spelling is refused exactly as the simple one is.
+//
+// TWO ANNOTATION POSITIONS, a FIELD's type and a PARAMETER's, because the back-end fall-through
+// this guards is per written occurrence and a signature is not the only place a type name lands
+// in metadata. Neither is read — the annotation IS the subject — and no import is written, so the
+// dotted name is the only thing that could resolve it.
 func NotAFriendQualifiedSource(): string {
-    return "namespace Consumer\n\nfunc Take(location: NSharpLang.LanguageServer.Handlers.SemanticTokenLocation): int {\n    return location.Line\n}\n\nfunc Make(): int {\n    made := new NSharpLang.LanguageServer.Handlers.SemanticTokenLocation(4, 5, \"x\")\n    return made.Column\n}\n"
+    return "namespace Consumer\n\nclass Holder {\n    Protocol: NSharpLang.LanguageServer.Handlers.CallHierarchyProtocol?\n}\n\nfunc Take(_protocol: NSharpLang.LanguageServer.Handlers.CallHierarchyProtocol): int {\n    return 1\n}\n"
 }
 
 func NotAFriendCompileSource(assemblyName: string, source: string): IReadOnlyList<CompilerError> {
@@ -171,10 +196,10 @@ func NotAFriendCompileSource(assemblyName: string, source: string): IReadOnlyLis
 test "a fully qualified internal name is refused for a non-friend, in every type position" {
     errors := NotAFriendCompileSource("NotAFriend", NotAFriendQualifiedSource())
 
-    // One report per written position — the annotation and the `new` — with the SAME code and the
-    // same sentence the simple spelling gets.
+    // One report per written position — the field's type and the parameter's — with the SAME code
+    // and the same sentence the simple spelling gets.
     assert NotAFriendCount(errors, "NL201") == 2, NotAFriendCodes(errors)
-    assert NotAFriendCodes(errors).IndexOf("Type 'NSharpLang.LanguageServer.Handlers.SemanticTokenLocation' not found", StringComparison.Ordinal) >= 0, NotAFriendCodes(errors)
+    assert NotAFriendCodes(errors).IndexOf("Type 'NSharpLang.LanguageServer.Handlers.CallHierarchyProtocol' not found", StringComparison.Ordinal) >= 0, NotAFriendCodes(errors)
 }
 
 test "the same fully qualified name is accepted for the compilation the reference names" {
