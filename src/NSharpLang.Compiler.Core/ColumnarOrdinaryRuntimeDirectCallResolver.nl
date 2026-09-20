@@ -146,22 +146,18 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         ValidateInputs(lookupType, memberName, argumentTypes)
         ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
 
-        inheritedReadOnlyDictionaryCall := Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
-        if TryResolveInheritedReadOnlyDictionaryEnumeratorCall(
-            lookupType,
-            memberName,
-            argumentTypes,
-            expectedStatic,
-            out inheritedReadOnlyDictionaryCall
-        ) {
-            return inheritedReadOnlyDictionaryCall
-        }
-
         genericDefinition := typeof(object)
         closedArguments := new Type[](0)
         if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
             try {
-                candidates := genericDefinition.GetMethods(CandidateMethodFlags(allowInheritedProtected, genericDefinition))
+                // THE DEFINITION'S OWN CANDIDATE SURFACE, BASE INTERFACES INCLUDED. A bare
+                // `GetMethods()` on an interface definition answers only what that interface
+                // DECLARES, so every member an inherited interface declares was invisible to a
+                // receiver closed over a source type: `ILogger<TheHandler>.IsEnabled` is declared on
+                // the non-generic `ILogger`, and `IList<Row>.Add` on `ICollection<T>`, while the
+                // identical calls on `ILogger<string>` and `IList<string>` resolved through the
+                // walk below. It is the same walk, asked of the definition.
+                candidates := CandidateMethods(genericDefinition, allowInheritedProtected)
                 if candidates == null {
                     throw new InvalidOperationException("Runtime generic method enumeration returned null.")
                 }
@@ -375,72 +371,6 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         } catch ex: NotImplementedException {
             return false
         }
-    }
-
-    // IReadOnlyDictionary<TKey, TValue> inherits its generic GetEnumerator from
-    // IEnumerable<KeyValuePair<TKey, TValue>>, and reflection does not include inherited interface
-    // members in GetMethods(). SystemsAnalyzer needs that exact call for a string-keyed dictionary
-    // whose value is one direct source reference declaration. Rebind the declared interface method
-    // onto the closed KVP sequence; every other inherited method and dictionary shape stays on the
-    // ordinary lookup boundary.
-    static func TryResolveInheritedReadOnlyDictionaryEnumeratorCall(
-        lookupType: Type,
-        memberName: string,
-        argumentTypes: Type[],
-        expectedStatic: bool,
-        out selection: ColumnarOrdinaryRuntimeDirectCallSelection
-    ): bool {
-        selection = Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
-        if expectedStatic || memberName != "GetEnumerator" || argumentTypes.Length != 0 || !IsExactStringSourceReferenceReadOnlyDictionary(lookupType) {
-            return false
-        }
-
-        dictionaryArguments := lookupType.GetGenericArguments()
-        pairArguments := new Type[](2)
-        pairArguments[0] = dictionaryArguments[0]
-        pairArguments[1] = dictionaryArguments[1]
-        pairType := typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(pairArguments)
-
-        sequenceArguments := new Type[](1)
-        sequenceArguments[0] = pairType
-        sequenceDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
-        sequenceType := sequenceDefinition.MakeGenericType(sequenceArguments)
-        noParameters := new Type[](0)
-        openMethod := sequenceDefinition.GetMethod("GetEnumerator", noParameters)
-        if openMethod == null {
-            throw new InvalidOperationException("IEnumerable<T>.GetEnumerator() was not found in the compiler runtime.")
-        }
-        method := TypeBuilder.GetMethod(sequenceType, openMethod)
-        if method == null {
-            throw new InvalidOperationException("IEnumerable<T>.GetEnumerator() could not be rebound for the source dictionary entry type.")
-        }
-
-        enumeratorType := ColumnarTypeOfPlanner.RequiredEnumeratorDefinition().MakeGenericType(sequenceArguments)
-        selection = new ColumnarOrdinaryRuntimeDirectCallSelection(
-            ColumnarOrdinaryRuntimeDirectCallStatus.Selected,
-            method,
-            lookupType,
-            sequenceType,
-            noParameters,
-            enumeratorType,
-            ColumnarExternalCallKind.CallVirtual,
-            false,
-            true,
-            method.get_IsAbstract()
-        )
-        return true
-    }
-
-    static func IsExactStringSourceReferenceReadOnlyDictionary(lookupType: Type): bool {
-        if lookupType == null || lookupType is TypeBuilder || !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() || lookupType.GetGenericTypeDefinition() != ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition() {
-            return false
-        }
-        arguments := lookupType.GetGenericArguments()
-        if arguments.Length != 2 || arguments[0] != typeof(string) {
-            return false
-        }
-        valueType := arguments[1]
-        return valueType is TypeBuilder && !ColumnarTypeOfPlanner.IsEnumBuilder(valueType) && !valueType.get_IsGenericTypeDefinition() && !valueType.get_IsValueType()
     }
 
     // A deterministic candidate seam keeps classification tests independent of reflection's
@@ -779,13 +709,50 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             candidate := candidates[index]
             if candidate != null {
                 declaringType := candidate.get_DeclaringType()
-                if declaringType != null && ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(declaringType) {
+                if declaringType != null && DeclaringTypeIsBuilderBoundInstantiation(declaringType) {
                     throw new InvalidOperationException("Builder-bound runtime candidates must come from the open generic definition.")
                 }
             }
 
             index += 1
         }
+    }
+
+    // WHAT THIS GUARD IS ACTUALLY ABOUT: a handle read from a TypeBuilder INSTANTIATION instead of
+    // from the open definition. It asked `ContainsBuilderBoundType`, which answers true for a bare
+    // GENERIC PARAMETER as well — and a candidate read off the definition's own base names exactly
+    // that: `IList<T>` implements `ICollection<T>`, so `ICollection<T>::Add` is declared on a type
+    // constructed over the definition's own `T` and tripped the guard. A parameter is not a source
+    // type; an argument that is one is, and that is the case this rejects.
+    static func DeclaringTypeIsBuilderBoundInstantiation(declaringType: Type): bool {
+        if declaringType.get_IsGenericParameter() {
+            return false
+        }
+
+        if ColumnarRuntimeInstanceMemberResolver.IsSourceBuilderShape(declaringType) {
+            return true
+        }
+
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declaringType) {
+            elementType := declaringType.GetElementType()
+            return elementType != null && DeclaringTypeIsBuilderBoundInstantiation(elementType)
+        }
+
+        if !declaringType.get_IsGenericType() || declaringType.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        arguments := declaringType.GetGenericArguments()
+        index := 0
+        while index < arguments.Length {
+            if DeclaringTypeIsBuilderBoundInstantiation(arguments[index]) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
     }
 
     static func IsPublicCandidateForLookup(method: MethodInfo, lookupType: Type, memberName: string, expectedStatic: bool): bool {
@@ -846,7 +813,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     static func ResolveParameterTypes(method: MethodInfo, candidateLookupType: Type, parameters: ParameterInfo[], closedArguments: Type[]): Type[] {
         parameterTypes := new Type[](parameters.Length)
         declaringType := method.get_DeclaringType()
-        substitute := closedArguments.Length > 0 && declaringType == candidateLookupType
+        substitute := SubstitutesClosedArguments(declaringType, candidateLookupType, closedArguments)
         index := 0
         while index < parameters.Length {
             parameter := parameters[index]
@@ -874,11 +841,26 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         declaringType := method.get_DeclaringType()
-        if closedArguments.Length > 0 && declaringType == candidateLookupType {
+        if SubstitutesClosedArguments(declaringType, candidateLookupType, closedArguments) {
             return ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(returnType, closedArguments)
         }
 
         return returnType
+    }
+
+    // WHOSE TYPE PARAMETERS A CANDIDATE'S SIGNATURE MENTIONS. A member read off the definition
+    // itself mentions the definition's parameters, and so does one read off a base the definition
+    // names over those same parameters (`IList<T>` implements `ICollection<T>`, and
+    // `ICollection<T>::Add` takes that very `T`) — substitution is by POSITION, so both close
+    // correctly against this instantiation's arguments. A base closed over something else
+    // (`ICollection<int>`) mentions no parameter at all and substitutes to itself, so asking is
+    // harmless; and with no closed arguments there is nothing to substitute.
+    static func SubstitutesClosedArguments(declaringType: Type?, candidateLookupType: Type, closedArguments: Type[]): bool {
+        if closedArguments.Length == 0 || declaringType == null {
+            return false
+        }
+
+        return declaringType == candidateLookupType || declaringType.get_ContainsGenericParameters()
     }
 
     static func IsIntrinsicExcludedShape(method: MethodInfo, parameters: ParameterInfo[]): bool {
@@ -1065,6 +1047,21 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             }
 
             exactDeclaringType = reboundDeclaringType
+        } else if declaringType.get_ContainsGenericParameters() {
+            // AN INHERITED DECLARATION IS REBOUND ONTO ITS OWN CLOSED OWNER, not onto the receiver's
+            // instantiation: `TypeBuilder.GetMethod` binds a member to the instantiation of the type
+            // that DECLARES it, so `ICollection<T>::Add` reached through `IList<Row>` becomes
+            // `ICollection<Row>::Add`. A `callvirt` on the base declaration is what a receiver of the
+            // derived interface dispatches through anyway, which is the same answer the non-
+            // builder-bound walk gives for `IList<string>`.
+            inheritedRebound := ColumnarClosedGenericMemberResolver.RebindOntoClosedOwner(method, lookupType)
+            inheritedDeclaringType := inheritedRebound.get_DeclaringType()
+            if Object.ReferenceEquals(inheritedRebound, method) || inheritedDeclaringType == null || inheritedDeclaringType.get_ContainsGenericParameters() {
+                throw new InvalidOperationException("An inherited builder-bound runtime method could not be rebound onto a closed owner.")
+            }
+
+            exactMethod = inheritedRebound
+            exactDeclaringType = inheritedDeclaringType
         }
 
         receiverIsReference := !expectedStatic && !lookupType.get_IsValueType()
@@ -1137,9 +1134,14 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return ColumnarRuntimeOptionalCallSelection.None(lookupType)
     }
 
+    // THE SAME CANDIDATE SURFACE THE SCORING RESOLVER READS, guarded. It used to be a bare
+    // `GetMethods()`, which answers only what an INTERFACE declares — so the unique-at-arity tier
+    // and the optional fill could not see a base interface's member while the scoring tier could,
+    // and the comment above `CandidatesAtArity` promising "a candidate resolution itself would have
+    // selected" was not true for one.
     static func CandidatesOrEmpty(lookupType: Type): MethodInfo[] {
         try {
-            candidates := lookupType.GetMethods()
+            candidates := CandidateMethods(lookupType)
             if candidates == null {
                 return new MethodInfo[](0)
             }

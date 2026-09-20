@@ -581,15 +581,11 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        // A CONSTRUCTED GENERIC CLOSED OVER A TYPE THIS COMPILATION IS WRITING CANNOT BE ASKED FOR ITS
-        // INTERFACE LIST — `TypeBuilderInstantiation.GetInterfaces()` throws `NotSupportedException` —
-        // so the inherited-interface sweep is skipped for one rather than attempted. The direct read
-        // above already went through the definition, which is the only reachable answer.
-        if !lookupType.get_IsInterface() || ContainsBuilderBoundType(lookupType) {
+        if !lookupType.get_IsInterface() {
             return false
         }
 
-        baseInterfaces := lookupType.GetInterfaces()
+        baseInterfaces := InheritedInterfaceSweep(lookupType)
         index := 0
         while index < baseInterfaces.Length {
             if TryResolvePublicGetter(baseInterfaces[index], member, allowInheritedProtected, out getter, out declaringType, out resultType) {
@@ -607,6 +603,49 @@ class ColumnarRuntimeInstanceMemberResolver {
 
     static func TryResolvePublicGetter(lookupType: Type, member: string, out getter: MethodInfo?, out declaringType: Type, out resultType: Type): bool {
         return TryResolvePublicGetter(lookupType, member, false, out getter, out declaringType, out resultType)
+    }
+
+    // THE INTERFACES A RECEIVER IMPLEMENTS, INCLUDING WHEN IT IS BUILDER-BOUND.
+    //
+    // `TypeBuilderInstantiation.GetInterfaces()` throws `NotSupportedException`, so the sweep used to
+    // be SKIPPED for a receiver closed over a type this compilation is writing — and with it every
+    // member a BASE interface declares. That is where `ILogger<TheHandler>.IsEnabled` lives
+    // (`ILogger<out TCategoryName>` declares nothing; `ILogger` does), and `IList<Row>.IsReadOnly`
+    // and `IList<Row>.Add` with it, while the identical reads on `ILogger<string>` and
+    // `IList<string>` resolved. The list cannot be asked of the receiver, but it CAN be asked of its
+    // DEFINITION, whose entries are constructed over the definition's own parameters (`IList<T>`
+    // implements `ICollection<T>`); closing each with this instantiation's arguments names exactly
+    // the interfaces the receiver implements. A definition answers the TRANSITIVE list, so one flat
+    // sweep reaches every ancestor, and a definition that is itself a `TypeBuilder` is source rather
+    // than external and keeps its own resolver.
+    static func InheritedInterfaceSweep(lookupType: Type): Type[] {
+        if !ContainsBuilderBoundType(lookupType) {
+            return lookupType.GetInterfaces()
+        }
+
+        if !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() {
+            return new Type[](0)
+        }
+
+        definition := lookupType.GetGenericTypeDefinition()
+        if definition is TypeBuilder {
+            return new Type[](0)
+        }
+
+        openInterfaces := definition.GetInterfaces()
+        arguments := lookupType.GetGenericArguments()
+        closedInterfaces := new List<Type>()
+        index := 0
+        while index < openInterfaces.Length {
+            closed := SubstituteClosedTypeArguments(openInterfaces[index], arguments)
+            index = index + 1
+            if closed == null || closed.get_IsGenericTypeDefinition() {
+                continue
+            }
+            closedInterfaces.Add(closed)
+        }
+
+        return closedInterfaces.ToArray()
     }
 
     // WHICH LEVELS AN INHERITED-BASE READ MAY REACH, and the binding flags that find them. `family`
@@ -742,16 +781,25 @@ class ColumnarRuntimeInstanceMemberResolver {
             return false
         }
 
-        // Reflection.Emit's BCL-headed constructed wrappers do not implement IsAssignableFrom.
-        // Count is the one admitted member whose exact getter owner can be an interface base of
-        // such a wrapper.
+        // Reflection.Emit's BCL-headed constructed wrappers do not implement `IsAssignableFrom`, so
+        // the relation is answered from the receiver's OWN closed interface list — the one the
+        // definition's transitive interfaces produce once this instantiation's arguments are closed
+        // into them. `Count` used to be the only member whose getter owner could be an interface
+        // base of such a wrapper, because it was the only one anything could reach; its narrower
+        // route is kept below for the collection wrappers it also names.
         if ContainsBuilderBoundType(receiverType) || ContainsBuilderBoundType(declaringType) {
-            inheritedCountOwner := typeof(object)
-            if !TryGetInheritedCountOwner(receiverType, out inheritedCountOwner) {
-                return false
+            implemented := InheritedInterfaceSweep(receiverType)
+            index := 0
+            while index < implemented.Length {
+                if ExactTypeShapeMatches(implemented[index], declaringType) {
+                    return true
+                }
+
+                index = index + 1
             }
 
-            return ExactTypeShapeMatches(inheritedCountOwner, declaringType)
+            inheritedCountOwner := typeof(object)
+            return TryGetInheritedCountOwner(receiverType, out inheritedCountOwner) && ExactTypeShapeMatches(inheritedCountOwner, declaringType)
         }
 
         return declaringType.IsAssignableFrom(receiverType)

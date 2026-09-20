@@ -189,16 +189,28 @@ test "IEnumerator admits the already-owned closed KeyValuePair shell with a sour
         true
     ).IsNotFound
 
+    // THE KEY TYPE IS NOT PART OF THE RULE ANY MORE. The hand-written selector this test was
+    // written against only answered for a STRING key and one direct source-class value, because it
+    // was the only route to an inherited interface member at all; the candidate sweep now walks the
+    // definition's own base interfaces, so any instantiation answers and each one answers with its
+    // own closed sequence.
     wrongKeyArguments := new Type[](2)
     wrongKeyArguments[0] = typeof(int)
     wrongKeyArguments[1] = sourceReferenceType
     wrongKeyDictionary := typeof(IReadOnlyDictionary<string, string>).GetGenericTypeDefinition().MakeGenericType(wrongKeyArguments)
-    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+    wrongKeyAcquisition := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
         wrongKeyDictionary,
         "GetEnumerator",
         new Type[](0),
         false
-    ).IsNotFound
+    )
+    wrongKeySequenceArguments := new Type[](1)
+    wrongKeySequenceArguments[0] = typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(wrongKeyArguments)
+    wrongKeySequence := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType(wrongKeySequenceArguments)
+    assert wrongKeyAcquisition.IsSelected
+    assert wrongKeyAcquisition.LookupType == wrongKeyDictionary
+    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(wrongKeyAcquisition.DeclaringType, wrongKeySequence)
+    assert wrongKeyAcquisition.UsesCallVirtual
 
     sourceValueDefinition := SourceCallDefinition(
         "ColumnarReadOnlyDictionaryEnumeratorAdmission.Value",
@@ -214,7 +226,7 @@ test "IEnumerator admits the already-owned closed KeyValuePair shell with a sour
         "GetEnumerator",
         new Type[](0),
         false
-    ).IsNotFound
+    ).IsSelected
 
     sourceArrayArguments := new Type[](2)
     sourceArrayArguments[0] = typeof(string)
@@ -225,7 +237,7 @@ test "IEnumerator admits the already-owned closed KeyValuePair shell with a sour
         "GetEnumerator",
         new Type[](0),
         false
-    ).IsNotFound
+    ).IsSelected
 
     sourceGenericDefinition := TypeOfCreateBuilder(
         "Contoso.Compilation.GenericUnit",
@@ -245,12 +257,11 @@ test "IEnumerator admits the already-owned closed KeyValuePair shell with a sour
         "GetEnumerator",
         new Type[](0),
         false
-    ).IsNotFound
-    // A DICTIONARY WITH NO BUILDER IN IT reaches the ordinary lookup, whose candidate sweep now
-    // walks the base interfaces: `IReadOnlyDictionary<string, string>` inherits `GetEnumerator` from
-    // `IEnumerable<KeyValuePair<string, string>>`, so it resolves like any other inherited interface
-    // member. The rebinding arm above still owns the BUILDER-bound shapes, which reflection cannot
-    // answer for at all.
+    ).IsSelected
+    // A DICTIONARY WITH NO BUILDER IN IT takes the same route: the candidate sweep walks the base
+    // interfaces, and `IReadOnlyDictionary<string, string>` inherits `GetEnumerator` from
+    // `IEnumerable<KeyValuePair<string, string>>`. A BUILDER-bound receiver, which reflection cannot
+    // answer for at all, reaches the same declaration through its open DEFINITION's interface list.
     plainDictionaryAcquisition := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
         typeof(IReadOnlyDictionary<string, string>),
         "GetEnumerator",
@@ -279,9 +290,9 @@ test "IEnumerator admits the already-owned closed KeyValuePair shell with a sour
     assert ColumnarTypeOfPlanner.IsSupportedType(unsupportedEnumerator)
     assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(unsupportedElement)
 
-    // THE INHERITED-ENUMERATOR SELECTOR IS UNMOVED BY ANY OF THIS. Its rule is the receiver's exact
-    // shape — a string key and one direct source-CLASS value — and not the admissibility of what it
-    // would return, so every shape it already refused it still refuses.
+    // WHAT A CALL RESOLVES TO AND WHAT ITS RESULT MAY BE HELD IN REMAIN TWO QUESTIONS. Selection is
+    // the receiver's declaration walk; admissibility is the enumerator element's own fence, and
+    // neither moves the other.
     assert ColumnarTypeOfPlanner.IsSupportedType(
         EnumeratorProtocolClosed1(
             "System.Collections.Generic.IEnumerator`1",
@@ -290,7 +301,7 @@ test "IEnumerator admits the already-owned closed KeyValuePair shell with a sour
     )
     assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
         sourceValueDictionary,
-        "GetEnumerator",
+        "Reset",
         new Type[](0),
         false
     ).IsNotFound
