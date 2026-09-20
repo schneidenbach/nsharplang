@@ -641,6 +641,37 @@ sealed class ColumnarIlEmitter {
         out columnarResolvedType
     )
 
+    // THE EXCEPTION TYPE A `catch` CLAUSE NAMES, RESOLVED IN THE SAME UNIVERSE AS EVERY OTHER
+    // WRITTEN TYPE.
+    //
+    // A bare clause is the CLI catch-all region, whose handler type is `System.Object`. A TYPED
+    // clause was resolved by a CORELIB-ONLY index: `BuildRuntimeExceptionIndex` walks
+    // `typeof(Exception)`'s own assembly and the `Type.GetType` beside it answers for nothing else.
+    // So `catch ex: SocketException` (System.Net.Primitives), `catch ex: JsonException`
+    // (System.Text.Json) and a catch of an exception THIS COMPILATION declares all declined at
+    // `emit.statement.block-child`, while `new Socket(...)` and `ex as SocketException` in the very
+    // same file emitted — the type resolved everywhere except in the clause that names it.
+    //
+    // A clause names an ordinary type, so it is resolved by the ordinary body-type route, which sees
+    // this file's imports, this compilation's own declarations and every referenced assembly. What
+    // may be named is unchanged and is still asked of the resolved type: the CLR admits a
+    // non-generic, non-by-ref, non-pointer type assignable to `System.Exception` as a handler type
+    // and nothing else. The corelib index stays as the fallback, so no spelling it used to answer
+    // stops being answered.
+    private func TryResolveCatchClauseType(clause: int, out catchType: Type): bool {
+        catchType = null
+        if (_nodes.ValueStart(clause) < 0) {
+            catchType = typeof(object)
+            return true
+        }
+        let writtenType: System.Type? = null
+        if (TryResolveBodyType(ColumnarNodeTextFacts.Text(_nodes, _source, clause), out writtenType) && ColumnarCanonicalTypeResolver.IsCatchableExceptionType(writtenType, typeof(Exception))) {
+            catchType = writtenType
+            return true
+        }
+        return ColumnarCanonicalTypeResolver.TryResolveCatchType(_nodes, _source, clause, out catchType)
+    }
+
     // LAMBDA support (L1b): the Program TypeBuilder hosts synthesized `<Lambda>_{n}` static methods (null in
     // contexts that do not model lambdas, e.g. the single-function wrapper — a kind-39 node then declines);
     // the counter is a one-element box SHARED across every emitter instance of one program so names never
@@ -8544,7 +8575,7 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 let catchType: System.Type? = null
-                if (!ColumnarCanonicalTypeResolver.TryResolveCatchType(_nodes, _source, clause, out catchType)) {
+                if (!TryResolveCatchClauseType(clause, out catchType)) {
                     return false
                 }
                 _il.BeginCatchBlock(catchType)
