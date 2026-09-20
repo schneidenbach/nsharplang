@@ -184,10 +184,17 @@ class ColumnarNamedArgumentBinder {
 
     // Place written arguments without requiring them to form a leading prefix. The caller owns
     // validation and emission of every unclaimed optional slot.
+    //
+    // WRITING NOTHING IS A PLACEMENT. `AllDefault()` against `AllDefault(x: int = 1, y: int = 2)`
+    // claims no slot and leaves both to the caller's default fill, which is the same answer this
+    // operation gives for one written argument out of two. Refusing zero made `Foo()` — the most
+    // ordinary shape a fully defaulted declaration has — the one arity the fill could not reach.
+    // Every caller still requires more parameters than written arguments, so a genuinely
+    // parameterless declaration is never routed here.
     static func TryPlaceSparse(nodes: ColumnarNodeTable, source: string, callNode: int, firstArgumentOrdinal: int, argumentCount: int, parameterNames: string[], out slotForWrittenArgument: int[], out claimedSlots: bool[]): bool {
         slotForWrittenArgument = new int[](0)
         claimedSlots = new bool[](0)
-        if nodes == null || source == null || parameterNames == null || argumentCount <= 0 || argumentCount > parameterNames.Length {
+        if nodes == null || source == null || parameterNames == null || argumentCount < 0 || argumentCount > parameterNames.Length {
             return false
         }
         placements := new int[](argumentCount)

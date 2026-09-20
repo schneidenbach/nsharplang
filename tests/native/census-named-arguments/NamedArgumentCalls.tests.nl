@@ -328,3 +328,68 @@ test "reflected base constructor chains place named arguments and fill optional 
     value := new ReflectedBaseChain()
     assert value.Value == 527
 }
+
+// ---- omitting a defaulted parameter WITHOUT writing a name ------------------------------------
+//
+// The rows above all write at least one name. These write none: a positional call that stops
+// before the optional tail. Source declarations are selected by exact parameter count, so every one
+// of these declined at `emit.local.initializer` / `emit.return.expression` in the same compilation
+// that declared them, while the identical omission across an assembly reference bound — the
+// runtime resolver has carried an optional-fill tier for a while and the source one had none. The
+// fill itself was already written and already correct; it was simply unreachable without a name.
+
+test "a positional call may stop before a source declaration's optional tail" {
+    assert PositionalTail(7) == 72300, "both optionals filled"
+    assert PositionalTail(7, 4) == 70700, "one optional filled"
+    assert PositionalTail(7, 4, 5) == 70405, "nothing to fill"
+}
+
+test "a positional call may omit a nullable default and a whole parameter list" {
+    assert PositionalNullableTail("a") == "a-", "the null default reached the parameter"
+    assert PositionalNullableTail("a", "b") == "ab", "the written value still wins"
+
+    // `Foo()` against a fully defaulted declaration is the arity the fill could not reach at all.
+    assert PositionalAllDefaults() == 12, "every parameter filled"
+    assert PositionalAllDefaults(9) == 92, "leading written, trailing filled"
+}
+
+test "instance and static source members fill their positional tails" {
+    owner := new PositionalDefaultOwner("o")
+
+    assert owner.Read(7) == "o72300", "instance member"
+    assert PositionalDefaultOwner.ReadStatic(7) == 72300, "static member"
+    assert PositionalDefaultOwner.ReadStatic(7, 4) == 70700, "static member, partial"
+}
+
+test "each default kind a declaration can spell is the value the fill writes" {
+    assert PositionalDefaultKinds(1) == "1tailTrue9-", "string, bool, int and null defaults"
+    assert PositionalDefaultKinds(1, "x") == "1xTrue9-", "written string, filled tail"
+    assert PositionalDefaultKinds(1, "x", false, 8, "z") == "1xFalse8z", "nothing filled"
+}
+
+test "an exact-arity overload still wins over one that would need filling" {
+    // The fill runs only AFTER the exact-arity tier has declined, so a declaration that matches the
+    // written count is never displaced by one that would have to synthesize an argument.
+    assert PositionalDefaultOverloads.Pick(1) == "exact1:1", "exact arity wins"
+    assert PositionalDefaultOverloads.Pick(1, 2) == "fill2:1:2", "the wider overload at its own arity"
+}
+
+test "a filled call evaluates its written arguments in the order they were written" {
+    recorder := new PositionalDefaultRecorder()
+
+    // The receiver runs first, then each written argument left to right; the filled tail is a
+    // constant and runs last, after everything the program could observe.
+    value := PositionalDefaultOwner.MakeOwner(recorder).Read(recorder.Note("first", 7))
+
+    assert value == "owner72300", "the filled tail reached the call"
+    assert recorder.Seen() == "receiver,first", "receiver before the written argument"
+}
+
+test "two written arguments keep their left-to-right order ahead of a filled tail" {
+    recorder := new PositionalDefaultRecorder()
+
+    value := PositionalTail(recorder.Note("first", 7), recorder.Note("middle", 4))
+
+    assert value == 70700, "the written pair and the filled tail"
+    assert recorder.Seen() == "first,middle", "written order preserved"
+}

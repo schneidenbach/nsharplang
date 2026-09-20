@@ -287,6 +287,50 @@ class ColumnarDirectCallPlanner {
         }
 
         checkpoint := plan.CreateCheckpoint()
+        if TryAppendPlacedCall(nodes, source, node, callee, calleeKind, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+            return true
+        }
+
+        // AN OMITTED TRAILING DEFAULT IS NOT AN ARITY MISMATCH, AND A POSITIONAL CALL NEVER SAID SO.
+        // The tier above selects a source declaration by EXACT parameter count, so
+        // `Producer.Make("a")` against `Make(a: string, d: string? = null)` found no candidate and
+        // declined — in the SAME compilation, while the identical omission through a reference
+        // already bound, because the runtime resolver has carried an optional-fill tier for a while.
+        // The fill itself was already written and already correct: the sparse tier below places the
+        // written arguments into their slots, stores each one as it is evaluated so the WRITTEN order
+        // is what runs, and asks the shared constructor-default owner for every slot the call left
+        // out. It was only ever reachable behind `HasNamedArgument`, so a call that named nothing
+        // could not get to it. Positional calls now reach the SAME owner, after the exact-arity tier
+        // has had its say, so an exact-arity overload still wins and the decline the ordinary route
+        // reported is restored untouched when no candidate can be filled.
+        if !ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentTypes.Length) {
+            declinedOwnership := ownership
+            declinedLegacy := legacyWholeSubtreePlanning
+            declinedResult := resultType
+            fillCheckpoint := plan.CreateCheckpoint()
+            if TryAppendSparseNamedSiblingCall(nodes, source, node, callee, calleeKind, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
+                ownership = ColumnarDirectCallOwnership.Planned
+                legacyWholeSubtreePlanning = false
+                return true
+            }
+            plan.Rollback(fillCheckpoint)
+            fillCheckpoint = plan.CreateCheckpoint()
+            if TryAppendSparseNamedSourceMemberCall(nodes, source, node, callee, calleeKind, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out resultType) {
+                ownership = ColumnarDirectCallOwnership.Planned
+                legacyWholeSubtreePlanning = false
+                return true
+            }
+            plan.Rollback(fillCheckpoint)
+            ownership = declinedOwnership
+            legacyWholeSubtreePlanning = declinedLegacy
+            resultType = declinedResult
+        }
+
+        return false
+    }
+
+    // The exact-arity dispatch, unchanged, named so the default-fill retry above can run after it.
+    static func TryAppendPlacedCall(nodes: ColumnarNodeTable, source: string, node: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
         try {
             if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() {
                 return TryAppendBareCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)

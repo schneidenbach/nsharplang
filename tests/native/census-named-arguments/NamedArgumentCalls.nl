@@ -405,3 +405,80 @@ class ReflectedBaseChain: ReflectedChainBase {
     constructor(): base(last: 7, first: 5) {
     }
 }
+
+// ---- THE SAME OPTIONAL SLOTS, REACHED WITHOUT WRITING A SINGLE NAME ---------------------------
+//
+// Filling an omitted optional was only ever reachable behind a NAME: the planner entered the
+// sparse tier when a call wrote a named argument the ordinary placement could not use. A purely
+// POSITIONAL call that simply stopped early never got there, and a source declaration is selected
+// by exact parameter count, so `Make("a")` against `Make(a: string, d: string? = null)` declined in
+// the SAME compilation while the identical omission through an assembly reference already bound.
+// These declarations are read positionally, with a trailing tail left out.
+class PositionalDefaultRecorder {
+    Order: List<string>
+
+    constructor() {
+        Order = new List<string>()
+    }
+
+    func Note(name: string, value: int): int {
+        Order.Add(name)
+        return value
+    }
+
+    func Seen(): string {
+        return string.Join(",", Order)
+    }
+}
+
+func PositionalTail(first: int, middle: int = 20, last: int = 300): int {
+    return first * 10000 + middle * 100 + last
+}
+
+func PositionalNullableTail(a: string, d: string? = null): string {
+    return a + (d ?? "-")
+}
+
+func PositionalAllDefaults(x: int = 1, y: int = 2): int {
+    return x * 10 + y
+}
+
+class PositionalDefaultOwner {
+    Tag: string
+
+    constructor(tag: string) {
+        Tag = tag
+    }
+
+    func Read(first: int, middle: int = 20, last: int = 300): string {
+        return Tag + (first * 10000 + middle * 100 + last).ToString()
+    }
+
+    static func ReadStatic(first: int, middle: int = 20, last: int = 300): int {
+        return first * 10000 + middle * 100 + last
+    }
+
+    static func MakeOwner(recorder: PositionalDefaultRecorder): PositionalDefaultOwner {
+        recorder.Order.Add("receiver")
+        return new PositionalDefaultOwner("owner")
+    }
+}
+
+// An overload set where the EXACT arity must still win over the fillable one.
+class PositionalDefaultOverloads {
+    static func Pick(a: int): string {
+        return "exact1:" + a.ToString()
+    }
+
+    static func Pick(a: int, b: int = 5): string {
+        return "fill2:" + a.ToString() + ":" + b.ToString()
+    }
+}
+
+// The default kinds a declaration can spell, so the filled value is checked against each rather
+// than only against an `int`. A FLOATING-POINT or `long` default is absent because the DECLARATION
+// itself is refused before any call site is reached — separate gaps this change neither widens nor
+// closes.
+func PositionalDefaultKinds(seed: int, text: string = "tail", flag: bool = true, count: int = 9, tail: string? = null): string {
+    return seed.ToString() + text + flag.ToString() + count.ToString() + (tail ?? "-")
+}
