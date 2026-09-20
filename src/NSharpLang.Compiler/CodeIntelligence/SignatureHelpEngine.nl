@@ -50,28 +50,18 @@ class SignatureHelpEngine {
         return SignatureHelpOverloadFacts.ResolveOverloads(call, units, unit, semanticModel, catalog, line, col)
     }
 
-    // Every unit of the snapshot, each paired with the text it was parsed from so a declaration's
-    // leading comment block can be read back. A unit whose text the snapshot did not keep is read
-    // from disk, which is the same fallback the completion door makes.
+    // Every unit of the snapshot, each carrying the text it was parsed from so a declaration's
+    // leading comment block can be read back — or, when the snapshot did not keep that text, the
+    // PATH to read it from. Nothing is read here: only the unit that declares the matched overload
+    // is ever asked, and this runs on every `(` and every `,`.
     static func SnapshotUnits(snapshot: ProjectSnapshot): List<SignatureHelpSourceUnit> {
         units := new List<SignatureHelpSourceUnit>()
         for entry in snapshot.CompilationUnits {
             sourceText: string? = null
-            if !snapshot.SourceTexts.TryGetValue(entry.Key, out sourceText) {
-                sourceText = ReadSourceOrNull(entry.Key)
-            }
-
-            units.Add(new SignatureHelpSourceUnit(entry.Value, sourceText))
+            snapshot.SourceTexts.TryGetValue(entry.Key, out sourceText)
+            units.Add(new SignatureHelpSourceUnit(entry.Value, sourceText, entry.Key))
         }
 
         return units
-    }
-
-    static func ReadSourceOrNull(filePath: string): string? {
-        try {
-            return File.ReadAllText(filePath)
-        } catch caught: IOException {
-            return null
-        }
     }
 }

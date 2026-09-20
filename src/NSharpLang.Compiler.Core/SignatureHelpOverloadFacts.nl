@@ -3,25 +3,56 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections
 import System.Collections.Generic
+import System.IO
 import System.Reflection
 import System.Text
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 // ONE UNIT OF THE PROGRAM THE CARET IS BEING HELPED INSIDE, with the text it was parsed from.
-// The text is what a doc comment is read out of, and it is optional because a unit that was never
-// on disk (an unsaved buffer that has not been handed to the snapshot yet) still has declarations
-// worth answering with.
+//
+// THE TEXT IS READ ONLY IF SOMETHING ASKS FOR IT, and this is why: signature help runs on every `(`
+// and every `,`, a project hands over every one of its units, and only the unit that actually
+// declares the matched overload has a doc comment anyone will see. Eager reading would cost one
+// file read per file per keystroke. A unit that was never on disk — an unsaved buffer — carries its
+// text directly and has no path; a unit the snapshot already holds the text for never touches the
+// disk at all.
 class SignatureHelpSourceUnit {
     unitValue: CompilationUnit
     sourceTextValue: string?
+    filePathValue: string?
+    resolvedValue: bool
 
     Unit: CompilationUnit => unitValue
-    SourceText: string? => sourceTextValue
+    FilePath: string? => filePathValue
 
-    constructor(Unit: CompilationUnit, SourceText: string?) {
+    constructor(Unit: CompilationUnit, SourceText: string?, FilePath: string? = null) {
         unitValue = Unit
         sourceTextValue = SourceText
+        filePathValue = FilePath
+        resolvedValue = SourceText != null
+    }
+
+    // The text, read from disk at most once and only when a doc comment is wanted. A file that
+    // cannot be read answers null, which is the same answer as a declaration with no comment.
+    func SourceText(): string? {
+        if resolvedValue {
+            return sourceTextValue
+        }
+
+        resolvedValue = true
+        path := filePathValue
+        if path == null {
+            return null
+        }
+
+        try {
+            sourceTextValue = File.ReadAllText(path)
+        } catch caught: IOException {
+            sourceTextValue = null
+        }
+
+        return sourceTextValue
     }
 }
 
@@ -82,7 +113,7 @@ class SignatureHelpOverloadFacts {
             for declaration in sourceUnit.Unit.Declarations {
                 function := declaration as FunctionDeclaration
                 if function != null && function.Name == name {
-                    overloads.Add(FunctionOverload(function, function.Name, sourceUnit.SourceText))
+                    overloads.Add(FunctionOverload(function, function.Name, sourceUnit))
                 }
             }
         }
@@ -99,7 +130,7 @@ class SignatureHelpOverloadFacts {
         for sourceUnit in units {
             for declaration in sourceUnit.Unit.Declarations {
                 if IsTypeDeclarationNamed(declaration, simpleName) {
-                    AppendSourceConstructors(declaration, simpleName, sourceUnit.SourceText, overloads)
+                    AppendSourceConstructors(declaration, simpleName, sourceUnit, overloads)
                 }
             }
         }
@@ -121,7 +152,7 @@ class SignatureHelpOverloadFacts {
         return overloads
     }
 
-    static func AppendSourceConstructors(declaration: Declaration, typeName: string, sourceText: string?, overloads: List<SignatureHelpOverload>) {
+    static func AppendSourceConstructors(declaration: Declaration, typeName: string, sourceUnit: SignatureHelpSourceUnit, overloads: List<SignatureHelpOverload>) {
         members := DeclarationFacts.GetDeclarationMembers(declaration)
         if members == null {
             return
@@ -132,7 +163,7 @@ class SignatureHelpOverloadFacts {
             constructor := members[index] as ConstructorDeclaration
             if constructor != null {
                 parameterLabels := ParameterLabels(constructor.Parameters)
-                overloads.Add(new SignatureHelpOverload(FormatLabel(typeName, parameterLabels, "void"), LeadingDocumentation(sourceText, constructor.Line), parameterLabels))
+                overloads.Add(new SignatureHelpOverload(FormatLabel(typeName, parameterLabels, "void"), LeadingDocumentation(sourceUnit, constructor.Line), parameterLabels))
             }
 
             index = index + 1
@@ -201,7 +232,7 @@ class SignatureHelpOverloadFacts {
         for sourceUnit in units {
             for declaration in sourceUnit.Unit.Declarations {
                 if IsTypeDeclarationNamed(declaration, typeName) {
-                    AppendSourceMembers(declaration, typeName, methodName, sourceUnit.SourceText, overloads)
+                    AppendSourceMembers(declaration, typeName, methodName, sourceUnit, overloads)
                 }
             }
         }
@@ -209,7 +240,7 @@ class SignatureHelpOverloadFacts {
         return overloads
     }
 
-    static func AppendSourceMembers(declaration: Declaration, typeName: string, methodName: string, sourceText: string?, overloads: List<SignatureHelpOverload>) {
+    static func AppendSourceMembers(declaration: Declaration, typeName: string, methodName: string, sourceUnit: SignatureHelpSourceUnit, overloads: List<SignatureHelpOverload>) {
         members := DeclarationFacts.GetDeclarationMembers(declaration)
         if members == null {
             return
@@ -220,7 +251,7 @@ class SignatureHelpOverloadFacts {
             member := members[index]
             function := member as FunctionDeclaration
             if function != null && function.Name == methodName {
-                overloads.Add(FunctionOverload(function, function.Name, sourceText))
+                overloads.Add(FunctionOverload(function, function.Name, sourceUnit))
             }
 
             // A CONSTRUCTOR WRITTEN AS `Type.Type(` is the same declaration the `new` form finds,
@@ -228,7 +259,7 @@ class SignatureHelpOverloadFacts {
             constructor := member as ConstructorDeclaration
             if constructor != null && methodName == typeName {
                 parameterLabels := ParameterLabels(constructor.Parameters)
-                overloads.Add(new SignatureHelpOverload(FormatLabel(typeName, parameterLabels, "void"), LeadingDocumentation(sourceText, constructor.Line), parameterLabels))
+                overloads.Add(new SignatureHelpOverload(FormatLabel(typeName, parameterLabels, "void"), LeadingDocumentation(sourceUnit, constructor.Line), parameterLabels))
             }
 
             index = index + 1
@@ -291,9 +322,9 @@ class SignatureHelpOverloadFacts {
 
     // ── shared shaping ────────────────────────────────────────────────────────────────────────
 
-    static func FunctionOverload(function: FunctionDeclaration, name: string, sourceText: string?): SignatureHelpOverload {
+    static func FunctionOverload(function: FunctionDeclaration, name: string, sourceUnit: SignatureHelpSourceUnit): SignatureHelpOverload {
         parameterLabels := ParameterLabels(function.Parameters)
-        return new SignatureHelpOverload(FormatLabel(name, parameterLabels, TypeReferenceFacts.GetDisplayNameOrVoid(function.ReturnType)), LeadingDocumentation(sourceText, function.Line), parameterLabels)
+        return new SignatureHelpOverload(FormatLabel(name, parameterLabels, TypeReferenceFacts.GetDisplayNameOrVoid(function.ReturnType)), LeadingDocumentation(sourceUnit, function.Line), parameterLabels)
     }
 
     static func ParameterLabels(parameters: List<Parameter>): List<string> {
@@ -324,7 +355,8 @@ class SignatureHelpOverloadFacts {
         return builder.ToString()
     }
 
-    static func LeadingDocumentation(sourceText: string?, declarationLine: int): string? {
+    static func LeadingDocumentation(sourceUnit: SignatureHelpSourceUnit, declarationLine: int): string? {
+        sourceText := sourceUnit.SourceText()
         if sourceText == null {
             return null
         }
