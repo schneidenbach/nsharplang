@@ -4,7 +4,7 @@
   "codeEpochFileCount": 223,
   "codeEpochPathFingerprint": "pathset-v2:fbda7fc3d5053525",
   "codeEpochFactFingerprint": "epochfacts-v2:05f608333cab8ef7",
-  "reviewedHeadFingerprint": "head-v2:10255f058c700d80",
+  "reviewedHeadFingerprint": "head-v2:9754bd17b78a7d95",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":163,"currentNonBlankLines":137,"currentBytes":0,"currentFingerprint":"text-v1:bc7886703362adb1"},
@@ -375,7 +375,7 @@
     {"path":"tests/fixtures/issue-tracker/global.json","language":"json-config","surface":"compiler-tests","campaignScope":"closeout","state":"reviewed","currentLines":9,"currentNonBlankLines":9,"currentBytes":0,"currentFingerprint":"text-v1:224b2c9ed64bcc89"},
     {"path":"tests/scripts/replay-template-quickstarts.py","language":"python","surface":"gate-infrastructure","campaignScope":"closeout","state":"existing-debt","epochLines":174,"currentLines":174,"epochNonBlankLines":147,"currentNonBlankLines":147,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:53d1b2bf60793d6c"},
     {"path":"tests/scripts/smoke-turnkey-install.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":180,"currentNonBlankLines":152,"currentBytes":0,"currentFingerprint":"text-v1:7a6b0caae784e249"},
-    {"path":"tests/scripts/test-all-core.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":1019,"currentNonBlankLines":916,"currentBytes":0,"currentFingerprint":"text-v1:d2b8de9771eb4ebf"},
+    {"path":"tests/scripts/test-all-core.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":1019,"currentNonBlankLines":916,"currentBytes":0,"currentFingerprint":"text-v1:919e5bfcaac33f8c"},
     {"path":"tests/scripts/test-all.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":569,"currentNonBlankLines":504,"currentBytes":0,"currentFingerprint":"text-v1:731255217cac719a"},
     {"path":"tests/scripts/test-compile.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":81,"currentNonBlankLines":68,"currentBytes":0,"currentFingerprint":"text-v1:0ae6f13f81010034"},
     {"path":"tests/scripts/test-release-workflows.py","language":"python","surface":"gate-infrastructure","campaignScope":"closeout","state":"existing-debt","epochLines":131,"currentLines":131,"epochNonBlankLines":125,"currentNonBlankLines":125,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:fc4dd10188c8006c"},
