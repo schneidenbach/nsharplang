@@ -173,10 +173,10 @@ test "the analyzer pre-loads exactly the table the columnar scan pre-loads — o
     assert JoinNames(AnalyzerMetadataLoadPolicy.CommonAssemblyNames()) == JoinNames(ExternalAssemblyScan.CommonAssemblyNames())
 }
 
-test "the table is the 31 names the drift used to be measured against, and it still opens with the core assembly" {
+test "the table is the 32 names the drift is measured against, and it still opens with the core assembly" {
     names := AnalyzerMetadataLoadPolicy.CommonAssemblyNames()
 
-    assert names.Length == 31
+    assert names.Length == 32
     assert names[0] == AnalyzerMetadataLoadPolicy.MetadataCoreAssemblyName()
     assert names[0] == "System.Runtime"
 
@@ -261,6 +261,31 @@ test "the file-system watcher and the zip writer are in the table" {
     assert watcher
     assert compression
     assert zipFile
+}
+
+// THE ONE REFLECTION.EMIT NAME CORELIB DOES NOT ANSWER FOR. `AssemblyBuilder`, `TypeBuilder`,
+// `ModuleBuilder`, `EnumBuilder` and `ILGenerator` are all declared in `System.Private.CoreLib`, so
+// the core entry already resolved them; `PersistedAssemblyBuilder` is declared in
+// `System.Reflection.Emit.dll` alone and answered null, which reported NL201 on the compiler's own
+// IL back end through its own front door and then NL010 on the `import` that supplies it.
+test "the persisted assembly builder's own assembly is in the table, and the type really is the one CoreLib misses" {
+    names := AnalyzerMetadataLoadPolicy.CommonAssemblyNames()
+
+    emit := false
+    index := 0
+    while index < names.Length {
+        if names[index] == "System.Reflection.Emit" {
+            emit = true
+        }
+
+        index = index + 1
+    }
+
+    assert emit
+
+    assert Type.GetType("System.Reflection.Emit.PersistedAssemblyBuilder") == null
+    assert Type.GetType("System.Reflection.Emit.AssemblyBuilder") != null
+    assert Type.GetType("System.Reflection.Emit.PersistedAssemblyBuilder, System.Reflection.Emit") != null
 }
 
 // ── THE ASP.NET TABLE AND WHAT SELECTS IT ────────────────────────────────────────────────────────

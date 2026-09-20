@@ -1,7 +1,5 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-import System
-import System.Collections
 import System.Collections.Generic
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast

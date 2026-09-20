@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
-import System.Reflection
 
 
 // THE WRITING HALF OF THE FRIEND RULE, pinned where it is decided.

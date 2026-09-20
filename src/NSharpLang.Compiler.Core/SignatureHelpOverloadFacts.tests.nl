@@ -144,7 +144,7 @@ test "a reflected property accessor is not offered as a signature" {
 }
 
 test "a metadata type answers for its own constructors" {
-    overloads := SignatureHelpOverloadFacts.ConstructorOverloads("DateTime", new List<SignatureHelpSourceUnit>(), null, null)
+    overloads := SignatureHelpOverloadFacts.ConstructorOverloads("DateTime", new List<SignatureHelpSourceUnit>(), null)
 
     assert overloads.Count > 1
     index := 0
@@ -173,7 +173,7 @@ test "a source type declaration answers before metadata for the same spelling" {
     declaration: Declaration = new ClassDeclaration("DateTime", null, null, new List<TypeReference>(), members, null, Modifiers.None, new List<AttributeNode>(), 1, 1)
     declarations.Add(declaration)
 
-    overloads := SignatureHelpOverloadFacts.ConstructorOverloads("DateTime", ShoUnits(ShoUnit(declarations, null)), null, null)
+    overloads := SignatureHelpOverloadFacts.ConstructorOverloads("DateTime", ShoUnits(ShoUnit(declarations, null)), null)
 
     assert overloads.Count == 1
     assert overloads[0].Label == "DateTime(reason: string): void"

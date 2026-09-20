@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
 import System
-import System.Collections
 import System.Collections.Generic
 import System.IO
 import System.Reflection
@@ -92,7 +91,7 @@ class SignatureHelpOverloadFacts {
     // signature help here", which is the only thing a caller has to know.
     static func ResolveOverloads(call: SignatureHelpCallContext, units: List<SignatureHelpSourceUnit>, currentUnit: CompilationUnit?, semanticModel: SemanticModel?, catalog: EditorTypeCatalog?, line: int, column: int): List<SignatureHelpOverload> {
         if call.IsConstructor {
-            return ConstructorOverloads(call.MethodName, units, currentUnit, catalog)
+            return ConstructorOverloads(call.MethodName, units, catalog)
         }
 
         if call.ReceiverName == null {
@@ -123,7 +122,7 @@ class SignatureHelpOverloadFacts {
 
     // ── constructors ──────────────────────────────────────────────────────────────────────────
 
-    static func ConstructorOverloads(typeName: string, units: List<SignatureHelpSourceUnit>, currentUnit: CompilationUnit?, catalog: EditorTypeCatalog?): List<SignatureHelpOverload> {
+    static func ConstructorOverloads(typeName: string, units: List<SignatureHelpSourceUnit>, catalog: EditorTypeCatalog?): List<SignatureHelpOverload> {
         overloads := new List<SignatureHelpOverload>()
         simpleName := SimpleName(typeName)
 
@@ -139,7 +138,7 @@ class SignatureHelpOverloadFacts {
             return overloads
         }
 
-        clrType := ResolveTypeReceiver(typeName, units, currentUnit, catalog)
+        clrType := ResolveTypeReceiver(typeName, catalog)
         if clrType == null {
             return overloads
         }
@@ -202,7 +201,7 @@ class SignatureHelpOverloadFacts {
             return declaredOverloads
         }
 
-        typeReceiver := ResolveTypeReceiver(receiverName, units, currentUnit, catalog)
+        typeReceiver := ResolveTypeReceiver(receiverName, catalog)
         if typeReceiver != null {
             return ClrMethodOverloads(typeReceiver, methodName, true)
         }
@@ -382,7 +381,7 @@ class SignatureHelpOverloadFacts {
     // A TYPE THE CALLER SPELLED. The editor's type catalog holds the analyzer's own assembly
     // registry, so a package the project depends on answers here exactly as it answers for
     // completion; the built-in receiver table answers for the names the analyzer models directly.
-    static func ResolveTypeReceiver(receiverName: string, units: List<SignatureHelpSourceUnit>, currentUnit: CompilationUnit?, catalog: EditorTypeCatalog?): Type? {
+    static func ResolveTypeReceiver(receiverName: string, catalog: EditorTypeCatalog?): Type? {
         known := CompletionReflectionFacts.KnownReceiverType(receiverName)
         if known != null {
             return known

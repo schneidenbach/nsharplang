@@ -86,6 +86,21 @@ finds **zero additions and 32 removals**. The gate ceiling is now 1,342. Explici
 short opcode conversions, qualified reflection types and import cleanup removed the new source
 regressions without suppressions or a ceiling increase.
 
+**Measured 2026-09-20 at `e5ce20f39`** (the IVT2, signature-help and folding lanes): Core reports
+**1,340 diagnostics across 952 files** (1,327 errors and 13 warnings), and **the gate ceiling is now
+1,340**. Those three lanes had added **9** diagnostics to Core's own source — five unused imports
+(`EditorFoldingFacts.nl` ×2 and its tests, `SignatureHelpOverloadFacts.nl`,
+`ColumnarInternalsVisibleToEmitter.tests.nl`), two unread parameters on
+`SignatureHelpOverloadFacts.ResolveTypeReceiver`, and an NL201/NL010 pair on
+`ColumnarInternalsVisibleToEmitter.nl`. The imports and parameters were removed; the pair was a
+CHECKER defect, not a source one. `System.Reflection.Emit.PersistedAssemblyBuilder` is the one
+Reflection.Emit type `System.Private.CoreLib` does not declare — `AssemblyBuilder`, `TypeBuilder`,
+`ModuleBuilder`, `EnumBuilder` and `ILGenerator` all resolved through the core entry — so it answered
+NL201 on the compiler's own IL back end, and the `import` that supplies it was then NL010. Adding
+`System.Reflection.Emit` to `ExternalAssemblyScan.CommonAssemblyNames` (32 names now, pinned in
+`AnalyzerMetadataLoadPolicy.tests.nl`) resolves it and also cleared the pre-existing NL201 in
+`ColumnarIlEmitter.nl`: zero additions and two removals against the 1,342 baseline.
+
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
 
@@ -97,7 +112,7 @@ through `--text`; that observation does not make their blocked project checks cl
 0 their ceilings become real numbers.
 
 The remaining backlog includes NL905 (429 possible null dereferences), NL202 (351 argument type
-mismatches), NL002 (239 missing imports), NL010 (187 unused imports), and 96 NL012/NL011/NL304 findings
+mismatches), NL002 (239 missing imports), NL010 (186 unused imports), and 96 NL012/NL011/NL304 findings
 (unused parameters, empty catches and definite-assignment holes). The source cleanup campaign remains
 open; a successful seed build through the emit-only path does not prove that this front door is clean.
 

@@ -1234,7 +1234,7 @@ class ExternalAssemblyScan {
     }
 
     static func CommonAssemblyNames(): string[] {
-        names := new string[](31)
+        names := new string[](32)
         names[0] = "System.Runtime"
         names[1] = "System.Console"
         names[2] = "System.Collections"
@@ -1288,6 +1288,18 @@ class ExternalAssemblyScan {
         names[28] = "System.IO.FileSystem.Watcher"
         names[29] = "System.IO.Compression"
         names[30] = "System.IO.Compression.ZipFile"
+        // THE PERSISTED ASSEMBLY BUILDER'S OWN ASSEMBLY, which is the one Reflection.Emit name that
+        // CoreLib does not answer for. Every other emit type a program spells — `AssemblyBuilder`,
+        // `TypeBuilder`, `ModuleBuilder`, `EnumBuilder`, `ILGenerator` — is declared in
+        // `System.Private.CoreLib` and therefore already resolved through the entry above; measured
+        // in this runtime, `Type.GetType("System.Reflection.Emit.PersistedAssemblyBuilder")` is the
+        // only one that answers null, because that type is declared in `System.Reflection.Emit.dll`
+        // alone. Without this entry a parameter or a `new` annotated with the type the compiler's
+        // own IL back end constructs reported NL201 "Type 'PersistedAssemblyBuilder' not found" —
+        // on the compiler's own source, through its own front door — and the `import
+        // System.Reflection.Emit` that supplies it was then reported NL010 as unused. Neither could
+        // be worked around by fully qualifying the name.
+        names[31] = "System.Reflection.Emit"
         return names
     }
 }
