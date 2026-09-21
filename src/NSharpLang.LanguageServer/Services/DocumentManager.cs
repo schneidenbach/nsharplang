@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
-using NSharpLang.Compiler.Ast;
 using NSharpLang.LanguageServer.Models;
 using SymbolKind = NSharpLang.LanguageServer.Models.SymbolKind;
 using Microsoft.Extensions.Logging;
@@ -13,7 +12,13 @@ using Microsoft.Extensions.Logging;
 namespace NSharpLang.LanguageServer.Services;
 
 /// <summary>
-/// Manages the state of all open documents and provides compilation services
+/// Manages the state of all open documents and provides compilation services.
+///
+/// WHAT EVERY NAME IN A FILE IS AND WHERE IT SITS is N#-owned by
+/// <c>EditorSymbolTableFacts</c> — the type catalog, the symbol table and the location table, one
+/// walk each, with the comment-block reader and the name-column search that go with them. What is
+/// left here is the editor's own state: which documents are open, which project they belong to,
+/// when a snapshot is stale, and the three dictionaries the owner's rows are poured into.
 /// </summary>
 public class DocumentManager
 {
@@ -287,9 +292,11 @@ public class DocumentManager
                 state.LinterDiagnostics = linter.Lint(state.CompilationUnit, filePath, text);
 
                 // Store symbol information for later use
-                state.Symbols = ExtractSymbols(state.CompilationUnit);
-                state.SymbolsInfo = ExtractSymbolsInfo(state.CompilationUnit, text);
-                state.SymbolLocations = ExtractSymbolLocations(state.CompilationUnit, uri, text);
+                state.Symbols = EditorSymbolTableFacts.TypeCatalog(state.CompilationUnit);
+                state.SymbolsInfo = ToSymbolsInfo(
+                    EditorSymbolTableFacts.SymbolInfoRows(state.CompilationUnit, text));
+                state.SymbolLocations = ToSymbolLocations(
+                    EditorSymbolTableFacts.SymbolLocationRows(state.CompilationUnit, text), uri);
             }
 
             state.Diagnostics = DeduplicateCompilerDiagnostics(diagnostics);
@@ -792,610 +799,77 @@ public class DocumentManager
             doc.LinterDiagnostics ?? new List<Diagnostic>());
     }
 
-    private Dictionary<string, TypeInfo> ExtractSymbols(CompilationUnit compilationUnit)
-    {
-        var symbols = new Dictionary<string, TypeInfo>();
-
-        // Extract class, struct, record, interface, enum, union declarations
-        foreach (var decl in compilationUnit.Declarations)
-        {
-            if (decl is ClassDeclaration classDecl)
-            {
-                symbols[classDecl.Name] = NominalTypeInfoFactory.FromClassDeclaration(classDecl);
-            }
-            else if (decl is StructDeclaration structDecl)
-            {
-                symbols[structDecl.Name] = NominalTypeInfoFactory.FromStructDeclaration(structDecl);
-            }
-            else if (decl is RecordDeclaration recordDecl)
-            {
-                symbols[recordDecl.Name] = NominalTypeInfoFactory.FromRecordDeclaration(recordDecl);
-            }
-            else if (decl is InterfaceDeclaration interfaceDecl)
-            {
-                symbols[interfaceDecl.Name] = NominalTypeInfoFactory.FromInterfaceDeclaration(interfaceDecl);
-            }
-            else if (decl is EnumDeclaration enumDecl)
-            {
-                symbols[enumDecl.Name] = EnumTypeInfoFactory.FromDeclaration(enumDecl);
-            }
-            else if (decl is UnionDeclaration unionDecl)
-            {
-                symbols[unionDecl.Name] = UnionTypeInfoFactory.FromDeclaration(unionDecl);
-            }
-        }
-
-        return symbols;
-    }
-
-    private Dictionary<string, SymbolInfo> ExtractSymbolsInfo(CompilationUnit compilationUnit, string text)
+    private static Dictionary<string, SymbolInfo> ToSymbolsInfo(List<EditorSymbolInfoRow> rows)
     {
         var symbols = new Dictionary<string, SymbolInfo>();
 
-        // Extract top-level function declarations
-        foreach (var decl in compilationUnit.Declarations)
+        foreach (var row in rows)
         {
-            if (decl is FunctionDeclaration funcDecl)
-            {
-                symbols[funcDecl.Name] = CreateFunctionSymbol(funcDecl, SymbolKind.Function, text);
-                ExtractLocalFunctionSymbols(symbols, funcDecl.Body, text);
-            }
-            else if (decl is ClassDeclaration classDecl)
-            {
-                symbols[classDecl.Name] = CreateTypeSymbol(classDecl, text);
-            }
-            else if (decl is StructDeclaration structDecl)
-            {
-                symbols[structDecl.Name] = CreateTypeSymbol(structDecl, text);
-            }
-            else if (decl is RecordDeclaration recordDecl)
-            {
-                symbols[recordDecl.Name] = CreateTypeSymbol(recordDecl, text);
-            }
-            else if (decl is SoaRecordDeclaration soaRecordDecl)
-            {
-                symbols[soaRecordDecl.Name] = CreateSoaRecordSymbol(soaRecordDecl, text);
-            }
-            else if (decl is InterfaceDeclaration interfaceDecl)
-            {
-                symbols[interfaceDecl.Name] = CreateTypeSymbol(interfaceDecl, text);
-            }
-            else if (decl is EnumDeclaration enumDecl)
-            {
-                symbols[enumDecl.Name] = CreateEnumSymbol(enumDecl, text);
-            }
-            else if (decl is UnionDeclaration unionDecl)
-            {
-                symbols[unionDecl.Name] = CreateUnionSymbol(unionDecl, text);
-            }
+            symbols[row.Name] = ToSymbolInfo(row);
         }
 
         return symbols;
     }
 
-    private Dictionary<string, List<SymbolLocation>> ExtractSymbolLocations(CompilationUnit compilationUnit, string uri, string text)
+    private static SymbolInfo ToSymbolInfo(EditorSymbolInfoRow row)
     {
-        var lines = text.Split('\n');
-        var locations = new Dictionary<string, List<SymbolLocation>>(System.StringComparer.Ordinal);
-
-        void AddLocation(string name, SymbolKind kind, int line1Based, int column1Based, int? forcedNameColumn0 = null)
+        var symbol = new SymbolInfo(row.Name, ToSymbolKind(row.Kind))
         {
-            if (string.IsNullOrWhiteSpace(name)) return;
+            TypeName = row.TypeName,
+            Documentation = row.Documentation,
+            Parameters = row.Parameters
+                .Select(parameter => new ParameterInfo(parameter.Name, parameter.TypeName!, parameter.HasDefaultValue))
+                .ToList(),
+            Modifiers = row.Modifiers
+        };
 
-            var line0 = Math.Max(0, line1Based - 1);
-            var column0 = Math.Max(0, column1Based - 1);
-            var nameColumn0 = forcedNameColumn0 ?? FindNameColumn(lines, line0, column0, name);
+        foreach (var member in row.Members)
+        {
+            symbol.Members.Add(ToSymbolInfo(member));
+        }
 
-            if (!locations.TryGetValue(name, out var list))
+        return symbol;
+    }
+
+    private static Dictionary<string, List<SymbolLocation>> ToSymbolLocations(
+        List<EditorSymbolLocationRow> rows,
+        string uri)
+    {
+        var locations = new Dictionary<string, List<SymbolLocation>>(StringComparer.Ordinal);
+
+        foreach (var row in rows)
+        {
+            if (!locations.TryGetValue(row.Name, out var list))
             {
                 list = new List<SymbolLocation>();
-                locations[name] = list;
+                locations[row.Name] = list;
             }
 
-            list.Add(new SymbolLocation(
-                name,
-                kind,
-                uri,
-                line0,
-                nameColumn0,
-                name.Length
-            ));
-        }
-
-        void VisitDeclaration(Declaration decl)
-        {
-            switch (decl)
-            {
-                case FunctionDeclaration funcDecl:
-                    AddLocation(funcDecl.Name, SymbolKind.Function, funcDecl.Line, funcDecl.Column);
-                    // Track parameters for go-to-definition
-                    // Parameters don't have their own line/column, so search for them on the function's line
-                    {
-                        var funcLine0 = Math.Max(0, funcDecl.Line - 1);
-                        var searchFrom = Math.Max(0, funcDecl.Column - 1);
-                        foreach (var param in funcDecl.Parameters)
-                        {
-                            var col = FindNameColumn(lines, funcLine0, searchFrom, param.Name);
-                            AddLocation(param.Name, SymbolKind.Parameter, funcDecl.Line, funcDecl.Column, forcedNameColumn0: col);
-                            searchFrom = Math.Min(lines.ElementAtOrDefault(funcLine0)?.Length ?? 0, col + param.Name.Length);
-                        }
-                    }
-                    VisitBlock(funcDecl.Body);
-                    break;
-
-                case ClassDeclaration classDecl:
-                    AddLocation(classDecl.Name, SymbolKind.Class, classDecl.Line, classDecl.Column);
-                    foreach (var member in classDecl.Members) VisitDeclaration(member);
-                    break;
-
-                case StructDeclaration structDecl:
-                    AddLocation(structDecl.Name, SymbolKind.Struct, structDecl.Line, structDecl.Column);
-                    foreach (var member in structDecl.Members) VisitDeclaration(member);
-                    break;
-
-                case RecordDeclaration recordDecl:
-                    AddLocation(recordDecl.Name, SymbolKind.Record, recordDecl.Line, recordDecl.Column);
-                    foreach (var member in recordDecl.Members) VisitDeclaration(member);
-                    break;
-
-                case SoaRecordDeclaration soaRecordDecl:
-                    AddLocation(soaRecordDecl.Name, SymbolKind.Record, soaRecordDecl.Line, soaRecordDecl.Column);
-                    foreach (var column in soaRecordDecl.Columns)
-                    {
-                        AddLocation(column.Name, SymbolKind.Field, column.Line, column.Column);
-                    }
-                    break;
-
-                case InterfaceDeclaration interfaceDecl:
-                    AddLocation(interfaceDecl.Name, SymbolKind.Interface, interfaceDecl.Line, interfaceDecl.Column);
-                    foreach (var member in interfaceDecl.Members) VisitDeclaration(member);
-                    break;
-
-                case EnumDeclaration enumDecl:
-                    AddLocation(enumDecl.Name, SymbolKind.Enum, enumDecl.Line, enumDecl.Column);
-                    break;
-
-                case UnionDeclaration unionDecl:
-                    AddLocation(unionDecl.Name, SymbolKind.Union, unionDecl.Line, unionDecl.Column);
-                    break;
-
-                case TypeAliasDeclaration typeAliasDecl:
-                    AddLocation(typeAliasDecl.Name, SymbolKind.Class, typeAliasDecl.Line, typeAliasDecl.Column);
-                    break;
-
-                case PropertyDeclaration propDecl:
-                    AddLocation(propDecl.Name, SymbolKind.Property, propDecl.Line, propDecl.Column);
-                    break;
-
-                case FieldDeclaration fieldDecl:
-                    AddLocation(fieldDecl.Name, SymbolKind.Field, fieldDecl.Line, fieldDecl.Column);
-                    break;
-            }
-        }
-
-        void VisitStatement(Statement stmt)
-        {
-            switch (stmt)
-            {
-                case BlockStatement block:
-                    VisitBlock(block);
-                    break;
-
-                case VariableDeclarationStatement varDecl:
-                    AddLocation(varDecl.Name, SymbolKind.LocalVariable, varDecl.Line, varDecl.Column, forcedNameColumn0: Math.Max(0, varDecl.Column - 1));
-                    break;
-
-                case TupleDeconstructionStatement tupleDecl:
-                {
-                    var line0 = Math.Max(0, tupleDecl.Line - 1);
-                    var searchFrom = Math.Max(0, tupleDecl.Column - 1);
-
-                    foreach (var name in tupleDecl.Names)
-                    {
-                        if (name == "_") continue;
-
-                        var col = FindNameColumn(lines, line0, searchFrom, name);
-                        AddLocation(name, SymbolKind.LocalVariable, tupleDecl.Line, tupleDecl.Column, forcedNameColumn0: col);
-                        searchFrom = Math.Min(lines.ElementAtOrDefault(line0)?.Length ?? 0, col + name.Length);
-                    }
-
-                    break;
-                }
-
-                case ForeachStatement foreachStmt:
-                {
-                    var line0 = Math.Max(0, foreachStmt.Line - 1);
-                    var col = FindNameColumn(lines, line0, Math.Max(0, foreachStmt.Column - 1), foreachStmt.VariableName);
-                    AddLocation(foreachStmt.VariableName, SymbolKind.LocalVariable, foreachStmt.Line, foreachStmt.Column, forcedNameColumn0: col);
-                    VisitStatement(foreachStmt.Body);
-                    break;
-                }
-
-                case AwaitForEachStatement awaitForeachStmt:
-                {
-                    var line0 = Math.Max(0, awaitForeachStmt.Line - 1);
-                    var col = FindNameColumn(lines, line0, Math.Max(0, awaitForeachStmt.Column - 1), awaitForeachStmt.VariableName);
-                    AddLocation(awaitForeachStmt.VariableName, SymbolKind.LocalVariable, awaitForeachStmt.Line, awaitForeachStmt.Column, forcedNameColumn0: col);
-                    VisitStatement(awaitForeachStmt.Body);
-                    break;
-                }
-
-                case LocalFunctionStatement localFunc:
-                    AddLocation(localFunc.Function.Name, SymbolKind.Function, localFunc.Function.Line, localFunc.Function.Column);
-                    VisitBlock(localFunc.Function.Body);
-                    break;
-
-                case IfStatement ifStmt:
-                    VisitStatement(ifStmt.ThenStatement);
-                    if (ifStmt.ElseStatement != null) VisitStatement(ifStmt.ElseStatement);
-                    break;
-
-                case ForStatement forStmt:
-                    if (forStmt.Initializer != null) VisitStatement(forStmt.Initializer);
-                    VisitStatement(forStmt.Body);
-                    break;
-
-                case WhileStatement whileStmt:
-                    VisitStatement(whileStmt.Body);
-                    break;
-
-                case TryStatement tryStmt:
-                    VisitBlock(tryStmt.TryBlock);
-                    foreach (var catchClause in tryStmt.CatchClauses)
-                    {
-                        // Track catch variable for go-to-definition
-                        // CatchClause doesn't have Line/Column, use the block's position
-                        if (!string.IsNullOrEmpty(catchClause.VariableName) && catchClause.Block.Line > 0)
-                        {
-                            var catchLine0 = Math.Max(0, catchClause.Block.Line - 1);
-                            // Search backwards from block start to find the variable name
-                            var col = FindNameColumn(lines, catchLine0 > 0 ? catchLine0 - 1 : catchLine0, 0, catchClause.VariableName);
-                            AddLocation(catchClause.VariableName, SymbolKind.LocalVariable,
-                                catchLine0 > 0 ? catchLine0 : catchClause.Block.Line,
-                                catchClause.Block.Column, forcedNameColumn0: col);
-                        }
-                        VisitBlock(catchClause.Block);
-                    }
-                    if (tryStmt.FinallyBlock != null) VisitBlock(tryStmt.FinallyBlock);
-                    break;
-
-                case UsingStatement usingStmt:
-                    if (usingStmt.Declaration != null) VisitStatement(usingStmt.Declaration);
-                    if (usingStmt.Body != null) VisitStatement(usingStmt.Body);
-                    break;
-
-                case LockStatement lockStmt:
-                    VisitBlock(lockStmt.Body);
-                    break;
-
-                case SwitchStatement switchStmt:
-                    foreach (var switchCase in switchStmt.Cases)
-                    foreach (var caseStmt in switchCase.Statements)
-                        VisitStatement(caseStmt);
-                    break;
-            }
-        }
-
-        void VisitBlock(BlockStatement? block)
-        {
-            if (block == null) return;
-            foreach (var stmt in block.Statements) VisitStatement(stmt);
-        }
-
-        foreach (var decl in compilationUnit.Declarations)
-        {
-            VisitDeclaration(decl);
+            list.Add(new SymbolLocation(row.Name, ToSymbolKind(row.Kind), uri, row.Line, row.Column, row.Length));
         }
 
         return locations;
     }
 
-    private static int FindNameColumn(string[] lines, int line0, int startColumn0, string name)
+    private static SymbolKind ToSymbolKind(EditorSymbolTableKind kind)
     {
-        if (line0 < 0 || line0 >= lines.Length) return Math.Max(0, startColumn0);
-
-        var lineText = lines[line0];
-        if (string.IsNullOrEmpty(lineText)) return Math.Max(0, startColumn0);
-
-        var start = Math.Clamp(startColumn0, 0, lineText.Length);
-        var index = lineText.IndexOf(name, start, StringComparison.Ordinal);
-        if (index < 0 && start > 0)
+        return kind switch
         {
-            index = lineText.IndexOf(name, StringComparison.Ordinal);
-        }
-
-        return index >= 0 ? index : Math.Max(0, startColumn0);
-    }
-
-    private void ExtractLocalFunctionSymbols(Dictionary<string, SymbolInfo> symbols, BlockStatement? body, string text)
-    {
-        if (body == null) return;
-
-        foreach (var stmt in body.Statements)
-        {
-            ExtractLocalFunctionSymbols(symbols, stmt, text);
-        }
-    }
-
-    private void ExtractLocalFunctionSymbols(Dictionary<string, SymbolInfo> symbols, Statement stmt, string text)
-    {
-        switch (stmt)
-        {
-            case LocalFunctionStatement localFunc:
-                symbols[localFunc.Function.Name] = CreateFunctionSymbol(localFunc.Function, SymbolKind.Function, text);
-                ExtractLocalFunctionSymbols(symbols, localFunc.Function.Body, text);
-                break;
-
-            case BlockStatement block:
-                foreach (var s in block.Statements)
-                {
-                    ExtractLocalFunctionSymbols(symbols, s, text);
-                }
-                break;
-
-            case IfStatement ifStmt:
-                ExtractLocalFunctionSymbols(symbols, ifStmt.ThenStatement, text);
-                if (ifStmt.ElseStatement != null)
-                {
-                    ExtractLocalFunctionSymbols(symbols, ifStmt.ElseStatement, text);
-                }
-                break;
-
-            case ForStatement forStmt:
-                if (forStmt.Initializer != null)
-                {
-                    ExtractLocalFunctionSymbols(symbols, forStmt.Initializer, text);
-                }
-                ExtractLocalFunctionSymbols(symbols, forStmt.Body, text);
-                break;
-
-            case ForeachStatement foreachStmt:
-                ExtractLocalFunctionSymbols(symbols, foreachStmt.Body, text);
-                break;
-
-            case AwaitForEachStatement awaitForeachStmt:
-                ExtractLocalFunctionSymbols(symbols, awaitForeachStmt.Body, text);
-                break;
-
-            case WhileStatement whileStmt:
-                ExtractLocalFunctionSymbols(symbols, whileStmt.Body, text);
-                break;
-
-            case TryStatement tryStmt:
-                ExtractLocalFunctionSymbols(symbols, tryStmt.TryBlock, text);
-                foreach (var catchClause in tryStmt.CatchClauses)
-                {
-                    ExtractLocalFunctionSymbols(symbols, catchClause.Block, text);
-                }
-                if (tryStmt.FinallyBlock != null)
-                {
-                    ExtractLocalFunctionSymbols(symbols, tryStmt.FinallyBlock, text);
-                }
-                break;
-
-            case UsingStatement usingStmt:
-                if (usingStmt.Declaration != null)
-                {
-                    ExtractLocalFunctionSymbols(symbols, usingStmt.Declaration, text);
-                }
-                if (usingStmt.Body != null)
-                {
-                    ExtractLocalFunctionSymbols(symbols, usingStmt.Body, text);
-                }
-                break;
-
-            case LockStatement lockStmt:
-                ExtractLocalFunctionSymbols(symbols, lockStmt.Body, text);
-                break;
-
-            case SwitchStatement switchStmt:
-                foreach (var switchCase in switchStmt.Cases)
-                {
-                    foreach (var caseStmt in switchCase.Statements)
-                    {
-                        ExtractLocalFunctionSymbols(symbols, caseStmt, text);
-                    }
-                }
-                break;
-        }
-    }
-
-    private SymbolInfo CreateFunctionSymbol(FunctionDeclaration func, SymbolKind kind, string text)
-    {
-        return new SymbolInfo(func.Name, kind)
-        {
-            TypeName = func.ReturnType?.ToString(),
-            Documentation = ExtractLeadingDocumentation(text, func.Line),
-            Parameters = func.Parameters.Select(p => new ParameterInfo(
-                p.Name,
-                p.Type.ToString(),
-                p.DefaultValue != null
-            )).ToList(),
-            Modifiers = func.Modifiers
+            EditorSymbolTableKind.Class => SymbolKind.Class,
+            EditorSymbolTableKind.Struct => SymbolKind.Struct,
+            EditorSymbolTableKind.Record => SymbolKind.Record,
+            EditorSymbolTableKind.Interface => SymbolKind.Interface,
+            EditorSymbolTableKind.Enum => SymbolKind.Enum,
+            EditorSymbolTableKind.Union => SymbolKind.Union,
+            EditorSymbolTableKind.Function => SymbolKind.Function,
+            EditorSymbolTableKind.Method => SymbolKind.Method,
+            EditorSymbolTableKind.Property => SymbolKind.Property,
+            EditorSymbolTableKind.Field => SymbolKind.Field,
+            EditorSymbolTableKind.Parameter => SymbolKind.Parameter,
+            EditorSymbolTableKind.LocalVariable => SymbolKind.LocalVariable,
+            EditorSymbolTableKind.EnumMember => SymbolKind.EnumMember,
+            _ => SymbolKind.Constructor
         };
-    }
-
-    private SymbolInfo CreateTypeSymbol(ClassDeclaration classDecl, string text)
-    {
-        var symbol = new SymbolInfo(classDecl.Name, SymbolKind.Class)
-        {
-            Documentation = ExtractLeadingDocumentation(text, classDecl.Line),
-            Modifiers = classDecl.Modifiers
-        };
-        ExtractMembers(symbol, classDecl.Members, text);
-        return symbol;
-    }
-
-    private SymbolInfo CreateTypeSymbol(StructDeclaration structDecl, string text)
-    {
-        var symbol = new SymbolInfo(structDecl.Name, SymbolKind.Struct)
-        {
-            Documentation = ExtractLeadingDocumentation(text, structDecl.Line),
-            Modifiers = structDecl.Modifiers
-        };
-        ExtractMembers(symbol, structDecl.Members, text);
-        return symbol;
-    }
-
-    private SymbolInfo CreateTypeSymbol(RecordDeclaration recordDecl, string text)
-    {
-        var symbol = new SymbolInfo(recordDecl.Name, SymbolKind.Record)
-        {
-            Documentation = ExtractLeadingDocumentation(text, recordDecl.Line),
-            Modifiers = recordDecl.Modifiers
-        };
-        ExtractMembers(symbol, recordDecl.Members, text);
-        return symbol;
-    }
-
-    private SymbolInfo CreateSoaRecordSymbol(SoaRecordDeclaration soaRecordDecl, string text)
-    {
-        var symbol = new SymbolInfo(soaRecordDecl.Name, SymbolKind.Record)
-        {
-            TypeName = "soa",
-            Documentation = ExtractLeadingDocumentation(text, soaRecordDecl.Line),
-            Modifiers = soaRecordDecl.Modifiers
-        };
-
-        foreach (var column in soaRecordDecl.Columns)
-        {
-            symbol.Members.Add(new SymbolInfo(column.Name, SymbolKind.Field)
-            {
-                TypeName = column.Type.ToString()
-            });
-        }
-
-        return symbol;
-    }
-
-    private SymbolInfo CreateTypeSymbol(InterfaceDeclaration interfaceDecl, string text)
-    {
-        var symbol = new SymbolInfo(interfaceDecl.Name, SymbolKind.Interface)
-        {
-            Documentation = ExtractLeadingDocumentation(text, interfaceDecl.Line),
-            Modifiers = interfaceDecl.Modifiers
-        };
-        ExtractMembers(symbol, interfaceDecl.Members, text);
-        return symbol;
-    }
-
-    private SymbolInfo CreateEnumSymbol(EnumDeclaration enumDecl, string text)
-    {
-        var symbol = new SymbolInfo(enumDecl.Name, SymbolKind.Enum)
-        {
-            Documentation = ExtractLeadingDocumentation(text, enumDecl.Line),
-            Modifiers = enumDecl.Modifiers
-        };
-
-        // Add enum members
-        foreach (var member in enumDecl.Members)
-        {
-            symbol.Members.Add(new SymbolInfo(member.Name, SymbolKind.EnumMember)
-            {
-                TypeName = enumDecl.Name
-            });
-        }
-
-        return symbol;
-    }
-
-    private SymbolInfo CreateUnionSymbol(UnionDeclaration unionDecl, string text)
-    {
-        var symbol = new SymbolInfo(unionDecl.Name, SymbolKind.Union)
-        {
-            Documentation = ExtractLeadingDocumentation(text, unionDecl.Line),
-            Modifiers = unionDecl.Modifiers
-        };
-
-        // Add union cases as members
-        foreach (var case_ in unionDecl.Cases)
-        {
-            symbol.Members.Add(new SymbolInfo(case_.Name, SymbolKind.Class)
-            {
-                TypeName = unionDecl.Name
-            });
-        }
-
-        return symbol;
-    }
-
-    private void ExtractMembers(SymbolInfo symbol, List<Declaration> members, string text)
-    {
-        foreach (var member in members)
-        {
-            if (member is FunctionDeclaration funcDecl)
-            {
-                symbol.Members.Add(CreateFunctionSymbol(funcDecl, SymbolKind.Method, text));
-            }
-            else if (member is PropertyDeclaration propDecl)
-            {
-                symbol.Members.Add(new SymbolInfo(propDecl.Name, SymbolKind.Property)
-                {
-                    TypeName = propDecl.Type.ToString(),
-                    Documentation = ExtractLeadingDocumentation(text, propDecl.Line),
-                    Modifiers = propDecl.Modifiers
-                });
-            }
-            else if (member is FieldDeclaration fieldDecl)
-            {
-                symbol.Members.Add(new SymbolInfo(fieldDecl.Name, SymbolKind.Field)
-                {
-                    TypeName = fieldDecl.Type?.ToString(),
-                    Documentation = ExtractLeadingDocumentation(text, fieldDecl.Line),
-                    Modifiers = fieldDecl.Modifiers
-                });
-            }
-            else if (member is ConstructorDeclaration ctorDecl)
-            {
-                symbol.Members.Add(new SymbolInfo(symbol.Name, SymbolKind.Constructor)
-                {
-                    Documentation = ExtractLeadingDocumentation(text, ctorDecl.Line),
-                    Parameters = ctorDecl.Parameters.Select(p => new ParameterInfo(
-                        p.Name,
-                        p.Type.ToString(),
-                        p.DefaultValue != null
-                    )).ToList(),
-                    Modifiers = ctorDecl.Modifiers
-                });
-            }
-        }
-    }
-
-    private static string? ExtractLeadingDocumentation(string text, int declarationLine)
-    {
-        if (declarationLine <= 1)
-        {
-            return null;
-        }
-
-        var lines = text.Split('\n');
-        var startIndex = Math.Min(declarationLine - 2, lines.Length - 1);
-        var commentLines = new List<string>();
-
-        for (var i = startIndex; i >= 0; i--)
-        {
-            var trimmed = lines[i].Trim();
-            if (trimmed.StartsWith("///", StringComparison.Ordinal))
-            {
-                commentLines.Insert(0, trimmed[3..].Trim());
-            }
-            else if (trimmed.StartsWith("//", StringComparison.Ordinal))
-            {
-                commentLines.Insert(0, trimmed[2..].Trim());
-            }
-            else if (string.IsNullOrWhiteSpace(trimmed) && commentLines.Count == 0)
-            {
-                continue;
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        return commentLines.Count == 0
-            ? null
-            : string.Join("\n", commentLines).Trim();
     }
 
     private string UriToFilePath(string uri)

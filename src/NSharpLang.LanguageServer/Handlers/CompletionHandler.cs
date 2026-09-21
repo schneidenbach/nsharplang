@@ -16,7 +16,15 @@ using CodeIntel = NSharpLang.Compiler.CodeIntelligence;
 namespace NSharpLang.LanguageServer.Handlers;
 
 /// <summary>
-/// Handles code completion (Ctrl+Space in VS Code)
+/// Handles code completion (Ctrl+Space in VS Code).
+///
+/// WHAT THE MENU OFFERS AND IN WHAT ORDER is N#-owned. <c>EditorCompletionMenuFacts</c> holds the
+/// language's own words, the five snippets, the six sort ranks, the grey signature line beside each
+/// declared name, and the three questions about where the caret is — is it after a dot, is it on an
+/// `import` line, and how much of a name has been typed. <c>CompletionReceiverFacts</c> and
+/// <c>EditorCompletionFacts</c> already owned the member list after a dot. What is left here is the
+/// protocol and the two services the editor keeps: OmniSharp's CompletionItem, the type resolver's
+/// importable types, and the import edits that come with them.
 /// </summary>
 public class CompletionHandler : CompletionHandlerBase
 {
@@ -24,41 +32,6 @@ public class CompletionHandler : CompletionHandlerBase
     private readonly TypeResolver _typeResolver;
     private readonly ILogger<CompletionHandler> _logger;
     private readonly CodeIntel.CompletionEngine _completionEngine = new();
-
-    // N# Keywords for completion
-    private static readonly string[] Keywords = {
-        "func", "class", "struct", "record", "interface", "enum", "union", "namespace",
-        "using", "import", "if", "else", "for", "foreach", "while", "return", "break",
-        "continue", "match", "switch", "case", "when", "yield", "await", "async",
-        "throw", "try", "catch", "finally", "lock", "new", "this", "base", "static",
-        "virtual", "override", "abstract", "sealed", "partial", "readonly", "const",
-        "file", "duck", "public", "private", "internal", "protected", "required",
-        "init", "let", "type", "out", "ref", "params", "true", "false",
-        "null", "is", "as", "typeof", "nameof", "checked", "unchecked", "and",
-        "or", "not", "with", "immutable", "print", "test", "assert", "implicit", "explicit",
-        "setup", "teardown"
-    };
-
-    private static readonly string[] PrimitiveTypes = {
-        "int", "long", "float", "double", "bool", "string", "void", "object",
-        "byte", "short", "char", "decimal", "uint", "ulong", "ushort", "sbyte"
-    };
-
-    // Snippet completions for common N# constructs
-    private static readonly (string Label, string Detail, string InsertText)[] Snippets = {
-        ("func", "func declaration", "func ${1:name}(${2:params}): ${3:void} {\n\t$0\n}"),
-        ("if", "if statement", "if ${1:condition} {\n\t$0\n}"),
-        ("match", "match expression", "match ${1:value} {\n\t${2:pattern} => ${3:result},\n\t_ => ${0:default}\n}"),
-        ("for", "for-in loop", "for ${1:item} in ${2:collection} {\n\t$0\n}"),
-        ("type", "type alias", "type ${1:Name} = ${0:Type}"),
-    };
-
-    private const string SortLocal = "0000";
-    private const string SortProjectInScope = "0100";
-    private const string SortLanguage = "0500";
-    private const string SortExternalInScope = "0600";
-    private const string SortProjectImportable = "0800";
-    private const string SortExternalImportable = "0900";
 
     public CompletionHandler(DocumentManager documentManager, TypeResolver typeResolver, ILogger<CompletionHandler> logger)
     {
@@ -88,7 +61,8 @@ public class CompletionHandler : CompletionHandlerBase
         // Use trigger character as primary signal — more reliable than text scanning
         // because the document text may not have the dot yet (race condition with didChange)
         var isMemberAccess = request.Context?.TriggerCharacter == "."
-            || (doc?.Text != null && IsMemberCompletion(doc.Text, request.Position.Line, request.Position.Character));
+            || (doc?.Text != null && CodeIntel.EditorCompletionMenuFacts.IsMemberAccessAt(
+                doc.Text, request.Position.Line, request.Position.Character));
 
         if (isMemberAccess && doc?.Text != null)
         {
@@ -102,9 +76,8 @@ public class CompletionHandler : CompletionHandlerBase
 
         var itemKeys = new HashSet<string>(StringComparer.Ordinal);
         var inScopeNames = new HashSet<string>(StringComparer.Ordinal);
-        var currentPrefix = doc?.Text != null
-            ? GetCurrentIdentifierPrefix(doc.Text, request.Position.Line, request.Position.Character)
-            : string.Empty;
+        var currentPrefix = CodeIntel.EditorCompletionMenuFacts.IdentifierPrefix(
+            doc?.Text, request.Position.Line, request.Position.Character);
 
         AddDocumentSymbolCompletionItems(doc, items, itemKeys, inScopeNames);
         AddSemanticCompletionItems(doc, request.Position.Line, request.Position.Character, items, itemKeys, inScopeNames);
@@ -118,15 +91,8 @@ public class CompletionHandler : CompletionHandlerBase
 
     private List<CompletionItem> GetImportCompletionItems(string text, int line, int character)
     {
-        var lines = text.Split('\n');
-        if (line >= lines.Length)
-        {
-            return new List<CompletionItem>();
-        }
-
-        var lineText = lines[line];
-        var beforeCursor = lineText.Substring(0, Math.Min(character, lineText.Length));
-        if (!TryExtractImportPrefix(beforeCursor, out var importPrefix))
+        var importPrefix = CodeIntel.EditorCompletionMenuFacts.ImportPrefixAt(text, line, character);
+        if (importPrefix == null)
         {
             return new List<CompletionItem>();
         }
@@ -136,30 +102,10 @@ public class CompletionHandler : CompletionHandlerBase
             {
                 Label = segment,
                 Kind = CompletionItemKind.Module,
-                Detail = string.IsNullOrWhiteSpace(importPrefix) || importPrefix.EndsWith(".", StringComparison.Ordinal)
-                    ? $"namespace {(string.IsNullOrWhiteSpace(importPrefix) ? segment : importPrefix + segment)}"
-                    : $"namespace {BuildCompletedImportPrefix(importPrefix, segment)}",
+                Detail = CodeIntel.EditorCompletionMenuFacts.ImportSuggestionDetail(importPrefix, segment),
                 InsertText = segment
             })
             .ToList();
-    }
-
-    /// <summary>
-    /// Whether the caret sits in a member-access position. The N# owner answers it, so a trailing
-    /// dot and a partial member name after one are the same question here as in `nlc query
-    /// completions`.
-    /// </summary>
-    private static bool IsMemberCompletion(string text, int line, int character)
-    {
-        var lines = text.Split('\n');
-        if (line < 0 || line >= lines.Length)
-        {
-            return false;
-        }
-
-        var lineText = lines[line];
-        var beforeCursor = lineText.Substring(0, Math.Min(character, lineText.Length));
-        return CodeIntel.CompletionEngineKernels.IsCompletionMemberAccessContext(beforeCursor);
     }
 
     /// <summary>
@@ -232,69 +178,45 @@ public class CompletionHandler : CompletionHandlerBase
         return items;
     }
 
-    private void AddLanguageCompletionItems(List<CompletionItem> items, HashSet<string> itemKeys)
+    private static void AddLanguageCompletionItems(List<CompletionItem> items, HashSet<string> itemKeys)
     {
-        foreach (var keyword in Keywords)
+        foreach (var row in CodeIntel.EditorCompletionMenuFacts.LanguageRows())
         {
-            AddUniqueCompletionItem(items, itemKeys, new CompletionItem
-            {
-                Label = keyword,
-                Kind = CompletionItemKind.Keyword,
-                Detail = "keyword",
-                InsertText = keyword,
-                SortText = BuildSortText(SortLanguage, keyword, "keyword")
-            }, $"keyword:{keyword}");
-        }
-
-        foreach (var snippet in Snippets)
-        {
-            AddUniqueCompletionItem(items, itemKeys, new CompletionItem
-            {
-                Label = snippet.Label,
-                Kind = CompletionItemKind.Snippet,
-                Detail = snippet.Detail,
-                InsertText = snippet.InsertText,
-                InsertTextFormat = InsertTextFormat.Snippet,
-                SortText = BuildSortText(SortLanguage, snippet.Label, "snippet")
-            }, $"snippet:{snippet.Label}");
-        }
-
-        foreach (var primitive in PrimitiveTypes)
-        {
-            AddUniqueCompletionItem(items, itemKeys, new CompletionItem
-            {
-                Label = primitive,
-                Kind = CompletionItemKind.Keyword,
-                Detail = "primitive type",
-                InsertText = primitive,
-                SortText = BuildSortText(SortLanguage, primitive, "primitive")
-            }, $"primitive:{primitive}");
+            AddUniqueCompletionItem(items, itemKeys, ToCompletionItem(row), row.Key);
         }
     }
 
-    private void AddDocumentSymbolCompletionItems(
+    private static void AddDocumentSymbolCompletionItems(
         Models.DocumentState? doc,
         List<CompletionItem> items,
         HashSet<string> itemKeys,
         HashSet<string> inScopeNames)
     {
-        if (doc?.SymbolsInfo == null)
+        if (doc?.CompilationUnit == null)
         {
             return;
         }
 
-        foreach (var (name, symbolInfo) in doc.SymbolsInfo)
+        foreach (var row in CodeIntel.EditorCompletionMenuFacts.DocumentSymbolRows(doc.CompilationUnit, doc.Text))
         {
-            AddInScopeCompletionItem(items, itemKeys, inScopeNames, name, new CompletionItem
-            {
-                Label = name,
-                Kind = GetCompletionItemKindFromSymbol(symbolInfo.Kind),
-                Detail = GetSymbolDetail(symbolInfo),
-                InsertText = name,
-                Documentation = !string.IsNullOrEmpty(symbolInfo.Documentation) ? symbolInfo.Documentation : null,
-                SortText = BuildSortText(SortLocal, name, "document")
-            });
+            AddInScopeCompletionItem(items, itemKeys, inScopeNames, row.Label, ToCompletionItem(row));
         }
+    }
+
+    private static CompletionItem ToCompletionItem(CodeIntel.EditorCompletionMenuRow row)
+    {
+        return new CompletionItem
+        {
+            Label = row.Label,
+            Kind = (CompletionItemKind)row.Kind,
+            Detail = row.Detail,
+            InsertText = row.InsertText,
+            // Only a snippet declares a format; anything else leaves the field off the wire, which
+            // is what the client reads as plain text and what this server has always sent.
+            InsertTextFormat = row.IsSnippet ? InsertTextFormat.Snippet : default,
+            Documentation = row.Documentation,
+            SortText = row.SortText
+        };
     }
 
     private void AddSemanticCompletionItems(
@@ -332,11 +254,14 @@ public class CompletionHandler : CompletionHandlerBase
                 Kind = CompletionItemKind.Variable,
                 Detail = $"variable: {typeInfo}",
                 InsertText = name,
-                SortText = BuildSortText(SortLocal, name, "variable")
+                SortText = CodeIntel.EditorCompletionMenuFacts.SortText(
+                    CodeIntel.EditorCompletionMenuFacts.SortLocal, name, "variable")
             });
         }
 
-        var memberNames = GetTypeMemberNames(doc);
+        var memberNames = new HashSet<string>(
+            CodeIntel.EditorCompletionMenuFacts.TypeMemberNames(doc.CompilationUnit, doc.Text),
+            StringComparer.Ordinal);
         foreach (var (name, typeInfo) in semanticModel.Functions)
         {
             if (memberNames.Contains(name))
@@ -350,7 +275,8 @@ public class CompletionHandler : CompletionHandlerBase
                 Kind = CompletionItemKind.Function,
                 Detail = $"func: {typeInfo}",
                 InsertText = name,
-                SortText = BuildSortText(SortLocal, name, "function")
+                SortText = CodeIntel.EditorCompletionMenuFacts.SortText(
+                    CodeIntel.EditorCompletionMenuFacts.SortLocal, name, "function")
             });
         }
     }
@@ -382,7 +308,7 @@ public class CompletionHandler : CompletionHandlerBase
                 InsertText = type.Name,
                 TextEdit = new TextEditOrInsertReplaceEdit(edits[0]),
                 AdditionalTextEdits = new TextEditContainer(edits.Skip(1)),
-                SortText = BuildSortText(isInScope ? SortExternalInScope : SortExternalImportable, type.Name, type.Namespace),
+                SortText = CodeIntel.EditorCompletionMenuFacts.ExternalSortText(isInScope, type.Name, type.Namespace),
             };
 
             if (isInScope)
@@ -398,29 +324,6 @@ public class CompletionHandler : CompletionHandlerBase
 
             AddUniqueCompletionItem(items, itemKeys, item, $"external-import:{type.Name}");
         }
-    }
-
-    private static HashSet<string> GetTypeMemberNames(Models.DocumentState doc)
-    {
-        var memberNames = new HashSet<string>(StringComparer.Ordinal);
-        if (doc.SymbolsInfo == null)
-        {
-            return memberNames;
-        }
-
-        foreach (var (_, symbol) in doc.SymbolsInfo)
-        {
-            if (symbol.Kind is LanguageServer.Models.SymbolKind.Class or LanguageServer.Models.SymbolKind.Struct
-                or LanguageServer.Models.SymbolKind.Record or LanguageServer.Models.SymbolKind.Interface)
-            {
-                foreach (var member in symbol.Members)
-                {
-                    memberNames.Add(member.Name);
-                }
-            }
-        }
-
-        return memberNames;
     }
 
     private static void AddInScopeCompletionItem(
@@ -450,83 +353,6 @@ public class CompletionHandler : CompletionHandlerBase
         }
     }
 
-    private static string BuildSortText(string rank, string label, string qualifier)
-    {
-        return $"{rank}_{label.ToLowerInvariant()}_{qualifier.ToLowerInvariant()}";
-    }
-
-    private static string GetCurrentIdentifierPrefix(string text, int line, int character)
-    {
-        var lines = text.Split('\n');
-        if (line < 0 || line >= lines.Length)
-        {
-            return string.Empty;
-        }
-
-        var lineText = lines[line];
-        var end = Math.Clamp(character, 0, lineText.Length);
-        var start = end;
-        while (start > 0 && IdentifierText.IsPart(lineText[start - 1]))
-        {
-            start--;
-        }
-
-        return lineText[start..end];
-    }
-
-    private static bool TryExtractImportPrefix(string beforeCursor, out string importPrefix)
-    {
-        importPrefix = string.Empty;
-
-        var trimmed = beforeCursor.TrimStart();
-        if (!trimmed.StartsWith("import", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var remainder = trimmed["import".Length..];
-        if (remainder.Length == 0 || !char.IsWhiteSpace(remainder[0]))
-        {
-            return false;
-        }
-
-        var importTarget = remainder.TrimStart();
-        if (importTarget.StartsWith("\"", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var aliasIndex = importTarget.IndexOf(" as ", StringComparison.Ordinal);
-        if (aliasIndex >= 0)
-        {
-            importTarget = importTarget[..aliasIndex];
-        }
-
-        importPrefix = importTarget.Trim();
-        return true;
-    }
-
-    private static string BuildCompletedImportPrefix(string importPrefix, string suggestion)
-    {
-        if (string.IsNullOrWhiteSpace(importPrefix))
-        {
-            return suggestion;
-        }
-
-        if (importPrefix.EndsWith(".", StringComparison.Ordinal))
-        {
-            return importPrefix + suggestion;
-        }
-
-        var lastDot = importPrefix.LastIndexOf('.');
-        if (lastDot < 0)
-        {
-            return suggestion;
-        }
-
-        return importPrefix[..(lastDot + 1)] + suggestion;
-    }
-
     public override Task<CompletionItem> Handle(CompletionItem request, CancellationToken cancellationToken)
     {
         // We don't provide resolve capabilities, so just return the item as-is
@@ -547,74 +373,4 @@ public class CompletionHandler : CompletionHandlerBase
         };
     }
 
-    private CompletionItemKind GetCompletionItemKindFromSymbol(LanguageServer.Models.SymbolKind kind)
-    {
-        return kind switch
-        {
-            LanguageServer.Models.SymbolKind.Class => CompletionItemKind.Class,
-            LanguageServer.Models.SymbolKind.Struct => CompletionItemKind.Struct,
-            LanguageServer.Models.SymbolKind.Record => CompletionItemKind.Class,
-            LanguageServer.Models.SymbolKind.Interface => CompletionItemKind.Interface,
-            LanguageServer.Models.SymbolKind.Enum => CompletionItemKind.Enum,
-            LanguageServer.Models.SymbolKind.Union => CompletionItemKind.Class,
-            LanguageServer.Models.SymbolKind.Function => CompletionItemKind.Function,
-            LanguageServer.Models.SymbolKind.Method => CompletionItemKind.Method,
-            LanguageServer.Models.SymbolKind.Property => CompletionItemKind.Property,
-            LanguageServer.Models.SymbolKind.Field => CompletionItemKind.Field,
-            LanguageServer.Models.SymbolKind.Parameter => CompletionItemKind.Variable,
-            LanguageServer.Models.SymbolKind.LocalVariable => CompletionItemKind.Variable,
-            LanguageServer.Models.SymbolKind.EnumMember => CompletionItemKind.EnumMember,
-            LanguageServer.Models.SymbolKind.Constructor => CompletionItemKind.Constructor,
-            _ => CompletionItemKind.Variable
-        };
-    }
-
-    private string GetSymbolDetail(LanguageServer.Models.SymbolInfo symbol)
-    {
-        var parts = new List<string>();
-
-        // Add modifiers
-        var modifiers = new List<string>();
-        if (symbol.Modifiers.HasFlag(Modifiers.Public)) modifiers.Add("public");
-        if (symbol.Modifiers.HasFlag(Modifiers.Private)) modifiers.Add("private");
-        if (symbol.Modifiers.HasFlag(Modifiers.Protected)) modifiers.Add("protected");
-        if (symbol.Modifiers.HasFlag(Modifiers.Internal)) modifiers.Add("internal");
-        if (symbol.Modifiers.HasFlag(Modifiers.Static)) modifiers.Add("static");
-        if (symbol.Modifiers.HasFlag(Modifiers.Abstract)) modifiers.Add("abstract");
-        if (symbol.Modifiers.HasFlag(Modifiers.Virtual)) modifiers.Add("virtual");
-        if (symbol.Modifiers.HasFlag(Modifiers.Override)) modifiers.Add("override");
-        if (symbol.Modifiers.HasFlag(Modifiers.Sealed)) modifiers.Add("sealed");
-        if (symbol.Modifiers.HasFlag(Modifiers.Async)) modifiers.Add("async");
-
-        if (modifiers.Any())
-        {
-            parts.Add(string.Join(" ", modifiers));
-        }
-
-        // Add kind
-        parts.Add(symbol.Kind.ToString().ToLower());
-
-        // Add name
-        parts.Add(symbol.Name);
-
-        // Add signature for functions/methods
-        if (symbol.Kind == LanguageServer.Models.SymbolKind.Function ||
-            symbol.Kind == LanguageServer.Models.SymbolKind.Method ||
-            symbol.Kind == LanguageServer.Models.SymbolKind.Constructor)
-        {
-            var paramList = string.Join(", ", symbol.Parameters.Select(p => $"{p.Name}: {p.TypeName}"));
-            parts.Add($"({paramList})");
-
-            if (!string.IsNullOrEmpty(symbol.TypeName))
-            {
-                parts.Add($": {symbol.TypeName}");
-            }
-        }
-        else if (!string.IsNullOrEmpty(symbol.TypeName))
-        {
-            parts.Add($": {symbol.TypeName}");
-        }
-
-        return string.Join(" ", parts);
-    }
 }
