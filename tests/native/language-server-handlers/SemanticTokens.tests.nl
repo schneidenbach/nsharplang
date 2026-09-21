@@ -1,5 +1,7 @@
 namespace NSharpLang.LanguageServerHandlers.Tests
 
+import NSharpLang.Compiler.CodeIntelligence
+
 test "semantic tokens classify N# keywords as keyword tokens" {
     docs := LshNewDocs()
     uri := "file:///test/semtokens.nl"
@@ -138,7 +140,7 @@ func main() {
     LshOpen(docs, uri, source)
 
     doc := LshDocument(docs, uri)
-    assert LshSetContains(LshSemanticStatic("BuildTypeNameSet", doc), "Person")
+    assert LshSetContains(EditorSemanticTokenFacts.SourceTypeNames(doc.CompilationUnit, doc.Text), "Person")
 }
 
 test "semantic tokens collect declared function names" {
@@ -154,7 +156,7 @@ func greet(name: string): string {
     LshOpen(docs, uri, source)
 
     doc := LshDocument(docs, uri)
-    assert LshSetContains(LshSemanticStatic("BuildFunctionNameSet", doc), "greet")
+    assert LshSetContains(EditorSemanticTokenFacts.SourceFunctionNames(doc.CompilationUnit, doc.Text, doc.SemanticModel), "greet")
 }
 
 test "the error binding of a two-name capture carries the catch-result modifier" {

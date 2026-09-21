@@ -14,10 +14,13 @@ import NSharpLang.LanguageServer.Services
 // Semantic token classification.
 //
 // The classification itself is `EditorSemanticTokenFacts`, which these rows
-// bind directly. What still needs reflection is the handler's own LEGEND --
-// the array whose ORDER is the promise the server made to the client, and
-// which is `internal` -- so that a row can keep asserting the wire index a
-// kind word lands on rather than only the word itself.
+// bind directly, and so are the five symbol tables it consults -- the handler
+// used to build those in C# out of the document's dictionaries, and they are
+// now read off the same source the document was parsed from. What still needs
+// reflection is the handler's own LEGEND -- the array whose ORDER is the
+// promise the server made to the client, and which is `internal` -- so that a
+// row can keep asserting the wire index a kind word lands on rather than only
+// the word itself.
 // ---------------------------------------------------------------------------
 func LshPut(values: object?[], index: int, value: object?) {
     values[index] = value
@@ -27,41 +30,8 @@ func LshSemanticHandler(docs: DocumentManager): SemanticTokensHandler {
     return new SemanticTokensHandler(docs, NullLogger<SemanticTokensHandler>.Instance)
 }
 
-func LshSemanticMethod(name: string, isStatic: bool): MethodInfo {
-    flags := BindingFlags.Public | BindingFlags.NonPublic
-    if isStatic {
-        flags = flags | BindingFlags.Static
-    } else {
-        flags = flags | BindingFlags.Instance
-    }
-    method := typeof(SemanticTokensHandler).GetMethod(name, flags)
-    if method == null {
-        throw new InvalidOperationException("SemanticTokensHandler." + name + " was not found.")
-    }
-    return method
-}
-
-func LshSemanticStatic(name: string, doc: DocumentState): object {
-    arguments := new object?[](1)
-    LshPut(arguments, 0, doc)
-    result := LshSemanticMethod(name, true).Invoke(null, arguments)
-    if result == null {
-        throw new InvalidOperationException("SemanticTokensHandler." + name + " returned null.")
-    }
-    return result
-}
-
-func LshNameSet(name: string, doc: DocumentState): HashSet<string> {
-    result := LshSemanticStatic(name, doc) as HashSet<string>
-    if result == null {
-        throw new InvalidOperationException("SemanticTokensHandler." + name + " was not a name set.")
-    }
-    return result
-}
-
-// The name sets and the kind map the classification consults. Four come from the
-// editor's own C# symbol tables; the parameter set is the owner's, because it is
-// read off the syntax tree rather than off a table.
+// The name sets and the kind map the classification consults. All six are the
+// owner's now, read off the document's own compilation unit and text.
 class LshNameSets {
     TypeNames: HashSet<string>
     TypeKinds: Dictionary<string, string>
@@ -98,17 +68,13 @@ class LshClassification {
 }
 
 func LshSemanticSets(doc: DocumentState): LshNameSets {
-    kinds := LshSemanticStatic("BuildTypeKindMap", doc) as Dictionary<string, string>
-    if kinds == null {
-        throw new InvalidOperationException("SemanticTokensHandler.BuildTypeKindMap was not a kind map.")
-    }
     return new LshNameSets(
-        LshNameSet("BuildTypeNameSet", doc),
-        kinds,
-        LshNameSet("BuildFunctionNameSet", doc),
+        EditorSemanticTokenFacts.SourceTypeNames(doc.CompilationUnit, doc.Text),
+        EditorSemanticTokenFacts.SourceTypeKinds(doc.CompilationUnit, doc.Text),
+        EditorSemanticTokenFacts.SourceFunctionNames(doc.CompilationUnit, doc.Text, doc.SemanticModel),
         EditorSemanticTokenFacts.ParameterNames(doc.CompilationUnit),
-        LshNameSet("BuildPropertyNameSet", doc),
-        LshNameSet("BuildEnumMemberNameSet", doc)
+        EditorSemanticTokenFacts.SourcePropertyNames(doc.CompilationUnit, doc.Text),
+        EditorSemanticTokenFacts.SourceEnumMemberNames(doc.CompilationUnit, doc.Text)
     )
 }
 

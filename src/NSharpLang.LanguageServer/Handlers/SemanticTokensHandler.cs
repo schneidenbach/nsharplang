@@ -1,8 +1,6 @@
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NSharpLang.LanguageServer.Models;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
@@ -17,10 +15,11 @@ namespace NSharpLang.LanguageServer.Handlers;
 ///
 /// WHICH tokens are painted and WHAT each one is are N#-owned by
 /// <c>EditorSemanticTokenFacts</c>: the order of the identifier rules, the re-lexing of an
-/// interpolated literal's holes, the walk that finds the Go-style error capture, and the three
-/// reasons a classified token is still not emitted. What is left here is the protocol — the
-/// LEGEND, whose order is a promise this server made to the client at startup, and the symbol
-/// tables the editor keeps in its own C# shapes.
+/// interpolated literal's holes, the walk that finds the Go-style error capture, the three
+/// reasons a classified token is still not emitted, and now the five symbol tables the
+/// classification consults, which the owner reads off the same source the document was parsed
+/// from. What is left here is the protocol — the LEGEND, whose order is a promise this server
+/// made to the client at startup.
 /// </summary>
 public class SemanticTokensHandler : SemanticTokensHandlerBase
 {
@@ -105,15 +104,11 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
 
         _logger.LogDebug("Semantic tokens request for {Uri} with {TokenCount} tokens", uri, doc.Tokens.Count);
 
-        foreach (var row in CodeIntel.EditorSemanticTokenFacts.TokenRows(
+        foreach (var row in CodeIntel.EditorSemanticTokenFacts.SourceTokenRows(
             doc.Tokens,
             doc.CompilationUnit,
             doc.SemanticModel,
-            BuildTypeNameSet(doc),
-            BuildTypeKindMap(doc),
-            BuildFunctionNameSet(doc),
-            BuildPropertyNameSet(doc),
-            BuildEnumMemberNameSet(doc)))
+            doc.Text))
         {
             if (cancellationToken.IsCancellationRequested) break;
 
@@ -143,118 +138,4 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
         return 1; // "type"
     }
 
-    internal static HashSet<string> BuildTypeNameSet(DocumentState doc)
-    {
-        var names = new HashSet<string>();
-
-        if (doc.Symbols != null)
-        {
-            foreach (var name in doc.Symbols.Keys)
-            {
-                names.Add(name);
-            }
-        }
-
-        if (doc.SymbolsInfo != null)
-        {
-            foreach (var (name, info) in doc.SymbolsInfo)
-            {
-                if (info.Kind is Models.SymbolKind.Class or Models.SymbolKind.Struct
-                    or Models.SymbolKind.Record or Models.SymbolKind.Interface
-                    or Models.SymbolKind.Enum or Models.SymbolKind.Union)
-                {
-                    names.Add(name);
-                }
-            }
-        }
-
-        return names;
-    }
-
-    /// <summary>
-    /// Every symbol's declared kind, named by the C# enum member. Which of those the outline paints
-    /// as a class and which as an enum is the owner's decision, not this map's.
-    /// </summary>
-    internal static Dictionary<string, string> BuildTypeKindMap(DocumentState doc)
-    {
-        var kinds = new Dictionary<string, string>();
-
-        if (doc.SymbolsInfo != null)
-        {
-            foreach (var (name, info) in doc.SymbolsInfo)
-            {
-                kinds[name] = info.Kind.ToString();
-            }
-        }
-
-        return kinds;
-    }
-
-    internal static HashSet<string> BuildFunctionNameSet(DocumentState doc)
-    {
-        var names = new HashSet<string>();
-
-        if (doc.SymbolsInfo != null)
-        {
-            foreach (var (name, info) in doc.SymbolsInfo)
-            {
-                if (info.Kind is Models.SymbolKind.Function or Models.SymbolKind.Method)
-                {
-                    names.Add(name);
-                }
-            }
-        }
-
-        if (doc.SemanticModel != null)
-        {
-            foreach (var name in doc.SemanticModel.Functions.Keys)
-            {
-                names.Add(name);
-            }
-        }
-
-        return names;
-    }
-
-    internal static HashSet<string> BuildPropertyNameSet(DocumentState doc)
-    {
-        var names = new HashSet<string>();
-
-        if (doc.SymbolsInfo != null)
-        {
-            foreach (var (_, info) in doc.SymbolsInfo)
-            {
-                foreach (var member in info.Members)
-                {
-                    if (member.Kind is Models.SymbolKind.Property)
-                    {
-                        names.Add(member.Name);
-                    }
-                }
-            }
-        }
-
-        return names;
-    }
-
-    internal static HashSet<string> BuildEnumMemberNameSet(DocumentState doc)
-    {
-        var names = new HashSet<string>();
-
-        if (doc.SymbolsInfo != null)
-        {
-            foreach (var (_, info) in doc.SymbolsInfo)
-            {
-                foreach (var member in info.Members)
-                {
-                    if (member.Kind is Models.SymbolKind.EnumMember)
-                    {
-                        names.Add(member.Name);
-                    }
-                }
-            }
-        }
-
-        return names;
-    }
 }

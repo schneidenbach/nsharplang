@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.LanguageServer.Services;
@@ -9,14 +7,19 @@ using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Workspace;
+using CodeIntel = NSharpLang.Compiler.CodeIntelligence;
 using LspSymbolKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind;
-using ServerSymbolKind = NSharpLang.LanguageServer.Models.SymbolKind;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
 /// <summary>
 /// Handles workspace/symbol requests (Ctrl+T — Go to Symbol in Workspace).
-/// Returns all symbols across all loaded files, filtered by the query string.
+///
+/// WHICH names a file offers, in WHAT order and WHERE each one sits are N#-owned by
+/// <c>EditorWorkspaceSymbolFacts</c>: the subsequence match, the one-level member expansion, the
+/// rule that a member is only reached through a matching type, and the coordinate arithmetic —
+/// including the shipped off-by-one the owner's contract now pins. What is left here is the
+/// protocol: OmniSharp's WorkspaceSymbol and the wire numbers of its symbol kinds.
 /// </summary>
 public class WorkspaceSymbolHandler : WorkspaceSymbolsHandlerBase
 {
@@ -40,55 +43,20 @@ public class WorkspaceSymbolHandler : WorkspaceSymbolsHandlerBase
         {
             if (cancellationToken.IsCancellationRequested) break;
 
-            if (doc.SymbolsInfo == null) continue;
-
-            foreach (var (name, info) in doc.SymbolsInfo)
+            foreach (var row in CodeIntel.EditorWorkspaceSymbolFacts.SymbolRows(doc.CompilationUnit, doc.Text, query))
             {
-                if (!MatchesQuery(name, query)) continue;
-
-                var lspKind = ConvertSymbolKind(info.Kind);
-                var (line, col) = FindSymbolPosition(doc, name);
-
                 symbols.Add(new WorkspaceSymbol
                 {
-                    Name = name,
-                    Kind = lspKind,
+                    Name = row.Name,
+                    Kind = ConvertSymbolKind(row.Kind),
                     Location = new Location
                     {
                         Uri = DocumentUri.From(doc.Uri),
                         Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
-                            Math.Max(0, line - 1), Math.Max(0, col - 1),
-                            Math.Max(0, line - 1), Math.Max(0, col - 1) + name.Length)
+                            row.Line, row.StartCharacter, row.Line, row.EndCharacter)
                     },
-                    ContainerName = GetContainerName(info)
+                    ContainerName = row.ContainerName
                 });
-
-                // Also add members of type declarations
-                if (info.Kind is ServerSymbolKind.Class or ServerSymbolKind.Struct
-                    or ServerSymbolKind.Record or ServerSymbolKind.Interface
-                    or ServerSymbolKind.Enum or ServerSymbolKind.Union)
-                {
-                    foreach (var member in info.Members)
-                    {
-                        if (!MatchesQuery(member.Name, query)) continue;
-
-                        var (memberLine, memberCol) = FindMemberPosition(doc, name, member.Name);
-
-                        symbols.Add(new WorkspaceSymbol
-                        {
-                            Name = member.Name,
-                            Kind = ConvertSymbolKind(member.Kind),
-                            Location = new Location
-                            {
-                                Uri = DocumentUri.From(doc.Uri),
-                                Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
-                                    Math.Max(0, memberLine - 1), Math.Max(0, memberCol - 1),
-                                    Math.Max(0, memberLine - 1), Math.Max(0, memberCol - 1) + member.Name.Length)
-                            },
-                            ContainerName = name
-                        });
-                    }
-                }
             }
         }
 
@@ -104,76 +72,31 @@ public class WorkspaceSymbolHandler : WorkspaceSymbolsHandlerBase
     }
 
     /// <summary>
-    /// Case-insensitive fuzzy match: all characters of the query must appear
-    /// in order in the symbol name (standard VS Code workspace symbol behavior).
-    /// Empty query matches everything.
+    /// The owner's subsequence match, under the name nine years of callers and the
+    /// internals-visibility fixture know it by.
     /// </summary>
     internal static bool MatchesQuery(string name, string query)
-    {
-        if (string.IsNullOrEmpty(query)) return true;
+        => CodeIntel.EditorWorkspaceSymbolFacts.MatchesQuery(name, query);
 
-        var nameIndex = 0;
-        var nameLower = name.ToLowerInvariant();
-        var queryLower = query.ToLowerInvariant();
-
-        foreach (var ch in queryLower)
-        {
-            var found = nameLower.IndexOf(ch, nameIndex);
-            if (found < 0) return false;
-            nameIndex = found + 1;
-        }
-
-        return true;
-    }
-
-    private static LspSymbolKind ConvertSymbolKind(ServerSymbolKind kind)
+    private static LspSymbolKind ConvertSymbolKind(CodeIntel.EditorSymbolTableKind kind)
     {
         return kind switch
         {
-            ServerSymbolKind.Class => LspSymbolKind.Class,
-            ServerSymbolKind.Struct => LspSymbolKind.Struct,
-            ServerSymbolKind.Record => LspSymbolKind.Class,
-            ServerSymbolKind.Interface => LspSymbolKind.Interface,
-            ServerSymbolKind.Enum => LspSymbolKind.Enum,
-            ServerSymbolKind.Union => LspSymbolKind.Enum,
-            ServerSymbolKind.Function => LspSymbolKind.Function,
-            ServerSymbolKind.Method => LspSymbolKind.Method,
-            ServerSymbolKind.Property => LspSymbolKind.Property,
-            ServerSymbolKind.Field => LspSymbolKind.Field,
-            ServerSymbolKind.Parameter => LspSymbolKind.Variable,
-            ServerSymbolKind.LocalVariable => LspSymbolKind.Variable,
-            ServerSymbolKind.EnumMember => LspSymbolKind.EnumMember,
-            ServerSymbolKind.Constructor => LspSymbolKind.Constructor,
+            CodeIntel.EditorSymbolTableKind.Class => LspSymbolKind.Class,
+            CodeIntel.EditorSymbolTableKind.Struct => LspSymbolKind.Struct,
+            CodeIntel.EditorSymbolTableKind.Record => LspSymbolKind.Class,
+            CodeIntel.EditorSymbolTableKind.Interface => LspSymbolKind.Interface,
+            CodeIntel.EditorSymbolTableKind.Enum => LspSymbolKind.Enum,
+            CodeIntel.EditorSymbolTableKind.Union => LspSymbolKind.Enum,
+            CodeIntel.EditorSymbolTableKind.Function => LspSymbolKind.Function,
+            CodeIntel.EditorSymbolTableKind.Method => LspSymbolKind.Method,
+            CodeIntel.EditorSymbolTableKind.Property => LspSymbolKind.Property,
+            CodeIntel.EditorSymbolTableKind.Field => LspSymbolKind.Field,
+            CodeIntel.EditorSymbolTableKind.Parameter => LspSymbolKind.Variable,
+            CodeIntel.EditorSymbolTableKind.LocalVariable => LspSymbolKind.Variable,
+            CodeIntel.EditorSymbolTableKind.EnumMember => LspSymbolKind.EnumMember,
+            CodeIntel.EditorSymbolTableKind.Constructor => LspSymbolKind.Constructor,
             _ => LspSymbolKind.Variable
         };
-    }
-
-    private static string? GetContainerName(Models.SymbolInfo info)
-    {
-        // Top-level symbols have no container
-        return null;
-    }
-
-    private static (int Line, int Column) FindSymbolPosition(Models.DocumentState doc, string name)
-    {
-        if (doc.SymbolLocations != null && doc.SymbolLocations.TryGetValue(name, out var locations))
-        {
-            var first = locations.FirstOrDefault();
-            if (first != null) return (first.Line, first.Column);
-        }
-
-        return (1, 1);
-    }
-
-    private static (int Line, int Column) FindMemberPosition(Models.DocumentState doc, string typeName, string memberName)
-    {
-        // Check SymbolLocations first (has all symbols including enum members)
-        if (doc.SymbolLocations != null && doc.SymbolLocations.TryGetValue(memberName, out var locations))
-        {
-            var match = locations.FirstOrDefault();
-            if (match != null) return (match.Line, match.Column);
-        }
-
-        return (1, 1);
     }
 }

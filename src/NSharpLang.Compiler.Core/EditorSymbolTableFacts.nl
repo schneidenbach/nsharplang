@@ -187,6 +187,64 @@ class EditorSymbolTableFacts {
         return symbols
     }
 
+    // THE SYMBOL TABLE AS THE EDITOR HOLDS IT: one entry per NAME, and the LAST row with a name
+    // wins, which is exactly what filling a dictionary in row order does. A name declared twice is
+    // therefore described by its second declaration.
+    static func SymbolInfoTable(unit: CompilationUnit?, text: string?): Dictionary<string, EditorSymbolInfoRow> {
+        table := new Dictionary<string, EditorSymbolInfoRow>()
+
+        for row in SymbolInfoRows(unit, text) {
+            table[row.Name] = row
+        }
+
+        return table
+    }
+
+    // THE LOCATION TABLE AS THE EDITOR HOLDS IT, reduced to the FIRST place each name was
+    // declared — the editor keeps every location in a list per name and every consumer of that
+    // list asks it for the first one.
+    static func SymbolLocationTable(unit: CompilationUnit?, text: string?): Dictionary<string, EditorSymbolLocationRow> {
+        table := new Dictionary<string, EditorSymbolLocationRow>()
+
+        for row in SymbolLocationRows(unit, text) {
+            if !table.ContainsKey(row.Name) {
+                table[row.Name] = row
+            }
+        }
+
+        return table
+    }
+
+    // THE SIX KINDS THAT NAME A TYPE. Everything else a table entry can be — a function, a member,
+    // a local — is not something a hierarchy, an outline or a workspace search treats as a type.
+    static func IsTypeKind(kind: EditorSymbolTableKind): bool {
+        if kind == EditorSymbolTableKind.Class {
+            return true
+        }
+
+        if kind == EditorSymbolTableKind.Struct {
+            return true
+        }
+
+        if kind == EditorSymbolTableKind.Record {
+            return true
+        }
+
+        if kind == EditorSymbolTableKind.Interface {
+            return true
+        }
+
+        if kind == EditorSymbolTableKind.Enum {
+            return true
+        }
+
+        if kind == EditorSymbolTableKind.Union {
+            return true
+        }
+
+        return false
+    }
+
     // THE SYMBOL TABLE, AS ORDERED ROWS. A row that repeats a name is a later declaration of it and
     // the caller's table keeps the LAST, which is what a dictionary filled in this order does.
     //

@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System.Collections.Generic
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 // CONTRACTS FOR WHAT THE EDITOR PAINTS. These came out of `SemanticTokensHandler.cs`, where they
 // were reachable only by reflecting into `internal` members of a referenced assembly: the ORDER of
@@ -199,4 +200,103 @@ test "a semantic token marks a catch result by position and not by name" {
 
     assert EditorSemanticTokenFacts.Classify(here, null, EstSet([]), EstEmptyKinds(), EstSet([]), EstSet([]), EstSet([]), EstSet([]), marked) == EditorSemanticTokenFacts.VariableKindName
     assert EditorSemanticTokenFacts.Classify(elsewhere, null, EstSet([]), EstEmptyKinds(), EstSet([]), EstSet([]), EstSet([]), EstSet([]), marked) == null
+}
+
+// ── The tables the classification consults, read off the source ──────────
+//
+// The editor used to build these five in C#, out of the dictionaries it keeps per document. They
+// are the same walk over the same symbol table, so they belong beside the classification that
+// reads them — and unlike the handler's copies they can be asserted here.
+func EstSourceUnit(source: string): CompilationUnit? {
+    return ColumnarParserRecovery.ParseFileAst(source, "paint.nl").CompilationUnit
+}
+
+test "the source type-name table names every declared type and the analyzer's catalog" {
+    source := "namespace P\n\nclass Box {\n}\n\nstruct Vec {\n}\n\nrecord Point(X: int) {\n}\n\ninterface IShape {\n}\n\nenum Color {\n    Red\n}\n\nfunc Free(): int {\n    return 1\n}\n"
+    names := EditorSemanticTokenFacts.SourceTypeNames(EstSourceUnit(source), source)
+
+    assert names.Contains("Box")
+    assert names.Contains("Vec")
+    assert names.Contains("Point")
+    assert names.Contains("IShape")
+    assert names.Contains("Color")
+    assert !names.Contains("Free")
+}
+
+test "the source kind map spells the editor's own kind words" {
+    source := "namespace P\n\nclass Box {\n}\n\nenum Color {\n    Red\n}\n\nfunc Free(): int {\n    return 1\n}\n"
+    kinds := EditorSemanticTokenFacts.SourceTypeKinds(EstSourceUnit(source), source)
+
+    declared: string? = null
+    assert kinds.TryGetValue("Box", out declared)
+    assert declared == "Class"
+    assert kinds.TryGetValue("Color", out declared)
+    assert declared == "Enum"
+    assert kinds.TryGetValue("Free", out declared)
+    assert declared == "Function"
+
+    assert EditorSemanticTokenFacts.KindName(EditorSymbolTableKind.Record) == "Record"
+    assert EditorSemanticTokenFacts.KindName(EditorSymbolTableKind.Union) == "Union"
+    assert EditorSemanticTokenFacts.KindName(EditorSymbolTableKind.Constructor) == "Constructor"
+}
+
+// A METHOD IS NOT IN THE FUNCTION TABLE. The symbol table lists a type's methods as that type's
+// MEMBERS, and this table reads only its top-level entries — so inside a class a method name is
+// painted as a function only when a top-level function or a bound model happens to share it. That
+// is the shipped answer, pinned here rather than quietly widened.
+test "the source function table holds top-level functions and not a type's methods" {
+    source := "namespace P\n\nclass Box {\n    func Open(): int {\n        return 1\n    }\n}\n\nfunc Free(): int {\n    inner := 1\n    func Nested(): int {\n        return inner\n    }\n    return Nested()\n}\n"
+    names := EditorSemanticTokenFacts.SourceFunctionNames(EstSourceUnit(source), source, null)
+
+    assert names.Contains("Free")
+    assert names.Contains("Nested")
+    assert !names.Contains("Open")
+    assert !names.Contains("Box")
+}
+
+test "the source member tables reach one level into a type" {
+    source := "namespace P\n\nclass Box {\n    widthValue: int\n    Width: int => widthValue\n}\n\nenum Color {\n    Red,\n    Green\n}\n"
+    unit := EstSourceUnit(source)
+
+    properties := EditorSemanticTokenFacts.SourcePropertyNames(unit, source)
+    members := EditorSemanticTokenFacts.SourceEnumMemberNames(unit, source)
+
+    assert properties.Contains("Width")
+    assert !properties.Contains("widthValue")
+    assert members.Contains("Red")
+    assert members.Contains("Green")
+    assert !members.Contains("Width")
+}
+
+// THE SOURCE-DERIVED ROWS ARE THE SAME ROWS. The five tables the handler used to build by hand and
+// the five this owner reads off the symbol table paint identically, token for token.
+test "painting from the source alone agrees with painting from handed-in tables" {
+    source := "namespace P\n\nclass Box {\n    Width: int\n}\n\nfunc Free(box: Box): int {\n    return box.Width\n}\n"
+    unit := EstSourceUnit(source)
+    tokens := new Lexer(source, "paint.nl").Tokenize()
+
+    handed := EditorSemanticTokenFacts.TokenRows(
+        tokens,
+        unit,
+        null,
+        EditorSemanticTokenFacts.SourceTypeNames(unit, source),
+        EditorSemanticTokenFacts.SourceTypeKinds(unit, source),
+        EditorSemanticTokenFacts.SourceFunctionNames(unit, source, null),
+        EditorSemanticTokenFacts.SourcePropertyNames(unit, source),
+        EditorSemanticTokenFacts.SourceEnumMemberNames(unit, source)
+    )
+    derived := EditorSemanticTokenFacts.SourceTokenRows(tokens, unit, null, source)
+
+    assert derived.Count == handed.Count
+    assert derived.Count > 0
+
+    index := 0
+    while index < derived.Count {
+        assert derived[index].Line == handed[index].Line
+        assert derived[index].Character == handed[index].Character
+        assert derived[index].Length == handed[index].Length
+        assert derived[index].Kind == handed[index].Kind
+        assert derived[index].IsCatchResult == handed[index].IsCatchResult
+        index = index + 1
+    }
 }

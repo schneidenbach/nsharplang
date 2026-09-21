@@ -62,6 +62,167 @@ class EditorSemanticTokenFacts {
     static PropertyKind: string => "property"
     static VariableKindName: string => "variable"
 
+    // ── The tables the classification consults ───────────────────────────
+    //
+    // The editor keeps these as dictionaries of its own C# shapes, but it BUILDS them from the
+    // symbol table this assembly already owns, so they are answerable here from the same source
+    // the symbol table is read off — one walk, no editor state, and nothing for a handler to get
+    // subtly different.
+
+    // THE C# ENUM MEMBER'S OWN NAME. The editor's symbol kinds and this assembly's agree member
+    // for member, and the classification reads five of these words; the rest are carried so that
+    // the map says what every declared name IS rather than only what it is painted as.
+    static func KindName(kind: EditorSymbolTableKind): string {
+        if kind == EditorSymbolTableKind.Class {
+            return "Class"
+        }
+
+        if kind == EditorSymbolTableKind.Struct {
+            return "Struct"
+        }
+
+        if kind == EditorSymbolTableKind.Record {
+            return "Record"
+        }
+
+        if kind == EditorSymbolTableKind.Interface {
+            return "Interface"
+        }
+
+        if kind == EditorSymbolTableKind.Enum {
+            return "Enum"
+        }
+
+        if kind == EditorSymbolTableKind.Union {
+            return "Union"
+        }
+
+        if kind == EditorSymbolTableKind.Function {
+            return "Function"
+        }
+
+        if kind == EditorSymbolTableKind.Method {
+            return "Method"
+        }
+
+        if kind == EditorSymbolTableKind.Property {
+            return "Property"
+        }
+
+        if kind == EditorSymbolTableKind.Field {
+            return "Field"
+        }
+
+        if kind == EditorSymbolTableKind.Parameter {
+            return "Parameter"
+        }
+
+        if kind == EditorSymbolTableKind.LocalVariable {
+            return "LocalVariable"
+        }
+
+        if kind == EditorSymbolTableKind.EnumMember {
+            return "EnumMember"
+        }
+
+        return "Constructor"
+    }
+
+    // EVERY NAME THAT NAMES A TYPE: the analyzer's own catalog of nominal types, widened by the
+    // symbol table's type-kinded entries. The catalog is the authority; the table adds the ones it
+    // saw declared.
+    static func SourceTypeNames(unit: CompilationUnit?, text: string?): HashSet<string> {
+        names := new HashSet<string>()
+
+        for entry in EditorSymbolTableFacts.TypeCatalog(unit) {
+            names.Add(entry.Key)
+        }
+
+        for entry in EditorSymbolTableFacts.SymbolInfoTable(unit, text) {
+            if EditorSymbolTableFacts.IsTypeKind(entry.Value.Kind) {
+                names.Add(entry.Key)
+            }
+        }
+
+        return names
+    }
+
+    static func SourceTypeKinds(unit: CompilationUnit?, text: string?): Dictionary<string, string> {
+        kinds := new Dictionary<string, string>()
+
+        for entry in EditorSymbolTableFacts.SymbolInfoTable(unit, text) {
+            kinds[entry.Key] = KindName(entry.Value.Kind)
+        }
+
+        return kinds
+    }
+
+    // A FUNCTION BY DECLARATION OR BY BINDING. The symbol table names what was declared in this
+    // file; the bound model names everything the analyzer resolved, including what an import
+    // brought in.
+    static func SourceFunctionNames(unit: CompilationUnit?, text: string?, semanticModel: SemanticModel?): HashSet<string> {
+        names := new HashSet<string>()
+
+        for entry in EditorSymbolTableFacts.SymbolInfoTable(unit, text) {
+            if entry.Value.Kind == EditorSymbolTableKind.Function || entry.Value.Kind == EditorSymbolTableKind.Method {
+                names.Add(entry.Key)
+            }
+        }
+
+        if semanticModel != null {
+            for functionEntry in semanticModel.Functions {
+                names.Add(functionEntry.Key)
+            }
+        }
+
+        return names
+    }
+
+    // MEMBERS ARE SEARCHED ONE LEVEL DEEP, and by their own name rather than a qualified one — so
+    // a property is painted as a property wherever that name appears, whichever type declared it.
+    static func SourcePropertyNames(unit: CompilationUnit?, text: string?): HashSet<string> {
+        names := new HashSet<string>()
+
+        for entry in EditorSymbolTableFacts.SymbolInfoTable(unit, text) {
+            for member in entry.Value.Members {
+                if member.Kind == EditorSymbolTableKind.Property {
+                    names.Add(member.Name)
+                }
+            }
+        }
+
+        return names
+    }
+
+    static func SourceEnumMemberNames(unit: CompilationUnit?, text: string?): HashSet<string> {
+        names := new HashSet<string>()
+
+        for entry in EditorSymbolTableFacts.SymbolInfoTable(unit, text) {
+            for member in entry.Value.Members {
+                if member.Kind == EditorSymbolTableKind.EnumMember {
+                    names.Add(member.Name)
+                }
+            }
+        }
+
+        return names
+    }
+
+    // EVERY PAINTED TOKEN FROM THE SOURCE ALONE — the five tables above and the classification
+    // below, so that a caller holding a parsed document needs no symbol dictionaries of its own.
+    static func SourceTokenRows(tokens: List<Token>?, unit: CompilationUnit?, semanticModel: SemanticModel?, text: string?): List<EditorSemanticTokenRow> {
+        return TokenRows(
+            tokens,
+            unit,
+            semanticModel,
+            SourceTypeNames(unit, text),
+            SourceTypeKinds(unit, text),
+            SourceFunctionNames(unit, text, semanticModel),
+            SourcePropertyNames(unit, text),
+            SourceEnumMemberNames(unit, text)
+        )
+    }
+
     // Every token the editor should colour, in token order.
     //
     // AN INTERPOLATED LITERAL IS NOT PAINTED AS A STRING and its holes are painted as the code
