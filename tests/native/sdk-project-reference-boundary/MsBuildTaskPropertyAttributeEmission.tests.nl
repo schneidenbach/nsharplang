@@ -1,6 +1,7 @@
 namespace NSharpLang.SdkProjectReferenceBoundary.Tests
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import Microsoft.Build.Framework
 
@@ -77,14 +78,32 @@ func MsBuildMarkerProperty(name: string): PropertyInfo {
     return must declared
 }
 
+// THE COUNT IS OF THE MSBUILD ATTRIBUTE, NOT OF EVERY ROW THE PROPERTY CARRIES — the same
+// correction `ColumnarMsBuildRequiredAndReceiverPrerequisite.tests.nl` took for its estate twin, and
+// this file needed it first: the estate reflects metadata the PINNED SEED produced, while these
+// probes are compiled by the CLI under test, so `Input: string` here already carries the
+// `NullableAttribute(1)` row that lets a consumer in another assembly see the annotation this source
+// wrote. The double-writer protection is exactly the marker's own row count.
 func MsBuildMarkerAssertExactlyOne(name: string, attributeType: Type) {
     property := MsBuildMarkerProperty(name)
-    assert property.GetCustomAttributes(false).Length == 1, name
     matching := property.GetCustomAttributes(attributeType, false)
     assert matching.Length == 1, name
     // The singular overload is what MSBuild's task reflection calls, and it THROWS on a second row.
     single := property.GetCustomAttribute(attributeType, false)
     assert single != null, name
+}
+
+// The rows of ONE attribute type, read through `GetCustomAttributesData` so the constructor and the
+// blob can be asserted on the marker's own row rather than on whichever row happens to be first.
+func MsBuildMarkerRowsOfType(property: PropertyInfo, attributeType: Type): List<CustomAttributeData> {
+    rows := new List<CustomAttributeData>()
+    for candidate in property.GetCustomAttributesData() {
+        if candidate.get_AttributeType() == attributeType {
+            rows.Add(candidate)
+        }
+    }
+
+    return rows
 }
 
 test "a Required marker on a task property is emitted exactly once" {
@@ -106,9 +125,9 @@ test "the imported Required spelling reaches the property row once" {
 
 test "a Required marker carries the no-argument constructor and an empty blob" {
     property := MsBuildMarkerProperty("Input")
-    data := property.GetCustomAttributesData()
-    assert data.get_Count() == 1
-    attribute := data.get_Item(0)
+    rows := MsBuildMarkerRowsOfType(property, typeof(Microsoft.Build.Framework.RequiredAttribute))
+    assert rows.Count == 1
+    attribute := rows[0]
     assert attribute.get_AttributeType() == typeof(Microsoft.Build.Framework.RequiredAttribute)
     constructor := attribute.get_Constructor()
     assert constructor.get_DeclaringType() == typeof(Microsoft.Build.Framework.RequiredAttribute)
