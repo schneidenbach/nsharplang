@@ -212,5 +212,5 @@ test "closed source interface completeness keeps a matching twin separate from a
     missing := "interface SourceDiscoveryMissing<T> {\n    func Required(value: T): T\n}\nclass SourceDiscoveryMissingImplementation: SourceDiscoveryMissing<int> {\n    func Other(value: int): int { return value }\n}\n"
     matching := "interface SourceDiscoveryMissing<T> {\n    func Required(value: T): T\n}\nclass SourceDiscoveryMissingImplementation: SourceDiscoveryMissing<int> {\n    func Required(value: int): int { return value }\n}\n"
     assert SourceDiscoveryEmitOutcome(matching) == "success"
-    assert SourceDiscoveryEmitOutcome(missing) == "false without decline"
+    assert SourceDiscoveryEmitOutcome(missing).StartsWith("emit.declaration.interface-unimplemented|", StringComparison.Ordinal)
 }

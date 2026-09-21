@@ -2592,6 +2592,22 @@ class ColumnarDirectCallPlanner {
                 return true
             }
 
+            // THE LAST TIER: THE CALL SITE PACKS A `params` TAIL. Asked after the fixed-arity,
+            // generic and trailing-optional resolvers, because each of those binds a candidate
+            // applicable in its NORMAL form and C# prefers all of them to an expanded one.
+            expandedStatic := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(lookupType, memberName, argumentTypes, argumentFacts, true)
+
+            if expandedStatic.IsSelected {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, expandedStatic, out resultType) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+
             if ordinary.IsOwnedRejected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
             } else {
@@ -2776,6 +2792,23 @@ class ColumnarDirectCallPlanner {
                     return true
                 }
             }
+        }
+
+        // THE LAST TIER, for an instance receiver: the call site packs a `params` tail. It runs after
+        // the extension lookup as well, because an extension is a NORMAL-form binding on a method the
+        // receiver's own type does not declare, and preferring a packed instance call to it would
+        // change which member a written call reaches.
+        expandedInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(receiverType, memberName, argumentTypes, argumentFacts, false)
+
+        if expandedInstance.IsSelected {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, expandedInstance, out resultType) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            ownership = ColumnarDirectCallOwnership.Planned
+            return true
         }
 
         if ordinaryInstance.IsOwnedRejected {

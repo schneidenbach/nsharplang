@@ -637,15 +637,34 @@ test "external selection and completeness retain declared iteration and first Me
         out externalInterfaceUnsatisfied
     )
 
+    // AN INTERFACE'S OWN ROWS ARE NOT ALL OF ITS REQUIREMENTS, AND THIS ROW USED TO PIN THE OPPOSITE.
+    //
+    // `inheritedRuntime` declares nothing and INHERITS `left`, which declares `Run`;
+    // `GetMethods()` on it therefore answers an empty list, and the walk stopped there and called a
+    // member-less implementer complete. A class that stops there EMITS and then fails to LOAD — the
+    // inherited slot has no implementation and the CLR says so at the first use — so the old answer
+    // was not a lenient one, it was a `TypeLoadException` deferred to run time. The closure is
+    // walked now, and the two answers below are the whole of the rule: a member-less implementer is
+    // REFUSED and named, and the same implementer that declares `Run` is accepted.
     inherited := SourceCallInterfaceDefinition("ExternalMemberInheritedOnly")
     inherited.Builder.AddInterfaceImplementation(left)
     inheritedRuntime := IdentityBake(inherited.Builder)
     assert inheritedRuntime.GetMethods().Length == 0
-    assert ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(
+    assert !ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(
         missingDefault,
         ExternalMemberInterfaceList(inheritedRuntime, null),
         out externalInterfaceUnsatisfied
     )
+    // THE DECLINE NAMES THE SLOT. It answered a bare `false` before, and its one caller turned that
+    // into an NL103 with no `Declined at …` clause at all.
+    assert externalInterfaceUnsatisfied.EndsWith(".Run", StringComparison.Ordinal)
+
+    assert ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(
+        complete,
+        ExternalMemberInterfaceList(inheritedRuntime, null),
+        out externalInterfaceUnsatisfied
+    )
+    assert externalInterfaceUnsatisfied.Length == 0
 
     rejectedTable := new ColumnarStructuralTypeReferenceTable()
     rejectedDeclaration := DeclarationPlanOverrideDeclaration("Run", "bool", false)

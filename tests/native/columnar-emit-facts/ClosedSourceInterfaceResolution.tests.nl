@@ -283,9 +283,9 @@ test "closed source completeness rejects missing and exact-signature mismatches 
     mismatch := "interface ClosedSourceControlMismatch<T> {\n    func Required(value: T): T\n}\nclass ClosedSourceControlMismatchImplementation: ClosedSourceControlMismatch<int> {\n    func Required(value: string): int { return 0 }\n}\n"
 
     assert ClosedSourceEmitOutcome(matchingMissing) == "success"
-    assert ClosedSourceEmitOutcome(missing) == "false without decline"
+    assert ClosedSourceEmitOutcome(missing).StartsWith("emit.declaration.interface-unimplemented|", StringComparison.Ordinal)
     assert ClosedSourceEmitOutcome(matchingMismatch) == "success"
-    assert ClosedSourceEmitOutcome(mismatch) == "false without decline"
+    assert ClosedSourceEmitOutcome(mismatch).StartsWith("emit.declaration.interface-unimplemented|", StringComparison.Ordinal)
 }
 
 test "a constrained source call closes both its parameter and return before dispatch" {

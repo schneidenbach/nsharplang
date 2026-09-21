@@ -83,9 +83,34 @@ test "generic safe casts preserve null results, covariance, and reference identi
     assert GenericSafeCastInvoke(method, numbers) == null
 }
 
-test "safe casts decline value targets" {
-    nullableSource := "func AsNullable(value: object?): object? {\n    return value as int?\n}\n"
-    assert GenericSafeCastDeclines(nullableSource)
+test "safe casts decline a bare value target and answer a nullable one" {
+    // A BARE value target still declines, and for the reason the rule was always about: `as` has to
+    // be able to hand back "no", and an `int` has no null to hand back.
+    bareSource := "func AsBare(value: object?): object? {\n    return value as int\n}\n"
+    assert GenericSafeCastDeclines(bareSource)
+
+    // `as T?` IS THE ONE VALUE TARGET THAT MEANS SOMETHING, and it used to be refused with the bare
+    // one by a single `IsSupportedNullable` test. `isinst Nullable<T>` answers "is this a boxed T"
+    // and `unbox.any Nullable<T>` unwraps it — total, because a mismatch is already null and
+    // `unbox.any` over a `Nullable<T>` reads null as the EMPTY value rather than throwing. Both
+    // answers are read back through the emitted method, not asserted about the IL.
+    nullableSource := "func AsNullable(value: object?): int? {\n    return value as int?\n}\n"
+    assembly := GenericSafeCastAssembly(nullableSource)
+    owner := assembly.GetType("Program")
+    if owner == null {
+        throw new InvalidOperationException("The nullable safe-cast fixture did not publish Program.")
+    }
+    method := owner.GetMethod("AsNullable")
+    if method == null {
+        throw new InvalidOperationException("The nullable safe-cast fixture did not publish AsNullable.")
+    }
+
+    matchedResult := GenericSafeCastInvoke(method, 41)
+    assert matchedResult != null
+    assert (must matchedResult).ToString() == "41"
+
+    assert GenericSafeCastInvoke(method, "not an int") == null
+    assert GenericSafeCastInvoke(method, null) == null
 }
 
 // A SAFE CAST TO A GENERIC CLOSED OVER THE FUNCTION'S OWN TYPE PARAMETER. This used to decline: the

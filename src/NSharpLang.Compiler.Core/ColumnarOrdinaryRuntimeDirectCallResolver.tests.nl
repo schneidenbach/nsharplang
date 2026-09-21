@@ -17,6 +17,15 @@ func OrdinaryRuntimeArgumentTypes2(first: Type, second: Type): Type[] {
     return arguments
 }
 
+func OrdinaryRuntimeArgumentTypes4(first: Type, second: Type, third: Type, fourth: Type): Type[] {
+    values := new Type[](4)
+    values[0] = first
+    values[1] = second
+    values[2] = third
+    values[3] = fourth
+    return values
+}
+
 func OrdinaryRuntimeArgumentTypes6(first: Type, second: Type, third: Type, fourth: Type, fifth: Type, sixth: Type): Type[] {
     arguments := new Type[](6)
     arguments[0] = first
@@ -182,11 +191,34 @@ test "ordinary runtime direct calls select fixed byref and exclude generic param
     assert genericCall.IsExcluded
     assert genericCall.Method == null
 
+    // A `params` TAIL IS A CALL-SITE SHAPE AT THIS DOOR NOW, AND THIS ROW STATES BOTH HALVES OF IT.
+    //
+    // It used to be an excluded shape whatever the site wrote, which is why `string.Join(sep, a, b,
+    // c)` was "not modeled". The NORMAL form binds first: `Activator.CreateInstance(Type,
+    // object[])` supplies the array itself, converts by identity, and selects the DECLARED
+    // signature — no packing, nothing expanded.
     activatorType := RequiredOrdinaryRuntimeType("System.Activator")
     paramsCall := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(activatorType, "CreateInstance", OrdinaryRuntimeArgumentTypes2(typeof(Type), typeof(object[])), true)
-    assert paramsCall.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Excluded
-    assert paramsCall.IsExcluded
-    assert paramsCall.Method == null
+    assert paramsCall.IsSelected, "Activator.CreateInstance(Type, object[]) status was " + paramsCall.Status.ToString()
+    assert paramsCall.Method != null
+    assert !paramsCall.IsExpanded, "expanded element was " + (paramsCall.ExpandedElementType == null ? "<null>" : (must paramsCall.ExpandedElementType).ToString())
+    assert paramsCall.ExpandedElementType == null
+    assert paramsCall.ParameterTypes.Length == 2, "parameter count was " + paramsCall.ParameterTypes.Length.ToString()
+    assert paramsCall.ParameterTypes[1] == typeof(object[]), "second parameter was " + paramsCall.ParameterTypes[1].ToString()
+
+    // The EXPANDED form is the same declaration read at a site that wrote the elements instead: the
+    // per-argument list is as long as the arguments, the declared signature is kept beside it, and
+    // the element type and the slot the packing starts at are what the two writers need.
+    expandedCall := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(typeof(string), "Join", OrdinaryRuntimeArgumentTypes4(typeof(string), typeof(string), typeof(string), typeof(string)), true)
+    assert expandedCall.IsSelected, "string.Join(4 strings) status was " + expandedCall.Status.ToString()
+    assert expandedCall.IsExpanded
+    assert expandedCall.ExpandedElementType == typeof(string), "element was " + (expandedCall.ExpandedElementType == null ? "<null>" : (must expandedCall.ExpandedElementType).ToString())
+    assert expandedCall.FixedArgumentCount == 1, "fixed count was " + expandedCall.FixedArgumentCount.ToString()
+    assert expandedCall.ParameterTypes.Length == 4
+    assert expandedCall.ParameterTypes[0] == typeof(string)
+    assert expandedCall.ParameterTypes[3] == typeof(string)
+    assert expandedCall.DeclaredParameterTypes.Length == 2
+    assert expandedCall.DeclaredParameterTypes[1] == typeof(string[])
 
     // A BY-REF PARAMETER IS NO LONGER AN UNREPRESENTABLE SHAPE. `int.TryParse(string, out int)` binds
     // when the argument is WRITTEN `out` (the contract below), so an argument that is not written

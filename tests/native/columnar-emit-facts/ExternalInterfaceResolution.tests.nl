@@ -152,9 +152,9 @@ test "external completeness accepts exact members and declines missing or mismat
     parameterMismatch := "import System\n\nclass ExternalInterfaceControlComparable: IComparable<int> {\n    func CompareTo(other: string): int { return 0 }\n}\n"
 
     assert ClosedSourceEmitOutcome(matchingMissing) == "success"
-    assert ClosedSourceEmitOutcome(missing) == "false without decline"
+    assert ClosedSourceEmitOutcome(missing).StartsWith("emit.declaration.interface-unimplemented|", StringComparison.Ordinal)
     assert ClosedSourceEmitOutcome(matchingComparable) == "success"
-    assert ClosedSourceEmitOutcome(returnMismatch) == "false without decline"
-    assert ClosedSourceEmitOutcome(arityMismatch) == "false without decline"
-    assert ClosedSourceEmitOutcome(parameterMismatch) == "false without decline"
+    assert ClosedSourceEmitOutcome(returnMismatch).StartsWith("emit.declaration.interface-unimplemented|", StringComparison.Ordinal)
+    assert ClosedSourceEmitOutcome(arityMismatch).StartsWith("emit.declaration.interface-unimplemented|", StringComparison.Ordinal)
+    assert ClosedSourceEmitOutcome(parameterMismatch).StartsWith("emit.declaration.interface-unimplemented|", StringComparison.Ordinal)
 }

@@ -291,9 +291,9 @@ test "matching source members emit while missing and signature-mismatched member
     mismatch := "interface SourceInterfaceMismatch {\n    func Required(value: int): int\n}\nclass SourceInterfaceMismatchImplementation: SourceInterfaceMismatch {\n    func Required(value: string): int { return 0 }\n}\n"
     matchingMismatch := "interface SourceInterfaceMismatch {\n    func Required(value: int): int\n}\nclass SourceInterfaceMismatchImplementation: SourceInterfaceMismatch {\n    func Required(value: int): int { return value }\n}\n"
     assert SourceInterfaceEmitOutcome(matchingMissing) == "success"
-    assert SourceInterfaceEmitOutcome(missing) == "false without decline"
+    assert SourceInterfaceEmitOutcome(missing).StartsWith("emit.declaration.interface-unimplemented|", StringComparison.Ordinal)
     assert SourceInterfaceEmitOutcome(matchingMismatch) == "success"
-    assert SourceInterfaceEmitOutcome(mismatch) == "false without decline"
+    assert SourceInterfaceEmitOutcome(mismatch).StartsWith("emit.declaration.interface-unimplemented|", StringComparison.Ordinal)
 }
 
 test "a protected source instance call rejects a base-typed explicit receiver in a derived body" {

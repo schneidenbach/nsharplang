@@ -3849,6 +3849,14 @@ sealed class ColumnarIlEmitter {
         if (applicableCount == 1) {
             return applicable
         }
+        // THE LAST TIER: A `params` TAIL PACKED AT THE CALL SITE. It runs after every tier above,
+        // each of which binds a candidate applicable in its NORMAL form.
+        if (allArgumentsTyped) {
+            expanded := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveExpandedWithFacts(lookupType, member, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount), expectedStatic)
+            if (expanded.IsSelected) {
+                return expanded
+            }
+        }
         return unique
     }
 

@@ -426,6 +426,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
     static func ResolveFromCandidatesCore(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[], allowInheritedProtected: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         hadExcludedShape := false
+        hadOptionalExpansion := false
         hadFixedArity := false
         bestScore := -1
         bestCount := 0
@@ -459,6 +460,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                         }
                     } else if HasOptionalExpansion(parameters, argumentTypes.Length) {
                         hadExcludedShape = true
+                        hadOptionalExpansion = true
                     } else if parameters.Length == argumentTypes.Length {
                         hadFixedArity = true
                         if CanDispatch(candidate, lookupType, expectedStatic) {
@@ -508,16 +510,31 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         if hadExcludedShape {
-            // NORMAL FORM HAS NOW HAD ITS SAY, AND SAID NOTHING. A `params` tail is one of the shapes
-            // that set `hadExcludedShape`, so `string.Join(sep, a, b, c)` reached here with four
-            // arguments and a three-parameter declaration and could only be refused. The expanded tier
-            // runs exactly here — after every fixed-arity and optional candidate has failed, which is
-            // C#'s "applicable in its normal form beats applicable in its expanded form"
-            // (ECMA-334 §12.6.4.2) written as an ordering of tiers — and it is the SAME shared packing
-            // owner the extension and constructor doors already use.
-            expandedSelection := ResolveExpandedFromCandidates(lookupType, candidateLookupType, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected)
-            if expandedSelection.IsSelected {
-                return expandedSelection
+            // AN EXPANDED CANDIDATE THAT BINDS BY IDENTITY BEATS THE LATER OWNERS, AND ONLY THAT ONE
+            // DOES. This is the same tiebreak the fixed-arity result above already applies against a
+            // mixed set (`bestScore == argumentTypes.Length * 8`), and it exists because "normal form
+            // beats expanded" is NOT an ordering of tiers — C# compares the parameter CONVERSIONS
+            // first (§12.6.4.3) and only falls back to the normal/expanded distinction when the
+            // parameter sequences are equivalent.
+            //
+            // The two calls that fix the position between them: `string.Join("|", "only")` is "only"
+            // in C#, because the expanded `Join(string, params string?[])` converts its argument by
+            // IDENTITY while the generic `Join<char>(string, IEnumerable<char>)` — which is applicable
+            // in normal form — needs a reference conversion; and `string.Join(",", entries)` over a
+            // `List<string>` is the joined LIST, because the expanded `params object?[]` would pack
+            // the list itself and only `Join<string>(string, IEnumerable<T>)` reads it as a sequence.
+            // An identity-only pass here answers the first and declines the second; the call owners
+            // ask again, without the restriction, after every other tier has declined.
+            // A TRAILING-OPTIONAL CANDIDATE IS APPLICABLE IN ITS NORMAL FORM TOO, and it is owned by a
+            // resolver of its own that the call sites ask after this one. `"a,b".Split(',')` binds
+            // `Split(char, StringSplitOptions = None)` there; the expanded `Split(params char[])`
+            // converts its one argument by identity and would otherwise win this pass, silently
+            // changing which overload a written call reaches.
+            if !hadOptionalExpansion {
+                identityExpansion := ResolveExpandedFromCandidates(lookupType, candidateLookupType, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected, true)
+                if identityExpansion.IsSelected {
+                    return identityExpansion
+                }
             }
 
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
@@ -528,6 +545,39 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+    }
+
+    // THE LAST TIER OF THE ORDINARY CALL LADDER: the call site packs a `params` tail.
+    //
+    // It is asked only after the fixed-arity, generic and trailing-optional resolvers have all
+    // declined, because every one of those binds a candidate applicable in its NORMAL form and C#
+    // prefers all of them to an expanded one (ECMA-334 §12.6.4.2). The candidate enumeration and the
+    // admission rules are the ordinary resolver's own, so a method reachable here is a method
+    // reachable there.
+    static func ResolveExpandedWithFacts(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        ValidateInputs(lookupType, memberName, argumentTypes)
+        ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
+
+        // A BUILDER-BOUND receiver keeps its existing decline: its instantiation answers no member
+        // query of its own, and no call site has asked for a packed call through one.
+        genericDefinition := typeof(object)
+        closedArguments := new Type[](0)
+        if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+        }
+
+        try {
+            candidates := CandidateMethods(lookupType, false)
+            if candidates == null {
+                return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+            }
+
+            return ResolveExpandedFromCandidates(lookupType, lookupType, new Type[](0), memberName, argumentTypes, argumentFacts, expectedStatic, candidates, false, false)
+        } catch ex: NotSupportedException {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+        } catch ex: InvalidOperationException {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+        }
     }
 
     // THE EXPANDED TIER, and it selects nothing a normal-form tier could have selected.
@@ -541,14 +591,14 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     //
     // A BY-REF ARGUMENT NEVER REACHES HERE: a `params` tail cannot be by-ref and the fixed slots are
     // asked the ordinary supported-signature question, so the packing writes only ordinary values.
-    static func ResolveExpandedFromCandidates(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[], allowInheritedProtected: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+    static func ResolveExpandedFromCandidates(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[], allowInheritedProtected: bool, identityOnly: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         // NORMAL FORM FIRST, AND FOR THESE CANDIDATES NOBODY ELSE HAS ASKED. A `params` declaration is
         // an EXCLUDED shape to the walk above, so its normal form — the one where the caller already
         // supplies the array — was never scored there either: `string.Join("+", parts)` over a
         // `string[]` has no non-params overload to fall back on. Scoring the declared signature here,
         // before any packing is considered, is what keeps ECMA-334 §12.6.4.2 true; without it the
         // `object?[]` tail would pack the array itself and join its ToString().
-        normalForm := ResolveParamsNormalForm(lookupType, candidateLookupType, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected)
+        normalForm := ResolveParamsNormalForm(lookupType, candidateLookupType, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected, identityOnly)
         if normalForm.IsSelected {
             return normalForm
         }
@@ -602,6 +652,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
         }
 
+        if identityOnly && bestScore != argumentTypes.Length * 8 {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+        }
+
         if builderBound {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
         }
@@ -610,7 +664,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     // The declared arity of a `params` candidate, scored like any other fixed-arity call.
-    static func ResolveParamsNormalForm(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[], allowInheritedProtected: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+    static func ResolveParamsNormalForm(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[], allowInheritedProtected: bool, identityOnly: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         bestScore := -1
         bestCount := 0
         selected: MethodInfo? = null
@@ -648,6 +702,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         if bestCount != 1 || selected == null || bestScore < 0 || closedArguments.Length > 0 {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+        }
+
+        if identityOnly && bestScore != argumentTypes.Length * 8 {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
         }
 
