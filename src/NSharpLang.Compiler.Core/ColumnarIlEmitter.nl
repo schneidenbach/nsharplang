@@ -1571,7 +1571,7 @@ sealed class ColumnarIlEmitter {
                 _unionRegistry,
                 _unionCaseRegistry,
                 placement.CurrentStructForBody,
-                null,
+                _enclosingType,
                 false,
                 false,
                 _programHolder,
@@ -1658,10 +1658,7 @@ sealed class ColumnarIlEmitter {
         )
         closureIl := closureMethod.GetILGenerator()
         closureBoxedCaptures := displayBuild.BoxedCapturesOrNull()
-        let closureEnclosingType: ColumnarStructDef? = null
-        if displayBuild.CapturesEnclosingThis {
-            closureEnclosingType = _currentStruct
-        }
+        closureEnclosingType := LambdaBodyEnclosingType(displayBuild.CapturesEnclosingThis)
         closureEmitter := new ColumnarIlEmitter(
             _nodes,
             _source,
@@ -1712,6 +1709,29 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // THE TYPE A LAMBDA BODY IS LEXICALLY INSIDE, which is the anchor every bare STATIC member read
+    // and bare STATIC call uses. A lambda written in a member of `P` is still written in `P`, so
+    // `P`'s own statics are in scope in its body exactly as they are in the member around it — and
+    // they were not, because this slot was filled only when the display captured the enclosing
+    // receiver. A non-capturing lambda in a STATIC member had no anchor at all, so
+    // `.OnInitialize((server, request, ct) => WatchClientProcess(...))` declined at
+    // `emit.call.bare-unresolved` while the identical call one line outside the lambda emitted.
+    //
+    // THE CAPTURED-RECEIVER CASE KEEPS `_currentStruct` AND MUST. `<>4__this` is defined with
+    // `_currentStruct.Builder` as its field type, and the two readers of that field
+    // (`EmitCapturedEnclosingThisCall` and the bare-`this` expression) look their member up on this
+    // slot — so for a lambda nested inside another lambda, where `_currentStruct` is the PARENT
+    // DISPLAY, the walk out must name that display and not the type the source was written in. Every
+    // reader of the captured receiver checks for the field itself, so a body that did not capture one
+    // reads the lexical owner here without reaching any of them.
+    private func LambdaBodyEnclosingType(capturesEnclosingThis: bool): ColumnarStructDef? {
+        if (capturesEnclosingThis) {
+            return _currentStruct
+        }
+
+        return _enclosingType
+    }
+
     // A CAPTURING ZERO-PARAMETER LAMBDA AT AN INFERRING POSITION (`zero := () => seed`).
     //
     // The display class, the capture copies and the body are the TARGETED arm's; what differs is the
@@ -1736,10 +1756,7 @@ sealed class ColumnarIlEmitter {
             inferredInitialParameterTypes
         )
         closureIl := closureMethod.GetILGenerator()
-        let closureEnclosingType: ColumnarStructDef? = null
-        if displayBuild.CapturesEnclosingThis {
-            closureEnclosingType = _currentStruct
-        }
+        closureEnclosingType := LambdaBodyEnclosingType(displayBuild.CapturesEnclosingThis)
         closureEmitter := new ColumnarIlEmitter(
             _nodes,
             _source,
@@ -2376,7 +2393,7 @@ sealed class ColumnarIlEmitter {
             _unionRegistry,
             _unionCaseRegistry,
             placement.CurrentStructForBody,
-            null,
+            _enclosingType,
             false,
             false,
             _programHolder,
