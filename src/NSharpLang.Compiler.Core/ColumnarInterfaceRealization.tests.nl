@@ -493,6 +493,8 @@ test "duck matching continues past ordinary nonmatches but a reached unresolved 
 }
 
 test "interface completeness orchestrates source defaults missing and mismatched requirements" {
+    realizationUnsatisfiedType := ""
+    realizationUnsatisfiedDetail := ""
     requiredInterface := SourceCallInterfaceDefinition("InterfaceRealizationCompletenessRequired")
     InterfaceRealizationAbstractMethod(
         requiredInterface,
@@ -521,14 +523,18 @@ test "interface completeness orchestrates source defaults missing and mismatched
     assert ColumnarInterfaceRealization.InterfacesSatisfied(
         InterfaceRealizationSingleInput(sourceInput),
         InterfaceRealizationSingleDefinition(implementation),
-        registry
+        registry,
+        out realizationUnsatisfiedType,
+        out realizationUnsatisfiedDetail
     )
 
     implementation.Methods.Remove("Read")
     assert !ColumnarInterfaceRealization.InterfacesSatisfied(
         InterfaceRealizationSingleInput(sourceInput),
         InterfaceRealizationSingleDefinition(implementation),
-        registry
+        registry,
+        out realizationUnsatisfiedType,
+        out realizationUnsatisfiedDetail
     )
 
     InterfaceRealizationPublicMethod(
@@ -540,7 +546,9 @@ test "interface completeness orchestrates source defaults missing and mismatched
     assert !ColumnarInterfaceRealization.InterfacesSatisfied(
         InterfaceRealizationSingleInput(sourceInput),
         InterfaceRealizationSingleDefinition(implementation),
-        registry
+        registry,
+        out realizationUnsatisfiedType,
+        out realizationUnsatisfiedDetail
     )
 
     implementation.Methods.Remove("Read")
@@ -548,11 +556,15 @@ test "interface completeness orchestrates source defaults missing and mismatched
     assert ColumnarInterfaceRealization.InterfacesSatisfied(
         InterfaceRealizationSingleInput(sourceInput),
         InterfaceRealizationSingleDefinition(implementation),
-        registry
+        registry,
+        out realizationUnsatisfiedType,
+        out realizationUnsatisfiedDetail
     )
 }
 
 test "interface completeness selects closed-source and external checks after its source loop" {
+    realizationUnsatisfiedType := ""
+    realizationUnsatisfiedDetail := ""
     closed := ClosedSourceGenericInterface("InterfaceRealizationClosed")
     parameter := closed.Builder.GetGenericArguments()[0]
     InterfaceRealizationAbstractMethod(
@@ -609,14 +621,18 @@ test "interface completeness selects closed-source and external checks after its
     assert ColumnarInterfaceRealization.InterfacesSatisfied(
         inputs,
         definitions,
-        registry
+        registry,
+        out realizationUnsatisfiedType,
+        out realizationUnsatisfiedDetail
     )
 
     externalImplementation.Methods.Remove("Dispose")
     assert !ColumnarInterfaceRealization.InterfacesSatisfied(
         inputs,
         definitions,
-        registry
+        registry,
+        out realizationUnsatisfiedType,
+        out realizationUnsatisfiedDetail
     )
 }
 

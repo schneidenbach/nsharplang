@@ -50,12 +50,14 @@ class LocalFunctionPlannerFixture {
         Declarations.Add(new ColumnarLocalFunctionInput(Declarations.Count, new ColumnarFunctionInput(name, "void", parameters, parameterTypes, nodes.Nodes, root, false, new string[](0))))
     }
 
-    // One explicit generic call. GenericCallee's value is the callee name; its children are type
-    // syntax and must never enter capture-name collection.
+    // One explicit generic call. GenericCallee's value is the callee name; its child 0 is the callee
+    // EXPRESSION and the type-syntax children follow it, and the type children must never enter
+    // capture-name collection.
     func DeclareGenericCall(name: string, callee: string, typeArgument: string, parameter: string) {
-        typeNode := Builder.AddLeaf(0, typeArgument)
         calleeStart := Builder.AddToken(callee)
-        calleeChildren: int[] = [typeNode]
+        calleeExpression := Builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), calleeStart, callee.Length, calleeStart, callee.Length, new int[](0))
+        typeNode := Builder.AddLeaf(0, typeArgument)
+        calleeChildren: int[] = [calleeExpression, typeNode]
         genericCallee := Builder.AddNode(38, calleeStart, callee.Length, calleeStart, callee.Length, calleeChildren)
         argument := Builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), parameter)
         callChildren: int[] = [genericCallee, argument]

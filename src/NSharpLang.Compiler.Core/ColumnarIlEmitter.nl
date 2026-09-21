@@ -3367,14 +3367,14 @@ sealed class ColumnarIlEmitter {
     // The written type arguments of an explicit generic callee, resolved in the body's own scope.
     private func TryResolveWrittenTypeArguments(callee: int, expectedCount: int, out binding: Type[]): bool {
         binding = null
-        if (_nodes.ChildCount(callee) != expectedCount) {
+        if (ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee) != expectedCount) {
             return false
         }
         written := new Type[expectedCount]
         for ta := 0; ta < expectedCount; ta++ {
             let canonicalTypeArg: string? = null
             let writtenType: System.Type? = null
-            if (!TryBuildTypeNodeCanonical(Child(callee, ta), out canonicalTypeArg) || !TryResolveBodyType(canonicalTypeArg, out writtenType)) {
+            if (!TryBuildTypeNodeCanonical(ColumnarGenericCalleeFacts.TypeArgumentNode(_nodes, callee, ta), out canonicalTypeArg) || !TryResolveBodyType(canonicalTypeArg, out writtenType)) {
                 return false
             }
             if (!ColumnarTypeOfPlanner.IsSupportedType(writtenType)) {
@@ -3496,7 +3496,7 @@ sealed class ColumnarIlEmitter {
     private func TryEmitExplicitGenericSourceCall(callIdx: int, callee: int, calleeName: string, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         argCount := _nodes.ChildCount(callIdx) - 1
-        typeArgCount := _nodes.ChildCount(callee)
+        typeArgCount := ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee)
         if (typeArgCount <= 0) {
             return false
         }
@@ -3566,6 +3566,47 @@ sealed class ColumnarIlEmitter {
             return TryEmitGenericSourceMethodCall(callIdx, instanceGenerics, instanceMethod.Builder, instanceMethod.ParamTypes, instanceMethod.ReturnType, instanceBinding, constructedOwner, receiverArguments, instanceCallOpcode, out columnarResolvedType)
         }
 
+        // THE SAME INSTANCE CALL, OVER A RECEIVER THAT IS AN EXPRESSION AND NOT A NAME — the chained
+        // spelling `registry.Add<A>().Add<B>()`, whose second receiver is the first CALL. Reached only
+        // when the binding lookup above found no name, so a call that resolved there is untouched. A
+        // REFERENCE receiver only: a source struct's instance method takes `this` as a managed pointer
+        // and an expression with no storage of its own has no address to give.
+        expressionReceiverNode := ColumnarGenericCalleeFacts.ReceiverNode(_nodes, callee)
+        if (expressionReceiverNode >= 0) {
+            let expressionReceiverType: System.Type? = null
+            if (TryGetPreflightExpressionType(expressionReceiverNode, out expressionReceiverType) && expressionReceiverType != null) {
+                let expressionReceiverDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                let expressionReceiverArguments: System.Type[]? = null
+                let expressionConstructedOwner: System.Type? = null
+                expressionReceiverBuilder := expressionReceiverType as TypeBuilder
+                if (expressionReceiverBuilder != null) {
+                    expressionReceiverDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), expressionReceiverBuilder)
+                } else {
+                    let expressionClosedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                    let expressionClosedArguments: System.Type[]? = null
+                    if (TryGetClosedReceiverDef(expressionReceiverType, out expressionClosedDef, out expressionClosedArguments)) {
+                        expressionReceiverDef = expressionClosedDef
+                        expressionReceiverArguments = expressionClosedArguments
+                        expressionConstructedOwner = expressionReceiverType
+                    }
+                }
+                if (expressionReceiverDef != null && expressionReceiverDef.IsReference) {
+                    let expressionMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                    if (TrySelectGenericInstanceMethodOnChain(expressionReceiverDef, memberName, argCount, typeArgCount, out expressionMethod)) {
+                        expressionGenerics := expressionMethod.Generics
+                        let expressionBinding: System.Type[]? = null
+                        if (expressionGenerics != null && TryResolveWrittenTypeArguments(callee, typeArgCount, out expressionBinding)) {
+                            let emittedExpressionReceiverType: System.Type? = null
+                            if (!EmitExpression(expressionReceiverNode, out emittedExpressionReceiverType) || !TypesEquivalent(emittedExpressionReceiverType, expressionReceiverType)) {
+                                return false
+                            }
+                            return TryEmitGenericSourceMethodCall(callIdx, expressionGenerics, expressionMethod.Builder, expressionMethod.ParamTypes, expressionMethod.ReturnType, expressionBinding, expressionConstructedOwner, expressionReceiverArguments, OpCodes.Callvirt, out columnarResolvedType)
+                        }
+                    }
+                }
+            }
+        }
+
         // A CONSTRUCTED owner (`Box<int>.Of<int>(4)`) resolves to the closed type first, so the call
         // is rebound onto that instantiation; a bare owner name goes through the enclosing-type rule.
         let constructedStaticOwner: System.Type? = null
@@ -3610,7 +3651,7 @@ sealed class ColumnarIlEmitter {
     // and an `out` argument goes through the by-ref path, with no shape knowing which API it serves.
     private func TryEmitExplicitGenericExternalCall(callIdx: int, callee: int, calleeName: string, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
-        typeArgCount := _nodes.ChildCount(callee)
+        typeArgCount := ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee)
         if (typeArgCount <= 0) {
             return false
         }
@@ -3649,6 +3690,26 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             return EmitExplicitGenericExternalCall(callIdx, instanceSelection, out columnarResolvedType)
+        }
+
+        // A RECEIVER THAT IS NOT A NAME IS STILL A RECEIVER. `options.WithHandler<A>().WithHandler<B>()`
+        // writes the second call's receiver as the first CALL, which has no spelling the binding
+        // lookup above can find — so the node itself is typed by preflight and loaded by the ordinary
+        // expression emitter. Only a REFERENCE receiver takes this door: an instance method on a value
+        // type wants a managed pointer, and an expression with no storage of its own has none to give.
+        expressionReceiverNode := ColumnarGenericCalleeFacts.ReceiverNode(_nodes, callee)
+        if (expressionReceiverNode >= 0) {
+            let expressionReceiverType: System.Type? = null
+            if (TryGetPreflightExpressionType(expressionReceiverNode, out expressionReceiverType) && expressionReceiverType != null && !expressionReceiverType.get_IsValueType() && ColumnarTypeOfPlanner.IsSupportedType(expressionReceiverType)) {
+                expressionSelection := SelectExplicitGenericExternalCall(callIdx, expressionReceiverType, memberName, typeArguments, argCount, false)
+                if (expressionSelection.IsSelected) {
+                    let emittedExpressionReceiverType: System.Type? = null
+                    if (!EmitExpression(expressionReceiverNode, out emittedExpressionReceiverType) || !TypesEquivalent(emittedExpressionReceiverType, expressionReceiverType)) {
+                        return false
+                    }
+                    return EmitExplicitGenericExternalCall(callIdx, expressionSelection, out columnarResolvedType)
+                }
+            }
         }
 
         if (_locals.ContainsKey(receiverText) || _liftedLocals.ContainsKey(receiverText) || _paramOrdinals.ContainsKey(receiverText)) {
@@ -3865,10 +3926,34 @@ sealed class ColumnarIlEmitter {
     private func EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx: int, selection: ColumnarOrdinaryRuntimeDirectCallSelection, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         parameterTypes := selection.ParameterTypes
+        // A `params` TAIL IS PACKED HERE, at the call site, and nothing else about the call changes.
+        // The fixed arguments are written exactly as any call's are; `newarr` then runs, and each
+        // remaining argument is stored into the fresh array through a `dup` of it — so the array is
+        // still on the stack as the last ordinary argument when the call instruction runs. The writes
+        // are the SHARED owner's, the same three the extension and constructor doors use.
+        //
+        // EVALUATION ORDER IS THE WRITTEN ORDER: the fixed arguments run first, then the elements left
+        // to right, which is where a C# call site evaluates them too.
+        elementType := selection.ExpandedElementType
+        fixedCount := selection.FixedArgumentCount
         for a := 0; a < parameterTypes.Length; a++ {
+            if (elementType != null && a == fixedCount) {
+                ColumnarParamsExpansion.EmitArrayHeader(_il, elementType, parameterTypes.Length - fixedCount)
+            }
+            if (elementType != null && a >= fixedCount) {
+                ColumnarParamsExpansion.EmitElementPrologue(_il, a - fixedCount)
+            }
             if (!EmitDeclaredCallArgument(Child(callIdx, a + 1), parameterTypes[a], true)) {
                 return false
             }
+            if (elementType != null && a >= fixedCount) {
+                ColumnarParamsExpansion.EmitElementEpilogue(_il, elementType)
+            }
+        }
+        // A call that packs NOTHING still needs the empty array: `Console.WriteLine(format)` against
+        // the `params` overload hands over a zero-length `object[]`.
+        if (elementType != null && parameterTypes.Length == fixedCount) {
+            ColumnarParamsExpansion.EmitArrayHeader(_il, elementType, 0)
         }
         ordinaryCallOpcode := match selection.UsesCallVirtual {
             true => OpCodes.Callvirt,
@@ -5448,11 +5533,6 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        // COMPLETENESS: N# validates source, closed-generic, default, and external interface members.
-        if (!ColumnarInterfaceRealization.InterfacesSatisfied(structs, structDefsInOrder, structRegistry)) {
-            return false
-        }
-
         // PASS 0b' (property accessors): declare each computed property as a `get_Name` instance
         // method (no params, returning the property type) and — when the property has a setter — a `set_Name` method
         // (one param "value": property type, returning void). The accessor bodies read/write fields exactly like a
@@ -5643,6 +5723,20 @@ sealed class ColumnarIlEmitter {
                 slotGetterIl.Emit(OpCodes.Ldfld, slotBackingField)
                 slotGetterIl.Emit(OpCodes.Ret)
             }
+        }
+
+        // COMPLETENESS: N# validates source, closed-generic, default, and external interface members.
+        //
+        // IT RUNS HERE, AFTER THE VALUE SLOTS ARE FILLED, and that position is the content. It used to
+        // run before PASS 0b' — so the implementer's property accessors and its field-backed slot
+        // readers did not exist yet, and an interface with a VALUE member answered "unsatisfied" for a
+        // class that implemented it perfectly. Nothing baked between the old position and this one:
+        // both passes only DECLARE, so a decline here refuses exactly what a decline there refused,
+        // minus the false ones.
+        interfaceUnsatisfiedTypeName := ""
+        interfaceUnsatisfiedDetail := ""
+        if (!ColumnarInterfaceRealization.InterfacesSatisfied(structs, structDefsInOrder, structRegistry, out interfaceUnsatisfiedTypeName, out interfaceUnsatisfiedDetail)) {
+            return DeclineStatic("emit.declaration.interface-unimplemented", "'" + interfaceUnsatisfiedTypeName + "' does not implement '" + interfaceUnsatisfiedDetail + "' with the slot's own signature", interfaceUnsatisfiedTypeName, -1, 0)
         }
 
         // PASS 0b'' (inherited-member shadowing): with every field/method/property declared, decline any member of
@@ -13614,7 +13708,7 @@ sealed class ColumnarIlEmitter {
                 if (_genericLocalFuncs != null && _visibleLocalFuncs.Contains(gName) && _genericLocalFuncs.TryGetValue(gName, out gLocalTarget) && gLocalTarget != null) {
                     enclosingGenericCount := gLocalTarget.EnclosingTypeParameterNames.Length
                     writtenGenericCount := gLocalTarget.TypeParams.Length - enclosingGenericCount
-                    if (_nodes.ChildCount(callee) != writtenGenericCount) {
+                    if (ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee) != writtenGenericCount) {
                         return Decline("emit.call.generic-arity", "generic local function '" + gName + "' takes " + writtenGenericCount.ToString() + " type argument(s)", idx)
                     }
                     let localExplicitBinding: Type[]? = null
@@ -13622,7 +13716,7 @@ sealed class ColumnarIlEmitter {
                         return Decline("emit.call.generic-local-enclosing-binding", "generic local function '" + gName + "' could not bind its enclosing type parameters", idx)
                     }
                     for lta := 0; lta < writtenGenericCount; lta++ {
-                        localTypeArgNode := Child(callee, lta)
+                        localTypeArgNode := ColumnarGenericCalleeFacts.TypeArgumentNode(_nodes, callee, lta)
                         let localCanonicalTypeArg: string? = null
                         let localTaType: System.Type? = null
                         if (!TryBuildTypeNodeCanonical(localTypeArgNode, out localCanonicalTypeArg) || !TryResolveBodyType(localCanonicalTypeArg, out localTaType) || !ColumnarTypeOfPlanner.IsSupportedType(localTaType)) {
@@ -13642,7 +13736,7 @@ sealed class ColumnarIlEmitter {
                 if (!_siblings.TryGetValue(gName, out gTarget) || gTarget.TypeParams.Length == 0) {
                     return Decline("emit.call.generic-unresolved", "generic call '" + ColumnarDeclineReasonFacts.CalledMemberName(gName) + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
                 }
-                if (_nodes.ChildCount(callee) != gTarget.TypeParams.Length) {
+                if (ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee) != gTarget.TypeParams.Length) {
                     return false
                 }
                 // an explicit-argument ARITY mismatch is pipeline-rejected — decline.
@@ -13651,7 +13745,7 @@ sealed class ColumnarIlEmitter {
                 // helper, whose unify loop VERIFIES each argument against it (Identity<string>(5) declines).
                 explicitBinding := new Type[gTarget.TypeParams.Length]
                 for ta := 0; ta < gTarget.TypeParams.Length; ta++ {
-                    typeArgNode := Child(callee, ta)
+                    typeArgNode := ColumnarGenericCalleeFacts.TypeArgumentNode(_nodes, callee, ta)
                     let canonicalTypeArg: string? = null
                     let taType: System.Type? = null
                     if (!TryBuildTypeNodeCanonical(typeArgNode, out canonicalTypeArg) || !TryResolveBodyType(canonicalTypeArg, out taType)) {
@@ -17393,12 +17487,12 @@ sealed class ColumnarIlEmitter {
         if (calleeName != nameof(JsonSerializer.Serialize) && calleeName != "JsonSerializer.Serialize") {
             return false
         }
-        if (_nodes.ChildCount(callee) != 1 || _nodes.ChildCount(callIdx) - 1 != 2) {
+        if (ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee) != 1 || _nodes.ChildCount(callIdx) - 1 != 2) {
             return false
         }
         targetCanonical: string? = null
         targetType: System.Type? = null
-        if (!TryBuildTypeNodeCanonical(Child(callee, 0), out targetCanonical) || !TryResolveBodyType(targetCanonical, out targetType) || !ColumnarTypeOfPlanner.IsSupportedType(targetType)) {
+        if (!TryBuildTypeNodeCanonical(ColumnarGenericCalleeFacts.TypeArgumentNode(_nodes, callee, 0), out targetCanonical) || !TryResolveBodyType(targetCanonical, out targetType) || !ColumnarTypeOfPlanner.IsSupportedType(targetType)) {
             return false
         }
 
@@ -17429,12 +17523,12 @@ sealed class ColumnarIlEmitter {
         if (calleeName != nameof(JsonSerializer.Deserialize) && calleeName != "JsonSerializer.Deserialize") {
             return false
         }
-        if (_nodes.ChildCount(callee) != 1 || _nodes.ChildCount(callIdx) - 1 != 2) {
+        if (ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee) != 1 || _nodes.ChildCount(callIdx) - 1 != 2) {
             return false
         }
         targetCanonical: string? = null
         targetType: System.Type? = null
-        if (!TryBuildTypeNodeCanonical(Child(callee, 0), out targetCanonical) || !TryResolveBodyType(targetCanonical, out targetType) || !ColumnarTypeOfPlanner.IsSupportedType(targetType)) {
+        if (!TryBuildTypeNodeCanonical(ColumnarGenericCalleeFacts.TypeArgumentNode(_nodes, callee, 0), out targetCanonical) || !TryResolveBodyType(targetCanonical, out targetType) || !ColumnarTypeOfPlanner.IsSupportedType(targetType)) {
             return false
         }
 
@@ -17470,6 +17564,80 @@ sealed class ColumnarIlEmitter {
     // THE RECEIVER IS PUSHED HERE, BY VALUE. An extension's receiver is its first ARGUMENT, so a
     // value-type receiver is loaded as a value (never as a managed pointer, which is what an instance
     // call on a struct needs) and is boxed when the declared slot is a reference type.
+    //
+    // THE RECEIVER IS THE PARSER'S OWN NODE, not a re-reading of the callee's span text. It used to be
+    // the text: the node's dotted name was split on its last dot and the left half re-resolved name by
+    // name, which could only work for a chain of plain identifiers — so `MakeList().OfType<string>()`
+    // and `services.AddSingleton<A>().AddSingleton<B>()` were refused outright by the spelling test
+    // rather than by anything about the call. The type now comes from preflight (which evaluates
+    // nothing) and the value from the ordinary expression emitter (which evaluates it exactly once),
+    // so a receiver that is itself a call is no different from a local.
+    // WHAT AN EXPLICIT GENERIC CALL PRODUCES, WITHOUT EMITTING IT.
+    //
+    // The tiers are the emission arm's own, asked in the same order over the same owners, so the type
+    // promised here is the type the selected method will actually return. Only the two doors whose
+    // receiver is an EXPRESSION are answered — an extension over that receiver, then an instance
+    // member of the receiver's own type — because those are the doors a CHAIN goes through; a bare or
+    // type-qualified callee is a name the emission arm resolves for itself and preflight declines it
+    // rather than guessing a second answer for it.
+    private func TryGetPreflightExplicitGenericCallType(callNode: int, callee: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        scope := _nodes.BindingScope
+        receiverNode := ColumnarGenericCalleeFacts.ReceiverNode(_nodes, callee)
+        typeArgCount := ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee)
+        if (scope == null || receiverNode < 0 || typeArgCount <= 0) {
+            return false
+        }
+        let staticReceiverTypeName: string? = null
+        if (TryClassifyDottedTypeNameReceiver(receiverNode, out staticReceiverTypeName)) {
+            return false
+        }
+        let typeArguments: System.Type[]? = null
+        if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out typeArguments)) {
+            return false
+        }
+        let receiverType: System.Type? = null
+        if (!TryGetPreflightExpressionType(receiverNode, out receiverType) || receiverType == null || !ColumnarTypeOfPlanner.IsSupportedType(receiverType)) {
+            return false
+        }
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, ColumnarGenericCalleeFacts.CalleeExpressionNode(_nodes, callee))
+        if (member.Length == 0) {
+            return false
+        }
+        argCount := _nodes.ChildCount(callNode) - 1
+        let selection: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodSelection? = null
+        if (TrySelectExplicitGenericExtension(callNode, scope, receiverType, member, typeArguments, argCount, out selection)) {
+            columnarResolvedType = selection.ReturnType
+            return columnarResolvedType != null
+        }
+        instanceSelection := SelectExplicitGenericExternalCall(callNode, receiverType, member, typeArguments, argCount, false)
+        if (instanceSelection.IsSelected) {
+            columnarResolvedType = instanceSelection.ReturnType
+            return columnarResolvedType != null
+        }
+        // A SOURCE type's own generic instance method, so a chain of three or more links through
+        // types this compilation is writing types its middles the same way its ends do.
+        let sourceReceiverDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        sourceReceiverBuilder := receiverType as TypeBuilder
+        if (sourceReceiverBuilder != null) {
+            sourceReceiverDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), sourceReceiverBuilder)
+        } else {
+            let sourceClosedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            let sourceClosedArguments: System.Type[]? = null
+            if (TryGetClosedReceiverDef(receiverType, out sourceClosedDef, out sourceClosedArguments)) {
+                sourceReceiverDef = sourceClosedDef
+            }
+        }
+        if (sourceReceiverDef != null) {
+            let sourceMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+            if (TrySelectGenericInstanceMethodOnChain(sourceReceiverDef, member, argCount, typeArgCount, out sourceMethod)) {
+                columnarResolvedType = sourceMethod.ReturnType
+                return columnarResolvedType != null && !columnarResolvedType.get_IsGenericParameter()
+            }
+        }
+        return false
+    }
+
     private func TryEmitExplicitGenericExtensionCall(callIdx: int, callee: int, out resolvedClrType: Type): bool {
         resolvedClrType = null
         scope := _nodes.BindingScope
@@ -17477,22 +17645,30 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
-        dot := calleeName.LastIndexOf('.')
-        typeArgCount := _nodes.ChildCount(callee)
-        if (dot <= 0 || dot == calleeName.Length - 1 || typeArgCount <= 0) {
+        typeArgCount := ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee)
+        receiverNode := ColumnarGenericCalleeFacts.ReceiverNode(_nodes, callee)
+        if (typeArgCount <= 0 || receiverNode < 0) {
             return false
         }
 
-        member := calleeName.Substring(dot + 1)
-        receiverChain := calleeName.Substring(0, dot)
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, ColumnarGenericCalleeFacts.CalleeExpressionNode(_nodes, callee))
+        if (member.Length == 0) {
+            return false
+        }
         let typeArguments: System.Type[]? = null
         if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out typeArguments)) {
             return false
         }
 
+        // A receiver that names a TYPE is a static owner, not an extension receiver, and preflight
+        // would have no value to type there; the static and source tiers below this one own it.
+        let staticReceiverTypeName: string? = null
+        if (TryClassifyDottedTypeNameReceiver(receiverNode, out staticReceiverTypeName)) {
+            return false
+        }
+
         let receiverType: System.Type? = null
-        if (!TryGetGenericExtensionReceiverChainType(receiverChain, out receiverType)) {
+        if (!TryGetPreflightExpressionType(receiverNode, out receiverType) || receiverType == null || receiverType == ColumnarTypeOfPlanner.RequiredVoidType() || !ColumnarTypeOfPlanner.IsSupportedType(receiverType)) {
             return false
         }
 
@@ -17503,7 +17679,7 @@ sealed class ColumnarIlEmitter {
         }
 
         let emittedReceiverType: System.Type? = null
-        if (!TryEmitGenericExtensionReceiverChain(receiverChain, out emittedReceiverType) || !TypesEquivalent(emittedReceiverType, receiverType)) {
+        if (!EmitExpression(receiverNode, out emittedReceiverType) || !TypesEquivalent(emittedReceiverType, receiverType)) {
             return false
         }
 
@@ -17562,110 +17738,6 @@ sealed class ColumnarIlEmitter {
         }
 
         return false
-    }
-
-    private func TryGetGenericExtensionReceiverChainType(receiverChain: string, out resolvedClrType: Type): bool {
-        resolvedClrType = null
-        names: string[]? = null
-        if (!ColumnarGenericExtensionReceiverChain.IsSupportedText(receiverChain, out names)) {
-            return false
-        }
-
-        root := names[0]
-        local: System.Reflection.Emit.LocalBuilder? = null
-        if (_locals.TryGetValue(root, out local)) {
-            resolvedClrType = local.get_LocalType()
-        } else {
-            ordinal: int = 0
-            if (_paramOrdinals.TryGetValue(root, out ordinal)) {
-                resolvedClrType = _paramTypes[root]
-                if (resolvedClrType.get_IsByRef()) {
-                    resolvedClrType = resolvedClrType.GetElementType()
-                }
-            } else {
-                thisField: System.Reflection.Emit.FieldBuilder? = null
-                if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, root, out thisField)) {
-                    resolvedClrType = thisField.get_FieldType()
-                } else {
-                    thisProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-                    if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, root, out thisProperty)) {
-                        resolvedClrType = thisProperty.PropertyType
-                    } else {
-                        return false
-                    }
-                }
-            }
-        }
-
-        for i := 1; i < names.Length; i++ {
-            member := MaybeRewriteInterpolationTupleMemberName(root, names[i])
-            hop: NSharpLang.Compiler.Columnar.ColumnarInterpolationMemberPlan? = null
-            if (!TryResolveInterpolationMemberPlan(resolvedClrType, member, out hop) || hop.ValueType == null) {
-                return false
-            }
-            resolvedClrType = hop.ValueType
-        }
-
-        return resolvedClrType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(resolvedClrType)
-    }
-
-    private func TryEmitGenericExtensionReceiverChain(receiverChain: string, out resolvedClrType: Type): bool {
-        resolvedClrType = null
-        names: string[]? = null
-        if (!ColumnarGenericExtensionReceiverChain.IsSupportedText(receiverChain, out names)) {
-            return false
-        }
-
-        root := names[0]
-        stackHasCurrentAddress := false
-        local: System.Reflection.Emit.LocalBuilder? = null
-        if (_locals.TryGetValue(root, out local)) {
-            _il.Emit(OpCodes.Ldloc, local)
-            resolvedClrType = local.get_LocalType()
-        } else {
-            ordinal: int = 0
-            if (_paramOrdinals.TryGetValue(root, out ordinal)) {
-                ColumnarArgumentInstructionEmitter.EmitLoad(_il, ordinal)
-                resolvedClrType = _paramTypes[root]
-                if (resolvedClrType.get_IsByRef()) {
-                    resolvedClrType = resolvedClrType.GetElementType()
-                    EmitLoadByRefElement(resolvedClrType)
-                }
-            } else {
-                thisField: System.Reflection.Emit.FieldBuilder? = null
-                if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, root, out thisField)) {
-                    _il.Emit(OpCodes.Ldarg_0)
-                    _il.Emit(OpCodes.Ldfld, thisField)
-                    resolvedClrType = thisField.get_FieldType()
-                } else {
-                    thisProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-                    if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, root, out thisProperty)) {
-                        _il.Emit(OpCodes.Ldarg_0)
-                        propertyCallOpcode := OpCodes.Call
-                        if (_currentStruct.IsReference) {
-                            propertyCallOpcode = OpCodes.Callvirt
-                        }
-                        _il.Emit(propertyCallOpcode, ColumnarSourceSelfInstantiation.Bind(thisProperty.Getter))
-                        resolvedClrType = thisProperty.PropertyType
-                    } else {
-                        return false
-                    }
-                }
-            }
-        }
-
-        for i := 1; i < names.Length; i++ {
-            member := MaybeRewriteInterpolationTupleMemberName(root, names[i])
-            hop: NSharpLang.Compiler.Columnar.ColumnarInterpolationMemberPlan? = null
-            if (!TryResolveInterpolationMemberPlan(resolvedClrType, member, out hop) || hop.ValueType == null) {
-                return false
-            }
-            if (!TryEmitResolvedMemberHop(resolvedClrType, hop, ref stackHasCurrentAddress, out resolvedClrType)) {
-                return false
-            }
-        }
-
-        return resolvedClrType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(resolvedClrType)
     }
 
     private func TryEmitResolvedMemberHop(current: Type, hop: ColumnarInterpolationMemberPlan, ref stackHasCurrentAddress: bool, out resolvedClrType: Type): bool {
@@ -22590,6 +22662,13 @@ sealed class ColumnarIlEmitter {
                     return true
                 }
                 return false
+            }
+            // AN EXPLICIT GENERIC CALL PRODUCES WHAT ITS SELECTED METHOD RETURNS, and until this arm
+            // nothing could say so — which is why a CHAIN of them declined at the second link even
+            // once the first emitted: the second call's receiver is the first call, and the receiver
+            // has to be TYPED before its member can be selected.
+            if (_nodes.Kind(callee) == 38) {
+                return TryGetPreflightExplicitGenericCallType(node, callee, out columnarResolvedType)
             }
             // A CALLEE THAT IS NOT A NAME AT ALL PRODUCES THE DELEGATE IT INVOKES. `three(1)(2)` is
             // two invocations, and the second one's callee is the first CALL — a node kind this arm

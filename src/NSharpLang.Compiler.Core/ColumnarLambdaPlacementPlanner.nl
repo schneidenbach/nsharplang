@@ -218,16 +218,22 @@ class ColumnarLambdaPlacementPlanner {
         return captures
     }
 
-    // The recursive capture walk. TYPE-kernel subtrees never contribute a value name: a generic callee
-    // (kind 38 — its name lives in the value span), a bare-new (kind 42), and a typeof (kind 55) are
-    // skipped outright; the type child of a new-expression (kind 15) / cast (kind 16) and the type child of
+    // The recursive capture walk. TYPE-kernel subtrees never contribute a value name: a bare-new
+    // (kind 42) and a typeof (kind 55) are
+    // skipped outright; a generic callee (kind 38) keeps its callee EXPRESSION as child 0 and its type
+    // arguments after it, so only child 0 is walked — which is how `values.OfType<string>()` inside a
+    // lambda captures `values`; the type child of a new-expression (kind 15) / cast (kind 16) and the type child of
     // `is`/`as` (kind 46/47) are stepped over. A nested lambda (kind 39, or the `async` spelling 78) binds its own parameter names
     // before its body is walked, so those names shadow the enclosing scope inside it. A kind-6 identifier
     // with a real value span is captured when it is unbound here and lives in the enclosing capturable set;
     // a value-less identifier is a masquerading TYPE node and is never a name read.
     static func CollectContextualLambdaCaptures(nodes: ColumnarNodeTable, source: string, node: int, bound: HashSet<string>, enclosingCapturableNames: HashSet<string>, captures: HashSet<string>) {
         kind := nodes.Kind(node)
-        if kind == 38 || kind == 42 || kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+        if kind == 42 || kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+            return
+        }
+        if kind == 38 {
+            CollectContextualLambdaCaptures(nodes, source, ColumnarGenericCalleeFacts.CalleeExpressionNode(nodes, node), bound, enclosingCapturableNames, captures)
             return
         }
 

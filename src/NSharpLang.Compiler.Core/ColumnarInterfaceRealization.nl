@@ -117,11 +117,18 @@ class ColumnarInterfaceRealization {
         }
     }
 
+    // WHICH TYPE FAILED TO IMPLEMENT WHICH INTERFACE MEMBER. The answer used to be a bare `false`
+    // that the emitter turned into a detail-less NL103; the out slot carries the implementing type
+    // and the slot it left empty, so the decline reads like every other decline in the backend.
     static func InterfacesSatisfied(
         structs: IReadOnlyList<ColumnarStructInput>,
         structDefinitions: ColumnarStructDef[],
-        structRegistry: Dictionary<string, ColumnarStructDef>
+        structRegistry: Dictionary<string, ColumnarStructDef>,
+        out unsatisfiedTypeName: string,
+        out unsatisfiedDetail: string
     ): bool {
+        unsatisfiedTypeName = ""
+        unsatisfiedDetail = ""
         structIndex := 0
         while structIndex < structs.Count {
             definition := structDefinitions[structIndex]
@@ -138,6 +145,8 @@ class ColumnarInterfaceRealization {
                             structRegistry,
                             out hasClosedImplementations
                         ) {
+                            unsatisfiedTypeName = structs[structIndex].Name
+                            unsatisfiedDetail = implementedInterface.Builder.Name
                             return false
                         }
                         if hasClosedImplementations {
@@ -148,6 +157,8 @@ class ColumnarInterfaceRealization {
                             implementedInterface,
                             seenRequiredInterfaces
                         ) {
+                            unsatisfiedTypeName = structs[structIndex].Name
+                            unsatisfiedDetail = implementedInterface.Builder.Name
                             return false
                         }
                     }
@@ -156,7 +167,10 @@ class ColumnarInterfaceRealization {
                 }
             }
 
-            if !ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(definition, definition.ExternalInterfaces) {
+            externalUnsatisfied := ""
+            if !ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(definition, definition.ExternalInterfaces, out externalUnsatisfied) {
+                unsatisfiedTypeName = structs[structIndex].Name
+                unsatisfiedDetail = externalUnsatisfied
                 return false
             }
             structIndex = structIndex + 1

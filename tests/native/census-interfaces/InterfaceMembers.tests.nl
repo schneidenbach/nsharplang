@@ -1,5 +1,6 @@
 namespace NSharpLang.CensusInterfaces.Tests
 
+import System
 import System.Collections.Generic
 import System.Reflection
 
@@ -303,4 +304,53 @@ test "the duck-matched event's accessors are emitted virtual, which is what lets
         names.Add(candidate.Name)
     }
     assert names.Contains("IBroadcasts")
+}
+
+test "an EXTERNAL interface's method slots are filled implicitly and dispatch through the interface" {
+    recorder := new RecordingObserver()
+    // The call goes through the INTERFACE, so a slot filled non-virtually would not reach it — and
+    // before this slice a type declaring these three methods could not be emitted at all.
+    delivered := FeedObserver(recorder)
+
+    assert delivered == 3
+    assert recorder.Seen.Count == 3
+    assert recorder.Seen[0] == "first"
+    assert recorder.Seen[2] == "completed"
+
+    observer: IObserver<string> = recorder
+    observer.OnError(new InvalidOperationException("late"))
+    assert recorder.Seen[3] == "error:late"
+}
+
+test "an external interface closed over a SOURCE type binds its slot to that type" {
+    low := new FieldBackedComparable(1)
+    high := new FieldBackedComparable(4)
+
+    comparable: IComparable<FieldBackedComparable> = low
+    assert comparable.CompareTo(high) < 0
+    assert high.CompareTo(low) > 0
+}
+
+test "the implemented external interfaces reach the emitted metadata" {
+    observerType := typeof(RecordingObserver)
+    names := new List<string>()
+    for candidate in observerType.GetInterfaces() {
+        names.Add(candidate.Name)
+    }
+
+    assert names.Contains("IObserver`1")
+    // Every slot is a real virtual method on the type, not a plain instance method that happens to
+    // share the name: an unfilled slot is a TypeLoadException at first use, which the dispatch rows
+    // above would have hit.
+    onNext := observerType.GetMethod("OnNext")
+    assert onNext != null
+    assert onNext.IsVirtual
+}
+
+test "an external interface with a structural pair of methods is implementable" {
+    bag := new SizedBag(["a", "b"])
+    structural: System.Collections.IStructuralEquatable = bag
+
+    assert bag.Count() == 2
+    assert structural.Equals(bag, System.Collections.StructuralComparisons.StructuralEqualityComparer) == false
 }

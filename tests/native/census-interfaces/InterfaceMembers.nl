@@ -355,3 +355,74 @@ func WatchBroadcast(broadcasts: IBroadcasts): int {
     broadcasts.Touch()
     return seen
 }
+
+// ── EXTERNAL interfaces, implemented in N# ──────────────────────────────────────────────────────
+//
+// The whole family below used to decline with a DETAIL-LESS NL103 whenever the interface declared a
+// VALUE member: the completeness walk asked the implementer's METHOD table for `get_Count`, and a
+// type that writes `Count` has no method of that name. The walk now asks the two tables that really
+// fill a value slot — the written properties and the plain fields the declaration pass synthesizes
+// a reader over — and it runs AFTER those slots are declared rather than before.
+
+// A property slot filled by a COMPUTED property, reached through the external interface.
+class SizedBag: System.Collections.IStructuralEquatable {
+    entries: string[]
+
+    constructor(entries: string[]) {
+        this.entries = entries
+    }
+
+    func Equals(other: object?, comparer: System.Collections.IEqualityComparer): bool {
+        return comparer.Equals(entries, other)
+    }
+
+    func GetHashCode(comparer: System.Collections.IEqualityComparer): int {
+        return comparer.GetHashCode(entries)
+    }
+
+    func Count(): int {
+        return entries.Length
+    }
+}
+
+// Three methods, one of them taking an external reference type: the ordinary implicit
+// implementation, and the dispatch that proves the slots were filled virtually.
+class RecordingObserver: IObserver<string> {
+    Seen: System.Collections.Generic.List<string>
+
+    constructor() {
+        Seen = new System.Collections.Generic.List<string>()
+    }
+
+    func OnCompleted() {
+        Seen.Add("completed")
+    }
+
+    func OnError(error: Exception) {
+        Seen.Add("error:" + error.Message)
+    }
+
+    func OnNext(value: string) {
+        Seen.Add(value)
+    }
+}
+
+func FeedObserver(observer: IObserver<string>): int {
+    observer.OnNext("first")
+    observer.OnNext("second")
+    observer.OnCompleted()
+    return 3
+}
+
+// A value slot filled by a plain FIELD rather than a property — the synthesized-reader half.
+class FieldBackedComparable: IComparable<FieldBackedComparable> {
+    Rank: int
+
+    constructor(rank: int) {
+        Rank = rank
+    }
+
+    func CompareTo(other: FieldBackedComparable): int {
+        return Rank - other.Rank
+    }
+}

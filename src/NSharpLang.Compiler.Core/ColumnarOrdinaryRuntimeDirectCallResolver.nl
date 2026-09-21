@@ -31,14 +31,23 @@ class ColumnarOrdinaryRuntimeDirectCallSelection {
     IsStatic: bool
     ReceiverIsReference: bool
     IsAbstract: bool
+    // THE `params` TAIL'S ELEMENT TYPE, or null when this call binds in NORMAL form — which every
+    // call this resolver could select before did. When it is set, `ParameterTypes` is the PER-ARGUMENT
+    // list the call site writes (the fixed slots, then the element type once per packed argument) and
+    // `DeclaredParameterTypes` is the signature the method actually has; `FixedArgumentCount` is where
+    // the packing starts.
+    ExpandedElementType: Type?
+    DeclaredParameterTypes: Type[]
+    FixedArgumentCount: int
 
+    IsExpanded: bool => ExpandedElementType != null
     IsSelected: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.Selected
     IsOwnedRejected: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.Rejected
     IsExcluded: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.Excluded
     IsNotFound: bool => Status == ColumnarOrdinaryRuntimeDirectCallStatus.NotFound
     UsesCallVirtual: bool => Kind == ColumnarExternalCallKind.CallVirtual
 
-    constructor(status: ColumnarOrdinaryRuntimeDirectCallStatus, method: MethodInfo?, lookupType: Type, declaringType: Type, parameterTypes: Type[], returnType: Type, kind: ColumnarExternalCallKind, isStatic: bool, receiverIsReference: bool, isAbstract: bool) {
+    constructor(status: ColumnarOrdinaryRuntimeDirectCallStatus, method: MethodInfo?, lookupType: Type, declaringType: Type, parameterTypes: Type[], returnType: Type, kind: ColumnarExternalCallKind, isStatic: bool, receiverIsReference: bool, isAbstract: bool, expandedElementType: Type?, declaredParameterTypes: Type[]?, fixedArgumentCount: int) {
         if lookupType == null || declaringType == null || parameterTypes == null || returnType == null {
             throw new InvalidOperationException("Ordinary runtime direct-call selection facts cannot be null.")
         }
@@ -61,6 +70,12 @@ class ColumnarOrdinaryRuntimeDirectCallSelection {
         IsStatic = isStatic
         ReceiverIsReference = receiverIsReference
         IsAbstract = isAbstract
+        ExpandedElementType = expandedElementType
+        DeclaredParameterTypes = declaredParameterTypes ?? parameterTypes
+        FixedArgumentCount = fixedArgumentCount
+        if expandedElementType != null && (fixedArgumentCount < 0 || fixedArgumentCount > parameterTypes.Length || declaredParameterTypes == null) {
+            throw new InvalidOperationException("An expanded ordinary runtime direct call requires its declared signature and the slot the packing starts at.")
+        }
     }
 }
 
@@ -493,6 +508,18 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         if hadExcludedShape {
+            // NORMAL FORM HAS NOW HAD ITS SAY, AND SAID NOTHING. A `params` tail is one of the shapes
+            // that set `hadExcludedShape`, so `string.Join(sep, a, b, c)` reached here with four
+            // arguments and a three-parameter declaration and could only be refused. The expanded tier
+            // runs exactly here — after every fixed-arity and optional candidate has failed, which is
+            // C#'s "applicable in its normal form beats applicable in its expanded form"
+            // (ECMA-334 §12.6.4.2) written as an ordering of tiers — and it is the SAME shared packing
+            // owner the extension and constructor doors already use.
+            expandedSelection := ResolveExpandedFromCandidates(lookupType, candidateLookupType, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected)
+            if expandedSelection.IsSelected {
+                return expandedSelection
+            }
+
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
         }
 
@@ -501,6 +528,141 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+    }
+
+    // THE EXPANDED TIER, and it selects nothing a normal-form tier could have selected.
+    //
+    // Only a candidate whose LAST parameter carries `[ParamArray]` is considered, and only when the
+    // site supplied at least as many arguments as the signature has fixed slots. The per-argument
+    // parameter types come from the shared owner, so the SAME argument scorer ranks an expanded
+    // candidate as it ranks any other and an expanded call cannot disagree with an ordinary one about
+    // what converts. A tie between two expanded candidates is an ambiguity and is refused rather than
+    // guessed, exactly as the fixed-arity tier refuses one.
+    //
+    // A BY-REF ARGUMENT NEVER REACHES HERE: a `params` tail cannot be by-ref and the fixed slots are
+    // asked the ordinary supported-signature question, so the packing writes only ordinary values.
+    static func ResolveExpandedFromCandidates(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[], allowInheritedProtected: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        // NORMAL FORM FIRST, AND FOR THESE CANDIDATES NOBODY ELSE HAS ASKED. A `params` declaration is
+        // an EXCLUDED shape to the walk above, so its normal form — the one where the caller already
+        // supplies the array — was never scored there either: `string.Join("+", parts)` over a
+        // `string[]` has no non-params overload to fall back on. Scoring the declared signature here,
+        // before any packing is considered, is what keeps ECMA-334 §12.6.4.2 true; without it the
+        // `object?[]` tail would pack the array itself and join its ToString().
+        normalForm := ResolveParamsNormalForm(lookupType, candidateLookupType, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected)
+        if normalForm.IsSelected {
+            return normalForm
+        }
+
+        bestScore := -1
+        bestCount := 0
+        selected: MethodInfo? = null
+        selectedExpanded := new Type[](0)
+        selectedDeclared := new Type[](0)
+        selectedReturnType := typeof(object)
+        selectedElement: Type? = null
+        selectedFixedCount := -1
+        builderBound := closedArguments.Length > 0
+
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            if candidate != null && !candidate.get_IsGenericMethod() && !candidate.get_IsGenericMethodDefinition() && !IsVarArgs(candidate) && IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, expectedStatic, allowInheritedProtected) {
+                parameters := candidate.GetParameters()
+                if parameters == null {
+                    throw new InvalidOperationException("Runtime method parameters cannot be null.")
+                }
+
+                parameterTypes := ResolveParameterTypes(candidate, candidateLookupType, parameters, closedArguments)
+                returnType := ResolveReturnType(candidate, candidateLookupType, closedArguments)
+                elementType := ColumnarParamsExpansion.ElementTypeOrNull(parameters, parameterTypes)
+                if elementType != null && !HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) && CanDispatch(candidate, lookupType, expectedStatic) {
+                    expandedTypes := ColumnarParamsExpansion.ExpandedParameterTypesOrNull(parameters, parameterTypes, 0, argumentTypes.Length)
+                    if expandedTypes != null {
+                        score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expandedTypes, argumentTypes, argumentFacts)
+                        if score > bestScore {
+                            bestScore = score
+                            bestCount = 1
+                            selected = candidate
+                            selectedExpanded = expandedTypes
+                            selectedDeclared = parameterTypes
+                            selectedReturnType = returnType
+                            selectedElement = elementType
+                            selectedFixedCount = ColumnarParamsExpansion.FixedArgumentCount(parameterTypes, 0)
+                        } else if score >= 0 && score == bestScore {
+                            bestCount += 1
+                        }
+                    }
+                }
+            }
+
+            index += 1
+        }
+
+        if bestCount != 1 || selected == null || selectedElement == null || bestScore < 0 {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+        }
+
+        if builderBound {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+        }
+
+        return SelectedExpanded(lookupType, selected, selectedExpanded, selectedDeclared, selectedReturnType, selectedElement, selectedFixedCount, expectedStatic)
+    }
+
+    // The declared arity of a `params` candidate, scored like any other fixed-arity call.
+    static func ResolveParamsNormalForm(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[], allowInheritedProtected: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        bestScore := -1
+        bestCount := 0
+        selected: MethodInfo? = null
+        selectedParameters := new Type[](0)
+        selectedReturnType := typeof(object)
+
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            if candidate != null && !candidate.get_IsGenericMethod() && !candidate.get_IsGenericMethodDefinition() && !IsVarArgs(candidate) && IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, expectedStatic, allowInheritedProtected) {
+                parameters := candidate.GetParameters()
+                if parameters == null {
+                    throw new InvalidOperationException("Runtime method parameters cannot be null.")
+                }
+
+                if parameters.Length == argumentTypes.Length {
+                    parameterTypes := ResolveParameterTypes(candidate, candidateLookupType, parameters, closedArguments)
+                    returnType := ResolveReturnType(candidate, candidateLookupType, closedArguments)
+                    if ColumnarParamsExpansion.ElementTypeOrNull(parameters, parameterTypes) != null && !HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) && CanDispatch(candidate, lookupType, expectedStatic) {
+                        score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts)
+                        if score > bestScore {
+                            bestScore = score
+                            bestCount = 1
+                            selected = candidate
+                            selectedParameters = parameterTypes
+                            selectedReturnType = returnType
+                        } else if score >= 0 && score == bestScore {
+                            bestCount += 1
+                        }
+                    }
+                }
+            }
+
+            index += 1
+        }
+
+        if bestCount != 1 || selected == null || bestScore < 0 || closedArguments.Length > 0 {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+        }
+
+        return Selected(lookupType, selected, selectedParameters, expectedStatic)
+    }
+
+    static func SelectedExpanded(lookupType: Type, method: MethodInfo, expandedParameterTypes: Type[], declaredParameterTypes: Type[], returnType: Type, elementType: Type, fixedArgumentCount: int, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        declaringType := method.get_DeclaringType()
+        if declaringType == null {
+            throw new InvalidOperationException("A selected runtime method requires a declaring type.")
+        }
+
+        receiverIsReference := !expectedStatic && !lookupType.get_IsValueType()
+        kind := receiverIsReference ? ColumnarExternalCallKind.CallVirtual : ColumnarExternalCallKind.Call
+        return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, method, lookupType, declaringType, expandedParameterTypes, returnType, kind, expectedStatic, receiverIsReference, method.get_IsAbstract(), elementType, declaredParameterTypes, fixedArgumentCount)
     }
 
     // THE UNIQUE DECLARATION OF THIS NAME AT THIS ARITY, for a call site whose arguments cannot all be
@@ -1023,7 +1185,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
         receiverIsReference := !expectedStatic && !lookupType.get_IsValueType()
         kind := receiverIsReference ? ColumnarExternalCallKind.CallVirtual : ColumnarExternalCallKind.Call
-        return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, method, lookupType, declaringType, parameterTypes, returnType, kind, expectedStatic, receiverIsReference, method.get_IsAbstract())
+        return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, method, lookupType, declaringType, parameterTypes, returnType, kind, expectedStatic, receiverIsReference, method.get_IsAbstract(), null, parameterTypes, -1)
     }
 
     static func SelectedBuilderBound(lookupType: Type, genericDefinition: Type, method: MethodInfo, parameterTypes: Type[], returnType: Type, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
@@ -1066,11 +1228,11 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
         receiverIsReference := !expectedStatic && !lookupType.get_IsValueType()
         kind := receiverIsReference ? ColumnarExternalCallKind.CallVirtual : ColumnarExternalCallKind.Call
-        return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, exactMethod, lookupType, exactDeclaringType, parameterTypes, returnType, kind, expectedStatic, receiverIsReference, exactMethod.get_IsAbstract())
+        return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, exactMethod, lookupType, exactDeclaringType, parameterTypes, returnType, kind, expectedStatic, receiverIsReference, exactMethod.get_IsAbstract(), null, parameterTypes, -1)
     }
 
     static func Empty(status: ColumnarOrdinaryRuntimeDirectCallStatus, lookupType: Type, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
-        return new ColumnarOrdinaryRuntimeDirectCallSelection(status, null, lookupType, lookupType, new Type[](0), typeof(object), ColumnarExternalCallKind.None, expectedStatic, false, false)
+        return new ColumnarOrdinaryRuntimeDirectCallSelection(status, null, lookupType, lookupType, new Type[](0), typeof(object), ColumnarExternalCallKind.None, expectedStatic, false, false, null, new Type[](0), -1)
     }
 
     // A fallback tier for the exact-arity resolver above: when no candidate binds at the supplied

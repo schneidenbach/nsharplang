@@ -105,3 +105,70 @@ func LogWithBuiltArray(logger: ILogger): int {
 func LogWithBuiltArrayThroughNullLogger(): int {
     return LogWithBuiltArray(NullLogger.Instance)
 }
+
+// ── THE ORDINARY STATIC/INSTANCE CALL DOOR ──────────────────────────────────────────────────────
+//
+// The extension and constructor doors were wired to the shared packing owner first; this is the
+// third and by far the most-travelled one. `ColumnarOrdinaryRuntimeDirectCallResolver` refused ANY
+// `params` parameter outright, so `string.Join(sep, a, b, c)` was "not modeled" while
+// `Path.Combine(a, b, c)` emitted — not because params worked, but because `Path.Combine` happens to
+// declare a FIXED four-argument overload and `string.Join` does not.
+
+// A recorder, so the evaluation ORDER of a packed call is a fact and not an assumption.
+class OrdinaryPackOrder {
+    static Trace: string
+
+    static func Reset() {
+        Trace = ""
+    }
+
+    static func Mark(value: string): string {
+        Trace = Trace + value
+        return value
+    }
+}
+
+func JoinFourStrings(): string {
+    return string.Join(",", "x", "y", "z")
+}
+
+func JoinOneString(): string {
+    return string.Join("|", "only")
+}
+
+// ZERO PACKED ARGUMENTS IS STILL A PACKED CALL: the callee receives a fresh empty array. Written
+// through `AppendFormat`, because `string.Join(sep)` alone is a genuine C# ambiguity between the
+// `string?[]` and `object?[]` tails and the analyzer says so.
+func AppendFormatNoHoles(): string {
+    builder := new System.Text.StringBuilder()
+    builder.AppendFormat("plain")
+    return builder.ToString()
+}
+
+func CombineFivePathSegments(): string {
+    return System.IO.Path.Combine("a", "b", "c", "d", "e")
+}
+
+func FormatFourHoles(): string {
+    return string.Format("{0}-{1}-{2}-{3}", 1, 2, 3, 4)
+}
+
+// NORMAL FORM STILL BEATS EXPANDED: one argument that already IS the declared array is passed
+// straight through, with no `newarr` at the call site.
+func JoinWithBuiltArray(): string {
+    parts: string[] = ["m", "n"]
+    return string.Join("+", parts)
+}
+
+func PackedArgumentsRunInWrittenOrder(): string {
+    OrdinaryPackOrder.Reset()
+    joined := string.Join(OrdinaryPackOrder.Mark("s"), OrdinaryPackOrder.Mark("a"), OrdinaryPackOrder.Mark("b"), OrdinaryPackOrder.Mark("c"))
+    return OrdinaryPackOrder.Trace + "=" + joined
+}
+
+// The INSTANCE half of the same door: `StringBuilder.AppendFormat(string, params object[])`.
+func AppendFormatThreeHoles(): string {
+    builder := new System.Text.StringBuilder()
+    builder.AppendFormat("{0}/{1}/{2}", 7, 8, 9)
+    return builder.ToString()
+}

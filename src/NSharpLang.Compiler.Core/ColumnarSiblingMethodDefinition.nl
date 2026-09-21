@@ -81,45 +81,43 @@ class ColumnarEnclosingMethodGroupCandidate {
     }
 }
 
-// A generic extension method's receiver is written as a dotted chain of plain names. Only that
-// shape can be re-resolved name by name; a chain carrying a call or an index has already evaluated
-// something the re-resolution would evaluate twice.
-class ColumnarGenericExtensionReceiverChain {
-    static func IsSimpleIdentifierText(text: string): bool {
-        if text.Length == 0 || (!char.IsLetter(text[0]) && text[0] != '_') {
-            return false
-        }
-        index := 1
-        while index < text.Length {
-            ch := text[index]
-            if !char.IsLetterOrDigit(ch) && ch != '_' {
-                return false
-            }
-            index += 1
-        }
-        return true
+// THE CHILD LAYOUT OF THE PARSER'S kind-38 GenericCallee, read in one place.
+//
+// The node's children are [the callee EXPRESSION, typeArg0, typeArg1, ...]: child 0 is the kind-6
+// identifier or kind-8 member access the type arguments were written on, and the rest are
+// TYPE-kernel roots. Every consumer that wants a type argument goes through here, so the ordinal
+// shift the callee child introduces is stated once rather than spelled at each of the dozen call
+// sites.
+//
+// This replaced a TEXT reading of the receiver, which split the node's value span on its last dot
+// and refused any spelling containing `(`, `)`, `[` or `]`. That refusal was not a shortcut: the
+// receiver was not in the tree at all, so it could only be re-resolved name by name, and a chain
+// carrying a call would have been EVALUATED TWICE by that re-resolution. With the receiver in the
+// tree its type is read by preflight and its value emitted once, so `MakeList().OfType<string>()`
+// and `services.AddSingleton<A>().AddSingleton<B>()` are ordinary receivers.
+class ColumnarGenericCalleeFacts {
+
+    // The callee expression the type arguments were written on — kind 6 (`Pick<int>(…)`) or kind 8
+    // (`values.OfType<string>()`), never a type-argument root.
+    static func CalleeExpressionNode(nodes: ColumnarNodeTable, callee: int): int {
+        return nodes.Child(callee, 0)
     }
 
-    static func IsSupportedText(
-        receiverChain: string,
-        out names: string[]
-    ): bool {
-        names = System.Array.Empty<string>()
-        if receiverChain.Length == 0 || receiverChain.Contains('(') || receiverChain.Contains(')') || receiverChain.Contains('[') || receiverChain.Contains(']') {
-            return false
+    // The RECEIVER of a dotted generic call: child 0 of the kind-8 callee expression. Answers -1 for
+    // a bare-name callee, which has no receiver to load.
+    static func ReceiverNode(nodes: ColumnarNodeTable, callee: int): int {
+        calleeExpression := nodes.Child(callee, 0)
+        if nodes.Kind(calleeExpression) != 8 || nodes.ChildCount(calleeExpression) != 1 {
+            return -1
         }
+        return nodes.Child(calleeExpression, 0)
+    }
 
-        names = receiverChain.Split('.')
-        if names.Length == 0 {
-            return false
-        }
-        index := 0
-        while index < names.Length {
-            if !IsSimpleIdentifierText(names[index]) {
-                return false
-            }
-            index += 1
-        }
-        return true
+    static func TypeArgumentCount(nodes: ColumnarNodeTable, callee: int): int {
+        return nodes.ChildCount(callee) - 1
+    }
+
+    static func TypeArgumentNode(nodes: ColumnarNodeTable, callee: int, ordinal: int): int {
+        return nodes.Child(callee, ordinal + 1)
     }
 }

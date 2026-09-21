@@ -136,8 +136,16 @@ class ColumnarClosureBindingPlanner {
         siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
     ): bool {
         kind := nodes.Kind(node)
-        if kind == 38 || kind == 42 || kind == 55 {
+        if kind == 42 || kind == 55 {
             return false
+        }
+        // A GENERIC CALLEE'S TYPE ARGUMENTS ARE TYPES, ITS CHILD 0 IS AN EXPRESSION. The whole node
+        // used to be skipped because every child was a TYPE-kernel root; child 0 is now the callee
+        // expression the type arguments were written on, and it is walked exactly as a plain call's
+        // callee is — so `Bump<int>(x)` on the lexical owner reaches the same instance-member test
+        // the un-annotated `Bump(x)` one line away already reached.
+        if kind == 38 {
+            return BodyReferencesEnclosingChain(nodes, source, ColumnarGenericCalleeFacts.CalleeExpressionNode(nodes, node), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
         }
         // A BARE `this` IS THE ENCLOSING INSTANCE, SPELLED OUT. It needs the same captured receiver a
         // bare call on the lexical owner needs, and it needs it whether or not the body also names a
@@ -207,8 +215,11 @@ class ColumnarClosureBindingPlanner {
         siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
     ): bool {
         kind := nodes.Kind(node)
-        if kind == 38 || kind == 42 || kind == 55 {
+        if kind == 42 || kind == 55 {
             return false
+        }
+        if kind == 38 {
+            return BodyReferencesEnclosingInstanceMemberChain(nodes, source, ColumnarGenericCalleeFacts.CalleeExpressionNode(nodes, node), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
         }
         // A BARE `this` NEEDS THE ENCLOSING INSTANCE, exactly as a bare call on the lexical owner does.
         if kind == ColumnarExpressionNodeKind.ThisExpression() && currentDefinition != null {
@@ -370,7 +381,11 @@ class ColumnarClosureBindingPlanner {
 
     static func CollectNamesInsideLambdas(nodes: ColumnarNodeTable, source: string, node: int, names: SortedSet<string>) {
         kind := nodes.Kind(node)
-        if kind == 38 || kind == 42 || kind == 55 {
+        if kind == 42 || kind == 55 {
+            return
+        }
+        if kind == 38 {
+            CollectNamesInsideLambdas(nodes, source, ColumnarGenericCalleeFacts.CalleeExpressionNode(nodes, node), names)
             return
         }
         if ColumnarLambdaNodeFacts.IsLambda(kind) {

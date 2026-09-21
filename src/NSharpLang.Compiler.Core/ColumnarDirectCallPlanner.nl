@@ -390,13 +390,13 @@ class ColumnarDirectCallPlanner {
         if scope == null {
             return false
         }
-        methodArguments := new Type[](nodes.ChildCount(callee))
+        methodArguments := new Type[](ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee))
         index := 0
         while index < methodArguments.Length {
             canonical := ""
             claimed := false
             resolvedArgument := typeof(object)
-            if !ColumnarTypeOfPlanner.TryBuildTypeCanonical(nodes, source, nodes.Child(callee, index), 0, out canonical) || !scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out resolvedArgument, out claimed) {
+            if !ColumnarTypeOfPlanner.TryBuildTypeCanonical(nodes, source, ColumnarGenericCalleeFacts.TypeArgumentNode(nodes, callee, index), 0, out canonical) || !scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out resolvedArgument, out claimed) {
                 return false
             }
             methodArguments[index] = resolvedArgument
@@ -1009,7 +1009,7 @@ class ColumnarDirectCallPlanner {
         if calleeKind == 38 {
             genericName := nodes.Text(source, callee)
             siblingFacts: ColumnarSiblingCallFacts? = null
-            if genericName.IndexOf(".", StringComparison.Ordinal) < 0 && bindings.SiblingCallables.TryGetValue(genericName, out siblingFacts) && siblingFacts != null && siblingFacts.TypeParameterCount == nodes.ChildCount(callee) {
+            if genericName.IndexOf(".", StringComparison.Ordinal) < 0 && bindings.SiblingCallables.TryGetValue(genericName, out siblingFacts) && siblingFacts != null && siblingFacts.TypeParameterCount == ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee) {
                 ColumnarNamedArgumentBinder.AddCandidate(candidates, siblingFacts.ParameterNames, arity)
             }
             return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
@@ -1093,7 +1093,7 @@ class ColumnarDirectCallPlanner {
         if calleeKind == 38 {
             genericName := nodes.Text(source, callee)
             siblingFacts: ColumnarSiblingCallFacts? = null
-            if genericName.IndexOf(".", StringComparison.Ordinal) < 0 && bindings.SiblingCallables.TryGetValue(genericName, out siblingFacts) && siblingFacts != null && siblingFacts.TypeParameterCount == nodes.ChildCount(callee) {
+            if genericName.IndexOf(".", StringComparison.Ordinal) < 0 && bindings.SiblingCallables.TryGetValue(genericName, out siblingFacts) && siblingFacts != null && siblingFacts.TypeParameterCount == ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee) {
                 ColumnarNamedArgumentBinder.AddTypedCandidate(candidates, siblingFacts.ParameterNames, siblingFacts.ParameterTypes, arity)
             }
             return ColumnarNamedArgumentBinder.TryBestPlacement(nodes, source, callNode, 1, argumentTypes, argumentFacts, candidates, out placement)
@@ -1366,7 +1366,7 @@ class ColumnarDirectCallPlanner {
         resultType = typeof(int)
         name := nodes.Text(source, callee)
         facts: ColumnarSiblingCallFacts? = null
-        if name.IndexOf(".", StringComparison.Ordinal) >= 0 || !bindings.SiblingCallables.TryGetValue(name, out facts) || facts == null || facts.TypeParameterCount != nodes.ChildCount(callee) || facts.ParameterNames.Length != facts.ParameterTypes.Length || facts.ParameterDefaultKinds.Length != facts.ParameterTypes.Length || facts.ParameterDefaultTexts.Length != facts.ParameterTypes.Length || facts.ParameterModifierKinds.Length != facts.ParameterTypes.Length || bindings.IsSiblingShadowedByValue(name) {
+        if name.IndexOf(".", StringComparison.Ordinal) >= 0 || !bindings.SiblingCallables.TryGetValue(name, out facts) || facts == null || facts.TypeParameterCount != ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee) || facts.ParameterNames.Length != facts.ParameterTypes.Length || facts.ParameterDefaultKinds.Length != facts.ParameterTypes.Length || facts.ParameterDefaultTexts.Length != facts.ParameterTypes.Length || facts.ParameterModifierKinds.Length != facts.ParameterTypes.Length || bindings.IsSiblingShadowedByValue(name) {
             legacyWholeSubtreePlanning = true
             return false
         }
@@ -1376,13 +1376,13 @@ class ColumnarDirectCallPlanner {
             legacyWholeSubtreePlanning = true
             return false
         }
-        typeArguments := new Type[](nodes.ChildCount(callee))
+        typeArguments := new Type[](ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee))
         typeIndex := 0
         while typeIndex < typeArguments.Length {
             canonical := ""
             resolved := typeof(object)
             claimed := false
-            if !ColumnarTypeOfPlanner.TryBuildTypeCanonical(nodes, source, nodes.Child(callee, typeIndex), 0, out canonical) || !scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out resolved, out claimed) {
+            if !ColumnarTypeOfPlanner.TryBuildTypeCanonical(nodes, source, ColumnarGenericCalleeFacts.TypeArgumentNode(nodes, callee, typeIndex), 0, out canonical) || !scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out resolved, out claimed) {
                 legacyWholeSubtreePlanning = true
                 return false
             }
@@ -1674,13 +1674,13 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        typeArguments := new Type[](nodes.ChildCount(callee))
+        typeArguments := new Type[](ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee))
         typeArgumentIndex := 0
         while typeArgumentIndex < typeArguments.Length {
             canonical := ""
             resolvedType := typeof(object)
             claimed := false
-            if !ColumnarTypeOfPlanner.TryBuildTypeCanonical(nodes, source, nodes.Child(callee, typeArgumentIndex), 0, out canonical) || !scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out resolvedType, out claimed) {
+            if !ColumnarTypeOfPlanner.TryBuildTypeCanonical(nodes, source, ColumnarGenericCalleeFacts.TypeArgumentNode(nodes, callee, typeArgumentIndex), 0, out canonical) || !scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out resolvedType, out claimed) {
                 if claimed {
                     ownership = ColumnarDirectCallOwnership.OwnedRejected
                 }
@@ -2912,6 +2912,35 @@ class ColumnarDirectCallPlanner {
         if !selection.IsSelected || method == null {
             resultType = typeof(int)
             return false
+        }
+
+        // AN EXPANDED SELECTION WRITES TWO DIFFERENT SIGNATURES AND MUST KEEP THEM APART. The method
+        // ROW carries the signature the callee declares; the ARGUMENT rows carry the per-argument list
+        // the call site writes, with the packing in between. The by-ref mode check below is skipped
+        // for one, and skipping it is not a relaxation: it compares the written argument count against
+        // the DECLARED parameter count, which an expanded call deliberately differs from, and a
+        // `params` tail cannot be by-ref while a `ref` argument in a fixed slot fails its conversion.
+        if selection.IsExpanded {
+            expandedElementType := selection.ExpandedElementType
+            if expandedElementType == null {
+                resultType = typeof(int)
+                return false
+            }
+
+            if !selection.IsStatic && !AppendExplicitReceiver(nodes, source, receiverNode, bindings, handles, plan, callFragment, depth + 1, selection.LookupType, selection.ReceiverIsReference) {
+                resultType = typeof(int)
+                return false
+            }
+
+            if !AppendExpandedArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts, selection.FixedArgumentCount, expandedElementType) {
+                resultType = typeof(int)
+                return false
+            }
+
+            expandedMethodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.DeclaredParameterTypes, selection.ReturnType, selection.IsStatic, method.get_IsAbstract())
+            plan.AppendMethodInstruction((short)(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), expandedMethodIndex)
+            resultType = selection.ReturnType
+            return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
         }
 
         if !ByRefArgumentModesMatch(nodes, source, callNode, argumentFacts, method) {

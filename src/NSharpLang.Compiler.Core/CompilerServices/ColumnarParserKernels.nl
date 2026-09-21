@@ -341,16 +341,22 @@ class TypeReferenceTupleNameTable {
 //   ObjectInitializer       -> kind 36  ( new <type> { Field: value, ... } -- children [typeRoot, name0 (Identifier
 //                                         kind 6), value0, name1, value1, ...]. Constructs a fields-only struct. )
 //   GenericCallee           -> kind 38  ( callee<T1, T2> before a `(` -- the callee identifier's name in the value
-//                                         span, children = the TYPE-kernel type-argument roots. Only ever appears
+//                                         span, children = [the CALLEE EXPRESSION (kind 6 or kind 8), then the
+//                                         TYPE-kernel type-argument roots]. Child 0 is what every consumer reads
+//                                         the receiver from, through ColumnarGenericCalleeFacts; the type-argument
+//                                         ordinal is therefore child 1 + n and the type-argument COUNT is
+//                                         ChildCount - 1. Only ever appears
 //                                         as child[0] of a CallExpression; committed via the IsGenericCallTypeArgs
 //                                         lookahead, the Parser.cs IsGenericMethodCall mirror. Kind 37 is
 //                                         UnionCasePattern in ParserStatements. )
 //   GenericTypeReceiver     -> kind 70  ( Name<T1, T2> before a `.` -- a CONSTRUCTED GENERIC TYPE in receiver
-//                                         position (`Vector<int>.Count`). Byte-identical shape to kind 38 -- the
+//                                         position (`Vector<int>.Count`). The kind-38 shape MINUS the callee
+//                                         child -- the
 //                                         full dotted head name in the value span, children = the TYPE-kernel
-//                                         type-argument roots -- and committed via the IsGenericTypeReceiverArgs
+//                                         type-argument roots alone -- and committed via the IsGenericTypeReceiverArgs
 //                                         lookahead, which differs from kind 38's only in requiring a `.` close
-//                                         instead of a `(`. Only ever appears as child[0] of a MemberAccess;
+//                                         instead of a `(`. It names a TYPE, so there is no receiver expression to
+//                                         carry. Only ever appears as child[0] of a MemberAccess;
 //                                         the planners resolve it as a TYPE, never as a value. )
 //   AsyncLambda             -> kind 78  ( `async x => …` / `async () => …` / `async (x, y) => …` --
 //                                         the kind-39 shape with the `async` keyword in front. The
@@ -5621,10 +5627,19 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             // a bare identifier or dotted member access and the lookahead (the Parser.cs IsGenericMethodCall mirror above) sees a
             // well-formed type-argument list whose close is followed DIRECTLY by `(`. Each argument parses as
             // a TYPE-kernel subtree on the shared table; the result is a GenericCalleeExpression (kind 38:
-            // value span = the full callee name, children = the type-arg roots). The `(` branch of
+            // value span = the full callee name, children = [callee expression, type-arg roots...]). The
+            // `(` branch of
             // this loop then parses the CALL with the kind-38 node as its callee, so a generic call is
             // [genericCallee, arg0, ...] exactly like a plain call. The `>>` split for a nested generic close
             // is honored via the shared st.SplitGreaterDepth owed-greater state (ConsumeGreaterForTypeNodeCore).
+            //
+            // CHILD 0 IS THE CALLEE EXPRESSION ITSELF — the kind-6 identifier or the kind-8 member access
+            // the type arguments were written on — and it is the node every consumer reads the RECEIVER
+            // from (`ColumnarGenericCalleeFacts`). The value span is kept unchanged beside it because the
+            // dotted-name tiers still read the written spelling, but a receiver that is not a plain name
+            // (`MakeList().OfType<string>()`, `services.AddSingleton<A>().AddSingleton<B>()`) is reachable
+            // only structurally: re-reading the span text would hand a resolver source that has already
+            // evaluated something.
             calleeNameStart := nodes.ValueStarts[expr]
             calleeNameLength := nodes.ValueLengths[expr]
             objSpanStart := nodes.SpanStarts[expr]
@@ -5635,6 +5650,8 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
 
             st.Pos = pos + 1
             gArgBase := st.ArgStackTop
+            argStack.Values[st.ArgStackTop] = expr
+            st.ArgStackTop = st.ArgStackTop + 1
             st.SplitGreaterDepth = 0
             firstTypeArg := ParseExpressionTypeReferenceNode(tokens, count, st, argStack, nodes, children, 0)
             if firstTypeArg < 0 {

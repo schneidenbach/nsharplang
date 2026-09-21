@@ -649,24 +649,26 @@ class ColumnarExternalInterfaceMethodResolver {
         parameterTypes: Type[],
         table: ColumnarStructuralTypeReferenceTable
     ) {
-        for externalInterface in externalInterfaces {
-            if ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(externalInterface) {
-                AddBuilderBoundMatchingTargets(declaration, externalInterface, memberName, returnType, parameterTypes)
-                continue
-            }
-            for externalMethod in externalInterface.GetMethods() {
-                matchedSignature := new ColumnarExternalInterfaceMethodMatch(
-                    externalMethod,
-                    memberName,
-                    returnType,
-                    parameterTypes
-                )
-                if matchedSignature.Matched {
-                    declaration.AddExternalTarget(new ColumnarExternalInterfaceMethodBinding(
-                        externalInterface,
-                        matchedSignature,
-                        table
-                    ))
+        for declaredInterface in externalInterfaces {
+            for externalInterface in InterfaceRequirementClosure(declaredInterface) {
+                if ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(externalInterface) {
+                    AddBuilderBoundMatchingTargets(declaration, externalInterface, memberName, returnType, parameterTypes)
+                    continue
+                }
+                for externalMethod in externalInterface.GetMethods() {
+                    matchedSignature := new ColumnarExternalInterfaceMethodMatch(
+                        externalMethod,
+                        memberName,
+                        returnType,
+                        parameterTypes
+                    )
+                    if matchedSignature.Matched {
+                        declaration.AddExternalTarget(new ColumnarExternalInterfaceMethodBinding(
+                            externalInterface,
+                            matchedSignature,
+                            table
+                        ))
+                    }
                 }
             }
         }
@@ -760,49 +762,184 @@ class ColumnarExternalInterfaceMethodResolver {
         return interfaceEvent.get_EventHandlerType() == declaredEvent.HandlerType
     }
 
-    static func InterfacesSatisfied(implementer: ColumnarStructDef, externalInterfaces: List<Type>): bool {
-        for externalInterface in externalInterfaces {
-            builderBound := ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(externalInterface)
-            lookupType := builderBound ? externalInterface.GetGenericTypeDefinition() : externalInterface
-            closedArguments := builderBound ? externalInterface.GetGenericArguments() : new Type[](0)
-            for externalMethod in lookupType.GetMethods() {
-                implementation: ColumnarInstanceMethodDef = null
-                externalName := externalMethod.get_Name()
-                if !implementer.Methods.TryGetValue(externalName, out implementation) {
-                    // AN EVENT'S ACCESSORS ARE NOT IN THE METHOD TABLE, and they are exactly what an
-                    // interface event's `add_X`/`remove_X` ask for. The implementer supplies them by
-                    // DECLARING the event, which is the only way N# can write them; the handler type is
-                    // measured, because a same-named event over another delegate fills nothing.
-                    if EventAccessorSatisfied(implementer, lookupType, externalMethod, externalName) {
-                        continue
-                    }
-                    return false
+    // A PROPERTY SLOT IS NOT A METHOD THE IMPLEMENTER DECLARED, AND IT NEVER WILL BE.
+    //
+    // An interface's `Count: int` is one abstract `get_Count` row, and `Type.GetMethods()` hands it
+    // back as an ordinary method — but the class that fills it wrote `Count`, so the method table
+    // this walk searched had nothing of that name and the whole interface answered UNSATISFIED. That
+    // is the entire reason `class Bag: IReadOnlyCollection<string>` could not be written: the walk was
+    // asking the wrong table, not finding a missing member. (It is also why the symptom looked like
+    // "external interfaces cannot be implemented at all" while `IDisposable`, `IEquatable<T>` and
+    // `IComparable<T>` — every one of them method-only — already worked.)
+    //
+    // Two tables fill a value slot, exactly as the declaration walk fills it: a written PROPERTY
+    // supplies its own accessors, and a plain FIELD of the slot's name and type gets a synthesized
+    // reader. The slot's own signature decides in both cases, because the CLR matches an implicit
+    // implementation by exact signature and a near-miss produces a type that will not load.
+    static func PropertyAccessorSatisfied(
+        implementer: ColumnarStructDef,
+        externalMethod: MethodInfo,
+        externalName: string,
+        builderBound: bool,
+        closedArguments: Type[]
+    ): bool {
+        if !externalMethod.get_IsSpecialName() {
+            return false
+        }
+        isGetter := externalName.StartsWith("get_", StringComparison.Ordinal)
+        isSetter := externalName.StartsWith("set_", StringComparison.Ordinal)
+        if !isGetter && !isSetter {
+            return false
+        }
+        memberName := externalName.Substring(4)
+        if memberName.Length == 0 {
+            return false
+        }
+
+        declaredProperty: ColumnarPropertyDef = null
+        if implementer.Properties.TryGetValue(memberName, out declaredProperty) {
+            if isSetter && declaredProperty.Setter == null {
+                return false
+            }
+            if isGetter {
+                return SignatureFills(externalMethod, externalName, builderBound, closedArguments, declaredProperty.PropertyType, new Type[](0))
+            }
+            setterParameters := new Type[](1)
+            setterParameters[0] = declaredProperty.PropertyType
+            return SignatureFills(externalMethod, externalName, builderBound, closedArguments, ColumnarTypeOfPlanner.RequiredVoidType(), setterParameters)
+        }
+
+        if !isGetter {
+            return false
+        }
+        // The FIELD half. The reader over it is synthesized by the declaration walk under exactly the
+        // same condition this asks about, so the two cannot disagree: a field of the slot's name whose
+        // type IS the slot's type.
+        backingField: System.Reflection.Emit.FieldBuilder = null
+        if !implementer.Fields.TryGetValue(memberName, out backingField) {
+            return false
+        }
+        return SignatureFills(externalMethod, externalName, builderBound, closedArguments, backingField.get_FieldType(), new Type[](0))
+    }
+
+    static func SignatureFills(
+        externalMethod: MethodInfo,
+        externalName: string,
+        builderBound: bool,
+        closedArguments: Type[],
+        returnType: Type,
+        parameterTypes: Type[]
+    ): bool {
+        if builderBound {
+            return BuilderBoundSignatureMatches(externalMethod, closedArguments, externalName, returnType, parameterTypes)
+        }
+        return new ColumnarExternalInterfaceMethodMatch(externalMethod, externalName, returnType, parameterTypes).Matched
+    }
+
+    // WHICH MEMBER IS MISSING, NAMED. The whole check used to answer a bare `false`, and its one
+    // caller turned that into a bare `return false` — so implementing an external interface wrongly
+    // produced an NL103 with no `Declined at …` clause at all, the only decline in the backend that
+    // could not say what it refused.
+    // AN INTERFACE'S OWN ROWS ARE NOT ALL OF ITS REQUIREMENTS. `IReadOnlyCollection<T>` declares one
+    // member — `Count` — and INHERITS `IEnumerable<T>.GetEnumerator` and
+    // `IEnumerable.GetEnumerator`; `Type.GetMethods()` on an interface returns only its own rows, so
+    // both the completeness question and the MethodImpl walk used to stop at the first level. A class
+    // that stops there emits, and then fails to LOAD: the inherited slot has no implementation and the
+    // CLR says so at the first use.
+    //
+    // The closure is the interface plus everything it inherits, deduplicated by runtime identity. A
+    // BUILDER-BOUND construction is left alone: its instantiation answers no reflection query at all,
+    // which is why its members already come from the generic definition.
+    static func InterfaceRequirementClosure(externalInterface: Type): List<Type> {
+        closure := new List<Type>()
+        closure.Add(externalInterface)
+        if ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(externalInterface) {
+            return closure
+        }
+        for inherited in externalInterface.GetInterfaces() {
+            if ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(inherited) {
+                continue
+            }
+            alreadyPresent := false
+            for seen in closure {
+                if seen == inherited {
+                    alreadyPresent = true
                 }
-                implementationObject: object? = implementation
-                actualImplementation := (ColumnarInstanceMethodDef)implementationObject
-                if builderBound {
-                    if !BuilderBoundSignatureMatches(
-                        externalMethod,
-                        closedArguments,
-                        externalName,
-                        actualImplementation.ReturnType,
-                        actualImplementation.ParamTypes
-                    ) {
+            }
+            if !alreadyPresent {
+                closure.Add(inherited)
+            }
+        }
+        return closure
+    }
+
+    static func InterfacesSatisfied(implementer: ColumnarStructDef, externalInterfaces: List<Type>, out unsatisfiedMember: string): bool {
+        unsatisfiedMember = ""
+        for declaredInterface in externalInterfaces {
+            for externalInterface in InterfaceRequirementClosure(declaredInterface) {
+                builderBound := ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(externalInterface)
+                lookupType := builderBound ? externalInterface.GetGenericTypeDefinition() : externalInterface
+                closedArguments := builderBound ? externalInterface.GetGenericArguments() : new Type[](0)
+                for externalMethod in lookupType.GetMethods() {
+                    implementation: ColumnarInstanceMethodDef = null
+                    externalName := externalMethod.get_Name()
+                    if !implementer.Methods.TryGetValue(externalName, out implementation) {
+                        // AN EVENT'S ACCESSORS ARE NOT IN THE METHOD TABLE, and they are exactly what an
+                        // interface event's `add_X`/`remove_X` ask for. The implementer supplies them by
+                        // DECLARING the event, which is the only way N# can write them; the handler type is
+                        // measured, because a same-named event over another delegate fills nothing.
+                        if EventAccessorSatisfied(implementer, lookupType, externalMethod, externalName) {
+                            continue
+                        }
+                        if PropertyAccessorSatisfied(implementer, externalMethod, externalName, builderBound, closedArguments) {
+                            continue
+                        }
+                        unsatisfiedMember = UnsatisfiedMemberName(externalInterface, externalName)
                         return false
                     }
-                    continue
-                }
-                matchedSignature := new ColumnarExternalInterfaceMethodMatch(
-                    externalMethod,
-                    externalMethod.get_Name(),
-                    actualImplementation.ReturnType,
-                    actualImplementation.ParamTypes
-                )
-                if !matchedSignature.Matched {
-                    return false
+                    implementationObject: object? = implementation
+                    actualImplementation := (ColumnarInstanceMethodDef)implementationObject
+                    if builderBound {
+                        if !BuilderBoundSignatureMatches(
+                            externalMethod,
+                            closedArguments,
+                            externalName,
+                            actualImplementation.ReturnType,
+                            actualImplementation.ParamTypes
+                        ) {
+                            unsatisfiedMember = UnsatisfiedMemberName(externalInterface, externalName)
+                            return false
+                        }
+                        continue
+                    }
+                    matchedSignature := new ColumnarExternalInterfaceMethodMatch(
+                        externalMethod,
+                        externalMethod.get_Name(),
+                        actualImplementation.ReturnType,
+                        actualImplementation.ParamTypes
+                    )
+                    if !matchedSignature.Matched {
+                        unsatisfiedMember = UnsatisfiedMemberName(externalInterface, externalName)
+                        return false
+                    }
                 }
             }
         }
         return true
+    }
+
+    // The slot as a reader would go looking for it: the interface's own name, then the member — and
+    // an accessor is reported as the VALUE member it belongs to, because that is what the source
+    // writes.
+    static func UnsatisfiedMemberName(externalInterface: Type, externalName: string): string {
+        memberName := externalName
+        if memberName.StartsWith("get_", StringComparison.Ordinal) || memberName.StartsWith("set_", StringComparison.Ordinal) {
+            memberName = memberName.Substring(4)
+        } else if memberName.StartsWith("add_", StringComparison.Ordinal) {
+            memberName = memberName.Substring(4)
+        } else if memberName.StartsWith("remove_", StringComparison.Ordinal) {
+            memberName = memberName.Substring(7)
+        }
+        return externalInterface.Name + "." + memberName
     }
 }

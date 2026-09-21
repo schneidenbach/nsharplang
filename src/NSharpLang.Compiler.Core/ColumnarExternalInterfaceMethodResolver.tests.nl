@@ -528,6 +528,7 @@ test "external descriptors snapshot required and optional custom modifier order"
 }
 
 test "external selection and completeness retain declared iteration and first Methods policy" {
+    externalInterfaceUnsatisfied := ""
     voidType := ExecutorVoidType()
     noParameters := new Type[](0)
     left := ExternalMemberBakeInterface(
@@ -602,7 +603,8 @@ test "external selection and completeness retain declared iteration and first Me
     )
     assert ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(
         complete,
-        ExternalMemberInterfaceList(left, null)
+        ExternalMemberInterfaceList(left, null),
+        out externalInterfaceUnsatisfied
     )
 
     firstOnly := SourceCallDefinition("ExternalMemberFirstOnly", true)
@@ -624,13 +626,15 @@ test "external selection and completeness retain declared iteration and first Me
     )
     assert !ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(
         firstOnly,
-        ExternalMemberInterfaceList(left, null)
+        ExternalMemberInterfaceList(left, null),
+        out externalInterfaceUnsatisfied
     )
 
     missingDefault := SourceCallDefinition("ExternalMemberDefaultStillRequired", true)
     assert !ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(
         missingDefault,
-        ExternalMemberInterfaceList(left, null)
+        ExternalMemberInterfaceList(left, null),
+        out externalInterfaceUnsatisfied
     )
 
     inherited := SourceCallInterfaceDefinition("ExternalMemberInheritedOnly")
@@ -639,7 +643,8 @@ test "external selection and completeness retain declared iteration and first Me
     assert inheritedRuntime.GetMethods().Length == 0
     assert ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied(
         missingDefault,
-        ExternalMemberInterfaceList(inheritedRuntime, null)
+        ExternalMemberInterfaceList(inheritedRuntime, null),
+        out externalInterfaceUnsatisfied
     )
 
     rejectedTable := new ColumnarStructuralTypeReferenceTable()

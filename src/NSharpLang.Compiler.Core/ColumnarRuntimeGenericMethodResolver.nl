@@ -79,7 +79,10 @@ class ColumnarRuntimeGenericMethodResolver {
             kind,
             expectedStatic,
             receiverIsReference,
-            selected.get_IsAbstract()
+            selected.get_IsAbstract(),
+            null,
+            candidateParameters[selectedIndex],
+            -1
         )
     }
 
@@ -544,7 +547,10 @@ class ColumnarRuntimeGenericMethodResolver {
             ColumnarExternalCallKind.None,
             expectedStatic,
             !expectedStatic && !lookupType.get_IsValueType(),
-            false
+            false,
+            null,
+            new Type[](0),
+            -1
         )
     }
 }
