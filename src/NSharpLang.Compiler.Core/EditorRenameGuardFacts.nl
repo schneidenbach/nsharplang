@@ -1,7 +1,5 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-import System
-
 // WHAT MAY BE RENAMED, AND WHAT A REFUSAL SAYS.
 //
 // Two tables and four sentences that used to sit in `PrepareRenameHandler`, `RenameHandler` and
