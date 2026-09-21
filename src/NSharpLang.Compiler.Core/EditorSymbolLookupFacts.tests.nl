@@ -51,12 +51,12 @@ test "a name with no callable entry has no index" {
 test "a name the typed table calls a property is not callable, whatever the locations say" {
     locations := EditorSymbolLookupFixture.Kinds([EditorSymbolTableKind.Function])
 
-    assert !EditorSymbolLookupFacts.IsCallableSymbol(EditorSymbolTableKind.Property, locations)
+    assert !EditorSymbolLookupFacts.IsCallableSymbol(true, EditorSymbolTableKind.Property, locations)
 }
 
 test "a name the typed table calls a function is callable" {
-    assert EditorSymbolLookupFacts.IsCallableSymbol(EditorSymbolTableKind.Function, null)
-    assert EditorSymbolLookupFacts.IsCallableSymbol(EditorSymbolTableKind.Method, null)
+    assert EditorSymbolLookupFacts.IsCallableSymbol(true, EditorSymbolTableKind.Function, null)
+    assert EditorSymbolLookupFacts.IsCallableSymbol(true, EditorSymbolTableKind.Method, null)
 }
 
 // ONLY A NAME THE TYPED TABLE DOES NOT HOLD falls through to the locations — the tier that answers
@@ -65,13 +65,13 @@ test "a name missing from the typed table is decided by its locations" {
     callable := EditorSymbolLookupFixture.Kinds([EditorSymbolTableKind.Field, EditorSymbolTableKind.Method])
     inert := EditorSymbolLookupFixture.Kinds([EditorSymbolTableKind.Field])
 
-    assert EditorSymbolLookupFacts.IsCallableSymbol(null, callable)
-    assert !EditorSymbolLookupFacts.IsCallableSymbol(null, inert)
+    assert EditorSymbolLookupFacts.IsCallableSymbol(false, EditorSymbolTableKind.Class, callable)
+    assert !EditorSymbolLookupFacts.IsCallableSymbol(false, EditorSymbolTableKind.Class, inert)
 }
 
 test "a name in neither table is not callable" {
-    assert !EditorSymbolLookupFacts.IsCallableSymbol(null, null)
-    assert !EditorSymbolLookupFacts.IsCallableSymbol(null, new List<EditorSymbolTableKind>())
+    assert !EditorSymbolLookupFacts.IsCallableSymbol(false, EditorSymbolTableKind.Class, null)
+    assert !EditorSymbolLookupFacts.IsCallableSymbol(false, EditorSymbolTableKind.Class, new List<EditorSymbolTableKind>())
 }
 
 // THE ORIGIN DOCUMENT IS ASKED FIRST AND ITS ANSWER STANDS, so a call inside a file opens that

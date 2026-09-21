@@ -49,9 +49,13 @@ class EditorSymbolLookupFacts {
     // table must not be asked a second time to overturn that. Only a name the typed table does
     // NOT hold falls through to the locations, which is the tier that answers for a buffer whose
     // symbol info was never built.
-    static func IsCallableSymbol(typedKind: EditorSymbolTableKind?, locationKinds: List<EditorSymbolTableKind>?): bool {
-        if typedKind != null {
-            return IsCallable(must typedKind)
+    //
+    // WHETHER THE TYPED TABLE HOLDS THE NAME IS ITS OWN PARAMETER rather than a nullable kind,
+    // because the two questions really are separate — "is it there" and "what is it" — and a
+    // caller that answers the first with `false` is saying nothing at all about the second.
+    static func IsCallableSymbol(typedTableHasName: bool, typedKind: EditorSymbolTableKind, locationKinds: List<EditorSymbolTableKind>?): bool {
+        if typedTableHasName {
+            return IsCallable(typedKind)
         }
 
         if locationKinds == null {

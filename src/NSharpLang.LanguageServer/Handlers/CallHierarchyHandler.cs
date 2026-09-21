@@ -167,14 +167,14 @@ public class CallHierarchyPrepareHandler : CallHierarchyPrepareHandlerBase
 
     private static bool IsFunctionSymbol(Models.DocumentState doc, string word)
     {
-        CodeIntel.EditorSymbolTableKind? typedKind = doc.SymbolsInfo != null && doc.SymbolsInfo.TryGetValue(word, out var symbolInfo)
-            ? CallHierarchyProtocol.TableKind(symbolInfo.Kind)
-            : null;
+        Models.SymbolInfo? symbolInfo = null;
+        doc.SymbolsInfo?.TryGetValue(word, out symbolInfo);
         var locationKinds = doc.SymbolLocations != null && doc.SymbolLocations.TryGetValue(word, out var locations)
             ? locations.Select(location => CallHierarchyProtocol.TableKind(location.Kind)).ToList()
             : null;
 
-        return CodeIntel.EditorSymbolLookupFacts.IsCallableSymbol(typedKind, locationKinds);
+        return CodeIntel.EditorSymbolLookupFacts.IsCallableSymbol(symbolInfo != null,
+            symbolInfo != null ? CallHierarchyProtocol.TableKind(symbolInfo.Kind) : default, locationKinds);
     }
 
     protected override CallHierarchyRegistrationOptions CreateRegistrationOptions(
