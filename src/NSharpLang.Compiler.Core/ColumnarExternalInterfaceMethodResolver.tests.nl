@@ -830,22 +830,26 @@ test "external override execution validates every descriptor before any attachme
 // its own. The rows below use a SECOND framework generic method's parameter as the stand-in for that
 // implementation-owned parameter, which is exactly the "different handle, same position" situation
 // the match previously answered `no` to.
-test "a generic interface slot unifies its type parameters with the implementation's by position" {
+test "external generic slot: the two MVARs are distinct handles in the same position" {
     queryProvider := ExternalMemberRequiredType(
         "System.Linq.IQueryProvider, System.Linq.Expressions"
     )
     execute := ExternalMemberRequiredGenericMethod(queryProvider, "Execute")
     slotParameters := execute.GetGenericArguments()
     assert slotParameters.Length == 1
-
-    // A DIFFERENT MVAR IN THE SAME POSITION. `CreateQuery<TElement>` declares its own type
-    // parameter, so `foreignParameter` is not the handle the slot is written in — comparing the two
-    // by identity is what declined `class CapturedLogger: ILogger`.
     createQuery := ExternalMemberRequiredGenericMethod(queryProvider, "CreateQuery")
     foreignParameters := createQuery.GetGenericArguments()
     assert foreignParameters.Length == 1
     assert foreignParameters[0] != slotParameters[0]
+}
 
+test "external generic slot binds when the implementation declares its own type parameter" {
+    queryProvider := ExternalMemberRequiredType(
+        "System.Linq.IQueryProvider, System.Linq.Expressions"
+    )
+    execute := ExternalMemberRequiredGenericMethod(queryProvider, "Execute")
+    createQuery := ExternalMemberRequiredGenericMethod(queryProvider, "CreateQuery")
+    foreignParameters := createQuery.GetGenericArguments()
     table := new ColumnarStructuralTypeReferenceTable()
     assert ExternalMemberBindsWithTypeParameters(
         queryProvider,
@@ -855,19 +859,39 @@ test "a generic interface slot unifies its type parameters with the implementati
         table,
         foreignParameters
     )
+}
 
-    // THE ARITY IS PART OF THE MATCH IN BOTH DIRECTIONS. A declaration that writes no type parameter
-    // cannot fill a slot that declares one, and one that writes a type parameter the slot does not
-    // have cannot fill it either.
-    assert !ExternalMemberBindsWithTypeParameters(
-        queryProvider,
-        "Execute",
-        typeof(object),
-        ExternalMemberParameterTypes(execute),
-        table,
-        ColumnarExternalInterfaceMethodMatch.EmptyTypeParameters()
+// A DECLARATION THAT WRITES NO TYPE PARAMETER REACHES THE NON-GENERIC SLOT AND ONLY THAT ONE.
+// `IQueryProvider` declares both `Execute(Expression): object` and `Execute<TResult>(Expression)`,
+// which is exactly the pair that makes the arity half of the rule observable: the same name, the same
+// parameter list, and a return type that is `object` on one and a type parameter on the other. Before
+// the arity check, the generic row ALSO matched — the two had no type in common to disagree about —
+// and the second MethodImpl row it produced named a method the class does not have.
+test "external generic slot refuses a declaration that writes no type parameter" {
+    queryProvider := ExternalMemberRequiredType(
+        "System.Linq.IQueryProvider, System.Linq.Expressions"
     )
     nonGeneric := ExternalMemberRequiredNonGenericMethod(queryProvider, "Execute")
+    table := new ColumnarStructuralTypeReferenceTable()
+    binding := ExternalMemberRequiredBinding(
+        queryProvider,
+        "Execute",
+        nonGeneric.get_ReturnType(),
+        ExternalMemberParameterTypes(nonGeneric),
+        table
+    )
+    assert !binding.Target.get_IsGenericMethodDefinition()
+    assert binding.Target.GetGenericArguments().Length == 0
+}
+
+test "external non-generic slot refuses a declaration that writes one" {
+    queryProvider := ExternalMemberRequiredType(
+        "System.Linq.IQueryProvider, System.Linq.Expressions"
+    )
+    createQuery := ExternalMemberRequiredGenericMethod(queryProvider, "CreateQuery")
+    foreignParameters := createQuery.GetGenericArguments()
+    nonGeneric := ExternalMemberRequiredNonGenericMethod(queryProvider, "Execute")
+    table := new ColumnarStructuralTypeReferenceTable()
     assert !ExternalMemberBindsWithTypeParameters(
         queryProvider,
         "Execute",
@@ -884,9 +908,16 @@ test "a generic interface slot unifies its type parameters with the implementati
         table,
         ColumnarExternalInterfaceMethodMatch.EmptyTypeParameters()
     )
+}
 
-    // A SUBSTITUTION THAT DOES NOT LAND ON THE SLOT'S TYPE IS STILL A MISMATCH: unifying the lists
-    // decides which handle stands for which, not whether the rest of the signature agrees.
+test "external generic slot still compares the rest of the signature after unification" {
+    queryProvider := ExternalMemberRequiredType(
+        "System.Linq.IQueryProvider, System.Linq.Expressions"
+    )
+    execute := ExternalMemberRequiredGenericMethod(queryProvider, "Execute")
+    createQuery := ExternalMemberRequiredGenericMethod(queryProvider, "CreateQuery")
+    foreignParameters := createQuery.GetGenericArguments()
+    table := new ColumnarStructuralTypeReferenceTable()
     assert !ExternalMemberBindsWithTypeParameters(
         queryProvider,
         "Execute",
