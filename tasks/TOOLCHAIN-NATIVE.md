@@ -66,6 +66,50 @@ can only move after `Execute` does; and `GetVersion` must keep reading `Cli.dll`
 `nlc --version` starts lying. **See "Open decisions for the user" below — nothing further moves in
 the CLI lane until that is answered.**
 
+### CLI — lane 5: the test runner, the dispatch pipeline and `nlc watch`, on `census/testhost`
+
+The decision below (open decision 1) was answered **option B** and implemented. `src/NSharpLang.Cli`
+is now **one file, 25 lines**.
+
+| Commit | Owner moved | C# deleted / shrunk | N# added |
+|---|---|---|---|
+| `79e706f31` | the whole `nlc test` runner: discovery, load-context isolation, the xunit front controller and sinks, filters, result shapes, exit codes | `Program.Testing.cs` (614), **deleted**; `Program.cs` 163 → 74 | `src/NSharpLang.TestHost/` — `TestCommandHost.nl`, `XunitTestRunner.nl`, `ReflectionTestRunner.nl`, `NativeTestLoadContext.nl` |
+| `07e1dca0f` | the 26-arm dispatch pipeline and `nlc watch` | `Commands/WatchCommand.cs` (155), **deleted**; `Program.cs` 74 → **25** | `CliPipeline.nl`, `WatchCommandHost.nl` |
+
+**`NSharpLang.TestHost` is a new N#-SDK library** (`project.yml` + a one-line csproj) that references
+`NSharpLang.Compiler` and `nuget: xunit.runner.utility 2.9.2`. `Cli.csproj` gains one
+`ProjectReference` and loses its own xunit `PackageReference`; `Compiler.dll`, the SDK `tools/`
+payload, the LanguageServer publish and the wasm trim graph are all untouched. `dotnet pack` of the
+tool package gains exactly four files (`NSharpLang.TestHost.dll` and its three siblings) and loses
+nothing — no SDK nupkg, template or `dotnet new` change.
+
+**`GetVersion` stayed in C# and the version is now a PARAMETER.** `nlc --version` and the help header
+must report `Cli.dll`'s own `AssemblyInformationalVersion` — the gate greps it for provenance — and
+`typeof(Program).Assembly` is the only spelling that names `Cli.dll` from inside it. `Main` reads it
+once and hands it to `CliPipeline.Execute`, which carries it into a watched re-entry.
+
+**What is left in `src/NSharpLang.Cli`:** `Main` (two lines) and `GetVersion`. Removing even that is
+open decision 2 plus the three missing project.yml keys.
+
+**Seed-compiled, so two shapes are routed around.** An N#-SDK project is compiled by the COMMITTED
+seed (`977d336cf`), not by HEAD, so the fixes at `4d4f8b8a6` (writing a referenced assembly's
+`Nullable<T>` property) and `910218d2d` (reading `AggregateException.InnerExceptions`) are not
+available yet. Each route carries a `// SEED: simplify after next reseed (<sha>)` marker naming its
+commit; both collapse back to the direct spelling at the next reseed. A THIRD shape is open at the
+tip as well and is filed as blocker 28 in `census-briefs/CLI2-COMPILER-BLOCKERS.md`: an `object`
+holding a `ValueTask` cannot be reached at emit by any spelling, so `ValueTask.AsTask` is invoked
+reflectively.
+
+**Verification.** An 87-case byte-compare matrix over `nlc test` and the whole dispatch surface is
+byte-identical in stdout, stderr and exit code against a CLI built from `f0da9f94f`. Full native
+sweep **113 projects / 4,651 passed / 0 failed / 1 skipped**, differing from the same sweep run with
+the baseline CLI in exactly the two projects this lane changed. Estate **9,455 / 0**.
+`cli-command-contracts` 205 → **213** (eight new rows, all on the reflection route, which had none);
+ownership audit **25/25**, head `head-v2:028b60d62c4de883`. 220 repeated `nlc test` processes on each
+route under CPU contention: 0 failures, 0 hangs. 60 runs of the reflection route inside ONE host
+process: 8 MB RSS growth after warm-up against the baseline's 12 MB, so nothing stopped unloading.
+`NSharpLang.TestHost.dll` passes IL verification.
+
 ### LanguageServer — lane 3: nine handlers reduced to protocol glue
 
 `f250f9773` moved seven handlers' decisions into N# `Editor*Facts` owners, `fec639eb5` moved two
@@ -294,16 +338,18 @@ and first-site-for-first-site. Two rows moved the **wrong** way: **NL402 +4 and 
 converter debt created by this round's own N# lanes, because the converter has not been taught to
 spell calls into the new `Editor*Facts` owners or to plan imports around them.
 
-### Open decisions — these belong to the user, and work is blocked on the first
+### Open decisions — these belong to the user
 
-1. **Where does the test-runner host live?** `Program.Testing.cs` (614 lines, the largest remaining
-   CLI file) holds the xunit and reflection runners. `Compiler.csproj` does not and must not
-   reference xunit, and `NativeTestLoadContext` derives from `AssemblyLoadContext`. Either the
-   runner moves into `Compiler.dll` and that project takes an xunit reference, **or** a new assembly
-   is created to host it. Until this is answered, `Execute`, `WatchCommand.cs` and therefore the
-   rest of the CLI conversion cannot move — this is **architectural, not a compiler defect**.
+1. **Where does the test-runner host live? — ANSWERED AND IMPLEMENTED (option B).** A new dedicated
+   N# assembly, `src/NSharpLang.TestHost`, referenced only by `src/NSharpLang.Cli`. The runner did
+   NOT go into `Compiler.dll`, which is loaded by the MSBuild task host inside every `dotnet build`
+   of every N# project, is published with the LanguageServer and sits in the browser-wasm trim
+   graph. See "CLI — lane 5" above; `Program.Testing.cs`, `Program.Execute` and
+   `Commands/WatchCommand.cs` are all gone.
 2. **Ship the CLI as an N# SDK project symbol-less, until a portable PDB exists?** The flip is
-   otherwise reachable; the cost is debugging symbols for `nlc` itself.
+   otherwise reachable; the cost is debugging symbols for `nlc` itself. STILL OPEN, and it is now
+   the only thing between `src/NSharpLang.Cli` and being csproj-free, together with the
+   `packAsTool` / `toolCommandName` / `copyLocalLockFileAssemblies` project.yml keys.
 
 ### Open compiler items carried forward
 
@@ -320,9 +366,9 @@ spell calls into the new `Editor*Facts` owners or to plan imports around them.
   `src/NSharpLang.Playground/PlaygroundCompiler.nl`. `tests/native` is not in the gate's format
   step, which is why the gate is green while these stand. *(Carried from the dispatch brief; not
   re-measured at this tip.)*
-- **`Cli` `CS0436` duplicate-`Program` warnings** — still 3, now at
-  `Commands/WatchCommand.cs(129,20)`, `Program.cs(156,23)` and `Program.cs(159,23)` (the line
-  numbers moved with `c61df0392`). Warning, not a gate failure. Do not silence with `NoWarn`.
+- **`Cli` `CS0436` duplicate-`Program` warnings** — now **2**, both in the 25-line `Program.cs`
+  (`GetVersion`'s two `typeof(Program)` reads); the `WatchCommand.cs` site went with that file at
+  `07e1dca0f`. Warning, not a gate failure. Do not silence with `NoWarn`.
 - **The IVT metadata-grant test will need a new subject when LS/Cli flip.** `11197708d` says so
   itself: when either `LanguageServer.Program` or `CallHierarchyProtocol` goes, `LanguageServer.dll`
   and its `InternalsVisibleTo("Tests")` grant have gone with it, and that fixture is rewritten whole

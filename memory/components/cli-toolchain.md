@@ -1065,7 +1065,12 @@ nlc query <cmd>
 
 | File | Purpose |
 |------|---------|
-| `src/NSharpLang.Cli/Program.cs` | CLI entry point, command dispatch |
+| `src/NSharpLang.Cli/Program.cs` | The CLI entry point, and nothing else: `Main` plus `GetVersion`. The version read cannot move — `nlc --version` and the help header must report `Cli.dll`'s own `AssemblyInformationalVersion`, and `typeof(Program).Assembly` is the only spelling that names it from inside it — so `Main` reads it and hands it to the pipeline as a value |
+| `src/NSharpLang.TestHost/CliPipeline.nl` | The 26-arm command dispatch: `ProgramCommandKernels.GetCommandKind` turns the argument vector into a command number, and this is the one place that number becomes a call (N#-owned; replaced `Program.Execute`) |
+| `src/NSharpLang.TestHost/TestCommandHost.nl` | `nlc test` whole: the preflight refusals, the incremental build, the choice of runner and the two output shapes (N#-owned; replaced `Program.Testing.cs`) |
+| `src/NSharpLang.TestHost/XunitTestRunner.nl` | The DEFAULT runner: the two assembly-resolution hooks, xunit's front controller and the message sink that turns its messages into `NativeTestResult` rows. NOT isolated — the emitted assembly lands in the default context, which `tests/native/test-assembly-load-contexts` records |
+| `src/NSharpLang.TestHost/ReflectionTestRunner.nl` | The NUnit-shaped runner, which IS isolated: it loads the emitted assembly into a private collectible `NativeTestLoadContext` and unloads it in a `finally` |
+| `src/NSharpLang.TestHost/WatchCommandHost.nl` | `nlc watch`: the `FileSystemWatcher`, the debounce loop and the re-entry into `CliPipeline` (N#-owned; replaced `Commands/WatchCommand.cs`) |
 | `src/NSharpLang.Compiler/CliIlBackend.nl` | The whole project/single-file route to an emitted IL assembly, and the two `run` routes that execute it. `build`, `run`, `publish`, `test` and `pack` all arrive here (N#-owned; replaced `Program.Backends.cs`) |
 | `src/NSharpLang.Compiler/CliError.nl` | The one-line `Error: …` failure report — STDERR, exit 1 — shared by every command (N#-owned) |
 | `src/NSharpLang.Compiler/PackCommand.nl` | `nlc pack`: metadata, build, nuspec and archive (N#-owned) |
