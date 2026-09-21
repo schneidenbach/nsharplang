@@ -22,9 +22,11 @@ namespace NSharpLang.LanguageServer.Handlers;
 /// language's own words, the five snippets, the six sort ranks, the grey signature line beside each
 /// declared name, and the three questions about where the caret is — is it after a dot, is it on an
 /// `import` line, and how much of a name has been typed. <c>CompletionReceiverFacts</c> and
-/// <c>EditorCompletionFacts</c> already owned the member list after a dot. What is left here is the
-/// protocol and the two services the editor keeps: OmniSharp's CompletionItem, the type resolver's
-/// importable types, and the import edits that come with them.
+/// <c>EditorCompletionFacts</c> already owned the member list after a dot, and it now owns the
+/// bound model's own offers too — which variables are visible at a position, which functions are
+/// not already members, and the grey type line beside each. What is left here is the protocol and
+/// the two services the editor keeps: OmniSharp's CompletionItem, the type resolver's importable
+/// types, and the import edits that come with them.
 /// </summary>
 public class CompletionHandler : CompletionHandlerBase
 {
@@ -219,7 +221,12 @@ public class CompletionHandler : CompletionHandlerBase
         };
     }
 
-    private void AddSemanticCompletionItems(
+    /// <summary>
+    /// What the analyzer resolved at the caret, as the owner's rows: the variables visible from
+    /// this position and the functions the bound model knows, with the names a type already
+    /// carries left out.
+    /// </summary>
+    private static void AddSemanticCompletionItems(
         Models.DocumentState? doc,
         int line,
         int character,
@@ -227,57 +234,10 @@ public class CompletionHandler : CompletionHandlerBase
         HashSet<string> itemKeys,
         HashSet<string> inScopeNames)
     {
-        if (doc?.SemanticModel == null)
+        foreach (var row in CodeIntel.EditorCompletionMenuFacts.SemanticRows(
+            doc?.SemanticModel, doc?.CompilationUnit, doc?.Text, line, character))
         {
-            return;
-        }
-
-        var semanticModel = doc.SemanticModel;
-        var visibleVariables = semanticModel.Scopes.Count > 0
-            ? semanticModel.GetVisibleVariablesAtPosition(line + 1, character + 1)
-            : new Dictionary<string, TypeInfo>(semanticModel.Variables);
-        foreach (var (name, typeInfo) in semanticModel.Variables)
-        {
-            visibleVariables.TryAdd(name, typeInfo);
-        }
-
-        foreach (var (name, typeInfo) in visibleVariables)
-        {
-            if (semanticModel.Functions.ContainsKey(name))
-            {
-                continue;
-            }
-
-            AddInScopeCompletionItem(items, itemKeys, inScopeNames, name, new CompletionItem
-            {
-                Label = name,
-                Kind = CompletionItemKind.Variable,
-                Detail = $"variable: {typeInfo}",
-                InsertText = name,
-                SortText = CodeIntel.EditorCompletionMenuFacts.SortText(
-                    CodeIntel.EditorCompletionMenuFacts.SortLocal, name, "variable")
-            });
-        }
-
-        var memberNames = new HashSet<string>(
-            CodeIntel.EditorCompletionMenuFacts.TypeMemberNames(doc.CompilationUnit, doc.Text),
-            StringComparer.Ordinal);
-        foreach (var (name, typeInfo) in semanticModel.Functions)
-        {
-            if (memberNames.Contains(name))
-            {
-                continue;
-            }
-
-            AddInScopeCompletionItem(items, itemKeys, inScopeNames, name, new CompletionItem
-            {
-                Label = name,
-                Kind = CompletionItemKind.Function,
-                Detail = $"func: {typeInfo}",
-                InsertText = name,
-                SortText = CodeIntel.EditorCompletionMenuFacts.SortText(
-                    CodeIntel.EditorCompletionMenuFacts.SortLocal, name, "function")
-            });
+            AddInScopeCompletionItem(items, itemKeys, inScopeNames, row.Label, ToCompletionItem(row));
         }
     }
 

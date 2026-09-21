@@ -222,3 +222,123 @@ test "the call hierarchy answers no call sites for a function that calls nothing
     assert EditorCallHierarchyFacts.OutgoingCallSites(EchFunction("run", EchBlock([], 4), 4, 1)).Count == 0
     assert EditorCallHierarchyFacts.OutgoingCallSites(EchFunction("run", null, 4, 1)).Count == 0
 }
+
+// ── Grouping ────────────────────────────────────────────────────────────
+//
+// The two grouping walks came out of `CallHierarchyHandler.cs`, where they were private methods on
+// two handlers and reachable only by standing up a document manager and a project snapshot.
+func EchReference(referenceFile: string, line: int, column: int, length: int, context: string?, isDefinition: bool): ReferenceResult {
+    return new ReferenceResult(referenceFile, line, column, length, context, isDefinition)
+}
+
+func EchSource(fileUri: string, reference: ReferenceResult, enclosing: FunctionDeclaration?): EditorIncomingCallSource {
+    return new EditorIncomingCallSource(fileUri, reference, enclosing)
+}
+
+func EchSources(sources: EditorIncomingCallSource[]): List<EditorIncomingCallSource> {
+    list := new List<EditorIncomingCallSource>()
+    for source in sources {
+        list.Add(source)
+    }
+
+    return list
+}
+
+func EchSites(sites: EditorCallSiteRow[]): List<EditorCallSiteRow> {
+    list := new List<EditorCallSiteRow>()
+    for site in sites {
+        list.Add(site)
+    }
+
+    return list
+}
+
+test "incoming calls group by the caller in the file they were found in" {
+    caller := EchFunction("Caller", null, 11, 1)
+    other := EchFunction("Other", null, 21, 1)
+
+    groups := EditorCallHierarchyFacts.IncomingCallGroups(EchSources([
+        EchSource("file:///a.nl", EchReference("a.nl", 12, 10, 3, "Caller", false), caller),
+        EchSource("file:///a.nl", EchReference("a.nl", 13, 10, 3, "Caller", false), caller),
+        EchSource("file:///a.nl", EchReference("a.nl", 22, 5, 3, "Other", false), other),
+        EchSource("file:///b.nl", EchReference("b.nl", 12, 10, 3, "Caller", false), caller)
+    ]))
+
+    assert groups.Count == 3
+    assert groups[0].CallerName == "Caller"
+    assert groups[0].FileUri == "file:///a.nl"
+    assert groups[0].FromRanges.Count == 2
+    assert groups[1].CallerName == "Other"
+    assert groups[2].FileUri == "file:///b.nl"
+    assert groups[2].FromRanges.Count == 1
+}
+
+// A DEFINITION IS NOT A CALL: the declaration row a reference search returns is not a caller.
+test "incoming calls drop the definition row" {
+    groups := EditorCallHierarchyFacts.IncomingCallGroups(EchSources([
+        EchSource("file:///a.nl", EchReference("a.nl", 6, 6, 3, "Add", true), null)
+    ]))
+
+    assert groups.Count == 0
+}
+
+// A CALL FROM A FILE NOTHING COULD PARSE IS STILL SHOWN, named by the search's own context word
+// and then by "<unknown>".
+test "incoming calls name a caller the parser could not find" {
+    groups := EditorCallHierarchyFacts.IncomingCallGroups(EchSources([
+        EchSource("file:///a.nl", EchReference("a.nl", 4, 2, 3, "Outer", false), null),
+        EchSource("file:///a.nl", EchReference("a.nl", 9, 2, 3, null, false), null)
+    ]))
+
+    assert groups.Count == 2
+    assert groups[0].CallerName == "Outer"
+    assert groups[1].CallerName == "<unknown>"
+}
+
+// THE NODE'S EXTENT COMES FROM THE FIRST REFERENCE THAT REACHED IT, and every call site is at
+// least one column wide.
+test "incoming calls take the node's extent from the first reference" {
+    groups := EditorCallHierarchyFacts.IncomingCallGroups(EchSources([
+        EchSource("file:///a.nl", EchReference("a.nl", 7, 3, 0, null, false), null),
+        EchSource("file:///a.nl", EchReference("a.nl", 30, 1, 4, null, false), null)
+    ]))
+
+    assert groups.Count == 1
+    assert groups[0].Range.StartLine == 6
+    assert groups[0].FromRanges.Count == 2
+    assert groups[0].FromRanges[0].Line == 6
+    assert groups[0].FromRanges[0].StartCharacter == 2
+    assert groups[0].FromRanges[0].EndCharacter == 3
+    assert groups[0].FromRanges[1].Line == 29
+    assert groups[0].FromRanges[1].EndCharacter == 4
+}
+
+test "outgoing calls group by callee in the order they are first called" {
+    groups := EditorCallHierarchyFacts.OutgoingCallGroups(EchSites([
+        new EditorCallSiteRow("Add", 12, 10),
+        new EditorCallSiteRow("Inner", 17, 12),
+        new EditorCallSiteRow("Add", 13, 10)
+    ]))
+
+    assert groups.Count == 2
+    assert groups[0].CalleeName == "Add"
+    assert groups[0].FromRanges.Count == 2
+    assert groups[1].CalleeName == "Inner"
+
+    assert groups[0].FromRanges[0].Line == 11
+    assert groups[0].FromRanges[0].StartCharacter == 9
+    assert groups[0].FromRanges[0].EndCharacter == 12
+}
+
+// THE HIGHLIGHT IS THE NAME'S OWN LENGTH, and a site reported above the first line or column is
+// clamped rather than dropped.
+test "outgoing calls clamp a site the walk reported at the edge" {
+    groups := EditorCallHierarchyFacts.OutgoingCallGroups(EchSites([
+        new EditorCallSiteRow("Add", 0, 0)
+    ]))
+
+    assert groups.Count == 1
+    assert groups[0].FromRanges[0].Line == 0
+    assert groups[0].FromRanges[0].StartCharacter == 0
+    assert groups[0].FromRanges[0].EndCharacter == 3
+}

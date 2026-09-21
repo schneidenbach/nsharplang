@@ -22,9 +22,11 @@ namespace NSharpLang.LanguageServer.Handlers;
 ///
 /// WHICH function is declared where, WHICH function encloses a line, HOW FAR a function reaches
 /// and WHAT it calls are all N#-owned by <c>EditorCallHierarchyFacts</c> — one nested member walk
-/// instead of the three near-copies that used to live in the three handlers below. What is left
-/// here is the protocol and the document manager: OmniSharp's CallHierarchyItem, the symbol tables
-/// the editor keeps, and the project-wide reference search.
+/// instead of the three near-copies that used to live in the three handlers below. So is the
+/// GROUPING both call views do: which references belong to one caller node, which call sites
+/// belong to one callee, what a caller with no parsed declaration is called, and how wide each
+/// highlight is. What is left here is the protocol and the document manager: OmniSharp's
+/// CallHierarchyItem, the symbol tables the editor keeps, and the project-wide reference search.
 /// </summary>
 internal static class CallHierarchyProtocol
 {
@@ -58,6 +60,11 @@ internal static class CallHierarchyProtocol
             Range = range,
             SelectionRange = range
         };
+    }
+
+    internal static LspRange ToRange(CodeIntel.EditorCallRange range)
+    {
+        return new LspRange(range.Line, range.StartCharacter, range.Line, range.EndCharacter);
     }
 
     internal static bool IsFunctionLocation(SymbolLocation location)
@@ -230,56 +237,36 @@ public class CallHierarchyIncomingHandler : CallHierarchyIncomingHandlerBase
     }
 
     /// <summary>
-    /// Groups the project's reference results by the function that encloses each one, so the view
-    /// shows one caller with several call sites rather than several identical callers.
+    /// The owner's caller groups as the protocol's incoming calls. Each reference is paired with
+    /// the file it lives in and the function that encloses it — the only two questions the editor
+    /// has to answer, because only it can turn a compiler-relative file name into a URI and find
+    /// the document parsed from it.
     /// </summary>
     private Container<CallHierarchyIncomingCall> BuildIncomingCalls(
         string originUri,
         List<NSharpLang.Compiler.CodeIntelligence.ReferenceResult> references)
     {
         var projectRoot = _documentManager.GetProjectRootForUri(originUri);
-        var callerGroups = new Dictionary<string, (CallHierarchyItem Item, List<LspRange> Ranges)>();
+        var sources = new List<CodeIntel.EditorIncomingCallSource>();
 
         foreach (var reference in references)
         {
-            if (reference.IsDefinition)
-            {
-                continue;
-            }
-
-            var filePath = _documentManager.ResolveProjectFilePath(projectRoot, reference.File);
-            var fileUri = new Uri(filePath).AbsoluteUri;
+            var fileUri = new Uri(_documentManager.ResolveProjectFilePath(projectRoot, reference.File)).AbsoluteUri;
             var doc = _documentManager.GetDocument(fileUri);
 
-            var refLine0 = reference.Line - 1;
-            var refCol0 = reference.Column - 1;
-            var callRange = new LspRange(
-                refLine0, refCol0,
-                refLine0, refCol0 + Math.Max(1, reference.Length));
-
-            var enclosing = CodeIntel.EditorCallHierarchyFacts.EnclosingFunction(
-                doc?.CompilationUnit, reference.Line);
-
-            var callerName = enclosing?.Name ?? reference.Context ?? "<unknown>";
-            var callerKey = $"{fileUri}:{callerName}";
-
-            if (!callerGroups.TryGetValue(callerKey, out var group))
-            {
-                var callerRange = CodeIntel.EditorCallHierarchyFacts.FunctionRange(
-                    enclosing, callerName, refLine0);
-
-                group = (CallHierarchyProtocol.ToItem(callerName, fileUri, callerRange), new List<LspRange>());
-                callerGroups[callerKey] = group;
-            }
-
-            group.Ranges.Add(callRange);
+            sources.Add(new CodeIntel.EditorIncomingCallSource(
+                fileUri,
+                reference,
+                CodeIntel.EditorCallHierarchyFacts.EnclosingFunction(doc?.CompilationUnit, reference.Line)));
         }
 
-        var results = callerGroups.Values.Select(g => new CallHierarchyIncomingCall
-        {
-            From = g.Item,
-            FromRanges = new Container<LspRange>(g.Ranges)
-        }).ToList();
+        var results = CodeIntel.EditorCallHierarchyFacts.IncomingCallGroups(sources)
+            .Select(group => new CallHierarchyIncomingCall
+            {
+                From = CallHierarchyProtocol.ToItem(group.CallerName, group.FileUri, group.Range),
+                FromRanges = new Container<LspRange>(group.FromRanges.Select(CallHierarchyProtocol.ToRange))
+            })
+            .ToList();
 
         return new Container<CallHierarchyIncomingCall>(results);
     }
@@ -351,25 +338,18 @@ public class CallHierarchyOutgoingHandler : CallHierarchyOutgoingHandlerBase
     {
         var results = new List<CallHierarchyOutgoingCall>();
 
-        foreach (var group in sites.GroupBy(site => site.Name, StringComparer.Ordinal))
+        foreach (var group in CodeIntel.EditorCallHierarchyFacts.OutgoingCallGroups(sites))
         {
-            var calleeItem = ResolveCalleeItem(doc, group.Key);
+            var calleeItem = ResolveCalleeItem(doc, group.CalleeName);
             if (calleeItem == null)
             {
                 continue;
             }
 
-            var fromRanges = group.Select(site =>
-            {
-                var line0 = Math.Max(0, site.Line - 1);
-                var col0 = Math.Max(0, site.Column - 1);
-                return new LspRange(line0, col0, line0, col0 + group.Key.Length);
-            }).ToList();
-
             results.Add(new CallHierarchyOutgoingCall
             {
                 To = calleeItem,
-                FromRanges = new Container<LspRange>(fromRanges)
+                FromRanges = new Container<LspRange>(group.FromRanges.Select(CallHierarchyProtocol.ToRange))
             });
         }
 

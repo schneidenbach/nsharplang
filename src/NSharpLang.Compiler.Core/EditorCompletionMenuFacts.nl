@@ -137,6 +137,73 @@ class EditorCompletionMenuFacts {
         return rows
     }
 
+    // WHAT THE ANALYZER RESOLVED AT THE CARET, as menu rows: every variable visible from this
+    // position and every function the bound model knows.
+    //
+    // THE VISIBLE SET IS WIDENED, NEVER NARROWED. A model with scopes answers for the position; a
+    // model without them offers everything it bound. Either way every variable the model knows is
+    // added afterwards if the position did not already offer it, because a name the reader can
+    // legally write and the menu omits is worse than a name offered one scope too early.
+    //
+    // A NAME THAT IS ALSO A FUNCTION IS NOT OFFERED AS A VARIABLE, and a function whose name a
+    // type already carries is not offered at all — it is a member, reachable after a dot, and
+    // `TypeMemberNames` is the same table the member list reads.
+    static func SemanticRows(semanticModel: SemanticModel?, unit: CompilationUnit?, text: string?, line: int, character: int): List<EditorCompletionMenuRow> {
+        rows := new List<EditorCompletionMenuRow>()
+        if semanticModel == null {
+            return rows
+        }
+
+        visibleVariables := new Dictionary<string, TypeInfo>()
+        if semanticModel.Scopes.Count > 0 {
+            visibleVariables = semanticModel.GetVisibleVariablesAtPosition(line + 1, character + 1)
+        } else {
+            for declared in semanticModel.Variables {
+                visibleVariables[declared.Key] = declared.Value
+            }
+        }
+
+        for declared in semanticModel.Variables {
+            if !visibleVariables.ContainsKey(declared.Key) {
+                visibleVariables[declared.Key] = declared.Value
+            }
+        }
+
+        for visible in visibleVariables {
+            if semanticModel.Functions.ContainsKey(visible.Key) {
+                continue
+            }
+
+            detail := "variable: " + TypeText(visible.Value)
+            rows.Add(new EditorCompletionMenuRow(visible.Key, VariableKind, detail, visible.Key, false, SortText(SortLocal, visible.Key, "variable"), null, "scope:" + visible.Key))
+        }
+
+        memberNames := new HashSet<string>()
+        for memberName in TypeMemberNames(unit, text) {
+            memberNames.Add(memberName)
+        }
+
+        for bound in semanticModel.Functions {
+            if memberNames.Contains(bound.Key) {
+                continue
+            }
+
+            detail := "func: " + TypeText(bound.Value)
+            rows.Add(new EditorCompletionMenuRow(bound.Key, FunctionKind, detail, bound.Key, false, SortText(SortLocal, bound.Key, "function"), null, "scope:" + bound.Key))
+        }
+
+        return rows
+    }
+
+    // The grey line beside a resolved name is the type the analyzer printed, whatever that is.
+    static func TypeText(typeInfo: TypeInfo?): string {
+        if typeInfo == null {
+            return ""
+        }
+
+        return typeInfo.ToString() ?? ""
+    }
+
     // THE NAMES THAT BELONG TO A TYPE RATHER THAN TO THE FILE. A method is offered after a dot, not
     // on its own, so the identifier menu drops a function whose name a type already carries.
     static func TypeMemberNames(unit: CompilationUnit?, text: string?): List<string> {
@@ -430,6 +497,11 @@ class EditorCompletionMenuFacts {
 
     // LSP CompletionItemKind.Snippet.
     static SnippetKind: int => 15
+
+    // LSP CompletionItemKind.Variable and CompletionItemKind.Function, for the names the bound
+    // model resolved rather than the ones the syntax tree declared.
+    static VariableKind: int => 6
+    static FunctionKind: int => 3
 
     // EVERY WORD N# RESERVES, in the order the menu offers them — declaration words first, then
     // control flow, then the modifiers, then the operators and the literals, then the words that

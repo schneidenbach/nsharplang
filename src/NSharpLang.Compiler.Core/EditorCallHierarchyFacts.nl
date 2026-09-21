@@ -47,6 +47,77 @@ class EditorCallHierarchyRange {
     }
 }
 
+// ONE CALL SITE AS THE VIEW HIGHLIGHTS IT, 0-based and single-line.
+class EditorCallRange {
+    lineValue: int
+    startCharacterValue: int
+    endCharacterValue: int
+
+    Line: int => lineValue
+    StartCharacter: int => startCharacterValue
+    EndCharacter: int => endCharacterValue
+
+    constructor(Line: int, StartCharacter: int, EndCharacter: int) {
+        lineValue = Line
+        startCharacterValue = StartCharacter
+        endCharacterValue = EndCharacter
+    }
+}
+
+// ONE PROJECT-WIDE REFERENCE, PAIRED WITH THE FUNCTION IT WAS FOUND INSIDE and the file it lives
+// in. The pairing is the caller's, because only the editor can turn the compiler's relative file
+// name into the URI the client knows and find the document that was parsed from it.
+class EditorIncomingCallSource {
+    fileUriValue: string
+    referenceValue: ReferenceResult
+    enclosingValue: FunctionDeclaration?
+
+    FileUri: string => fileUriValue
+    Reference: ReferenceResult => referenceValue
+    Enclosing: FunctionDeclaration? => enclosingValue
+
+    constructor(FileUri: string, Reference: ReferenceResult, Enclosing: FunctionDeclaration?) {
+        fileUriValue = FileUri
+        referenceValue = Reference
+        enclosingValue = Enclosing
+    }
+}
+
+// ONE CALLER, WITH EVERY PLACE IT CALLS FROM. The view shows one node per caller with several
+// highlighted call sites, not several identical nodes.
+class EditorIncomingCallGroup {
+    callerNameValue: string
+    fileUriValue: string
+    rangeValue: EditorCallHierarchyRange
+    fromRangesValue: List<EditorCallRange>
+
+    CallerName: string => callerNameValue
+    FileUri: string => fileUriValue
+    Range: EditorCallHierarchyRange => rangeValue
+    FromRanges: List<EditorCallRange> => fromRangesValue
+
+    constructor(CallerName: string, FileUri: string, Range: EditorCallHierarchyRange, FromRanges: List<EditorCallRange>) {
+        callerNameValue = CallerName
+        fileUriValue = FileUri
+        rangeValue = Range
+        fromRangesValue = FromRanges
+    }
+}
+
+// ONE CALLEE, WITH EVERY PLACE IT IS CALLED FROM inside the function being walked.
+class EditorOutgoingCallGroup {
+    calleeNameValue: string
+    fromRangesValue: List<EditorCallRange>
+
+    CalleeName: string => calleeNameValue
+    FromRanges: List<EditorCallRange> => fromRangesValue
+
+    constructor(CalleeName: string, FromRanges: List<EditorCallRange>) {
+        calleeNameValue = CalleeName
+        fromRangesValue = FromRanges
+    }
+}
+
 // WHICH FUNCTION IS WHERE, AND WHAT IT CALLS.
 //
 // Three questions the call-hierarchy view asks of the syntax tree, and all three used to be asked
@@ -348,6 +419,90 @@ class EditorCallHierarchyFacts {
                 AppendFromExpression(lambda.ExpressionBody, rows)
             }
         }
+    }
+
+    // ── Grouping ─────────────────────────────────────────────────────────
+
+    // CALLERS, GROUPED. A project-wide reference search answers one row per call site; the view
+    // wants one node per CALLER. Two references belong to the same node when they sit in the same
+    // file AND the same enclosing function, and the node's own extent is taken from the FIRST
+    // reference that reached it — the later ones only add highlights.
+    //
+    // A DEFINITION IS NOT A CALL and is dropped. A reference whose enclosing function the parser
+    // could not find falls back to the search's own context word, and then to "<unknown>", so a
+    // call from a file that failed to parse is still shown rather than silently lost.
+    static func IncomingCallGroups(sources: List<EditorIncomingCallSource>): List<EditorIncomingCallGroup> {
+        groups := new List<EditorIncomingCallGroup>()
+        index := new Dictionary<string, EditorIncomingCallGroup>()
+
+        for source in sources {
+            reference := source.Reference
+            if reference.IsDefinition {
+                continue
+            }
+
+            callerName := CallerName(source.Enclosing, reference.Context)
+            key := source.FileUri + ":" + callerName
+
+            group: EditorIncomingCallGroup? = null
+            if !index.TryGetValue(key, out group) || group == null {
+                callerRange := FunctionRange(source.Enclosing, callerName, ReferenceLine(reference))
+                group = new EditorIncomingCallGroup(callerName, source.FileUri, callerRange, new List<EditorCallRange>())
+                index[key] = group
+                groups.Add(group)
+            }
+
+            group.FromRanges.Add(ReferenceRange(reference))
+        }
+
+        return groups
+    }
+
+    static func CallerName(enclosing: FunctionDeclaration?, context: string?): string {
+        if enclosing != null {
+            return enclosing.Name
+        }
+
+        if context != null {
+            return context
+        }
+
+        return "<unknown>"
+    }
+
+    static func ReferenceLine(reference: ReferenceResult): int {
+        return reference.Line - 1
+    }
+
+    // A HIGHLIGHT IS AT LEAST ONE COLUMN WIDE, so a reference the search reported with no length
+    // still shows where it is.
+    static func ReferenceRange(reference: ReferenceResult): EditorCallRange {
+        line := ReferenceLine(reference)
+        startCharacter := reference.Column - 1
+        return new EditorCallRange(line, startCharacter, startCharacter + Math.Max(1, reference.Length))
+    }
+
+    // CALLEES, GROUPED, in the order they are first called. Every site for one name is one node,
+    // and the highlighted span is the NAME's own length — the call's arguments are not part of it.
+    // A site the walk reported above the first line or column is clamped rather than dropped.
+    static func OutgoingCallGroups(sites: List<EditorCallSiteRow>): List<EditorOutgoingCallGroup> {
+        groups := new List<EditorOutgoingCallGroup>()
+        index := new Dictionary<string, EditorOutgoingCallGroup>()
+
+        for site in sites {
+            group: EditorOutgoingCallGroup? = null
+            if !index.TryGetValue(site.Name, out group) || group == null {
+                group = new EditorOutgoingCallGroup(site.Name, new List<EditorCallRange>())
+                index[site.Name] = group
+                groups.Add(group)
+            }
+
+            line := Math.Max(0, site.Line - 1)
+            startCharacter := Math.Max(0, site.Column - 1)
+            group.FromRanges.Add(new EditorCallRange(line, startCharacter, startCharacter + site.Name.Length))
+        }
+
+        return groups
     }
 
     static func CalleeName(callee: Expression): string? {

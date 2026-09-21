@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System
 import System.Collections.Generic
+import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.Columnar
 
@@ -191,4 +192,88 @@ test "the completion menu knows when the caret is asking a receiver" {
     assert EditorCompletionMenuFacts.IsMemberAccessAt(text, 1, 10) == false
     assert EditorCompletionMenuFacts.IsMemberAccessAt(text, 9, 1) == false
     assert EditorCompletionMenuFacts.IsMemberAccessAt(null, 0, 1) == false
+}
+
+// ── What the bound model offers ─────────────────────────────────────────
+//
+// `CompletionHandler.AddSemanticCompletionItems` was sixty lines of C# reachable only through an
+// OmniSharp request: the widening of the visible set, the two exclusions, the grey type line and
+// the two sort keys.
+func EcmLabels(rows: List<EditorCompletionMenuRow>): string {
+    text := ""
+    for row in rows {
+        if text.Length > 0 {
+            text = text + ","
+        }
+
+        text = text + row.Label
+    }
+
+    return text
+}
+
+test "the menu offers the bound model's variables and functions" {
+    intType: TypeInfo = new SimpleTypeInfo("int")
+    model := new SemanticModel()
+    variables := model.Variables
+    variables["total"] = intType
+    functions := model.Functions
+    functions["Compute"] = intType
+
+    rows := EditorCompletionMenuFacts.SemanticRows(model, null, null, 0, 0)
+    assert EcmLabels(rows) == "total,Compute"
+
+    variable := EcmRow(rows, "total")
+    if variable == null {
+        throw new InvalidOperationException("expected a row for total")
+    }
+
+    assert variable.Kind == EditorCompletionMenuFacts.VariableKind
+    assert variable.Detail == "variable: int"
+    assert variable.InsertText == "total"
+    assert !variable.IsSnippet
+    assert variable.SortText == EditorCompletionMenuFacts.SortText(EditorCompletionMenuFacts.SortLocal, "total", "variable")
+
+    boundFunction := EcmRow(rows, "Compute")
+    if boundFunction == null {
+        throw new InvalidOperationException("expected a row for Compute")
+    }
+
+    assert boundFunction.Kind == EditorCompletionMenuFacts.FunctionKind
+    assert boundFunction.Detail == "func: int"
+    assert boundFunction.SortText == EditorCompletionMenuFacts.SortText(EditorCompletionMenuFacts.SortLocal, "Compute", "function")
+}
+
+// A NAME THAT IS BOTH IS OFFERED ONCE, as the function it is.
+test "the menu does not offer a bound function as a variable too" {
+    intType: TypeInfo = new SimpleTypeInfo("int")
+    model := new SemanticModel()
+    variables := model.Variables
+    variables["Compute"] = intType
+    functions := model.Functions
+    functions["Compute"] = intType
+
+    rows := EditorCompletionMenuFacts.SemanticRows(model, null, null, 0, 0)
+    assert EcmLabels(rows) == "Compute"
+    assert rows[0].Kind == EditorCompletionMenuFacts.FunctionKind
+}
+
+// A FUNCTION A TYPE ALREADY CARRIES IS A MEMBER, reachable after a dot and not on its own.
+test "the menu drops a bound function that is a type's member" {
+    source := "namespace M\n\nclass Box {\n    func Open(): int {\n        return 1\n    }\n}\n"
+    unit := EcmParse(source)
+
+    intType: TypeInfo = new SimpleTypeInfo("int")
+    model := new SemanticModel()
+    functions := model.Functions
+    functions["Open"] = intType
+    functions["Free"] = intType
+
+    rows := EditorCompletionMenuFacts.SemanticRows(model, unit, source, 0, 0)
+    assert EcmLabels(rows) == "Free"
+}
+
+test "the menu offers nothing semantic without a bound model" {
+    rows := EditorCompletionMenuFacts.SemanticRows(null, null, null, 0, 0)
+    assert rows.Count == 0
 }
