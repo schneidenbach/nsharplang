@@ -74,13 +74,55 @@ func SmcRequiredProperty(owner: Type, name: string): PropertyInfo {
     return property
 }
 
-func SmcAssertSingleNoArgumentRequiredAttribute(property: PropertyInfo) {
+// HOW MANY ROWS OF ONE ATTRIBUTE TYPE A PROPERTY CARRIES, and the first of them.
+//
+// THE EXACT COUNT IS OF THE MSBUILD ATTRIBUTE, NOT OF EVERY ROW ON THE PROPERTY. The assertion
+// exists to catch the DOUBLE WRITER: `[Required]`/`[Output]` once had two writers, every task
+// property carried its attribute TWICE, and `Attribute.GetCustomAttribute` then throws
+// `AmbiguousMatchException` -- a defect no build the old seed produced could fail. That is a
+// statement about how many times the MSBUILD attribute appears. It stopped being a statement about
+// the whole attribute list the moment reference-type nullability reached emitted metadata:
+// `Value: string` now also carries `NullableAttribute(1)`, which is what lets a consumer in another
+// assembly see the annotation this source wrote. Counting only the rows of the asked-for type keeps
+// the double-writer protection exactly and drops the accidental "and nothing else" the old spelling
+// asserted by accident.
+func SmcAttributeRowCount(property: PropertyInfo, attributeType: Type): int {
     attributes := property.GetCustomAttributesData()
-    assert NullabilityProbeSequenceCount(attributes) == 1
-    attribute := attributes.get_Item(0)
-    assert attribute.get_AttributeType() == typeof(Microsoft.Build.Framework.RequiredAttribute)
+    total := NullabilityProbeSequenceCount(attributes)
+    matches := 0
+    index := 0
+    while index < total {
+        if attributes.get_Item(index).get_AttributeType() == attributeType {
+            matches = matches + 1
+        }
+
+        index = index + 1
+    }
+
+    return matches
+}
+
+func SmcFirstAttributeRow(property: PropertyInfo, attributeType: Type): CustomAttributeData {
+    attributes := property.GetCustomAttributesData()
+    total := NullabilityProbeSequenceCount(attributes)
+    index := 0
+    while index < total {
+        candidate := attributes.get_Item(index)
+        if candidate.get_AttributeType() == attributeType {
+            return candidate
+        }
+
+        index = index + 1
+    }
+
+    throw new InvalidOperationException("The property carries no row of the asked-for attribute type.")
+}
+
+func SmcAssertSingleNoArgumentAttribute(property: PropertyInfo, attributeType: Type) {
+    assert SmcAttributeRowCount(property, attributeType) == 1
+    attribute := SmcFirstAttributeRow(property, attributeType)
     constructor := attribute.get_Constructor()
-    assert constructor.get_DeclaringType() == typeof(Microsoft.Build.Framework.RequiredAttribute)
+    assert constructor.get_DeclaringType() == attributeType
     assert constructor.GetParameters().Length == 0
     constructorArguments := attribute.get_ConstructorArguments()
     namedArguments := attribute.get_NamedArguments()
@@ -88,18 +130,12 @@ func SmcAssertSingleNoArgumentRequiredAttribute(property: PropertyInfo) {
     assert NullabilityProbeSequenceCount(namedArguments) == 0
 }
 
+func SmcAssertSingleNoArgumentRequiredAttribute(property: PropertyInfo) {
+    SmcAssertSingleNoArgumentAttribute(property, typeof(Microsoft.Build.Framework.RequiredAttribute))
+}
+
 func SmcAssertSingleNoArgumentOutputAttribute(property: PropertyInfo) {
-    attributes := property.GetCustomAttributesData()
-    assert NullabilityProbeSequenceCount(attributes) == 1
-    attribute := attributes.get_Item(0)
-    assert attribute.get_AttributeType() == typeof(Microsoft.Build.Framework.OutputAttribute)
-    constructor := attribute.get_Constructor()
-    assert constructor.get_DeclaringType() == typeof(Microsoft.Build.Framework.OutputAttribute)
-    assert constructor.GetParameters().Length == 0
-    constructorArguments := attribute.get_ConstructorArguments()
-    namedArguments := attribute.get_NamedArguments()
-    assert NullabilityProbeSequenceCount(constructorArguments) == 0
-    assert NullabilityProbeSequenceCount(namedArguments) == 0
+    SmcAssertSingleNoArgumentAttribute(property, typeof(Microsoft.Build.Framework.OutputAttribute))
 }
 
 func SmcForeignType(fullName: string, assemblyName: string): Type {
