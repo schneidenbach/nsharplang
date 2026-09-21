@@ -55,3 +55,21 @@ test "ternary drives a recursive range-index selector" {
     assert SelectElement(true) == 10
     assert SelectElement(false) == 20
 }
+
+test "a reference `??` in a generic call's argument selects the left when it is present" {
+    assert HashOfCoalesced("present") == HashOfPlain("present")
+}
+
+test "a reference `??` in a generic call's argument selects the fallback when the left is null" {
+    assert HashOfCoalesced(null) == HashOfPlain("fallback")
+}
+
+test "the same `??` reaches a generic STATIC's argument list" {
+    assert CombineCoalesced("present", 7) == CombineCoalesced("present", 7)
+    assert CombineCoalesced(null, 7) != CombineCoalesced("present", 7)
+}
+
+test "the `??` left is evaluated exactly once on both paths" {
+    assert CoalesceLeftEvaluations("present") == 1
+    assert CoalesceLeftEvaluations(null) == 1
+}

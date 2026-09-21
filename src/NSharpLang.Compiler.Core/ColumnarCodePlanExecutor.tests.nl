@@ -4157,6 +4157,55 @@ test "schema v3 executor rejects a brtrue over a non-Boolean condition before em
     }
 }
 
+// AN OBJECT REFERENCE IS A BRANCH CONDITION, because ECMA-335 III.3.17 says `brtrue`/`brfalse` test
+// one against null. The v3 model used to admit only a Boolean or a literal I4, which is narrower than
+// the CIL it writes: the method-body schema has its own structural validation and never runs this
+// walk, so the reference `??` lowering (`dup; brtrue; pop; <fallback>`) emitted inside a body while
+// having no v3 spelling at all — and a reference `??` in a call ARGUMENT, which is typed through a v3
+// plan, could therefore not be typed.
+test "schema v3 executor admits an object reference as a brtrue condition" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 2201, 0)
+    presentLabel := plan.DefineLabel()
+    endLabel := plan.DefineLabel()
+    parked := plan.DeclarePlanLocal(plan.AddType(typeof(string)))
+    plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), plan.AddString("left"))
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), parked)
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), parked)
+    plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), presentLabel)
+    plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), plan.AddString("fallback"))
+    plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), endLabel)
+    plan.AppendMarkLabel(presentLabel)
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), parked)
+    plan.AppendMarkLabel(endLabel)
+    plan.CompleteFragment(root, typeof(string))
+    plan.CompleteV3(typeof(string))
+    ColumnarCodePlanExecutor.Validate(plan)
+    assert plan.SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
+}
+
+// AND AN UNBOXED VALUE TYPE IS NOT. `brtrue` over a struct is not a null test and never was, so the
+// widening admits references, boxed values and the null literal — nothing else.
+test "schema v3 executor still rejects a brfalse over an unboxed value type" {
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 2201, 0)
+    endLabel := plan.DefineLabel()
+    parked := plan.DeclarePlanLocal(plan.AddType(typeof(DateTime)))
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), parked)
+    plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), plan.AddType(typeof(DateTime)))
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), parked)
+    plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), endLabel)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
+    plan.AppendMarkLabel(endLabel)
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV3(typeof(int))
+    assert throws InvalidOperationException {
+        ColumnarCodePlanExecutor.Validate(plan)
+    }
+}
+
 // ---- Schema v4 (method body) executor + validator contracts ----
 
 func ExecutorRunMethodBody(

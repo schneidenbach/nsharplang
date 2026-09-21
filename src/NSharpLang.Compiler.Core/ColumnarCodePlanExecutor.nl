@@ -1981,13 +1981,13 @@ class ColumnarCodePlanExecutor {
             return
         } else if opCodeValue == ColumnarCodePlanContract.Brfalse() {
             value := state.Pop()
-            if value.IsAddress || !IsBooleanCondition(value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
-                throw new InvalidOperationException(schemaName + " brfalse requires an exact Boolean condition or literal I4.")
+            if value.IsAddress || !IsBranchCondition(value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
+                throw new InvalidOperationException(schemaName + " brfalse requires a Boolean condition, a literal I4 or an object reference.")
             }
         } else if opCodeValue == ColumnarCodePlanContract.Brtrue() {
             value := state.Pop()
-            if value.IsAddress || !IsBooleanCondition(value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
-                throw new InvalidOperationException(schemaName + " brtrue requires an exact Boolean condition or literal I4.")
+            if value.IsAddress || !IsBranchCondition(value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
+                throw new InvalidOperationException(schemaName + " brtrue requires a Boolean condition, a literal I4 or an object reference.")
             }
         } else if opCodeValue == ColumnarCodePlanContract.Add() {
             right := state.Pop()
@@ -3064,6 +3064,26 @@ class ColumnarCodePlanExecutor {
 
     static func IsBooleanCondition(valueType: Type, valueKind: int, literalKnown: bool, literalValue: int): bool {
         return (valueKind == ColumnarCodePlanStackValueKind.LiteralI4() && literalKnown && (literalValue == 0 || literalValue == 1)) || (valueKind == ColumnarCodePlanStackValueKind.Exact() && valueType == typeof(bool))
+    }
+
+    // WHAT `brtrue`/`brfalse` MAY TEST. The Boolean condition above, and — because ECMA-335 III.3.17
+    // says so — an OBJECT REFERENCE, which those two opcodes test against null.
+    //
+    // The v3 model used to be narrower than the CIL it writes, and the narrowness was invisible
+    // because the method-body schema has its own structural validation and never runs this walk. So
+    // `ColumnarConditionalPlanner`'s reference `??` arm — `dup; brtrue; pop; <fallback>` — emitted
+    // inside a body and had no v3 spelling at all, which is what made a reference `??` untypable in a
+    // call's ARGUMENT (see that owner for what it cost). A managed ADDRESS is still refused, by the
+    // `IsAddress` test at each call site, and so is every value type: `brtrue` over an unboxed struct
+    // is not a null test and never was.
+    static func IsBranchCondition(valueType: Type, valueKind: int, literalKnown: bool, literalValue: int): bool {
+        if IsBooleanCondition(valueType, valueKind, literalKnown, literalValue) {
+            return true
+        }
+        if valueKind == ColumnarCodePlanStackValueKind.NullReference() || valueKind == ColumnarCodePlanStackValueKind.BoxedExact() {
+            return true
+        }
+        return valueKind == ColumnarCodePlanStackValueKind.Exact() && !valueType.get_IsValueType() && !valueType.get_IsGenericParameter() && !valueType.get_IsPointer() && !valueType.get_IsFunctionPointer() && !valueType.get_IsByRef()
     }
 
     // Pop one castable scalar and push the exact narrowing/reinterpreting target of a conv opcode.

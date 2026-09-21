@@ -1,5 +1,7 @@
 namespace NSharpLang.Conditional.Tests
 
+import System
+
 // Boolean short-circuit truth tables — operands are Boolean parameters, owned end-to-end.
 func And(a: bool, b: bool): bool {
     return a && b
@@ -84,4 +86,51 @@ func OrRightEvaluations(left: bool): int {
         return probe.RightEvaluations + 100
     }
     return probe.RightEvaluations
+}
+
+// A REFERENCE `??` IN AN ARGUMENT POSITION, WHICH IS THE ONE SHAPE THAT HAD NO SCHEMA-V3 SPELLING.
+//
+// An argument's type is decided through an expression plan, and the reference `??` arm was written
+// with `dup`/`pop` — opcodes only a method-body plan admits. So an argument containing one could not
+// be TYPED, and a call whose arguments have no types cannot have an overload chosen from them. Every
+// API the residual emitter models by name hid it; a GENERIC method, whose type arguments are
+// inferred from the argument types, had nothing to fall back on and answered "not modeled".
+func HashOfCoalesced(value: string?): int {
+    hash := new HashCode()
+    hash.Add(value ?? "fallback")
+    return hash.ToHashCode()
+}
+
+func HashOfPlain(value: string): int {
+    hash := new HashCode()
+    hash.Add(value)
+    return hash.ToHashCode()
+}
+
+func CombineCoalesced(value: string?, count: int): int {
+    return HashCode.Combine(value ?? "fallback", count)
+}
+
+// The LEFT is evaluated exactly once whichever way the test goes — the parked form reloads it rather
+// than recomputing it, which a counting probe is the only way to observe.
+class CoalesceProbe {
+    Reads: int
+    Answer: string?
+
+    constructor(answer: string?) {
+        Reads = 0
+        Answer = answer
+    }
+
+    func Read(): string? {
+        Reads = Reads + 1
+        return Answer
+    }
+}
+
+func CoalesceLeftEvaluations(answer: string?): int {
+    probe := new CoalesceProbe(answer)
+    hash := new HashCode()
+    hash.Add(probe.Read() ?? "fallback")
+    return probe.Reads
 }

@@ -337,14 +337,23 @@ class ColumnarConditionalPlanner {
         resultType = leftType
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
         // `pop` IS A METHOD-BODY OPCODE, and a schema-v3 expression plan does not decline it — it
-        // THROWS ("The opcode does not use an operand-free row"). This arm is the only one of the
-        // three that needs it, so it is the only one that asks; the nullable and generic-parameter
-        // arms park the left in a plan local and use nothing a v3 fragment refuses. A v3 position
-        // therefore DECLINES here and the legacy emitter arm serves that `??`, exactly as it did
-        // before this owner existed — the same contract `ColumnarThrowExpressionPlanner` states for
-        // a `throw` arm, and for the same reason.
+        // THROWS ("The opcode does not use an operand-free row"). So a v3 position takes the PARKED
+        // shape below instead: the same shape the generic-parameter arm already writes, using nothing
+        // a v3 fragment refuses.
+        //
+        // WHAT THE v3 REFUSAL COST, AND WHY IT LOOKED LIKE SOMETHING ELSE ENTIRELY. A call's ARGUMENTS
+        // are typed through a v3 plan, so a reference `??` anywhere inside one could not be typed at
+        // all — and a call whose arguments have no types cannot have an overload chosen from them. For
+        // every API the legacy emitter models by NAME that was invisible (`sb.Append(a ?? "")`,
+        // `list.Add(a ?? "")`, `Math.Max((a ?? "").Length, 1)` all emit through that door). For a
+        // GENERIC method, whose type arguments are INFERRED from the argument types, there is no such
+        // door: `hash.Add(text ?? "")` answered `instance call 'HashCode.Add' with 1 argument(s) is
+        // not modeled` while `hash.Add(text)` one line above emitted, and the report that found it
+        // concluded the model was matching on the argument SHAPE. It was not; the argument had no type
+        // to match with. `hash.Add(n ?? 0)` over a `Nullable<int>` emitted throughout, because that
+        // arm parks instead of popping — which is exactly the difference this closes.
         if !plan.IsMethodBodySchema() {
-            return false
+            return TryPlanParkedReferenceCoalesce(nodes, source, fallback, bindings, handles, plan, fragment, depth, leftType, out nestedOwnership)
         }
 
         endLabel := plan.DefineLabel()
@@ -355,6 +364,36 @@ class ColumnarConditionalPlanner {
             return false
         }
 
+        plan.AppendMarkLabel(endLabel)
+        return true
+    }
+
+    // THE SAME REFERENCE MERGE WITHOUT `dup`/`pop`: park the left, test the parked value, and reload
+    // it on the present path. One plan local and one extra `ldloc` buy a shape a schema-v3 fragment
+    // accepts, and the value semantics are identical — the left is evaluated exactly once, and the
+    // fallback runs only when it is null.
+    //
+    // A `throw` FALLBACK JOINS NOTHING, which is why the `br` is conditional here and in the
+    // generic-parameter arm: a `br` after a `throw` is unreachable and the verifier says so.
+    static func TryPlanParkedReferenceCoalesce(nodes: ColumnarNodeTable, source: string, fallback: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, leftType: Type, out nestedOwnership: ColumnarDirectCallOwnership): bool {
+        nestedOwnership = ColumnarDirectCallOwnership.NotOwned
+        typePool := plan.AddType(leftType)
+        parkedLocal := plan.DeclarePlanLocal(typePool)
+        leftLabel := plan.DefineLabel()
+        endLabel := plan.DefineLabel()
+
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), parkedLocal)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), parkedLocal)
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), leftLabel)
+        if !TryAppendCoalesceFallback(nodes, source, fallback, bindings, handles, plan, fragment, depth, leftType, out nestedOwnership) {
+            return false
+        }
+
+        if !ColumnarThrowExpressionPlanner.IsThrowExpression(nodes, fallback) {
+            plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), endLabel)
+        }
+        plan.AppendMarkLabel(leftLabel)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), parkedLocal)
         plan.AppendMarkLabel(endLabel)
         return true
     }
