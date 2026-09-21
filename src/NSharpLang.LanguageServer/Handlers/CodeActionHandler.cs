@@ -7,6 +7,7 @@ using NSharpLang.LanguageServer.Services;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.CodeIntelligence;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
@@ -23,6 +24,15 @@ using DocumentUri = OmniSharp.Extensions.LanguageServer.Protocol.DocumentUri;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
+/// <summary>
+/// Handles textDocument/codeAction requests.
+///
+/// WHICH DIAGNOSTIC A FIX IS FOR is N#-owned by <c>EditorCodeActionFacts</c>: the client hands
+/// back the diagnostics it is showing, and finding the compiler's own diagnostic again — the
+/// linter's list first, then the compiler's, matched on code AND exact position, rebuilt with the
+/// contextual hint standing in for a missing suggestion — is that owner's answer. What is left
+/// here is the protocol: OmniSharp's CodeAction, WorkspaceEdit and the wire names of its kinds.
+/// </summary>
 public class CodeActionHandler : CodeActionHandlerBase
 {
     private readonly DocumentManager _documentManager;
@@ -98,41 +108,17 @@ public class CodeActionHandler : CodeActionHandlerBase
         return Task.FromResult<CommandOrCodeActionContainer?>(new CommandOrCodeActionContainer(commandOrCodeActions));
     }
 
-    private CompilerDiagnostic? ConvertToCompilerDiagnostic(
+    private static CompilerDiagnostic? ConvertToCompilerDiagnostic(
         LspDiagnostic lspDiagnostic,
         DocumentState doc)
     {
-        var line = (int)lspDiagnostic.Range.Start.Line + 1; // Convert to 1-based
-        var column = (int)lspDiagnostic.Range.Start.Character + 1;
-
-        // Find diagnostic at this location with matching code
-        var code = lspDiagnostic.Code?.String;
-        if (code == null)
-            return null;
-
-        var linterDiagnostic = doc.LinterDiagnostics?.FirstOrDefault(d =>
-            d.Code == code &&
-            d.Location.Line == line &&
-            d.Location.Column == column);
-
-        if (linterDiagnostic != null)
-            return linterDiagnostic;
-
-        var compilerError = doc.Diagnostics?.FirstOrDefault(d =>
-            d.DiagnosticId == code &&
-            d.Line == line &&
-            d.Column == column);
-
-        if (compilerError == null)
-            return null;
-
-        return new CompilerDiagnostic(
-            compilerError.DiagnosticId,
-            compilerError.Message,
-            new Compiler.Location(compilerError.Line, compilerError.Column, compilerError.FileName),
-            compilerError.Severity == ErrorSeverity.Error ? Compiler.DiagnosticSeverity.Error : Compiler.DiagnosticSeverity.Warning,
-            compilerError.Suggestion ?? compilerError.ContextualHint,
-            Math.Max(compilerError.Length, 1));
+        return EditorCodeActionFacts.DiagnosticAt(
+            doc.LinterDiagnostics,
+            doc.Diagnostics,
+            lspDiagnostic.Code?.String,
+            // The wire counts from zero and the compiler counts from one.
+            (int)lspDiagnostic.Range.Start.Line + 1,
+            (int)lspDiagnostic.Range.Start.Character + 1);
     }
 
     private LspCodeAction ConvertToLspCodeAction(

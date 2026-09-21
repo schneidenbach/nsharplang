@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.LanguageServer.Services;
 using NSharpLang.LanguageServer.Models;
 using Microsoft.Extensions.Logging;
@@ -16,7 +17,10 @@ using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 namespace NSharpLang.LanguageServer.Handlers;
 
 /// <summary>
-/// Handles rename symbol requests (F2 in VS Code)
+/// Handles rename symbol requests (F2 in VS Code).
+///
+/// WHAT EACH REFUSAL SAYS is N#-owned by <c>EditorRenameGuardFacts</c>, which the prepare handler
+/// beside this one shares — the two used to hold their own copies of the same three sentences.
 /// </summary>
 public class RenameHandler : RenameHandlerBase
 {
@@ -57,9 +61,7 @@ public class RenameHandler : RenameHandlerBase
                 var projectReferences = _documentManager.FindStrictProjectReferences(uri, request.Position.Line, request.Position.Character);
                 if (projectReferences == null)
                 {
-                    throw RenameRefused(
-                        $"Rename for '{oldName}' is unavailable because semantic resolution could not safely identify the selected symbol. " +
-                        "No edits were applied; refusing fallback rename to avoid editing unrelated symbols.");
+                    throw RenameRefused(EditorRenameGuardFacts.RenameUnresolvedMessage(oldName));
                 }
 
                 var projectRoot = _documentManager.GetProjectRootForUri(uri);
@@ -86,9 +88,7 @@ public class RenameHandler : RenameHandlerBase
 
             if (_documentManager.HasSemanticProjectContext(uri))
             {
-                throw RenameRefused(
-                    $"Rename for '{oldName}' is unavailable because semantic project analysis is degraded. " +
-                    "Save or fix the project files and retry; refusing text-only rename to avoid editing unrelated symbols.");
+                throw RenameRefused(EditorRenameGuardFacts.RenameDegradedMessage(oldName));
             }
 
             var isKnownSymbol = false;
@@ -101,9 +101,7 @@ public class RenameHandler : RenameHandlerBase
                 return Task.FromResult<WorkspaceEdit?>(null);
             }
 
-                throw RenameRefused(
-                    $"Rename for '{oldName}' is unavailable because semantic resolution could not safely identify the selected symbol. " +
-                    "No edits were applied; refusing text-only rename to avoid editing unrelated symbols.");
+                throw RenameRefused(EditorRenameGuardFacts.RenameTextOnlyMessage(oldName));
         }
         catch (RequestFailedException)
         {

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.JsonRpc.Server;
@@ -84,9 +85,7 @@ public class ReferencesHandler : ReferencesHandlerBase
 
             if (_documentManager.HasSemanticProjectContext(uri))
             {
-                throw ReferencesUnavailable(
-                    $"References for '{word}' are unavailable because semantic project analysis is degraded. " +
-                    "Save or fix the project files and retry; refusing text-only references to avoid showing unrelated symbols.");
+                throw ReferencesUnavailable(EditorRenameGuardFacts.ReferencesDegradedMessage(word));
             }
 
                 return Task.FromResult<LocationContainer?>(new LocationContainer());

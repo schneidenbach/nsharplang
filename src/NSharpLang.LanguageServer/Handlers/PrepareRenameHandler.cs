@@ -1,6 +1,6 @@
-using System;
 using System.Threading;
 using System.Threading.Tasks;
+using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.JsonRpc.Server;
@@ -13,8 +13,12 @@ namespace NSharpLang.LanguageServer.Handlers;
 
 /// <summary>
 /// Handles textDocument/prepareRename requests.
-/// Validates that the symbol at cursor can be renamed before showing the rename dialog.
-/// Prevents renaming keywords, .NET built-in types, and non-existent symbols.
+///
+/// WHICH WORDS MAY NOT BE RENAMED and WHAT EACH REFUSAL SAYS are N#-owned by
+/// <c>EditorRenameGuardFacts</c>: the language's own words, the primitive type names, and the four
+/// sentences this handler and the rename handler beside it share. Where the word starts on its
+/// line is <c>EditorHoverFacts.WordRangeStartColumn</c>, the same answer hover uses. What is left
+/// here is the protocol: OmniSharp's PlaceholderRange and its request-failed error.
 /// </summary>
 public class PrepareRenameHandler : PrepareRenameHandlerBase
 {
@@ -49,14 +53,14 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
         }
 
         // Reject keywords
-        if (IsKeyword(word))
+        if (EditorRenameGuardFacts.IsKeyword(word))
         {
             _logger.LogDebug("Cannot rename keyword: {Word}", word);
             return Task.FromResult<RangeOrPlaceholderRange?>(null);
         }
 
         // Reject primitive type names
-        if (IsPrimitiveType(word))
+        if (EditorRenameGuardFacts.IsPrimitiveTypeName(word))
         {
             _logger.LogDebug("Cannot rename primitive type: {Word}", word);
             return Task.FromResult<RangeOrPlaceholderRange?>(null);
@@ -69,18 +73,14 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
             var projectReferences = _documentManager.FindStrictProjectReferences(uri, request.Position.Line, request.Position.Character);
             if (projectReferences == null)
             {
-                throw RenameRefused(
-                    $"Rename for '{word}' is unavailable because semantic resolution could not safely identify the selected symbol. " +
-                    "No edits were applied; refusing fallback rename to avoid editing unrelated symbols.");
+                throw RenameRefused(EditorRenameGuardFacts.RenameUnresolvedMessage(word));
             }
 
             hasStrictProjectRenameTarget = true;
         }
         else if (_documentManager.HasSemanticProjectContext(uri))
         {
-            throw RenameRefused(
-                $"Rename for '{word}' is unavailable because semantic project analysis is degraded. " +
-                "Save or fix the project files and retry; refusing text-only rename to avoid editing unrelated symbols.");
+            throw RenameRefused(EditorRenameGuardFacts.RenameDegradedMessage(word));
         }
 
         // Verify the symbol exists in our analysis
@@ -96,9 +96,7 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
 
         if (!hasSynchronizedProjectSnapshot)
         {
-                throw RenameRefused(
-                    $"Rename for '{word}' is unavailable because semantic resolution could not safely identify the selected symbol. " +
-                    "No edits were applied; refusing text-only rename to avoid editing unrelated symbols.");
+                throw RenameRefused(EditorRenameGuardFacts.RenameTextOnlyMessage(word));
         }
 
         // Return the range of the word and a placeholder
@@ -122,42 +120,8 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
         var lines = text.Split('\n');
         if (line >= lines.Length) return new LspRange(line, character, line, character);
 
-        var lineText = lines[line];
-        var startSearch = Math.Max(0, Math.Min(lineText.Length, character) - word.Length);
-        var startChar = lineText.IndexOf(word, startSearch, StringComparison.Ordinal);
-        if (startChar < 0) startChar = character;
-
+        var startChar = EditorHoverFacts.WordRangeStartColumn(lines[line], character, word);
         return new LspRange(line, startChar, line, startChar + word.Length);
-    }
-
-    private static bool IsKeyword(string word)
-    {
-        return word switch
-        {
-            "func" or "class" or "struct" or "record" or "interface" or "enum" or "union" or
-            "namespace" or "using" or "import" or "if" or "else" or "for" or "foreach" or
-            "while" or "return" or "break" or "continue" or "match" or "switch" or "case" or
-            "when" or "yield" or "await" or "async" or "throw" or "try" or "catch" or "finally" or
-            "lock" or "new" or "this" or "base" or "static" or "virtual" or "override" or
-            "abstract" or "sealed" or "partial" or "readonly" or "const" or "file" or "duck" or
-            "public" or "private" or "internal" or "protected" or "required" or "init" or
-            "let" or "type" or "out" or "ref" or "params" or "true" or "false" or
-            "null" or "is" or "as" or "typeof" or "nameof" or "and" or "or" or "not" or
-            "with" or "immutable" or "print" or "test" or "assert" or "implicit" or "explicit"
-                => true,
-            _ => false
-        };
-    }
-
-    private static bool IsPrimitiveType(string word)
-    {
-        return word switch
-        {
-            "int" or "long" or "float" or "double" or "bool" or "string" or "void" or "object" or
-            "byte" or "short" or "char" or "decimal" or "uint" or "ulong" or "ushort" or "sbyte"
-                => true,
-            _ => false
-        };
     }
 
     private static RequestFailedException RenameRefused(string message)
