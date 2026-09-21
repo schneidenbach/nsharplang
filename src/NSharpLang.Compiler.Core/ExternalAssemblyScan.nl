@@ -1317,9 +1317,11 @@ class ExternalAssemblyScan {
             try {
                 candidates = Directory.GetFiles(directory, "*.dll")
             } catch {
+                // A DIRECTORY THAT CANNOT BE LISTED CONTRIBUTES NOTHING, and that is the whole
+                // handling: these paths are forward targets, so a missing one costs a forwarder that
+                // could not be followed anyway. Every entry the caller asked for still stands.
+                candidates = new string[](0)
             }
-
-            // A directory that cannot be listed contributes nothing; the entries still stand.
 
             candidateIndex := 0
             while candidateIndex < candidates.Length {
