@@ -157,7 +157,8 @@ func ClosureCollectionTypes2(first: Type, second: Type): Type[] {
 func ClosureCollectionSelects(targetType: Type, argumentTypes: Type[]): string {
     constructor: ConstructorInfo? = null
     parameters := new Type[](0)
-    if !ColumnarConstructionPlanner.TrySelectClosedRuntimeConstructor(targetType, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length), out constructor, out parameters) || constructor == null {
+    elementType: Type? = null
+    if !ColumnarConstructionPlanner.TrySelectClosedRuntimeConstructor(targetType, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length), out constructor, out parameters, out elementType) || constructor == null {
         return "<none>"
     }
 

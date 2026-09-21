@@ -280,10 +280,26 @@ test "an extension method and a params tail are both recognised by full name" {
 
     assert sawExtension
 
-    // `string.Concat(params string[])` is the params shape the excluded-shape test has to see.
+    // `string.Concat(params string[])` is the params shape the attribute read has to see. The
+    // FULL-NAME reading is what this row exists for and it is unchanged; what the tail MEANS has
+    // changed, because a `params` tail in its declared last position is now a call-site shape
+    // `ColumnarParamsExpansion` answers for rather than an exclusion that hid the whole declaration.
     concat := typeof(string).GetMethod("Concat", ConcatParamsSignature())
     assert concat != null
-    assert ColumnarExtensionMethodResolver.HasExcludedParameterShape(concat.GetParameters())
+    assert ColumnarExtensionMethodResolver.IsParamsParameter(concat.GetParameters()[0]), "The params tail must still be recognised by full name."
+    assert !ColumnarExtensionMethodResolver.HasExcludedParameterShape(concat.GetParameters()), "A params tail in its last position is an admitted shape."
+
+    // The exclusions the rule still keeps: a by-ref or pointer slot has no call shape here.
+    tryParse := typeof(int).GetMethod("TryParse", TryParseByRefSignature())
+    assert tryParse != null
+    assert ColumnarExtensionMethodResolver.HasExcludedParameterShape(tryParse.GetParameters())
+}
+
+func TryParseByRefSignature(): Type[] {
+    signature := new Type[](2)
+    signature[0] = typeof(string)
+    signature[1] = typeof(int).MakeByRefType()
+    return signature
 }
 
 func ConcatParamsSignature(): Type[] {

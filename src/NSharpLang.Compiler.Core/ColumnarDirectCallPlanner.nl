@@ -2805,23 +2805,34 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        leadingParameterTypes := ColumnarExtensionMethodResolver.ExplicitParameterTypes(parameterTypes, explicitCount)
-        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, leadingParameterTypes, argumentFacts) {
-            return false
-        }
-
         parameters := method.GetParameters()
         if parameters == null || parameters.Length != parameterTypes.Length {
             return false
         }
 
-        defaultIndex := 1 + explicitCount
-        while defaultIndex < parameterTypes.Length {
-            if !ColumnarExtensionMethodResolver.TryAppendOptionalDefault(plan, parameters[defaultIndex], parameterTypes[defaultIndex]) {
+        paramsElementType := selection.ParamsElementType
+        if paramsElementType != null {
+            // THE SELECTED SIGNATURE IS UNCHANGED; only the arguments are shaped differently. The
+            // fixed ones are emitted exactly as any call's are and the rest are stored into a fresh
+            // array, which is then the last ordinary argument of the same static call.
+            expandedParameterTypes := ColumnarParamsExpansion.ExpandedParameterTypesOrNull(parameters, parameterTypes, 1, explicitCount)
+            if expandedParameterTypes == null || !AppendExpandedArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, expandedParameterTypes, argumentFacts, ColumnarParamsExpansion.FixedArgumentCount(parameterTypes, 1), paramsElementType) {
+                return false
+            }
+        } else {
+            leadingParameterTypes := ColumnarExtensionMethodResolver.ExplicitParameterTypes(parameterTypes, explicitCount)
+            if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, leadingParameterTypes, argumentFacts) {
                 return false
             }
 
-            defaultIndex += 1
+            defaultIndex := 1 + explicitCount
+            while defaultIndex < parameterTypes.Length {
+                if !ColumnarExtensionMethodResolver.TryAppendOptionalDefault(plan, parameters[defaultIndex], parameterTypes[defaultIndex]) {
+                    return false
+                }
+
+                defaultIndex += 1
+            }
         }
 
         methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, parameterTypes, selection.ReturnType, true, false)
@@ -3144,6 +3155,56 @@ class ColumnarDirectCallPlanner {
                 return false
             }
 
+            index += 1
+        }
+
+        return true
+    }
+
+    // THE ARGUMENTS OF A CALL WHOSE TAIL PACKS INTO A `params` ARRAY. The fixed arguments are emitted
+    // exactly as any other call's are — the same slot appender, so the same conversions, the same
+    // by-ref and null-literal rules — and every argument past them is stored into one fresh array
+    // that becomes the call's last ordinary argument. `expandedParameterTypes` is as long as the
+    // supplied arguments and already carries the element type in every packed position, so each slot
+    // is emitted against the type it must actually convert to.
+    //
+    // EVALUATION ORDER IS THE WRITTEN ORDER, unchanged: `newarr` runs after the fixed arguments and
+    // before the first element, and the elements run left to right, which is where a C# call site
+    // evaluates them too.
+    static func AppendExpandedArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], expandedParameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, fixedCount: int, elementType: Type): bool {
+        if elementType == null || fixedCount < 0 || fixedCount > expandedParameterTypes.Length {
+            return false
+        }
+
+        if inferredTypes.Length != expandedParameterTypes.Length || nodes.ChildCount(callNode) - 1 != expandedParameterTypes.Length || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != expandedParameterTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != expandedParameterTypes.Length || argumentFacts.IntegerLiteralValues.Length != expandedParameterTypes.Length || argumentFacts.IsNullLiteral.Length != expandedParameterTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != expandedParameterTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != expandedParameterTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != expandedParameterTypes.Length || argumentFacts.ArgumentNodes.Length != expandedParameterTypes.Length || argumentFacts.WrittenOrderSlots.Length != expandedParameterTypes.Length {
+            return false
+        }
+
+        // A NAMED ARGUMENT CANNOT NAME A PACKED ONE — the elements have no parameter of their own to
+        // be named for — so a site whose written order and slot order disagree is left to decline
+        // rather than reordered into an array whose positions are the author's.
+        if argumentFacts.RequiresReorder {
+            return false
+        }
+
+        index := 0
+        while index < fixedCount {
+            if !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, expandedParameterTypes, argumentFacts, index) {
+                return false
+            }
+
+            index += 1
+        }
+
+        elementTypeIndex := plan.AddType(elementType)
+        ColumnarParamsExpansion.AppendArrayHeader(plan, elementTypeIndex, expandedParameterTypes.Length - fixedCount)
+        while index < expandedParameterTypes.Length {
+            ColumnarParamsExpansion.AppendElementPrologue(plan, index - fixedCount)
+            if !AppendArgumentSlot(nodes, source, bindings, handles, plan, parentFragment, depth, allowPrimitiveBinary, inferredTypes, expandedParameterTypes, argumentFacts, index) {
+                return false
+            }
+
+            ColumnarParamsExpansion.AppendElementEpilogue(plan, elementTypeIndex)
             index += 1
         }
 

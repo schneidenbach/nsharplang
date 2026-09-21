@@ -1580,7 +1580,8 @@ class ColumnarConstructionPlanner {
 
         parameters := new Type[](0)
         constructor: ConstructorInfo? = null
-        if !TrySelectRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameters) || constructor == null {
+        paramsElementType: Type? = null
+        if !TrySelectRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameters, out paramsElementType) || constructor == null {
             // A value type written `new S()` with no selectable constructor is its CLR zero value, the
             // same reading C# gives it. `JsonElement` and `Label` used to be spelled out here one type
             // at a time; every struct without a public parameterless constructor takes this route now.
@@ -1594,7 +1595,7 @@ class ColumnarConstructionPlanner {
             legacyWholeSubtreePlanning = false
             return false
         }
-        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, PrefixTypes(parameters, argumentCount), argumentFacts) || !TryAppendConstructorOptionalDefaults(plan, constructor, parameters, argumentCount) {
+        if !TryAppendRuntimeConstructorArguments(nodes, source, node, bindings, handles, plan, fragment, depth, argumentTypes, argumentFacts, constructor, parameters, argumentCount, paramsElementType) {
             return false
         }
 
@@ -1853,7 +1854,8 @@ class ColumnarConstructionPlanner {
 
         parameterTypes := new Type[](0)
         constructor: ConstructorInfo? = null
-        if !TrySelectClosedRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameterTypes) || constructor == null {
+        closedParamsElementType: Type? = null
+        if !TrySelectClosedRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameterTypes, out closedParamsElementType) || constructor == null {
             // A value type written `new S()` with no selectable constructor is its CLR zero value, the
             // same reading C# gives it. This is the general rule the JsonElement and Label arms used to
             // spell one type at a time.
@@ -1865,7 +1867,7 @@ class ColumnarConstructionPlanner {
             legacyWholeSubtreePlanning = false
             return false
         }
-        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, PrefixTypes(parameterTypes, argumentCount), argumentFacts) || !TryAppendConstructorOptionalDefaults(plan, constructor, parameterTypes, argumentCount) {
+        if !TryAppendRuntimeConstructorArguments(nodes, source, node, bindings, handles, plan, fragment, depth, argumentTypes, argumentFacts, constructor, parameterTypes, argumentCount, closedParamsElementType) {
             return false
         }
 
@@ -1875,14 +1877,15 @@ class ColumnarConstructionPlanner {
     }
 
     // Constructor selection for a closed generic target, in whichever universe its arguments live.
-    static func TrySelectClosedRuntimeConstructor(targetType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out constructor: ConstructorInfo?, out parameterTypes: Type[]): bool {
+    static func TrySelectClosedRuntimeConstructor(targetType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out constructor: ConstructorInfo?, out parameterTypes: Type[], out elementType: Type?): bool {
         constructor = null
         parameterTypes = new Type[](0)
+        elementType = null
         if targetType == null || !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() {
             return false
         }
         if !ContainsBuilderBoundType(targetType) {
-            return TrySelectRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameterTypes)
+            return TrySelectRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameterTypes, out elementType)
         }
 
         openType := targetType.GetGenericTypeDefinition()
@@ -1897,11 +1900,23 @@ class ColumnarConstructionPlanner {
         applicableParameters := new List<Type[]>()
         CollectApplicableRuntimeConstructors(RuntimeConstructorsOrEmpty(openType), closedArguments, argumentTypes, applicable, applicableParameters)
         selectedIndex := BestSourceConstructorIndex(applicableParameters, argumentTypes, argumentFacts)
+        selected: ConstructorInfo? = null
+        selectedParameters := new Type[](0)
         if selectedIndex < 0 {
-            return false
+            expandedConstructor: ConstructorInfo? = null
+            expandedParameters := new Type[](0)
+            expandedElement: Type? = null
+            if !TrySelectExpandedRuntimeConstructor(RuntimeConstructorsOrEmpty(openType), closedArguments, argumentTypes, argumentFacts, out expandedConstructor, out expandedParameters, out expandedElement) || expandedConstructor == null {
+                return false
+            }
+
+            selected = expandedConstructor
+            selectedParameters = expandedParameters
+            elementType = expandedElement
+        } else {
+            selected = applicable[selectedIndex]
+            selectedParameters = applicableParameters[selectedIndex]
         }
-        selected := applicable[selectedIndex]
-        selectedParameters := applicableParameters[selectedIndex]
 
         rebound := TypeBuilder.GetConstructor(targetType, selected)
         if rebound == null {
@@ -2195,9 +2210,10 @@ class ColumnarConstructionPlanner {
     //
     // A TIE IS A DECLINE, not a guess. `bestCount > 1` means two constructors score equally for these
     // arguments and choosing either would be arbitrary; the caller turns that into `OwnedRejected`.
-    static func TrySelectRuntimeConstructor(targetType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out constructor: ConstructorInfo?, out parameterTypes: Type[]): bool {
+    static func TrySelectRuntimeConstructor(targetType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out constructor: ConstructorInfo?, out parameterTypes: Type[], out elementType: Type?): bool {
         constructor = null
         parameterTypes = new Type[](0)
+        elementType = null
         if !IsConstructibleRuntimeTarget(targetType) {
             return false
         }
@@ -2211,7 +2227,22 @@ class ColumnarConstructionPlanner {
 
         selectedIndex := BestSourceConstructorIndex(applicableParameters, argumentTypes, argumentFacts)
         if selectedIndex < 0 {
-            return false
+            expandedConstructor: ConstructorInfo? = null
+            expandedParameters := new Type[](0)
+            expandedElement: Type? = null
+            if !TrySelectExpandedRuntimeConstructor(RuntimeConstructorsOrEmpty(targetType), new Type[](0), argumentTypes, argumentFacts, out expandedConstructor, out expandedParameters, out expandedElement) || expandedConstructor == null || expandedElement == null {
+                return false
+            }
+
+            expandedDeclaringType := expandedConstructor.get_DeclaringType()
+            if expandedDeclaringType == null || !ExternalAssemblyScan.HasExactTypeIdentity(expandedDeclaringType, TargetTypeIdentity(targetType)) {
+                throw new InvalidOperationException("Construction selected a constructor on the wrong owner.")
+            }
+
+            constructor = expandedConstructor
+            parameterTypes = expandedParameters
+            elementType = expandedElement
+            return true
         }
         selected := applicable[selectedIndex]
         selectedParameters := applicableParameters[selectedIndex]
@@ -2371,8 +2402,11 @@ class ColumnarConstructionPlanner {
         }
     }
 
-    // A `params` tail or a vararg signature is an expansion the plan rows do not model. The
-    // EMITTABILITY of the parameter types is a separate question, asked by
+    // A VARARG signature is an expansion the plan rows do not model. A `params` TAIL IS NOT ONE any
+    // more: it is a call-site shape `ColumnarParamsExpansion` answers for, so the declaration is
+    // admitted in its declared LAST position — which is the only position C# allows — and the arity
+    // tiers below decide whether the arguments pass through in normal form or pack into a fresh
+    // array. The EMITTABILITY of the parameter types is a separate question, asked by
     // `HasUnsupportedConstructorSignature` on the SUBSTITUTED signature: an open generic parameter is
     // unemittable as written but perfectly emittable once the closed type arguments are in place.
     static func IsExpandedConstructorShape(candidate: ConstructorInfo): bool {
@@ -2389,7 +2423,11 @@ class ColumnarConstructionPlanner {
         index := 0
         while index < parameters.Length {
             parameter := parameters[index]
-            if parameter == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
+            if parameter == null {
+                return true
+            }
+
+            if ColumnarExtensionMethodResolver.IsParamsParameter(parameter) && index != parameters.Length - 1 {
                 return true
             }
 
@@ -2397,6 +2435,78 @@ class ColumnarConstructionPlanner {
         }
 
         return false
+    }
+
+    // THE `params` TIER, AND IT RUNS ONLY WHEN NOTHING BOUND WITHOUT PACKING — the same ordering the
+    // trailing-optional tier keeps, and for the same reason: C# prefers a constructor applicable in
+    // its normal form to one applicable only in its expanded form, so this tier can turn a decline
+    // into an emission and can never change an answer that already selected.
+    //
+    // The scoring is the shared flow scorer, given the per-argument types the packing produces, so an
+    // expanded constructor and an ordinary one cannot disagree about what converts. A tie declines.
+    static func TrySelectExpandedRuntimeConstructor(candidates: ConstructorInfo[], closedArguments: Type[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out constructor: ConstructorInfo?, out parameterTypes: Type[], out elementType: Type?): bool {
+        constructor = null
+        parameterTypes = new Type[](0)
+        elementType = null
+        applicable := new List<ConstructorInfo>()
+        applicableDeclared := new List<Type[]>()
+        applicableExpanded := new List<Type[]>()
+        applicableElements := new List<Type>()
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            if candidate != null && candidate.get_IsPublic() && !candidate.get_IsStatic() && !IsExpandedConstructorShape(candidate) {
+                parameters := candidate.GetParameters()
+                if parameters != null {
+                    openTypes := ConstructorParameterTypesOrNull(parameters)
+                    if openTypes != null {
+                        types := closedArguments.Length > 0 ? SubstituteTypeArguments(openTypes, closedArguments) : openTypes
+                        expanded := ColumnarParamsExpansion.ExpandedParameterTypesOrNull(parameters, types, 0, argumentTypes.Length)
+                        candidateElement := ColumnarParamsExpansion.ElementTypeOrNull(parameters, types)
+                        if expanded != null && candidateElement != null && !HasUnsupportedConstructorSignature(types, closedArguments) {
+                            applicable.Add(candidate)
+                            applicableDeclared.Add(types)
+                            applicableExpanded.Add(expanded)
+                            applicableElements.Add(candidateElement)
+                        }
+                    }
+                }
+            }
+
+            index = index + 1
+        }
+
+        selectedIndex := BestSourceConstructorIndex(applicableExpanded, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
+            return false
+        }
+
+        constructor = applicable[selectedIndex]
+        parameterTypes = applicableDeclared[selectedIndex]
+        elementType = applicableElements[selectedIndex]
+        return true
+    }
+
+    // The arguments of a selected runtime construction, in whichever form it selected. An expanded
+    // one emits its fixed arguments and then stores the rest into one fresh array; a normal one emits
+    // every written argument and fills whatever trailing defaults are left. Both leave the stack
+    // holding exactly the constructor's declared parameter list.
+    static func TryAppendRuntimeConstructorArguments(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, constructor: ConstructorInfo, parameterTypes: Type[], argumentCount: int, elementType: Type?): bool {
+        if elementType == null {
+            return ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, PrefixTypes(parameterTypes, argumentCount), argumentFacts) && TryAppendConstructorOptionalDefaults(plan, constructor, parameterTypes, argumentCount)
+        }
+
+        parameters := constructor.GetParameters()
+        if parameters == null {
+            return false
+        }
+
+        expanded := ColumnarParamsExpansion.ExpandedParameterTypesOrNull(parameters, parameterTypes, 0, argumentCount)
+        if expanded == null {
+            return false
+        }
+
+        return ColumnarDirectCallPlanner.AppendExpandedArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, expanded, argumentFacts, ColumnarParamsExpansion.FixedArgumentCount(parameterTypes, 0), elementType)
     }
 
     static func ConstructorParameterTypesOrNull(parameters: ParameterInfo[]): Type[]? {

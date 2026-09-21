@@ -153,7 +153,8 @@ class ColumnarNullableArgumentLowering {
         argumentTypes[0] = nullableArguments[0]
         selected: ConstructorInfo? = null
         selectedParameters := new Type[](0)
-        if !ColumnarConstructionPlanner.TrySelectClosedRuntimeConstructor(targetType, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(1), out selected, out selectedParameters) || selected == null {
+        selectedElementType: Type? = null
+        if !ColumnarConstructionPlanner.TrySelectClosedRuntimeConstructor(targetType, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(1), out selected, out selectedParameters, out selectedElementType) || selected == null || selectedElementType != null {
             return false
         }
 

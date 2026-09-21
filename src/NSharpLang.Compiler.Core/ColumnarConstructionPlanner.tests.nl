@@ -3937,7 +3937,8 @@ func ConstructionSelect(targetType: Type, argumentTypes: Type[]): ConstructorInf
     facts := ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length)
     selected: ConstructorInfo? = null
     parameters := new Type[](0)
-    if !ColumnarConstructionPlanner.TrySelectRuntimeConstructor(targetType, argumentTypes, facts, out selected, out parameters) {
+    elementType: Type? = null
+    if !ColumnarConstructionPlanner.TrySelectRuntimeConstructor(targetType, argumentTypes, facts, out selected, out parameters, out elementType) {
         return null
     }
 
@@ -4038,7 +4039,8 @@ test "two constructors that score equally decline rather than picking one" {
     selected: ConstructorInfo? = null
     parameters := new Type[](0)
     argumentTypes := ConstructionOneType(typeof(object))
-    assert !ColumnarConstructionPlanner.TrySelectRuntimeConstructor(writerType, argumentTypes, facts, out selected, out parameters)
+    nullLiteralElementType: Type? = null
+    assert !ColumnarConstructionPlanner.TrySelectRuntimeConstructor(writerType, argumentTypes, facts, out selected, out parameters, out nullLiteralElementType)
     assert selected == null
 
     // The same target with an argument only ONE constructor accepts selects that one.

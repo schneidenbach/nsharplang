@@ -71,13 +71,30 @@ class ColumnarExtensionMethodSelection {
     ReturnType: Type
     ExplicitArgumentCount: int
 
-    constructor(isSelected: bool, method: MethodInfo?, declaringType: Type, parameterTypes: Type[], returnType: Type, explicitArgumentCount: int) {
+    // NON-NULL WHEN THE CALL SITE PACKS ITS TAIL. The declared list above is unchanged — it is what
+    // the method's signature says and what the call instruction must agree with — so the element
+    // type is the one extra fact emission needs: every supplied argument from the fixed count on is
+    // stored into a fresh array of this type rather than pushed as its own parameter. Null is the
+    // ordinary call, including one that hands an already-built array to a `params` slot.
+    ParamsElementType: Type?
+
+    constructor(isSelected: bool, method: MethodInfo?, declaringType: Type, parameterTypes: Type[], returnType: Type, explicitArgumentCount: int, paramsElementType: Type? = null) {
         if declaringType == null || parameterTypes == null || returnType == null {
             throw new InvalidOperationException("Extension-method selection facts cannot be null.")
         }
 
-        if isSelected && (method == null || parameterTypes.Length < 1 || explicitArgumentCount < 0 || explicitArgumentCount > parameterTypes.Length - 1) {
+        if isSelected && (method == null || parameterTypes.Length < 1 || explicitArgumentCount < 0) {
             throw new InvalidOperationException("A selected extension method requires an exact static handle and a valid explicit-argument count.")
+        }
+
+        // An expanded call supplies one argument per PACKED value, so it may legitimately carry more
+        // arguments than the signature has slots; a normal one may never.
+        if isSelected && paramsElementType == null && explicitArgumentCount > parameterTypes.Length - 1 {
+            throw new InvalidOperationException("A selected extension method requires an exact static handle and a valid explicit-argument count.")
+        }
+
+        if isSelected && paramsElementType != null && explicitArgumentCount < parameterTypes.Length - 2 {
+            throw new InvalidOperationException("An expanded extension call must supply every fixed argument of the selected signature.")
         }
 
         IsSelected = isSelected
@@ -86,10 +103,11 @@ class ColumnarExtensionMethodSelection {
         ParameterTypes = parameterTypes
         ReturnType = returnType
         ExplicitArgumentCount = explicitArgumentCount
+        ParamsElementType = paramsElementType
     }
 
     static func None(): ColumnarExtensionMethodSelection {
-        return new ColumnarExtensionMethodSelection(false, null, typeof(object), new Type[](0), typeof(object), 0)
+        return new ColumnarExtensionMethodSelection(false, null, typeof(object), new Type[](0), typeof(object), 0, null)
     }
 }
 
@@ -296,6 +314,12 @@ class ColumnarExtensionMethodResolver {
         return MethodHasExtensionAttribute(method)
     }
 
+    // A `params` TAIL IS NOW A SHAPE, NOT AN EXCLUSION. It used to keep the whole method out of the
+    // index, which made `logger.LogDebug("…")` — and every other `LoggerExtensions` member, whose
+    // tail is `params object?[] args` — invisible to extension resolution entirely. The tail is
+    // admitted in its declared LAST position only, which is the only position C# allows it in, and
+    // `ColumnarParamsExpansion` decides at the call site whether the arguments pass through in
+    // normal form or pack into a fresh array.
     static func HasExcludedParameterShape(parameters: ParameterInfo[]): bool {
         index := 0
         while index < parameters.Length {
@@ -309,7 +333,7 @@ class ColumnarExtensionMethodResolver {
                 return true
             }
 
-            if IsParamsParameter(parameter) {
+            if IsParamsParameter(parameter) && index != parameters.Length - 1 {
                 return true
             }
 
@@ -455,11 +479,71 @@ class ColumnarExtensionMethodResolver {
             candidateIndex = candidateIndex + 1
         }
 
+        if bestCount == 0 {
+            // NOTHING BOUND IN NORMAL FORM, so the `params` tails get their turn — and only now, which
+            // is what keeps an ordinary overload preferred over a packed one. An AMBIGUITY in normal
+            // form is not "nothing bound": it is two equally good answers, and it declines here as it
+            // always has rather than being resolved by a rule the site never asked for.
+            return ResolveExpanded(candidates, receiverType, argumentTypes, argumentFacts)
+        }
+
         if bestCount != 1 || selected == null {
             return ColumnarExtensionMethodSelection.None()
         }
 
-        return new ColumnarExtensionMethodSelection(true, selected.Method, selected.DeclaringType, selected.ParameterTypes, selected.ReturnType, explicitCount)
+        return new ColumnarExtensionMethodSelection(true, selected.Method, selected.DeclaringType, selected.ParameterTypes, selected.ReturnType, explicitCount, null)
+    }
+
+    // THE EXPANDED TIER: every candidate whose last parameter is a `params` array, scored against the
+    // per-argument types the packing produces. The scorer is the shared one, given the expanded list,
+    // so `LogDebug("started")` picks the same conversion story an ordinary two-parameter call would.
+    //
+    // GENERIC DEFINITIONS ARE DELIBERATELY OUTSIDE THIS TIER. Inferring a method type argument from
+    // an argument that is a packed ELEMENT rather than a parameter is its own inference rule, and no
+    // call site has needed it: the shapes this exists for (`LoggerExtensions.LogDebug` and its four
+    // siblings, whose tail is `params object?[]`) are all non-generic. A generic `params` extension
+    // therefore still declines rather than being guessed at.
+    static func ResolveExpanded(candidates: List<ColumnarExtensionMethodCandidate>, receiverType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarExtensionMethodSelection {
+        explicitCount := argumentTypes.Length
+        bestScore := -1
+        bestParameterCount := 0
+        bestCount := 0
+        bestElementType: Type? = null
+        selected: ColumnarExtensionMethodCandidate? = null
+        candidateIndex := 0
+        while candidateIndex < candidates.Count {
+            candidate := candidates[candidateIndex]
+            if candidate != null && !candidate.Method.get_IsGenericMethodDefinition() && CandidateAppliesToReceiver(candidate, receiverType) {
+                parameters := ParametersOrNull(candidate.Method)
+                if parameters != null {
+                    expanded := ColumnarParamsExpansion.ExpandedParameterTypesOrNull(parameters, candidate.ParameterTypes, 1, explicitCount)
+                    elementType := ColumnarParamsExpansion.ElementTypeOrNull(parameters, candidate.ParameterTypes)
+                    if expanded != null && elementType != null {
+                        score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expanded, argumentTypes, argumentFacts)
+                        if score >= 0 {
+                            parameterCount := candidate.ParameterTypes.Length
+                            if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) {
+                                bestScore = score
+                                bestParameterCount = parameterCount
+                                bestCount = 1
+                                bestElementType = elementType
+                                selected = candidate
+                            } else if score == bestScore && parameterCount == bestParameterCount {
+                                bestCount = bestCount + 1
+                            }
+                        }
+                    }
+                }
+            }
+
+            candidateIndex = candidateIndex + 1
+        }
+
+        if bestCount != 1 || selected == null || bestElementType == null {
+            return ColumnarExtensionMethodSelection.None()
+        }
+
+        return new ColumnarExtensionMethodSelection(true, selected.Method, selected.DeclaringType, selected.ParameterTypes, selected.ReturnType, explicitCount, bestElementType)
     }
 
     // THE SAME SELECTION FOR A SITE THAT WROTE ITS TYPE ARGUMENTS. C#'s rule (ECMA-334 §12.6.4.1) is
@@ -523,7 +607,7 @@ class ColumnarExtensionMethodResolver {
         }
 
         chosen := candidates[0]
-        return new ColumnarExtensionMethodSelection(true, chosen.Method, chosen.DeclaringType, chosen.ParameterTypes, chosen.ReturnType, argumentCount)
+        return new ColumnarExtensionMethodSelection(true, chosen.Method, chosen.DeclaringType, chosen.ParameterTypes, chosen.ReturnType, argumentCount, null)
     }
 
     // The same candidate set, ranked by the argument-flow scorer every other call selection uses.
@@ -567,7 +651,7 @@ class ColumnarExtensionMethodResolver {
         }
 
         chosen := candidates[bestIndex]
-        return new ColumnarExtensionMethodSelection(true, chosen.Method, chosen.DeclaringType, chosen.ParameterTypes, chosen.ReturnType, explicitCount)
+        return new ColumnarExtensionMethodSelection(true, chosen.Method, chosen.DeclaringType, chosen.ParameterTypes, chosen.ReturnType, explicitCount, null)
     }
 
     // A non-generic candidate resolves as itself. A generic method DEFINITION resolves by inferring
@@ -829,6 +913,78 @@ class ColumnarExtensionMethodResolver {
         return 9
     }
 
+    // A `Nullable<T>` DEFAULT THAT HAS A VALUE — `long? fileSizeLimitBytes = 1073741824`,
+    // `int? retainedFileCountLimit = 31`. The constant in the callee's metadata is the UNDERLYING
+    // one (the row reads back as a `long`, not as a `Nullable<long>`), so the call site pushes that
+    // literal and wraps it: `newobj Nullable<T>::.ctor(T)`, which is exactly what a C# call site
+    // writes for the same omission. Until this row, such a parameter was unfillable and every
+    // overload carrying one was refused at every arity — `builder.AddFile(path)`, whose two trailing
+    // defaults are both of this shape, could not bind at all.
+    static func OptionalDefaultKindNullableValue(): int {
+        return 10
+    }
+
+    // The literal instruction a constant of this type takes, shared by the nullable wrap and the
+    // plain fill so the two cannot drift. `None` means no literal exists for it, which is the
+    // `decimal`/`DateTime` answer: those keep their defaults in an attribute, not in the Constant
+    // table.
+    static func ValueConstantKind(constantType: Type): int {
+        if constantType == typeof(int) || constantType == typeof(short) || constantType == typeof(ushort) || constantType == typeof(byte) || constantType == typeof(sbyte) || constantType == typeof(bool) || constantType == typeof(char) {
+            return OptionalDefaultKindInt32()
+        }
+
+        if constantType == typeof(uint) {
+            return OptionalDefaultKindUInt32()
+        }
+
+        if constantType == typeof(long) {
+            return OptionalDefaultKindInt64()
+        }
+
+        if constantType == typeof(ulong) {
+            return OptionalDefaultKindUInt64()
+        }
+
+        if constantType == typeof(float) {
+            return OptionalDefaultKindSingle()
+        }
+
+        if constantType == typeof(double) {
+            return OptionalDefaultKindDouble()
+        }
+
+        return OptionalDefaultKindNone()
+    }
+
+    // The type whose literal a value-typed default writes: an enum's underlying type, a
+    // `Nullable<T>`'s `T`, and otherwise the type itself.
+    static func ConstantCarrierType(resolvedType: Type): Type {
+        underlying := Nullable.GetUnderlyingType(resolvedType)
+        carrier := underlying ?? resolvedType
+        if carrier.get_IsEnum() {
+            return carrier.GetEnumUnderlyingType()
+        }
+
+        return carrier
+    }
+
+    // The `Nullable<T>::.ctor(T)` this wrap dispatches, or null when the type is not a nullable or
+    // its constructor cannot be read.
+    static func NullableValueConstructorOrNull(resolvedType: Type): ConstructorInfo? {
+        underlying := Nullable.GetUnderlyingType(resolvedType)
+        if underlying == null {
+            return null
+        }
+
+        signature := new Type[](1)
+        signature[0] = underlying
+        try {
+            return resolvedType.GetConstructor(signature)
+        } catch {
+            return null
+        }
+    }
+
     static func OptionalDefaultKind(parameter: ParameterInfo, resolvedType: Type, out defaultValue: object?): int {
         defaultValue = null
         if parameter == null || resolvedType == null || !parameter.get_IsOptional() {
@@ -878,38 +1034,105 @@ class ColumnarExtensionMethodResolver {
             return OptionalDefaultKindNone()
         }
 
-        constantType := resolvedType
-        if constantType.get_IsEnum() {
-            constantType = constantType.GetEnumUnderlyingType()
+        constantType := ConstantCarrierType(resolvedType)
+        constantKind := ValueConstantKind(constantType)
+        if constantKind == OptionalDefaultKindNone() {
+            return OptionalDefaultKindNone()
         }
 
         defaultValue = value
-        if constantType == typeof(int) || constantType == typeof(short) || constantType == typeof(ushort) || constantType == typeof(byte) || constantType == typeof(sbyte) || constantType == typeof(bool) || constantType == typeof(char) {
-            return OptionalDefaultKindInt32()
+
+        // A NULLABLE WITH A VALUE IS THE LITERAL PLUS A WRAP, and it needs the constructor to exist.
+        if Nullable.GetUnderlyingType(resolvedType) != null {
+            if NullableValueConstructorOrNull(resolvedType) == null {
+                defaultValue = null
+                return OptionalDefaultKindNone()
+            }
+
+            return OptionalDefaultKindNullableValue()
         }
 
-        if constantType == typeof(uint) {
-            return OptionalDefaultKindUInt32()
+        return constantKind
+    }
+
+    // Write the literal for a constant of `carrierType` into a plan.
+    static func TryAppendConstantLiteral(plan: ColumnarCodePlan, constantKind: int, defaultValue: object?): bool {
+        if constantKind == OptionalDefaultKindString() {
+            plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), plan.AddString((string)defaultValue))
+            return true
         }
 
-        if constantType == typeof(long) {
-            return OptionalDefaultKindInt64()
+        if constantKind == OptionalDefaultKindInt32() {
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(Convert.ToInt32(defaultValue)))
+            return true
         }
 
-        if constantType == typeof(ulong) {
-            return OptionalDefaultKindUInt64()
+        if constantKind == OptionalDefaultKindUInt32() {
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32((int)Convert.ToUInt32(defaultValue)))
+            return true
         }
 
-        if constantType == typeof(float) {
-            return OptionalDefaultKindSingle()
+        if constantKind == OptionalDefaultKindInt64() {
+            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), plan.AddInt64(Convert.ToInt64(defaultValue)))
+            return true
         }
 
-        if constantType == typeof(double) {
-            return OptionalDefaultKindDouble()
+        if constantKind == OptionalDefaultKindUInt64() {
+            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), plan.AddInt64((long)Convert.ToUInt64(defaultValue)))
+            return true
         }
 
-        defaultValue = null
-        return OptionalDefaultKindNone()
+        if constantKind == OptionalDefaultKindSingle() {
+            plan.AppendSingleInstruction(ColumnarCodePlanContract.LdcR4(), plan.AddSingle(Convert.ToSingle(defaultValue)))
+            return true
+        }
+
+        if constantKind == OptionalDefaultKindDouble() {
+            plan.AppendDoubleInstruction(ColumnarCodePlanContract.LdcR8(), plan.AddDouble(Convert.ToDouble(defaultValue)))
+            return true
+        }
+
+        return false
+    }
+
+    // The same literal, straight into an `ILGenerator`.
+    static func TryEmitConstantLiteral(il: ILGenerator, constantKind: int, defaultValue: object?): bool {
+        if constantKind == OptionalDefaultKindString() {
+            il.Emit(OpCodes.Ldstr, (string)defaultValue)
+            return true
+        }
+
+        if constantKind == OptionalDefaultKindInt32() {
+            il.Emit(OpCodes.Ldc_I4, Convert.ToInt32(defaultValue))
+            return true
+        }
+
+        if constantKind == OptionalDefaultKindUInt32() {
+            il.Emit(OpCodes.Ldc_I4, (int)Convert.ToUInt32(defaultValue))
+            return true
+        }
+
+        if constantKind == OptionalDefaultKindInt64() {
+            il.Emit(OpCodes.Ldc_I8, Convert.ToInt64(defaultValue))
+            return true
+        }
+
+        if constantKind == OptionalDefaultKindUInt64() {
+            il.Emit(OpCodes.Ldc_I8, (long)Convert.ToUInt64(defaultValue))
+            return true
+        }
+
+        if constantKind == OptionalDefaultKindSingle() {
+            il.Emit(OpCodes.Ldc_R4, Convert.ToSingle(defaultValue))
+            return true
+        }
+
+        if constantKind == OptionalDefaultKindDouble() {
+            il.Emit(OpCodes.Ldc_R8, Convert.ToDouble(defaultValue))
+            return true
+        }
+
+        return false
     }
 
     static func CanFillOptional(parameter: ParameterInfo, resolvedType: Type): bool {
@@ -953,38 +1176,22 @@ class ColumnarExtensionMethodResolver {
             return true
         }
 
-        if kind == OptionalDefaultKindString() {
-            plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), plan.AddString((string)defaultValue))
+        if kind == OptionalDefaultKindNullableValue() {
+            nullableConstructor := NullableValueConstructorOrNull(resolvedType)
+            if nullableConstructor == null || !TryAppendConstantLiteral(plan, ValueConstantKind(ConstantCarrierType(resolvedType)), defaultValue) {
+                return false
+            }
+
+            // THE SIGNATURE IS THE CONSTRUCTOR'S OWN `T`, not the literal's carrier: for a
+            // `Nullable<SomeEnum>` the two differ — the literal is the enum's underlying integer and
+            // the constructor still takes the enum.
+            wrapSignature := new Type[](1)
+            wrapSignature[0] = must Nullable.GetUnderlyingType(resolvedType)
+            plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), plan.AddConstructorWithSignature(nullableConstructor, resolvedType, wrapSignature))
             return true
         }
 
-        if kind == OptionalDefaultKindInt32() {
-            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(Convert.ToInt32(defaultValue)))
-            return true
-        }
-
-        if kind == OptionalDefaultKindUInt32() {
-            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32((int)Convert.ToUInt32(defaultValue)))
-            return true
-        }
-
-        if kind == OptionalDefaultKindInt64() {
-            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), plan.AddInt64(Convert.ToInt64(defaultValue)))
-            return true
-        }
-
-        if kind == OptionalDefaultKindUInt64() {
-            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), plan.AddInt64((long)Convert.ToUInt64(defaultValue)))
-            return true
-        }
-
-        if kind == OptionalDefaultKindSingle() {
-            plan.AppendSingleInstruction(ColumnarCodePlanContract.LdcR4(), plan.AddSingle(Convert.ToSingle(defaultValue)))
-            return true
-        }
-
-        plan.AppendDoubleInstruction(ColumnarCodePlanContract.LdcR8(), plan.AddDouble(Convert.ToDouble(defaultValue)))
-        return true
+        return TryAppendConstantLiteral(plan, kind, defaultValue)
     }
 
     // The same fill, written straight into an `ILGenerator` for the call sites that do not build a
@@ -1013,38 +1220,17 @@ class ColumnarExtensionMethodResolver {
             return true
         }
 
-        if kind == OptionalDefaultKindString() {
-            il.Emit(OpCodes.Ldstr, (string)defaultValue)
+        if kind == OptionalDefaultKindNullableValue() {
+            nullableConstructor := NullableValueConstructorOrNull(resolvedType)
+            if nullableConstructor == null || !TryEmitConstantLiteral(il, ValueConstantKind(ConstantCarrierType(resolvedType)), defaultValue) {
+                return false
+            }
+
+            il.Emit(OpCodes.Newobj, nullableConstructor)
             return true
         }
 
-        if kind == OptionalDefaultKindInt32() {
-            il.Emit(OpCodes.Ldc_I4, Convert.ToInt32(defaultValue))
-            return true
-        }
-
-        if kind == OptionalDefaultKindUInt32() {
-            il.Emit(OpCodes.Ldc_I4, (int)Convert.ToUInt32(defaultValue))
-            return true
-        }
-
-        if kind == OptionalDefaultKindInt64() {
-            il.Emit(OpCodes.Ldc_I8, Convert.ToInt64(defaultValue))
-            return true
-        }
-
-        if kind == OptionalDefaultKindUInt64() {
-            il.Emit(OpCodes.Ldc_I8, (long)Convert.ToUInt64(defaultValue))
-            return true
-        }
-
-        if kind == OptionalDefaultKindSingle() {
-            il.Emit(OpCodes.Ldc_R4, Convert.ToSingle(defaultValue))
-            return true
-        }
-
-        il.Emit(OpCodes.Ldc_R8, Convert.ToDouble(defaultValue))
-        return true
+        return TryEmitConstantLiteral(il, kind, defaultValue)
     }
 
     static func ReferenceAssignableFrom(expectedType: Type, actualType: Type): bool {
