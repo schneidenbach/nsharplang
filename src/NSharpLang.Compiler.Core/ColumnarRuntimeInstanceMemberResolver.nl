@@ -552,12 +552,23 @@ class ColumnarRuntimeInstanceMemberResolver {
         return true
     }
 
+    // THE FENCE IS THE BACKEND'S OWN QUESTION, NOT A SECOND LIST. This door is what makes an
+    // exception's, a `DateTime`'s and a reflected member's properties readable WITHOUT naming them,
+    // and it used to gate the result on `IsAdmittedValueType` alone -- a list of types somebody had
+    // needed, which is the very shape the receiver arms above stopped being. So `Exception.Data`
+    // (an `IDictionary`) and `AggregateException.InnerExceptions` (a
+    // `ReadOnlyCollection<Exception>`) declined although the columnar backend holds, stores and
+    // passes both types everywhere else, and so did every property a referenced package's exception
+    // adds whose type is an ordinary supported one. `IsOrdinaryReadableResultType` is the same
+    // question the general arm already asks -- can this value be held, stored and used from emitted
+    // IL -- and its comment says so; asking it here rather than half of it is what makes the "ANY
+    // readable instance property" rule above true.
     static func TrySelectAdmittedProperty(receiverType: Type, lookupType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
         selection = EmptySelection()
         getter: MethodInfo? = null
         declaringType := typeof(object)
         resultType := typeof(object)
-        if !TryResolveInheritedPublicGetter(lookupType, member, out getter, out declaringType, out resultType) || getter == null || !IsAdmittedValueType(resultType) || !ReceiverMatchesDeclaringType(receiverType, declaringType) {
+        if !TryResolveInheritedPublicGetter(lookupType, member, out getter, out declaringType, out resultType) || getter == null || !IsOrdinaryReadableResultType(resultType) || !ReceiverMatchesDeclaringType(receiverType, declaringType) {
             return false
         }
 
