@@ -1,8 +1,8 @@
 namespace NSharpLang.Iterators.Tests
 
+import System
 import System.Collections.Generic
 import System.Threading.Tasks
-import System
 
 
 // Covered-shape synchronous iterators (`func*`) lowered by the N# iterator planner through the

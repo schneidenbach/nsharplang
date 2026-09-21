@@ -1,6 +1,6 @@
 namespace NSharpLang.SystemsVectorizationFacts.Tests
-import System
 
+import System
 
 
 // RUNNING A KERNEL AND NAMING WHAT IT THREW.

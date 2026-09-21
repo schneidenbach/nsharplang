@@ -11,9 +11,9 @@ import NSharpLang.Compiler.Columnar
 // Public playground facade. The browser host calls these methods directly; all project analysis
 // and response shaping stays here so the host has one stable contract.
 sealed class PlaygroundCompiler {
-    public const SchemaVersion: int = 2
-    public const MaxSourceLength: int = 65536
-    public const MaxProjectSourceLength: int = 131072
+    const SchemaVersion: int = 2
+    const MaxSourceLength: int = 65536
+    const MaxProjectSourceLength: int = 131072
     private static DefaultFileName: string => "Program.nl"
 
     func GetCatalog(): PlaygroundCatalogResponse {

@@ -1,7 +1,7 @@
 namespace NSharpLang.GenericMemberTypes.Tests
 
-import System.Collections.Generic
 import System
+import System.Collections.Generic
 import System.Threading
 
 

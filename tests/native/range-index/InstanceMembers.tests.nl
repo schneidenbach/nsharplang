@@ -1,6 +1,6 @@
 namespace NSharpLang.RangeIndex.Tests
-import System
 
+import System
 
 enum InstanceMemberStatus {
     Ready

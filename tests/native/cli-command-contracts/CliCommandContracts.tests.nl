@@ -4031,28 +4031,7 @@ func ResultNamed(root: JsonElement, displayName: string): JsonElement {
 // against its own assembly. This row records the FIRST half, and it can only be seen from a test
 // the reflection runner is running — so the fixture asks the CLR where it is.
 test "the reflection runner loads the emitted assembly into a private collectible context" {
-    suite := "namespace ReflectionRunnerFixture\n" +
-        "\n" +
-        "import System\n" +
-        "import System.Runtime.Loader\n" +
-        "\n" +
-        "class NSharpTests {\n" +
-        "    func RunsInACollectibleNonDefaultContext() {\n" +
-        "        context := AssemblyLoadContext.GetLoadContext(typeof(NSharpTests).Assembly)\n" +
-        "        if context == null {\n" +
-        "            throw new InvalidOperationException(\"no load context\")\n" +
-        "        }\n" +
-        "        if !(must context).IsCollectible {\n" +
-        "            throw new InvalidOperationException(\"context is not collectible\")\n" +
-        "        }\n" +
-        "        if Object.ReferenceEquals(context, AssemblyLoadContext.Default) {\n" +
-        "            throw new InvalidOperationException(\"context is the default one\")\n" +
-        "        }\n" +
-        "        if (must context).Name != \"NativeTestLoadContext\" {\n" +
-        "            throw new InvalidOperationException(\"unexpected context name: \" + ((must context).Name ?? \"<null>\"))\n" +
-        "        }\n" +
-        "    }\n" +
-        "}\n"
+    suite := "namespace ReflectionRunnerFixture\n" + "\n" + "import System\n" + "import System.Runtime.Loader\n" + "\n" + "class NSharpTests {\n" + "    func RunsInACollectibleNonDefaultContext() {\n" + "        context := AssemblyLoadContext.GetLoadContext(typeof(NSharpTests).Assembly)\n" + "        if context == null {\n" + "            throw new InvalidOperationException(\"no load context\")\n" + "        }\n" + "        if !(must context).IsCollectible {\n" + "            throw new InvalidOperationException(\"context is not collectible\")\n" + "        }\n" + "        if Object.ReferenceEquals(context, AssemblyLoadContext.Default) {\n" + "            throw new InvalidOperationException(\"context is the default one\")\n" + "        }\n" + "        if (must context).Name != \"NativeTestLoadContext\" {\n" + "            throw new InvalidOperationException(\"unexpected context name: \" + ((must context).Name ?? \"<null>\"))\n" + "        }\n" + "    }\n" + "}\n"
     directory := ReflectionRunnerProject("nlc-test-reflection-alc", suite)
     try {
         run := NlcIn(directory, "test --no-cache --json")
@@ -4075,47 +4054,7 @@ test "the reflection runner loads the emitted assembly into a private collectibl
 // result are both awaited before the row is scored, and a body that throws reaches the reader as
 // ITS OWN exception rather than the `TargetInvocationException` reflection wrapped it in.
 test "the reflection runner honours lifecycle names, Ignore, both awaitables and the invocation unwrap" {
-    suite := "namespace ReflectionRunnerFixture\n" +
-        "\n" +
-        "import System\n" +
-        "import System.Threading.Tasks\n" +
-        "import NUnit.Framework\n" +
-        "\n" +
-        "class NSharpTests {\n" +
-        "    Log: string\n" +
-        "\n" +
-        "    constructor() {\n" +
-        "        Log = \"\"\n" +
-        "    }\n" +
-        "\n" +
-        "    func Setup() {\n" +
-        "        Log = \"setup\"\n" +
-        "    }\n" +
-        "\n" +
-        "    async func AwaitsAValueTask() {\n" +
-        "        await Task.Delay(1)\n" +
-        "        if Log != \"setup\" {\n" +
-        "            throw new InvalidOperationException(\"Setup did not run before the test body\")\n" +
-        "        }\n" +
-        "    }\n" +
-        "\n" +
-        "    async func AwaitsATask(): Task {\n" +
-        "        await Task.Delay(1)\n" +
-        "    }\n" +
-        "\n" +
-        "    [Ignore(\"prerequisite unavailable\")]\n" +
-        "    func IsIgnored() {\n" +
-        "        throw new InvalidOperationException(\"an ignored body must never run\")\n" +
-        "    }\n" +
-        "\n" +
-        "    func ThrowsItsOwnException() {\n" +
-        "        throw new InvalidOperationException(\"the reader's own sentence\")\n" +
-        "    }\n" +
-        "\n" +
-        "    func Teardown() {\n" +
-        "        Log = \"\"\n" +
-        "    }\n" +
-        "}\n"
+    suite := "namespace ReflectionRunnerFixture\n" + "\n" + "import System\n" + "import System.Threading.Tasks\n" + "import NUnit.Framework\n" + "\n" + "class NSharpTests {\n" + "    Log: string\n" + "\n" + "    constructor() {\n" + "        Log = \"\"\n" + "    }\n" + "\n" + "    func Setup() {\n" + "        Log = \"setup\"\n" + "    }\n" + "\n" + "    async func AwaitsAValueTask() {\n" + "        await Task.Delay(1)\n" + "        if Log != \"setup\" {\n" + "            throw new InvalidOperationException(\"Setup did not run before the test body\")\n" + "        }\n" + "    }\n" + "\n" + "    async func AwaitsATask(): Task {\n" + "        await Task.Delay(1)\n" + "    }\n" + "\n" + "    [Ignore(\"prerequisite unavailable\")]\n" + "    func IsIgnored() {\n" + "        throw new InvalidOperationException(\"an ignored body must never run\")\n" + "    }\n" + "\n" + "    func ThrowsItsOwnException() {\n" + "        throw new InvalidOperationException(\"the reader's own sentence\")\n" + "    }\n" + "\n" + "    func Teardown() {\n" + "        Log = \"\"\n" + "    }\n" + "}\n"
     directory := ReflectionRunnerProject("nlc-test-reflection-suite", suite)
     try {
         run := NlcIn(directory, "test --no-cache --json")
@@ -4162,15 +4101,7 @@ test "the reflection runner honours lifecycle names, Ignore, both awaitables and
 // filter that admits nothing exits 1 rather than reporting a green empty run. That rule is the same
 // on both routes, and it is the one a caller is most likely to hit by typo.
 test "a filter that admits nothing fails on the reflection route as it does on the xunit route" {
-    suite := "namespace ReflectionRunnerFixture\n" +
-        "\n" +
-        "class NSharpTests {\n" +
-        "    func AlphaPasses() {\n" +
-        "    }\n" +
-        "\n" +
-        "    func BetaPasses() {\n" +
-        "    }\n" +
-        "}\n"
+    suite := "namespace ReflectionRunnerFixture\n" + "\n" + "class NSharpTests {\n" + "    func AlphaPasses() {\n" + "    }\n" + "\n" + "    func BetaPasses() {\n" + "    }\n" + "}\n"
     directory := ReflectionRunnerProject("nlc-test-reflection-filter", suite)
     try {
         matched := NlcIn(directory, "test --no-cache --json --filter Alpha")
