@@ -12287,6 +12287,42 @@ sealed class ColumnarIlEmitter {
         return TryGetNamedValueBindingType(name, out bindingType) && ColumnarTypeOfPlanner.IsSupportedNullable(bindingType)
     }
 
+    // A CALL ONE OF WHOSE ARGUMENTS IS A BARE NAME FLOW HAS PROVED PRESENT, AND WHOSE DECLARATION GAVE
+    // THAT NAME A `Nullable<T>`. The sibling predicate above keeps the recursive door away from a
+    // narrowed member READ for one reason — the door resolves bindings from the raw maps, where the
+    // name still carries its declared `Nullable<T>` — and an ARGUMENT is the same fact in the other
+    // direction: the door would type the argument as `Nullable<T>` and find no candidate, while THIS
+    // emitter unwraps the read and passes a `T`. The disagreement is what made the analyzer's advice
+    // dangerous: NL907 calls the `must` in `IsCallable(must kind)` redundant — flow really has proved
+    // the value present, and `return kind`, `k: Kind = kind` and `kind == Kind.Method` all emit
+    // without it — but removing it left the call with no overload and declined the build.
+    //
+    // The whole call is handed to this emitter, which is the same yield the direct-call planner
+    // already performs for a contextual-lambda frame, and for the same reason: the door cannot see
+    // the fact that decides the call, so it must not decide it. Nothing that emits today changes
+    // shape — the set is empty outside a proven-present region, and inside one the door was either
+    // declining or about to disagree with the unwrap this emitter writes.
+    private func IsNarrowedNullableCallArgument(idx: int): bool {
+        if (_narrowedNonNull.Count == 0 || idx < 0 || idx >= _nodes.Kinds.Length || _nodes.Kind(idx) != 9) {
+            return false
+        }
+        for a := 1; a < _nodes.ChildCount(idx); a++ {
+            argument := UnwrapParenthesizedNode(Child(idx, a))
+            if (argument < 0 || _nodes.Kind(argument) != 6 || _nodes.ChildCount(argument) != 0) {
+                continue
+            }
+            name := ColumnarNodeTextFacts.Text(_nodes, _source, argument)
+            if (!_narrowedNonNull.Contains(name)) {
+                continue
+            }
+            let argumentBindingType: System.Type? = null
+            if (TryGetNamedValueBindingType(name, out argumentBindingType) && ColumnarTypeOfPlanner.IsSupportedNullable(argumentBindingType)) {
+                return true
+            }
+        }
+        return false
+    }
+
     // DOES THIS CALL'S CALLEE CARRY `[DoesNotReturn]`? The question is asked AFTER the call has been
     // emitted, so the shapes it reads are exactly the ones the emission resolved: a bare name that
     // bound to a sibling free function or to a static member of the enclosing type, and a
@@ -13010,7 +13046,15 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (nsharpOwned) {
-            return false
+            // A CALL THE DOOR CLAIMED AND THEN REFUSED, ONE OF WHOSE ARGUMENTS IS A NAME FLOW HAS
+            // PROVED PRESENT, IS HANDED BACK. The door types that argument from the raw maps, where
+            // the name still carries the `Nullable<T>` its declaration gave it; THIS emitter drops
+            // the shell and passes a `T`. The refusal is that disagreement, so the yield is asked
+            // only after it happens — a call the door ACCEPTS keeps its owner and its bytes.
+            if (!IsNarrowedNullableCallArgument(idx)) {
+                return false
+            }
+            legacyWholeSubtreePlanning = true
         }
         columnarSwitchValue2 := _nodes.Kind(idx)
         if columnarSwitchValue2 == 82 {
@@ -22574,7 +22618,34 @@ sealed class ColumnarIlEmitter {
         return (TryEmitTargetTypedNewAsType(argNode, expected, out argType) || TryEmitCollectionLiteralAsType(argNode, expected, out argType) || TryEmitArrayLiteralAsType(argNode, expected, out argType) || TryEmitZeroLiteralAsType(argNode, expected, out argType) || TryEmitIntLiteralAsType(argNode, expected, out argType) || EmitExpression(argNode, out argType)) && (TypesEquivalent(argType, expected) || TryEmitImplicitWidening(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false))
     }
 
+    // THE PREFLIGHT'S TWIN OF `EmitExpression`'S NARROWING DOOR, AND FOR THE SAME REASON IT EXISTS
+    // THERE. `EmitExpression` wraps the raw emission and drops a narrowed name's `Nullable<T>` shell
+    // over the value the ordinary path produced; this wraps the raw TYPE walk and drops the same
+    // shell from the answer. Without it the two walks disagreed about one value: flow had proved
+    // `v: int?` present, the emitter wrote a `Value` call and produced an `int`, and the preflight
+    // still answered `Nullable<int>` — so `Twice(v)` inside `if v != null` could not have an overload
+    // chosen for it and declined at `emit.return.expression`, while `return v`, `x: int = v`,
+    // `v * 2` and `k == Kind.Method` — every position that does NOT select on argument types — all
+    // emitted. NL907 then told the author the `must` that makes it compile is redundant, which is the
+    // one thing a diagnostic must never do: advise a change that breaks the build.
+    //
+    // The narrowing question is asked of the ORIGINAL node, exactly as the emission door asks it: a
+    // parenthesised read reaches its identifier one level down through this same wrapper, and
+    // `_preserveNullableNode` — the position whose own shape lowers the `Nullable<T>` itself — is the
+    // emitter's own, so preflight and emission are asked about the same position.
     private func TryGetPreflightExpressionType(node: int, out columnarResolvedType: Type): bool {
+        if (!TryGetPreflightExpressionTypeRaw(node, out columnarResolvedType)) {
+            return false
+        }
+        narrowedElement := NarrowedNullableElement(node, columnarResolvedType)
+        if (narrowedElement == null) {
+            return true
+        }
+        columnarResolvedType = narrowedElement
+        return true
+    }
+
+    private func TryGetPreflightExpressionTypeRaw(node: int, out columnarResolvedType: Type): bool {
         node = UnwrapParenthesizedNode(node)
         columnarResolvedType = null
         // A `?.` CHAIN'S TYPE IS DECIDED AT ITS ROOT, exactly as its VALUE is: the resolvers below
@@ -22810,8 +22881,12 @@ sealed class ColumnarIlEmitter {
             // the emitter then writes cannot disagree: the display type's own chain is asked first,
             // the enclosing chain only for a closure display, and an EXCLUDED definition is left to
             // the tiers below exactly as it is there.
+            // The `!= null` is load-bearing beyond taste: the arms around it read a selected
+            // definition straight out of the `out` slot and each pays for it with a front-door
+            // NL202/NL905 pair against the compiler's own ceiling. A new arm must not add two more, so
+            // this one states the postcondition the selector already guarantees.
             let capturedEnclosingMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
-            if (_currentStruct != null && _currentStruct.IsClosureDisplay && _enclosingType != null && TrySelectInstanceMethodOnChain(_enclosingType, calleeName, node, out capturedEnclosingMethod)) {
+            if (_currentStruct != null && _currentStruct.IsClosureDisplay && _enclosingType != null && TrySelectInstanceMethodOnChain(_enclosingType, calleeName, node, out capturedEnclosingMethod) && capturedEnclosingMethod != null) {
                 if (ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(capturedEnclosingMethod)) {
                     return false
                 }
