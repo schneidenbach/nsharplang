@@ -5362,10 +5362,12 @@ sealed class ColumnarIlEmitter {
                     continue
                 }
                 // A GENERIC instance method follows the same Reflection.Emit ordering as the static
-                // one. It does NOT take part in interface/base override resolution: a method that
-                // declares its own type parameters cannot match a non-generic declaration's signature,
-                // and an explicit `override` on one needs generic-aware base matching that this slice
-                // does not model — so it declines instead of silently emitting a NEW slot.
+                // one. It takes part in EXTERNAL INTERFACE resolution — `ILogger.Log<TState>` is the
+                // shape, and see `ColumnarExternalInterfaceMethodResolver.DeclaresGenericMethodSlot`
+                // for why the interface bits have to be decided from the name and arity BEFORE the
+                // signature exists. It still takes no part in BASE override resolution: an explicit
+                // `override` on one needs generic-aware base matching that this slice does not model,
+                // so it declines instead of silently emitting a NEW slot.
                 let mGenerics: NSharpLang.Compiler.Columnar.ColumnarGenericMethodFacts? = null
                 let mTypeParamMap: System.Collections.Generic.Dictionary<string, System.Type>? = null
                 let mGenericBuilder: System.Reflection.Emit.MethodBuilder? = null
@@ -5382,7 +5384,11 @@ sealed class ColumnarIlEmitter {
                     let declaredInstanceTypeParams: System.Collections.Generic.Dictionary<string, System.Type> = null
                     let declaredInstanceResolution: NSharpLang.Compiler.Columnar.ColumnarSemanticTypeResolution = null
                     let declaredInstanceGenerics: NSharpLang.Compiler.Columnar.ColumnarGenericMethodFacts = null
-                    if (!TryDeclareSourceGenericMethod(def, m, mi, (MethodAttributes)methodOverride.BaseMethodAttributes, typeResolutionCatalog, out declaredInstanceBuilder, out declaredInstanceTypeParams, out declaredInstanceResolution, out declaredInstanceGenerics)) {
+                    genericDeclarationAttributes := methodOverride.BaseMethodAttributes
+                    if (ColumnarExternalInterfaceMethodResolver.DeclaresGenericMethodSlot(def.ExternalInterfaces, m.Name, m.TypeParamNames.Length, m.ParamNames.Length)) {
+                        genericDeclarationAttributes = genericDeclarationAttributes | 64 | 32 | 256
+                    }
+                    if (!TryDeclareSourceGenericMethod(def, m, mi, (MethodAttributes)genericDeclarationAttributes, typeResolutionCatalog, out declaredInstanceBuilder, out declaredInstanceTypeParams, out declaredInstanceResolution, out declaredInstanceGenerics)) {
                         return DeclineStatic("emit.declaration.method-generic-constraint", "generic constraints on '" + structs[s].Name + "." + m.Name + "' are not modeled", structs[s].Name, -1, 0)
                     }
                     mGenericBuilder = declaredInstanceBuilder
@@ -5450,6 +5456,29 @@ sealed class ColumnarIlEmitter {
                     genericInstanceDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
                     genericInstanceDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
                     genericInstanceDefinition.Generics = mGenerics
+                    // THE MethodImpl ROW FOR A GENERIC SLOT. The declaration bits were already set
+                    // above; this is where the slot the signature really fills is found, and the row
+                    // that names it is written. `Complete` is asked only for its targets — the
+                    // `MethodBuilder` exists, so its attributes are settled and `DefineMethod` is not
+                    // called.
+                    if (mGenerics != null) {
+                        ColumnarExternalInterfaceMethodResolver.AddMatchingTargets(
+                            methodOverride,
+                            def.ExternalInterfaces,
+                            m.Name,
+                            mSignatureReturn,
+                            mParamTypes,
+                            mTypeResolution.Structs.StructuralTypeReferences,
+                            mGenerics.TypeParams
+                        )
+                        if (methodOverride.ExternalTargetCount > 0) {
+                            genericOverrideCompletion := methodOverride.Complete(def.ExactBaseType, def.BaseDef, m.Name, mSignatureReturn, mParamTypes, mTypeResolution.Structs.StructuralTypeReferences)
+                            if (!genericOverrideCompletion.IsValid) {
+                                return DeclineStatic(genericOverrideCompletion.DeclineCode, genericOverrideCompletion.DeclineMessage, genericOverrideCompletion.DeclineOwnerName, -1, 0)
+                            }
+                            genericOverrideCompletion.Apply(def.Builder, declaredGenericInstance, mTypeResolution.Structs.StructuralTypeReferences)
+                        }
+                    }
                     AddInstanceMethod(def, m.Name, genericInstanceDefinition)
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, declaredGenericInstance, mSignatureReturn, mReturn, mAsyncWrappedReturn, mOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(mParamTypeMap, false)))
                     continue

@@ -46,6 +46,15 @@ func ExternalMemberRequiredGenericMethod(owner: Type, name: string): MethodInfo 
     throw new InvalidOperationException("The external-member generic method was not found: " + name)
 }
 
+func ExternalMemberRequiredNonGenericMethod(owner: Type, name: string): MethodInfo {
+    for candidate in owner.GetMethods() {
+        if candidate.get_Name() == name && !candidate.get_IsGenericMethod() {
+            return candidate
+        }
+    }
+    throw new InvalidOperationException("The external-member non-generic method was not found: " + name)
+}
+
 func ExternalMemberRequiredNamedMethod(owner: Type, name: string): MethodInfo {
     for candidate in owner.GetMethods() {
         if candidate.get_Name() == name {
@@ -73,6 +82,27 @@ func ExternalMemberRequiredBinding(
     parameterTypes: Type[],
     table: ColumnarStructuralTypeReferenceTable
 ): ColumnarExternalInterfaceMethodBinding {
+    return ExternalMemberRequiredGenericBinding(
+        lookupContext,
+        memberName,
+        returnType,
+        parameterTypes,
+        table,
+        ColumnarExternalInterfaceMethodMatch.EmptyTypeParameters()
+    )
+}
+
+// The GENERIC form: the implementation's own type parameter list, which the match unifies with the
+// slot's by position. A fixture that hands back the slot's own parameters is asking for the identity
+// substitution, which is what an implementation written against that exact slot produces.
+func ExternalMemberRequiredGenericBinding(
+    lookupContext: Type,
+    memberName: string,
+    returnType: Type,
+    parameterTypes: Type[],
+    table: ColumnarStructuralTypeReferenceTable,
+    implementationTypeParameters: Type[]
+): ColumnarExternalInterfaceMethodBinding {
     declaration := DeclarationPlanOverrideDeclaration(memberName, "external", false)
     interfaces := new List<Type>()
     interfaces.Add(lookupContext)
@@ -82,7 +112,8 @@ func ExternalMemberRequiredBinding(
         memberName,
         returnType,
         parameterTypes,
-        table
+        table,
+        implementationTypeParameters
     )
     completion := declaration.Complete(null, returnType, parameterTypes)
     targets := completion.Targets
@@ -91,6 +122,31 @@ func ExternalMemberRequiredBinding(
     }
     bindingObject: object? = targets[0].ExternalInterfaceBinding
     return (ColumnarExternalInterfaceMethodBinding)bindingObject
+}
+
+// Whether a declaration with that type-parameter list binds the slot at all. It is the same walk the
+// required form runs, reported rather than demanded.
+func ExternalMemberBindsWithTypeParameters(
+    lookupContext: Type,
+    memberName: string,
+    returnType: Type,
+    parameterTypes: Type[],
+    table: ColumnarStructuralTypeReferenceTable,
+    implementationTypeParameters: Type[]
+): bool {
+    declaration := DeclarationPlanOverrideDeclaration(memberName, "external", false)
+    interfaces := new List<Type>()
+    interfaces.Add(lookupContext)
+    ColumnarExternalInterfaceMethodResolver.AddMatchingTargets(
+        declaration,
+        interfaces,
+        memberName,
+        returnType,
+        parameterTypes,
+        table,
+        implementationTypeParameters
+    )
+    return declaration.ExternalTargetCount > 0
 }
 
 func ExternalMemberRequiredDescriptor(
@@ -371,12 +427,26 @@ test "external generic methods retain authoritative MVAR owner and open custom m
     genericParameters := genericMethod.GetGenericArguments()
     assert genericParameters.Length == 1
     table := new ColumnarStructuralTypeReferenceTable()
-    genericBinding := ExternalMemberRequiredBinding(
+    // A SLOT THAT DECLARES ITS OWN TYPE PARAMETER IS ONLY FILLED BY A DECLARATION THAT DECLARES ONE
+    // TOO, and the two lists are unified by position. Passing the slot's own list is the identity
+    // substitution; passing NONE is what `class C: IQueryProvider { func Execute(…) }` would be, and
+    // it no longer matches — the MethodImpl row that match used to produce named a method the class
+    // does not have, and the type it emitted could not load.
+    assert !ExternalMemberBindsWithTypeParameters(
         queryProvider,
         "Execute",
         genericParameters[0],
         ExternalMemberParameterTypes(genericMethod),
-        table
+        table,
+        ColumnarExternalInterfaceMethodMatch.EmptyTypeParameters()
+    )
+    genericBinding := ExternalMemberRequiredGenericBinding(
+        queryProvider,
+        "Execute",
+        genericParameters[0],
+        ExternalMemberParameterTypes(genericMethod),
+        table,
+        genericParameters
     )
     descriptor := ExternalMemberRequiredDescriptor(genericBinding)
     assert descriptor.Validate(table)
@@ -751,4 +821,78 @@ test "external override execution validates every descriptor before any attachme
     assert secondMapped.get_DeclaringType() == secondInterface
     assert firstMapped.get_Name() == "Run"
     assert secondMapped.get_Name() == "Run"
+}
+
+// A GENERIC INTERFACE METHOD'S SLOT, MATCHED BY UNIFYING TWO TYPE-PARAMETER LISTS BY POSITION.
+//
+// `IQueryProvider.Execute<TResult>(Expression)` is the framework's own copy of the `ILogger.Log`
+// shape: the slot's `TResult` belongs to the interface's `MethodDef` and the implementation writes
+// its own. The rows below use a SECOND framework generic method's parameter as the stand-in for that
+// implementation-owned parameter, which is exactly the "different handle, same position" situation
+// the match previously answered `no` to.
+test "a generic interface slot unifies its type parameters with the implementation's by position" {
+    queryProvider := ExternalMemberRequiredType(
+        "System.Linq.IQueryProvider, System.Linq.Expressions"
+    )
+    execute := ExternalMemberRequiredGenericMethod(queryProvider, "Execute")
+    slotParameters := execute.GetGenericArguments()
+    assert slotParameters.Length == 1
+
+    // A DIFFERENT MVAR IN THE SAME POSITION. `CreateQuery<TElement>` declares its own type
+    // parameter, so `foreignParameter` is not the handle the slot is written in — comparing the two
+    // by identity is what declined `class CapturedLogger: ILogger`.
+    createQuery := ExternalMemberRequiredGenericMethod(queryProvider, "CreateQuery")
+    foreignParameters := createQuery.GetGenericArguments()
+    assert foreignParameters.Length == 1
+    assert foreignParameters[0] != slotParameters[0]
+
+    table := new ColumnarStructuralTypeReferenceTable()
+    assert ExternalMemberBindsWithTypeParameters(
+        queryProvider,
+        "Execute",
+        foreignParameters[0],
+        ExternalMemberParameterTypes(execute),
+        table,
+        foreignParameters
+    )
+
+    // THE ARITY IS PART OF THE MATCH IN BOTH DIRECTIONS. A declaration that writes no type parameter
+    // cannot fill a slot that declares one, and one that writes a type parameter the slot does not
+    // have cannot fill it either.
+    assert !ExternalMemberBindsWithTypeParameters(
+        queryProvider,
+        "Execute",
+        typeof(object),
+        ExternalMemberParameterTypes(execute),
+        table,
+        ColumnarExternalInterfaceMethodMatch.EmptyTypeParameters()
+    )
+    nonGeneric := ExternalMemberRequiredNonGenericMethod(queryProvider, "Execute")
+    assert !ExternalMemberBindsWithTypeParameters(
+        queryProvider,
+        "Execute",
+        nonGeneric.get_ReturnType(),
+        ExternalMemberParameterTypes(nonGeneric),
+        table,
+        foreignParameters
+    )
+    assert ExternalMemberBindsWithTypeParameters(
+        queryProvider,
+        "Execute",
+        nonGeneric.get_ReturnType(),
+        ExternalMemberParameterTypes(nonGeneric),
+        table,
+        ColumnarExternalInterfaceMethodMatch.EmptyTypeParameters()
+    )
+
+    // A SUBSTITUTION THAT DOES NOT LAND ON THE SLOT'S TYPE IS STILL A MISMATCH: unifying the lists
+    // decides which handle stands for which, not whether the rest of the signature agrees.
+    assert !ExternalMemberBindsWithTypeParameters(
+        queryProvider,
+        "Execute",
+        typeof(string),
+        ExternalMemberParameterTypes(execute),
+        table,
+        foreignParameters
+    )
 }

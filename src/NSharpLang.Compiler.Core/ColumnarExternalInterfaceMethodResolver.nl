@@ -37,13 +37,36 @@ class ColumnarExternalInterfaceMethodMatch {
     ParameterCount: int => parameterCountValue
     Matched: bool => matchedValue
 
-    constructor(target: MethodInfo, name: string, returnType: Type, parameterTypes: Type[]) {
+    constructor(target: MethodInfo, name: string, returnType: Type, parameterTypes: Type[]): this(target, name, returnType, parameterTypes, EmptyTypeParameters()) {
+    }
+
+    // A GENERIC INTERFACE METHOD'S SLOT IS COMPARED THROUGH THE IMPLEMENTATION'S OWN TYPE PARAMETERS.
+    //
+    // `ILogger.Log<TState>` declares `TState` on the METHOD, so the slot's parameter list is written in
+    // a type parameter that belongs to the interface's `MethodDef`; the class that fills it writes its
+    // own `TState`, a different `GenericTypeParameterBuilder`. Comparing those two by identity is what
+    // made `class CapturedLogger: ILogger` answer `does not implement 'ILogger.Log'` — a capturing test
+    // logger was unwritable in N#. The CLR's rule is unification BY POSITION (ECMA-335 II.9.9): the two
+    // lists are the same length and the Nth of one stands for the Nth of the other, exactly as the
+    // builder-bound arm already substitutes a TYPE's arguments. So the slot's return and parameter
+    // types are substituted with the implementation's parameters before they are compared.
+    //
+    // ARITY IS PART OF THE MATCH IN BOTH DIRECTIONS, and it was not checked at all before. A slot
+    // `void Ping<T>()` and a declaration `func Ping()` agreed on every type there was to compare —
+    // there are none — so the match said yes and the MethodImpl row it produced named a method the
+    // class does not have. That type emits and then fails to LOAD.
+    //
+    // The stored parameter and return rows stay exactly what REFLECTION reports, unsubstituted: the
+    // descriptor built from this match validates the interface's own open/effective signature pair, and
+    // a row rewritten in the implementer's type parameters is not that pair.
+    constructor(target: MethodInfo, name: string, returnType: Type, parameterTypes: Type[], implementationTypeParameters: Type[]) {
         effectiveReturn := typeof(object)
         parameters := new List<object>()
-        matched := target.get_Name() == name
+        matched := target.get_Name() == name && OpenMethodTypeParameterCount(target) == implementationTypeParameters.Length
         if matched {
             effectiveReturn = target.get_ReturnType()
-            matched = ColumnarTypeEquivalenceFacts.TypesEquivalent(effectiveReturn, returnType)
+            comparedReturn := SubstituteSlotType(effectiveReturn, implementationTypeParameters)
+            matched = comparedReturn != null && ColumnarTypeEquivalenceFacts.TypesEquivalent(comparedReturn, returnType)
             if matched {
                 reflectedParameters := target.GetParameters()
                 matched = reflectedParameters.Length == parameterTypes.Length
@@ -52,7 +75,8 @@ class ColumnarExternalInterfaceMethodMatch {
                     while index < reflectedParameters.Length {
                         reflectedParameter := reflectedParameters[index]
                         effectiveParameter := reflectedParameter.get_ParameterType()
-                        if !ColumnarTypeEquivalenceFacts.TypesEquivalent(effectiveParameter, parameterTypes[index]) {
+                        comparedParameter := SubstituteSlotType(effectiveParameter, implementationTypeParameters)
+                        if comparedParameter == null || !ColumnarTypeEquivalenceFacts.TypesEquivalent(comparedParameter, parameterTypes[index]) {
                             matched = false
                             break
                         }
@@ -68,6 +92,30 @@ class ColumnarExternalInterfaceMethodMatch {
         parametersValue = parameters.AsReadOnly()
         parameterCountValue = parameters.Count
         matchedValue = matched
+    }
+
+    // The slot's own type as the implementer would have had to write it. With no method type
+    // parameters in play the substitution is the identity, so the non-generic path is byte-identical to
+    // what it was before this arm existed.
+    static func SubstituteSlotType(slotType: Type, implementationTypeParameters: Type[]): Type? {
+        if implementationTypeParameters.Length == 0 {
+            return slotType
+        }
+        return ColumnarRuntimeGenericMethodResolver.SubstituteMethodTypeArguments(slotType, implementationTypeParameters)
+    }
+
+    // HOW MANY TYPE PARAMETERS THE SLOT'S SIGNATURE STILL LEAVES OPEN, which is how many the
+    // implementation has to declare. A generic method DEFINITION leaves its own list open; a
+    // CONSTRUCTED handle leaves none, because every one of them has already been substituted away.
+    static func OpenMethodTypeParameterCount(target: MethodInfo): int {
+        if !target.get_IsGenericMethodDefinition() {
+            return 0
+        }
+        return target.GetGenericArguments().Length
+    }
+
+    static func EmptyTypeParameters(): Type[] {
+        return new Type[](0)
     }
 
     func EffectiveParameter(index: int): ColumnarExternalInterfaceMethodMatchParameter {
@@ -649,10 +697,24 @@ class ColumnarExternalInterfaceMethodResolver {
         parameterTypes: Type[],
         table: ColumnarStructuralTypeReferenceTable
     ) {
+        AddMatchingTargets(declaration, externalInterfaces, memberName, returnType, parameterTypes, table, ColumnarExternalInterfaceMethodMatch.EmptyTypeParameters())
+    }
+
+    static func AddMatchingTargets(
+        declaration: ColumnarMethodOverrideDeclaration,
+        externalInterfaces: List<Type>,
+        memberName: string,
+        returnType: Type,
+        parameterTypes: Type[],
+        table: ColumnarStructuralTypeReferenceTable,
+        implementationTypeParameters: Type[]
+    ) {
         for declaredInterface in externalInterfaces {
             for externalInterface in InterfaceRequirementClosure(declaredInterface) {
                 if ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(externalInterface) {
-                    AddBuilderBoundMatchingTargets(declaration, externalInterface, memberName, returnType, parameterTypes)
+                    if implementationTypeParameters.Length == 0 {
+                        AddBuilderBoundMatchingTargets(declaration, externalInterface, memberName, returnType, parameterTypes)
+                    }
                     continue
                 }
                 for externalMethod in externalInterface.GetMethods() {
@@ -660,7 +722,8 @@ class ColumnarExternalInterfaceMethodResolver {
                         externalMethod,
                         memberName,
                         returnType,
-                        parameterTypes
+                        parameterTypes,
+                        implementationTypeParameters
                     )
                     if matchedSignature.Matched {
                         declaration.AddExternalTarget(new ColumnarExternalInterfaceMethodBinding(
@@ -710,7 +773,11 @@ class ColumnarExternalInterfaceMethodResolver {
         returnType: Type,
         parameterTypes: Type[]
     ): bool {
-        if openMethod.get_Name() != memberName {
+        // A builder-bound construction's slot is reached through `TypeBuilder.GetMethod`, which takes
+        // no method type arguments, so a GENERIC slot on one is not a shape this arm can bind. It is
+        // refused by arity rather than by failing to compare its own type parameters against the
+        // implementer's — a comparison that answered `matched` for the empty signature `void Ping<T>()`.
+        if openMethod.get_Name() != memberName || openMethod.GetGenericArguments().Length != 0 {
             return false
         }
         effectiveReturn := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openMethod.get_ReturnType(), closedArguments)
@@ -899,6 +966,7 @@ class ColumnarExternalInterfaceMethodResolver {
                     }
                     implementationObject: object? = implementation
                     actualImplementation := (ColumnarInstanceMethodDef)implementationObject
+                    implementationTypeParameters := ImplementationTypeParameters(actualImplementation)
                     if builderBound {
                         if !BuilderBoundSignatureMatches(
                             externalMethod,
@@ -916,7 +984,8 @@ class ColumnarExternalInterfaceMethodResolver {
                         externalMethod,
                         externalMethod.get_Name(),
                         actualImplementation.ReturnType,
-                        actualImplementation.ParamTypes
+                        actualImplementation.ParamTypes,
+                        implementationTypeParameters
                     )
                     if !matchedSignature.Matched {
                         unsatisfiedMember = UnsatisfiedMemberName(externalInterface, externalName)
@@ -926,6 +995,47 @@ class ColumnarExternalInterfaceMethodResolver {
             }
         }
         return true
+    }
+
+    // THE TYPE PARAMETERS A DECLARATION WROTE, or the empty list. `Generics` is null for every
+    // non-generic member, which is the overwhelming majority, so the empty array is the identity
+    // substitution the match above applies.
+    static func ImplementationTypeParameters(implementation: ColumnarInstanceMethodDef): Type[] {
+        generics := implementation.Generics
+        if generics == null {
+            return ColumnarExternalInterfaceMethodMatch.EmptyTypeParameters()
+        }
+        return generics.TypeParams
+    }
+
+    // WHETHER A GENERIC DECLARATION COULD FILL AN INTERFACE SLOT AT ALL, asked BEFORE its own
+    // `MethodBuilder` exists.
+    //
+    // A method that implements an interface slot has to be declared `virtual newslot final`, and
+    // Reflection.Emit fixes a method's attributes at `DefineMethod` — but a GENERIC method's signature
+    // cannot be resolved until its type parameters are defined, which happens inside that same call. So
+    // the full signature match cannot decide the attributes; this name-and-arity question can, and it
+    // is a SUPERSET of the full match (a full match agrees on the name and on the generic arity), so
+    // the bits are set whenever they are needed. When it answers yes and the full match then finds no
+    // slot, the completeness walk reports the interface unsatisfied and the type declines — it does not
+    // emit a type that cannot load.
+    static func DeclaresGenericMethodSlot(externalInterfaces: List<Type>, memberName: string, typeParameterCount: int, parameterCount: int): bool {
+        if typeParameterCount == 0 {
+            return false
+        }
+        for declaredInterface in externalInterfaces {
+            for externalInterface in InterfaceRequirementClosure(declaredInterface) {
+                if ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(externalInterface) {
+                    continue
+                }
+                for externalMethod in externalInterface.GetMethods() {
+                    if externalMethod.get_Name() == memberName && ColumnarExternalInterfaceMethodMatch.OpenMethodTypeParameterCount(externalMethod) == typeParameterCount && externalMethod.GetParameters().Length == parameterCount {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
     }
 
     // The slot as a reader would go looking for it: the interface's own name, then the member — and
