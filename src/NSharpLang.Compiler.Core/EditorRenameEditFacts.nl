@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-import System
 import System.Collections.Generic
 
 // ONE EDIT, IN THE EDITOR'S OWN 0-BASED COORDINATES. The compiler's reference results are 1-based

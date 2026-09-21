@@ -50,7 +50,7 @@ internal static class CallHierarchyProtocol
     {
         var range = new LspRange(
             location.Line, location.Column,
-            location.Line, location.Column + Math.Max(1, location.Length));
+            location.Line, location.Column + CodeIntel.EditorSymbolLookupFacts.SelectionWidth(location.Length));
 
         return new CallHierarchyItem
         {
@@ -67,10 +67,8 @@ internal static class CallHierarchyProtocol
         return new LspRange(range.Line, range.StartCharacter, range.Line, range.EndCharacter);
     }
 
-    internal static bool IsFunctionLocation(SymbolLocation location)
-    {
-        return location.Kind is ServerSymbolKind.Function or ServerSymbolKind.Method;
-    }
+    internal static CodeIntel.EditorSymbolTableKind TableKind(ServerSymbolKind kind)
+        => (CodeIntel.EditorSymbolTableKind)(int)kind;
 }
 
 /// <summary>
@@ -123,18 +121,20 @@ public class CallHierarchyPrepareHandler : CallHierarchyPrepareHandlerBase
                 return Task.FromResult<Container<CallHierarchyItem>?>(null);
             }
 
-            var funcLoc = locations.FirstOrDefault(CallHierarchyProtocol.IsFunctionLocation);
-            if (funcLoc == null)
+            var declared = CodeIntel.EditorSymbolLookupFacts.FirstCallableIndex(
+                locations.Select(location => CallHierarchyProtocol.TableKind(location.Kind)).ToList());
+            if (declared < 0)
             {
                 return Task.FromResult<Container<CallHierarchyItem>?>(null);
             }
+            var funcLoc = locations[declared];
 
             // The selection range is where the editor recorded the NAME, in the symbol location's
             // own 0-based coordinates. Only the wider range comes from the AST, and only when the
             // declaration is found there — otherwise the node is exactly the name.
             var selectionRange = new LspRange(
                 funcLoc.Line, funcLoc.Column,
-                funcLoc.Line, funcLoc.Column + Math.Max(1, funcLoc.Length));
+                funcLoc.Line, funcLoc.Column + CodeIntel.EditorSymbolLookupFacts.SelectionWidth(funcLoc.Length));
 
             var declaration = CodeIntel.EditorCallHierarchyFacts.FunctionAtLine(
                 doc.CompilationUnit, word, funcLoc.Line + 1);
@@ -167,17 +167,14 @@ public class CallHierarchyPrepareHandler : CallHierarchyPrepareHandlerBase
 
     private static bool IsFunctionSymbol(Models.DocumentState doc, string word)
     {
-        if (doc.SymbolsInfo != null && doc.SymbolsInfo.TryGetValue(word, out var symbolInfo))
-        {
-            return symbolInfo.Kind is ServerSymbolKind.Function or ServerSymbolKind.Method;
-        }
+        CodeIntel.EditorSymbolTableKind? typedKind = doc.SymbolsInfo != null && doc.SymbolsInfo.TryGetValue(word, out var symbolInfo)
+            ? CallHierarchyProtocol.TableKind(symbolInfo.Kind)
+            : null;
+        var locationKinds = doc.SymbolLocations != null && doc.SymbolLocations.TryGetValue(word, out var locations)
+            ? locations.Select(location => CallHierarchyProtocol.TableKind(location.Kind)).ToList()
+            : null;
 
-        if (doc.SymbolLocations != null && doc.SymbolLocations.TryGetValue(word, out var locations))
-        {
-            return locations.Any(CallHierarchyProtocol.IsFunctionLocation);
-        }
-
-        return false;
+        return CodeIntel.EditorSymbolLookupFacts.IsCallableSymbol(typedKind, locationKinds);
     }
 
     protected override CallHierarchyRegistrationOptions CreateRegistrationOptions(
@@ -364,16 +361,18 @@ public class CallHierarchyOutgoingHandler : CallHierarchyOutgoingHandlerBase
     {
         if (originDoc.SymbolLocations != null && originDoc.SymbolLocations.TryGetValue(calleeName, out var locations))
         {
-            var funcLoc = locations.FirstOrDefault(CallHierarchyProtocol.IsFunctionLocation);
-            if (funcLoc != null)
+            var here = CodeIntel.EditorSymbolLookupFacts.FirstCallableIndex(
+                locations.Select(location => CallHierarchyProtocol.TableKind(location.Kind)).ToList());
+            if (here >= 0)
             {
-                return CallHierarchyProtocol.ToItem(funcLoc);
+                return CallHierarchyProtocol.ToItem(locations[here]);
             }
         }
 
-        var bestLoc = _documentManager.FindSymbolLocations(calleeName)
-            .FirstOrDefault(CallHierarchyProtocol.IsFunctionLocation);
+        var workspace = _documentManager.FindSymbolLocations(calleeName);
+        var best = CodeIntel.EditorSymbolLookupFacts.FirstCallableIndex(
+            workspace.Select(location => CallHierarchyProtocol.TableKind(location.Kind)).ToList());
 
-        return bestLoc == null ? null : CallHierarchyProtocol.ToItem(bestLoc);
+        return best < 0 ? null : CallHierarchyProtocol.ToItem(workspace[best]);
     }
 }

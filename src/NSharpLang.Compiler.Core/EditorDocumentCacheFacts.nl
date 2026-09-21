@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-import System
 import System.Collections.Generic
 
 // ONE TRACKED DOCUMENT'S CACHE ROW: which buffer it is and when the editor last touched it. The
