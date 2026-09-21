@@ -1553,16 +1553,17 @@ class FormatterWalk {
 
                 textPart := part as InterpolatedStringText
                 if textPart != null {
-                    if interpolated.IsRaw {
-                        // A raw string's braces are literal in source and have to be doubled to
-                        // survive a round trip through the non-raw reader.
-                        rawText := textPart.Text
-                        escaped := rawText.Replace("{", "{{", StringComparison.Ordinal)
-                        escaped = escaped.Replace("}", "}}", StringComparison.Ordinal)
-                        builder.Append(escaped)
-                    } else {
-                        builder.Append(textPart.Text)
-                    }
+                    // A LITERAL BRACE IS DOUBLED IN SOURCE AND SINGLE IN THE PART, IN BOTH SPELLINGS,
+                    // and the non-raw arm used to write the part back verbatim. `$"a {{b}} c"` — which
+                    // the language reads as one text part `a {b} c` and prints as `a {b} c` — was
+                    // reprinted as `$"a {b} c"`, where `{b}` is a HOLE: the formatter turned a literal
+                    // brace into a reference to a name that is usually not even in scope. That is a
+                    // formatter changing what a program means, which it may never do. A raw string's
+                    // braces are literal for a different reason (nothing doubles them there) and reach
+                    // the same doubling, so both spellings now write the one escape.
+                    escaped := textPart.Text.Replace("{", "{{", StringComparison.Ordinal)
+                    escaped = escaped.Replace("}", "}}", StringComparison.Ordinal)
+                    builder.Append(escaped)
                 } else {
                     holePart := part as InterpolatedStringHole
                     if holePart != null {

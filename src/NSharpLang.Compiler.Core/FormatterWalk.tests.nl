@@ -344,12 +344,26 @@ test "an array creation names the ELEMENT type and not the array type" {
 
 // ---- (h) the interpolated string --------------------------------------------------------------
 
-test "a plain interpolated string writes its holes and leaves braces in text alone" {
+// THIS CONTRACT USED TO ASSERT `$"a{b}{x}"` FOR A TEXT PART `a{b}`, AND CALL IT "leaves braces in
+// text alone". It was output no reader round-trips: a text part's brace is LITERAL, and the only way
+// to write a literal brace in an interpolated string is to double it — so the formatter was turning
+// `$"a{{b}} {x}"`, which prints `a{b} <x>`, into `$"a{b}{x}"`, where `{b}` is a HOLE referring to a
+// name that is usually not in scope. A formatter may not change what a program means, and the
+// assertion that said it could is replaced, not relaxed.
+test "a plain interpolated string doubles the literal braces in its text and writes its holes" {
     parts := new List<InterpolatedStringPart>()
     parts.Add(new InterpolatedStringText("a{b}", 0, 0))
     parts.Add(new InterpolatedStringHole(FwkIdentifier("x"), null, 0, 0))
     expression := new InterpolatedStringExpression(parts, 0, 0, false)
-    assert FwkExpressionText(expression) == "$\"a{b}{x}\""
+    assert FwkExpressionText(expression) == "$\"a{{b}}{x}\""
+}
+
+test "a plain interpolated string with no braces at all is written unchanged" {
+    parts := new List<InterpolatedStringPart>()
+    parts.Add(new InterpolatedStringText("total: ", 0, 0))
+    parts.Add(new InterpolatedStringHole(FwkIdentifier("x"), null, 0, 0))
+    expression := new InterpolatedStringExpression(parts, 0, 0, false)
+    assert FwkExpressionText(expression) == "$\"total: {x}\""
 }
 
 test "a RAW interpolated string doubles the braces in its text" {
