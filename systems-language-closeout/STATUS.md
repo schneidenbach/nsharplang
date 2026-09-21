@@ -31,7 +31,225 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-### Census wave 13 — current closeout cursor (2026-09-20)
+### Census wave 14 — current closeout cursor (2026-09-20)
+
+**Tip.** Wave 14 is integrated, **pushed, gated and reseeded** through `977d336cf` on `census/merge`,
+which **equals `origin/systems-language`** (pushed 2026-09-20). Nineteen commits since the wave-13
+docs tip `ec3bb3050`. The integration checkout is clean. **A new bootstrap seed WAS published** —
+`977d336cf` republishes the two-pass seed packed at source `ebaf2eb1d`, superseding `6a50c373e`.
+
+| Required step | State | Receipt |
+|---|---|---|
+| CLI owner conversion, lane 4 | **PARTIAL** — 4 owners moved; blocked on a **user decision** | `3195323f8`, `c8484368a`, `c61df0392` |
+| LanguageServer owner conversion, lane 3 | **PARTIAL** — nine handlers → protocol glue | `f250f9773`, `fec639eb5`, `23c6c650e` |
+| Compiler blockers, rounds 2–3 | **9 LANDED**; LS2 BLOCK-1's mechanism CORRECTED | `7336b2d48` … `77215f1fe` |
+| Async-iterator completion race | **FIXED**, pre-existing | `ebaf2eb1d` |
+| Playground / Runtime / Wasm-hosting | **NOT STARTED** | — |
+| Gates at `23c6c650e` | non-VS **FAILED** (cross-lane fixture break) | `evidence/combined-23c6c650e/` |
+| Gates at `11197708d` | non-VS **PASS** / VS **FAILED** (the async race) | `evidence/combined-11197708d/` |
+| Gates at `ebaf2eb1d` | **both PASS**; pushed | `evidence/combined-ebaf2eb1d/` |
+| Second real reseed (packed source `ebaf2eb1d`) | **SUCCESS, first try** | `evidence/reseed-ebaf2eb1d/reseed.log` |
+| Gates on seed commit `977d336cf` | **both PASS** | `evidence/seed-977d336cf/` |
+| Push to `origin/systems-language` | DONE 2026-09-20 | `977d336cf` |
+| Extension reload | **SUCCEEDED** | `evidence/seed-977d336cf/reload-extension.log` |
+| Rendered visual IDE proof | **STILL OWED** | never produced |
+| Converter census at the new seed | DONE | `evidence/seed-977d336cf/converter/RECEIPT.md` |
+
+**Not a completion claim.** The managed-toolchain production migration is NOT complete. Measured at
+`977d336cf` with `find <project> -name '*.cs' -not -path '*/obj/*' -not -path '*/bin/*' | xargs wc -l`:
+
+| Project | C# lines | Files | at `d57586f54` |
+|---|---:|---:|---|
+| `src/NSharpLang.LanguageServer` | **5,738** | 31 | 8,167 / 31 |
+| `src/NSharpLang.Cli` | **932** | 3 | 3,335 / 6 |
+| `src/NSharpLang.Runtime` | 861 | 4 | 861 / 4 |
+| `src/NSharpLang.Playground.Wasm` | 71 | 2 | 71 / 2 |
+| `src/NSharpLang.Playground` | 0 | 0 | 0 |
+| `.Compiler`, `.Compiler.Core`, `.Build.Tasks`, `.Sdk` | 0 | 0 | 0 |
+
+Remaining CLI C#: `Program.Testing.cs` 614 · `Program.cs` 163 · `Commands/WatchCommand.cs` 155.
+Largest LanguageServer survivors: `DocumentManager.cs` 1,449 · `CompletionHandler.cs` 620 ·
+`CallHierarchyHandler.cs` 399 · `SemanticTokensHandler.cs` 260 · `TypeHierarchyHandler.cs` 231 ·
+`CodeActionHandler.cs` 217.
+
+**What moved — CLI lane 4.** `3195323f8` daemon server + `nlc daemon` → `DaemonServer.nl` (760) and
+`DaemonCommand.nl` (91), `Daemon/DaemonServer.cs` (632) and `Commands/DaemonCommand.cs` (96) both
+**deleted**; `c8484368a` `nlc query` → `QueryCommand.nl` (1,401), `Commands/QueryCommand.cs` (1,081)
+**deleted**; `c61df0392` `build`/`run`/`publish`/`new`/`format` → `ProgramCommands.nl` (592),
+`Program.cs` **757 → 163**; `b5429fe99` reads a perf fact's path from `filePath` so an N# type can
+carry it. All four owners land in `src/NSharpLang.Compiler`, not in the Cli project.
+
+**What moved — LS lane 3.** `f250f9773` moved seven handlers' decisions into N# `Editor*Facts`
+owners (on-type formatting 221→85, document link 186→77, go-to-implementation 272→104, document
+symbol 262→99, inlay hint 373→81, type hierarchy 402→231, selection range 552→79); `fec639eb5` two
+more (call hierarchy 734→399 `EditorCallHierarchyFacts`, semantic tokens 842→260
+`EditorSemanticTokenFacts`); `23c6c650e` added five glue-level rows estate rows structurally cannot
+reach (`System.Uri` canonicalisation, a link on the third line of a block comment, every document
+symbol's range containing its own selection range at every depth, selection-range parents ending at
+the whole file, the closing-brace edit replacing its whole line) — `language-server-handlers`
+139 → 144 — and bound seven inline nullable dereferences to asserted locals, taking Core's front
+door **back to 1,340 exactly**. Findings recorded rather than papered over: the inlay hint's type
+text **really is nullable** (the C# declared `string` while returning it), so the owner says
+`string?`; the selection-range walk's threaded target COLUMN was never supplied by any caller and is
+gone, with a row saying so; the call-hierarchy outgoing walk's reach is **partial and always was**
+(`for` header, `try`, `switch`, `using`, `lock` unsearched) and now says so.
+
+**Compiler blockers, rounds 2–3 — nine landed.** `7336b2d48` a `catch` clause's type resolved in the
+compilation's own type universe (new `census-catch-types` 10); `ff9c7351c` `Process`'s whole
+instance surface + a struct's defaulted optional (new `census-process-members` 8); `a249df6c2` an
+inherited interface member through a source-typed generic receiver (new
+`census-source-typed-generic-receiver` 6); `22844df87` `System.IO.Pipelines` in the one
+common-assembly table (new `census-pipelines` 3); `fb7e5e473` enumerator-protocol import repair;
+`179023f47` a **compiler-owned `AssemblyLoadContext`** for package references; `c44be120b` a
+by-reference argument may name a static field (`Ldsflda`; new `census-static-field-references` 8);
+`d556db18c` a quoted region inside an interpolation hole is opaque; `77215f1fe` declared variance
+read when a constructed generic upcasts.
+
+**LS2 BLOCK-1's reported mechanism was WRONG — durable finding.** `nlc restore` was not the defect:
+`Sdk.targets` runs `LoadProjectReferences` before `_GenerateRestoreProjectSpec`, so a `project.yml`
+`nuget:` dependency already becomes a real `PackageReference`, restores, and arrives in
+`@(ReferencePath)`. Writing the same items into the generated props as well would only produce
+**NU1504 duplicates — measured.** The real defect was assembly **identity**: `Assembly.LoadFrom`
+binds into the DEFAULT context, which holds one assembly per simple name, so inside MSBuild the
+SDK's own `Microsoft.Extensions.Logging.Abstractions` answered instead of the project's 9.0.0
+package; `TryLoadExactRuntimeAssembly` rightly refused the mismatched identity and the reference
+stayed metadata-only, declining every signature naming one of its types at
+`emit.declaration.field-type`. `ExternalAssemblyScan` now owns one load context and consults it only
+after the default context fails to answer with the exact identity. **Re-measure a reported mechanism
+before building on it.**
+
+**Async-iterator completion race — `ebaf2eb1d`, pre-existing, not a regression.** An `async func*`
+drive completed its pending `MoveNextAsync` from inside the body's protected regions and only then
+ran the `leave`. `SetResult` releases the consumer, and the promise is built
+`RunContinuationsAsynchronously` so resumption runs **beside** the frame; the `leave` and the
+state-guarded handlers it walks all read `<>__state`, which the re-drive's dispatch writes first —
+lose the race and a handler runs the `finally` twice. **Measured pre-existing: 35/5000 at the parent
+and 37/5000 at the published base `ec3bb3050`, where `EmitAsyncComplete` is byte-identical.** After
+the fix **0/5000**: relay stress 5000/5000 idle and 5000/5000 under 8-way contention (load ~11), the
+named test 200/200 idle and 150/150 contended. The completion is now **recorded rather than
+delivered** — stored in `<>__result`, the one `SetResult` standing past the last `EndExceptionBlock`
+as the last thing `MoveNextCore` does — and the regression reads that ordering off the realized plan
+rows, so it is a **deterministic fact, not a race that has to be provoked**.
+
+**Gate history — two failures, then a clean pair, then the seed. Honestly, in order.**
+
+1. **`23c6c650e` non-VS FAILED (`EXIT=1`, 32m41s)** on `census-internals-visible-to`. A
+   **cross-lane fixture break, not a product defect**: the friend-grant fixture stood on
+   `SemanticTokenLocation`, an internal record struct the LS ownership lane moved into
+   `EditorSemanticTokenFacts` and deleted; 27 rows went red. `load averages: 1.90 2.50 2.86`.
+2. **`11197708d`** re-points the fixture at internals the lanes **produce**: the positive arm on
+   `NSharpLang.LanguageServer.Program` (named in full, because N# puts this file's free functions in
+   `Tests.Program`; constructed with `newobj` on a non-public type, passed across two call
+   signatures and read back through `typeof`, so the CLR re-checks the grant at run time), the
+   refusal arm on `CallHierarchyProtocol`. Its **non-VS gate PASSED** (`EXIT=0`, 32m43s, cache
+   `5e47abbf6cfc310c`); its **VS-enabled gate FAILED** (`EXIT=1`, 33m34s) on `census-iterators` —
+   the async race above, surfacing under the VS run's higher load.
+3. **`ebaf2eb1d` — both PASS** (`evidence/combined-ebaf2eb1d/`, `load averages: 1.90 2.76 3.37`):
+   non-VS `EXIT=0` **32m38s cache `a53a7509754f0d53`** (1958s); VS-enabled `EXIT=0` **33m40s cache
+   `7f6b99bc8493c148`** (2020s). Pushed, and the packed source for the reseed.
+
+**Second real reseed — SUCCESS on the first try** (`evidence/reseed-ebaf2eb1d/reseed.log`, `EXIT=0`;
+byte-identical to `evidence/seed-977d336cf/reseed.log`). Contrast 2026-09-19, which needed four
+attempts. Stage 1 and stage 2 clean self-rebuilds of `Compiler.Core` after `rm -rf obj bin` +
+`--force-evaluate` restore: **0 Warning(s), 0 Error(s)** both, 1m07.89s and 1m08.32s. **Exact byte
+equality both stages** — `reseed.sh` SHA-256-compares the restored NuGet-cache package against the
+verified bootstrap package and aborts with `Error: restored NuGet cache package differs from
+verified bootstrap` if they differ; it did not abort, and `verify-bootstrap.py` printed
+`Pinned bootstrap SDK and runtime verified` at both stages. Estate against the new seed
+**9,418 / 0 / 0** in 17s. Published hashes: Sdk
+`59627b7d892ed9e9c19d0a94d3f900c7a7998c97faa8fc15219a8d8f6252b9f6`, Runtime
+`b6fb63a56874a534fb3546618745c2732495819f17da98d5a886efc68fca5098` (previous seed: `bf4a1f9c…` /
+`35f1a227…`). Seed commit **`977d336cf`**, packed source `ebaf2eb1d`, ownership head
+**`head-v2:1b2165aa23326dff`**, **audit 25/25**; the commit's whole diff is five files, six lines.
+
+**Gate pair on the seed commit `977d336cf` — both PASS** (`evidence/seed-977d336cf/`, pinned in
+`SHA256SUMS`; `load-before-gate.txt` records `load averages: 1.94 2.82 2.91` at 20:37): non-VS
+**PASS `EXIT=0`, 32m37s, cache `89e9ee3b0f336d6d`** (1957s); VS-enabled **PASS `EXIT=0`, 33m40s,
+cache `c8bb9fd0492ef697`** (2020s) with **36 VS Code smoke passing, 0 pending/skipped** in 42s.
+Stages exactly as the non-VS log prints them:
+
+- **Format contract gate** PASSED — `All files are properly formatted.` ×4.
+- **Throughput:** `PASS: 12 cells, 0 failed, tolerance 1.20x`; **worst 1.01x**
+  (`count-transitions`/4096, 583.086 → 587.840 ns); **load average { 2.98 2.86 2.91 }**, 10 cores;
+  baseline unchanged (2026-09-01, idle Apple M4, `8cf40128a`). 0m32s. VS run: **worst 1.04x**
+  (`rolling-hash`, both sizes, 42.249 → 44.103 and 4765.592 → 4962.264) at **load { 4.37 3.99
+  3.65 }**.
+- **Self-host front door:** `Compiler.Core: 1340 diagnostics (at the ceiling)`; `Build.Tasks: 0
+  diagnostics (at the ceiling)`; **`Compiler` and `Playground` BLOCKED behind Compiler.Core, NOT
+  COUNTED**. 11m31s.
+- **Estate:** `Failed: 0, Passed: 9418, Skipped: 0, Total: 9418`, 14s (VS run 16s).
+- **Native:** **115 rows, 4,651 passed, 0 failed, 1 skipped, 4,652 total**, 17m05s. Within it:
+  **gate-script contracts 38/38 MEASURED**; **ownership audit 25/25**; **compile-time bench 74
+  functional pass, timing STILL UNJUDGED** — no verdict, no load and no ms printed for that row.
+  Do not claim it judged.
+- **`nlc check`:** 26 example directories, all PASSED. **IL:** `All 80 N# assemblies pass IL
+  verification (no new errors vs baseline)`, 19s.
+- **Row delta fully accounted:** 110 → **115** rows (+5, all new projects); 4,593 → **4,651**
+  (**+58**) = five new blocker regressions **+35** (`census-catch-types` 10,
+  `census-process-members` 8, `census-static-field-references` 8,
+  `census-source-typed-generic-receiver` 6, `census-pipelines` 3) plus six existing projects **+23**
+  (`language-server-handlers` 139→144, `census-emit-shapes` 100→104, `cli-command-contracts`
+  201→205, `daemon-command` 28→32, `readonly-dictionary-widening` 10→14,
+  `sdk-project-reference-boundary` 25→27). The one skip is the same intentional
+  `census-testrefs` 7/0/1/8. Estate **9,326 → 9,418 (+92)**.
+
+**Extension reload SUCCEEDED; rendered visual IDE proof STILL OWED.**
+`evidence/seed-977d336cf/reload-extension.log`: `nsharp-0.6.0.vsix` packaged (300 files, 4.87 MB),
+`Extension 'nsharp-0.6.0.vsix' was successfully installed.`, sample project opened, **`LanguageServer.dll`
+pid 19822 (child of plugin host 19809) started Sun Sep 20 21:45:30 2026**. The two prior waves'
+"VS Code would not quit" blocker is **gone**, and the installed extension now matches `977d336cf`.
+**That closes the reload debt and nothing else.** No rendered observation has ever been made, and
+the debt now covers this wave's nine migrated handlers' user-visible behaviour on top of wave 13's
+still-unseen signature help and hover accessibility marker.
+
+**Converter census at the new seed** (`evidence/seed-977d336cf/converter/RECEIPT.md`; converter
+unchanged at `b9a49e0`, `convert-all.sh` exit 0, `census-merge` clean before and after):
+**43 files / 62 diagnostics / 2 stubs** against **51 / 86 / 11** at `d932566aa` — runtime 0 (0),
+languageserver **8** (10), cli **4** (26), playground-wasm 22 (22), tests 28 (28); mapped constructs
+32,591 → 17,534. **Read the delta as DELETION, not fixing:** the CLI corpus went 11 converted files
+→ 3, and 22 of the CLI's 24 lost diagnostics were attached to files that no longer exist.
+`runtime`/`playground-wasm`/`tests` are the control group — C# unchanged, identical row-for-row,
+code-for-code and first-site-for-first-site. **Two rows moved the WRONG way: NL402 +4 and NL010 +2**,
+new converter debt created by this round's own N# lanes (calls into the new `Editor*Facts` owners
+and the imports around them are not yet taught).
+
+**OPEN DECISIONS — the user's, and the CLI lane is blocked on the first.**
+(1) **Test-runner host: `Compiler.dll` or a new assembly?** `Program.Testing.cs` (614 lines) holds
+the xunit and reflection runners; `Compiler.csproj` does not and must not reference xunit, and
+`NativeTestLoadContext` derives from `AssemblyLoadContext`. `Execute` cannot move while `nlc test`
+is C#; `WatchCommand.cs` re-enters `Program.Execute`; `GetVersion` must keep reading `Cli.dll`'s
+assembly or `nlc --version` starts lying. **Architectural, not a compiler defect.**
+(2) **Ship the CLI as an N#-SDK project symbol-less until a portable PDB exists?**
+
+**Still open (compiler).** Nullability metadata across the assembly boundary (the widest CLI2
+defect); `System.Uri` unmodeled — which is exactly why document-link canonicalisation stayed in C#;
+`JsonSerializer` 1-arg `Serialize` and `Deserialize<T>`; `OfType` on a **call receiver**
+(`MakeList().OfType<T>()`; `b73d55d41` answered only the non-generic extension SLOT);
+`ldelema` / `in` arguments; `nlc format` does not round-trip `{{`; **12 out-of-gate-scope
+`format --check` failures** (11 under `tests/native` + `src/NSharpLang.Playground/PlaygroundCompiler.nl`
+— `tests/native` is not in the gate's format step, which is why the gate is green while these stand;
+carried from the dispatch brief, **not re-measured at this tip**); **3 `CS0436` duplicate-`Program`
+warnings** in the Cli build, now at `Commands/WatchCommand.cs(129,20)`, `Program.cs(156,23)`,
+`Program.cs(159,23)` (line numbers moved with `c61df0392`) — do not silence with `NoWarn`; and the
+**IVT metadata-grant test will need a new subject when LS/Cli flip** — `11197708d` says so itself:
+when `LanguageServer.Program` or `CallHierarchyProtocol` goes, `LanguageServer.dll` and its
+`InternalsVisibleTo("Tests")` grant go with it and the fixture is rewritten whole. IVT2's three
+original leftovers are unchanged (non-friend MEMBER refusals still emit-time `NL103`; `query def` on
+a metadata member → `noSymbol`; free functions of a referenced N# assembly unreachable).
+
+**Lessons (also filed in §2):** a conversion lane deleting a type can break another lane's fixture —
+pick subjects the lanes **produce**, not ones they remove; a load-sensitive race hides in the
+cheaper gate (non-VS passed and VS failed at the same commit) — never read one green gate as
+covering the pair; measure "pre-existing" before calling it pre-existing (harness at the parent AND
+at the published base, plus a byte-identical-emitter check); convert an ordering race into a
+plan-row assertion so the regression is deterministic; a reported blocker's mechanism can be wrong
+(LS2 BLOCK-1 named `nlc restore`; the defect was assembly identity in the default load context).
+
+**NO COMPLETION CLAIM.**
+
+### Census wave 13 — superseded cursor (2026-09-20)
+
+*Superseded by the wave-14 cursor above. Retained as written.*
 
 **Tip.** Wave 13 is integrated, **pushed and gated** through `d57586f54` on `census/merge`, which
 **equals `origin/systems-language`** (pushed 2026-09-20). Sixteen commits since the wave-12 tip
