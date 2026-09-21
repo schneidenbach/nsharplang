@@ -7220,20 +7220,52 @@ sealed class ColumnarIlEmitter {
         // wrapper blocks on GetAwaiter().GetResult(), declared BEFORE CreateType() so it bakes with Program.
         // TEST DECLARATIONS consume planned attributes and the standard body emitter.
         if (declarationPlan.CustomAttributes.TestBlobs.Length > 0) {
+            // THE TEST FRAMEWORK IS THE ONE THE REFERENCE SET CARRIES, NOT ALWAYS xunit.
+            //
+            // `project.yml`'s `testFramework: nunit` is already honoured everywhere else — the restore
+            // writes `nunit.framework` and NOT xunit (`TestFrameworkReferenceSet`), and `nlc test`
+            // already routes such a project to the reflection runner — but this lowering resolved
+            // `Xunit.FactAttribute` unconditionally, so an nunit project with a single `test` block
+            // could not BUILD: `emit.tests.framework: xunit attribute types were not resolvable in
+            // this emit host`, with nothing said about the framework the project chose.
+            //
+            // WHICH FRAMEWORK IS ASKED OF THE REFERENCE SET RATHER THAN THREADED THROUGH THE EMITTER,
+            // and that is not a shortcut: the reference set is DERIVED from `testFramework`, an nunit
+            // project does not reference xunit and an xunit project does not reference nunit, so
+            // "which attribute type resolves" and "which framework was configured" are the same
+            // question asked of the same input. xunit is tried first, so a project that somehow
+            // carries both keeps exactly the emission it has today.
             let factAttributeType: System.Type = null
             let traitAttributeType: System.Type = null
+            frameworkName := TestFrameworkReferenceSet.XunitFrameworkName()
             try {
                 hostProbeNames := TestFrameworkReferenceSet.HostProbeAssemblyNames(TestFrameworkReferenceSet.XunitFrameworkName())
                 factAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.FactAttribute", referenceAssemblyPaths, hostProbeNames)
                 traitAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.TraitAttribute", referenceAssemblyPaths, hostProbeNames)
             } catch ignoredTestFrameworkResolution: InvalidOperationException {
-                return DeclineStatic("emit.tests.framework", "xunit attribute types were not resolvable in this emit host", "NSharpTests", -1, 0)
+                factAttributeType = null
+                traitAttributeType = null
+            }
+
+            if (factAttributeType == null || traitAttributeType == null) {
+                frameworkName = TestFrameworkReferenceSet.NUnitFrameworkName()
+                try {
+                    nunitProbeNames := TestFrameworkReferenceSet.HostProbeAssemblyNames(TestFrameworkReferenceSet.NUnitFrameworkName())
+                    // NUnit's `[Test]` marks the method and `[Property(name, value)]` carries the
+                    // key/value pair xunit spells `[Trait]`; both are what its own runners and the
+                    // VSTest adapter discover, so a `test` block reaches either framework's tooling as
+                    // the same declaration the author wrote.
+                    factAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("NUnit.Framework.TestAttribute", referenceAssemblyPaths, nunitProbeNames)
+                    traitAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("NUnit.Framework.PropertyAttribute", referenceAssemblyPaths, nunitProbeNames)
+                } catch ignoredNUnitFrameworkResolution: InvalidOperationException {
+                    return DeclineStatic("emit.tests.framework", "neither xunit nor nunit attribute types were resolvable in this emit host", "NSharpTests", -1, 0)
+                }
             }
 
             traitCtor := traitAttributeType.GetConstructor([typeof(string), typeof(string)])
             factCtor := factAttributeType.GetConstructor(Type.EmptyTypes)
             if (traitCtor == null || factCtor == null) {
-                return DeclineStatic("emit.tests.framework", "xunit attribute constructors were not resolvable", "NSharpTests", -1, 0)
+                return DeclineStatic("emit.tests.framework", frameworkName + " attribute constructors were not resolvable", "NSharpTests", -1, 0)
             }
 
             testType := module.DefineType("NSharpTests", TypeAttributes.Public | TypeAttributes.Class)
