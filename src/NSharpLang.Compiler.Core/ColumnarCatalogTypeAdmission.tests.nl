@@ -23,12 +23,26 @@ test "external type admission round trips the selected catalog identity in both 
         metadataVoid := scan.Context.LoadFromAssemblyName("System.Private.CoreLib").GetType("System.Void")
         assert metadataVoid != null
         assert !ColumnarTypeOfPlanner.IsSupportedType(metadataVoid)
-        // The original 38-row decode used a different catalog for its 22/22 claim. The product's
-        // shared common scan has no Uri entry; this is resolution, before type admission.
+        // THE `Uri` ROW IS NOW ITS POSITIVE FORM, AND IT IS STILL ABOUT RESOLUTION BEFORE ADMISSION.
+        // It used to read Missing and recorded why: "the product's shared common scan has no Uri
+        // entry". That was never an admission rule -- `System.Uri` is an ordinary catalog identity
+        // and always would have been admitted -- it was the scan's resolver being unable to follow
+        // `System.Runtime`'s type FORWARDER into `System.Private.Uri`, which is not one of the
+        // inspected entries. The forwarder lands now, so resolution answers and admission then says
+        // what it always said.
         uri := ExternalAssemblyScan.FindExactType(scan, "System.Uri")
-        assert uri.Status == ExternalAssemblyTypeLookupStatus.Missing
-        assert !uri.HasRuntimeType
-        assert uri.SemanticTypeIdentity == ""
+        assert uri.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert uri.HasRuntimeType
+        assert ExternalAssemblyScan.SemanticIdentityMatches(uri.SemanticTypeIdentity, "System.Uri, System.Private.Uri")
+        assert ColumnarTypeOfPlanner.IsSupportedCatalogType(uri.RuntimeType)
+
+        // AND THE SEPARATION THE ROW EXISTS FOR IS UNCHANGED: a name no inspected entry declares and
+        // no inspected entry forwards is still Missing, so a familiar-looking namespace is still not
+        // evidence.
+        absent := ExternalAssemblyScan.FindExactType(scan, "System.Nsharp.NotARealType")
+        assert absent.Status == ExternalAssemblyTypeLookupStatus.Missing
+        assert !absent.HasRuntimeType
+        assert absent.SemanticTypeIdentity == ""
     } finally {
         scan.Dispose()
     }

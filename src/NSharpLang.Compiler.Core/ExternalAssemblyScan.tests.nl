@@ -64,6 +64,39 @@ test "external assembly scan resolves common types through metadata with exact r
     assert scan.Context == null
 }
 
+// A TYPE FORWARDER MUST BE ABLE TO LAND. `System.Runtime` declares almost nothing and forwards
+// almost everything, so a scan whose resolver holds only the files the scan itself inspects cannot
+// follow a forwarder out of that facade: `System.Uri` lives in `System.Private.Uri`, which nobody had
+// listed, and the back end therefore could not name it at any position while the analyzer -- which
+// resolves from the runtime and shared-framework DIRECTORIES -- accepted the same program.
+test "external assembly scan follows a type forwarder out of the reference facade" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        forwarded := ExternalAssemblyScan.FindExactType(scan, "System.Uri")
+
+        assert forwarded.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert forwarded.HasRuntimeType
+        assert forwarded.RuntimeType.FullName == "System.Uri"
+        assert ExternalAssemblyScan.SemanticIdentityMatches(forwarded.SemanticTypeIdentity, "System.Uri, System.Private.Uri")
+
+        // The enum and the builder beside it, so the row is not a fact about one name.
+        kind := ExternalAssemblyScan.FindExactType(scan, "System.UriKind")
+
+        assert kind.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert kind.HasRuntimeType
+
+        builder := ExternalAssemblyScan.FindExactType(scan, "System.UriBuilder")
+
+        assert builder.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert builder.HasRuntimeType
+    } finally {
+        scan.Dispose()
+    }
+}
+
+// WHICH ASSEMBLIES ARE INSPECTED IS UNCHANGED BY THE FORWARD TARGETS. The paths above are in the
+// resolver so a forwarder can be followed; they are not catalog entries, so a simple-name scan still
+// sees only what the caller asked for.
 test "external assembly scan ignores host assemblies outside semantic slots" {
     scan := ExternalAssemblyScan.OpenWithReferences(null)
     try {

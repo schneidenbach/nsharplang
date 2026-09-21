@@ -4,10 +4,13 @@ import System
 import System.IO
 
 // The original 38-shape production-source probe, remeasured on 2026-09-04: 16/22 before,
-// 37/1 after. The third column is the exact build exit code. Uri is the catalog gap: the
-// common scan omits its implementation assembly; the retained decline is measured separately.
+// 37/1 after. The third column is the exact build exit code. `Uri` was the ONE retained decline, and
+// the reason this row recorded for it -- "the common scan omits its implementation assembly" -- is
+// exactly what the scan's resolver now answers: `System.Runtime` FORWARDS `System.Uri` to
+// `System.Private.Uri`, and a forwarder can be followed once the assembly it names is something the
+// resolver can open. The catalog is 38/0.
 func TypeOfCatalogMatrix(): string {
-    return "object||0\nstring||0\nint||0\nint[]||0\nDateTime|System|0\nVersion|System|0\nException|System|0\nType|System|0\nUri|System|1\nGuid|System|0\nConsoleColor|System|0\nStringComparison|System|0\nStringComparer|System|0\nNullable<int>|System|0\nDelegate|System|0\nList<int>|System.Collections.Generic|0\nIEnumerable<int>|System.Collections.Generic|0\nHashSet<int>|System.Collections.Generic|0\nQueue<int>|System.Collections.Generic|0\nSortedSet<int>|System.Collections.Generic|0\nICollection<int>|System.Collections.Generic|0\nIList<int>|System.Collections.Generic|0\nIEnumerable|System.Collections|0\nStringBuilder|System.Text|0\nMemoryStream|System.IO|0\nStream|System.IO|0\nFileStream|System.IO|0\nTextWriter|System.IO|0\nStreamWriter|System.IO|0\nRegex|System.Text.RegularExpressions|0\nHttpClient|System.Net.Http|0\nJsonSerializer|System.Text.Json|0\nTask|System.Threading.Tasks|0\nProcess|System.Diagnostics|0\nPath|System.IO|0\nFile|System.IO|0\nEnvironment|System|0\nMath|System|0"
+    return "object||0\nstring||0\nint||0\nint[]||0\nDateTime|System|0\nVersion|System|0\nException|System|0\nType|System|0\nUri|System|0\nGuid|System|0\nConsoleColor|System|0\nStringComparison|System|0\nStringComparer|System|0\nNullable<int>|System|0\nDelegate|System|0\nList<int>|System.Collections.Generic|0\nIEnumerable<int>|System.Collections.Generic|0\nHashSet<int>|System.Collections.Generic|0\nQueue<int>|System.Collections.Generic|0\nSortedSet<int>|System.Collections.Generic|0\nICollection<int>|System.Collections.Generic|0\nIList<int>|System.Collections.Generic|0\nIEnumerable|System.Collections|0\nStringBuilder|System.Text|0\nMemoryStream|System.IO|0\nStream|System.IO|0\nFileStream|System.IO|0\nTextWriter|System.IO|0\nStreamWriter|System.IO|0\nRegex|System.Text.RegularExpressions|0\nHttpClient|System.Net.Http|0\nJsonSerializer|System.Text.Json|0\nTask|System.Threading.Tasks|0\nProcess|System.Diagnostics|0\nPath|System.IO|0\nFile|System.IO|0\nEnvironment|System|0\nMath|System|0"
 }
 
 func TypeOfCatalogSource(shape: string, namespaceName: string): string {
@@ -43,8 +46,8 @@ test "typeof production source matches the 38 shape catalog contract" {
                 declined = declined + 1
             }
         }
-        assert accepted == 37
-        assert declined == 1
+        assert accepted == 38
+        assert declined == 0
     } finally {
         Directory.Delete(directory, true)
     }

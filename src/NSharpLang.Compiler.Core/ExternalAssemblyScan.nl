@@ -282,15 +282,19 @@ class ExternalAssemblyScan {
         }
 
         resolverPaths := new List<string>()
+        resolverNames := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         entryIndex := 0
         while entryIndex < entries.Count {
             entry := entries[entryIndex]
             if entry.IsInspectable && entry.MetadataPath.Length > 0 {
                 resolverPaths.Add(entry.MetadataPath)
+                resolverNames.Add(Path.GetFileName(entry.MetadataPath))
             }
 
             entryIndex = entryIndex + 1
         }
+
+        AddForwardTargetPaths(resolverPaths, resolverNames, searchDirectories)
 
         context: MetadataLoadContext? = null
         try {
@@ -1280,6 +1284,56 @@ class ExternalAssemblyScan {
     static func CreateMetadataLoadContext(paths: string[]): MetadataLoadContext {
         resolver := new PathAssemblyResolver(paths)
         return new MetadataLoadContext(resolver, "System.Runtime")
+    }
+
+    // A TYPE FORWARDER MUST BE ABLE TO LAND, AND THAT IS WHY A NAME LIST CANNOT BE THE CATALOG.
+    //
+    // `System.Runtime` is the reference surface of the framework: it DECLARES almost nothing and
+    // FORWARDS almost everything. `System.Runtime.dll.GetType("System.Uri")` answers only when the
+    // assembly the forwarder names — `System.Private.Uri` — is something the resolver can open. The
+    // scan's resolver was handed exactly the files the scan had already chosen to INSPECT, so every
+    // forwarder whose target was not itself on that list dead-ended and the type simply did not
+    // exist for the back end.
+    //
+    // That is the whole of the `System.Uri` report, and it was never about `Uri`: `UriKind`,
+    // `System.Net.WebUtility`, `System.Text.Encodings.Web` and every other name the framework
+    // forwards out of an assembly nobody happened to list behaved identically. The ANALYZER never
+    // had the problem, because `AnalyzerMetadataLoadSurface.Open` resolves from the runtime and
+    // shared-framework DIRECTORIES — so analysis accepted `new Uri(...)` and `u.AbsoluteUri` and
+    // emission then declined the very same program at NL103, which is exactly the two-walk
+    // disagreement `SimpleNamePrecedence` exists to prevent.
+    //
+    // The two walks resolve the same way now. WHICH ASSEMBLIES ARE INSPECTED IS UNCHANGED — a
+    // simple-name scan still sees only the entries the caller asked for, so no name starts resolving
+    // because some unrelated framework assembly happens to export it — and these paths are
+    // FORWARD TARGETS ONLY. An entry's own file keeps precedence: a path is added only when no entry
+    // already supplies that file name, so a reference-pack facade a project chose is never displaced
+    // by the implementation beside it.
+    static func AddForwardTargetPaths(resolverPaths: List<string>, resolverNames: HashSet<string>, searchDirectories: string[]) {
+        directoryIndex := 0
+        while directoryIndex < searchDirectories.Length {
+            directory := searchDirectories[directoryIndex]
+            candidates := new string[](0)
+            try {
+                candidates = Directory.GetFiles(directory, "*.dll")
+            } catch {
+            }
+
+            // A directory that cannot be listed contributes nothing; the entries still stand.
+
+            candidateIndex := 0
+            while candidateIndex < candidates.Length {
+                candidate := candidates[candidateIndex]
+                fileName := Path.GetFileName(candidate)
+                if resolverNames.Add(fileName) {
+                    resolverPaths.Add(candidate)
+                }
+
+                candidateIndex = candidateIndex + 1
+            }
+
+            directoryIndex = directoryIndex + 1
+        }
     }
 
     static func CommonAssemblyNames(): string[] {
