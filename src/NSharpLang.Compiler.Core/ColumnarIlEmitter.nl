@@ -15549,6 +15549,13 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Cgt_Un)
                 columnarResolvedType = typeof(bool)
             } else {
+                // A `T?` TARGET LEAVES A BOXED `Nullable<T>` ON THE STACK, and the expression's value
+                // is the STRUCT. `unbox.any` is the unwrap — and it is total, because `isinst` has
+                // already replaced a mismatch with null and `unbox.any Nullable<T>` reads null as the
+                // empty value rather than throwing. That is the whole of C#'s `as` over a value type.
+                if (ColumnarTypeOfPlanner.IsSupportedNullable(targetTestType)) {
+                    _il.Emit(OpCodes.Unbox_Any, targetTestType)
+                }
                 columnarResolvedType = targetTestType
             }
             return true
@@ -21852,7 +21859,13 @@ sealed class ColumnarIlEmitter {
             return false
         }
         if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
-            return false
+            // `value as T?` IS THE ONE NULLABLE TARGET THAT MEANS SOMETHING, and it is the shape a
+            // reader reaches for first when a boxed value type comes back from reflection. `isinst
+            // Nullable<T>` answers "is this a boxed T" and `unbox.any Nullable<T>` then produces the
+            // `T?` — empty on a miss, which is the null `as` promises and the reason a BARE value
+            // target is still refused. A type TEST keeps refusing it: `x is int?` asks the same
+            // question `x is int` already asks.
+            return !isTypeTest && ColumnarTypeOfPlanner.IsSupportedType(target.GetGenericArguments()[0])
         }
         if (isTypeTest) {
             return true
@@ -27279,6 +27292,24 @@ sealed class ColumnarIlEmitter {
                         targetConversionEmitter.Emit(targetConversionOpcode, targetBuilder)
                         return true
                     }
+                }
+            }
+            // AN EXTERNAL STRUCT IS UNBOXED EXACTLY AS A SOURCE ONE IS. The arm above answers for a
+            // struct this compilation is writing, and the scalar arm at the bottom of this function
+            // answers for `int`, `double` and the rest — so a value type a REFERENCED ASSEMBLY
+            // declares was the one shape with no answer at all: `(DateTime)value` and
+            // `(ValueTask)result` over an `object` fell past every arm and declined at the
+            // initializer. That is the general "a boxed value came back from reflection" shape, not
+            // a property of any one type: `MethodInfo.Invoke` returns `object?`, so every reflective
+            // caller whose callee returns a struct met it.
+            //
+            // The legal sources are C#'s three (§10.3.7): `object`, `System.ValueType`, and an
+            // interface the boxed type implements. `unbox.any` is the opcode for all of them and is
+            // the same one the source-struct arm above and the scalar arm below already emit.
+            if (sourceType == typeof(object) || sourceType == typeof(ValueType) || (sourceType != null && sourceType.get_IsInterface())) {
+                if (targetType.get_IsValueType() && !targetType.get_IsGenericParameter()) {
+                    _il.Emit(OpCodes.Unbox_Any, targetType)
+                    return true
                 }
             }
             // A TYPE PARAMETER TARGET IS `unbox.any`, NEVER `castclass`. `(T0)value` has to be
