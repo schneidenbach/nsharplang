@@ -60,6 +60,59 @@ class EditorWorkspaceFacts {
         return path.Replace('\\', '/')
     }
 
+    // ── `file://` ────────────────────────────────────────────────────────
+
+    // THE FILESYSTEM PATH A `file://` URI NAMES.
+    //
+    // A name that is not a `file://` URI is returned unchanged, because the editor also hands this
+    // owner plain paths and a buffer with no URI still has to be findable. The Windows arm strips
+    // the leading slash of `/C:/…`, which is what a drive-lettered `file://` URI looks like, and it
+    // is guarded on the SEPARATOR rather than on the string so that a POSIX path beginning `/c:` —
+    // legal, and a real file — is left alone. Percent escapes are undone last, so a path with a
+    // space or a `#` in it names the file the editor meant.
+    static func UriToFilePath(uri: string): string {
+        if !uri.StartsWith("file://") {
+            return uri
+        }
+
+        path := uri.Substring(7)
+        if Path.DirectorySeparatorChar == '\\' && path.Length > 2 && path[0] == '/' && path[2] == ':' {
+            path = path.Substring(1)
+        }
+
+        return Uri.UnescapeDataString(path)
+    }
+
+    // THE `file://` URI FOR A PATH. `System.Uri` writes it, so the escaping is the framework's and
+    // matches what every client sends back; the path is resolved first so that the URI the server
+    // publishes a diagnostic under is the same one it recorded the buffer under.
+    static func FilePathToUri(filePath: string): string {
+        return new Uri(Path.GetFullPath(filePath)).ToString()
+    }
+
+    // WHICH WORKSPACE ROOT AN `initialize` REQUEST NAMED, in the protocol's own order of
+    // precedence: the first workspace folder wins, then the deprecated `rootUri`, then the
+    // doubly-deprecated `rootPath`, and a client that sent none of them gets null — which the
+    // server reads as "skip the workspace scan" rather than as an error.
+    //
+    // The three candidates arrive already turned into filesystem paths, because only the editor
+    // can ask a `DocumentUri` for one. The ORDER is the decision, and it lives here.
+    static func WorkspaceRootChoice(firstFolderPath: string?, rootUriPath: string?, rootPath: string?): string? {
+        if firstFolderPath != null {
+            return firstFolderPath
+        }
+
+        if rootUriPath != null {
+            return rootUriPath
+        }
+
+        if rootPath != null && rootPath.Length > 0 {
+            return rootPath
+        }
+
+        return null
+    }
+
     // THE SAME FILE BY TWO NAMES. Full-path resolution first, because a relative name and an
     // absolute one are the common pair; a path the filesystem refuses to resolve still gets the
     // textual comparison rather than throwing, because a diagnostic naming an unresolvable file is

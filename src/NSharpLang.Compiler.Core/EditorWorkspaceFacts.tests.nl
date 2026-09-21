@@ -287,3 +287,52 @@ test "EditorWorkspaceFacts selects one file's diagnostics from a project's whole
 
     Directory.Delete(root, true)
 }
+
+// ── `file://` ────────────────────────────────────────────────────────────
+
+test "EditorWorkspaceFacts turns a file:// URI back into the path it names" {
+    assert EditorWorkspaceFacts.UriToFilePath("file:///tmp/a.nl") == "/tmp/a.nl"
+    assert EditorWorkspaceFacts.UriToFilePath("file:///tmp/a%20b.nl") == "/tmp/a b.nl"
+    assert EditorWorkspaceFacts.UriToFilePath("file:///tmp/%23hash.nl") == "/tmp/#hash.nl"
+}
+
+// A BUFFER WITH NO URI IS STILL FINDABLE. The editor hands this owner plain paths too, and a name
+// that is not a `file://` URI must come back exactly as it went in.
+test "EditorWorkspaceFacts leaves a name that is not a file:// URI alone" {
+    assert EditorWorkspaceFacts.UriToFilePath("/tmp/a.nl") == "/tmp/a.nl"
+    assert EditorWorkspaceFacts.UriToFilePath("untitled:Untitled-1") == "untitled:Untitled-1"
+    assert EditorWorkspaceFacts.UriToFilePath("") == ""
+}
+
+test "EditorWorkspaceFacts and the file:// conversion are inverses over a real path" {
+    root := EwfTempRoot("uri")
+    program := Path.Combine(root, "Program.nl")
+    File.WriteAllText(program, "namespace A\n")
+
+    uri := EditorWorkspaceFacts.FilePathToUri(program)
+    assert uri.StartsWith("file://")
+
+    roundTripped := EditorWorkspaceFacts.UriToFilePath(uri)
+    assert EditorWorkspaceFacts.PathsMatch(roundTripped, program)
+
+    Directory.Delete(root, true)
+}
+
+// ── the workspace root an `initialize` named ─────────────────────────────
+
+test "EditorWorkspaceFacts prefers the first workspace folder over both deprecated fields" {
+    chosen := EditorWorkspaceFacts.WorkspaceRootChoice("/folder", "/rootUri", "/rootPath")
+    assert chosen == "/folder"
+}
+
+test "EditorWorkspaceFacts falls back to rootUri, then to rootPath" {
+    assert EditorWorkspaceFacts.WorkspaceRootChoice(null, "/rootUri", "/rootPath") == "/rootUri"
+    assert EditorWorkspaceFacts.WorkspaceRootChoice(null, null, "/rootPath") == "/rootPath"
+}
+
+// AN EMPTY `rootPath` IS NOT A ROOT. The shipped guard was `!string.IsNullOrEmpty`, so a client
+// that sends the field empty gets the same answer as one that omits it: no scan, not a scan of "".
+test "EditorWorkspaceFacts treats an empty rootPath as no root at all" {
+    assert EditorWorkspaceFacts.WorkspaceRootChoice(null, null, "") == null
+    assert EditorWorkspaceFacts.WorkspaceRootChoice(null, null, null) == null
+}

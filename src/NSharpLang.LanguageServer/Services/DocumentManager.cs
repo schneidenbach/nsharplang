@@ -27,8 +27,6 @@ namespace NSharpLang.LanguageServer.Services;
 /// </summary>
 public class DocumentManager
 {
-    private const int MaxDocuments = 100; // Limit number of cached documents
-
     private readonly ConcurrentDictionary<string, DocumentState> _documents = new();
     private readonly ConcurrentDictionary<string, DateTime> _lastAccessTimes = new();
     private readonly ILogger<DocumentManager> _logger;
@@ -82,7 +80,7 @@ public class DocumentManager
 
         foreach (var filePath in nlFiles)
         {
-            var uri = FilePathToUri(filePath);
+            var uri = EditorWorkspaceFacts.FilePathToUri(filePath);
 
             // Skip files already open in the editor — editor content takes precedence
             if (_editorOpenUris.ContainsKey(uri))
@@ -127,7 +125,7 @@ public class DocumentManager
     {
         _editorOpenUris.TryRemove(uri, out _);
 
-        var filePath = UriToFilePath(uri);
+        var filePath = EditorWorkspaceFacts.UriToFilePath(uri);
         var isInWorkspace = EditorWorkspaceFacts.ContainingWorkspaceRoot(filePath, _workspaceRoots.Keys) != null;
 
         if (isInWorkspace && File.Exists(filePath))
@@ -157,7 +155,7 @@ public class DocumentManager
     public string? HandleFileChangedOnDisk(string filePath)
     {
         filePath = Path.GetFullPath(filePath);
-        var uri = FilePathToUri(filePath);
+        var uri = EditorWorkspaceFacts.FilePathToUri(filePath);
 
         // Don't overwrite editor content
         if (_editorOpenUris.ContainsKey(uri))
@@ -206,7 +204,7 @@ public class DocumentManager
     public string? HandleFileDeletedOnDisk(string filePath)
     {
         filePath = Path.GetFullPath(filePath);
-        var uri = FilePathToUri(filePath);
+        var uri = EditorWorkspaceFacts.FilePathToUri(filePath);
 
         // If still open in editor, leave it alone
         if (_editorOpenUris.ContainsKey(uri))
@@ -232,23 +230,27 @@ public class DocumentManager
     {
         try
         {
-            // Enforce document limit to prevent unbounded growth
-            if (_documents.Count >= MaxDocuments && !_documents.ContainsKey(uri))
+            if (EditorDocumentCacheFacts.ShouldEvictBefore(_documents.Count, _documents.ContainsKey(uri)))
             {
-                // Evict the least recently accessed document
-                var oldest = _lastAccessTimes.OrderBy(kvp => kvp.Value).FirstOrDefault();
-                if (oldest.Key != null)
+                var cacheRows = new List<EditorDocumentCacheRow>();
+                foreach (var entry in _lastAccessTimes)
                 {
-                    _documents.TryRemove(oldest.Key, out _);
-                    _lastAccessTimes.TryRemove(oldest.Key, out _);
-                    _logger.LogInformation("Evicted least recently used document: {Uri}", oldest.Key);
+                    cacheRows.Add(new EditorDocumentCacheRow(entry.Key, entry.Value.Ticks));
+                }
+
+                var evicted = EditorDocumentCacheFacts.EvictionUri(cacheRows);
+                if (evicted != null)
+                {
+                    _documents.TryRemove(evicted, out _);
+                    _lastAccessTimes.TryRemove(evicted, out _);
+                    _logger.LogInformation("Evicted least recently used document: {Uri}", evicted);
                 }
             }
 
             _logger.LogInformation("Updating document: {Uri} (version {Version})", uri, version);
 
             var state = new DocumentState(uri, text, version);
-            var filePath = UriToFilePath(uri);
+            var filePath = EditorWorkspaceFacts.UriToFilePath(uri);
             InvalidateProjectSnapshot(filePath);
 
             // Parse the document using the real filesystem path so downstream
@@ -345,7 +347,7 @@ public class DocumentManager
 
     public void CloseDocument(string uri)
     {
-        InvalidateProjectSnapshot(UriToFilePath(uri));
+        InvalidateProjectSnapshot(EditorWorkspaceFacts.UriToFilePath(uri));
         _documents.TryRemove(uri, out _);
         _lastAccessTimes.TryRemove(uri, out _);
         _logger.LogInformation("Document closed: {Uri}", uri);
@@ -400,7 +402,7 @@ public class DocumentManager
 
     public bool HasSemanticProjectContext(string uri)
     {
-        var filePath = UriToFilePath(uri);
+        var filePath = EditorWorkspaceFacts.UriToFilePath(uri);
         var projectRoot = EditorWorkspaceFacts.SemanticProjectRoot(filePath, _workspaceRoots.Keys);
         return File.Exists(Path.Combine(projectRoot, "project.yml"))
             || EditorWorkspaceFacts.ContainingWorkspaceRoot(filePath, _workspaceRoots.Keys) != null;
@@ -408,7 +410,7 @@ public class DocumentManager
 
     public string GetProjectRootForUri(string uri)
     {
-        return EditorWorkspaceFacts.SemanticProjectRoot(UriToFilePath(uri), _workspaceRoots.Keys);
+        return EditorWorkspaceFacts.SemanticProjectRoot(EditorWorkspaceFacts.UriToFilePath(uri), _workspaceRoots.Keys);
     }
 
     public string ResolveProjectFilePath(string projectRoot, string relativeOrAbsolutePath)
@@ -461,7 +463,7 @@ public class DocumentManager
         }
 
         var openDocsInProject = _documents.Values
-            .Where(d => EditorWorkspaceFacts.IsPathUnderProject(UriToFilePath(d.Uri), projectRoot))
+            .Where(d => EditorWorkspaceFacts.IsPathUnderProject(EditorWorkspaceFacts.UriToFilePath(d.Uri), projectRoot))
             .OrderBy(d => d.Uri, StringComparer.Ordinal)
             .ToList();
 
@@ -471,7 +473,7 @@ public class DocumentManager
             publications.Add(new DocumentDiagnosticsPublication(
                 openDoc.Uri,
                 EditorWorkspaceFacts.DiagnosticsForFile(
-                    snapshot.AllErrors, snapshot.ProjectRoot, UriToFilePath(openDoc.Uri)),
+                    snapshot.AllErrors, snapshot.ProjectRoot, EditorWorkspaceFacts.UriToFilePath(openDoc.Uri)),
                 openDoc.LinterDiagnostics ?? new List<Diagnostic>()));
         }
 
@@ -485,7 +487,7 @@ public class DocumentManager
 
     public bool TryGetSynchronizedProjectSnapshot(string uri, out string projectRoot, out string filePath, out ProjectSnapshot snapshot)
     {
-        filePath = UriToFilePath(uri);
+        filePath = EditorWorkspaceFacts.UriToFilePath(uri);
         projectRoot = EditorWorkspaceFacts.SemanticProjectRoot(filePath, _workspaceRoots.Keys);
         snapshot = null!;
 
@@ -506,7 +508,8 @@ public class DocumentManager
 
         lock (_projectSnapshotLock)
         {
-            if (_projectSnapshots.TryGetValue(projectRoot, out var cached) && cached.Stamp == stamp)
+            if (_projectSnapshots.TryGetValue(projectRoot, out var cached)
+                && EditorDocumentCacheFacts.SnapshotCacheHit(cached.Stamp, stamp))
             {
                 snapshot = cached.Snapshot;
                 return true;
@@ -549,7 +552,7 @@ public class DocumentManager
                 continue;
             }
 
-            var documentPath = UriToFilePath(document.Uri);
+            var documentPath = EditorWorkspaceFacts.UriToFilePath(document.Uri);
             if (!EditorWorkspaceFacts.IsPathUnderProject(documentPath, projectRoot))
             {
                 continue;
@@ -662,31 +665,6 @@ public class DocumentManager
             EditorSymbolTableKind.EnumMember => SymbolKind.EnumMember,
             _ => SymbolKind.Constructor
         };
-    }
-
-    private string UriToFilePath(string uri)
-    {
-        // Convert file:// URI to local file path
-        if (uri.StartsWith("file://"))
-        {
-            var path = uri.Substring(7); // Remove "file://"
-
-            // On Windows, remove the leading slash from paths like /C:/...
-            if (Path.DirectorySeparatorChar == '\\' && path.Length > 2 && path[0] == '/' && path[2] == ':')
-            {
-                path = path.Substring(1);
-            }
-
-            return Uri.UnescapeDataString(path);
-        }
-
-        return uri;
-    }
-
-    private static string FilePathToUri(string filePath)
-    {
-        var fullPath = Path.GetFullPath(filePath);
-        return new Uri(fullPath).ToString();
     }
 
     private sealed record CachedProjectSnapshot(string Stamp, ProjectSnapshot Snapshot);

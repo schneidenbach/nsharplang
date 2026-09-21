@@ -94,21 +94,12 @@ class Program
                         var logger = server.Services.GetRequiredService<ILogger<Program>>();
                         var documentManager = server.Services.GetRequiredService<DocumentManager>();
 
-                        // Determine workspace root from initialize params
-                        string? workspaceRoot = null;
-
-                        if (request.WorkspaceFolders?.Any() == true)
-                        {
-                            workspaceRoot = request.WorkspaceFolders.First().Uri.GetFileSystemPath();
-                        }
-                        else if (request.RootUri != null)
-                        {
-                            workspaceRoot = request.RootUri.GetFileSystemPath();
-                        }
-                        else if (!string.IsNullOrEmpty(request.RootPath))
-                        {
-                            workspaceRoot = request.RootPath;
-                        }
+                        var workspaceRoot = NSharpLang.Compiler.CodeIntelligence.EditorWorkspaceFacts.WorkspaceRootChoice(
+                            request.WorkspaceFolders?.Any() == true
+                                ? request.WorkspaceFolders.First().Uri.GetFileSystemPath()
+                                : null,
+                            request.RootUri?.GetFileSystemPath(),
+                            request.RootPath);
 
                         if (workspaceRoot != null)
                         {

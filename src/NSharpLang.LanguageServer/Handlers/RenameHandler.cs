@@ -65,20 +65,17 @@ public class RenameHandler : RenameHandlerBase
                 }
 
                 var projectRoot = _documentManager.GetProjectRootForUri(uri);
-                var changes = projectReferences
-                    .GroupBy(reference => reference.File)
+                var changes = EditorRenameEditFacts.Plan(
+                        projectReferences.Select(reference => reference.File).ToList(),
+                        projectReferences.Select(reference => reference.Line).ToList(),
+                        projectReferences.Select(reference => reference.Column).ToList(),
+                        projectReferences.Select(reference => reference.Length).ToList())
                     .ToDictionary(
-                        group => DocumentUri.From(new Uri(_documentManager.ResolveProjectFilePath(projectRoot, group.Key)).AbsoluteUri),
-                        group => (IEnumerable<TextEdit>)group
-                            .OrderByDescending(reference => reference.Line)
-                            .ThenByDescending(reference => reference.Column)
-                            .Select(reference => new TextEdit
+                        group => DocumentUri.From(new Uri(_documentManager.ResolveProjectFilePath(projectRoot, group.File)).AbsoluteUri),
+                        group => (IEnumerable<TextEdit>)group.Edits
+                            .Select(edit => new TextEdit
                             {
-                                Range = new LspRange(
-                                    reference.Line - 1,
-                                    reference.Column - 1,
-                                    reference.Line - 1,
-                                    reference.Column - 1 + reference.Length),
+                                Range = new LspRange(edit.Line, edit.StartCharacter, edit.Line, edit.EndCharacter),
                                 NewText = newName
                             })
                             .ToList());
