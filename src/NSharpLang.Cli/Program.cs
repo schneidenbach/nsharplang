@@ -1,8 +1,6 @@
 using System;
-using System.IO;
 using System.Linq;
 using System.Reflection;
-using NSharpLang.Compiler;
 using NSharpLang.Cli.Commands;
 
 namespace NSharpLang.Cli;
@@ -34,7 +32,7 @@ partial class Program
             2 => ProgramCommands.RunCommand(GetCommandArgs(args)),
             3 => ProgramCommands.PublishCommand(GetCommandArgs(args)),
             4 => ProgramCommands.NewCommand(GetCommandArgs(args)),
-            5 => TestCommand(GetCommandArgs(args)),
+            5 => TestCommandHost.TestCommand(GetCommandArgs(args)),
             6 => ProgramCommands.FormatCommand(GetCommandArgs(args)),
             7 => Commands.LintCommand.Execute(GetCommandArgs(args)),
             8 => RestoreCommand.Execute(GetCommandArgs(args)),
@@ -63,93 +61,6 @@ partial class Program
 
     private static string[] GetCommandArgs(string[] args)
         => args.Length <= 1 ? Array.Empty<string>() : args.Skip(1).ToArray();
-
-    static int TestCommand(string[] args)
-    {
-        var testOptions = TestCommandKernels.GetOptionSummary(args);
-        if (testOptions.ShowHelp)
-        {
-            Console.WriteLine(TestCommandKernels.GetHelpText());
-            return 0;
-        }
-
-        var projectRoot = TestCommandKernels.GetProjectRoot(testOptions.ProjectOption, Directory.GetCurrentDirectory());
-        var outputMode = TestCommandKernels.GetOutputMode(testOptions.JsonOutput);
-
-        // Parse timeout to milliseconds
-        int? timeoutMs = null;
-        if (testOptions.Timeout != null)
-        {
-            timeoutMs = TestCommandKernels.GetDurationMilliseconds(testOptions.Timeout);
-            if (timeoutMs == null)
-            {
-                var message = TestCommandKernels.GetInvalidTimeoutMessage(testOptions.Timeout);
-                if (outputMode == 1)
-                {
-                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, message);
-                    return 1;
-                }
-
-                return CliError.Report(message);
-            }
-        }
-
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        try
-        {
-            if (outputMode == 2) Console.WriteLine(TestCommandKernels.GetProjectStartMessage(projectRoot));
-
-            if (testOptions.CollectCoverage || testOptions.CoverageReport)
-            {
-                var message = TestCommandKernels.GetCoverageUnsupportedMessage();
-                if (outputMode == 1)
-                {
-                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, message);
-                    return 1;
-                }
-
-                return CliError.Report(message);
-            }
-
-            // Find all .tests.nl files
-            var testFiles = Directory.GetFiles(projectRoot, "*.tests.nl", SearchOption.AllDirectories);
-
-            if (testFiles.Length == 0)
-            {
-                if (outputMode == 1)
-                {
-                    OutputNativeTestJson(projectRoot, true, Array.Empty<NativeTestResult>(), new NativeTestSummary(true, 0, 0, 0, 0));
-                    return 0;
-                }
-                Console.WriteLine(TestCommandKernels.GetNoTestFilesMessage());
-                return 0;
-            }
-
-            if (outputMode == 2) Console.WriteLine(TestCommandKernels.GetFoundTestFilesMessage(testFiles.Length));
-
-            var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-            CompilationBackendSelectionKernels.Validate(testOptions.BackendOption, projectConfig);
-
-            return TestWithIlBackend(
-                projectRoot,
-                projectConfig,
-                testOptions.Filter,
-                testOptions.Verbose,
-                outputMode,
-                timeoutMs,
-                testOptions.NoCache,
-                testOptions.CollectCoverage,
-                testOptions.CoverageReport,
-                sw);
-        }
-        catch (Exception ex)
-        {
-            if (outputMode == 2)
-                Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)));
-            if (outputMode == 1) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, ex.Message); return 1; }
-            return CliError.Report(TestCommandKernels.GetFailedMessage(ex.Message));
-        }
-    }
 
     internal static string GetVersion()
     {

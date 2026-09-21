@@ -31,6 +31,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NSharpLang.Playground", "sr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NSharpLang.Playground.Wasm", "src\NSharpLang.Playground.Wasm\NSharpLang.Playground.Wasm.csproj", "{B6B1AB60-938B-4C82-822C-C4F0C1778E14}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NSharpLang.TestHost", "src\NSharpLang.TestHost\TestHost.csproj", "{9F3C1A64-5E27-4D18-9B05-7A61C2F0D4E3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -157,6 +159,10 @@ Global
 		{B6B1AB60-938B-4C82-822C-C4F0C1778E14}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B6B1AB60-938B-4C82-822C-C4F0C1778E14}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B6B1AB60-938B-4C82-822C-C4F0C1778E14}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9F3C1A64-5E27-4D18-9B05-7A61C2F0D4E3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9F3C1A64-5E27-4D18-9B05-7A61C2F0D4E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9F3C1A64-5E27-4D18-9B05-7A61C2F0D4E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9F3C1A64-5E27-4D18-9B05-7A61C2F0D4E3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -172,5 +178,6 @@ Global
 		{CCC46686-BBAD-4248-B077-77492505B9FB} = {2E5C25A9-E8EC-4D48-97F8-7DB3E5085393}
 		{001707E0-C4EF-4DBF-B05C-7BFB6ECDF158} = {2E5C25A9-E8EC-4D48-97F8-7DB3E5085393}
 		{B6B1AB60-938B-4C82-822C-C4F0C1778E14} = {2E5C25A9-E8EC-4D48-97F8-7DB3E5085393}
+		{9F3C1A64-5E27-4D18-9B05-7A61C2F0D4E3} = {2E5C25A9-E8EC-4D48-97F8-7DB3E5085393}
 	EndGlobalSection
 EndGlobal

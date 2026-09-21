@@ -3989,3 +3989,379 @@ test "nlc pack --version overrides the project version in the package name and t
 
     Directory.Delete(directory, true)
 }
+
+// ═══ THE TEST-RUNNER HOST, PROVEN THROUGH THE SHIPPED PROCESS ═════════════════════════════════
+//
+// `nlc test`'s whole runner — discovery, load-context isolation, the xunit front controller and its
+// message sinks, the filters, the result shapes and the exit codes — moved from
+// `src/NSharpLang.Cli/Program.Testing.cs` into `src/NSharpLang.TestHost`, a dedicated N# assembly
+// the CLI references and nothing else does. The rows above already cover the xunit route's envelope,
+// its timeout refusal and its derived-fact skip. What had no row at all was the SECOND runner: the
+// reflection route `testFramework: nunit` selects, which is the isolated one.
+//
+// Every row below drives the shipped `nlc`, because the claims are about a process: which load
+// context the emitted assembly lands in, which exception text reaches the reader after reflection
+// has wrapped it, and whether the lifecycle ran.
+
+func ReflectionRunnerProject(prefix: string, suite: string): string {
+    directory := NewTempDirectory(prefix)
+    WriteProjectYml(
+        directory,
+        "name: ReflectionRunnerFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\ntestFramework: nunit\n\nlanguage:\n  asyncDefaultType: ValueTask\n"
+    )
+    File.WriteAllText(Path.Combine(directory, "Suite.tests.nl"), suite)
+    return directory
+}
+
+func ResultNamed(root: JsonElement, displayName: string): JsonElement {
+    resultEnumerator := root.GetProperty("results").EnumerateArray()
+    while resultEnumerator.MoveNext() {
+        if TextOf(resultEnumerator.Current.GetProperty("displayName")) == displayName {
+            return resultEnumerator.Current
+        }
+    }
+
+    throw new InvalidOperationException("The run reported no result named '" + displayName + "'.")
+}
+
+// THE ISOLATION CLAIM, OBSERVED FROM INSIDE THE RUN. The reflection runner loads the emitted
+// assembly into a PRIVATE collectible `NativeTestLoadContext` and unloads it in a `finally`; the
+// xunit runner hands the path to `XunitFrontController` and the assembly lands in the DEFAULT,
+// non-collectible context. `tests/native/test-assembly-load-contexts` records the second half
+// against its own assembly. This row records the FIRST half, and it can only be seen from a test
+// the reflection runner is running — so the fixture asks the CLR where it is.
+test "the reflection runner loads the emitted assembly into a private collectible context" {
+    suite := "namespace ReflectionRunnerFixture\n" +
+        "\n" +
+        "import System\n" +
+        "import System.Runtime.Loader\n" +
+        "\n" +
+        "class NSharpTests {\n" +
+        "    func RunsInACollectibleNonDefaultContext() {\n" +
+        "        context := AssemblyLoadContext.GetLoadContext(typeof(NSharpTests).Assembly)\n" +
+        "        if context == null {\n" +
+        "            throw new InvalidOperationException(\"no load context\")\n" +
+        "        }\n" +
+        "        if !(must context).IsCollectible {\n" +
+        "            throw new InvalidOperationException(\"context is not collectible\")\n" +
+        "        }\n" +
+        "        if Object.ReferenceEquals(context, AssemblyLoadContext.Default) {\n" +
+        "            throw new InvalidOperationException(\"context is the default one\")\n" +
+        "        }\n" +
+        "        if (must context).Name != \"NativeTestLoadContext\" {\n" +
+        "            throw new InvalidOperationException(\"unexpected context name: \" + ((must context).Name ?? \"<null>\"))\n" +
+        "        }\n" +
+        "    }\n" +
+        "}\n"
+    directory := ReflectionRunnerProject("nlc-test-reflection-alc", suite)
+    try {
+        run := NlcIn(directory, "test --no-cache --json")
+
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("summary").GetProperty("total").GetInt32() == 1, run.Stdout
+        assert root.GetProperty("summary").GetProperty("passed").GetInt32() == 1, run.Stdout
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+// DISCOVERY, THE LIFECYCLE ORDER, THE TWO AWAITABLE SHAPES, `[Ignore]` AND THE UNWRAP, IN ONE RUN.
+//
+// The four lifecycle names and `Dispose` are excluded from discovery and invoked by the runner
+// instead, `[Ignore("…")]` becomes a skipped row carrying its reason, a `ValueTask` and a `Task`
+// result are both awaited before the row is scored, and a body that throws reaches the reader as
+// ITS OWN exception rather than the `TargetInvocationException` reflection wrapped it in.
+test "the reflection runner honours lifecycle names, Ignore, both awaitables and the invocation unwrap" {
+    suite := "namespace ReflectionRunnerFixture\n" +
+        "\n" +
+        "import System\n" +
+        "import System.Threading.Tasks\n" +
+        "import NUnit.Framework\n" +
+        "\n" +
+        "class NSharpTests {\n" +
+        "    Log: string\n" +
+        "\n" +
+        "    constructor() {\n" +
+        "        Log = \"\"\n" +
+        "    }\n" +
+        "\n" +
+        "    func Setup() {\n" +
+        "        Log = \"setup\"\n" +
+        "    }\n" +
+        "\n" +
+        "    async func AwaitsAValueTask() {\n" +
+        "        await Task.Delay(1)\n" +
+        "        if Log != \"setup\" {\n" +
+        "            throw new InvalidOperationException(\"Setup did not run before the test body\")\n" +
+        "        }\n" +
+        "    }\n" +
+        "\n" +
+        "    async func AwaitsATask(): Task {\n" +
+        "        await Task.Delay(1)\n" +
+        "    }\n" +
+        "\n" +
+        "    [Ignore(\"prerequisite unavailable\")]\n" +
+        "    func IsIgnored() {\n" +
+        "        throw new InvalidOperationException(\"an ignored body must never run\")\n" +
+        "    }\n" +
+        "\n" +
+        "    func ThrowsItsOwnException() {\n" +
+        "        throw new InvalidOperationException(\"the reader's own sentence\")\n" +
+        "    }\n" +
+        "\n" +
+        "    func Teardown() {\n" +
+        "        Log = \"\"\n" +
+        "    }\n" +
+        "}\n"
+    directory := ReflectionRunnerProject("nlc-test-reflection-suite", suite)
+    try {
+        run := NlcIn(directory, "test --no-cache --json")
+
+        // One failing row, so the run fails: the exit code is the summary's, not the runner's mood.
+        assert run.ExitCode == 1, run.Stdout + run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        summary := root.GetProperty("summary")
+
+        // FOUR rows, not seven: `Setup`, `Teardown` and the constructor are not tests.
+        assert summary.GetProperty("total").GetInt32() == 4, run.Stdout
+        assert summary.GetProperty("passed").GetInt32() == 2, run.Stdout
+        assert summary.GetProperty("failed").GetInt32() == 1, run.Stdout
+        assert summary.GetProperty("skipped").GetInt32() == 1, run.Stdout
+
+        ignored := ResultNamed(root, "IsIgnored")
+        assert TextOf(ignored.GetProperty("outcome")) == "skipped", run.Stdout
+        assert TextOf(ignored.GetProperty("errorMessage")) == "prerequisite unavailable", run.Stdout
+        assert TextOf(ignored.GetProperty("duration")) == "0.000s", run.Stdout
+
+        // The unwrap: `TargetInvocationException`'s own message would be "Exception has been thrown
+        // by the target of an invocation." — the reader must see theirs instead.
+        failed := ResultNamed(root, "ThrowsItsOwnException")
+        assert TextOf(failed.GetProperty("outcome")) == "failed", run.Stdout
+        assert TextOf(failed.GetProperty("errorMessage")) == "the reader's own sentence", run.Stdout
+
+        // The fully-qualified name is the declaring type plus the method, and the display name is
+        // the method: a reflection-discovered test has no `NSharpDescription` sentence to prefer.
+        assert TextOf(failed.GetProperty("name")) == "ReflectionRunnerFixture.NSharpTests.ThrowsItsOwnException", run.Stdout
+        assert TextOf(failed.GetProperty("nsharpDescription")) == "ThrowsItsOwnException", run.Stdout
+
+        assert TextOf(ResultNamed(root, "AwaitsAValueTask").GetProperty("outcome")) == "passed", run.Stdout
+        assert TextOf(ResultNamed(root, "AwaitsATask").GetProperty("outcome")) == "passed", run.Stdout
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+// THE FILTER REACHES BOTH RUNNERS, AND ZERO DISCOVERED TESTS IS A FAILURE.
+//
+// `TestCommandKernels.SummarizeNativeTestRun` requires a POSITIVE outcome count for `ok`, so a
+// filter that admits nothing exits 1 rather than reporting a green empty run. That rule is the same
+// on both routes, and it is the one a caller is most likely to hit by typo.
+test "a filter that admits nothing fails on the reflection route as it does on the xunit route" {
+    suite := "namespace ReflectionRunnerFixture\n" +
+        "\n" +
+        "class NSharpTests {\n" +
+        "    func AlphaPasses() {\n" +
+        "    }\n" +
+        "\n" +
+        "    func BetaPasses() {\n" +
+        "    }\n" +
+        "}\n"
+    directory := ReflectionRunnerProject("nlc-test-reflection-filter", suite)
+    try {
+        matched := NlcIn(directory, "test --no-cache --json --filter Alpha")
+        assert matched.ExitCode == 0, matched.Stdout + matched.Stderr
+        matchedDocument := JsonDocument.Parse(matched.Stdout)
+        assert matchedDocument.RootElement.GetProperty("summary").GetProperty("total").GetInt32() == 1, matched.Stdout
+        assert TextOf(ResultNamed(matchedDocument.RootElement, "AlphaPasses").GetProperty("outcome")) == "passed", matched.Stdout
+        matchedDocument.Dispose()
+
+        // The fully-qualified name is the OTHER form the filter reads, and it matches too.
+        qualified := NlcIn(directory, "test --no-cache --json --filter NSharpTests.BetaPasses")
+        assert qualified.ExitCode == 0, qualified.Stdout + qualified.Stderr
+        qualifiedDocument := JsonDocument.Parse(qualified.Stdout)
+        assert qualifiedDocument.RootElement.GetProperty("summary").GetProperty("total").GetInt32() == 1, qualified.Stdout
+        qualifiedDocument.Dispose()
+
+        empty := NlcIn(directory, "test --no-cache --json --filter no-such-name")
+        assert empty.ExitCode == 1, empty.Stdout + empty.Stderr
+        emptyDocument := JsonDocument.Parse(empty.Stdout)
+        emptyRoot := emptyDocument.RootElement
+        assert !emptyRoot.GetProperty("ok").GetBoolean(), empty.Stdout
+        assert emptyRoot.GetProperty("summary").GetProperty("total").GetInt32() == 0, empty.Stdout
+        emptyDocument.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+// `--verbose` IS THE RUNNER'S OWN NARRATION, AND IN JSON MODE IT MUST NOT REACH STDOUT.
+//
+// Both runners write a line per test when `--verbose` is set. In JSON mode the run's writer is
+// swapped to STDERR for the duration and restored before the envelope is printed, so the document
+// stays alone on stdout and the narration is still readable beside it. A single `Console.SetOut`
+// that was never restored — or one that was restored too late — breaks exactly this pair.
+test "verbose narration reaches stdout in text mode and stderr in JSON mode, leaving the envelope alone" {
+    directory := NewTempDirectory("nlc-test-verbose-streams")
+    try {
+        WriteProjectYml(directory, "name: VerboseStreams\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Suite.tests.nl"),
+            "namespace VerboseStreams\n\ntest \"alpha narrates\" {\n    assert 1 == 1\n}\n"
+        )
+
+        text := NlcIn(directory, "test --no-cache --verbose")
+        assert text.ExitCode == 0, text.Stdout + text.Stderr
+        assert text.Stdout.Contains("Passed alpha narrates"), text.Stdout
+
+        json := NlcIn(directory, "test --no-cache --verbose --json")
+        assert json.ExitCode == 0, json.Stdout + json.Stderr
+        // STDOUT is the document and nothing else — a strict parse is the assertion.
+        assert !json.Stdout.Contains("Passed alpha narrates"), json.Stdout
+        verboseDocument := JsonDocument.Parse(json.Stdout)
+        assert verboseDocument.RootElement.GetProperty("summary").GetProperty("passed").GetInt32() == 1, json.Stdout
+        verboseDocument.Dispose()
+        assert json.Stderr.Contains("Passed alpha narrates"), json.Stderr
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+// `--no-cache` IS THE WHOLE CACHE STORY, AND A WARM RUN MUST STILL REPORT THE SAME RESULTS.
+//
+// The flag deletes `<root>/bin/Debug/<tfm>/tests` so the incremental IL build cannot reuse it.
+// Nothing else in `nlc test` caches, so the two runs' envelopes must agree on everything but timing.
+test "a warm nlc test run reports the same results as the cold one it followed" {
+    directory := NewTempDirectory("nlc-test-cache")
+    try {
+        WriteProjectYml(directory, "name: CacheFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Suite.tests.nl"),
+            "namespace CacheFixture\n\ntest \"alpha adds\" {\n    assert 1 + 1 == 2\n}\n\ntest \"beta concatenates\" {\n    assert \"a\" + \"b\" == \"ab\"\n}\n"
+        )
+
+        testOutput := Path.Combine(Path.Combine(Path.Combine(Path.Combine(directory, "bin"), "Debug"), "net10.0"), "tests")
+
+        cold := NlcIn(directory, "test --no-cache --json")
+        assert cold.ExitCode == 0, cold.Stdout + cold.Stderr
+        assert Directory.Exists(testOutput), testOutput
+
+        warm := NlcIn(directory, "test --json")
+        assert warm.ExitCode == 0, warm.Stdout + warm.Stderr
+
+        coldDocument := JsonDocument.Parse(cold.Stdout)
+        warmDocument := JsonDocument.Parse(warm.Stdout)
+        coldSummary := coldDocument.RootElement.GetProperty("summary")
+        warmSummary := warmDocument.RootElement.GetProperty("summary")
+        assert warmSummary.GetProperty("total").GetInt32() == coldSummary.GetProperty("total").GetInt32(), warm.Stdout
+        assert warmSummary.GetProperty("passed").GetInt32() == coldSummary.GetProperty("passed").GetInt32(), warm.Stdout
+        assert TextOf(ResultNamed(warmDocument.RootElement, "alpha adds").GetProperty("outcome")) == "passed", warm.Stdout
+        assert TextOf(ResultNamed(warmDocument.RootElement, "beta concatenates").GetProperty("outcome")) == "passed", warm.Stdout
+        coldDocument.Dispose()
+        warmDocument.Dispose()
+
+        // `--no-cache` removes that directory before the build: the next cold run rebuilds it.
+        recold := NlcIn(directory, "test --no-cache --json")
+        assert recold.ExitCode == 0, recold.Stdout + recold.Stderr
+        assert Directory.Exists(testOutput), testOutput
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+// A BUILD THAT FAILS IS REPORTED AS A BUILD FAILURE, ON BOTH ROUTES, AND THE COMPILER'S OWN
+// DIAGNOSTIC REACHES STDERR WHILE THE ENVELOPE STAYS ON STDOUT.
+test "a test project that does not compile reports the build failure through both output modes" {
+    directory := NewTempDirectory("nlc-test-buildfail")
+    try {
+        WriteProjectYml(directory, "name: BuildFailFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Suite.tests.nl"),
+            "namespace BuildFailFixture\n\ntest \"this does not parse\" {\n    assert 1 ===== 2\n}\n"
+        )
+
+        text := NlcIn(directory, "test --no-cache")
+        assert text.ExitCode == 1, text.Stdout + text.Stderr
+        assert text.Stderr.Contains("Test build failed."), text.Stderr
+
+        json := NlcIn(directory, "test --no-cache --json")
+        assert json.ExitCode == 1, json.Stdout + json.Stderr
+        failureDocument := JsonDocument.Parse(json.Stdout)
+        failureRoot := failureDocument.RootElement
+        assert !failureRoot.GetProperty("ok").GetBoolean(), json.Stdout
+        assert TextOf(failureRoot.GetProperty("error")) == "Test build failed.", json.Stdout
+        assert failureRoot.GetProperty("summary").GetProperty("total").GetInt32() == 0, json.Stdout
+        failureDocument.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+// NO `*.tests.nl` AT ALL IS A GREEN, EMPTY RUN — and a project.yml that is MISSING is not.
+test "no test files is a green empty run, and a missing project.yml is a named refusal" {
+    empty := NewTempDirectory("nlc-test-emptyproject")
+    orphan := NewTempDirectory("nlc-test-noyml")
+    try {
+        WriteProjectYml(empty, "name: EmptyFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(Path.Combine(empty, "Program.nl"), "namespace EmptyFixture\n\nclass Marker {\n}\n")
+
+        emptyText := NlcIn(empty, "test")
+        assert emptyText.ExitCode == 0, emptyText.Stdout + emptyText.Stderr
+        assert emptyText.Stdout.Contains("No test files (*.tests.nl) found."), emptyText.Stdout
+
+        emptyJson := NlcIn(empty, "test --json")
+        assert emptyJson.ExitCode == 0, emptyJson.Stdout + emptyJson.Stderr
+        emptyDocument := JsonDocument.Parse(emptyJson.Stdout)
+        assert emptyDocument.RootElement.GetProperty("ok").GetBoolean(), emptyJson.Stdout
+        assert emptyDocument.RootElement.GetProperty("summary").GetProperty("total").GetInt32() == 0, emptyJson.Stdout
+        emptyDocument.Dispose()
+
+        File.WriteAllText(
+            Path.Combine(orphan, "Suite.tests.nl"),
+            "namespace Orphan\n\ntest \"alpha adds\" {\n    assert 1 + 1 == 2\n}\n"
+        )
+        orphanText := NlcIn(orphan, "test")
+        assert orphanText.ExitCode == 1, orphanText.Stdout + orphanText.Stderr
+        assert orphanText.Stderr.Contains("IL-backed test runs require a project.yml file."), orphanText.Stderr
+
+        orphanJson := NlcIn(orphan, "test --json")
+        assert orphanJson.ExitCode == 1, orphanJson.Stdout + orphanJson.Stderr
+        orphanDocument := JsonDocument.Parse(orphanJson.Stdout)
+        assert !orphanDocument.RootElement.GetProperty("ok").GetBoolean(), orphanJson.Stdout
+        orphanDocument.Dispose()
+    } finally {
+        Directory.Delete(empty, true)
+        Directory.Delete(orphan, true)
+    }
+}
+
+// COVERAGE IS REFUSED HONESTLY RATHER THAN SILENTLY IGNORED, ON BOTH OUTPUT ROUTES.
+test "nlc test refuses coverage collection on both output routes and exits 1" {
+    directory := NewTempDirectory("nlc-test-coverage")
+    try {
+        WriteProjectYml(directory, "name: CoverageFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Suite.tests.nl"),
+            "namespace CoverageFixture\n\ntest \"alpha adds\" {\n    assert 1 + 1 == 2\n}\n"
+        )
+
+        text := NlcIn(directory, "test --coverage")
+        assert text.ExitCode == 1, text.Stdout + text.Stderr
+        assert text.Stderr.Contains("Coverage collection is not available in nlc test yet."), text.Stderr
+        assert text.Stdout.Length == 0 || !text.Stdout.Contains("schemaVersion"), text.Stdout
+
+        json := NlcIn(directory, "test --coverage-report --json")
+        assert json.ExitCode == 1, json.Stdout + json.Stderr
+        coverageDocument := JsonDocument.Parse(json.Stdout)
+        coverageRoot := coverageDocument.RootElement
+        assert !coverageRoot.GetProperty("ok").GetBoolean(), json.Stdout
+        assert TextOf(coverageRoot.GetProperty("error")).Contains("Coverage collection is not available in nlc test yet."), json.Stdout
+        coverageDocument.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}

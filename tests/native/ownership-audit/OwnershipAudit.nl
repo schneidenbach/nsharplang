@@ -256,7 +256,7 @@ class OwnershipPolicy {
     static CodeEpochFileCount: int => 223
     static CodeEpochPathFingerprint: string => "pathset-v2:fbda7fc3d5053525"
     static CodeEpochFactFingerprint: string => "epochfacts-v2:05f608333cab8ef7"
-    static ReviewedHeadFingerprint: string => "head-v2:82677acfd91001bc"
+    static ReviewedHeadFingerprint: string => "head-v2:337963127d7dab98"
 
     static func Classify(path: string): OwnershipClassification {
         normalized := NormalizeRelativePath(path)
@@ -531,7 +531,10 @@ class OwnershipPolicy {
         if path.StartsWith("src/NSharpLang.Compiler", StringComparison.Ordinal) {
             return "compiler-core"
         }
-        if path.StartsWith("src/NSharpLang.Cli/", StringComparison.Ordinal) {
+        // `NSharpLang.TestHost` is the CLI's own N# host assembly — `nlc test`, `nlc watch` and the
+        // dispatch pipeline — referenced by `src/NSharpLang.Cli` and by nothing else, so it is the
+        // CLI surface rather than a repository-build one.
+        if path.StartsWith("src/NSharpLang.Cli/", StringComparison.Ordinal) || path.StartsWith("src/NSharpLang.TestHost/", StringComparison.Ordinal) {
             return "cli"
         }
         if path.StartsWith("src/NSharpLang.Build.Tasks/", StringComparison.Ordinal) || path.StartsWith("src/NSharpLang.Sdk/", StringComparison.Ordinal) {
