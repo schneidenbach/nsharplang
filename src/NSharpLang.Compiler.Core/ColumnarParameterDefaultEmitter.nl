@@ -50,7 +50,7 @@ class ColumnarParameterDefaultEmitter {
                 sourceAttributeQueue.QueueParameter(parameter, sourceAttributes[index], sourceResolution)
             }
             if labeledCanonicals != null && index < labeledCanonicals.Length {
-                ColumnarTupleElementNameEmitter.ApplyToParameter(parameter, labeledCanonicals[index])
+                ColumnarSignatureMetadataEmitter.ApplyToParameter(parameter, DeclaredParameterTypeOrNull(parameterTypes, index), labeledCanonicals[index])
             }
             parameterType := index < parameterTypes.Length ? parameterTypes[index] : typeof(object)
             if hasDefault && !TrySetParameterDefault(parameter, parameterType, defaultKinds[index], defaultTexts[index], enumRegistry) {
@@ -59,6 +59,17 @@ class ColumnarParameterDefaultEmitter {
             index += 1
         }
         return true
+    }
+
+    // The signature type of one parameter position, or null when the caller supplied fewer types than
+    // names. The `typeof(object)` fallback below exists so a DEFAULT can still be set; it is not a
+    // type anything wrote, so the metadata that describes what was written must not read it.
+    static func DeclaredParameterTypeOrNull(parameterTypes: Type[], index: int): Type? {
+        if index < 0 || index >= parameterTypes.Length {
+            return null
+        }
+
+        return parameterTypes[index]
     }
 
     static func DefineConstructorParameterMetadata(
@@ -125,7 +136,7 @@ class ColumnarParameterDefaultEmitter {
                 sourceAttributeQueue.QueuePositionalParameter(parameter, memberField, sourceAttributes[index], sourceResolution)
             }
             if labeledCanonicals != null && index < labeledCanonicals.Length {
-                ColumnarTupleElementNameEmitter.ApplyToParameter(parameter, labeledCanonicals[index])
+                ColumnarSignatureMetadataEmitter.ApplyToParameter(parameter, DeclaredParameterTypeOrNull(parameterTypes, index), labeledCanonicals[index])
             }
             parameterType := index < parameterTypes.Length ? parameterTypes[index] : typeof(object)
             if hasDefault && !TrySetParameterDefault(parameter, parameterType, defaultKinds[index], defaultTexts[index], enumRegistry) {

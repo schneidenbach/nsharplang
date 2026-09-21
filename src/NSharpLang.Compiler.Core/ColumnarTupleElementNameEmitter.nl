@@ -22,8 +22,9 @@ import NSharpLang.Compiler
 //
 // THE PARAMETER BUILDER IS NEVER DEFINED TWICE. `DefineParameter` is what creates a Param row, so
 // calling it a second time for the same position would overwrite the name and flags the parameter
-// metadata owner just wrote. Parameters therefore take the builder that owner already made
-// (`ApplyToParameter`); only the RETURN position, which nothing else defines, is created here.
+// metadata owner just wrote. Every position here therefore takes a builder somebody else already
+// made -- the RETURN row included, which `ColumnarSignatureMetadataEmitter` creates once for the two
+// attribute families that both have something to say about it.
 class ColumnarTupleElementNameEmitter {
 
     // `TupleElementNamesAttribute(string[])`, resolved from the reference universe the way the other
@@ -33,24 +34,8 @@ class ColumnarTupleElementNameEmitter {
         return typeof(System.Runtime.CompilerServices.TupleElementNamesAttribute).GetConstructor([typeof(string[])])
     }
 
-    // The method's RETURN position. `DefineParameter(0, ...)` is the return value's Param row, and no
-    // other owner writes it, so creating it here is safe.
-    static func ApplyToReturn(method: MethodBuilder, labeledCanonical: string?) {
-        names := Flatten(labeledCanonical)
-        if names == null {
-            return
-        }
-
-        constructor := Constructor()
-        if constructor == null {
-            return
-        }
-
-        returnParameter := method.DefineParameter(0, ParameterAttributes.None, null)
-        returnParameter.SetCustomAttribute(constructor, ColumnarTupleElementNames.Blob(names))
-    }
-
-    // One already-defined parameter position.
+    // One already-defined parameter position -- the RETURN row included, which its own owner creates
+    // before handing the builder here.
     static func ApplyToParameter(parameter: ParameterBuilder, labeledCanonical: string?) {
         names := Flatten(labeledCanonical)
         if names == null {

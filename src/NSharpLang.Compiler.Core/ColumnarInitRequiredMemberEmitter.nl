@@ -152,7 +152,12 @@ class ColumnarInitRequiredMemberEmitter {
 
     // DEFINE THE WHOLE MEMBER — backing field, both accessors, both bodies, and the `PropertyInfo` —
     // as one operation, so no caller can register half an init-only property.
-    static func Define(owner: ColumnarStructDef, propertyName: string, propertyType: Type, isStatic: bool, visibilityWord: int, isRequired: bool, implementsInterfaceValueSlot: bool): ColumnarPropertyDef {
+    //
+    // `labeledCanonical` is the property's type AS WRITTEN. An init-only property is a PUBLIC signature
+    // position like any other, so its `?`s have to reach metadata or a consumer in another assembly
+    // reads the whole thing back as non-null; the backing field is private and carries the same
+    // annotation for the reader that walks it.
+    static func Define(owner: ColumnarStructDef, propertyName: string, propertyType: Type, isStatic: bool, visibilityWord: int, isRequired: bool, implementsInterfaceValueSlot: bool, labeledCanonical: string? = null): ColumnarPropertyDef {
         if owner == null || propertyName == null || propertyType == null {
             throw new InvalidOperationException("Init-only property definition inputs cannot be null.")
         }
@@ -166,6 +171,7 @@ class ColumnarInitRequiredMemberEmitter {
         // FieldAttributes.Static
         backingField := ColumnarFieldMetadataEmitter.Define(builder, BackingFieldName(propertyName), propertyType, backingFieldAttributes, false, false, 0)
         backingField.SetCustomAttribute(CompilerGeneratedAttributeConstructor(), ColumnarAttributeBlobs.NoArgument())
+        ColumnarSignatureMetadataEmitter.ApplyToField(backingField, propertyType, labeledCanonical)
 
         // HideBySig 0x0080, SpecialName 0x0800, Static 0x0010 — the same word an ordinary accessor
         // carries. An init-only property that fills an interface's read slot takes that slot the way
@@ -200,6 +206,7 @@ class ColumnarInitRequiredMemberEmitter {
         EmitSetterBody(setter.GetILGenerator(), backingField, isStatic)
 
         property := builder.DefineProperty(propertyName, PropertyAttributes.None, propertyType, Type.EmptyTypes)
+        ColumnarSignatureMetadataEmitter.ApplyToProperty(property, propertyType, labeledCanonical)
         property.SetGetMethod(getter)
         property.SetSetMethod(setter)
         if isRequired {

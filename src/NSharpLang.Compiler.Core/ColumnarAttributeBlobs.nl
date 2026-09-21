@@ -114,6 +114,33 @@ class ColumnarAttributeBlobs {
         return blob.ToArray()
     }
 
+    // `[Nullable(2)]`: prolog, ONE byte fixed argument, no named arguments. A `byte` fixed argument
+    // is its own single raw byte -- there is no length and no compression in front of it.
+    static func OneByte(value: int): byte[] {
+        blob := new List<byte>()
+        WritePrologue(blob)
+        Append(blob, value)
+        WriteNamedArgumentCount(blob, 0)
+        return blob.ToArray()
+    }
+
+    // `[Nullable(new byte[] { 1, 1, 2 })]`: prolog, ONE fixed argument that is a SZARRAY of bytes,
+    // no named arguments. The element form is the same raw byte the single-argument shape writes,
+    // behind the plain UInt32 element count every SZARRAY argument carries.
+    static func ByteArray(values: int[]): byte[] {
+        blob := new List<byte>()
+        WritePrologue(blob)
+        WriteUInt32(blob, values.Length)
+        index := 0
+        while index < values.Length {
+            Append(blob, values[index])
+            index = index + 1
+        }
+
+        WriteNamedArgumentCount(blob, 0)
+        return blob.ToArray()
+    }
+
     static func WritePrologue(blob: List<byte>) {
         Append(blob, 1)
         Append(blob, 0)

@@ -4860,7 +4860,7 @@ sealed class ColumnarIlEmitter {
                     interfaceAccessorAttributes
                 )
                 interfacePropertyRow := interfaceDef.Builder.DefineProperty(iface.PropertyNames[pv], PropertyAttributes.None, interfacePropertyType, Type.EmptyTypes)
-                ColumnarTupleElementNameEmitter.ApplyToProperty(interfacePropertyRow, iface.PropertyTypeCanonicals[pv])
+                ColumnarSignatureMetadataEmitter.ApplyToProperty(interfacePropertyRow, interfacePropertyType, iface.PropertyTypeCanonicals[pv])
                 interfacePropertyRow.SetGetMethod(interfacePropertyAccessors.Getter)
                 interfaceDef.Properties[iface.PropertyNames[pv]] = interfacePropertyAccessors
                 interfaceDef.MemberLabeledCanonicals[iface.PropertyNames[pv]] = iface.PropertyTypeCanonicals[pv]
@@ -5004,7 +5004,7 @@ sealed class ColumnarIlEmitter {
                     if (initFillsInterfaceSlot && !InterfaceValueSlotAccepts(initSlotType, fieldType)) {
                         return DeclineStatic("emit.declaration.interface-value-member", "'" + st.Name + "." + fieldName + "' fills an interface value slot, so it must have the slot's own type", st.Name, -1, 0)
                     }
-                    ColumnarInitRequiredMemberEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], initPropertyVisibility, st.FieldRequiredFlags[fi], initFillsInterfaceSlot)
+                    ColumnarInitRequiredMemberEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], initPropertyVisibility, st.FieldRequiredFlags[fi], initFillsInterfaceSlot, st.FieldTypeCanonicals[fi])
                     def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
                     // THE STORAGE STILL COUNTS AS INSTANCE STATE. A record's synthesized equality
                     // compares the fields in this list, and an init-only property is part of what the
@@ -5028,7 +5028,7 @@ sealed class ColumnarIlEmitter {
                     sourceAttributeQueue.QueueField(sfb, st.FieldSourceAttributesAt(fi), typeResolution)
                     // A named tuple's element names live on the DECLARING position, so a field that
                     // mentions one carries the same attribute a return or a parameter does.
-                    ColumnarTupleElementNameEmitter.ApplyToField(sfb, st.FieldTypeCanonicals[fi])
+                    ColumnarSignatureMetadataEmitter.ApplyToField(sfb, fieldType, st.FieldTypeCanonicals[fi])
                     def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
                     def.StaticFields[fieldName] = sfb
                     if isLiteral {
@@ -5045,7 +5045,7 @@ sealed class ColumnarIlEmitter {
                     ColumnarInitRequiredMemberEmitter.ApplyRequiredMemberToField(instanceField)
                 }
                 sourceAttributeQueue.QueueField(instanceField, st.FieldSourceAttributesAt(fi), typeResolution)
-                ColumnarTupleElementNameEmitter.ApplyToField(instanceField, st.FieldTypeCanonicals[fi])
+                ColumnarSignatureMetadataEmitter.ApplyToField(instanceField, fieldType, st.FieldTypeCanonicals[fi])
                 def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
                 fields[fieldName] = instanceField
                 if (fieldRows.FieldIsNullable[s][fi]) {
@@ -5212,7 +5212,7 @@ sealed class ColumnarIlEmitter {
                         if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals, sourceAttributeQueue)) {
                             return false
                         }
-                        ColumnarTupleElementNameEmitter.ApplyToReturn(pmb, m.ReturnLabeledCanonical)
+                        ColumnarSignatureMetadataEmitter.ApplyToReturn(pmb, pinvokeReturnType, m.ReturnLabeledCanonical)
                         overloadStaticDefinition := new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnLabeledCanonical)
                         overloadStaticDefinition.ParamNames = m.ParamNames
                         overloadStaticDefinition.ParamDefaultKinds = m.ParamDefaultKinds
@@ -5239,7 +5239,7 @@ sealed class ColumnarIlEmitter {
                     if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, sTypeResolution.Enums, m.ParameterSourceAttributes, sTypeResolution, m.ParamLabeledCanonicals, sourceAttributeQueue)) {
                         return false
                     }
-                    ColumnarTupleElementNameEmitter.ApplyToReturn(smb, m.ReturnLabeledCanonical)
+                    ColumnarSignatureMetadataEmitter.ApplyToReturn(smb, sSignatureReturn, m.ReturnLabeledCanonical)
                     staticDefinition := new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnLabeledCanonical)
                     staticDefinition.ParamNames = m.ParamNames
                     staticDefinition.ParamDefaultKinds = m.ParamDefaultKinds
@@ -5332,7 +5332,7 @@ sealed class ColumnarIlEmitter {
                     if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(declaredGenericInstance, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, mTypeResolution.Enums, m.ParameterSourceAttributes, mTypeResolution, m.ParamLabeledCanonicals, sourceAttributeQueue)) {
                         return false
                     }
-                    ColumnarTupleElementNameEmitter.ApplyToReturn(declaredGenericInstance, m.ReturnLabeledCanonical)
+                    ColumnarSignatureMetadataEmitter.ApplyToReturn(declaredGenericInstance, mSignatureReturn, m.ReturnLabeledCanonical)
                     genericInstanceDefinition := new ColumnarInstanceMethodDef(declaredGenericInstance, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
                     genericInstanceDefinition.ParamNames = m.ParamNames
                     genericInstanceDefinition.ParamDefaultKinds = m.ParamDefaultKinds
@@ -5409,7 +5409,7 @@ sealed class ColumnarIlEmitter {
                 if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals, sourceAttributeQueue)) {
                     return false
                 }
-                ColumnarTupleElementNameEmitter.ApplyToReturn(mb, m.ReturnLabeledCanonical)
+                ColumnarSignatureMetadataEmitter.ApplyToReturn(mb, mSignatureReturn, m.ReturnLabeledCanonical)
                 methodOverrideCompletion.Apply(def.Builder, mb, typeResolution.Structs.StructuralTypeReferences)
                 instanceDefinition := new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
                 instanceDefinition.ParamNames = m.ParamNames
@@ -5485,7 +5485,7 @@ sealed class ColumnarIlEmitter {
                     }
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, staticGetter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), true)))
                     staticProperty := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
-                    ColumnarTupleElementNameEmitter.ApplyToProperty(staticProperty, prop.TypeCanonical)
+                    ColumnarSignatureMetadataEmitter.ApplyToProperty(staticProperty, staticPropertyType, prop.TypeCanonical)
                     def.MemberLabeledCanonicals[prop.Name] = prop.TypeCanonical
                     // THE QUEUE IS THE ONLY WRITER OF A PROPERTY'S SOURCE ATTRIBUTES, INCLUDING THE
                     // MSBUILD MARKERS. `[Microsoft.Build.Framework.Required]` and `[…Output]` once had a
@@ -5556,7 +5556,7 @@ sealed class ColumnarIlEmitter {
                 }
                 structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, getter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), false)))
                 property := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
-                ColumnarTupleElementNameEmitter.ApplyToProperty(property, prop.TypeCanonical)
+                ColumnarSignatureMetadataEmitter.ApplyToProperty(property, propertyType, prop.TypeCanonical)
                 def.MemberLabeledCanonicals[prop.Name] = prop.TypeCanonical
                 // One writer, for the reason spelled out on the static property above.
                 sourceAttributeQueue.QueueProperty(property, prop.Getter.SourceAttributes, typeResolution)
@@ -6307,7 +6307,7 @@ sealed class ColumnarIlEmitter {
             if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums, fn.ParameterSourceAttributes, typeResolution, fn.ParamLabeledCanonicals, sourceAttributeQueue)) {
                 return false
             }
-            ColumnarTupleElementNameEmitter.ApplyToReturn(methods[f], fn.ReturnLabeledCanonical)
+            ColumnarSignatureMetadataEmitter.ApplyToReturn(methods[f], asyncWrappedReturn ?? returnType, fn.ReturnLabeledCanonical)
             ordinalsByFunc[f] = ordinals
             paramTypesByFunc[f] = paramTypeMap
             returnTypeByFunc[f] = asyncWrappedReturn ?? returnType
@@ -7409,7 +7409,7 @@ sealed class ColumnarIlEmitter {
             if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums, null, null, localFn.ParamLabeledCanonicals, sourceAttributeQueue)) {
                 return false
             }
-            ColumnarTupleElementNameEmitter.ApplyToReturn(localMethod, localFn.ReturnLabeledCanonical)
+            ColumnarSignatureMetadataEmitter.ApplyToReturn(localMethod, localReturn, localFn.ReturnLabeledCanonical)
             localFuncs[localFn.Name] = (localMethod, localParams, localReturn)
             declaredLocalFuncNodes[localFunction.NodeIndex] = localFn.Name
             visibleLocalFuncNames.Add(localFn.Name)
@@ -7595,7 +7595,7 @@ sealed class ColumnarIlEmitter {
         if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums, null, null, localFn.ParamLabeledCanonicals, sourceAttributeQueue)) {
             return false
         }
-        ColumnarTupleElementNameEmitter.ApplyToReturn(localMethod, localFn.ReturnLabeledCanonical)
+        ColumnarSignatureMetadataEmitter.ApplyToReturn(localMethod, localReturn, localFn.ReturnLabeledCanonical)
         localMethodAsInfo: MethodInfo = localMethod
         localDefinition := new ColumnarSiblingMethodDefinition(
             localMethodAsInfo,
