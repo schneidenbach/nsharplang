@@ -9668,17 +9668,15 @@ sealed class ColumnarIlEmitter {
                         reflectedWriteField := writeChain.ReceiverType.GetField(memberName)
                         if (reflectedWriteField != null && !reflectedWriteField.get_IsStatic() && !reflectedWriteField.get_IsInitOnly() && !reflectedWriteField.get_IsLiteral()) {
                             EmitMemberWriteLocator(writeChain)
+                            // THE SAME SEAM THE SOURCE-OWNED FIELD WRITE ABOVE USES. This arm spelled
+                            // its own value walk — an int literal, a zero, then the ordinary expression
+                            // walk — and its own conversion tail, and the two drifted: the seam lifts a
+                            // `T` onto a `Nullable<T>` storage type and this copy did not, so
+                            // `external.Flag = false` against a `bool?` FIELD declined while the
+                            // identical write to a source-owned field emitted. A member's provenance
+                            // decides which INSTRUCTION stores it, never which values may be stored.
                             let reflectedFieldValueType: System.Type = null
-                            if (TryEmitIntLiteralAsType(Child(expr, 1), reflectedWriteField.get_FieldType(), out reflectedFieldValueType)) {
-                            } else {
-                                if (TryEmitZeroLiteralAsType(Child(expr, 1), reflectedWriteField.get_FieldType(), out reflectedFieldValueType)) {
-                                } else {
-                                    if (!EmitExpression(Child(expr, 1), out reflectedFieldValueType)) {
-                                        return false
-                                    }
-                                }
-                            }
-                            if (!TypesEquivalent(reflectedFieldValueType, reflectedWriteField.get_FieldType()) && !TryEmitImplicitWidening(reflectedFieldValueType, reflectedWriteField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(reflectedFieldValueType, reflectedWriteField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(reflectedFieldValueType, reflectedWriteField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(reflectedFieldValueType, reflectedWriteField.get_FieldType(), _structRegistry, _il)) {
+                            if (!TryEmitAssignableValue(Child(expr, 1), reflectedWriteField.get_FieldType(), out reflectedFieldValueType)) {
                                 return false
                             }
                             _il.Emit(OpCodes.Stfld, reflectedWriteField)
@@ -9705,14 +9703,12 @@ sealed class ColumnarIlEmitter {
                                 )
                             }
                             EmitMemberWriteLocator(writeChain)
+                            // THE SAME SEAM AGAIN, for the same reason: a reflected PROPERTY write had
+                            // an even shorter copy of the walk — no zero literal at all — so
+                            // `external.Flag = null` against a `bool?` property reached the ordinary
+                            // expression walk with a bare `null` and declined as an unhandled kind.
                             let reflectedPropertyValueType: System.Type = null
-                            if (TryEmitIntLiteralAsType(Child(expr, 1), reflectedWriteProperty.get_PropertyType(), out reflectedPropertyValueType)) {
-                            } else {
-                                if (!EmitExpression(Child(expr, 1), out reflectedPropertyValueType)) {
-                                    return false
-                                }
-                            }
-                            if (!TypesEquivalent(reflectedPropertyValueType, reflectedWriteProperty.get_PropertyType()) && !TryEmitImplicitWidening(reflectedPropertyValueType, reflectedWriteProperty.get_PropertyType()) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(reflectedPropertyValueType, reflectedWriteProperty.get_PropertyType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(reflectedPropertyValueType, reflectedWriteProperty.get_PropertyType(), _structRegistry, _il)) {
+                            if (!TryEmitAssignableValue(Child(expr, 1), reflectedWriteProperty.get_PropertyType(), out reflectedPropertyValueType)) {
                                 return false
                             }
                             _il.Emit(reflectedSetter.get_IsVirtual() ? OpCodes.Callvirt : OpCodes.Call, reflectedSetter)
@@ -20825,16 +20821,15 @@ sealed class ColumnarIlEmitter {
             }
         }
 
+        // THE SAME SEAM THE OTHER FOUR WRITE DOORS USE. This one carried a third copy of the value
+        // walk and its conversion tail, and the copy had no nullable lift, so a WRITABLE `Nullable<T>`
+        // property this door had already ADMITTED — `IsSupportedType` says `bool?` is supported —
+        // reached the tail with a bare `bool` and returned false AFTER emitting the receiver and the
+        // value. A door that emits and then declines leaves those rows on the stack for whatever arm
+        // runs next, which is how the store that eventually succeeded produced an unverifiable body.
         propertyType := property.get_PropertyType()
         valueType: Type = null
-        if (TryEmitZeroLiteralAsType(valueNode, propertyType, out valueType)) {
-        } else {
-            // Null adopted to the declared reference property type.
-            if (!EmitExpression(valueNode, out valueType)) {
-                return false
-            }
-        }
-        if (!TypesEquivalent(valueType, propertyType) && !TryEmitImplicitWidening(valueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, propertyType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(valueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(valueType, propertyType)) {
+        if (!TryEmitAssignableValue(valueNode, propertyType, out valueType)) {
             return false
         }
 
