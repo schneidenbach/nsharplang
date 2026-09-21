@@ -162,19 +162,10 @@ static class XunitTestRunner {
 
             using discoverySink := new TestDiscoverySink(() => false)
             assemblyConfiguration := new TestAssemblyConfiguration()
-            // SEED: simplify after next reseed (4d4f8b8a6). This assembly is compiled by the
-            // COMMITTED bootstrap seed, and at that seed a write to a `Nullable<T>` property of a
-            // REFERENCED assembly declines at `emit.statement.block-child`; the same write of a
-            // typed `bool?` local emits. `4d4f8b8a6` routed all three write doors through the
-            // shared lifting seam, so once the seed carries it these locals collapse back into
-            // `assemblyConfiguration.DiagnosticMessages = verbose`.
-            diagnosticMessages: bool? = verbose
-            preEnumerateTheories: bool? = true
-            shadowCopy: bool? = false
-            assemblyConfiguration.DiagnosticMessages = diagnosticMessages
-            assemblyConfiguration.InternalDiagnosticMessages = diagnosticMessages
-            assemblyConfiguration.PreEnumerateTheories = preEnumerateTheories
-            assemblyConfiguration.ShadowCopy = shadowCopy
+            assemblyConfiguration.DiagnosticMessages = verbose
+            assemblyConfiguration.InternalDiagnosticMessages = verbose
+            assemblyConfiguration.PreEnumerateTheories = true
+            assemblyConfiguration.ShadowCopy = false
 
             discoveryOptions := TestFrameworkOptions.ForDiscovery(assemblyConfiguration)
             controller.Find(false, discoverySink, discoveryOptions)

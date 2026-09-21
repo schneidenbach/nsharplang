@@ -91,14 +91,19 @@ once and hands it to `CliPipeline.Execute`, which carries it into a watched re-e
 **What is left in `src/NSharpLang.Cli`:** `Main` (two lines) and `GetVersion`. Removing even that is
 open decision 2 plus the three missing project.yml keys.
 
-**Seed-compiled, so two shapes are routed around.** An N#-SDK project is compiled by the COMMITTED
-seed (`977d336cf`), not by HEAD, so the fixes at `4d4f8b8a6` (writing a referenced assembly's
-`Nullable<T>` property) and `910218d2d` (reading `AggregateException.InnerExceptions`) are not
-available yet. Each route carries a `// SEED: simplify after next reseed (<sha>)` marker naming its
-commit; both collapse back to the direct spelling at the next reseed. A THIRD shape is open at the
-tip as well and is filed as blocker 28 in `census-briefs/CLI2-COMPILER-BLOCKERS.md`: an `object`
-holding a `ValueTask` cannot be reached at emit by any spelling, so `ValueTask.AsTask` is invoked
-reflectively.
+**The three routed-around shapes are gone — all three collapsed at the `407b43f9b` seed.** An
+N#-SDK project is compiled by the COMMITTED seed, not by HEAD, so for a while this lane carried
+`// SEED: simplify after next reseed (<sha>)` markers over two of them — writing a referenced
+assembly's `Nullable<T>` property (`30b7188d3`, filed then as `4d4f8b8a6`) and reading
+`AggregateException.InnerExceptions` (`5d71175ab`, filed then as `910218d2d`) — plus a third,
+blocker 28, where an `object` holding a `ValueTask` could not be reached at emit and
+`ValueTask.AsTask` was invoked reflectively. `003c5b935` unboxed an externally declared value type
+out of an `object`, which is what blocker 28 was actually about, and all three fixes are ancestors
+of the committed seed. So `XunitTestRunner` writes `assemblyConfiguration.DiagnosticMessages =
+verbose` directly, `ReflectionTestRunner` reads `aggregate.InnerExceptions` directly, and its
+`ValueTask` arm is `if result is ValueTask pending { WaitForTask(pending.AsTask(), timeoutMs) }` —
+the binding spelling, which is the one that emits. `nlc test` output over a passing, a failing and a
+skipped case is byte-identical across the collapse in text and JSON, plain and `--verbose`.
 
 **Verification.** An 87-case byte-compare matrix over `nlc test` and the whole dispatch surface is
 byte-identical in stdout, stderr and exit code against a CLI built from `f0da9f94f`. Full native

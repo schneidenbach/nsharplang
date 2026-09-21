@@ -2,7 +2,6 @@ namespace NSharpLang.Cli
 
 import System
 import System.Collections.Generic
-import System.Collections.ObjectModel
 import System.Diagnostics
 import System.Reflection
 import System.Threading.Tasks
@@ -225,18 +224,8 @@ static class ReflectionTestRunner {
             return
         }
 
-        if result is ValueTask {
-            // BLOCKER: an `object` that holds a `ValueTask` cannot be reached from N# at emit.
-            // `result as ValueTask?`, `(ValueTask)result` after an `is` test, and calling `AsTask()`
-            // on the narrowed value all decline at the tip compiler as well as at the seed
-            // (census-briefs/CLI2-COMPILER-BLOCKERS.md, "testhost"). The SAME `ValueTask.AsTask`
-            // this arm always called is invoked reflectively until that lands; the awaited task,
-            // the timeout and the exception it surfaces are the ones the C# owner produced.
-            asTask := typeof(ValueTask).GetMethod("AsTask", new Type[](0))
-            valueTaskAsTask := (must asTask).Invoke(result, new object[](0)) as Task
-            if valueTaskAsTask != null {
-                WaitForTask(valueTaskAsTask, timeoutMs)
-            }
+        if result is ValueTask pending {
+            WaitForTask(pending.AsTask(), timeoutMs)
         }
     }
 
@@ -317,7 +306,7 @@ static class ReflectionTestRunner {
 
             aggregate := current as AggregateException
             if aggregate != null {
-                innerExceptions := InnerExceptionsOf(aggregate)
+                innerExceptions := aggregate.InnerExceptions
                 if innerExceptions.Count == 1 {
                     current = innerExceptions[0]
                     continue
@@ -328,21 +317,5 @@ static class ReflectionTestRunner {
         }
 
         return current
-    }
-
-    // SEED: simplify after next reseed (910218d2d). This assembly is compiled by the COMMITTED
-    // bootstrap seed, and at that seed an exception's collection-typed properties decline at emit —
-    // `AggregateException.InnerExceptions` answers `emit.local.initializer`. `910218d2d` widened the
-    // admitted-property-type fence to the relation the backend already uses everywhere else, so
-    // once the seed carries it this collapses back to `aggregate.InnerExceptions`. The SAME
-    // property is read here, so the count, the order and the element are identical.
-    static func InnerExceptionsOf(aggregate: AggregateException): ReadOnlyCollection<Exception> {
-        property := typeof(AggregateException).GetProperty("InnerExceptions")
-        if property == null {
-            return new ReadOnlyCollection<Exception>(new List<Exception>())
-        }
-
-        innerExceptions := property.GetValue(aggregate) as ReadOnlyCollection<Exception>
-        return innerExceptions ?? new ReadOnlyCollection<Exception>(new List<Exception>())
     }
 }
