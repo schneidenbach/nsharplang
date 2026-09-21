@@ -22797,6 +22797,27 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = ownMethod.ReturnType
                 return true
             }
+            // A METHOD OF THE CAPTURED ENCLOSING INSTANCE, CALLED BY ITS BARE NAME INSIDE A LAMBDA.
+            // The emission arm for this shape (`EmitCapturedEnclosingThisCall`) had no twin here, so
+            // `Normalize(p)` written in a lambda body EMITTED but could not be TYPED — and a call that
+            // types its arguments before it selects an overload therefore refused every argument
+            // written that way. `Facts.IsUnder(Normalize(p), root)` declined as
+            // `emit.call.static-member-unmodeled` while `Facts.IsUnder(p, root)` and a bare
+            // `Normalize(p).Length > 0` in the same lambda both emitted: the member was never the
+            // subject, the missing answer was.
+            //
+            // The predicates and the ORDER are the emission arm's own, so what this promises and what
+            // the emitter then writes cannot disagree: the display type's own chain is asked first,
+            // the enclosing chain only for a closure display, and an EXCLUDED definition is left to
+            // the tiers below exactly as it is there.
+            let capturedEnclosingMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+            if (_currentStruct != null && _currentStruct.IsClosureDisplay && _enclosingType != null && TrySelectInstanceMethodOnChain(_enclosingType, calleeName, node, out capturedEnclosingMethod)) {
+                if (ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(capturedEnclosingMethod)) {
+                    return false
+                }
+                columnarResolvedType = capturedEnclosingMethod.ReturnType
+                return true
+            }
             let ownStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
             if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, calleeName, _nodes.ChildCount(node) - 1, out ownStatic)) {
                 if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedStaticDefinition(ownStatic)) {
