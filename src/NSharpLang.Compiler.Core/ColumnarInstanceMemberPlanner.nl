@@ -254,14 +254,22 @@ class ColumnarInstanceMemberPlanner {
                         return false
                     }
                 } else {
+                    // THE FOUR COMPOSED RECEIVER ARMS FIRST, UNCHANGED, so every receiver they already
+                    // owned keeps producing exactly the rows it produced before. Their own checkpoint is
+                    // what makes the SECOND attempt possible: a declined arm may have appended rows
+                    // before it decided, and the outer checkpoint cannot be used to undo just that.
+                    receiverCheckpoint := plan.CreateCheckpoint()
                     receiverFragment := plan.BeginFragment(parentFragment, nodes.Kind(receiverNode), receiverNode)
 
-                    if !TryAppendComposedReceiver(nodes, source, receiverNode, bindings, plan, out receiverType) {
-                        plan.Rollback(checkpoint)
-                        return false
+                    if TryAppendComposedReceiver(nodes, source, receiverNode, bindings, plan, out receiverType) {
+                        plan.CompleteFragment(receiverFragment, receiverType)
+                    } else {
+                        plan.Rollback(receiverCheckpoint)
+                        if !TryAppendChainedReceiver(nodes, source, receiverNode, bindings, plan, parentFragment, allowPrimitiveBinary, out receiverType) {
+                            plan.Rollback(checkpoint)
+                            return false
+                        }
                     }
-
-                    plan.CompleteFragment(receiverFragment, receiverType)
                 }
 
                 if !TrySelect(receiverType, memberName, bindings, out selection) {
@@ -429,6 +437,47 @@ class ColumnarInstanceMemberPlanner {
         }
 
         return false
+    }
+
+    // A MEMBER READ'S RECEIVER IS AN ORDINARY VALUE, AND THE SHARED VALUE DISPATCHER IS ITS OWNER.
+    //
+    // `TryAppendComposedReceiver` names four receiver shapes — a STATIC member read, a scalar literal,
+    // `nameof` and `typeof` — and a receiver that is any other expression had no owner at all. So a
+    // chain stopped being plannable at its SECOND hop: `p.StartInfo.FileName` and `p.ToString().Length`
+    // could not be planned, while `p.ProcessName` and `p.StartInfo.ToString()` could. That is not a
+    // depth rule, it is a missing arm — nothing about a member read cares how its receiver was
+    // produced — and it was invisible in STATEMENT positions, where the residual emitter's own ladder
+    // walks a chain of any length. It showed up in ARGUMENT positions, which are typed by PLANNING
+    // them: an argument the planner cannot type leaves its call with no argument types, and a call
+    // whose arguments have no types cannot have an overload chosen from them. `hash.Add(p.ProcessName)`
+    // emitted and `hash.Add(p.StartInfo.FileName)` declined as "not modeled" — the same missing arm,
+    // reported as if the API were unknown.
+    //
+    // The dispatcher is the SAME owner the index-access arm above already routes to, called the same
+    // way and with the same inherited surface, so a member, an element, a call result and a nested
+    // chain all compose alike and to any depth. Rows are appended receiver-first, which is the
+    // left-to-right evaluation order a chain already has.
+    //
+    // It is asked ONLY after the four named arms decline, so no receiver that has an owner today
+    // changes owners — in particular a static member read still belongs to the external-static owner
+    // rather than to the dispatcher's enum arm.
+    static func TryAppendChainedReceiver(nodes: ColumnarNodeTable, source: string, receiverNode: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, parentFragment: int, allowPrimitiveBinary: bool, out receiverType: Type): bool {
+        receiverType = typeof(int)
+        if nodes == null || source == null || bindings == null || plan == null || receiverNode < 0 || receiverNode >= nodes.Kinds.Length {
+            return false
+        }
+
+        kind := nodes.Kind(receiverNode)
+        if kind != ColumnarExpressionNodeKind.MemberAccessExpression() && kind != ColumnarExpressionNodeKind.CallExpression() {
+            return false
+        }
+
+        handles := ColumnarRangeIndexHandles.Resolve()
+        if allowPrimitiveBinary {
+            return ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, receiverNode, bindings, handles, plan, parentFragment, 0, out receiverType)
+        }
+
+        return ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, receiverNode, bindings, handles, plan, parentFragment, 0, out receiverType)
     }
 
     static func IsScalarLiteralKind(kind: int): bool {
