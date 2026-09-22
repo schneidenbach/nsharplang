@@ -576,6 +576,15 @@ class LinterWalk {
                 state.MarkVariableUsed(variableName, false)
             }
 
+            // THE FILTER IS VISITED INSIDE THE CLAUSE'S SCOPE and BEFORE the emptiness rule is acted
+            // on, because it is the one part of a catch that can read the bound exception without the
+            // handler body mentioning it at all — `catch e: T when e.Code == 4 { }` uses `e` and uses
+            // every import the names in it resolve through.
+            catchFilter := catchClause.Filter
+            if catchFilter != null {
+                VisitExpression(catchFilter)
+            }
+
             if !catchBlockIsEmpty {
                 VisitStatement(catchClause.Block)
             }

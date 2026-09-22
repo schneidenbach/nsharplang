@@ -81,6 +81,53 @@ func PsAst(source: string): CompilationUnit? {
 // Every diagnostic's code and span, in `ParseFileAst`'s recording order. Empty for a clean parse.
 // A string kernel rather than a nullable `CompilerError?` handle, because a `.tests.nl` must produce
 // ZERO `nlc check` rows and a nullable node handle produces NL905s.
+// The first catch clause's FILTER, rendered as the guard's own source text — `<none>` when the
+// clause carries no `when`. A string kernel for the same reason `PsCensus` is one: a `.tests.nl`
+// must produce zero `nlc check` rows, and a nullable node handle produces NL905s.
+func PsFilterText(source: string): string {
+    unit := PsAst(source)
+    if unit == null {
+        return "<no-unit>"
+    }
+
+    for declaration in unit.Declarations {
+        functionDeclaration := declaration as FunctionDeclaration
+        if functionDeclaration == null {
+            continue
+        }
+
+        body := functionDeclaration.Body
+        if body == null {
+            continue
+        }
+
+        for statement in body.Statements {
+            tryStatement := statement as TryStatement
+            if tryStatement == null {
+                continue
+            }
+
+            if tryStatement.CatchClauses.Count == 0 {
+                return "<no-clause>"
+            }
+
+            filter := tryStatement.CatchClauses[0].Filter
+            if filter == null {
+                return "<none>"
+            }
+
+            identifier := filter as IdentifierExpression
+            if identifier == null {
+                return "<not-a-name>"
+            }
+
+            return identifier.Name
+        }
+    }
+
+    return "<no-try>"
+}
+
 func PsCensus(source: string): string {
     parsed := ColumnarParserRecovery.ParseFileAst(source, "test.nl")
     builder := new StringBuilder()
@@ -201,6 +248,47 @@ test "020 s18 parser statements: the N# `catch ex: T` form produces exactly the 
     decls1.Add(Golden.Func("Parse", Golden.NoParams(), Golden.SimpleT("int", 2, 27, 30), Golden.Block(stmts2, 2, 31), null, null, null, Modifiers.None, 2, 13))
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 2, 13)
     assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "020 s18 parser statements: `catch ex: T when <expr>` materializes the CatchClause's Filter, and an unfiltered clause leaves it null" {
+    source := "\n            func Parse(): int {\n                try {\n                    return 1\n                } catch ex: FormatException when ready {\n                    return -1\n                }\n            }\n        "
+    assert PsCensus(source) == ""
+    actual := PsAst(source)
+    decls1 := new List<Declaration>()
+    stmts2 := new List<Statement>()
+    stmts3 := new List<Statement>()
+    stmts3.Add(Golden.Return(Golden.IntLit("1", 4, 28), 4, 21))
+    catches4 := new List<CatchClause>()
+    stmts5 := new List<Statement>()
+    stmts5.Add(Golden.Return(Golden.Un(UnaryOperator.Negate, Golden.IntLit("1", 6, 29), 6, 28), 6, 21))
+    catches4.Add(Golden.CatchFilteredF(Golden.SimpleT("FormatException", 5, 29, 44), "ex", Golden.Ident("ready", 5, 50), Golden.Block(stmts5, 5, 56)))
+    stmts2.Add(Golden.Try(Golden.Block(stmts3, 3, 21), catches4, null, 3, 17))
+    decls1.Add(Golden.Func("Parse", Golden.NoParams(), Golden.SimpleT("int", 2, 27, 30), Golden.Block(stmts2, 2, 31), null, null, null, Modifiers.None, 2, 13))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 2, 13)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "020 s18 parser statements: every catch spelling takes a `when` guard, incl. the two PARENTHESIZED ones the formatter cannot round-trip" {
+    // The formatter canonicalizes `catch (e: T)` to `catch e: T`, so no formatted source file can
+    // hold that spelling — which is exactly why the claim that it accepts a filter belongs here,
+    // where the parser is asked directly.
+    parenNamed := "\n            func F(): int {\n                try {\n                    return 1\n                } catch (e: FormatException) when ready {\n                    return 2\n                }\n            }\n        "
+    parenTyped := "\n            func F(): int {\n                try {\n                    return 1\n                } catch (FormatException) when ready {\n                    return 2\n                }\n            }\n        "
+    parenTrailing := "\n            func F(): int {\n                try {\n                    return 1\n                } catch (FormatException e) when ready {\n                    return 2\n                }\n            }\n        "
+    bareGuard := "\n            func F(): int {\n                try {\n                    return 1\n                } catch when ready {\n                    return 2\n                }\n            }\n        "
+
+    assert PsCensus(parenNamed) == ""
+    assert PsCensus(parenTyped) == ""
+    assert PsCensus(parenTrailing) == ""
+    assert PsCensus(bareGuard) == ""
+
+    assert PsFilterText(parenNamed) == "ready"
+    assert PsFilterText(parenTyped) == "ready"
+    assert PsFilterText(parenTrailing) == "ready"
+    assert PsFilterText(bareGuard) == "ready"
+
+    // And the same four spellings WITHOUT a guard still carry no filter at all.
+    assert PsFilterText("\n            func F(): int {\n                try {\n                    return 1\n                } catch (e: FormatException) {\n                    return 2\n                }\n            }\n        ") == "<none>"
 }
 
 test "020 s18 parser statements: `func*` sets Modifiers.Generator on the FUNCTION, and each `yield` anchors on the keyword, not on its value (was ParserTests.TestIteratorFunction)" {

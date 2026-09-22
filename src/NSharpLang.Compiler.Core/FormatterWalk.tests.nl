@@ -618,6 +618,22 @@ test "a catch clause with a name writes name and type, and one without writes br
     assert FwkStatementText(new TryStatement(body, anonymous, null, 0, 0)) == "try {|    inner|} catch (Ex) {|    inner|}|"
 }
 
+test "a catch filter is written after the clause and before the block, in both clause spellings" {
+    body := FwkOneStatementBlock()
+    named := new List<CatchClause>()
+    named.Add(new CatchClause(FwkType("Ex"), "e", body, FwkIdentifier("ready")))
+    assert FwkStatementText(new TryStatement(body, named, null, 0, 0)) == "try {|    inner|} catch e: Ex when ready {|    inner|}|"
+
+    anonymous := new List<CatchClause>()
+    anonymous.Add(new CatchClause(FwkType("Ex"), null, body, FwkIdentifier("ready")))
+    assert FwkStatementText(new TryStatement(body, anonymous, null, 0, 0)) == "try {|    inner|} catch (Ex) when ready {|    inner|}|"
+
+    // A BARE clause takes one too, and the `when` then follows `catch` directly.
+    bare := new List<CatchClause>()
+    bare.Add(new CatchClause(null, null, body, FwkIdentifier("ready")))
+    assert FwkStatementText(new TryStatement(body, bare, null, 0, 0)) == "try {|    inner|} catch when ready {|    inner|}|"
+}
+
 test "an assert with a message writes the message after a comma" {
     assert FwkStatementText(new AssertStatement(FwkIdentifier("c"), null, 0, 0)) == "assert c|"
     assert FwkStatementText(new AssertStatement(FwkIdentifier("c"), FwkIdentifier("m"), 0, 0)) == "assert c, m|"

@@ -68,7 +68,15 @@ class ColumnarClosureBindingPlanner {
                 }
                 ordinal = ordinal + 1
             }
-        } else if kind == 40 || kind == 50 {
+        } else if kind == 50 {
+            // A catch clause's binding is asked for rather than counted, because a clause with an
+            // exception FILTER carries a third child and a filtered clause with no binding carries
+            // the same TWO a bound one used to.
+            catchBinding := ColumnarCatchClauseFacts.BindingNode(nodes, node)
+            if catchBinding >= 0 {
+                names.Add(nodes.Text(source, catchBinding))
+            }
+        } else if kind == 40 {
             if nodes.ChildCount(node) == 2 {
                 nameChild := nodes.Child(node, 0)
                 if nodes.Kind(nameChild) == 6 && nodes.ValueStart(nameChild) >= 0 {

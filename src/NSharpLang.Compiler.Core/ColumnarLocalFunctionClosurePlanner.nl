@@ -171,7 +171,15 @@ class ColumnarLocalFunctionClosurePlanner {
                 if nodes.ValueStart(child) >= 0 {
                     names.Add(nodes.Text(source, child))
                 }
-            } else if childKind == 40 || childKind == 50 {
+            } else if childKind == 50 {
+                // A catch clause's binding is asked for rather than counted, because a clause with an
+                // exception FILTER carries a third child and a filtered clause with no binding carries
+                // the same TWO a bound one used to.
+                catchBinding := ColumnarCatchClauseFacts.BindingNode(nodes, child)
+                if catchBinding >= 0 {
+                    names.Add(nodes.Text(source, catchBinding))
+                }
+            } else if childKind == 40 {
                 if nodes.ChildCount(child) == 2 {
                     nameChild := nodes.Child(child, 0)
                     if nodes.Kind(nameChild) == 6 && nodes.ValueStart(nameChild) >= 0 {

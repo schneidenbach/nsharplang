@@ -6,14 +6,15 @@ import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
-// THE SEVEN STEPS THE RESOURCE FAMILY CANNOT TAKE FOR ITSELF.
+// THE EIGHT STEPS THE RESOURCE FAMILY CANNOT TAKE FOR ITSELF.
 //
 // `try`, `using` and `lock` are one family because they are one SHAPE: each opens a guarded region,
 // each names something the region is guarded BY — a set of catch clauses, a disposable resource, a
 // monitor object — and each runs a body inside a scope it opened and closes afterwards. What none of
 // them can do for itself is run the analyzer's expression walk, push or pop a scope, declare a
-// symbol, re-enter the STATEMENT dispatch for a body, or run the local-declaration walk over a
-// `using` resource declaration — so it ASKS: one request at a time, each naming a kind and carrying
+// symbol, re-enter the STATEMENT dispatch for a body, run the local-declaration walk over a
+// `using` resource declaration, or install what an expression proves into the scope it opened — so it
+// ASKS: one request at a time, each naming a kind and carrying
 // every value the step needs. Nothing here is a policy the driver may reinterpret.
 //
 // The kinds:
@@ -34,6 +35,9 @@ import NSharpLang.Compiler.Ast
 //      declaration runs inside the scope this walk just opened and before the disposability rule, are
 //      this walk's decisions. What the driver adds is only the two things N# cannot do for itself —
 //      construct that family's state and run its loop.
+//   8  install into the CURRENT scope whatever `Node` proves when it is TRUE — a catch FILTER's
+//      facts, which the handler body inherits because the handler runs only on that answer. It is
+//      the extraction every `if` already uses, asked here rather than re-derived.
 //
 // The numbering is this walk's own protocol with its own driver and starts at 1 with no gaps; the
 // other walks' numbers mean different operations, and none of them is a shared vocabulary.
@@ -66,10 +70,15 @@ class ResourceStatementRequest {
 // fields is set and `Form` says which walk is running: 0 is `try`, 1 is `using`, 2 is `lock`.
 //
 // `Phase` is the walk's program counter, and each form owns a BAND of it so a phase number never
-// means two things — the discipline the loop family's four walks established. `try` runs 0..7: 0 the
+// means two things — the discipline the loop family's four walks established. `try` runs 0..8: 0 the
 // try block, 1 the catch loop's head, 2 through 5 one catch clause (scope, type and report, declare,
-// record, body, close), 6 the finally's entry and 7 its exit. `using` runs 10..15. `lock` runs
-// 20..23. 99 is done for all three.
+// record, body, close), 6 the finally's entry, 7 its exit and 8 the try block's own tail. `using`
+// runs 10..15. `lock` runs 20..23. 99 is done for all three.
+//
+// `try` ALSO OWNS 30..31, the exception FILTER's two steps — ask for the guard's type, then report
+// and narrow on it — and they sit up there rather than at 9..10 because the contiguous room above
+// `try`'s band is `using`'s. A band is what keeps a phase number from meaning two things, so the
+// filter took a free one rather than the next one.
 //
 // `CatchIndex` is the catch loop's cursor, held on the state rather than in a local because the walk
 // SUSPENDS inside the loop — every catch clause costs the driver between three and five round trips.
@@ -196,8 +205,16 @@ class AnalyzerResourceStatements {
 
     // A `try` STATEMENT. The CLR conversion funnel is read from the caller's field HERE, for the
     // reason `ResourceStatementState` records.
+    // THE ASSIGNABILITY RELATION IS CARRIED FOR THE EXCEPTION FILTER and for nothing else in this
+    // walk. A `when` guard is an ordinary boolean condition, so the question "is this a bool" is the
+    // same relation the `using` walk already carries, asked of the same owner rather than of a second
+    // copy of the rule.
     func BeginTry(statement: TryStatement, clrTypeConversion: AnalyzerClrTypeConversion): ResourceStatementState {
         return new ResourceStatementState(0, statement, null, null, clrTypeConversion, null, null)
+    }
+
+    func BeginTry(statement: TryStatement, clrTypeConversion: AnalyzerClrTypeConversion, assignability: AnalyzerAssignability): ResourceStatementState {
+        return new ResourceStatementState(0, statement, null, null, clrTypeConversion, assignability, null)
     }
 
     // A `using` STATEMENT. The assignability oracle is read from the caller's field HERE, for the
@@ -313,7 +330,7 @@ class AnalyzerResourceStatements {
 
             variableName := clause.VariableName
             if variableName == null {
-                state.Phase = 4
+                state.Phase = 30
                 return null
             }
 
@@ -327,9 +344,43 @@ class AnalyzerResourceStatements {
 
         if phase == 3 {
             clause := CatchAt(statement, state.CatchIndex)
-            state.Phase = 4
+            state.Phase = 30
             request := new ResourceStatementRequest(4, state.CatchType)
             request.Name = clause.VariableName
+            return request
+        }
+
+        // THE EXCEPTION FILTER, analysed BETWEEN the binding and the handler. That position is the
+        // whole contract: the guard runs in the scope the clause opened, so it can read the bound
+        // exception, and it runs BEFORE the handler body, so what it proves is available to that body
+        // in the same way an `if` condition's facts are available to its then-branch.
+        if phase == 30 {
+            clause := CatchAt(statement, state.CatchIndex)
+            filter := clause.Filter
+            if filter != null {
+                state.Phase = 31
+                state.Pending = 1
+                request := new ResourceStatementRequest(1, BuiltInTypes.Unknown)
+                request.Node = filter
+                return request
+            }
+
+            state.Phase = 4
+            return null
+        }
+
+        if phase == 31 {
+            clause := CatchAt(statement, state.CatchIndex)
+            filter := clause.Filter
+            if filter == null {
+                state.Phase = 4
+                return null
+            }
+
+            ReportNonBooleanCatchFilterIfNeeded(filter, state)
+            state.Phase = 4
+            request := new ResourceStatementRequest(8, BuiltInTypes.Unknown)
+            request.Node = filter
             return request
         }
 
@@ -397,6 +448,25 @@ class AnalyzerResourceStatements {
 
         span := TypeReferenceFacts.GetStartSpan(typeReference)
         diagnosticsValue.Report(ErrorCode.TypeMismatch, "Catch type must be assignable to System.Exception, but this type is '" + TypeText(state.CatchType) + "'", span.StartLine, span.StartColumn, "Catch Exception or an Exception-derived type, or use a bare catch for all exceptions.", span.Length)
+    }
+
+    // NL505 ON A CATCH FILTER. The CLR decides whether the handler runs by testing the value the
+    // filter leaves on the stack against zero, so a filter that is not a boolean has no meaning the
+    // backend could give it — the same reason a match guard must be one, reported with the same code
+    // and a message that names WHICH guard, because the two are written with the same word.
+    func ReportNonBooleanCatchFilterIfNeeded(filter: Expression, state: ResourceStatementState) {
+        assignability := state.Assignability
+        if assignability == null {
+            return
+        }
+
+        filterType := state.AnsweredType
+        if assignability.IsAssignable(BuiltInTypes.Bool, filterType) {
+            return
+        }
+
+        span := spansValue.GetExpressionDiagnosticSpan(filter)
+        diagnosticsValue.Report(ErrorCode.GuardNotBoolean, "A catch filter must be a boolean, but this expression is '" + TypeText(filterType) + "'", span.Line, span.Column, "A `when` clause decides whether the handler runs, so it has to answer true or false.", span.Length)
     }
 
     // ── THE `using` WALK ───────────────────────────────────────────────────────────────────────

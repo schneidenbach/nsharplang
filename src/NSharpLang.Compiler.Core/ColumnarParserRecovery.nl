@@ -5496,11 +5496,21 @@ class ColumnarParserRecovery {
                     }
                 }
             }
+            // `when <expr>` — the exception FILTER, read exactly where a match arm reads its guard and
+            // with the same expression entry, so a `{` closes the expression rather than opening one.
+            catchFilter: Expression? = null
+            if Check(TokenType.When) {
+                Advance()
+                catchFilter = ParseExprValue().Node
+                if catchFilter == null {
+                    declined = true
+                }
+            }
             catchBlock := ParseBlock(SpanFromToken(catchToken))
             if catchBlock == null {
                 declined = true
             } else {
-                catchClauses.Add(new CatchClause(exceptionType, variableName, catchBlock))
+                catchClauses.Add(new CatchClause(exceptionType, variableName, catchBlock, catchFilter))
             }
         }
         finallyBlock: BlockStatement? = null

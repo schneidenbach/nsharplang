@@ -239,10 +239,25 @@ class CatchClause {
     VariableName: string?
     Block: BlockStatement
 
+    // The EXCEPTION FILTER — the expression written after `when`, or null for an unfiltered clause.
+    // It is not a condition around the handler: the CLR runs it on the first pass, before any frame
+    // between the throw and this handler is unwound, so a filter that answers false leaves the stack
+    // exactly as the throw left it. That is the whole reason it is a clause rather than an `if` the
+    // handler body could have opened with.
+    Filter: Expression?
+
     constructor(ExceptionType: TypeReference?, VariableName: string?, Block: BlockStatement) {
         this.ExceptionType = ExceptionType
         this.VariableName = VariableName
         this.Block = Block
+        this.Filter = null
+    }
+
+    constructor(ExceptionType: TypeReference?, VariableName: string?, Block: BlockStatement, Filter: Expression?) {
+        this.ExceptionType = ExceptionType
+        this.VariableName = VariableName
+        this.Block = Block
+        this.Filter = Filter
     }
 }
 

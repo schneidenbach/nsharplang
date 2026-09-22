@@ -1251,6 +1251,15 @@ class FormatterWalk {
                     }
                 }
 
+                // The exception FILTER, written exactly where a match arm's guard is written
+                // (`builder.Append(" when ")` below) so one spelling of `when` reads the same way in
+                // both places.
+                catchFilter := catchClause.Filter
+                if catchFilter != null {
+                    builder.Append(" when ")
+                    FormatExpression(catchFilter, builder)
+                }
+
                 builder.AppendLine(" {")
                 state.Push()
                 FormatBlock(catchClause.Block, builder)

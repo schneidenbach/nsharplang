@@ -803,6 +803,68 @@ func main() {
 }
 ```
 
+### Exception filters — `catch ... when`
+
+A `when` clause decides whether a handler **runs at all**. Write it after the clause and before the
+block; every catch spelling takes one, including a bare `catch`.
+
+```n#
+import System
+
+func Fetch(status: int): string {
+    try {
+        throw new HttpFailure(status)
+    } catch failure: HttpFailure when failure.Status >= 500 {
+        return "retrying"                 // only 5xx is ours
+    }
+}
+```
+
+A filter that answers `false` does **not** catch: the exception carries on to the next clause, and
+then out of the statement, exactly as if this clause had not been written. The clause's *type* is
+tested first, so a guard is never asked about an exception of a type the clause did not name — which
+is why the guard above can read `failure.Status` without checking anything first.
+
+**A filter is not an `if` at the top of the handler, and it is not catch-and-rethrow.** The CLR
+handles a throw in two passes. The *first* pass asks every enclosing handler whether it wants the
+exception, running each filter **in the frame that threw** — with every frame between the throw and
+the handler still on the stack. Only then does the second pass unwind to whichever handler said yes.
+So a filter sees the stack as the throw left it, and the ordering is observable:
+
+```n#
+try {
+    try {
+        throw new InvalidOperationException("boom")
+    } finally {
+        print "finally"
+    }
+} catch e: InvalidOperationException when Note("filter") {
+    print "handler"
+}
+// prints: filter, finally, handler
+```
+
+`filter` comes **first**. A handler that caught and re-threw would print `finally` first, because by
+the time a handler *body* runs the unwinding has already happened. That is the whole reason filters
+exist rather than being sugar.
+
+The guard runs in the clause's own scope, so it can read the bound exception — and what it proves is
+available in the handler, the same way an `if` condition's facts are available to its then-branch:
+
+```n#
+try {
+    Load()
+} catch e: InvalidOperationException when e.InnerException != null {
+    return e.InnerException.Message       // no second null test needed
+} catch e: InvalidOperationException {
+    return "no cause recorded"
+}
+```
+
+A guard must be a `bool` — anything else is [`NL505`](./errors/NL505.md), the same code a match
+guard answers to. A filter is not yet lowered inside an **iterator or `async` body**; a `catch` with
+a `when` in one of those declines rather than silently dropping the guard.
+
 ### Re-throwing
 
 A bare `throw` inside a `catch` re-raises the exception that handler is running for, **keeping its

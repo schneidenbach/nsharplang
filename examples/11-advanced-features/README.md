@@ -8,6 +8,7 @@ This layout keeps the examples isolated from each other so they build, run, and 
 
 - `CheckedUnchecked` - checked and unchecked arithmetic expressions
 - `ConversionOperators` - implicit and explicit user-defined conversions
+- `ExceptionFilters` - `catch ... when` guards, and the two-pass ordering that makes them more than sugar
 - `FileScopedSimple` - a small file-scoped type example
 - `FileScopedTypes` - a larger file-scoped type example with internal helper types
 - `InterpolatedRawStrings` - interpolated raw string literals

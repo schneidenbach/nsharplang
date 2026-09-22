@@ -1374,8 +1374,9 @@ class ColumnarIteratorPlanner {
     // and a synthesized slot otherwise — the handler still needs a typed place to put the exception
     // the runtime hands it, because a state machine's bindings are fields.
     static func CatchBindingName(nodes: ColumnarNodeTable, source: string, clause: int, ordinal: int): string {
-        if nodes.ChildCount(clause) == 2 && nodes.Kind(nodes.Child(clause, 0)) == 6 {
-            return nodes.Text(source, nodes.Child(clause, 0))
+        binding := ColumnarCatchClauseFacts.BindingNode(nodes, clause)
+        if binding >= 0 {
+            return nodes.Text(source, binding)
         }
         return "<>__exception" + ordinal.ToString()
     }
@@ -5127,6 +5128,14 @@ class ColumnarIteratorBodyPlanner {
         nodes := emit.Context.Nodes
         if nodes.Kind(clause) != 50 || nodes.ChildCount(clause) < 1 {
             emit.Context.Decline("emit.iterator.unsupported-shape", "unsupported catch clause in an iterator body")
+            return false
+        }
+        // AN EXCEPTION FILTER IN A STATE MACHINE DECLINES RATHER THAN BEING DROPPED. The plan IR has
+        // no filter region yet, and a filter that is silently discarded is not a slower program — it
+        // is a DIFFERENT one, because the handler would then run for exceptions the guard rejects.
+        // Declining says so; emitting without it would not.
+        if ColumnarCatchClauseFacts.HasFilter(nodes, clause) {
+            emit.Context.Decline("emit.iterator.catch-filter", "a catch filter is not supported in an iterator or async body yet")
             return false
         }
         name := ColumnarIteratorPlanner.CatchBindingName(nodes, emit.Context.Source, clause, ordinal)

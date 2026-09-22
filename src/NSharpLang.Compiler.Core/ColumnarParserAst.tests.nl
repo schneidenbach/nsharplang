@@ -530,7 +530,7 @@ class AstEq {
             return Names("TryBlock CatchClauses FinallyBlock Line Column")
         }
         if typeName == "CatchClause" {
-            return Names("ExceptionType VariableName Block")
+            return Names("ExceptionType VariableName Filter Block")
         }
         if typeName == "UsingStatement" {
             return Names("Declaration Expression Body IsAsync Line Column")
@@ -1699,6 +1699,13 @@ class Golden {
 
     static func CatchF(exceptionType: TypeReference?, variableName: string?, block: BlockStatement): CatchClause {
         return new CatchClause(exceptionType, variableName, block)
+    }
+
+    // A clause carrying an exception FILTER. Separate from `CatchF` rather than a fourth parameter on
+    // it, because every existing golden asserts the ABSENCE of a filter and that assertion must keep
+    // reading as one.
+    static func CatchFilteredF(exceptionType: TypeReference?, variableName: string?, filter: Expression, block: BlockStatement): CatchClause {
+        return new CatchClause(exceptionType, variableName, block, filter)
     }
 
     // `pattern` is nullable because a `default =>` arm materializes a SwitchCase with a null Pattern.

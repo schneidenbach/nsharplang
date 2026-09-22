@@ -8743,8 +8743,9 @@ sealed class ColumnarIlEmitter {
             return true
         } else if columnarSwitchValue0 == 49 {
             // TryStatement [tryBlock, catch1..catchN] — each catch a kind-50 CatchClause (value
-            // span = exception TYPE name, -1 = bare; children [nameIdent?, block]). The clauses
-            // emit as sequential BeginCatchBlock(type) regions — first-match-in-declaration-order
+            // span = exception TYPE name, -1 = bare; children [nameIdent?, filter (kind 84)?, block],
+            // read through ColumnarCatchClauseFacts rather than counted). An unfiltered clause
+            // emits as a sequential BeginCatchBlock(type) region — first-match-in-declaration-order
             // natively (probe-pinned, incl. base-before-derived). BeginCatchBlock implicitly leaves
             // the prior region and PUSHES the typed exception — stloc the bound variable (fresh
             // block-scoped local; shadowing = NL316 decline) or Pop when unbound. Unknown/non-
@@ -8794,31 +8795,86 @@ sealed class ColumnarIlEmitter {
                 if (!TryResolveCatchClauseType(clause, out catchType)) {
                     return false
                 }
-                _il.BeginCatchBlock(catchType)
-                hasBinding := _nodes.ChildCount(clause) == 2
+                catchBindingNode := ColumnarCatchClauseFacts.BindingNode(_nodes, clause)
+                filterGuard := ColumnarCatchClauseFacts.FilterGuard(_nodes, clause)
                 catchVarName: string? = null
-                if (hasBinding) {
-                    catchVarName = ColumnarNodeTextFacts.Text(_nodes, _source, Child(clause, 0))
+                if (catchBindingNode >= 0) {
+                    catchVarName = ColumnarNodeTextFacts.Text(_nodes, _source, catchBindingNode)
                     // Shadowing an existing binding — incl. one in an ENCLOSING function when this is a
                     // nested body — is the pipeline's NL316 error; `_` is the discard spelling. Both
                     // decline rather than model unverified semantics.
                     if (catchVarName == "_" || ColumnarClosureBindingPlanner.IsVisibleBindingName(catchVarName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
                         return false
                     }
-                    catchLocal := _il.DeclareLocal(catchType)
-                    _il.Emit(OpCodes.Stloc, catchLocal)
-                    _locals[catchVarName] = catchLocal
-                } else {
+                }
+
+                filterNarrowed: List<string>? = null
+                if (filterGuard >= 0) {
+                    // A REAL CLR FILTER BLOCK, not a catch-and-rethrow. This is the whole point of the
+                    // feature: the guard runs on the CLR's FIRST PASS, while the frames between the
+                    // throw and this handler are still on the stack, and a guard that answers false
+                    // leaves them there for an outer handler to see. A rethrow cannot reproduce that —
+                    // by the time a handler body runs, the second pass has already unwound.
+                    //
+                    // The shape is C#'s own (Roslyn, CodeGenerator.EmitFilterBlock): the filter is
+                    // entered with the exception on the stack, `isinst` answers the clause's type
+                    // question, a null answer short-circuits the guard to 0 so a user guard NEVER runs
+                    // against an exception of the wrong type, and the surviving reference is stored into
+                    // the clause's own binding so the guard can read it. `BeginCatchBlock(null)` is what
+                    // writes `endfilter` and opens the handler; the CLR pushes the exception again
+                    // there, which the handler pops because the binding is already filled.
+                    _il.BeginExceptFilterBlock()
+                    _il.Emit(OpCodes.Isinst, catchType)
+                    matchedLabel := _il.DefineLabel()
+                    verdictLabel := _il.DefineLabel()
+                    _il.Emit(OpCodes.Dup)
+                    _il.Emit(OpCodes.Brtrue, matchedLabel)
                     _il.Emit(OpCodes.Pop)
+                    _il.Emit(OpCodes.Ldc_I4_0)
+                    _il.Emit(OpCodes.Br, verdictLabel)
+                    _il.MarkLabel(matchedLabel)
+                    if (catchVarName != null) {
+                        filterLocal := _il.DeclareLocal(catchType)
+                        _il.Emit(OpCodes.Stloc, filterLocal)
+                        _locals[catchVarName] = filterLocal
+                    } else {
+                        _il.Emit(OpCodes.Pop)
+                    }
+                    // The guard proves things about the bound exception, and what it proves survives
+                    // into the handler — the handler only runs when the guard answered true, which is
+                    // exactly the relation `if` already reads off its own condition.
+                    guardNarrowing := ColumnarFlowNarrowingFacts.Extract(_nodes, _source, filterGuard)
+                    if (!EmitCondition(filterGuard)) {
+                        if (catchVarName != null) {
+                            _locals.Remove(catchVarName)
+                        }
+                        return Decline("emit.catch.filter", "catch filter could not be emitted as a bool", filterGuard)
+                    }
+                    _il.MarkLabel(verdictLabel)
+                    _il.BeginCatchBlock(null)
+                    _il.Emit(OpCodes.Pop)
+                    filterNarrowed = PushNarrowedNames(guardNarrowing.Then)
+                } else {
+                    _il.BeginCatchBlock(catchType)
+                    if (catchVarName != null) {
+                        catchLocal := _il.DeclareLocal(catchType)
+                        _il.Emit(OpCodes.Stloc, catchLocal)
+                        _locals[catchVarName] = catchLocal
+                    } else {
+                        _il.Emit(OpCodes.Pop)
+                    }
                 }
                 // unbound catch discards the exception object.
 
                 savedRethrowTarget := _rethrowTargetFinallyDepth
                 _catchHandlerDepth = _catchHandlerDepth + 1
                 _rethrowTargetFinallyDepth = _finallyDepth
-                handlerOk := EmitStatement(Child(clause, _nodes.ChildCount(clause) - 1))
+                handlerOk := EmitStatement(ColumnarCatchClauseFacts.BodyNode(_nodes, clause))
                 _catchHandlerDepth = _catchHandlerDepth - 1
                 _rethrowTargetFinallyDepth = savedRethrowTarget
+                if (filterNarrowed != null) {
+                    PopNarrowedNames(filterNarrowed)
+                }
                 if (!handlerOk) {
                     return false
                 }

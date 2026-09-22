@@ -659,6 +659,14 @@ class ColumnarExpressionNodeKind {
     static func ThrowExpression(): int {
         return 83
     }
+
+    // `when <expr>` on a catch clause. A WRAPPER around the guard rather than a bare child of the
+    // kind-50 clause, because that clause's optional binding is itself a kind-6 identifier and a guard
+    // may be one too — wrapping is what lets every reader ask a child WHAT IT IS instead of counting
+    // how many there are.
+    static func CatchFilterClause(): int {
+        return 84
+    }
 }
 
 class ParserExpressionNodeTable {
@@ -808,7 +816,18 @@ class ParserExpressionNodeTable {
 //   TryStatement                 -> kind 49  ( try/catch.../finally?; children [tryBlock, catch1..catchN,
 //                                             finallyBlock? (a trailing kind-25 block)] )
 //   CatchClause                  -> kind 50  ( one catch; value span = the exception TYPE name token, -1 for
-//                                             a bare catch; children [nameIdent (kind 6)?, block] )
+//                                             a bare catch; children [nameIdent (kind 6)?,
+//                                             filter (kind 84)?, block (kind 25)]. The block is ALWAYS
+//                                             last and all three slots are distinguishable by kind, so a
+//                                             reader takes the body as the last child and asks the two
+//                                             leading slots what they are rather than counting them. )
+//   CatchFilterClause            -> kind 84  ( `when <expr>` on a catch -- ONE child, the guard expression.
+//                                             A WRAPPER rather than a bare child so that a guard which is
+//                                             itself a bare name cannot be mistaken for the clause's
+//                                             optional kind-6 binding. Appears ONLY as a kind-50 child.
+//                                             Lowered to a real CLR filter block: the guard runs on the
+//                                             first pass, BEFORE any unwinding, which is the whole
+//                                             observable difference from catch-and-rethrow. )
 //   LockStatement                -> kind 51  ( lock <expr> { }; children [lockee, body]. Kinds 52-55
 //                                             belong to the expression kernel (With, Await, RefOut,
 //                                             TypeOf). )
@@ -6786,10 +6805,12 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
     // children [tryBlock, catch1..catchN, finallyBlock?] (variable arity -> LIFO arg-stack, like blocks;
     // the finally is a trailing kind-25 BLOCK child, distinguishable from the kind-50 catches by kind).
     // Each catch is a kind-50 CatchClause node: value span = the exception TYPE name token (-1 for a bare
-    // catch), children [nameIdent?, block] -- the bound variable as a 0-child kind-6 identifier, so the
-    // name reads as a USE in every name scan (the linter treats catch variables as always used). All FOUR
+    // catch), children [nameIdent?, filter?, block] -- the bound variable as a 0-child kind-6 identifier, so
+    // the name reads as a USE in every name scan (the linter treats catch variables as always used), and the
+    // optional exception FILTER as a kind-84 wrapper. All FOUR
     // production catch forms (Parser.cs:3016-3051): bare `catch {`, parenthesized `catch (e: T) {` /
-    // `catch (T) {` / `catch (T e) {`, and paren-less `catch e: T {`. The TYPE must be a single Identifier
+    // `catch (T) {` / `catch (T e) {`, and paren-less `catch e: T {` -- each optionally followed by
+    // `when <expr>`. The TYPE must be a single Identifier
     // token (the emitter's BCL exception whitelist needs no more). Zero catches are valid WITH a finally
     // (`try {} finally {}`); a try with neither refuses. All bodies must be `{ }` BLOCKS.
     if kind == 38 {
@@ -6864,6 +6885,27 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
                 st.Pos = st.Pos + 1
             }
 
+            // `catch <binding> when <expr> { }` -- the EXCEPTION FILTER. The guard sits between the
+            // binding and the handler block, exactly where a match arm's `when` sits between its
+            // pattern and its `=>`, and it is parsed by the same assignment-expression entry the
+            // `for ... in <collection> {` header uses, so a `{` closes the expression rather than
+            // opening an initializer. It becomes a kind-84 CatchFilterClause WRAPPER rather than a
+            // bare child, because the clause's optional binding is itself a kind-6 identifier and a
+            // guard may be one too (`catch e: T when running`): wrapping keeps all three child slots
+            // distinguishable BY KIND, which is the same discipline kind 49 already uses to tell its
+            // trailing kind-25 `finally` from its kind-50 catches.
+            filterGuard := 0 - 1
+            filterStart := 0 - 1
+            if st.Pos < count && tokens.Kinds[st.Pos] == 54 {
+                filterStart = tokens.Starts[st.Pos]
+                st.Pos = st.Pos + 1
+                filterGuard = ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+                if filterGuard < 0 {
+                    st.ArgStackTop = tryArgBase
+                    return -1
+                }
+            }
+
             if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
                 st.ArgStackTop = tryArgBase
                 return -1
@@ -6878,7 +6920,11 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
             catchEnd := nodes.SpanStarts[catchBody] + nodes.SpanLengths[catchBody]
             clauseChildCount := 1
             if nameStart >= 0 {
-                clauseChildCount = 2
+                clauseChildCount = clauseChildCount + 1
+            }
+
+            if filterGuard >= 0 {
+                clauseChildCount = clauseChildCount + 1
             }
 
             nameNode := 0 - 1
@@ -6886,9 +6932,21 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
                 nameNode = EmitExpressionNode(st, nodes, 6, nameStart, nameLen, st.ChildCursor, 0, nameStart, nameLen)
             }
 
+            filterNode := 0 - 1
+            if filterGuard >= 0 {
+                filterChildRun := st.ChildCursor
+                AppendExpressionChild(st, children, filterGuard)
+                filterEnd := nodes.SpanStarts[filterGuard] + nodes.SpanLengths[filterGuard]
+                filterNode = EmitExpressionNode(st, nodes, 84, -1, 0, filterChildRun, 1, filterStart, filterEnd - filterStart)
+            }
+
             clauseChildRun := st.ChildCursor
             if nameNode >= 0 {
                 AppendExpressionChild(st, children, nameNode)
+            }
+
+            if filterNode >= 0 {
+                AppendExpressionChild(st, children, filterNode)
             }
 
             AppendExpressionChild(st, children, catchBody)

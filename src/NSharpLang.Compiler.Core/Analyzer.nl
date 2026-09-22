@@ -1190,7 +1190,7 @@ class Analyzer: IDisposable {
 
         tryStatement := statement as TryStatement
         if tryStatement != null {
-            DriveResourceStatement(ResourceStatements.BeginTry(tryStatement, ClrTypeConversion))
+            DriveResourceStatement(ResourceStatements.BeginTry(tryStatement, ClrTypeConversion, Assignability))
             return
         }
 
@@ -1609,6 +1609,13 @@ class Analyzer: IDisposable {
             }
             if kind == 7 {
                 DriveLocalDeclaration(VariableDeclaration.Begin(step.Declaration))
+            }
+            if kind == 8 {
+                // A CATCH FILTER'S TRUE-FACTS, INSTALLED INTO THE CLAUSE'S OWN SCOPE. The handler runs
+                // only when the guard answered true, so it takes exactly what an `if`'s then-branch
+                // takes — asked of the same extractor, so `!= null`, `is T x`, `&&` chains and a
+                // call's `[NotNullWhen]` postconditions all reach it without a second vocabulary.
+                NarrowSurvivingFlow(step.Node)
             }
             ResourceStatements.SupplyResource(state, answer)
             step = ResourceStatements.NextResourceStep(state)

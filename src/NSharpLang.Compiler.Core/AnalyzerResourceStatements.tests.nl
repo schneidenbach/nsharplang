@@ -391,6 +391,20 @@ func ResOneCatch(typeName: string?, variableName: string?): List<CatchClause> {
     return clauses
 }
 
+// A clause carrying an exception FILTER. The guard is an ordinary expression, so the walk has to ask
+// the driver to type it — which is what makes a filtered clause's step sequence two steps longer
+// than an unfiltered one's.
+func ResFilteredCatch(typeName: string?, variableName: string?, guard: Expression): List<CatchClause> {
+    declaredType: TypeReference? = null
+    if typeName != null {
+        declaredType = new SimpleTypeReference(typeName, 9, 11)
+    }
+
+    clauses := new List<CatchClause>()
+    clauses.Add(new CatchClause(declaredType, variableName, ResBlock(1), guard))
+    return clauses
+}
+
 func ResUsingDeclaration(name: string): VariableDeclarationStatement {
     return new VariableDeclarationStatement(
         name,
@@ -562,6 +576,66 @@ test "a non-throwable catch type reports NL202 against the type reference" {
     assert reported.Suggestion == "Catch Exception or an Exception-derived type, or use a bare catch for all exceptions."
     assert reported.Line == 9
     assert reported.Column == 11
+}
+
+test "a filtered catch asks for the guard's type and then installs what it proved" {
+    // Kind 1 types the guard and kind 8 installs its TRUE-facts into the clause's scope — both
+    // BETWEEN the variable record (4) and the handler body (5), because the guard runs in the scope
+    // that binds the exception and the handler inherits what the guard proved.
+    harness := ResHarnessNew()
+    harness.Answers.Add(BuiltInTypes.Bool)
+    ResRun(harness, harness.Owner.BeginTry(ResTry(ResFilteredCatch("AppError", "e", ResName("ready")), false), harness.Clr, harness.Assignability))
+
+    assert ResKinds(harness.Steps) == "5,2,3,4,1,8,5,6"
+    assert harness.Errors.Count == 0
+}
+
+test "an UNFILTERED catch keeps its exact step sequence — the filter adds steps to nothing else" {
+    harness := ResHarnessNew()
+    ResRun(harness, harness.Owner.BeginTry(ResTry(ResOneCatch("AppError", "e"), false), harness.Clr, harness.Assignability))
+
+    assert ResKinds(harness.Steps) == "5,2,3,4,5,6"
+}
+
+test "a filter on a clause that binds NO variable still gets its two steps" {
+    harness := ResHarnessNew()
+    harness.Answers.Add(BuiltInTypes.Bool)
+    ResRun(harness, harness.Owner.BeginTry(ResTry(ResFilteredCatch("AppError", null, ResName("ready")), false), harness.Clr, harness.Assignability))
+
+    assert ResKinds(harness.Steps) == "5,2,1,8,5,6"
+}
+
+test "a filter that is not a boolean reports NL505 against the guard expression" {
+    harness := ResHarnessNew()
+    harness.Answers.Add(BuiltInTypes.String)
+    ResRun(harness, harness.Owner.BeginTry(ResTry(ResFilteredCatch("AppError", "e", ResName("label")), false), harness.Clr, harness.Assignability))
+
+    assert harness.Errors.Count == 1
+    reported := harness.Errors[0]
+    assert reported.Code == ErrorCode.GuardNotBoolean
+    assert reported.Message == "A catch filter must be a boolean, but this expression is 'string'"
+    assert reported.Suggestion == "A `when` clause decides whether the handler runs, so it has to answer true or false."
+}
+
+test "a boolean filter reports nothing, and the narrowing step still runs" {
+    harness := ResHarnessNew()
+    harness.Answers.Add(BuiltInTypes.Bool)
+    ResRun(harness, harness.Owner.BeginTry(ResTry(ResFilteredCatch("AppError", "e", ResName("ready")), false), harness.Clr, harness.Assignability))
+
+    assert harness.Errors.Count == 0
+    assert harness.Steps[5].Kind == 8
+}
+
+test "WITHOUT an assignability relation the filter is typed but not judged" {
+    // The two-argument `BeginTry` carries no relation, so the bool question cannot be asked. The
+    // guard is still analysed and its facts are still installed: a missing relation must silence the
+    // REPORT, never the walk.
+    harness := ResHarnessNew()
+    harness.Answers.Add(BuiltInTypes.String)
+    ResRun(harness, harness.Owner.BeginTry(ResTry(ResFilteredCatch("AppError", "e", ResName("label")), false), harness.Clr))
+
+    assert ResKinds(harness.Steps) == "5,2,3,4,1,8,5,6"
+    assert harness.Errors.Count == 0
 }
 
 test "a throwable catch type and a bare catch both report nothing" {

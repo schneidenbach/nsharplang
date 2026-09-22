@@ -120,7 +120,14 @@ yielded; this exists because late-added children (`NewExpression.ArrayLengthExpr
 - **WhileStatement**: `while cond { }`
 - **ReturnStatement**: `return expr`
 - **YieldStatement**: `yield value`, `yield break`
-- **TryCatchStatement**: `try { } catch e { }`
+- **TryCatchStatement**: `try { } catch e { }`, and with an EXCEPTION FILTER
+  `try { } catch e: T when <expr> { }`. The guard is a **kind-84 `CatchFilterClause`** wrapper holding
+  one child, not a bare child of the kind-50 clause: a clause's optional binding is itself a kind-6
+  identifier and a guard may be one too, so wrapping is what lets every reader ask a child WHAT IT IS
+  instead of counting how many there are. A kind-50 clause's children are
+  `[binding (kind 6)?, filter (kind 84)?, block (kind 25)]`, the block is always LAST — which is why
+  every `ChildCount - 1` already written in the planners stayed correct — and
+  `ColumnarCatchClauseFacts` states the layout once for all of them
 - **UsingStatement**: `using resource { }`, `using x := e { }`, `using x: T = e { }`, `using x := e`
   (no block — the using DECLARATION), and `await using` (`IsAsync`)
 - **LockStatement**: `lock obj { }`
