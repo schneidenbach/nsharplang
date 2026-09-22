@@ -39,7 +39,7 @@ test "the clean help text names the command, its usage and its failure banner" {
 }
 
 test "every clean sentence is spelled by a kernel, character for character" {
-    assert CleanCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing") == "Project directory not found: /tmp/nsharp-missing"
+    assert CommandOutputKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing") == "Project directory not found: /tmp/nsharp-missing"
     assert CleanCommandKernels.GetNoArtifactsFoundMessage("/tmp/nsharp") == "No build artifacts found under /tmp/nsharp."
     assert CleanCommandKernels.GetRemovedArtifactLine("bin/Debug") == "  bin/Debug"
     assert CleanCommandKernels.GetClearedNuGetCachesMessage() == "Cleared NuGet caches."

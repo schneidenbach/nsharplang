@@ -47,7 +47,7 @@ test "the run help text names the command, its usage and its success exit code" 
 }
 
 test "every run sentence is spelled by a kernel, character for character" {
-    assert RunCommandKernels.GetFileNotFoundMessage("missing.nl") == "File not found: missing.nl"
+    assert CommandOutputKernels.GetFileNotFoundMessage("missing.nl") == "File not found: missing.nl"
     assert RunCommandKernels.GetSourceStartingMessage("Program.nl") == "Running Program.nl..."
     assert RunCommandKernels.GetMissingProjectFileMessage() == "No project.yml found in current directory. Run 'nlc new <name>' to create a project."
     assert RunCommandKernels.GetLibraryProjectMessage() == "Cannot run a library project."

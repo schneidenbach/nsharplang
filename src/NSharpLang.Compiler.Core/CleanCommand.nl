@@ -19,7 +19,7 @@ class CleanCommand {
         cleanAll := options.CleanAll
 
         if !Directory.Exists(projectRoot) {
-            return Error(CleanCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot))
+            return CommandOutputKernels.Error(CommandOutputKernels.GetProjectDirectoryNotFoundMessage(projectRoot))
         }
 
         try {
@@ -49,7 +49,7 @@ class CleanCommand {
 
             return 0
         } catch ex: Exception {
-            return Error(CleanCommandKernels.GetCleanFailedMessage(ex.Message))
+            return CommandOutputKernels.Error(CleanCommandKernels.GetCleanFailedMessage(ex.Message))
         }
     }
 
@@ -64,7 +64,7 @@ class CleanCommand {
             dir := ordered[i]
             if Directory.Exists(dir) {
                 DeleteDirectoryTree(dir)
-                removed.Add(NormalizePath(Path.GetRelativePath(projectRoot, dir)))
+                removed.Add(CommandOutputKernels.NormalizePath(Path.GetRelativePath(projectRoot, dir)))
             }
 
             i = i + 1
@@ -143,12 +143,7 @@ class CleanCommand {
             return 0
         }
 
-        return Error(CleanCommandKernels.GetClearNuGetCachesFailedMessage((result.Stderr + result.Stdout).Trim()))
-    }
-
-    static func Error(message: string): int {
-        Console.Error.WriteLine(message)
-        return 1
+        return CommandOutputKernels.Error(CleanCommandKernels.GetClearNuGetCachesFailedMessage((result.Stderr + result.Stdout).Trim()))
     }
 
     static func IsWindows(): bool {
@@ -173,9 +168,5 @@ class CleanCommand {
 
         builder.Append('"')
         return builder.ToString()
-    }
-
-    static func NormalizePath(path: string): string {
-        return OutputFormatterNormalizationKernels.NormalizePath(path) ?? path
     }
 }

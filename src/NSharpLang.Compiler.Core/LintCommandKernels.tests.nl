@@ -105,7 +105,7 @@ test "each diagnostic severity has the lowercase word the JSON and text output u
 test "the lint command's sentences singularise on one file and pluralise on more" {
     assert LintCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/missing-lint-project") == "Directory not found: /tmp/missing-lint-project"
     assert LintCommandKernels.GetNoFilesFoundMessage() == "No .nl files found. Ensure you are in a project directory or specify files explicitly."
-    assert LintCommandKernels.GetFileNotFoundMessage("Missing.nl") == "File not found: Missing.nl"
+    assert CommandOutputKernels.GetFileNotFoundMessage("Missing.nl") == "File not found: Missing.nl"
     assert LintCommandKernels.GetParseErrorsMessage("Broken.nl", "expected expression") == "Parse errors in Broken.nl: expected expression"
     assert LintCommandKernels.GetErrorLintingDiagnosticMessage("disk full") == "Error linting: disk full"
     assert LintCommandKernels.GetErrorLintingFileMessage("Broken.nl", "disk full") == "Error linting Broken.nl: disk full"
@@ -215,7 +215,7 @@ test "a PARSE row reports the parser's own span under the command's invented cod
 test "a command row has no position because there is no text to point into" {
     result := LintCommandKernels.ToCommandDiagnosticResult(
         LintCommandKernels.GetLintDiagnosticCode(),
-        LintCommandKernels.GetFileNotFoundMessage("Missing.nl"),
+        CommandOutputKernels.GetFileNotFoundMessage("Missing.nl"),
         "Missing.nl"
     )
 

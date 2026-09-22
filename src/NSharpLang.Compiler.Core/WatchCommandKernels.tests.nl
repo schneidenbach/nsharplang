@@ -114,7 +114,7 @@ test "the watch help text names the command, its usage and its failure exit cond
 }
 
 test "the watch command's sentences are exactly these" {
-    assert WatchCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing") == "Project directory not found: /tmp/nsharp-missing"
+    assert CommandOutputKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing") == "Project directory not found: /tmp/nsharp-missing"
     assert WatchCommandKernels.GetPositiveIntExpectedMessage("--debounce-ms") == "--debounce-ms expects a positive integer."
     assert WatchCommandKernels.GetStartedMessage("/tmp/nsharp") == "Watching /tmp/nsharp for N# changes. Press Ctrl+C to stop."
     assert WatchCommandKernels.GetChangeDetectedMessage("12:34:56", "check") == "Change detected at 12:34:56. Re-running `nlc check`."

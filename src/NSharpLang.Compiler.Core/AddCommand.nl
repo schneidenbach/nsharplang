@@ -17,14 +17,14 @@ class AddCommand {
         }
 
         if args.Length == 0 {
-            return Error(AddCommandKernels.GetUsageMessage())
+            return CommandOutputKernels.Error(AddCommandKernels.GetUsageMessage())
         }
 
         projectRoot := Environment.CurrentDirectory
         projectYml := Path.Combine(projectRoot, "project.yml")
 
         if !File.Exists(projectYml) {
-            return Error(AddCommandKernels.GetMissingProjectFileMessage())
+            return CommandOutputKernels.Error(AddCommandKernels.GetMissingProjectFileMessage())
         }
 
         isFramework := arguments.Framework
@@ -37,7 +37,7 @@ class AddCommand {
 
         raw := arguments.PackageOperand
         if string.IsNullOrWhiteSpace(raw) {
-            return Error(AddCommandKernels.GetUsageMessage())
+            return CommandOutputKernels.Error(AddCommandKernels.GetUsageMessage())
         }
 
         packageSpec := AddCommandKernels.GetPackageSpec(raw ?? "", arguments.VersionOption)
@@ -48,14 +48,14 @@ class AddCommand {
             print AddCommandKernels.GetResolvingLatestVersionMessage(packageName)
             version = ResolveLatestVersion(packageName, isPrerelease)
             if version == null {
-                return Error(AddCommandKernels.GetPackageNotFoundMessage(packageName))
+                return CommandOutputKernels.Error(AddCommandKernels.GetPackageNotFoundMessage(packageName))
             }
         }
 
         try {
             config := ProjectFileParser.Parse(projectYml)
             if AddCommandKernels.PackageOrFrameworkDependencyExists(config.Dependencies, packageName) {
-                return Error(AddCommandKernels.GetDuplicatePackageMessage(packageName))
+                return CommandOutputKernels.Error(AddCommandKernels.GetDuplicatePackageMessage(packageName))
             }
         } catch {
         }
@@ -88,7 +88,7 @@ class AddCommand {
         try {
             config := ProjectFileParser.Parse(projectYml)
             if AddCommandKernels.ProjectDependencyExists(config.Dependencies, localPath) {
-                return Error(AddCommandKernels.GetDuplicateProjectReferenceMessage(localPath))
+                return CommandOutputKernels.Error(AddCommandKernels.GetDuplicateProjectReferenceMessage(localPath))
             }
         } catch {
         }
@@ -196,10 +196,5 @@ class AddCommand {
         }
 
         File.WriteAllText(projectYml, builder.ToString())
-    }
-
-    static func Error(message: string): int {
-        Console.Error.WriteLine(message)
-        return 1
     }
 }

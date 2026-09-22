@@ -59,7 +59,7 @@ static class ProgramCommands {
 
             sourceFile := remainingArgs[buildOperands.FirstOperandIndex]
             if !File.Exists(sourceFile) {
-                return CliError.Report(BuildCommandKernels.GetFileNotFoundMessage(sourceFile))
+                return CliError.Report(CommandOutputKernels.GetFileNotFoundMessage(sourceFile))
             }
 
             sourceDir := BuildCommandKernels.GetSourceDirectory(sourceFile, Directory.GetCurrentDirectory())
@@ -153,7 +153,7 @@ static class ProgramCommands {
             }
 
             if !File.Exists(sourceFile) {
-                return CliError.Report(RunCommandKernels.GetFileNotFoundMessage(sourceFile))
+                return CliError.Report(CommandOutputKernels.GetFileNotFoundMessage(sourceFile))
             }
 
             Console.WriteLine(RunCommandKernels.GetSourceStartingMessage(sourceFile))
@@ -179,7 +179,7 @@ static class ProgramCommands {
             return CliError.Report(validationError)
         }
 
-        projectRoot := PublishCommandKernels.GetProjectRoot(publishArguments.ProjectOption, Directory.GetCurrentDirectory())
+        projectRoot := CommandOutputKernels.GetProjectRoot(publishArguments.ProjectOption, Directory.GetCurrentDirectory())
         backendOption := publishArguments.BackendOption
 
         try {
@@ -374,7 +374,7 @@ static class ProgramCommands {
             verifyOnly := formatOptions.VerifyOnly
             diffOnly := formatOptions.DiffOnly
             stdinMode := formatOptions.StdinMode
-            projectRoot := FormatCommandKernels.GetProjectRoot(formatOptions.ProjectOption, Directory.GetCurrentDirectory())
+            projectRoot := CommandOutputKernels.GetProjectRoot(formatOptions.ProjectOption, Directory.GetCurrentDirectory())
             projectFlag := new string[](1)
             projectFlag[0] = "--project"
             positionalFiles := PositionalArgumentKernels.GetArgs(args, projectFlag)
@@ -420,7 +420,7 @@ static class ProgramCommands {
 
             for filePath in files {
                 if !File.Exists(filePath) {
-                    Console.Error.WriteLine(FormatCommandKernels.GetFileNotFoundMessage(filePath))
+                    Console.Error.WriteLine(CommandOutputKernels.GetFileNotFoundMessage(filePath))
                     failed = true
                     continue
                 }

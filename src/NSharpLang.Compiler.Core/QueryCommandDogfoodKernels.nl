@@ -178,14 +178,14 @@ class QueryCommandDogfoodKernels {
             return false
         }
 
-        normalizedCandidate := NormalizePath(candidate ?? "")
-        normalizedQuery := NormalizePath(query)
+        normalizedCandidate := CommandOutputKernels.NormalizePath(candidate ?? "")
+        normalizedQuery := CommandOutputKernels.NormalizePath(query)
         return string.Equals(normalizedCandidate, normalizedQuery, StringComparison.OrdinalIgnoreCase) || normalizedCandidate.EndsWith("/" + normalizedQuery, StringComparison.OrdinalIgnoreCase) || normalizedCandidate.EndsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase)
     }
 
     static func MatchesCompilationUnitFile(candidate: string, query: string): bool {
-        normalizedCandidate := NormalizePath(candidate)
-        normalizedQuery := NormalizePath(query)
+        normalizedCandidate := CommandOutputKernels.NormalizePath(candidate)
+        normalizedQuery := CommandOutputKernels.NormalizePath(query)
         return string.Equals(normalizedCandidate, normalizedQuery, StringComparison.OrdinalIgnoreCase) || normalizedCandidate.EndsWith("/" + normalizedQuery, StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetFileName(normalizedCandidate), Path.GetFileName(normalizedQuery), StringComparison.OrdinalIgnoreCase)
     }
 
@@ -216,10 +216,6 @@ class QueryCommandDogfoodKernels {
 
     static func WithOutlineFile(result: OutlineResult, outputFile: string): OutlineResult {
         return new OutlineResult(outputFile, result.Imports, result.Outline)
-    }
-
-    static func NormalizePath(path: string): string {
-        return OutputFormatterNormalizationKernels.NormalizePath(path) ?? path
     }
 
     static func SelectDaemonString(primary: string?, fallback: string?): string? {

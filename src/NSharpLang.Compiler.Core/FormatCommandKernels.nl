@@ -78,28 +78,28 @@ class FormatCommandKernels {
 
     static func GetHelpText(): string {
         builder := new StringBuilder()
-        AppendLine(builder, "N# Format")
-        AppendLine(builder, "")
-        AppendLine(builder, "Usage: nlc format [options] [files...]")
-        AppendLine(builder, "")
-        AppendLine(builder, "Format N# source files with the canonical formatter.")
-        AppendLine(builder, "")
-        AppendLine(builder, "Options:")
-        AppendLine(builder, "  --project <dir>         Project root directory (default: current directory)")
-        AppendLine(builder, "  --check                 Exit with code 1 if any file needs formatting")
-        AppendLine(builder, "  --verify-no-changes     Back-compat alias for --check")
-        AppendLine(builder, "  --diff                  Print unified diffs instead of writing files")
-        AppendLine(builder, "  --stdin                 Read source from stdin and write the formatted result to stdout")
-        AppendLine(builder, "  --help, -h              Show this help text")
-        AppendLine(builder, "")
-        AppendLine(builder, "Examples:")
-        AppendLine(builder, "  nlc format")
-        AppendLine(builder, "  nlc format --check")
-        AppendLine(builder, "  nlc format --diff Program.nl")
-        AppendLine(builder, "  nlc format --stdin < Program.nl")
-        AppendLine(builder, "")
-        AppendLine(builder, "Exit codes:")
-        AppendLine(builder, "  0  Formatting succeeded")
+        CommandOutputKernels.AppendLine(builder, "N# Format")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Usage: nlc format [options] [files...]")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Format N# source files with the canonical formatter.")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Options:")
+        CommandOutputKernels.AppendLine(builder, "  --project <dir>         Project root directory (default: current directory)")
+        CommandOutputKernels.AppendLine(builder, "  --check                 Exit with code 1 if any file needs formatting")
+        CommandOutputKernels.AppendLine(builder, "  --verify-no-changes     Back-compat alias for --check")
+        CommandOutputKernels.AppendLine(builder, "  --diff                  Print unified diffs instead of writing files")
+        CommandOutputKernels.AppendLine(builder, "  --stdin                 Read source from stdin and write the formatted result to stdout")
+        CommandOutputKernels.AppendLine(builder, "  --help, -h              Show this help text")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Examples:")
+        CommandOutputKernels.AppendLine(builder, "  nlc format")
+        CommandOutputKernels.AppendLine(builder, "  nlc format --check")
+        CommandOutputKernels.AppendLine(builder, "  nlc format --diff Program.nl")
+        CommandOutputKernels.AppendLine(builder, "  nlc format --stdin < Program.nl")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Exit codes:")
+        CommandOutputKernels.AppendLine(builder, "  0  Formatting succeeded")
         builder.Append("  1  Formatting failed or --check found unformatted files")
         return builder.ToString()
     }
@@ -110,10 +110,6 @@ class FormatCommandKernels {
 
     static func GetNoFilesFoundMessage(): string {
         return "No .nl files found to format."
-    }
-
-    static func GetFileNotFoundMessage(sourceFile: string): string {
-        return "File not found: " + sourceFile
     }
 
     static func GetErrorFormattingMessage(sourceFile: string, exceptionMessage: string): string {
@@ -199,10 +195,6 @@ class FormatCommandKernels {
         }
 
         return Path.GetFullPath(Path.Combine(projectRoot, filePath))
-    }
-
-    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
-        return Path.GetFullPath(projectOption ?? currentDirectory)
     }
 
     static func GetRelativePath(projectRoot: string, filePath: string): string {
@@ -396,10 +388,5 @@ class FormatCommandKernels {
         }
 
         return leftCode == rightCode
-    }
-
-    static func AppendLine(builder: StringBuilder, text: string) {
-        builder.Append(text)
-        builder.Append((char)10)
     }
 }

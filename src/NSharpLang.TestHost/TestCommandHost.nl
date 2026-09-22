@@ -25,8 +25,8 @@ static class TestCommandHost {
             return 0
         }
 
-        projectRoot := TestCommandKernels.GetProjectRoot(testOptions.ProjectOption, Directory.GetCurrentDirectory())
-        outputMode := TestCommandKernels.GetOutputMode(testOptions.JsonOutput)
+        projectRoot := CommandOutputKernels.GetProjectRoot(testOptions.ProjectOption, Directory.GetCurrentDirectory())
+        outputMode := CommandOutputKernels.GetOutputMode(testOptions.JsonOutput)
 
         // Parse timeout to milliseconds
         timeoutMs: int? = null

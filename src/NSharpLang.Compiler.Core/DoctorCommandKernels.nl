@@ -44,14 +44,6 @@ class DoctorCommandKernels {
         return new DoctorOptionSummary(json, requireVscode, skipVscode, showHelp)
     }
 
-    static func GetOutputMode(json: bool): int {
-        if json {
-            return 1
-        }
-
-        return 2
-    }
-
     static func GetHelpText(): string {
         return "N# Doctor\n" + "\n" + "Usage: nlc doctor [options]\n" + "\n" + "Verifies the public N# install path: dotnet, nlc, local N# packages, templates,\n" + "language server, and the VS Code extension when the VS Code 'code' CLI is available.\n" + "\n" + "Options:\n" + "  --json              Output as JSON envelope\n" + "  --require-vscode    Treat missing VS Code or missing N# extension as a failure\n" + "  --skip-vscode       Skip VS Code extension probing\n" + "  --help, -h          Show this help text\n" + "\n" + "Examples:\n" + "  nlc doctor\n" + "  nlc doctor --require-vscode\n" + "  nlc doctor --json --skip-vscode\n" + "\n" + "Exit codes:\n" + "  0  Required checks passed\n" + "  1  One or more required checks failed"
     }

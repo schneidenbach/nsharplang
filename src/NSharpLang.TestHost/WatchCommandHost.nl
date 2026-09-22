@@ -33,10 +33,10 @@ static class WatchCommandHost {
         watchedCommand := WatchCommandKernels.GetTargetCommandName(targetSummary.TargetKind)
 
         forwardedArgs := WatchCommandKernels.GetForwardedArgs(args)
-        projectRoot := WatchCommandKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory())
+        projectRoot := CommandOutputKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory())
 
         if !Directory.Exists(projectRoot) {
-            return Error(WatchCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot))
+            return Error(CommandOutputKernels.GetProjectDirectoryNotFoundMessage(projectRoot))
         }
 
         debounceMs := ParsePositiveInt(options.DebounceMsOption, WatchCommandKernels.GetDefaultDebounceMilliseconds(), "--debounce-ms")

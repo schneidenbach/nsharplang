@@ -98,10 +98,6 @@ class LintCommandKernels {
         return 1
     }
 
-    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
-        return Path.GetFullPath(projectOption ?? currentDirectory)
-    }
-
     static func GetSourceFilePath(sourceFile: string): string {
         return Path.GetFullPath(sourceFile)
     }
@@ -250,10 +246,6 @@ class LintCommandKernels {
 
     static func GetNoFilesFoundMessage(): string {
         return "No .nl files found. Ensure you are in a project directory or specify files explicitly."
-    }
-
-    static func GetFileNotFoundMessage(sourceFile: string): string {
-        return "File not found: " + sourceFile
     }
 
     static func GetParseErrorsMessage(sourceFile: string, messages: string): string {

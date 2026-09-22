@@ -71,7 +71,7 @@ class FixCommandKernels {
     }
 
     static func ToFixEntry(relativeFile: string, fix: CodeAction): FixEntry {
-        return new FixEntry(NormalizePath(relativeFile), fix.DiagnosticCode, fix.Title, fix.Edits, GetFixSafetyJsonName(fix.Safety))
+        return new FixEntry(CommandOutputKernels.NormalizePath(relativeFile), fix.DiagnosticCode, fix.Title, fix.Edits, GetFixSafetyJsonName(fix.Safety))
     }
 
     static func FilterBySafety(fixes: IReadOnlyList<CodeAction>, includeReviewNeeded: bool): List<CodeAction> {
@@ -197,24 +197,24 @@ class FixCommandKernels {
         builder := new StringBuilder()
 
         if resultItems.Count == 0 {
-            AppendLine(builder, GetNothingToFixMessage())
+            CommandOutputKernels.AppendLine(builder, GetNothingToFixMessage())
             return builder.ToString()
         }
 
         if appliedItems.Count > 0 {
-            AppendLine(builder, GetAppliedHeader(appliedItems.Count, filesModified, dryRun))
+            CommandOutputKernels.AppendLine(builder, GetAppliedHeader(appliedItems.Count, filesModified, dryRun))
 
             groupedApplied := GroupAppliedEntriesByFile(appliedItems)
             groupIndex := 0
             while groupIndex < groupedApplied.GroupCount {
-                AppendLine(builder, GetAppliedFileHeader(groupedApplied.Files[groupIndex]))
+                CommandOutputKernels.AppendLine(builder, GetAppliedFileHeader(groupedApplied.Files[groupIndex]))
                 start := groupedApplied.Starts[groupIndex]
                 count := groupedApplied.Counts[groupIndex]
                 i := 0
                 while i < count {
                     sourceIndex := groupedApplied.Indices[start + i]
                     fix := appliedItems[sourceIndex]
-                    AppendLine(builder, GetEntryLine(fix.DiagnosticCode, fix.Title))
+                    CommandOutputKernels.AppendLine(builder, GetEntryLine(fix.DiagnosticCode, fix.Title))
                     i = i + 1
                 }
 
@@ -224,12 +224,12 @@ class FixCommandKernels {
 
         skipped := SelectSkippedEntries(resultItems, includeReviewNeeded)
         if skipped.Count > 0 {
-            AppendLine(builder, "")
-            AppendLine(builder, GetSkippedHeader(skipped.Count))
+            CommandOutputKernels.AppendLine(builder, "")
+            CommandOutputKernels.AppendLine(builder, GetSkippedHeader(skipped.Count))
 
             for fix in skipped {
                 reason := GetSkippedReason(fix.Safety)
-                AppendLine(builder, GetSkippedLine(fix.DiagnosticCode, fix.Title, reason))
+                CommandOutputKernels.AppendLine(builder, GetSkippedLine(fix.DiagnosticCode, fix.Title, reason))
             }
         }
 
@@ -240,14 +240,14 @@ class FixCommandKernels {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 2
         envelope["command"] = "fix"
-        envelope["projectRoot"] = NormalizePath(Path.GetFullPath(projectDir))
+        envelope["projectRoot"] = CommandOutputKernels.NormalizePath(Path.GetFullPath(projectDir))
         envelope["dryRun"] = dryRun
         envelope["includeReviewNeeded"] = includeReviewNeeded
         envelope["ok"] = !dryRun || filesModified == 0
         envelope["filesModified"] = filesModified
         envelope["results"] = BuildJsonEntries(results)
         envelope["fixesApplied"] = BuildJsonEntries(applied)
-        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+        return JsonSerializer.Serialize(envelope, CommandOutputKernels.CreateWriteIndentedOptions())
     }
 
     static func GetExitCode(dryRun: bool, filesModified: int): int {
@@ -273,7 +273,7 @@ class FixCommandKernels {
 
     static func BuildJsonEntry(entry: FixEntry): Dictionary<string, object> {
         payload := new Dictionary<string, object>()
-        payload["file"] = NormalizePath(entry.File)
+        payload["file"] = CommandOutputKernels.NormalizePath(entry.File)
         payload["diagnostic"] = entry.DiagnosticCode
         payload["title"] = entry.Title
         payload["safety"] = entry.Safety
@@ -560,23 +560,5 @@ class FixCommandKernels {
         }
 
         return items
-    }
-
-    static func CreateWriteIndentedOptions(): JsonSerializerOptions {
-        return new JsonSerializerOptions { WriteIndented: true }
-    }
-
-    static func NormalizePath(path: string): string {
-        normalized := OutputFormatterNormalizationKernels.NormalizePath(path)
-        if normalized != null {
-            return normalized ?? ""
-        }
-
-        return path
-    }
-
-    static func AppendLine(builder: StringBuilder, text: string) {
-        builder.Append(text)
-        builder.Append((char)10)
     }
 }

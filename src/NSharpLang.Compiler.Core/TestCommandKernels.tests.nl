@@ -127,8 +127,8 @@ test "test option values are taken permissively, so --help can be consumed as th
 }
 
 test "test output mode is 2 for text and 1 for json" {
-    assert TestCommandKernels.GetOutputMode(false) == 2
-    assert TestCommandKernels.GetOutputMode(true) == 1
+    assert CommandOutputKernels.GetOutputMode(false) == 2
+    assert CommandOutputKernels.GetOutputMode(true) == 1
 }
 
 // ── the timeout parser ────────────────────────────────────────────────────────
@@ -420,11 +420,11 @@ test "failure messages join on a newline and blank entries are dropped" {
 // ── the output-mode ordinals and the build configuration ──────────────────────
 
 test "the output-mode predicates answer over GetOutputMode's own ordinals" {
-    assert TestCommandKernels.IsJsonOutputMode(TestCommandKernels.GetOutputMode(true))
-    assert TestCommandKernels.IsTextOutputMode(TestCommandKernels.GetOutputMode(false))
+    assert TestCommandKernels.IsJsonOutputMode(CommandOutputKernels.GetOutputMode(true))
+    assert TestCommandKernels.IsTextOutputMode(CommandOutputKernels.GetOutputMode(false))
     // and they are EXCLUSIVE — the runner branches on both, so a mode cannot be neither or both
-    assert !TestCommandKernels.IsTextOutputMode(TestCommandKernels.GetOutputMode(true))
-    assert !TestCommandKernels.IsJsonOutputMode(TestCommandKernels.GetOutputMode(false))
+    assert !TestCommandKernels.IsTextOutputMode(CommandOutputKernels.GetOutputMode(true))
+    assert !TestCommandKernels.IsJsonOutputMode(CommandOutputKernels.GetOutputMode(false))
     assert !TestCommandKernels.IsJsonOutputMode(0)
     assert !TestCommandKernels.IsTextOutputMode(0)
 }

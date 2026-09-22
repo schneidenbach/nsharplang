@@ -73,18 +73,6 @@ class DocCommandKernels {
         return new DocOptionSummary(projectOption, outputOption, json, open, showHelp)
     }
 
-    static func GetOutputMode(json: bool): int {
-        if json {
-            return 1
-        }
-
-        return 2
-    }
-
-    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
-        return Path.GetFullPath(projectOption ?? currentDirectory)
-    }
-
     static func GetOutputDirectory(projectRoot: string, outputOption: string?): string {
         if outputOption != null {
             return Path.GetFullPath(outputOption)
@@ -102,7 +90,7 @@ class DocCommandKernels {
     }
 
     static func GetSymbolRelativePath(slug: string): string {
-        return NormalizePath(Path.Combine("symbols", slug + ".html"))
+        return CommandOutputKernels.NormalizePath(Path.Combine("symbols", slug + ".html"))
     }
 
     static func GetSymbolAbsolutePath(outputDir: string, relativePath: string): string {
@@ -114,7 +102,7 @@ class DocCommandKernels {
     }
 
     static func GetManifestIndexPath(indexPath: string): string {
-        return NormalizePath(indexPath)
+        return CommandOutputKernels.NormalizePath(indexPath)
     }
 
     static func GetOpenCommand(path: string, isMacOs: bool, isWindows: bool): DocOpenCommand {
@@ -153,10 +141,6 @@ class DocCommandKernels {
         return "N# API Documentation\n" + "\n" + "Usage: nlc doc [options]\n" + "\n" + "Generate HTML API documentation for the current project. Similar to `cargo doc`.\n" + "\n" + "Options:\n" + "  --project <dir>   Project root directory (default: current directory)\n" + "  --output <dir>    Output directory (default: ./nsharp/docs)\n" + "  --json            Emit a structured JSON result envelope\n" + "  --open            Open the generated index in the default browser\n" + "  --help, -h        Show this help text\n" + "\n" + "Examples:\n" + "  nlc doc\n" + "  nlc doc --open\n" + "  nlc doc --json\n" + "  nlc doc --project examples/16-task-cli --output /tmp/nsharp-docs\n" + "\n" + "Exit codes:\n" + "  0  Documentation generated successfully\n" + "  1  Documentation generation failed"
     }
 
-    static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
-        return "Project directory not found: " + projectRoot
-    }
-
     static func GetGeneratedSummaryMessage(pageCount: int): string {
         return "Generated API docs for " + pageCount.ToString() + " symbols."
     }
@@ -190,10 +174,10 @@ class DocCommandKernels {
         envelope["schemaVersion"] = 1
         envelope["command"] = "doc"
         envelope["ok"] = true
-        envelope["projectRoot"] = NormalizePath(projectRoot)
-        envelope["outputDir"] = NormalizePath(outputDir)
+        envelope["projectRoot"] = CommandOutputKernels.NormalizePath(projectRoot)
+        envelope["outputDir"] = CommandOutputKernels.NormalizePath(outputDir)
         envelope["result"] = BuildManifest(manifest)
-        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+        return JsonSerializer.Serialize(envelope, CommandOutputKernels.CreateWriteIndentedOptions())
     }
 
     static func ErrorJson(projectRoot: string, message: string): string {
@@ -201,29 +185,29 @@ class DocCommandKernels {
         envelope["schemaVersion"] = 1
         envelope["command"] = "doc"
         envelope["ok"] = false
-        envelope["projectRoot"] = NormalizePath(projectRoot)
+        envelope["projectRoot"] = CommandOutputKernels.NormalizePath(projectRoot)
 
         errorPayload := new Dictionary<string, object>()
         errorPayload["message"] = message
         envelope["error"] = errorPayload
-        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+        return JsonSerializer.Serialize(envelope, CommandOutputKernels.CreateWriteIndentedOptions())
     }
 
     static func RenderSymbolPage(symbol: SymbolResult, projectRoot: string): string {
         builder := new StringBuilder()
-        AppendLine(builder, "<nav><a href=\"../index.html\">Back to index</a></nav>")
-        AppendLine(builder, "<header>")
-        AppendLine(builder, "  <p class=\"eyebrow\">" + HtmlEncode(SymbolKindDisplay(symbol.Kind)) + "</p>")
-        AppendLine(builder, "  <h1>" + HtmlEncode(symbol.Name) + "</h1>")
-        AppendLine(builder, "  <p><code>" + HtmlEncode(FormatSignature(symbol)) + "</code></p>")
-        AppendLine(builder, "  <p>" + HtmlEncode(DescribeLocation(projectRoot, symbol)) + "</p>")
+        CommandOutputKernels.AppendLine(builder, "<nav><a href=\"../index.html\">Back to index</a></nav>")
+        CommandOutputKernels.AppendLine(builder, "<header>")
+        CommandOutputKernels.AppendLine(builder, "  <p class=\"eyebrow\">" + HtmlEncode(SymbolDisplayFacts.SymbolKindPascalText(symbol.Kind)) + "</p>")
+        CommandOutputKernels.AppendLine(builder, "  <h1>" + HtmlEncode(symbol.Name) + "</h1>")
+        CommandOutputKernels.AppendLine(builder, "  <p><code>" + HtmlEncode(FormatSignature(symbol)) + "</code></p>")
+        CommandOutputKernels.AppendLine(builder, "  <p>" + HtmlEncode(DescribeLocation(projectRoot, symbol)) + "</p>")
 
         parameters := RenderParameterSummary(symbol)
         if parameters != "" {
-            AppendLine(builder, "  " + parameters)
+            CommandOutputKernels.AppendLine(builder, "  " + parameters)
         }
 
-        AppendLine(builder, "</header>")
+        CommandOutputKernels.AppendLine(builder, "</header>")
 
         membersSection := RenderMembersSection(symbol)
         if membersSection != "" {
@@ -238,28 +222,28 @@ class DocCommandKernels {
         index := 0
         while index < symbols.Count {
             kind := symbols[index].Kind
-            AppendLine(grouped, "<section>")
-            AppendLine(grouped, "  <h2>" + HtmlEncode(SymbolKindDisplay(kind)) + "</h2>")
-            AppendLine(grouped, "  <ul class=\"symbol-list\">")
+            CommandOutputKernels.AppendLine(grouped, "<section>")
+            CommandOutputKernels.AppendLine(grouped, "  <h2>" + HtmlEncode(SymbolDisplayFacts.SymbolKindPascalText(kind)) + "</h2>")
+            CommandOutputKernels.AppendLine(grouped, "  <ul class=\"symbol-list\">")
 
             while index < symbols.Count && symbols[index].Kind == kind {
                 symbol := symbols[index]
                 pageIndex := FindPageIndex(pages, symbol)
                 page := pages[pageIndex]
-                AppendLine(grouped, "    <li><a href=\"" + HtmlEncode(page.Path) + "\">" + HtmlEncode(symbol.Name) + "</a><span>" + HtmlEncode(DescribeLocation(projectRoot, symbol)) + "</span></li>")
+                CommandOutputKernels.AppendLine(grouped, "    <li><a href=\"" + HtmlEncode(page.Path) + "\">" + HtmlEncode(symbol.Name) + "</a><span>" + HtmlEncode(DescribeLocation(projectRoot, symbol)) + "</span></li>")
                 index = index + 1
             }
 
-            AppendLine(grouped, "  </ul>")
-            AppendLine(grouped, "</section>")
+            CommandOutputKernels.AppendLine(grouped, "  </ul>")
+            CommandOutputKernels.AppendLine(grouped, "</section>")
         }
 
         body := new StringBuilder()
-        AppendLine(body, "<header>")
-        AppendLine(body, "  <p class=\"eyebrow\">N# API Reference</p>")
-        AppendLine(body, "  <h1>" + HtmlEncode(ProjectName(projectRoot)) + "</h1>")
-        AppendLine(body, "  <p>" + symbols.Count.ToString() + " documented symbols</p>")
-        AppendLine(body, "</header>")
+        CommandOutputKernels.AppendLine(body, "<header>")
+        CommandOutputKernels.AppendLine(body, "  <p class=\"eyebrow\">N# API Reference</p>")
+        CommandOutputKernels.AppendLine(body, "  <h1>" + HtmlEncode(ProjectName(projectRoot)) + "</h1>")
+        CommandOutputKernels.AppendLine(body, "  <p>" + symbols.Count.ToString() + " documented symbols</p>")
+        CommandOutputKernels.AppendLine(body, "</header>")
         builderText := grouped.ToString()
         if builderText != "" {
             body.Append(builderText)
@@ -500,19 +484,6 @@ class DocCommandKernels {
         return ""
     }
 
-    static func CreateWriteIndentedOptions(): JsonSerializerOptions {
-        return new JsonSerializerOptions { WriteIndented: true }
-    }
-
-    static func NormalizePath(path: string): string {
-        normalized := OutputFormatterNormalizationKernels.NormalizePath(path)
-        if normalized != null {
-            return normalized ?? ""
-        }
-
-        return path
-    }
-
     static func BuildManifest(manifest: DocManifest): Dictionary<string, object> {
         payload := new Dictionary<string, object>()
         payload["indexPath"] = manifest.IndexPath
@@ -567,83 +538,83 @@ class DocCommandKernels {
 
     static func WrapHtml(title: string, body: string): string {
         builder := new StringBuilder()
-        AppendLine(builder, "<!DOCTYPE html>")
-        AppendLine(builder, "<html lang=\"en\">")
-        AppendLine(builder, "<head>")
-        AppendLine(builder, "  <meta charset=\"utf-8\" />")
-        AppendLine(builder, "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />")
-        AppendLine(builder, "  <title>" + HtmlEncode(title) + "</title>")
-        AppendLine(builder, "  <style>")
-        AppendLine(builder, "    :root {")
-        AppendLine(builder, "      color-scheme: light;")
-        AppendLine(builder, "      --bg: #f6f3ee;")
-        AppendLine(builder, "      --card: #fffdf8;")
-        AppendLine(builder, "      --ink: #1f1b18;")
-        AppendLine(builder, "      --muted: #5d534b;")
-        AppendLine(builder, "      --line: #d9cfc5;")
-        AppendLine(builder, "      --accent: #a6401b;")
-        AppendLine(builder, "    }")
-        AppendLine(builder, "    * { box-sizing: border-box; }")
-        AppendLine(builder, "    body {")
-        AppendLine(builder, "      margin: 0;")
-        AppendLine(builder, "      font-family: Georgia, \"Iowan Old Style\", \"Palatino Linotype\", serif;")
-        AppendLine(builder, "      background:")
-        AppendLine(builder, "        radial-gradient(circle at top left, rgba(166, 64, 27, 0.08), transparent 35%),")
-        AppendLine(builder, "        linear-gradient(180deg, #fbf9f4 0%, var(--bg) 100%);")
-        AppendLine(builder, "      color: var(--ink);")
-        AppendLine(builder, "    }")
-        AppendLine(builder, "    main {")
-        AppendLine(builder, "      max-width: 960px;")
-        AppendLine(builder, "      margin: 0 auto;")
-        AppendLine(builder, "      padding: 48px 24px 80px;")
-        AppendLine(builder, "    }")
-        AppendLine(builder, "    header, nav, section {")
-        AppendLine(builder, "      background: var(--card);")
-        AppendLine(builder, "      border: 1px solid var(--line);")
-        AppendLine(builder, "      border-radius: 18px;")
-        AppendLine(builder, "      padding: 24px;")
-        AppendLine(builder, "      margin-bottom: 20px;")
-        AppendLine(builder, "      box-shadow: 0 10px 40px rgba(39, 28, 20, 0.05);")
-        AppendLine(builder, "    }")
-        AppendLine(builder, "    h1, h2 { margin: 0 0 12px; }")
-        AppendLine(builder, "    .eyebrow {")
-        AppendLine(builder, "      text-transform: uppercase;")
-        AppendLine(builder, "      letter-spacing: 0.12em;")
-        AppendLine(builder, "      font-size: 0.78rem;")
-        AppendLine(builder, "      color: var(--accent);")
-        AppendLine(builder, "      margin: 0 0 8px;")
-        AppendLine(builder, "    }")
-        AppendLine(builder, "    code {")
-        AppendLine(builder, "      font-family: \"SF Mono\", \"JetBrains Mono\", Consolas, monospace;")
-        AppendLine(builder, "      font-size: 0.95rem;")
-        AppendLine(builder, "    }")
-        AppendLine(builder, "    ul {")
-        AppendLine(builder, "      margin: 0;")
-        AppendLine(builder, "      padding-left: 20px;")
-        AppendLine(builder, "    }")
-        AppendLine(builder, "    li {")
-        AppendLine(builder, "      margin: 8px 0;")
-        AppendLine(builder, "    }")
-        AppendLine(builder, "    li span {")
-        AppendLine(builder, "      color: var(--muted);")
-        AppendLine(builder, "      margin-left: 12px;")
-        AppendLine(builder, "    }")
-        AppendLine(builder, "    a {")
-        AppendLine(builder, "      color: var(--accent);")
-        AppendLine(builder, "      text-decoration: none;")
-        AppendLine(builder, "    }")
-        AppendLine(builder, "    a:hover {")
-        AppendLine(builder, "      text-decoration: underline;")
-        AppendLine(builder, "    }")
-        AppendLine(builder, "  </style>")
-        AppendLine(builder, "</head>")
-        AppendLine(builder, "<body>")
-        AppendLine(builder, "  <main>")
+        CommandOutputKernels.AppendLine(builder, "<!DOCTYPE html>")
+        CommandOutputKernels.AppendLine(builder, "<html lang=\"en\">")
+        CommandOutputKernels.AppendLine(builder, "<head>")
+        CommandOutputKernels.AppendLine(builder, "  <meta charset=\"utf-8\" />")
+        CommandOutputKernels.AppendLine(builder, "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />")
+        CommandOutputKernels.AppendLine(builder, "  <title>" + HtmlEncode(title) + "</title>")
+        CommandOutputKernels.AppendLine(builder, "  <style>")
+        CommandOutputKernels.AppendLine(builder, "    :root {")
+        CommandOutputKernels.AppendLine(builder, "      color-scheme: light;")
+        CommandOutputKernels.AppendLine(builder, "      --bg: #f6f3ee;")
+        CommandOutputKernels.AppendLine(builder, "      --card: #fffdf8;")
+        CommandOutputKernels.AppendLine(builder, "      --ink: #1f1b18;")
+        CommandOutputKernels.AppendLine(builder, "      --muted: #5d534b;")
+        CommandOutputKernels.AppendLine(builder, "      --line: #d9cfc5;")
+        CommandOutputKernels.AppendLine(builder, "      --accent: #a6401b;")
+        CommandOutputKernels.AppendLine(builder, "    }")
+        CommandOutputKernels.AppendLine(builder, "    * { box-sizing: border-box; }")
+        CommandOutputKernels.AppendLine(builder, "    body {")
+        CommandOutputKernels.AppendLine(builder, "      margin: 0;")
+        CommandOutputKernels.AppendLine(builder, "      font-family: Georgia, \"Iowan Old Style\", \"Palatino Linotype\", serif;")
+        CommandOutputKernels.AppendLine(builder, "      background:")
+        CommandOutputKernels.AppendLine(builder, "        radial-gradient(circle at top left, rgba(166, 64, 27, 0.08), transparent 35%),")
+        CommandOutputKernels.AppendLine(builder, "        linear-gradient(180deg, #fbf9f4 0%, var(--bg) 100%);")
+        CommandOutputKernels.AppendLine(builder, "      color: var(--ink);")
+        CommandOutputKernels.AppendLine(builder, "    }")
+        CommandOutputKernels.AppendLine(builder, "    main {")
+        CommandOutputKernels.AppendLine(builder, "      max-width: 960px;")
+        CommandOutputKernels.AppendLine(builder, "      margin: 0 auto;")
+        CommandOutputKernels.AppendLine(builder, "      padding: 48px 24px 80px;")
+        CommandOutputKernels.AppendLine(builder, "    }")
+        CommandOutputKernels.AppendLine(builder, "    header, nav, section {")
+        CommandOutputKernels.AppendLine(builder, "      background: var(--card);")
+        CommandOutputKernels.AppendLine(builder, "      border: 1px solid var(--line);")
+        CommandOutputKernels.AppendLine(builder, "      border-radius: 18px;")
+        CommandOutputKernels.AppendLine(builder, "      padding: 24px;")
+        CommandOutputKernels.AppendLine(builder, "      margin-bottom: 20px;")
+        CommandOutputKernels.AppendLine(builder, "      box-shadow: 0 10px 40px rgba(39, 28, 20, 0.05);")
+        CommandOutputKernels.AppendLine(builder, "    }")
+        CommandOutputKernels.AppendLine(builder, "    h1, h2 { margin: 0 0 12px; }")
+        CommandOutputKernels.AppendLine(builder, "    .eyebrow {")
+        CommandOutputKernels.AppendLine(builder, "      text-transform: uppercase;")
+        CommandOutputKernels.AppendLine(builder, "      letter-spacing: 0.12em;")
+        CommandOutputKernels.AppendLine(builder, "      font-size: 0.78rem;")
+        CommandOutputKernels.AppendLine(builder, "      color: var(--accent);")
+        CommandOutputKernels.AppendLine(builder, "      margin: 0 0 8px;")
+        CommandOutputKernels.AppendLine(builder, "    }")
+        CommandOutputKernels.AppendLine(builder, "    code {")
+        CommandOutputKernels.AppendLine(builder, "      font-family: \"SF Mono\", \"JetBrains Mono\", Consolas, monospace;")
+        CommandOutputKernels.AppendLine(builder, "      font-size: 0.95rem;")
+        CommandOutputKernels.AppendLine(builder, "    }")
+        CommandOutputKernels.AppendLine(builder, "    ul {")
+        CommandOutputKernels.AppendLine(builder, "      margin: 0;")
+        CommandOutputKernels.AppendLine(builder, "      padding-left: 20px;")
+        CommandOutputKernels.AppendLine(builder, "    }")
+        CommandOutputKernels.AppendLine(builder, "    li {")
+        CommandOutputKernels.AppendLine(builder, "      margin: 8px 0;")
+        CommandOutputKernels.AppendLine(builder, "    }")
+        CommandOutputKernels.AppendLine(builder, "    li span {")
+        CommandOutputKernels.AppendLine(builder, "      color: var(--muted);")
+        CommandOutputKernels.AppendLine(builder, "      margin-left: 12px;")
+        CommandOutputKernels.AppendLine(builder, "    }")
+        CommandOutputKernels.AppendLine(builder, "    a {")
+        CommandOutputKernels.AppendLine(builder, "      color: var(--accent);")
+        CommandOutputKernels.AppendLine(builder, "      text-decoration: none;")
+        CommandOutputKernels.AppendLine(builder, "    }")
+        CommandOutputKernels.AppendLine(builder, "    a:hover {")
+        CommandOutputKernels.AppendLine(builder, "      text-decoration: underline;")
+        CommandOutputKernels.AppendLine(builder, "    }")
+        CommandOutputKernels.AppendLine(builder, "  </style>")
+        CommandOutputKernels.AppendLine(builder, "</head>")
+        CommandOutputKernels.AppendLine(builder, "<body>")
+        CommandOutputKernels.AppendLine(builder, "  <main>")
         builder.Append(body)
-        AppendLine(builder, "")
-        AppendLine(builder, "  </main>")
-        AppendLine(builder, "</body>")
-        AppendLine(builder, "</html>")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "  </main>")
+        CommandOutputKernels.AppendLine(builder, "</body>")
+        CommandOutputKernels.AppendLine(builder, "</html>")
         return builder.ToString()
     }
 
@@ -672,19 +643,19 @@ class DocCommandKernels {
         }
 
         builder := new StringBuilder()
-        AppendLine(builder, "<section>")
-        AppendLine(builder, "  <h2>Members</h2>")
-        AppendLine(builder, "  <ul class=\"member-list\">")
+        CommandOutputKernels.AppendLine(builder, "<section>")
+        CommandOutputKernels.AppendLine(builder, "  <h2>Members</h2>")
+        CommandOutputKernels.AppendLine(builder, "  <ul class=\"member-list\">")
 
         i := 0
         while i < orderedMembers.Count {
             member := orderedMembers[i]
-            AppendLine(builder, "    <li><code>" + HtmlEncode(FormatSignature(member)) + "</code></li>")
+            CommandOutputKernels.AppendLine(builder, "    <li><code>" + HtmlEncode(FormatSignature(member)) + "</code></li>")
             i = i + 1
         }
 
-        AppendLine(builder, "  </ul>")
-        AppendLine(builder, "</section>")
+        CommandOutputKernels.AppendLine(builder, "  </ul>")
+        CommandOutputKernels.AppendLine(builder, "</section>")
         return builder.ToString()
     }
 
@@ -771,79 +742,6 @@ class DocCommandKernels {
         return ""
     }
 
-    static func SymbolKindDisplay(kind: SymbolKind): string {
-        if kind == SymbolKind.Class {
-            return "Class"
-        }
-
-        if kind == SymbolKind.Constructor {
-            return "Constructor"
-        }
-
-        if kind == SymbolKind.Enum {
-            return "Enum"
-        }
-
-        if kind == SymbolKind.EnumMember {
-            return "EnumMember"
-        }
-
-        if kind == SymbolKind.Field {
-            return "Field"
-        }
-
-        if kind == SymbolKind.Function {
-            return "Function"
-        }
-
-        if kind == SymbolKind.Interface {
-            return "Interface"
-        }
-
-        if kind == SymbolKind.Method {
-            return "Method"
-        }
-
-        if kind == SymbolKind.Parameter {
-            return "Parameter"
-        }
-
-        if kind == SymbolKind.Property {
-            return "Property"
-        }
-
-        if kind == SymbolKind.Record {
-            return "Record"
-        }
-
-        if kind == SymbolKind.Struct {
-            return "Struct"
-        }
-
-        if kind == SymbolKind.Test {
-            return "Test"
-        }
-
-        if kind == SymbolKind.TypeAlias {
-            return "TypeAlias"
-        }
-
-        if kind == SymbolKind.Union {
-            return "Union"
-        }
-
-        if kind == SymbolKind.Variable {
-            return "Variable"
-        }
-
-        return ""
-    }
-
-    static func AppendLine(builder: StringBuilder, text: string) {
-        builder.Append(text)
-        builder.Append((char)10)
-    }
-
     static func FormatParameters(parameters: ParameterResult[]): string {
         builder := new StringBuilder()
         i := 0
@@ -886,11 +784,11 @@ class DocCommandKernels {
 
     static func RelativePath(projectRoot: string, filePath: string): string {
         if !Path.IsPathRooted(filePath) {
-            return NormalizePath(filePath)
+            return CommandOutputKernels.NormalizePath(filePath)
         }
 
         relativePath := Path.GetRelativePath(projectRoot, filePath)
-        return NormalizePath(relativePath)
+        return CommandOutputKernels.NormalizePath(relativePath)
     }
 
     static func ProjectName(projectRoot: string): string {

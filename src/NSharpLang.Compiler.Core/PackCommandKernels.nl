@@ -115,18 +115,6 @@ class PackCommandKernels {
         return new PackOptionSummary(projectOption, outputDir, versionOverride, configuration ?? "Release", includeSymbols, jsonOutput, showHelp)
     }
 
-    static func GetOutputMode(json: bool): int {
-        if json {
-            return 1
-        }
-
-        return 2
-    }
-
-    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
-        return Path.GetFullPath(projectOption ?? currentDirectory)
-    }
-
     static func GetProjectYmlPath(projectRoot: string): string {
         return Path.Combine(projectRoot, "project.yml")
     }
@@ -233,47 +221,47 @@ class PackCommandKernels {
 
     static func GetHelpText(): string {
         builder := new StringBuilder()
-        AppendLine(builder, "N# Pack")
-        AppendLine(builder, "")
-        AppendLine(builder, "Usage: nlc pack [options]")
-        AppendLine(builder, "")
-        AppendLine(builder, "Generate a NuGet package from the current N# project.")
-        AppendLine(builder, "")
-        AppendLine(builder, "Reads package metadata from the 'package' section of project.yml and packs")
-        AppendLine(builder, "the native nlc IL build output. The package section is optional but")
-        AppendLine(builder, "recommended for library projects intended for distribution.")
-        AppendLine(builder, "")
-        AppendLine(builder, "project.yml example:")
-        AppendLine(builder, "  name: MyLibrary")
-        AppendLine(builder, "  version: 1.2.0")
-        AppendLine(builder, "  outputType: library")
-        AppendLine(builder, "  package:")
-        AppendLine(builder, "    author: Your Name")
-        AppendLine(builder, "    description: A concise description of your library")
-        AppendLine(builder, "    license: MIT")
-        AppendLine(builder, "    repository: https://github.com/you/MyLibrary")
-        AppendLine(builder, "    tags:")
-        AppendLine(builder, "      - dotnet")
-        AppendLine(builder, "      - nsharp")
-        AppendLine(builder, "")
-        AppendLine(builder, "Options:")
-        AppendLine(builder, "  --output <dir>          Output directory for the .nupkg file")
-        AppendLine(builder, "  --version <ver>         Override the version from project.yml")
-        AppendLine(builder, "  --configuration <cfg>   Build configuration (default: Release)")
-        AppendLine(builder, "  --include-symbols       Also produce a .snupkg symbols package")
-        AppendLine(builder, "  --project <dir>         Project root directory (default: current directory)")
-        AppendLine(builder, "  --json                  Output structured JSON (schemaVersion 1 envelope)")
-        AppendLine(builder, "  --help, -h              Show this help text")
-        AppendLine(builder, "")
-        AppendLine(builder, "Examples:")
-        AppendLine(builder, "  nlc pack")
-        AppendLine(builder, "  nlc pack --output ./artifacts")
-        AppendLine(builder, "  nlc pack --version 2.0.0-beta.1")
-        AppendLine(builder, "  nlc pack --include-symbols")
-        AppendLine(builder, "  nlc pack --json")
-        AppendLine(builder, "")
-        AppendLine(builder, "Exit codes:")
-        AppendLine(builder, "  0  Pack succeeded")
+        CommandOutputKernels.AppendLine(builder, "N# Pack")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Usage: nlc pack [options]")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Generate a NuGet package from the current N# project.")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Reads package metadata from the 'package' section of project.yml and packs")
+        CommandOutputKernels.AppendLine(builder, "the native nlc IL build output. The package section is optional but")
+        CommandOutputKernels.AppendLine(builder, "recommended for library projects intended for distribution.")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "project.yml example:")
+        CommandOutputKernels.AppendLine(builder, "  name: MyLibrary")
+        CommandOutputKernels.AppendLine(builder, "  version: 1.2.0")
+        CommandOutputKernels.AppendLine(builder, "  outputType: library")
+        CommandOutputKernels.AppendLine(builder, "  package:")
+        CommandOutputKernels.AppendLine(builder, "    author: Your Name")
+        CommandOutputKernels.AppendLine(builder, "    description: A concise description of your library")
+        CommandOutputKernels.AppendLine(builder, "    license: MIT")
+        CommandOutputKernels.AppendLine(builder, "    repository: https://github.com/you/MyLibrary")
+        CommandOutputKernels.AppendLine(builder, "    tags:")
+        CommandOutputKernels.AppendLine(builder, "      - dotnet")
+        CommandOutputKernels.AppendLine(builder, "      - nsharp")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Options:")
+        CommandOutputKernels.AppendLine(builder, "  --output <dir>          Output directory for the .nupkg file")
+        CommandOutputKernels.AppendLine(builder, "  --version <ver>         Override the version from project.yml")
+        CommandOutputKernels.AppendLine(builder, "  --configuration <cfg>   Build configuration (default: Release)")
+        CommandOutputKernels.AppendLine(builder, "  --include-symbols       Also produce a .snupkg symbols package")
+        CommandOutputKernels.AppendLine(builder, "  --project <dir>         Project root directory (default: current directory)")
+        CommandOutputKernels.AppendLine(builder, "  --json                  Output structured JSON (schemaVersion 1 envelope)")
+        CommandOutputKernels.AppendLine(builder, "  --help, -h              Show this help text")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Examples:")
+        CommandOutputKernels.AppendLine(builder, "  nlc pack")
+        CommandOutputKernels.AppendLine(builder, "  nlc pack --output ./artifacts")
+        CommandOutputKernels.AppendLine(builder, "  nlc pack --version 2.0.0-beta.1")
+        CommandOutputKernels.AppendLine(builder, "  nlc pack --include-symbols")
+        CommandOutputKernels.AppendLine(builder, "  nlc pack --json")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Exit codes:")
+        CommandOutputKernels.AppendLine(builder, "  0  Pack succeeded")
         builder.Append("  1  Pack failed")
         return builder.ToString()
     }
@@ -344,7 +332,7 @@ class PackCommandKernels {
         envelope["name"] = projectName
         envelope["version"] = version
         envelope["packagePath"] = packagePath
-        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+        return JsonSerializer.Serialize(envelope, CommandOutputKernels.CreateWriteIndentedOptions())
     }
 
     static func ErrorJson(message: string): string {
@@ -356,7 +344,7 @@ class PackCommandKernels {
         envelope["command"] = "pack"
         envelope["ok"] = false
         envelope["error"] = error
-        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+        return JsonSerializer.Serialize(envelope, CommandOutputKernels.CreateWriteIndentedOptions())
     }
 
     static func GetNuspecText(projectName: string, version: string, packageAuthor: string, packageDescription: string, packageTags: string, packageTagsCount: int, packageLicense: string, packageRepository: string, packageIcon: string): string {
@@ -373,7 +361,7 @@ class PackCommandKernels {
         builder := new StringBuilder()
         AppendXmlDeclaration(builder)
         AppendPackageOpen(builder)
-        AppendLine(builder, "  <metadata>")
+        CommandOutputKernels.AppendLine(builder, "  <metadata>")
         AppendElement(builder, "id", projectName)
         AppendElement(builder, "version", version)
         AppendElement(builder, "authors", authors)
@@ -387,24 +375,24 @@ class PackCommandKernels {
             builder.Append("    <license type=")
             AppendQuoted(builder, "expression")
             builder.Append(">")
-            builder.Append(XmlEscape(packageLicense))
-            AppendLine(builder, "</license>")
+            builder.Append(CommandOutputKernels.XmlEscape(packageLicense))
+            CommandOutputKernels.AppendLine(builder, "</license>")
         }
 
         if HasText(packageRepository) {
             builder.Append("    <repository type=")
             AppendQuoted(builder, "git")
             builder.Append(" url=")
-            AppendQuoted(builder, XmlEscape(packageRepository))
-            AppendLine(builder, " />")
+            AppendQuoted(builder, CommandOutputKernels.XmlEscape(packageRepository))
+            CommandOutputKernels.AppendLine(builder, " />")
         }
 
         if HasText(packageIcon) {
             AppendElement(builder, "icon", packageIcon)
         }
 
-        AppendLine(builder, "  </metadata>")
-        AppendLine(builder, "</package>")
+        CommandOutputKernels.AppendLine(builder, "  </metadata>")
+        CommandOutputKernels.AppendLine(builder, "</package>")
         return builder.ToString()
     }
 
@@ -412,13 +400,13 @@ class PackCommandKernels {
         builder := new StringBuilder()
         AppendXmlDeclaration(builder)
         AppendPackageOpen(builder)
-        AppendLine(builder, "  <metadata>")
+        CommandOutputKernels.AppendLine(builder, "  <metadata>")
         AppendElement(builder, "id", projectName)
         AppendElement(builder, "version", version)
         AppendElement(builder, "authors", "NSharp")
         AppendElement(builder, "description", "Symbols for " + projectName + ".")
-        AppendLine(builder, "  </metadata>")
-        AppendLine(builder, "</package>")
+        CommandOutputKernels.AppendLine(builder, "  </metadata>")
+        CommandOutputKernels.AppendLine(builder, "</package>")
         return builder.ToString()
     }
 
@@ -427,61 +415,29 @@ class PackCommandKernels {
         AppendQuoted(builder, "1.0")
         builder.Append(" encoding=")
         AppendQuoted(builder, "utf-8")
-        AppendLine(builder, "?>")
+        CommandOutputKernels.AppendLine(builder, "?>")
     }
 
     static func AppendPackageOpen(builder: StringBuilder) {
         builder.Append("<package xmlns=")
         AppendQuoted(builder, "http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd")
-        AppendLine(builder, ">")
+        CommandOutputKernels.AppendLine(builder, ">")
     }
 
     static func AppendElement(builder: StringBuilder, name: string, value: string) {
         builder.Append("    <")
         builder.Append(name)
         builder.Append(">")
-        builder.Append(XmlEscape(value))
+        builder.Append(CommandOutputKernels.XmlEscape(value))
         builder.Append("</")
         builder.Append(name)
-        AppendLine(builder, ">")
+        CommandOutputKernels.AppendLine(builder, ">")
     }
 
     static func AppendQuoted(builder: StringBuilder, value: string) {
         builder.Append('"')
         builder.Append(value)
         builder.Append('"')
-    }
-
-    static func AppendLine(builder: StringBuilder, text: string) {
-        builder.Append(text)
-        builder.Append((char)10)
-    }
-
-    static func CreateWriteIndentedOptions(): JsonSerializerOptions {
-        return new JsonSerializerOptions { WriteIndented: true }
-    }
-
-    static func XmlEscape(value: string): string {
-        result := ""
-        index := 0
-        while index < value.Length {
-            ch := value[index]
-            if ch == '&' {
-                result = result + "&amp;"
-            } else if ch == '"' {
-                result = result + "&quot;"
-            } else if ch == '<' {
-                result = result + "&lt;"
-            } else if ch == '>' {
-                result = result + "&gt;"
-            } else {
-                result = result + value.Substring(index, 1)
-            }
-
-            index = index + 1
-        }
-
-        return result
     }
 
     static func HasText(value: string): bool {

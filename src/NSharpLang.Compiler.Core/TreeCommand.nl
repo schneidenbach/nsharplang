@@ -80,11 +80,11 @@ class TreeCommand {
         }
 
         projectRoot := Path.GetFullPath(options.ProjectOption ?? Environment.CurrentDirectory)
-        outputMode := TreeCommandKernels.GetOutputMode(options.Json)
+        outputMode := CommandOutputKernels.GetOutputMode(options.Json)
         maxDepth := TreeCommandKernels.GetMaxDepth(args, 2147483647)
 
         if !Directory.Exists(projectRoot) {
-            return Error(TreeCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot), outputMode, projectRoot)
+            return Error(CommandOutputKernels.GetProjectDirectoryNotFoundMessage(projectRoot), outputMode, projectRoot)
         }
 
         try {
@@ -143,7 +143,7 @@ class TreeCommand {
             limitationList.Add(extraLimitation ?? "")
         }
 
-        return new TreeReport(2, "tree", true, NormalizePath(projectRoot), new TreeProject(projectName, config.TargetFramework, "project.yml"), maxDepth, new TreeCapabilities(true, false), direct, EmptyDependencyArray(), new TreeSummary(direct.Length, 0, direct.Length), limitationList.ToArray())
+        return new TreeReport(2, "tree", true, CommandOutputKernels.NormalizePath(projectRoot), new TreeProject(projectName, config.TargetFramework, "project.yml"), maxDepth, new TreeCapabilities(true, false), direct, EmptyDependencyArray(), new TreeSummary(direct.Length, 0, direct.Length), limitationList.ToArray())
     }
 
     static func BuildFromMsbuild(projectRoot: string, csproj: string, projectYml: string?, maxDepth: int): TreeReport {
@@ -203,7 +203,7 @@ class TreeCommand {
             source = "project.yml+msbuild"
         }
 
-        return new TreeReport(2, "tree", true, NormalizePath(projectRoot), new TreeProject(projectName, frameworkName, source), maxDepth, new TreeCapabilities(true, true), visibleDirect, visibleTransitive, new TreeSummary(visibleDirect.Length, visibleTransitive.Length, visibleDirect.Length + visibleTransitive.Length), new string[](0))
+        return new TreeReport(2, "tree", true, CommandOutputKernels.NormalizePath(projectRoot), new TreeProject(projectName, frameworkName, source), maxDepth, new TreeCapabilities(true, true), visibleDirect, visibleTransitive, new TreeSummary(visibleDirect.Length, visibleTransitive.Length, visibleDirect.Length + visibleTransitive.Length), new string[](0))
     }
 
     static func ReadMsbuildDependencyGraph(root: JsonElement, direct: List<TreeDependency>, transitive: List<TreeDependency>, targetFrameworks: List<string>) {
@@ -331,7 +331,7 @@ class TreeCommand {
             version = reference.Version
         }
 
-        return new TreeDependency(NormalizePath(reference.Value), kind, version, "runtime", false, EmptyDependencyArray())
+        return new TreeDependency(CommandOutputKernels.NormalizePath(reference.Value), kind, version, "runtime", false, EmptyDependencyArray())
     }
 
     static func SelectFirstCsproj(projectRoot: string): string? {
@@ -423,7 +423,7 @@ class TreeCommand {
         builder.AppendLine("  \"command\": \"tree\",")
         builder.AppendLine("  \"ok\": true,")
         builder.Append("  \"projectRoot\": ")
-        AppendJsonString(builder, report.ProjectRoot)
+        CommandOutputKernels.AppendJsonString(builder, report.ProjectRoot)
         builder.AppendLine(",")
         builder.AppendLine("  \"project\": {")
         AppendJsonStringProperty(builder, "    ", "name", report.Project.Name, true)
@@ -454,7 +454,7 @@ class TreeCommand {
         builder.AppendLine("  \"command\": \"tree\",")
         builder.AppendLine("  \"ok\": false,")
         builder.Append("  \"projectRoot\": ")
-        AppendJsonString(builder, NormalizePath(projectRoot ?? ""))
+        CommandOutputKernels.AppendJsonString(builder, CommandOutputKernels.NormalizePath(projectRoot ?? ""))
         builder.AppendLine(",")
         builder.AppendLine("  \"error\": {")
         AppendJsonStringProperty(builder, "    ", "message", message, false)
@@ -465,7 +465,7 @@ class TreeCommand {
 
     static func AppendDependencyArrayProperty(builder: StringBuilder, name: string, dependencies: TreeDependency[], trailingComma: bool) {
         builder.Append("  ")
-        AppendJsonString(builder, name)
+        CommandOutputKernels.AppendJsonString(builder, name)
         builder.Append(": ")
         if dependencies.Length == 0 {
             builder.Append("[]")
@@ -516,7 +516,7 @@ class TreeCommand {
 
     static func AppendStringArrayProperty(builder: StringBuilder, name: string, values: string[], trailingComma: bool) {
         builder.Append("  ")
-        AppendJsonString(builder, name)
+        CommandOutputKernels.AppendJsonString(builder, name)
         builder.Append(": ")
         if values.Length == 0 {
             builder.Append("[]")
@@ -532,7 +532,7 @@ class TreeCommand {
         i := 0
         while i < values.Length {
             builder.Append("    ")
-            AppendJsonString(builder, values[i])
+            CommandOutputKernels.AppendJsonString(builder, values[i])
             if i + 1 < values.Length {
                 builder.Append(",")
             }
@@ -551,9 +551,9 @@ class TreeCommand {
 
     static func AppendJsonStringProperty(builder: StringBuilder, indent: string, name: string, value: string, trailingComma: bool) {
         builder.Append(indent)
-        AppendJsonString(builder, name)
+        CommandOutputKernels.AppendJsonString(builder, name)
         builder.Append(": ")
-        AppendJsonString(builder, value)
+        CommandOutputKernels.AppendJsonString(builder, value)
         if trailingComma {
             builder.Append(",")
         }
@@ -563,7 +563,7 @@ class TreeCommand {
 
     static func AppendJsonBoolProperty(builder: StringBuilder, indent: string, name: string, value: bool, trailingComma: bool) {
         builder.Append(indent)
-        AppendJsonString(builder, name)
+        CommandOutputKernels.AppendJsonString(builder, name)
         builder.Append(": ")
         if value {
             builder.Append("true")
@@ -576,40 +576,6 @@ class TreeCommand {
         }
 
         builder.AppendLine()
-    }
-
-    static func AppendJsonString(builder: StringBuilder, value: string) {
-        builder.Append('"')
-        index := 0
-        while index < value.Length {
-            ch := value[index]
-            if ch == '"' {
-                builder.Append("\\\"")
-            } else if ch == '\\' {
-                builder.Append("\\\\")
-            } else if ch == '\n' {
-                builder.Append("\\n")
-            } else if ch == '\r' {
-                builder.Append("\\r")
-            } else if ch == '\t' {
-                builder.Append("\\t")
-            } else {
-                builder.Append(value.Substring(index, 1))
-            }
-
-            index = index + 1
-        }
-
-        builder.Append('"')
-    }
-
-    static func NormalizePath(path: string): string {
-        normalized := OutputFormatterNormalizationKernels.NormalizePath(path)
-        if normalized == null {
-            return path
-        }
-
-        return normalized
     }
 
     static func EmptyDependencyArray(): TreeDependency[] {

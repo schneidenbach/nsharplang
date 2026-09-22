@@ -17,12 +17,12 @@ class InitCommand {
         projectType := options.TypeOption ?? "exe"
 
         if projectType != "exe" && projectType != "library" {
-            return Error(InitCommandKernels.GetInvalidTypeMessage(projectType))
+            return CommandOutputKernels.Error(InitCommandKernels.GetInvalidTypeMessage(projectType))
         }
 
         projectYml := Path.Combine(projectRoot, "project.yml")
         if File.Exists(projectYml) && !force {
-            return Error(InitCommandKernels.GetProjectFileExistsMessage())
+            return CommandOutputKernels.Error(InitCommandKernels.GetProjectFileExistsMessage())
         }
 
         try {
@@ -49,12 +49,7 @@ class InitCommand {
 
             return 0
         } catch ex: Exception {
-            return Error(InitCommandKernels.GetFailedMessage(ex.Message))
+            return CommandOutputKernels.Error(InitCommandKernels.GetFailedMessage(ex.Message))
         }
-    }
-
-    static func Error(message: string): int {
-        Console.Error.WriteLine(message)
-        return 1
     }
 }

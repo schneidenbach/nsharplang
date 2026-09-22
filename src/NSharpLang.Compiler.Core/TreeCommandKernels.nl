@@ -119,20 +119,8 @@ class TreeCommandKernels {
         return defaultDepth
     }
 
-    static func GetOutputMode(json: bool): int {
-        if json {
-            return 1
-        }
-
-        return 2
-    }
-
     static func GetHelpText(): string {
         return "N# Dependency Tree\n" + "\n" + "Usage: nlc tree [options]\n" + "\n" + "Show the project's dependencies and transitive NuGet packages when available.\n" + "\n" + "Options:\n" + "  --project <dir>   Project root directory (default: current directory)\n" + "  --depth <n>       Maximum tree depth to display\n" + "  --json            Output as JSON envelope\n" + "  --help, -h        Show this help text\n" + "\n" + "Examples:\n" + "  nlc tree\n" + "  nlc tree --depth 1\n" + "  nlc tree --json\n" + "\n" + "Behavior:\n" + "  project.yml projects list direct runtime dependencies without requiring .csproj files.\n" + "  Transitive NuGet dependencies are included when an MSBuild project file is present.\n" + "\n" + "Exit codes:\n" + "  0  Tree displayed successfully\n" + "  1  Failed to display tree"
-    }
-
-    static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
-        return "Project directory not found: " + projectRoot
     }
 
     static func GetTreeFailedMessage(message: string): string {

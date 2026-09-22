@@ -45,10 +45,6 @@ class CleanCommandKernels {
         return "N# Clean\n" + "\n" + "Usage: nlc clean [options]\n" + "\n" + "Remove local build artifacts for the current project. Equivalent to `cargo clean`\n" + "or `go clean`.\n" + "\n" + "Options:\n" + "  --project <dir>   Project root directory (default: current directory)\n" + "  --all             Also clear NuGet caches\n" + "  --help, -h        Show this help text\n" + "\n" + "Examples:\n" + "  nlc clean\n" + "  nlc clean --all\n" + "  nlc clean --project examples/16-task-cli\n" + "\n" + "Exit codes:\n" + "  0  Clean completed successfully\n" + "  1  Clean failed"
     }
 
-    static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
-        return "Project directory not found: " + projectRoot
-    }
-
     static func GetNoArtifactsFoundMessage(projectRoot: string): string {
         return "No build artifacts found under " + projectRoot + "."
     }

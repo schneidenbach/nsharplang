@@ -43,8 +43,8 @@ test "help is asked for by the bare word anywhere, and by -h after a positional"
 }
 
 test "tidy output mode is 2 for text and 1 for json" {
-    assert TidyCommandKernels.GetOutputMode(false) == 2
-    assert TidyCommandKernels.GetOutputMode(true) == 1
+    assert CommandOutputKernels.GetOutputMode(false) == 2
+    assert CommandOutputKernels.GetOutputMode(true) == 1
 }
 
 // ── the import-line scanner ───────────────────────────────────────────────────

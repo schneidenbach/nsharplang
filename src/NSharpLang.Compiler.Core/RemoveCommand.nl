@@ -15,14 +15,14 @@ class RemoveCommand {
 
         packageName := arguments.PackageOperand
         if string.IsNullOrWhiteSpace(packageName) {
-            return Error(RemoveCommandKernels.GetUsageMessage())
+            return CommandOutputKernels.Error(RemoveCommandKernels.GetUsageMessage())
         }
 
         projectRoot := Environment.CurrentDirectory
         projectYml := Path.Combine(projectRoot, "project.yml")
 
         if !File.Exists(projectYml) {
-            return Error(RemoveCommandKernels.GetMissingProjectFileMessage())
+            return CommandOutputKernels.Error(RemoveCommandKernels.GetMissingProjectFileMessage())
         }
 
         lines := ReadProjectLines(projectYml)
@@ -56,7 +56,7 @@ class RemoveCommand {
         }
 
         if !removed {
-            return Error(RemoveCommandKernels.GetPackageNotFoundMessage(packageNameValue))
+            return CommandOutputKernels.Error(RemoveCommandKernels.GetPackageNotFoundMessage(packageNameValue))
         }
 
         WriteProjectLines(projectYml, lines)
@@ -89,10 +89,5 @@ class RemoveCommand {
         }
 
         File.WriteAllText(projectYml, builder.ToString())
-    }
-
-    static func Error(message: string): int {
-        Console.Error.WriteLine(message)
-        return 1
     }
 }
