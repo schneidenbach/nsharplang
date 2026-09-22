@@ -4963,6 +4963,56 @@ class ColumnarParserRecovery {
             }
         }
 
+        // A RESERVED KEYWORD WHERE THE LOOP VARIABLE GOES.
+        //
+        // `for type in values` is a for-IN loop written with a name N# will not lend, and `foreach`
+        // has said so all along because its variable goes through `ConsumeIdentifier`, which asks
+        // `Lexer.IsReservedKeyword` and reports NL109 naming the keyword. `for`'s three foreach arms
+        // each test `TokenType.Identifier`, so a keyword matched none of them and the header fell
+        // through to the C-STYLE arm — which read `type` as a modifier, `in` as an expression that
+        // was not there, and then re-read the loop BODY as a type declaration: NL101, NL109, and an
+        // NL102 (`Expected ':' or ':=' after field name. Got '.'`) pointing at the collection rather
+        // than at the name, cascading to the end of the file.
+        //
+        // THE SHAPE IS UNAMBIGUOUS, which is why it can be claimed before the C-style arm: no
+        // C-style header begins `<keyword> in`, and none begins `<keyword> : <Type> in` either — the
+        // annotated form is admitted under the SAME bounded scan the annotated identifier arm above
+        // uses, so a C-style header whose initializer merely starts with a keyword still reaches its
+        // own diagnostics. The loop is then parsed to completion under the recovery name every other
+        // refused name gets, so the rest of the file is read as written.
+        if !IsAtEnd() && Lexer.IsReservedKeyword(Current().Type) && LookAhead(1).Type == TokenType.In {
+            ReportReservedKeywordAsName("Expected variable name", SpanFromToken(Current()), false)
+            Advance()
+            // the refused loop variable
+            keywordInToken := ConsumeToken(TokenType.In, "Expected 'in'", "in")
+            keywordCollection := ParseRequiredExpressionAfter(keywordInToken, "a collection expression", "This for-in statement", null)
+            keywordBody := ParseStatement(SpanFromToken(forToken))
+            if keywordCollection == null || keywordBody == null {
+                return null
+            }
+            return new ForStatement(null, null, null, new ForeachStatement("<error>", keywordCollection, keywordBody, line, column), line, column)
+        }
+
+        if !IsAtEnd() && Lexer.IsReservedKeyword(Current().Type) && LookAhead(1).Type == TokenType.Colon {
+            ScanPosition = Position + 2
+            ScanSplit = 0
+            if ScanTypeReference() && ScanCurrentType() == TokenType.In {
+                ReportReservedKeywordAsName("Expected variable name", SpanFromToken(Current()), false)
+                Advance()
+                // the refused loop variable
+                Advance()
+                // consume ':'
+                keywordAnnotatedType := ParseMaterializedTypeReference()
+                keywordAnnotatedIn := ConsumeToken(TokenType.In, "Expected 'in'", "in")
+                keywordAnnotatedCollection := ParseRequiredExpressionAfter(keywordAnnotatedIn, "a collection expression", "This for-in statement", null)
+                keywordAnnotatedBody := ParseStatement(SpanFromToken(forToken))
+                if keywordAnnotatedType == null || keywordAnnotatedCollection == null || keywordAnnotatedBody == null {
+                    return null
+                }
+                return new ForStatement(null, null, null, new ForeachStatement("<error>", keywordAnnotatedCollection, keywordAnnotatedBody, line, column, keywordAnnotatedType), line, column)
+            }
+        }
+
         if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Identifier {
             variableToken := Current()
             Advance()
