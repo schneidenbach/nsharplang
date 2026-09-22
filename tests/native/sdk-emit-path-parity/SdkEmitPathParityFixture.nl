@@ -134,18 +134,33 @@ func ParityPreparePackage(root: string, scratch: string): ParityPackage {
     return new ParityPackage(feed, version)
 }
 
-// The real global packages folder is a FALLBACK, never the write target: the packages these rows
-// reference are already in it because the repository itself references them, so the restore is
-// offline, and the throwaway `NSharpLang.Sdk` version this fixture packs never lands there.
-func ParitySharedPackagesFolder(): string {
-    configured := Environment.GetEnvironmentVariable("NUGET_PACKAGES") ?? ""
-    if configured.Length > 0 {
-        return configured
-    }
-
-    return Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget"), "packages")
-}
-
+// THE SAMPLE'S PACKAGES COME FROM `nuget.org`, NOT FROM WHATEVER THE AMBIENT CACHE HAPPENS TO HOLD,
+// AND THAT IS A MEASURED FINDING ABOUT THE PRODUCT GATE RATHER THAN A PREFERENCE.
+//
+// This row once wrote `fallbackPackageFolders` pointing at `NUGET_PACKAGES` and cleared the sources
+// down to the private feed, on the theory that the repository already references everything the
+// sample names, so door two's restore would be offline. In the WORKING TREE that held, because
+// `NUGET_PACKAGES` was unset and the developer's `~/.nuget/packages` had accumulated every version
+// anyone ever restored. Under the gate it does not: the gate copies the repository to a scratch
+// directory and points `NUGET_PACKAGES` at a cache of its OWN, holding exactly what `dotnet restore`
+// of THIS repository resolved. Nothing here references `Microsoft.Extensions.Logging` directly --
+// the language server reaches it through OmniSharp and Serilog -- so that cache carries 2.0.0 and
+// 6.0.0 and NOT the 9.0.0 the sample PINS ON PURPOSE, and door two failed NU1101 with the private
+// feed as its only source.
+//
+// Door one never noticed, and could not have: `nlc build` resolves `nuget:` itself against
+// api.nuget.org and unzips straight into the packages folder, writing none of NuGet's install
+// markers (`.nupkg.metadata`, the `.nupkg`, the `.sha512`). So after door one there WAS a 9.0.0
+// directory in the fallback folder and NuGet still refused to see it -- which is also why the
+// fallback folder is gone rather than merely supplemented: door one pollutes the very folder door
+// two would have read, and a row about what the two doors bind must not depend on ambient cache
+// state. `globalPackagesFolder` stays redirected at the run's own throwaway cache, so the
+// disposable `NSharpLang.Sdk` version this fixture packs never lands in a real one.
+//
+// Private feed for the packed SDK and Runtime, `nuget.org` for everything the sample names, is the
+// contract every other SDK-path row already uses: `tests/native/sdk-project-reference-boundary`
+// restores YamlDotNet and System.Reflection.MetadataLoadContext that way, and
+// `tests/native/compilation-backend/TestSdkFeed.nl` writes the same pair.
 func ParityWriteResolution(projectDirectory: string, sdkPackage: ParityPackage, packagesCache: string) {
     File.WriteAllText(
         Path.Combine(projectDirectory, "global.json"),
@@ -153,7 +168,7 @@ func ParityWriteResolution(projectDirectory: string, sdkPackage: ParityPackage, 
     )
     File.WriteAllText(
         Path.Combine(projectDirectory, "NuGet.config"),
-        "<configuration><config><add key=\"globalPackagesFolder\" value=\"" + packagesCache + "\" /></config><fallbackPackageFolders><clear /><add key=\"shared\" value=\"" + ParitySharedPackagesFolder() + "\" /></fallbackPackageFolders><packageSources><clear /><add key=\"sdk-emit-path-parity-private\" value=\"" + sdkPackage.Feed + "\" /></packageSources></configuration>"
+        "<configuration><config><add key=\"globalPackagesFolder\" value=\"" + packagesCache + "\" /></config><fallbackPackageFolders><clear /></fallbackPackageFolders><packageSources><clear /><add key=\"sdk-emit-path-parity-private\" value=\"" + sdkPackage.Feed + "\" /><add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" /></packageSources></configuration>"
     )
     File.WriteAllText(
         Path.Combine(projectDirectory, "Directory.Build.props"),
