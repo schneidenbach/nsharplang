@@ -373,8 +373,87 @@ test "an inferred zero-parameter lambda inside a type stays a static method on t
     assert placement.Mode == ColumnarLambdaPlacementMode.StaticEnclosing
     assert placement.OrdinalShift == 0
     assert placement.Method.get_IsStatic()
-    assert ColumnarConstructionPlanner.SameObject(placement.CurrentStructForBody, enclosing)
+    // A STATIC HELPER'S BODY HAS NO INSTANCE. This row used to assert the opposite and that is the
+    // defect it was pinning: with an instance context AND a parameter at ordinal zero,
+    // `ColumnarDirectCallPlanner` reads the body as the contextual-lambda preflight frame and hands
+    // every call in it back to the legacy residual.
+    assert placement.CurrentStructForBody == null
     assert ColumnarConstructionPlanner.SameObject(placement.OwnerTypeForBody, enclosing.Builder)
+}
+
+// THE TWO STATIC OWNERS ARE ONE RULE. `enclosing` (an instance body's lexical type) and
+// `staticOwner` (a static body's) are mutually exclusive at the call site and must produce the same
+// placement; they did not, and the disagreement is what made the SAME lambda emit in a static member
+// and decline in an instance one.
+test "both static lambda owners produce the same placement" {
+    module := InferredPlacementModuleBuilder("StaticOwnerAgreement")
+    programType := module.DefineType("InferredPlacementTests.Program", TypeAttributes.Public | TypeAttributes.Class, typeof(object))
+    enclosing := InferredPlacementEnclosing(module, "Holder")
+
+    viaEnclosing := ColumnarLambdaPlacementPlanner.PlanNonCapturingPlacement(
+        programType,
+        enclosing,
+        new int[](1),
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        typeof(string),
+        Type.EmptyTypes,
+        false
+    )
+    viaStaticOwner := ColumnarLambdaPlacementPlanner.PlanNonCapturingPlacement(
+        programType,
+        null,
+        new int[](1),
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        typeof(string),
+        Type.EmptyTypes,
+        false,
+        enclosing
+    )
+
+    assert viaEnclosing != null
+    assert viaStaticOwner != null
+    assert viaEnclosing.Mode == viaStaticOwner.Mode
+    assert viaEnclosing.Mode == ColumnarLambdaPlacementMode.StaticEnclosing
+    assert viaEnclosing.OrdinalShift == viaStaticOwner.OrdinalShift
+    assert viaEnclosing.CurrentStructForBody == null
+    assert viaStaticOwner.CurrentStructForBody == null
+    assert ColumnarConstructionPlanner.SameObject(viaEnclosing.OwnerTypeForBody, enclosing.Builder)
+    assert ColumnarConstructionPlanner.SameObject(viaStaticOwner.OwnerTypeForBody, enclosing.Builder)
+    assert viaEnclosing.Method.get_IsStatic()
+    assert viaStaticOwner.Method.get_IsStatic()
+}
+
+test "an inferred lambda's two static owners produce the same placement" {
+    module := InferredPlacementModuleBuilder("InferredStaticOwnerAgreement")
+    programType := module.DefineType("InferredPlacementTests.Program", TypeAttributes.Public | TypeAttributes.Class, typeof(object))
+    enclosing := InferredPlacementEnclosing(module, "Holder")
+
+    viaEnclosing := ColumnarLambdaPlacementPlanner.PlanInferredPlacement(
+        programType,
+        enclosing,
+        new int[](1),
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        Type.EmptyTypes,
+        false
+    )
+    viaStaticOwner := ColumnarLambdaPlacementPlanner.PlanInferredPlacement(
+        programType,
+        null,
+        new int[](1),
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        Type.EmptyTypes,
+        false,
+        enclosing
+    )
+
+    assert viaEnclosing != null
+    assert viaStaticOwner != null
+    assert viaEnclosing.Mode == ColumnarLambdaPlacementMode.StaticEnclosing
+    assert viaStaticOwner.Mode == ColumnarLambdaPlacementMode.StaticEnclosing
+    assert viaEnclosing.CurrentStructForBody == null
+    assert viaStaticOwner.CurrentStructForBody == null
+    assert ColumnarConstructionPlanner.SameObject(viaEnclosing.OwnerTypeForBody, enclosing.Builder)
+    assert ColumnarConstructionPlanner.SameObject(viaStaticOwner.OwnerTypeForBody, enclosing.Builder)
 }
 
 test "a noncapturing lambda whose signature names a nested type stays on its enclosing declaration" {
@@ -399,7 +478,10 @@ test "a noncapturing lambda whose signature names a nested type stays on its enc
     assert placement.Mode == ColumnarLambdaPlacementMode.StaticEnclosing
     assert placement.OrdinalShift == 0
     assert placement.Method.get_IsStatic()
-    assert ColumnarConstructionPlanner.SameObject(placement.CurrentStructForBody, enclosing)
+    // Same strengthening as the row above: the signature still names the nested type and the method
+    // still lives on the enclosing declaration — what changes is that the static body carries no
+    // instance context.
+    assert placement.CurrentStructForBody == null
     assert ColumnarConstructionPlanner.SameObject(placement.OwnerTypeForBody, enclosing.Builder)
 }
 

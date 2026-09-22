@@ -317,3 +317,41 @@ test "an object creation is a statement expression a void delegate accepts" {
     assert ledger.Entries.Count == 1
     assert ledger.Entries[0] == "stamp"
 }
+
+// --- A static lambda helper's body has a lexical owner, not an instance ------------------------
+test "a non-capturing lambda in an instance member reaches the same calls as one in a static member" {
+    owner := new StaticHelperOwner("p:")
+    values := new List<int>()
+    values.Add(7)
+
+    assert owner.Tag(values) == "n7"
+    assert StaticHelperOwner.TagStatic(values) == "n7"
+    assert owner.Tag(values) == StaticHelperOwner.TagStatic(values)
+}
+
+test "an instance member's non-capturing lambda runs an external static with a value" {
+    owner := new StaticHelperOwner("p:")
+    values := new List<int>()
+    values.Add(2)
+
+    assert owner.Millis(values) == 2000.0
+}
+
+test "the enclosing instance is still reachable from the member around the static helper" {
+    owner := new StaticHelperOwner("p:")
+    values := new List<int>()
+    values.Add(4)
+
+    assert owner.PrefixedTag(values) == "p:n4"
+}
+
+test "an instance member's non-capturing lambda is still a static method on that type" {
+    owner := new StaticHelperOwner("p:")
+
+    assert owner.InspectTagPlacement() == "True|StaticHelperOwner"
+}
+
+test "a lambda nested inside a CAPTURING lambda runs the same calls as one nested in a plain lambda" {
+    assert NestedLambdaOwner.Run(9) == "9|x1"
+    assert NestedLambdaOwner.RunWithoutCapture() == "outer|x1"
+}

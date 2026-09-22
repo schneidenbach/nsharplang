@@ -324,9 +324,23 @@ class ColumnarLambdaPlacementPlanner {
     // public holder for a namespace declaring no free function at all. `NSharpLang.Cli.Program` and
     // `NSharpLang.Cli.Commands.Program` in the emitted `Compiler` assembly each held nothing but two
     // lowered lambdas, and the first of them is what made `src/NSharpLang.Cli/Program.cs` warn
-    // CS0436 against its own compiler. The body keeps NO instance context: `CurrentStructForBody`
-    // stays null, so a static body cannot start resolving an instance member chain because its
-    // lambda moved.
+    // CS0436 against its own compiler.
+    //
+    // A STATIC HELPER'S BODY KEEPS NO INSTANCE CONTEXT — `CurrentStructForBody` stays null for BOTH
+    // static owners, and the two used to disagree. `staticOwner` left it null; `enclosing` set it,
+    // so a lambda written in an INSTANCE member ran its static helper body with the instance-context
+    // marker pointing at a type it holds no instance of, while its own first parameter really did sit
+    // at argument ordinal zero. `ColumnarDirectCallPlanner` reads exactly that pair — an instance
+    // context plus a parameter at ordinal zero — as the contextual-lambda PREFLIGHT frame, whose
+    // ordinal zero is synthetic and whose implicit receiver cannot be emitted, and hands the WHOLE
+    // call back to the legacy residual. So every call in such a body fell to the hand-written subset:
+    // `Console.WriteLine(3)` declined in a lambda written in an instance method and emitted in the
+    // identical lambda written in a static one, and an external extension call
+    // (`logger.LogInformation(...)`) inside a lambda NESTED IN A CAPTURING LAMBDA declined for the
+    // same reason — the parent display is the enclosing marker there, and the nested helper is static.
+    // `hasThisCapture` above has already decided the other way for any body that DOES reference the
+    // enclosing chain, so a body reaching here provably needs no instance, and giving it one could
+    // only make `ldarg.0` mean the first parameter.
     static func PlanNonCapturingPlacement(programType: TypeBuilder?, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, returnType: Type, parameterTypes: Type[], hasThisCapture: bool, staticOwner: ColumnarStructDef? = null): ColumnarLambdaPlacement? {
         if lambdaCounter == null || visibleTypeParameters == null || returnType == null || parameterTypes == null {
             throw new InvalidOperationException("Lambda placement planning requires non-null placement facts.")
@@ -357,25 +371,20 @@ class ColumnarLambdaPlacementPlanner {
             return placement
         }
 
-        if enclosing != null {
-            if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(returnType, parameterTypes, enclosing.Builder) {
+        // ONE STATIC HELPER, ONE RULE. `enclosing` and `staticOwner` name the same thing — the type
+        // this lambda was WRITTEN inside — and they are mutually exclusive by construction, because
+        // the host reads `staticOwner` only when the instance-context marker is null. They used to
+        // produce placements that disagreed about the body's instance context, and the disagreement
+        // was a real defect: see the note on `CurrentStructForBody` below.
+        lexicalOwner := enclosing ?? staticOwner
+        if lexicalOwner != null {
+            if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(returnType, parameterTypes, lexicalOwner.Builder) {
                 return null
             }
-            enclosingMethod := enclosing.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes(), returnType, parameterTypes)
-            placement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticEnclosing, enclosingMethod, enclosing.Builder)
-            placement.CurrentStructForBody = enclosing
-            placement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, enclosing.Builder)
+            lexicalMethod := lexicalOwner.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes(), returnType, parameterTypes)
+            placement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticEnclosing, lexicalMethod, lexicalOwner.Builder)
+            placement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, lexicalOwner.Builder)
             return placement
-        }
-
-        if staticOwner != null {
-            if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(returnType, parameterTypes, staticOwner.Builder) {
-                return null
-            }
-            staticOwnerMethod := staticOwner.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes(), returnType, parameterTypes)
-            staticOwnerPlacement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticEnclosing, staticOwnerMethod, staticOwner.Builder)
-            staticOwnerPlacement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, staticOwner.Builder)
-            return staticOwnerPlacement
         }
 
         if programType == null {
@@ -421,19 +430,14 @@ class ColumnarLambdaPlacementPlanner {
             return placement
         }
 
-        if enclosing != null {
-            enclosingMethod := enclosing.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes())
-            placement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticEnclosing, enclosingMethod, enclosing.Builder)
-            placement.CurrentStructForBody = enclosing
-            placement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, enclosing.Builder)
+        // The same one rule as `PlanNonCapturingPlacement`: the lexical owner is whichever of the two
+        // the host supplied, and the body gets no instance context.
+        lexicalOwner := enclosing ?? staticOwner
+        if lexicalOwner != null {
+            lexicalMethod := lexicalOwner.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes())
+            placement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticEnclosing, lexicalMethod, lexicalOwner.Builder)
+            placement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, lexicalOwner.Builder)
             return placement
-        }
-
-        if staticOwner != null {
-            staticOwnerMethod := staticOwner.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes())
-            staticOwnerPlacement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticEnclosing, staticOwnerMethod, staticOwner.Builder)
-            staticOwnerPlacement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, staticOwner.Builder)
-            return staticOwnerPlacement
         }
 
         if programType == null {

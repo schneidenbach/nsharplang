@@ -154,3 +154,93 @@ class LedgerStamp {
         ledger.Record("stamp")
     }
 }
+
+// A STATIC LAMBDA HELPER HAS A LEXICAL OWNER, NOT AN INSTANCE.
+//
+// A non-capturing lambda written inside a member of a type becomes a STATIC helper on that type.
+// Its body holds no `this` — `hasThisCapture` has already routed every body that reaches the
+// enclosing chain to a private instance method instead — but the placement planner still handed the
+// body the enclosing type as its INSTANCE context while the lambda's own first parameter sat at
+// argument ordinal zero. `ColumnarDirectCallPlanner` reads exactly that pair as the
+// contextual-lambda PREFLIGHT frame, whose ordinal zero is synthetic, and yields the WHOLE call to
+// the legacy residual — so every call in such a body was limited to the hand-written subset.
+//
+// The same lambda written in a STATIC member always emitted, because that door left the instance
+// context null. These subjects are the two shapes that did not, and every call below is one the
+// residual does not model: `string.Concat(string, string)` declined at
+// `emit.call.static-member-unmodeled` and `TimeSpan.FromSeconds(double)` with it.
+class StaticHelperOwner {
+    Prefix: string
+
+    constructor(prefix: string) {
+        Prefix = prefix
+    }
+
+    // A non-capturing lambda written in an INSTANCE member. It reads only its own parameter, so its
+    // helper is static; the enclosing instance is never touched.
+    func Tag(values: List<int>): string {
+        return values.Select(v => string.Concat("n", v.ToString())).First()
+    }
+
+    // The SAME lambda written in a STATIC member — the control that always emitted.
+    static func TagStatic(values: List<int>): string {
+        return values.Select(v => string.Concat("n", v.ToString())).First()
+    }
+
+    // An instance member's non-capturing lambda whose call is an external static with a value.
+    func Millis(values: List<int>): double {
+        return values.Select(v => TimeSpan.FromSeconds(v).TotalMilliseconds).First()
+    }
+
+    // The enclosing instance is still reachable from the members around the lambda.
+    func PrefixedTag(values: List<int>): string {
+        return Prefix + Tag(values)
+    }
+
+    // The placement of the instance member's lambda, for a test to reflect on:
+    // "IsStatic|DeclaringType".
+    func InspectTagPlacement(): string {
+        project: Func<int, string> = v => string.Concat("n", v.ToString())
+        method := project.get_Method()
+
+        return method.get_IsStatic().ToString() + "|" + method.get_DeclaringType().get_Name()
+    }
+}
+
+// A LAMBDA NESTED INSIDE A CAPTURING LAMBDA IS THE SAME CELL. The capturing outer lambda becomes an
+// instance method on a display class, so the display is the enclosing marker the nested lambda's
+// placement reads — and the nested helper is static on it, with its own parameter at ordinal zero.
+// That is why `logger.LogInformation(...)` inside `options.OnInitialize(...)` declined as soon as the
+// enclosing `options => { ... }` read a local of its own method, and emitted when it read none.
+class NestedLambdaOwner {
+    static func Apply(action: Action<int>) {
+        action(1)
+    }
+
+    // The outer lambda CAPTURES `seed`; the nested one captures nothing and calls an external static
+    // the residual does not model.
+    static func Run(seed: int): string {
+        collected := new List<string>()
+        Apply(outer => {
+            collected.Add(seed.ToString())
+            Apply(inner => {
+                collected.Add(string.Concat("x", inner.ToString()))
+            })
+        })
+
+        return string.Join("|", collected)
+    }
+
+    // The outer lambda captures NOTHING — the control from the report, which always emitted.
+    static func RunWithoutCapture(): string {
+        collected := new List<string>()
+        Apply(outer => {
+            collected.Add("outer")
+            Apply(inner => {
+                collected.Add(string.Concat("x", inner.ToString()))
+            })
+        })
+
+        return string.Join("|", collected)
+    }
+}
