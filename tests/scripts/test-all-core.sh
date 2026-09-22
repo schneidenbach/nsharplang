@@ -502,6 +502,12 @@ else
             echo "Testing native project: $native_dir"
             NATIVE_OUTPUT=$(mktemp)
             NATIVE_STDERR=$(mktemp)
+            # PER-PROJECT WALL TIME. `nlc test --json` goes to a mktemp file this loop deletes again,
+            # so the only durable record of what each project costs is the line printed here into the
+            # gate log. Read it back with: grep '^project=' <gate log>. It is a plain `date +%s` pair
+            # rather than anything read out of the envelope, because the envelope carries test
+            # outcomes and not the process's build time, and build is where this step's minutes go.
+            NATIVE_START_TIME=$(date +%s)
             # --json is a stdout contract: warnings and progress go to stderr and must not reach the parser.
             if dotnet "$CLI_DLL" test --project "$native_dir" --no-cache --json \
                     > "$NATIVE_OUTPUT" 2> "$NATIVE_STDERR" \
@@ -550,8 +556,10 @@ if not valid:
 print(f"Passed: {passed}, Failed: {failed}, Skipped: {skipped}, Total: {total}")
 PY
             then
+                printf 'project=%s seconds=%s\n' "$native_dir" "$(($(date +%s) - NATIVE_START_TIME))"
                 handle_success "Native N# tests: $native_dir"
             else
+                printf 'project=%s seconds=%s\n' "$native_dir" "$(($(date +%s) - NATIVE_START_TIME))"
                 cat "$NATIVE_OUTPUT"
                 cat "$NATIVE_STDERR" >&2
                 handle_error "Native N# tests: $native_dir"
