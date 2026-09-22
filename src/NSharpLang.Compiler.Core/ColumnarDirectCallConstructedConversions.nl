@@ -152,7 +152,7 @@ class ColumnarDirectCallConstructedConversions {
         if IsExactClosedGeneric(actualType, typeof(Span<int>).GetGenericTypeDefinition()) && IsExactClosedGeneric(expectedType, typeof(ReadOnlySpan<int>).GetGenericTypeDefinition()) {
             actualArguments := actualType.GetGenericArguments()
             expectedArguments := expectedType.GetGenericArguments()
-            if actualArguments.Length == 1 && expectedArguments.Length == 1 && ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(actualArguments[0], expectedArguments[0]) {
+            if actualArguments.Length == 1 && expectedArguments.Length == 1 && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualArguments[0], expectedArguments[0]) {
                 return ColumnarDirectCallConstructedConversionKind.SpanToReadOnlySpan
             }
         }
@@ -160,7 +160,7 @@ class ColumnarDirectCallConstructedConversions {
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(actualType) && expectedType.get_IsGenericType() && !expectedType.get_IsGenericTypeDefinition() {
             actualElement := actualType.GetElementType()
             expectedArguments := expectedType.GetGenericArguments()
-            if actualElement != null && expectedArguments.Length == 1 && ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(expectedArguments[0], actualElement) {
+            if actualElement != null && expectedArguments.Length == 1 && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(expectedArguments[0], actualElement) {
                 definition := expectedType.GetGenericTypeDefinition()
                 if definition == typeof(Span<int>).GetGenericTypeDefinition() {
                     return ColumnarDirectCallConstructedConversionKind.ArrayToSpan
@@ -186,9 +186,9 @@ class ColumnarDirectCallConstructedConversions {
             return ColumnarDirectCallConstructedConversionKind.None
         }
 
-        matchesArm0 := ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(arms[0], actualType)
+        matchesArm0 := RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(arms[0], actualType)
 
-        matchesArm1 := ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(arms[1], actualType)
+        matchesArm1 := RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(arms[1], actualType)
 
         if matchesArm0 == matchesArm1 {
             return ColumnarDirectCallConstructedConversionKind.None
@@ -264,7 +264,7 @@ class ColumnarDirectCallConstructedConversions {
             return false
         }
 
-        if !ContainsBuilderBoundType(expectedType) {
+        if !RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(expectedType) {
             try {
                 constructorHandle = expectedType.GetConstructor(parameterTypes)
                 return constructorHandle != null
@@ -344,14 +344,14 @@ class ColumnarDirectCallConstructedConversions {
             return false
         }
 
-        ownerIsActual := ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(declaringType, actualType)
-        ownerIsExpected := ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(declaringType, expectedType)
-        if !ownerIsActual && !ownerIsExpected || method.get_Name() != "op_Implicit" || !method.get_IsPublic() || !method.get_IsStatic() || method.get_IsAbstract() || method.get_IsGenericMethod() || method.get_IsGenericMethodDefinition() || method.get_DeclaringType() != declaringType || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(method.get_ReturnType(), expectedType) {
+        ownerIsActual := RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(declaringType, actualType)
+        ownerIsExpected := RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(declaringType, expectedType)
+        if !ownerIsActual && !ownerIsExpected || method.get_Name() != "op_Implicit" || !method.get_IsPublic() || !method.get_IsStatic() || method.get_IsAbstract() || method.get_IsGenericMethod() || method.get_IsGenericMethodDefinition() || method.get_DeclaringType() != declaringType || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.get_ReturnType(), expectedType) {
             return false
         }
 
         parameters := method.GetParameters()
-        return parameters.Length == 1 && ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(parameters[0].get_ParameterType(), actualType)
+        return parameters.Length == 1 && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(parameters[0].get_ParameterType(), actualType)
     }
 
     static func SelectionIsExact(selection: ColumnarDirectCallConstructedConversionSelection): bool {
@@ -393,7 +393,7 @@ class ColumnarDirectCallConstructedConversions {
         }
 
         declaringType := constructorHandle.get_DeclaringType()
-        if declaringType == null || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(declaringType, selection.ExpectedType) {
+        if declaringType == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(declaringType, selection.ExpectedType) {
             return false
         }
 
@@ -403,43 +403,16 @@ class ColumnarDirectCallConstructedConversions {
         }
 
         parameterType := parameters[0].get_ParameterType()
-        if !ContainsBuilderBoundType(selection.ExpectedType) {
-            return ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(parameterType, selection.ActualType)
+        if !RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(selection.ExpectedType) {
+            return RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(parameterType, selection.ActualType)
         }
 
         expectedPosition := selection.Kind == ColumnarDirectCallConstructedConversionKind.AnonymousUnionArm0 ? 0 : 1
 
-        if ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(parameterType, selection.ActualType) {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(parameterType, selection.ActualType) {
             return true
         }
 
         return parameterType.get_IsGenericParameter() && parameterType.get_GenericParameterPosition() == expectedPosition
-    }
-
-    static func ContainsBuilderBoundType(valueType: Type): bool {
-        if valueType is TypeBuilder || valueType.get_IsGenericParameter() {
-            return true
-        }
-
-        if valueType.get_HasElementType() {
-            element := valueType.GetElementType()
-            return element != null && ContainsBuilderBoundType(element)
-        }
-
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
-            return false
-        }
-
-        arguments := valueType.GetGenericArguments()
-        index := 0
-        while index < arguments.Length {
-            if ContainsBuilderBoundType(arguments[index]) {
-                return true
-            }
-
-            index += 1
-        }
-
-        return false
     }
 }

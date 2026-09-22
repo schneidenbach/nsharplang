@@ -631,7 +631,7 @@ test "constructed anonymous-union conversion preserves a builder-bound arm signa
     }
 
     openParameterType := openParameters[0].get_ParameterType()
-    if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(openParameterType, sourceType) && (!openParameterType.get_IsGenericParameter() || openParameterType.get_GenericParameterPosition() != 0) {
+    if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(openParameterType, sourceType) && (!openParameterType.get_IsGenericParameter() || openParameterType.get_GenericParameterPosition() != 0) {
         throw new InvalidOperationException("Builder-bound anonymous-union constructor exposed the wrong arm parameter.")
     }
 

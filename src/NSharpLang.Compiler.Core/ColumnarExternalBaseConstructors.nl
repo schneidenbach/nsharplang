@@ -64,7 +64,7 @@ class ColumnarExternalBaseConstructors {
     }
 
     static func IsBuilderBoundInstantiation(baseType: Type): bool {
-        if baseType == null || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(baseType) {
+        if baseType == null || !RuntimeTypeShapeFacts.ContainsBuilderBoundType(baseType) {
             return false
         }
 

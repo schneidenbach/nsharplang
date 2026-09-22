@@ -275,7 +275,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         specialType := typeof(object)
-        if TryResolveSpecialKnownType(canonical, out specialType) {
+        if WellKnownTypeCatalog.TryResolveSpecialKnownType(canonical, out specialType) {
             selected = table.SelectRuntimeType(specialType)
             return true
         }
@@ -446,7 +446,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         builtinType := typeof(object)
-        if TryResolveBuiltin(canonical, out builtinType) {
+        if WellKnownTypeCatalog.TryResolveBuiltinType(canonical, out builtinType) {
             selected = table.SelectRuntimeType(builtinType)
             return true
         }
@@ -651,7 +651,7 @@ class ColumnarCanonicalTypeResolver {
                 structRegistry,
                 unionRegistry,
                 out arguments
-            ) && !ColumnarTypeOfPlanner.IsByRefLike(arguments[0].RuntimeType) && !ColumnarTypeOfPlanner.IsByRefLike(arguments[1].RuntimeType) && ColumnarTypeOfPlanner.IsSupportedType(arguments[0].RuntimeType) && ColumnarTypeOfPlanner.IsSupportedType(arguments[1].RuntimeType) {
+            ) && !RuntimeTypeShapeFacts.IsByRefLike(arguments[0].RuntimeType) && !RuntimeTypeShapeFacts.IsByRefLike(arguments[1].RuntimeType) && ColumnarTypeOfPlanner.IsSupportedType(arguments[0].RuntimeType) && ColumnarTypeOfPlanner.IsSupportedType(arguments[1].RuntimeType) {
                 definition := typeof(object)
                 if ColumnarTypeOfPlanner.TryResolveRuntimeGenericDefinition(
                     "NSharpLang.Runtime.Result`2",
@@ -777,7 +777,7 @@ class ColumnarCanonicalTypeResolver {
         if genericOpen == 19 && canonical.StartsWith("IReadOnlyDictionary<", StringComparison.Ordinal) {
             claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectTypeParameterArguments(canonical.Substring(20, canonical.Length - 21), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceDeclarationKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
+            if TrySelectTypeParameterArguments(canonical.Substring(20, canonical.Length - 21), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceDeclarationKey(arguments[0].RuntimeType) || !RuntimeTypeShapeFacts.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
                 definition := ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
@@ -789,7 +789,7 @@ class ColumnarCanonicalTypeResolver {
         if genericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal) {
             claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectTypeParameterArguments(canonical.Substring(11, canonical.Length - 12), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceDeclarationKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
+            if TrySelectTypeParameterArguments(canonical.Substring(11, canonical.Length - 12), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceDeclarationKey(arguments[0].RuntimeType) || !RuntimeTypeShapeFacts.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
                 definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
@@ -801,7 +801,7 @@ class ColumnarCanonicalTypeResolver {
         if genericOpen == 16 && canonical.StartsWith("SortedDictionary<", StringComparison.Ordinal) {
             claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectTypeParameterArguments(canonical.Substring(17, canonical.Length - 18), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
+            if TrySelectTypeParameterArguments(canonical.Substring(17, canonical.Length - 18), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || !RuntimeTypeShapeFacts.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
                 definition := typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
@@ -1543,7 +1543,7 @@ class ColumnarCanonicalTypeResolver {
                 structRegistry,
                 unionRegistry,
                 out arguments
-            ) && !ColumnarTypeOfPlanner.IsByRefLike(arguments[0].RuntimeType) && !ColumnarTypeOfPlanner.IsByRefLike(arguments[1].RuntimeType) && ColumnarTypeOfPlanner.IsSupportedType(arguments[0].RuntimeType) && ColumnarTypeOfPlanner.IsSupportedType(arguments[1].RuntimeType) {
+            ) && !RuntimeTypeShapeFacts.IsByRefLike(arguments[0].RuntimeType) && !RuntimeTypeShapeFacts.IsByRefLike(arguments[1].RuntimeType) && ColumnarTypeOfPlanner.IsSupportedType(arguments[0].RuntimeType) && ColumnarTypeOfPlanner.IsSupportedType(arguments[1].RuntimeType) {
                 definition := typeof(object)
                 if ColumnarTypeOfPlanner.TryResolveRuntimeGenericDefinition(
                     "NSharpLang.Runtime.Result`2",
@@ -1681,7 +1681,7 @@ class ColumnarCanonicalTypeResolver {
         if genericOpen == 16 && canonical.StartsWith("SortedDictionary<", StringComparison.Ordinal) {
             claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectOrdinaryArguments(canonical.Substring(17, canonical.Length - 18), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
+            if TrySelectOrdinaryArguments(canonical.Substring(17, canonical.Length - 18), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(arguments[0].RuntimeType) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
                 definition := typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
@@ -1730,7 +1730,7 @@ class ColumnarCanonicalTypeResolver {
         // return is an ordinary delegate reference. What a generic argument may still never be is
         // BY-REF-LIKE: the CLR refuses that instantiation outright, and asking for it would throw
         // where this resolver must decline.
-        if ColumnarTypeOfPlanner.IsByRefLike(resolved.RuntimeType) || !ColumnarTypeOfPlanner.IsSupportedType(resolved.RuntimeType) {
+        if RuntimeTypeShapeFacts.IsByRefLike(resolved.RuntimeType) || !ColumnarTypeOfPlanner.IsSupportedType(resolved.RuntimeType) {
             return false
         }
 
@@ -2094,96 +2094,8 @@ class ColumnarCanonicalTypeResolver {
         return arguments.Length == 2 && arguments[0] == typeof(string) && arguments[1] == typeof(string)
     }
 
-    static func TryResolveSpecialKnownType(canonical: string, out result: Type): bool {
-        result = null
-        if canonical == "StringBuilder" {
-            result = typeof(StringBuilder)
-        } else if canonical == "object" {
-            result = typeof(object)
-        } else if canonical == "StringComparer" {
-            result = typeof(StringComparer)
-        } else if canonical == "SearchOption" {
-            result = typeof(SearchOption)
-        } else if canonical == "IList" {
-            result = typeof(IList)
-        } else if canonical == "Type" {
-            result = typeof(Type)
-        } else if canonical == "Version" {
-            result = typeof(Version)
-        } else if canonical == "TimeSpan" {
-            result = typeof(TimeSpan)
-        } else if canonical == "Random" {
-            result = typeof(Random)
-        } else if canonical == "Process" {
-            result = typeof(Process)
-        } else if canonical == "ProcessStartInfo" {
-            result = typeof(ProcessStartInfo)
-        } else if canonical == "StreamReader" {
-            result = typeof(StreamReader)
-        } else if canonical == "Stream" {
-            result = typeof(Stream)
-        } else if canonical == "CancellationToken" {
-            result = typeof(CancellationToken)
-        } else if canonical == "Task" {
-            result = typeof(Task)
-        } else if canonical == "ValueTask" {
-            result = typeof(ValueTask)
-        } else if canonical == "Assembly" {
-            result = typeof(Assembly)
-        } else {
-            return false
-        }
-        return true
-    }
-
     // Keep the C# helper's false/null leaf contract instead of exposing the planner helper's
     // false/object sentinel. The resolver's Type-out compatibility surface observes this value.
-    static func TryResolveBuiltin(canonical: string, out result: Type): bool {
-        result = null
-        if canonical == "int" {
-            result = typeof(int)
-        } else if canonical == "long" {
-            result = typeof(long)
-        } else if canonical == "uint" {
-            result = typeof(uint)
-        } else if canonical == "ulong" {
-            result = typeof(ulong)
-        } else if canonical == "short" {
-            result = typeof(short)
-        } else if canonical == "ushort" {
-            result = typeof(ushort)
-        } else if canonical == "byte" {
-            result = typeof(byte)
-        } else if canonical == "sbyte" {
-            result = typeof(sbyte)
-        } else if canonical == "bool" {
-            result = typeof(bool)
-        } else if canonical == "char" {
-            result = typeof(char)
-        } else if canonical == "double" {
-            result = typeof(double)
-        } else if canonical == "float" {
-            result = typeof(float)
-        } else if canonical == "decimal" {
-            result = typeof(decimal)
-        } else if canonical == "string" {
-            result = typeof(string)
-        } else if canonical == "IntPtr" || canonical == "nint" {
-            result = typeof(IntPtr)
-        } else if canonical == "UIntPtr" || canonical == "nuint" {
-            result = typeof(UIntPtr)
-        } else if canonical == "DateTime" {
-            result = typeof(DateTime)
-        } else if canonical == "Index" {
-            result = typeof(Index)
-        } else if canonical == "Range" {
-            result = typeof(Range)
-        } else {
-            return false
-        }
-        return true
-    }
-
     // THE EXCEPTION A `catch` CLAUSE OR A `throw` NAMES — RESOLVED, NOT LISTED.
     //
     // There is no allowlist of admitted exception names, and there are no longer TWO of them. A

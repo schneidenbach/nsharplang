@@ -139,7 +139,7 @@ class ColumnarRuntimeOperatorResolver {
     static func AppendDeclaredCandidates(lookupType: Type, methodName: string, arity: int, candidates: List<MethodInfo>, candidateParameters: List<Type[]>, candidateReturnTypes: List<Type>) {
         closedArguments := new Type[](0)
         candidateOwner := lookupType
-        if ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(lookupType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) {
             if !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() {
                 return
             }
@@ -311,7 +311,7 @@ class ColumnarRuntimeOperatorResolver {
         // Asked through the guarded owner: a raw `get_IsEnum` routes through `IsSubclassOf`, and an
         // operand that is a constructed EMITTED generic (`Tagged<int>` mid-emit, a
         // `TypeBuilderInstantiation`) answers that with NotSupportedException rather than `false`.
-        if ColumnarTypeOfPlanner.IsEnumType(operandType) {
+        if RuntimeTypeShapeFacts.IsEnumType(operandType) {
             return true
         }
         return ColumnarNumericFacts.IsIntPromotable(operandType) || operandType == typeof(long) || operandType == typeof(ulong) || operandType == typeof(uint) || operandType == typeof(double) || operandType == typeof(float) || operandType == typeof(bool) || operandType == typeof(string)

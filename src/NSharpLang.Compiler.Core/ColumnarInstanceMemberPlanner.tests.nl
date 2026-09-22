@@ -464,11 +464,11 @@ test "instance member planner maps open and closed multilevel generic base field
         openBindings
     )
     assert openField.ResultType == typeof(string)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         openField.FieldDeclaringTypes[0],
         expectedOpenBase
     )
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         openField.Fields[0].get_DeclaringType(),
         expectedOpenBase
     )
@@ -478,11 +478,11 @@ test "instance member planner maps open and closed multilevel generic base field
         openBindings
     )
     assert openProperty.ResultType == derivedArguments[1]
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         openProperty.MethodDeclaringTypes[0],
         expectedOpenBase
     )
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         openProperty.Methods[0].get_DeclaringType(),
         expectedOpenBase
     )
@@ -509,11 +509,11 @@ test "instance member planner maps open and closed multilevel generic base field
         closedBindings
     )
     assert closedField.ResultType == typeof(string)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         closedField.FieldDeclaringTypes[0],
         closedBase
     )
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         closedField.Fields[0].get_DeclaringType(),
         closedBase
     )
@@ -523,11 +523,11 @@ test "instance member planner maps open and closed multilevel generic base field
         closedBindings
     )
     assert closedProperty.ResultType == typeof(long)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         closedProperty.MethodDeclaringTypes[0],
         closedBase
     )
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         closedProperty.Methods[0].get_DeclaringType(),
         closedBase
     )
@@ -567,7 +567,7 @@ test "instance member planner maps open and closed multilevel generic base field
         leafBindings
     )
     assert leafField.ResultType == typeof(string)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         leafField.FieldDeclaringTypes[0],
         closedBase
     )
@@ -577,7 +577,7 @@ test "instance member planner maps open and closed multilevel generic base field
         leafBindings
     )
     assert leafProperty.ResultType == typeof(long)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         leafProperty.MethodDeclaringTypes[0],
         closedBase
     )

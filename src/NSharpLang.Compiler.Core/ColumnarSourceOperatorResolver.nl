@@ -233,7 +233,7 @@ class ColumnarSourceOperatorResolver {
             if parameterTypes[index].get_IsByRef() {
                 return false
             }
-            if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(parameterTypes[index], operandTypes[index]) {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(parameterTypes[index], operandTypes[index]) {
                 return false
             }
             index += 1
@@ -264,7 +264,7 @@ class ColumnarSourceOperatorResolver {
 
         method: MethodInfo = definition.Builder
         ownerType: Type = owner.Builder
-        if !method.get_IsStatic() || method.get_Name() != methodName || !ColumnarConstructionPlanner.SameObject(method.get_DeclaringType(), ownerType) || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(method.get_ReturnType(), definition.ReturnType) {
+        if !method.get_IsStatic() || method.get_Name() != methodName || !ColumnarConstructionPlanner.SameObject(method.get_DeclaringType(), ownerType) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.get_ReturnType(), definition.ReturnType) {
             throw new InvalidOperationException("Source operator facts do not identify an exact static declaration.")
         }
     }

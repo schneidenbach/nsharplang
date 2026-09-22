@@ -44,7 +44,7 @@ class ColumnarRecordValueMemberPlanner {
                         fieldName := fieldNames[fieldIndex]
                         field := def.Fields[fieldName]
                         fieldType := field.get_FieldType()
-                        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(fieldType) {
+                        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(fieldType) {
                             fieldsBaked = false
                             break
                         }

@@ -234,7 +234,7 @@ test "closed generic member resolver rebinds runtime and builder-bound method ha
     builderClosed := builderDefinitionType.MakeGenericType(
         ClosedGenericMemberSingleType(typeof(int))
     )
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(builderClosed)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(builderClosed)
     builderBound := ColumnarClosedGenericMemberResolver.ResolveMethod(
         builderClosed,
         builderOpen
@@ -277,7 +277,7 @@ test "closed generic member resolver normalises a method declared on a construct
     closedOverBuilder := collectionDefinition.MakeGenericType(
         ClosedGenericMemberSingleType(builderOwnerType)
     )
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(closedOverBuilder)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(closedOverBuilder)
 
     normalised := ColumnarClosedGenericMemberResolver.OpenDefinitionDeclaration(
         closedOverBuilder,

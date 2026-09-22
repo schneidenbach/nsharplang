@@ -940,7 +940,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private static func ResolveClosedGenericCtor(closedType: Type, openCtor: ConstructorInfo): ConstructorInfo {
-        if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(closedType)) {
+        if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(closedType)) {
             return TypeBuilder.GetConstructor(closedType, openCtor)
         }
         resolved := MethodBase.GetMethodFromHandle(openCtor.get_MethodHandle(), closedType.get_TypeHandle())
@@ -1039,7 +1039,7 @@ sealed class ColumnarIlEmitter {
             // same module and the delegate never has to be reflected as a stable product API surface.
             if (!allowBuilderBoundArguments) {
                 argumentAssemblyBuilder := arg.get_Assembly() as AssemblyBuilder
-                if (argumentAssemblyBuilder != null || ColumnarTypeOfPlanner.ContainsBuilderBoundType(arg)) {
+                if (argumentAssemblyBuilder != null || RuntimeTypeShapeFacts.ContainsBuilderBoundType(arg)) {
                     return false
                 }
             }
@@ -1062,7 +1062,7 @@ sealed class ColumnarIlEmitter {
             // this instantiation's arguments substituted into the positions it spells as bare type
             // parameters. That is the same relation the analyzer uses to give such a lambda its
             // parameter types, so the two halves cannot disagree about what the target's shape is.
-            if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(t)) {
+            if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(t)) {
                 if (!TryGetDelegateDefinitionInvokeSignature(def, args, out returnType, out parameterTypes)) {
                     return false
                 }
@@ -1077,7 +1077,7 @@ sealed class ColumnarIlEmitter {
         if (openCtor == null) {
             return false
         }
-        delegateCtor = ColumnarTypeOfPlanner.ContainsBuilderBoundType(t) ? TypeBuilder.GetConstructor(t, openCtor) : t.GetConstructor([typeof(object), typeof(IntPtr)])
+        delegateCtor = RuntimeTypeShapeFacts.ContainsBuilderBoundType(t) ? TypeBuilder.GetConstructor(t, openCtor) : t.GetConstructor([typeof(object), typeof(IntPtr)])
         return delegateCtor != null
     }
 
@@ -1088,7 +1088,7 @@ sealed class ColumnarIlEmitter {
     private static func TryGetRuntimeDelegateInvokeSignature(t: Type, out returnType: Type, out parameterTypes: Type[]): bool {
         returnType = null
         parameterTypes = System.Array.Empty<Type>()
-        if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(t) || !IsRuntimeDelegateType(t)) {
+        if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(t) || !IsRuntimeDelegateType(t)) {
             return false
         }
         invoke := t.GetMethod("Invoke")
@@ -2717,7 +2717,7 @@ sealed class ColumnarIlEmitter {
         invoke = null
         parameterTypes = null
         returnType = null
-        if (!ColumnarTypeOfPlanner.ContainsBuilderBoundType(delegateType)) {
+        if (!RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateType)) {
             bakedInvoke := delegateType.GetMethod("Invoke")
             if (bakedInvoke == null) {
                 return false
@@ -3902,7 +3902,7 @@ sealed class ColumnarIlEmitter {
         if (receiverType.get_IsValueType()) {
             // A method the value type INHERITS would need a box or a `constrained.` prefix, which is a
             // different dispatch; only the type's own declarations bind here.
-            if (!ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(selection.DeclaringType, receiverType)) {
+            if (!RuntimeTypeShapeFacts.ExactTypeShapeMatches(selection.DeclaringType, receiverType)) {
                 return false
             }
             spilledReceiver := _il.DeclareLocal(receiverType)
@@ -9551,7 +9551,7 @@ sealed class ColumnarIlEmitter {
                     // Builder-bound collections never have the scalar/string elements compound
                     // assignment requires — decline BEFORE reflecting (plain GetMethod below
                     // throws NotSupportedException on a TypeBuilderInstantiation).
-                    if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(idxRecvType)) {
+                    if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(idxRecvType)) {
                         return false
                     }
                     idxRecvDef := idxRecvType.GetGenericTypeDefinition()
@@ -10484,7 +10484,7 @@ sealed class ColumnarIlEmitter {
                 collectionNode = Child(idx, 1)
                 body = Child(idx, 2)
                 declaredCanonical := ColumnarTypeCanonicalizer.RemoveWhitespace(ColumnarNodeTextFacts.Text(_nodes, _source, idx))
-                if ((!ColumnarCanonicalTypeResolver.TryResolveBuiltin(declaredCanonical, out declaredElementType) && !TryResolveBodyType(declaredCanonical, out declaredElementType)) || !ColumnarTypeOfPlanner.IsSupportedElementType(declaredElementType)) {
+                if ((!WellKnownTypeCatalog.TryResolveBuiltinType(declaredCanonical, out declaredElementType) && !TryResolveBodyType(declaredCanonical, out declaredElementType)) || !ColumnarTypeOfPlanner.IsSupportedElementType(declaredElementType)) {
                     return Decline("emit.foreach.typed-variable-unsupported-type", "foreach loop variable type is not supported: " + declaredCanonical, idx)
                 }
             }
@@ -10579,7 +10579,7 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(streamNode, out streamType)) {
                 return false
             }
-            if (!streamType.get_IsGenericType() || streamType.get_IsGenericTypeDefinition() || streamType.GetGenericTypeDefinition() != typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition() || ColumnarTypeOfPlanner.ContainsBuilderBoundType(streamType)) {
+            if (!streamType.get_IsGenericType() || streamType.get_IsGenericTypeDefinition() || streamType.GetGenericTypeDefinition() != typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition() || RuntimeTypeShapeFacts.ContainsBuilderBoundType(streamType)) {
                 return Decline("emit.statement.await-foreach", "await foreach requires an IAsyncEnumerable<T> source", streamNode)
             }
             streamElementType := streamType.GetGenericArguments()[0]
@@ -10925,7 +10925,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ldc_R4, 0.0f)
             return true
         }
-        if (columnarResolvedType is TypeBuilder || ColumnarTypeOfPlanner.ContainsBuilderBoundType(columnarResolvedType)) {
+        if (columnarResolvedType is TypeBuilder || RuntimeTypeShapeFacts.ContainsBuilderBoundType(columnarResolvedType)) {
             builderTemp := _il.DeclareLocal(columnarResolvedType)
             _il.Emit(OpCodes.Ldloca, builderTemp)
             _il.Emit(OpCodes.Initobj, columnarResolvedType)
@@ -12479,7 +12479,7 @@ sealed class ColumnarIlEmitter {
     // answers a custom-attribute query; a member of an instantiation closed over a type this
     // compilation is still building throws instead.
     private static func IsAttributeReadableRuntimeMethod(declaringType: Type): bool {
-        return declaringType != null && !ColumnarTypeOfPlanner.ContainsBuilderBoundType(declaringType)
+        return declaringType != null && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(declaringType)
     }
 
     // THE ARGUMENT A `[DoesNotReturnIf(b)]` NAMED, and the branch the surviving flow is on. The
@@ -12668,7 +12668,7 @@ sealed class ColumnarIlEmitter {
     // takes its indices as parameters and is reached by `receiver[i] = v`, never by a member name.
     private static func TryGetSupportedBclWritableProperty(receiverType: Type, member: string, out property: PropertyInfo): bool {
         property = null
-        if (receiverType == null || receiverType.get_IsValueType() || ColumnarTypeOfPlanner.ContainsBuilderBoundType(receiverType)) {
+        if (receiverType == null || receiverType.get_IsValueType() || RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType)) {
             return false
         }
         let resolvedProperty: System.Reflection.PropertyInfo? = null
@@ -13268,7 +13268,7 @@ sealed class ColumnarIlEmitter {
                 // carried as its underlying integral value, so the SAME instruction answers for it
                 // and the result stays that enum — which is what the analyzer's `~Flags.A` rule
                 // already promised, and what the LIFTED `~` over a `Flags?` emits.
-                if (operandType != typeof(int) && operandType != typeof(long) && operandType != typeof(ulong) && !ColumnarTypeOfPlanner.IsEnumType(operandType)) {
+                if (operandType != typeof(int) && operandType != typeof(long) && operandType != typeof(ulong) && !RuntimeTypeShapeFacts.IsEnumType(operandType)) {
                     return false
                 }
                 _il.Emit(OpCodes.Not)
@@ -14938,7 +14938,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             let targetType: System.Type? = null
-            if (!ColumnarCanonicalTypeResolver.TryResolveBuiltin(castTargetName, out targetType) && !TryResolveBodyType(castTargetName, out targetType)) {
+            if (!WellKnownTypeCatalog.TryResolveBuiltinType(castTargetName, out targetType) && !TryResolveBodyType(castTargetName, out targetType)) {
                 return false
             }
             let sourceType: System.Type? = null
@@ -17155,7 +17155,7 @@ sealed class ColumnarIlEmitter {
     private func IsSupportedMatchValueType(t: Type): bool {
         let columnarDiscard69: NSharpLang.Compiler.Columnar.ColumnarUnionDef = null
         let columnarDiscard70: System.Type[] = null
-        return t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string) || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(t) && ColumnarTypeOfPlanner.IsSupportedElementType(t.GetElementType())) || ColumnarTypeOfPlanner.IsEnumType(t) || t is TypeBuilder || ColumnarTypeOfPlanner.IsClosedSourceGeneric(t) || ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(t) || TryGetUnionDefForMatchValue(t, out columnarDiscard69, out columnarDiscard70)
+        return t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string) || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(t) && ColumnarTypeOfPlanner.IsSupportedElementType(t.GetElementType())) || RuntimeTypeShapeFacts.IsEnumType(t) || t is TypeBuilder || ColumnarTypeOfPlanner.IsClosedSourceGeneric(t) || ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(t) || TryGetUnionDefForMatchValue(t, out columnarDiscard69, out columnarDiscard70)
     }
 
     // True when `type` is the struct of a value-struct (payload-free tag) union. Used to decline `is`/`as` whose
@@ -20292,7 +20292,7 @@ sealed class ColumnarIlEmitter {
         if (elementType == typeof(long) || elementType == typeof(ulong) || elementType == typeof(uint) || elementType == typeof(float) || elementType == typeof(double)) {
             return true
         }
-        return ColumnarTypeOfPlanner.IsEnumType(elementType)
+        return RuntimeTypeShapeFacts.IsEnumType(elementType)
     }
 
     // C# §12.4.8'S LIFTED BINARY OPERATORS, AS ONE LOWERING.
@@ -20682,7 +20682,7 @@ sealed class ColumnarIlEmitter {
         // A BITWISE OPERATOR OVER THE SAME ENUM ANSWERS THAT ENUM. The CLR carries an enum as its
         // underlying integral value, so the instruction is the integral one and only the RESULT
         // differs from the integral case.
-        if ((op == "&" || op == "|" || op == "^") && TypesEquivalent(leftElement, rightElement) && ColumnarTypeOfPlanner.IsEnumType(leftElement)) {
+        if ((op == "&" || op == "|" || op == "^") && TypesEquivalent(leftElement, rightElement) && RuntimeTypeShapeFacts.IsEnumType(leftElement)) {
             leftParameter = leftElement
             rightParameter = rightElement
             elementResult = leftElement
@@ -20796,7 +20796,7 @@ sealed class ColumnarIlEmitter {
         }
 
         if (op == "~") {
-            if (ColumnarTypeOfPlanner.IsEnumType(element)) {
+            if (RuntimeTypeShapeFacts.IsEnumType(element)) {
                 parameterType = element
                 elementResult = element
                 return true
@@ -21654,7 +21654,7 @@ sealed class ColumnarIlEmitter {
         // an enum's storage is its underlying integer, so zero is an `ldc.i4.0`. The enum question is
         // asked through the GUARDED owner: a raw `get_IsEnum` routes through `IsSubclassOf`, which a
         // `TypeBuilderInstantiation` target (`Wrap<int>` mid-emit) answers with NotSupportedException.
-        if (ColumnarTypeOfPlanner.IsEnumType(target)) {
+        if (RuntimeTypeShapeFacts.IsEnumType(target)) {
             if (!ConstantConversionFacts.IsLiteralZero(text, negative)) {
                 return false
             }
@@ -22246,7 +22246,7 @@ sealed class ColumnarIlEmitter {
     private static func TryGetElementType(resolvedClrType: Type): Type? => ColumnarTypeEquivalenceFacts.TryGetElementType(resolvedClrType)
 
     private func IsKnownEnumType(resolvedClrType: Type): bool {
-        if (ColumnarTypeOfPlanner.IsEnumType(resolvedClrType)) {
+        if (RuntimeTypeShapeFacts.IsEnumType(resolvedClrType)) {
             return true
         }
         enumDefinitions := _enumRegistry.get_Values() as IEnumerable
@@ -22842,7 +22842,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             castTargetName := ColumnarNodeTextFacts.Text(_nodes, _source, Child(node, 0))
-            return (ColumnarCanonicalTypeResolver.TryResolveBuiltin(castTargetName, out columnarResolvedType) || TryResolveBodyType(castTargetName, out columnarResolvedType)) && ColumnarTypeOfPlanner.IsSupportedType(columnarResolvedType)
+            return (WellKnownTypeCatalog.TryResolveBuiltinType(castTargetName, out columnarResolvedType) || TryResolveBodyType(castTargetName, out columnarResolvedType)) && ColumnarTypeOfPlanner.IsSupportedType(columnarResolvedType)
         } else if columnarSwitchValue11 == 9 {
 
             // Preflight a CALL's result type via the bare-call resolution tiers (no emission):
@@ -23071,7 +23071,7 @@ sealed class ColumnarIlEmitter {
         if (!ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType)) {
             return false
         }
-        if (!ColumnarTypeOfPlanner.ContainsBuilderBoundType(tupleType)) {
+        if (!RuntimeTypeShapeFacts.ContainsBuilderBoundType(tupleType)) {
             tupleConstructor = tupleType.GetConstructor(elementTypes)
             return tupleConstructor != null
         }
@@ -24137,7 +24137,7 @@ sealed class ColumnarIlEmitter {
             joined = candidate
             return true
         }
-        if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(agreed) || ColumnarTypeOfPlanner.ContainsBuilderBoundType(candidate)) {
+        if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(agreed) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(candidate)) {
             return false
         }
         if (agreed.IsAssignableFrom(candidate)) {
@@ -24766,7 +24766,7 @@ sealed class ColumnarIlEmitter {
 
     private func TryResolveContextualDirectCandidate(callIdx: int, ownerType: Type, member: string, argCount: int, wantStatic: bool, out closedCandidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate): bool {
         closedCandidate = null
-        if (ownerType == null || argCount < 1 || ownerType.get_IsByRef() || ownerType.get_IsPointer() || ownerType.get_IsGenericParameter() || ColumnarTypeOfPlanner.ContainsBuilderBoundType(ownerType) || !HasContextualDelegateArgument(callIdx, argCount)) {
+        if (ownerType == null || argCount < 1 || ownerType.get_IsByRef() || ownerType.get_IsPointer() || ownerType.get_IsGenericParameter() || RuntimeTypeShapeFacts.ContainsBuilderBoundType(ownerType) || !HasContextualDelegateArgument(callIdx, argCount)) {
             return false
         }
         bindings := ContextualDirectBindings(ownerType, member, argCount, wantStatic)
@@ -24816,12 +24816,12 @@ sealed class ColumnarIlEmitter {
         lookupType := constructedType
         closedTypeArguments := System.Array.Empty<Type>()
         rebindOntoClosedType := false
-        if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(constructedType)) {
+        if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(constructedType)) {
             if (!constructedType.get_IsGenericType()) {
                 return false
             }
             definition := constructedType.GetGenericTypeDefinition()
-            if (definition == null || definition == constructedType || ColumnarTypeOfPlanner.ContainsBuilderBoundType(definition)) {
+            if (definition == null || definition == constructedType || RuntimeTypeShapeFacts.ContainsBuilderBoundType(definition)) {
                 return false
             }
             lookupType = definition
@@ -25154,7 +25154,7 @@ sealed class ColumnarIlEmitter {
         // callvirt on a struct with no override of its own amounts to. A member the source chain
         // DOES declare never reaches here: its own resolution answered tiers above.
         let objectInheritedOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-        if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(receiverType) && ColumnarSourceDefinitionResolver.TryResolveStruct(receiverType, _structRegistry.get_Values(), out objectInheritedOwner) && objectInheritedOwner != null) {
+        if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) && ColumnarSourceDefinitionResolver.TryResolveStruct(receiverType, _structRegistry.get_Values(), out objectInheritedOwner) && objectInheritedOwner != null) {
             objectInheritedSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(object), member, argCount, false)
             if (objectInheritedSelection.IsSelected && objectInheritedSelection.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, objectInheritedSelection.ParameterTypes)) {
                 if (receiverType.get_IsValueType()) {
@@ -26260,7 +26260,7 @@ sealed class ColumnarIlEmitter {
         if (receiverType.get_IsValueType()) {
             // A method the value type INHERITS would need a box or a `constrained.` prefix, which is a
             // different dispatch; only the type's own declarations bind here.
-            if (!ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(selection.DeclaringType, receiverType)) {
+            if (!RuntimeTypeShapeFacts.ExactTypeShapeMatches(selection.DeclaringType, receiverType)) {
                 return false
             }
             spilledReceiver := _il.DeclareLocal(receiverType)
@@ -26284,7 +26284,7 @@ sealed class ColumnarIlEmitter {
         }
         // A builder-bound receiver has no queryable members at all, and the chain walk above is the
         // only read that can answer for one.
-        if (receiverType is TypeBuilder || ColumnarTypeOfPlanner.ContainsBuilderBoundType(receiverType)) {
+        if (receiverType is TypeBuilder || RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType)) {
             return false
         }
         let reflectedField: System.Reflection.FieldInfo? = null
@@ -28326,7 +28326,7 @@ sealed class ColumnarIlEmitter {
         let castOperandText: string? = null
         let castTargetType: System.Type? = null
         let castOperandPlan: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
-        if (ColumnarInterpolationSplitter.TrySplitCast(text, out castTargetName, out castOperandText) && (ColumnarCanonicalTypeResolver.TryResolveBuiltin(castTargetName, out castTargetType) || TryResolveBodyType(castTargetName, out castTargetType)) && TryResolveInterpolationChainPlan(castOperandText, true, out castOperandPlan) && castOperandPlan.ValueType != null && CanEmitInterpolationCast(castOperandPlan.ValueType, castTargetType)) {
+        if (ColumnarInterpolationSplitter.TrySplitCast(text, out castTargetName, out castOperandText) && (WellKnownTypeCatalog.TryResolveBuiltinType(castTargetName, out castTargetType) || TryResolveBodyType(castTargetName, out castTargetType)) && TryResolveInterpolationChainPlan(castOperandText, true, out castOperandPlan) && castOperandPlan.ValueType != null && CanEmitInterpolationCast(castOperandPlan.ValueType, castTargetType)) {
             castOperandPlan.CastSourceType = castOperandPlan.ValueType
             castOperandPlan.CastTargetType = castTargetType
             castOperandPlan.ValueType = castTargetType
@@ -28488,7 +28488,7 @@ sealed class ColumnarIlEmitter {
         }
 
         let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
-        if (!ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct.BaseDef, methodName, 0, out method) || method.ReturnType == ColumnarTypeOfPlanner.RequiredVoidType() || ((!IsKnownEnumType(method.ReturnType) && !method.ReturnType.get_IsGenericParameter() && ColumnarTypeOfPlanner.ContainsBuilderBoundType(method.ReturnType)) || !ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType))) {
+        if (!ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct.BaseDef, methodName, 0, out method) || method.ReturnType == ColumnarTypeOfPlanner.RequiredVoidType() || ((!IsKnownEnumType(method.ReturnType) && !method.ReturnType.get_IsGenericParameter() && RuntimeTypeShapeFacts.ContainsBuilderBoundType(method.ReturnType)) || !ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType))) {
             return false
         }
 
@@ -28730,7 +28730,7 @@ sealed class ColumnarIlEmitter {
         return emittedExpression
     }
 
-    private func IsSupportedParsedInterpolationHoleType(columnarResolvedType: Type): bool => columnarResolvedType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(columnarResolvedType) && (!ColumnarTypeOfPlanner.ContainsBuilderBoundType(columnarResolvedType) || IsKnownEnumType(columnarResolvedType))
+    private func IsSupportedParsedInterpolationHoleType(columnarResolvedType: Type): bool => columnarResolvedType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(columnarResolvedType) && (!RuntimeTypeShapeFacts.ContainsBuilderBoundType(columnarResolvedType) || IsKnownEnumType(columnarResolvedType))
 
     private func CanEmitInterpolationCast(sourceType: Type, targetType: Type): bool {
         if (TypesEquivalent(sourceType, targetType)) {
@@ -29048,7 +29048,7 @@ sealed class ColumnarIlEmitter {
                 current = typeof(bool)
             }
         }
-        if ((!allowBuilderValue && ColumnarTypeOfPlanner.ContainsBuilderBoundType(current) && !IsKnownEnumType(current) && !current.get_IsGenericParameter()) || !ColumnarTypeOfPlanner.IsSupportedType(current)) {
+        if ((!allowBuilderValue && RuntimeTypeShapeFacts.ContainsBuilderBoundType(current) && !IsKnownEnumType(current) && !current.get_IsGenericParameter()) || !ColumnarTypeOfPlanner.IsSupportedType(current)) {
             return false
         }
         valueType = current
@@ -29326,7 +29326,7 @@ sealed class ColumnarIlEmitter {
             // The same guard the value-member walk beside this one carries: a generic interface
             // closed over a type still being emitted answers every member query with
             // `NotSupportedException`.
-            if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(externalInterface)) {
+            if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(externalInterface)) {
                 continue
             }
             if (externalInterface.GetEvent(eventName) != null) {
@@ -29375,7 +29375,7 @@ sealed class ColumnarIlEmitter {
             // whole check with "Specified method is not supported." before this guard. Such a base
             // declares no value slot this pass can read, and its own source definition (when it has
             // one) was already answered above.
-            if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(externalInterface)) {
+            if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(externalInterface)) {
                 continue
             }
             externalSlot := externalInterface.GetProperty(memberName)
@@ -29414,7 +29414,7 @@ sealed class ColumnarIlEmitter {
             }
         }
         for externalInterface in definition.ExternalInterfaces {
-            if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(externalInterface)) {
+            if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(externalInterface)) {
                 continue
             }
             externalSlot := externalInterface.GetProperty(memberName)
@@ -29435,7 +29435,7 @@ sealed class ColumnarIlEmitter {
         if (slotType == null || memberType == null) {
             return true
         }
-        if (slotType.get_IsGenericParameter() || ColumnarTypeOfPlanner.ContainsBuilderBoundType(slotType) || slotType.get_ContainsGenericParameters()) {
+        if (slotType.get_IsGenericParameter() || RuntimeTypeShapeFacts.ContainsBuilderBoundType(slotType) || slotType.get_ContainsGenericParameters()) {
             return true
         }
         return slotType == memberType

@@ -75,7 +75,7 @@ func RodAssertCountSelection(receiver: Type, expectedOwner: Type): void {
         out selection
     )
     assert !selection.IsField
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(
         selection.DeclaringType,
         expectedOwner
     )

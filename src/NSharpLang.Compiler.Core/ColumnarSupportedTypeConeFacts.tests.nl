@@ -213,39 +213,39 @@ test "the span element set is the blittable scalars plus enums" {
 // though the emitter declines it. It is the guard that keeps a byref-like argument out of a Result
 // slot, where it could not be stored in a field or a local.
 test "byref-like classification is the span family and TypedReference" {
-    assert ColumnarTypeOfPlanner.IsByRefLike(AdmissibilitySpan(typeof(int)))
-    assert ColumnarTypeOfPlanner.IsByRefLike(AdmissibilityReadOnlySpan(typeof(byte)))
-    assert ColumnarTypeOfPlanner.IsByRefLike(AdmissibilitySpan(typeof(string)))
+    assert RuntimeTypeShapeFacts.IsByRefLike(AdmissibilitySpan(typeof(int)))
+    assert RuntimeTypeShapeFacts.IsByRefLike(AdmissibilityReadOnlySpan(typeof(byte)))
+    assert RuntimeTypeShapeFacts.IsByRefLike(AdmissibilitySpan(typeof(string)))
     assert !ColumnarTypeOfPlanner.IsSupportedSpanLikeType(AdmissibilitySpan(typeof(string)))
-    assert ColumnarTypeOfPlanner.IsByRefLike(AdmissibilityRuntimeType("System.TypedReference"))
+    assert RuntimeTypeShapeFacts.IsByRefLike(AdmissibilityRuntimeType("System.TypedReference"))
 
-    assert !ColumnarTypeOfPlanner.IsByRefLike(typeof(int))
-    assert !ColumnarTypeOfPlanner.IsByRefLike(typeof(string))
-    assert !ColumnarTypeOfPlanner.IsByRefLike(typeof(decimal))
-    assert !ColumnarTypeOfPlanner.IsByRefLike(typeof(List<int>))
-    assert !ColumnarTypeOfPlanner.IsByRefLike(AdmissibilityRuntimeType("System.DateTime"))
-    assert !ColumnarTypeOfPlanner.IsByRefLike(typeof(int[]))
+    assert !RuntimeTypeShapeFacts.IsByRefLike(typeof(int))
+    assert !RuntimeTypeShapeFacts.IsByRefLike(typeof(string))
+    assert !RuntimeTypeShapeFacts.IsByRefLike(typeof(decimal))
+    assert !RuntimeTypeShapeFacts.IsByRefLike(typeof(List<int>))
+    assert !RuntimeTypeShapeFacts.IsByRefLike(AdmissibilityRuntimeType("System.DateTime"))
+    assert !RuntimeTypeShapeFacts.IsByRefLike(typeof(int[]))
 
     // An un-finalized builder answers without throwing out of the member.
-    assert !ColumnarTypeOfPlanner.IsByRefLike(TypeOfCreateBuilder("ConeByRefLikeShape", "ConeByRefLikeAsm", 0))
+    assert !RuntimeTypeShapeFacts.IsByRefLike(TypeOfCreateBuilder("ConeByRefLikeShape", "ConeByRefLikeAsm", 0))
 }
 
 // Enum classification has three arms — an EnumBuilder, a TypeBuilder parented on System.Enum, and an
 // ordinary runtime enum — and the emitter reads it through the array element surface and the span
 // element set as well as directly.
 test "enum classification covers runtime enums and both builder shapes" {
-    assert ColumnarTypeOfPlanner.IsEnumType(AdmissibilityRuntimeType("System.DayOfWeek"))
-    assert ColumnarTypeOfPlanner.IsEnumType(AdmissibilityRuntimeType("System.AttributeTargets"))
-    assert ColumnarTypeOfPlanner.IsEnumType(AdmissibilityRuntimeType("System.StringComparison"))
-    assert ColumnarTypeOfPlanner.IsEnumType(AdmissibilityEnumBuilder())
-    assert ColumnarTypeOfPlanner.IsEnumType(ConeEnumParentedBuilder())
+    assert RuntimeTypeShapeFacts.IsEnumType(AdmissibilityRuntimeType("System.DayOfWeek"))
+    assert RuntimeTypeShapeFacts.IsEnumType(AdmissibilityRuntimeType("System.AttributeTargets"))
+    assert RuntimeTypeShapeFacts.IsEnumType(AdmissibilityRuntimeType("System.StringComparison"))
+    assert RuntimeTypeShapeFacts.IsEnumType(AdmissibilityEnumBuilder())
+    assert RuntimeTypeShapeFacts.IsEnumType(ConeEnumParentedBuilder())
 
     // `System.Enum` itself is the base class, not an enum; and a builder with no enum parent is not.
-    assert !ColumnarTypeOfPlanner.IsEnumType(AdmissibilityRuntimeType("System.Enum"))
-    assert !ColumnarTypeOfPlanner.IsEnumType(TypeOfCreateBuilder("ConeNonEnumShape", "ConeNonEnumAsm", 0))
-    assert !ColumnarTypeOfPlanner.IsEnumType(typeof(int))
-    assert !ColumnarTypeOfPlanner.IsEnumType(typeof(string))
-    assert !ColumnarTypeOfPlanner.IsEnumType(AdmissibilityRuntimeType("System.DayOfWeek").MakeArrayType())
+    assert !RuntimeTypeShapeFacts.IsEnumType(AdmissibilityRuntimeType("System.Enum"))
+    assert !RuntimeTypeShapeFacts.IsEnumType(TypeOfCreateBuilder("ConeNonEnumShape", "ConeNonEnumAsm", 0))
+    assert !RuntimeTypeShapeFacts.IsEnumType(typeof(int))
+    assert !RuntimeTypeShapeFacts.IsEnumType(typeof(string))
+    assert !RuntimeTypeShapeFacts.IsEnumType(AdmissibilityRuntimeType("System.DayOfWeek").MakeArrayType())
 
     // The two surfaces that read it.
     assert ColumnarTypeOfPlanner.IsSupportedElementType(AdmissibilityRuntimeType("System.DayOfWeek"))
@@ -372,24 +372,24 @@ test "the two builder-containment walks differ on exactly the source enum" {
     sourceEnum := ConeEnumParentedBuilder()
     sourceClass := TypeOfCreateBuilder("ConeContainmentClass", "ConeContainmentAsm", 0)
 
-    assert ColumnarTypeOfPlanner.IsEnumType(sourceEnum)
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceEnum)
+    assert RuntimeTypeShapeFacts.IsEnumType(sourceEnum)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(sourceEnum)
     assert !ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(sourceEnum)
 
     // Every other shape answers the same on both walks.
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceClass)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(sourceClass)
     assert ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(sourceClass)
-    assert !ColumnarTypeOfPlanner.ContainsBuilderBoundType(typeof(int))
+    assert !RuntimeTypeShapeFacts.ContainsBuilderBoundType(typeof(int))
     assert !ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(typeof(int))
-    assert !ColumnarTypeOfPlanner.ContainsBuilderBoundType(typeof(List<int>))
+    assert !RuntimeTypeShapeFacts.ContainsBuilderBoundType(typeof(List<int>))
     assert !ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(typeof(List<int>))
-    assert !ColumnarTypeOfPlanner.ContainsBuilderBoundType(AdmissibilityRuntimeType("System.DayOfWeek"))
+    assert !RuntimeTypeShapeFacts.ContainsBuilderBoundType(AdmissibilityRuntimeType("System.DayOfWeek"))
     assert !ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(AdmissibilityRuntimeType("System.DayOfWeek"))
 
     // Both walks recurse through SZ arrays and through generic arguments.
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceClass.MakeArrayType())
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(sourceClass.MakeArrayType())
     assert ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(sourceClass.MakeArrayType())
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceClass)))
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceClass)))
     assert ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(sourceClass)))
 
     // The key consumer adds one explicit direct-source-reference admission while preserving the two

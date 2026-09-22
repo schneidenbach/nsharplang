@@ -369,7 +369,7 @@ class ColumnarGenericConstraintPlanner {
             return false
         }
 
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(bound) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(bound) {
             return false
         }
 

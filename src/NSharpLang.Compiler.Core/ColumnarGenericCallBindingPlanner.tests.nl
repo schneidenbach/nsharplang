@@ -239,7 +239,7 @@ test "generic call binding admits direct source shapes but declines a composed b
     sourceParameter := sourceDefinition.GetGenericArguments()[0]
     listDefinition := typeof(List<int>).GetGenericTypeDefinition()
     composed := GenericCallBindingClose1(listDefinition, sourceParameter)
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(composed)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(composed)
     composedBinding := new Type[](1)
     assert !ColumnarGenericCallBindingPlanner.TryUnifyTypeParam(
         parameters,

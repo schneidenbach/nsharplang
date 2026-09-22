@@ -231,22 +231,22 @@ test "enum builder detection walks the runtime base chain" {
     // The instance is NOT of the abstract base type — the fact the exact-name test tripped on.
     assert enumBuilder.GetType().FullName != "System.Reflection.Emit.EnumBuilder"
 
-    assert ColumnarTypeOfPlanner.IsEnumBuilder(enumBuilder)
-    assert ColumnarRuntimeInstanceMemberResolver.IsEnumBuilder(enumBuilder)
-    assert !ColumnarTypeOfPlanner.IsEnumBuilder(typeof(int))
-    assert !ColumnarTypeOfPlanner.IsEnumBuilder(typeof(string))
-    assert !ColumnarTypeOfPlanner.IsEnumBuilder(AdmissibilityRuntimeType("System.StringComparison"))
-    assert !ColumnarRuntimeInstanceMemberResolver.IsEnumBuilder(AdmissibilityRuntimeType("System.StringComparison"))
+    assert RuntimeTypeShapeFacts.IsEnumBuilder(enumBuilder)
+    assert RuntimeTypeShapeFacts.IsEnumBuilder(enumBuilder)
+    assert !RuntimeTypeShapeFacts.IsEnumBuilder(typeof(int))
+    assert !RuntimeTypeShapeFacts.IsEnumBuilder(typeof(string))
+    assert !RuntimeTypeShapeFacts.IsEnumBuilder(AdmissibilityRuntimeType("System.StringComparison"))
+    assert !RuntimeTypeShapeFacts.IsEnumBuilder(AdmissibilityRuntimeType("System.StringComparison"))
 
     // It is still an enum by the language's own classification.
-    assert ColumnarTypeOfPlanner.IsEnumType(enumBuilder)
+    assert RuntimeTypeShapeFacts.IsEnumType(enumBuilder)
 
     // The consequences the exact-name test lost.
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(enumBuilder)
-    assert ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(enumBuilder)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(enumBuilder)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(enumBuilder)
     assert ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(enumBuilder)
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(enumBuilder.MakeArrayType())
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(enumBuilder)))
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(enumBuilder.MakeArrayType())
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(ColumnarTypeAdmissibilityOneType(enumBuilder)))
     assert ColumnarRuntimeInstanceMemberResolver.IsSourceBuilderShape(enumBuilder)
 
     assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(enumBuilder)

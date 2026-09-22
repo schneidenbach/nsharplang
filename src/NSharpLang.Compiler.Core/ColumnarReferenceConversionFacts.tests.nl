@@ -242,7 +242,7 @@ test "reference equality comparer closes over a source class through the exact c
         openParameters[0].get_ParameterType(),
         closedArguments
     )
-    assert ColumnarReferenceConversionFacts.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         constructorParameter,
         comparer
     )

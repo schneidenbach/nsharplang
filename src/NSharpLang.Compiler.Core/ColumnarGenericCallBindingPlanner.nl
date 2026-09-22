@@ -47,7 +47,7 @@ class ColumnarGenericCallBindingPlanner {
             return false
         }
 
-        if !actual.get_IsGenericParameter() && ColumnarTypeOfPlanner.ContainsBuilderBoundType(actual) && !(actual is TypeBuilder) && !(actual is EnumBuilder) {
+        if !actual.get_IsGenericParameter() && RuntimeTypeShapeFacts.ContainsBuilderBoundType(actual) && !(actual is TypeBuilder) && !(actual is EnumBuilder) {
             return false
         }
         if !actual.get_IsGenericParameter() && !ColumnarTypeOfPlanner.IsSupportedType(actual) {
@@ -190,12 +190,12 @@ class ColumnarGenericCallBindingPlanner {
             return true
         }
 
-        if declaredReturn.get_IsGenericType() && !declaredReturn.get_IsGenericTypeDefinition() && ColumnarTypeOfPlanner.ContainsBuilderBoundType(declaredReturn) {
+        if declaredReturn.get_IsGenericType() && !declaredReturn.get_IsGenericTypeDefinition() && RuntimeTypeShapeFacts.ContainsBuilderBoundType(declaredReturn) {
             returnDefinition := declaredReturn.GetGenericTypeDefinition()
             // The DEFINITION has to be a complete EXTERNAL identity. A source-headed one was already
             // answered by the closed-source-generic arm above, and a definition that is itself
             // builder-bound has no other reading here.
-            if ColumnarTypeOfPlanner.ContainsBuilderBoundType(returnDefinition) {
+            if RuntimeTypeShapeFacts.ContainsBuilderBoundType(returnDefinition) {
                 return false
             }
 

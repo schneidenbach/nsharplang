@@ -325,7 +325,7 @@ test "ordinary runtime direct calls select exact builder-bound generic methods" 
     }
 
     assert selection.LookupType == listType
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(selection.DeclaringType, listType)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(selection.DeclaringType, listType)
     assert selection.ParameterTypes.Length == 1
     assert selection.ParameterTypes[0] == elementType
     assert selection.ReturnType == RequiredOrdinaryRuntimeType("System.Void")
@@ -335,7 +335,7 @@ test "ordinary runtime direct calls select exact builder-bound generic methods" 
         throw new InvalidOperationException("The rebound builder-bound runtime method lost its declaring type.")
     }
 
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(methodDeclaringType, listType)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(methodDeclaringType, listType)
     assert !selection.IsStatic
     assert selection.ReceiverIsReference
     assert !selection.IsAbstract
@@ -510,7 +510,7 @@ test "ordinary runtime resolution refuses an instantiation of a source generic w
         OrdinaryRuntimeArgumentTypes2(builderParameter, typeof(bool))
     )
     builderClosed := builderDefinitionType.MakeGenericType(OrdinaryRuntimeArgumentTypes1(typeof(int)))
-    assert ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(builderClosed)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(builderClosed)
 
     selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(builderClosed, "Pick", 2, false)
     assert !selection.IsSelected

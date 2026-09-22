@@ -1309,7 +1309,7 @@ class ColumnarCodePlanExecutor {
 
         if plan.ConstructorUsesDeclaredSignature[constructorIndex] {
             declaredType := plan.ConstructorDeclaringTypes[constructorIndex]
-            if !ExactTypeShapeMatches(declaringType, declaredType) {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(declaringType, declaredType) {
                 throw new InvalidOperationException(schemaName + " declared constructor identity does not match its handle.")
             }
             ValidateStorableType(declaredType, "constructor result", schemaName)
@@ -1347,7 +1347,7 @@ class ColumnarCodePlanExecutor {
             i := 0
             while i < actualParameters.Length {
                 actualParameter := ResolveMemberSignatureType(actualParameters[i].get_ParameterType(), declaringArguments, noMethodArguments, noMethodArguments, schemaName)
-                if !ExactTypeShapeMatches(actualParameter, declaredParameters[i]) {
+                if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualParameter, declaredParameters[i]) {
                     throw new InvalidOperationException(schemaName + " declared constructor parameter does not match its inspectable handle.")
                 }
                 if actualParameters[i].get_IsOut() != declaredOutFlags[i] {
@@ -1377,7 +1377,7 @@ class ColumnarCodePlanExecutor {
         methodParameterDefinitions := signatureMethod.GetGenericArguments()
         genericArguments := method.GetGenericArguments()
         actualReturn := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
-        if !ExactTypeShapeMatches(actualReturn, plan.MethodReturnTypes[methodIndex]) {
+        if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualReturn, plan.MethodReturnTypes[methodIndex]) {
             throw new InvalidOperationException(schemaName + " declared method return does not match its inspectable handle.")
         }
         try {
@@ -1389,7 +1389,7 @@ class ColumnarCodePlanExecutor {
             i := 0
             while i < actualParameters.Length {
                 actualParameter := ResolveMemberSignatureType(actualParameters[i].get_ParameterType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
-                if !ExactTypeShapeMatches(actualParameter, declaredParameters[i]) {
+                if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualParameter, declaredParameters[i]) {
                     throw new InvalidOperationException(schemaName + " declared method parameter does not match its inspectable handle.")
                 }
                 i += 1
@@ -1423,7 +1423,7 @@ class ColumnarCodePlanExecutor {
             ValidateStorableType(declaredValueType, "field result", schemaName)
             noMethodArguments := new Type[](0)
             actualValueType := ResolveMemberSignatureType(field.get_FieldType(), DeclaringTypeArguments(declaredType), noMethodArguments, noMethodArguments, schemaName)
-            if !ExactTypeShapeMatches(actualValueType, declaredValueType) {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualValueType, declaredValueType) {
                 throw new InvalidOperationException(schemaName + " declared field result does not match its inspectable handle.")
             }
             return
@@ -1823,7 +1823,7 @@ class ColumnarCodePlanExecutor {
             throw new InvalidOperationException(schemaName + " control-flow address states do not merge.")
         }
         if left.IsAddress {
-            if left.ValueKind != ColumnarCodePlanStackValueKind.Exact() || right.ValueKind != ColumnarCodePlanStackValueKind.Exact() || !ExactTypeShapeMatches(left.ValueType, right.ValueType) {
+            if left.ValueKind != ColumnarCodePlanStackValueKind.Exact() || right.ValueKind != ColumnarCodePlanStackValueKind.Exact() || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(left.ValueType, right.ValueType) {
                 throw new InvalidOperationException(schemaName + " control-flow address types do not merge.")
             }
             return new ColumnarCodePlanStackNode(left.ValueType, true, ColumnarCodePlanStackValueKind.Exact(), false, 0, null)
@@ -1840,7 +1840,7 @@ class ColumnarCodePlanExecutor {
             if left.ValueKind == ColumnarCodePlanStackValueKind.Exact() {
                 return new ColumnarCodePlanStackNode(MergeExactStackType(left.ValueType, right.ValueType, schemaName), false, ColumnarCodePlanStackValueKind.Exact(), false, 0, null)
             }
-            if !ExactTypeShapeMatches(left.ValueType, right.ValueType) {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(left.ValueType, right.ValueType) {
                 throw new InvalidOperationException(schemaName + " control-flow stack categories do not merge.")
             }
             literalKnown := left.LiteralKnown && right.LiteralKnown && left.LiteralValue == right.LiteralValue
@@ -1872,7 +1872,7 @@ class ColumnarCodePlanExecutor {
     }
 
     static func MergeExactStackType(left: Type, right: Type, schemaName: string): Type {
-        if ExactTypeShapeMatches(left, right) {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(left, right) {
             return left
         }
         if !left.get_IsValueType() && !right.get_IsValueType() {
@@ -1967,7 +1967,7 @@ class ColumnarCodePlanExecutor {
         } else if opCodeValue == ColumnarCodePlanContract.Initobj() {
             targetType := plan.Types[operandIndex]
             address := state.Pop()
-            if !targetType.get_IsValueType() || targetType.get_IsGenericTypeDefinition() || !address.IsAddress || (address.ValueKind != ColumnarCodePlanStackValueKind.Exact() && address.ValueKind != ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress()) || !ExactTypeShapeMatches(targetType, address.ValueType) {
+            if !targetType.get_IsValueType() || targetType.get_IsGenericTypeDefinition() || !address.IsAddress || (address.ValueKind != ColumnarCodePlanStackValueKind.Exact() && address.ValueKind != ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress()) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(targetType, address.ValueType) {
                 throw new InvalidOperationException(schemaName + " initobj requires an exact managed address to its value type.")
             }
             localIndex := address.PlanLocalAddressIndex
@@ -2258,7 +2258,7 @@ class ColumnarCodePlanExecutor {
             }
         } else {
             value := state.Pop()
-            storesManagedPointer := localType.get_IsByRef() && value.IsAddress && ColumnarReferenceConversionFacts.ExactTypeShapeMatches(localType.GetElementType(), value.ValueType)
+            storesManagedPointer := localType.get_IsByRef() && value.IsAddress && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(localType.GetElementType(), value.ValueType)
             if !storesManagedPointer && (value.IsAddress || !IsStackCompatible(localType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue)) {
                 throw new InvalidOperationException(schemaName + " stloc value does not match its local type.")
             }
@@ -2348,7 +2348,7 @@ class ColumnarCodePlanExecutor {
             }
 
             unassignedOut := isOut && value.ValueKind == ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress()
-            if !value.IsAddress || (value.ValueKind != ColumnarCodePlanStackValueKind.Exact() && !unassignedOut) || !ExactTypeShapeMatches(elementType, value.ValueType) {
+            if !value.IsAddress || (value.ValueKind != ColumnarCodePlanStackValueKind.Exact() && !unassignedOut) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(elementType, value.ValueType) {
                 throw new InvalidOperationException(schemaName + " call argument " + parameterIndex.ToString() + " for '" + methodName + "' requires an exact managed address of '" + elementType.ToString() + "' (found '" + value.ValueType.ToString() + "', address " + value.IsAddress.ToString() + ", stack kind " + value.ValueKind.ToString() + ").")
             }
 
@@ -2519,7 +2519,7 @@ class ColumnarCodePlanExecutor {
             if signatureType.get_IsByRef() {
                 return resolvedElement.MakeByRefType()
             }
-            if !ExactTypeShapeMatches(compoundElement, resolvedElement) {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(compoundElement, resolvedElement) {
                 throw new InvalidOperationException(schemaName + " cannot substitute this compound method signature shape.")
             }
         }
@@ -2641,7 +2641,7 @@ class ColumnarCodePlanExecutor {
             throw new InvalidOperationException(schemaName + " receiver for '" + memberName + "' must have an exact semantic type.")
         }
         if expectedType.get_IsValueType() {
-            if actualKind != ColumnarCodePlanStackValueKind.Exact() || !isAddress || !ExactTypeShapeMatches(expectedType, actualType) {
+            if actualKind != ColumnarCodePlanStackValueKind.Exact() || !isAddress || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(expectedType, actualType) {
                 throw new InvalidOperationException(schemaName + " value-type receiver for '" + memberName + "' requires an exact managed address.")
             }
         } else if isAddress || !IsStackCompatible(expectedType, actualType, actualKind, false, 0) {
@@ -2659,7 +2659,7 @@ class ColumnarCodePlanExecutor {
         elementType := RequireSzArray(arrayType, arrayValue.IsAddress, schemaName)
 
         if opCodeValue == ColumnarCodePlanContract.Ldelem() {
-            if !hasRequestedType || !ExactTypeShapeMatches(requestedType, elementType) {
+            if !hasRequestedType || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(requestedType, elementType) {
                 throw new InvalidOperationException(schemaName + " ldelem type operands must exactly match the array element type.")
             }
         } else if !TypedElementOpcodeMatches(opCodeValue, elementType) {
@@ -2679,7 +2679,7 @@ class ColumnarCodePlanExecutor {
         elementType := RequireSzArray(arrayValue.ValueType, arrayValue.IsAddress, schemaName)
 
         if opCodeValue == ColumnarCodePlanContract.Stelem() {
-            if !hasRequestedType || !ExactTypeShapeMatches(requestedType, elementType) {
+            if !hasRequestedType || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(requestedType, elementType) {
                 throw new InvalidOperationException(schemaName + " stelem type operands must exactly match the array element type.")
             }
         } else if !TypedStoreOpcodeMatches(opCodeValue, elementType) {
@@ -2837,7 +2837,7 @@ class ColumnarCodePlanExecutor {
         if actualKind != ColumnarCodePlanStackValueKind.Exact() {
             return false
         }
-        if ExactTypeShapeMatches(expectedType, actualType) {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(expectedType, actualType) {
             return true
         }
         return !expectedType.get_IsValueType() && !actualType.get_IsValueType() && ReferenceAssignableFrom(expectedType, actualType)
@@ -3036,12 +3036,8 @@ class ColumnarCodePlanExecutor {
     // Reflection.Emit creates fresh SymbolType and TypeBuilderInstantiation wrappers
     // around the same unbaked generic arguments. Wrapper shells compare structurally;
     // ordinary types and the generic arguments themselves retain exact identity.
-    static func ExactTypeShapeMatches(left: Type, right: Type): bool {
-        return ColumnarReferenceConversionFacts.ExactTypeShapeMatches(left, right)
-    }
-
     static func ReferenceAssignableFrom(expectedType: Type, actualType: Type): bool {
-        if ExactTypeShapeMatches(expectedType, actualType) {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(expectedType, actualType) {
             return true
         }
 

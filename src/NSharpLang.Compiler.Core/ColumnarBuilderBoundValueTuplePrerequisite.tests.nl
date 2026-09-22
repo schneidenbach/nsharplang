@@ -153,10 +153,10 @@ test "construction planner emits exact builder-bound ValueTuple constructor sign
     pairArguments := BuilderTupleTypes2(first, typeof(Type[]))
     pair := BuilderTupleClosed(2, pairArguments)
 
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(pairPlan.ResultType, pair)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(pairPlan.ResultType, pair)
     assert pairPlan.ConstructorCount == 1
     assert pairPlan.ConstructorUsesDeclaredSignature[0]
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(pairPlan.ConstructorDeclaringTypes[0], pair)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(pairPlan.ConstructorDeclaringTypes[0], pair)
     pairParameters := pairPlan.ConstructorParameterTypes[0]
     assert pairParameters.Length == 2
     assert pairParameters[0] == first
@@ -189,15 +189,15 @@ test "construction planner emits exact builder-bound ValueTuple constructor sign
     sixArguments := BuilderTupleTypes6(first, second)
     six := BuilderTupleClosed(6, sixArguments)
 
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(sixPlan.ResultType, six)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(sixPlan.ResultType, six)
     assert sixPlan.ConstructorCount == 1
     assert sixPlan.ConstructorUsesDeclaredSignature[0]
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(sixPlan.ConstructorDeclaringTypes[0], six)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(sixPlan.ConstructorDeclaringTypes[0], six)
     sixParameters := sixPlan.ConstructorParameterTypes[0]
     assert sixParameters.Length == 6
     index = 0
     while index < sixArguments.Length {
-        assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(sixParameters[index], sixArguments[index])
+        assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(sixParameters[index], sixArguments[index])
         index += 1
     }
     assert sixPlan.OpCodeValues[sixPlan.OperationCount - 1] == ColumnarCodePlanContract.Newobj()
@@ -214,8 +214,8 @@ test "builder-bound ValueTuple Item and Rest fields retain exact substituted res
     assert ColumnarRuntimeInstanceMemberResolver.TrySelect(six, "Item1", out firstSelection)
     assert firstSelection.IsField
     assert firstSelection.Field != null
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(firstSelection.ResultType, first)
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(firstSelection.DeclaringType, six)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(firstSelection.ResultType, first)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(firstSelection.DeclaringType, six)
 
     sixthSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
     assert ColumnarRuntimeInstanceMemberResolver.TrySelect(six, "Item6", out sixthSelection)
@@ -227,7 +227,7 @@ test "builder-bound ValueTuple Item and Rest fields retain exact substituted res
     assert ColumnarRuntimeInstanceMemberResolver.TrySelect(nineStorage, "Rest", out restSelection)
     assert restSelection.IsField
     assert restSelection.Field != null
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(restSelection.ResultType, rest)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(restSelection.ResultType, rest)
 
     restFirstSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
     assert ColumnarRuntimeInstanceMemberResolver.TrySelect(restSelection.ResultType, "Item1", out restFirstSelection)

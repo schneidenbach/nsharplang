@@ -222,7 +222,7 @@ class ColumnarSourceImplicitConversionResolver {
             throw new InvalidOperationException("Selected source implicit-conversion facts are no longer exact.")
         }
 
-        if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(selection.ParameterTypes[0], selection.SourceType) {
+        if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(selection.ParameterTypes[0], selection.SourceType) {
             throw new InvalidOperationException("Selected source implicit-conversion facts are no longer exact.")
         }
 
@@ -285,7 +285,7 @@ class ColumnarSourceImplicitConversionResolver {
 
         method: MethodInfo = definition.Builder
         ownerType: Type = owner.Builder
-        if !method.get_IsStatic() || method.get_Name() != "op_Implicit" || method.get_DeclaringType() != ownerType || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(method.get_ReturnType(), definition.ReturnType) {
+        if !method.get_IsStatic() || method.get_Name() != "op_Implicit" || method.get_DeclaringType() != ownerType || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.get_ReturnType(), definition.ReturnType) {
             throw new InvalidOperationException("Source implicit-conversion facts do not identify an exact static declaration.")
         }
     }
@@ -300,7 +300,7 @@ class ColumnarSourceImplicitConversionResolver {
             return false
         }
 
-        return ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(definition.ParamTypes[0], sourceType) && ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(definition.ReturnType, targetType)
+        return RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.ParamTypes[0], sourceType) && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.ReturnType, targetType)
     }
 
     static func HasParameterModifiers(modifierKinds: int[]): bool {

@@ -1879,7 +1879,7 @@ class ColumnarIteratorEmitContext {
         // A BUILDER-BOUND handle cannot answer an assignability question at all under persisted emit —
         // `TypeBuilder` and a generic instantiation over one both throw from `IsAssignableFrom` — so
         // identity is the only answer such a pair gets.
-        if fieldType == null || valueType == null || ColumnarConstructionPlanner.ContainsBuilderBoundType(fieldType) || ColumnarConstructionPlanner.ContainsBuilderBoundType(valueType) || fieldType.get_IsValueType() || valueType.get_IsValueType() {
+        if fieldType == null || valueType == null || RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(fieldType) || RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(valueType) || fieldType.get_IsValueType() || valueType.get_IsValueType() {
             return false
         }
         return fieldType.IsAssignableFrom(valueType)
@@ -3003,7 +3003,7 @@ class ColumnarIteratorBodyPlanner {
     static func StrongBoxValueField(boxType: Type): FieldInfo {
         definition := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition()
         openField := definition.GetField("Value")
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(boxType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(boxType) {
             return TypeBuilder.GetField(boxType, openField)
         }
         return boxType.GetField("Value")
@@ -3020,7 +3020,7 @@ class ColumnarIteratorBodyPlanner {
         } else {
             openConstructor = definition.GetConstructor(System.Type.EmptyTypes)
         }
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(boxType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(boxType) {
             return TypeBuilder.GetConstructor(boxType, openConstructor)
         }
         parameters := takesValue ? new Type[](1) : System.Type.EmptyTypes
@@ -4297,7 +4297,7 @@ class ColumnarIteratorBodyPlanner {
         parameters := new Type[](2)
         parameters[0] = typeof(object)
         parameters[1] = typeof(IntPtr)
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(delegateType) && delegateType.get_IsGenericType() && !delegateType.get_IsGenericTypeDefinition() {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateType) && delegateType.get_IsGenericType() && !delegateType.get_IsGenericTypeDefinition() {
             definition := delegateType.GetGenericTypeDefinition()
             openConstructor := definition.GetConstructor(parameters)
             if openConstructor == null {

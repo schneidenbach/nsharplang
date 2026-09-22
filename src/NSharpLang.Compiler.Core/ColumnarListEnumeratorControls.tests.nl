@@ -153,10 +153,10 @@ test "list enumerator admission retains the existing list element boundary" {
     sourceGeneric := sourceGenericDefinitionType.MakeGenericType(genericArguments)
     sourceGenericEnumerator := ListEnumeratorControlExactType(sourceGeneric)
 
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceEnumerator)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(sourceEnumerator)
     assert ColumnarTypeOfPlanner.IsSupportedListEnumeratorType(sourceEnumerator)
     assert ColumnarTypeOfPlanner.IsSupportedType(sourceEnumerator)
-    assert !ColumnarTypeOfPlanner.ContainsBuilderBoundType(runtimeEnumerator)
+    assert !RuntimeTypeShapeFacts.ContainsBuilderBoundType(runtimeEnumerator)
     assert ColumnarTypeOfPlanner.IsSupportedListEnumeratorType(runtimeEnumerator)
     assert ColumnarTypeOfPlanner.IsSupportedType(runtimeEnumerator)
     assert !ColumnarTypeOfPlanner.IsSupportedListEnumeratorType(rankTwoEnumerator)

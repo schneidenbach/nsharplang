@@ -107,7 +107,7 @@ class ColumnarReferenceCoercionPlanner {
                     candidate = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(candidate, valueArguments)
                 }
 
-                if ColumnarReferenceConversionFacts.ExactTypeShapeMatches(candidate, targetType) {
+                if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidate, targetType) {
                     return true
                 }
 
@@ -240,7 +240,7 @@ class ColumnarReferenceCoercionPlanner {
 
         sourceBuilder := source as TypeBuilder
         if sourceBuilder != null {
-            if ColumnarTypeOfPlanner.IsEnumType(sourceBuilder) {
+            if RuntimeTypeShapeFacts.IsEnumType(sourceBuilder) {
                 il.Emit(OpCodes.Box, sourceBuilder)
                 return true
             }
@@ -255,7 +255,7 @@ class ColumnarReferenceCoercionPlanner {
             return true
         }
 
-        if source.get_IsValueType() || source.get_IsGenericParameter() || ColumnarTypeOfPlanner.IsEnumType(source) {
+        if source.get_IsValueType() || source.get_IsGenericParameter() || RuntimeTypeShapeFacts.IsEnumType(source) {
             il.Emit(OpCodes.Box, source)
         }
         return true
@@ -267,7 +267,7 @@ class ColumnarReferenceCoercionPlanner {
     ): bool {
         sourceBuilder := source as TypeBuilder
         if sourceBuilder != null {
-            if ColumnarTypeOfPlanner.IsEnumType(sourceBuilder) {
+            if RuntimeTypeShapeFacts.IsEnumType(sourceBuilder) {
                 return true
             }
             sourceDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
@@ -287,6 +287,6 @@ class ColumnarReferenceCoercionPlanner {
                 return true
             }
         }
-        return source.get_IsValueType() || ColumnarTypeOfPlanner.IsEnumType(source)
+        return source.get_IsValueType() || RuntimeTypeShapeFacts.IsEnumType(source)
     }
 }
