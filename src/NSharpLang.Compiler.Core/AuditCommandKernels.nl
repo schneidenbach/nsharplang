@@ -41,20 +41,8 @@ class AuditCommandKernels {
         return new AuditOptionSummary(projectOption, json, showHelp)
     }
 
-    static func GetOutputMode(json: bool): int {
-        if json {
-            return 1
-        }
-
-        return 2
-    }
-
     static func GetHelpText(): string {
         return "N# Security Audit\n" + "\n" + "Usage: nlc audit [options]\n" + "\n" + "Check dependencies for known security vulnerabilities.\n" + "\n" + "Options:\n" + "  --project <dir>   Project root directory (default: current directory)\n" + "  --json            Output as JSON envelope\n" + "  --help, -h        Show this help text\n" + "\n" + "Examples:\n" + "  nlc audit\n" + "  nlc audit --json\n" + "  nlc audit --project examples/14-minimal-api\n" + "\n" + "Exit codes:\n" + "  0  No vulnerabilities found\n" + "  1  Vulnerabilities found or audit failed"
-    }
-
-    static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
-        return "Project directory not found: " + projectRoot
     }
 
     static func GetNoCsprojFileMessage(): string {

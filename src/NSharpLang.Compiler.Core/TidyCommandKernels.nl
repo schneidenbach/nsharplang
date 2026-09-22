@@ -61,14 +61,6 @@ class TidyCommandKernels {
         return new TidyOptionSummary(projectOption, fix, json, showHelp)
     }
 
-    static func GetOutputMode(json: bool): int {
-        if json {
-            return 1
-        }
-
-        return 2
-    }
-
     static func GetImportedNamespace(line: string): string? {
         start := 0
         while start < line.Length && char.IsWhiteSpace(line[start]) {

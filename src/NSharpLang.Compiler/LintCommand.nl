@@ -35,7 +35,7 @@ class LintCommand {
         }
 
         useJson := LintCommandKernels.GetEffectiveOutputMode(options.UseText, options.UseJson) == 1
-        projectRoot := LintCommandKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory())
+        projectRoot := CommandOutputKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory())
         positionalFiles := LintCommandKernels.GetFileArgs(args)
 
         if !Directory.Exists(projectRoot) {
@@ -115,11 +115,11 @@ class LintCommand {
             if useJson {
                 outcome.Diagnostics.Add(LintCommandKernels.ToCommandDiagnosticResult(
                     LintCommandKernels.GetLintDiagnosticCode(),
-                    LintCommandKernels.GetFileNotFoundMessage(relativePath),
+                    CommandOutputKernels.GetFileNotFoundMessage(relativePath),
                     relativePath
                 ))
             } else {
-                outcome.Messages.Add(LintCommandKernels.GetFileNotFoundMessage(sourcePath))
+                outcome.Messages.Add(CommandOutputKernels.GetFileNotFoundMessage(sourcePath))
             }
 
             return outcome

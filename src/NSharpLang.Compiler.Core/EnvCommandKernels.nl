@@ -34,14 +34,6 @@ class EnvCommandKernels {
         return new EnvOptionSummary(json, showHelp)
     }
 
-    static func GetOutputMode(json: bool): int {
-        if json {
-            return 1
-        }
-
-        return 2
-    }
-
     static func GetHelpText(): string {
         return "N# Environment Info\n" + "\n" + "Usage: nlc env [options]\n" + "\n" + "Show toolchain and environment information.\n" + "\n" + "Options:\n" + "  --json          Output as JSON envelope\n" + "  --help, -h      Show this help text\n" + "\n" + "Examples:\n" + "  nlc env\n" + "  nlc env --json\n" + "\n" + "Exit codes:\n" + "  0  Always succeeds"
     }

@@ -180,46 +180,46 @@ class PublishCommandKernels {
 
     static func GetHelpText(): string {
         builder := new StringBuilder()
-        AppendLine(builder, "N# Publish")
-        AppendLine(builder, "")
-        AppendLine(builder, "Usage: nlc publish [options]")
-        AppendLine(builder, "")
-        AppendLine(builder, "Package the project for distribution.")
-        AppendLine(builder, "")
-        AppendLine(builder, "Options:")
-        AppendLine(builder, "  --project <dir>         Project root directory (default: current directory)")
-        AppendLine(builder, "  --backend <mode>        Compilation backend: il")
-        AppendLine(builder, "  --configuration <cfg>   Build configuration (default: Release)")
-        AppendLine(builder, "  --output <dir>          Output directory for published files")
-        AppendLine(builder, "  --runtime <rid>         Current host runtime only; adds a framework-dependent launcher")
-        AppendLine(builder, "  --self-contained        Planned; currently exits with guidance")
-        AppendLine(builder, "  --aot                   Analysis-only: verify Native AOT safety and annotate public APIs")
-        AppendLine(builder, "  --help, -h              Show this help text")
-        AppendLine(builder, "")
-        AppendLine(builder, "Supported publish shapes:")
-        AppendLine(builder, "  - Portable framework-dependent: nlc publish --output ./dist")
-        AppendLine(builder, "  - Current-runtime launcher: nlc publish --runtime <current-rid>")
-        AppendLine(builder, "")
-        AppendLine(builder, "Native AOT (--aot):")
-        AppendLine(builder, "  Analysis-only this release. Fails the publish on any AOT blocker (reflection,")
-        AppendLine(builder, "  dynamic code, runtime generics, expression trees) and stamps public APIs with")
-        AppendLine(builder, "  [RequiresUnreferencedCode]/[RequiresDynamicCode]. It does NOT emit a native image yet.")
-        AppendLine(builder, "")
-        AppendLine(builder, "Unsupported today:")
-        AppendLine(builder, "  - Cross-runtime publishing, e.g. publishing linux-x64 from osx-arm64")
-        AppendLine(builder, "  - Self-contained apphost/runtime bundles")
-        AppendLine(builder, "  - Native AOT image generation")
-        AppendLine(builder, "")
-        AppendLine(builder, "Examples:")
-        AppendLine(builder, "  nlc publish")
-        AppendLine(builder, "  nlc publish --backend il --output ./dist")
-        AppendLine(builder, "  nlc publish --configuration Release")
-        AppendLine(builder, "  nlc publish --runtime <current-rid> --output ./dist")
-        AppendLine(builder, "  nlc publish --aot")
-        AppendLine(builder, "  nlc publish --output ./dist")
-        AppendLine(builder, "")
-        AppendLine(builder, "Exit codes:")
-        AppendLine(builder, "  0  Publish succeeded")
+        CommandOutputKernels.AppendLine(builder, "N# Publish")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Usage: nlc publish [options]")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Package the project for distribution.")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Options:")
+        CommandOutputKernels.AppendLine(builder, "  --project <dir>         Project root directory (default: current directory)")
+        CommandOutputKernels.AppendLine(builder, "  --backend <mode>        Compilation backend: il")
+        CommandOutputKernels.AppendLine(builder, "  --configuration <cfg>   Build configuration (default: Release)")
+        CommandOutputKernels.AppendLine(builder, "  --output <dir>          Output directory for published files")
+        CommandOutputKernels.AppendLine(builder, "  --runtime <rid>         Current host runtime only; adds a framework-dependent launcher")
+        CommandOutputKernels.AppendLine(builder, "  --self-contained        Planned; currently exits with guidance")
+        CommandOutputKernels.AppendLine(builder, "  --aot                   Analysis-only: verify Native AOT safety and annotate public APIs")
+        CommandOutputKernels.AppendLine(builder, "  --help, -h              Show this help text")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Supported publish shapes:")
+        CommandOutputKernels.AppendLine(builder, "  - Portable framework-dependent: nlc publish --output ./dist")
+        CommandOutputKernels.AppendLine(builder, "  - Current-runtime launcher: nlc publish --runtime <current-rid>")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Native AOT (--aot):")
+        CommandOutputKernels.AppendLine(builder, "  Analysis-only this release. Fails the publish on any AOT blocker (reflection,")
+        CommandOutputKernels.AppendLine(builder, "  dynamic code, runtime generics, expression trees) and stamps public APIs with")
+        CommandOutputKernels.AppendLine(builder, "  [RequiresUnreferencedCode]/[RequiresDynamicCode]. It does NOT emit a native image yet.")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Unsupported today:")
+        CommandOutputKernels.AppendLine(builder, "  - Cross-runtime publishing, e.g. publishing linux-x64 from osx-arm64")
+        CommandOutputKernels.AppendLine(builder, "  - Self-contained apphost/runtime bundles")
+        CommandOutputKernels.AppendLine(builder, "  - Native AOT image generation")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Examples:")
+        CommandOutputKernels.AppendLine(builder, "  nlc publish")
+        CommandOutputKernels.AppendLine(builder, "  nlc publish --backend il --output ./dist")
+        CommandOutputKernels.AppendLine(builder, "  nlc publish --configuration Release")
+        CommandOutputKernels.AppendLine(builder, "  nlc publish --runtime <current-rid> --output ./dist")
+        CommandOutputKernels.AppendLine(builder, "  nlc publish --aot")
+        CommandOutputKernels.AppendLine(builder, "  nlc publish --output ./dist")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Exit codes:")
+        CommandOutputKernels.AppendLine(builder, "  0  Publish succeeded")
         builder.Append("  1  Publish failed")
         return builder.ToString()
     }
@@ -246,10 +246,6 @@ class PublishCommandKernels {
 
     static func GetStartMessage(projectRoot: string): string {
         return "Publishing project in " + projectRoot + "..."
-    }
-
-    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
-        return Path.GetFullPath(projectOption ?? currentDirectory)
     }
 
     static func GetMissingProjectFileMessage(): string {
@@ -396,10 +392,5 @@ class PublishCommandKernels {
         }
 
         return ""
-    }
-
-    static func AppendLine(builder: StringBuilder, text: string) {
-        builder.Append(text)
-        builder.Append((char)10)
     }
 }

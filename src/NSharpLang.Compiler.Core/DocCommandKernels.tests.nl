@@ -52,8 +52,8 @@ test "help is asked for by the bare word, and by -h after a positional" {
 }
 
 test "doc output mode is 2 for text and 1 for json" {
-    assert DocCommandKernels.GetOutputMode(false) == 2
-    assert DocCommandKernels.GetOutputMode(true) == 1
+    assert CommandOutputKernels.GetOutputMode(false) == 2
+    assert CommandOutputKernels.GetOutputMode(true) == 1
 }
 
 // ── the generation order ──────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ test "the doc help text names the command, its usage and its failure exit condit
 }
 
 test "the doc command's sentences are exactly these" {
-    assert DocCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/missing-doc-project") == "Project directory not found: /tmp/missing-doc-project"
+    assert CommandOutputKernels.GetProjectDirectoryNotFoundMessage("/tmp/missing-doc-project") == "Project directory not found: /tmp/missing-doc-project"
     assert DocCommandKernels.GetGeneratedSummaryMessage(7) == "Generated API docs for 7 symbols."
     assert DocCommandKernels.GetOutputPathMessage("/tmp/api") == "Output: /tmp/api"
     assert DocCommandKernels.GetIndexPathMessage("/tmp/api/index.html") == "Index: /tmp/api/index.html"

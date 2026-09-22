@@ -41,7 +41,7 @@ class TidyCommand {
 
         projectRoot := options.ProjectOption ?? Environment.CurrentDirectory
         fix := options.Fix
-        outputMode := TidyCommandKernels.GetOutputMode(options.Json)
+        outputMode := CommandOutputKernels.GetOutputMode(options.Json)
 
         projectYml := Path.Combine(projectRoot, "project.yml")
         if !File.Exists(projectYml) {
@@ -250,7 +250,7 @@ class TidyCommand {
     static func BuildErrorJson(message: string): string {
         builder := new StringBuilder()
         builder.Append("{\"schemaVersion\":1,\"command\":\"tidy\",\"ok\":false,\"error\":{\"message\":")
-        AppendJsonString(builder, message)
+        CommandOutputKernels.AppendJsonString(builder, message)
         builder.Append("}}")
         return builder.ToString()
     }
@@ -265,7 +265,7 @@ class TidyCommand {
         }
 
         builder.Append(",\"projectRoot\":")
-        AppendJsonString(builder, NormalizeRoot(projectRoot))
+        CommandOutputKernels.AppendJsonString(builder, NormalizeRoot(projectRoot))
         builder.Append(",\"dependencies\":[")
 
         i := 0
@@ -276,13 +276,13 @@ class TidyCommand {
             }
 
             builder.Append("{\"name\":")
-            AppendJsonString(builder, dependency.Name)
+            CommandOutputKernels.AppendJsonString(builder, dependency.Name)
             builder.Append(",\"version\":")
-            AppendJsonNullableString(builder, dependency.Version)
+            CommandOutputKernels.AppendJsonNullableString(builder, dependency.Version)
             builder.Append(",\"status\":")
-            AppendJsonString(builder, dependency.Status)
+            CommandOutputKernels.AppendJsonString(builder, dependency.Status)
             builder.Append(",\"reason\":")
-            AppendJsonString(builder, dependency.Reason)
+            CommandOutputKernels.AppendJsonString(builder, dependency.Reason)
             builder.Append("}")
             i = i + 1
         }
@@ -323,39 +323,5 @@ class TidyCommand {
 
     static func NormalizeRoot(projectRoot: string): string {
         return projectRoot.Replace('\\', '/')
-    }
-
-    static func AppendJsonNullableString(builder: StringBuilder, value: string?) {
-        if value == null {
-            builder.Append("null")
-            return
-        }
-
-        AppendJsonString(builder, value ?? "")
-    }
-
-    static func AppendJsonString(builder: StringBuilder, value: string) {
-        builder.Append('"')
-        index := 0
-        while index < value.Length {
-            ch := value[index]
-            if ch == '"' {
-                builder.Append("\\\"")
-            } else if ch == '\\' {
-                builder.Append("\\\\")
-            } else if ch == '\n' {
-                builder.Append("\\n")
-            } else if ch == '\r' {
-                builder.Append("\\r")
-            } else if ch == '\t' {
-                builder.Append("\\t")
-            } else {
-                builder.Append(value.Substring(index, 1))
-            }
-
-            index = index + 1
-        }
-
-        builder.Append('"')
     }
 }

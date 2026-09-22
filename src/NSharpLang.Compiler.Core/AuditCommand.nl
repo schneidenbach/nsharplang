@@ -15,15 +15,15 @@ class AuditCommand {
         }
 
         projectRoot := Path.GetFullPath(options.ProjectOption ?? Environment.CurrentDirectory)
-        outputMode := AuditCommandKernels.GetOutputMode(options.Json)
+        outputMode := CommandOutputKernels.GetOutputMode(options.Json)
 
         if !Directory.Exists(projectRoot) {
-            return Error(AuditCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot))
+            return CommandOutputKernels.Error(CommandOutputKernels.GetProjectDirectoryNotFoundMessage(projectRoot))
         }
 
         csprojFiles := Directory.GetFiles(projectRoot, "*.csproj", SearchOption.TopDirectoryOnly)
         if csprojFiles.Length == 0 {
-            return Error(AuditCommandKernels.GetNoCsprojFileMessage())
+            return CommandOutputKernels.Error(AuditCommandKernels.GetNoCsprojFileMessage())
         }
 
         csproj := csprojFiles[0]
@@ -33,11 +33,11 @@ class AuditCommand {
 
             if result.ExitCode != 0 {
                 if result.Stderr.IndexOf("--vulnerable", StringComparison.Ordinal) >= 0 {
-                    return Error(AuditCommandKernels.GetVulnerableFlagUnsupportedMessage())
+                    return CommandOutputKernels.Error(AuditCommandKernels.GetVulnerableFlagUnsupportedMessage())
                 }
 
                 failedMessage := AuditCommandKernels.GetFailedMessage(result.Stderr).Trim()
-                return Error(failedMessage)
+                return CommandOutputKernels.Error(failedMessage)
             }
 
             output := result.Stdout
@@ -55,7 +55,7 @@ class AuditCommand {
 
             return 0
         } catch ex: Exception {
-            return Error(AuditCommandKernels.GetFailedMessage(ex.Message))
+            return CommandOutputKernels.Error(AuditCommandKernels.GetFailedMessage(ex.Message))
         }
     }
 
@@ -246,7 +246,7 @@ class AuditCommand {
         }
 
         builder.Append("  \"projectRoot\": ")
-        AppendJsonString(builder, projectRoot)
+        CommandOutputKernels.AppendJsonString(builder, projectRoot)
         builder.AppendLine(",")
         builder.Append("  \"vulnerabilityCount\": ")
         builder.Append(vulnerabilityCount.ToString())
@@ -254,35 +254,5 @@ class AuditCommand {
         builder.AppendLine("  \"details\": " + detailsJson)
         builder.AppendLine("}")
         return builder.ToString()
-    }
-
-    static func AppendJsonString(builder: StringBuilder, value: string) {
-        builder.Append('"')
-        index := 0
-        while index < value.Length {
-            ch := value[index]
-            if ch == '"' {
-                builder.Append("\\\"")
-            } else if ch == '\\' {
-                builder.Append("\\\\")
-            } else if ch == '\n' {
-                builder.Append("\\n")
-            } else if ch == '\r' {
-                builder.Append("\\r")
-            } else if ch == '\t' {
-                builder.Append("\\t")
-            } else {
-                builder.Append(value.Substring(index, 1))
-            }
-
-            index = index + 1
-        }
-
-        builder.Append('"')
-    }
-
-    static func Error(message: string): int {
-        Console.Error.WriteLine(message)
-        return 1
     }
 }

@@ -507,71 +507,14 @@ class OutputFormatterTextKernels {
         return right
     }
 
+    // The ordinal is the answer for a kind the shared table does not name — which is what the text
+    // formatter has always written, and is not what a doc page writes for the same kind.
     static func SymbolKindText(kind: SymbolKind): string {
-        if kind == SymbolKind.Function {
-            return "Function"
+        named := SymbolDisplayFacts.SymbolKindPascalText(kind)
+        if named.Length == 0 {
+            return Convert.ToInt32(kind).ToString()
         }
 
-        if kind == SymbolKind.Class {
-            return "Class"
-        }
-
-        if kind == SymbolKind.Struct {
-            return "Struct"
-        }
-
-        if kind == SymbolKind.Record {
-            return "Record"
-        }
-
-        if kind == SymbolKind.Interface {
-            return "Interface"
-        }
-
-        if kind == SymbolKind.Enum {
-            return "Enum"
-        }
-
-        if kind == SymbolKind.Union {
-            return "Union"
-        }
-
-        if kind == SymbolKind.Property {
-            return "Property"
-        }
-
-        if kind == SymbolKind.Field {
-            return "Field"
-        }
-
-        if kind == SymbolKind.Method {
-            return "Method"
-        }
-
-        if kind == SymbolKind.Variable {
-            return "Variable"
-        }
-
-        if kind == SymbolKind.Parameter {
-            return "Parameter"
-        }
-
-        if kind == SymbolKind.Constructor {
-            return "Constructor"
-        }
-
-        if kind == SymbolKind.EnumMember {
-            return "EnumMember"
-        }
-
-        if kind == SymbolKind.TypeAlias {
-            return "TypeAlias"
-        }
-
-        if kind == SymbolKind.Test {
-            return "Test"
-        }
-
-        return Convert.ToInt32(kind).ToString()
+        return named
     }
 }

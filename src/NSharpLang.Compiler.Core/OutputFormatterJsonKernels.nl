@@ -567,7 +567,7 @@ class OutputFormatterJsonKernels {
         }
 
         envelope["position"] = BuildPosition(line, col)
-        envelope["context"] = CompletionContextToJsonText(result.Context)
+        envelope["context"] = SymbolDisplayFacts.CompletionContextText(result.Context)
 
         receiver := BuildCompletionReceiver(result)
         if receiver != null {
@@ -1025,22 +1025,6 @@ class OutputFormatterJsonKernels {
         return payload
     }
 
-    static func CompletionContextToJsonText(context: CompletionContext): string {
-        if context == CompletionContext.MemberAccess {
-            return "memberaccess"
-        }
-
-        if context == CompletionContext.Identifier {
-            return "identifier"
-        }
-
-        if context == CompletionContext.Namespace {
-            return "namespace"
-        }
-
-        return "unknown"
-    }
-
     static func BuildInspectResult(result: InspectResult): Dictionary<string, object> {
         payload := new Dictionary<string, object>()
 
@@ -1117,7 +1101,7 @@ class OutputFormatterJsonKernels {
 
     static func BuildCompletionResult(result: CompletionResult): Dictionary<string, object> {
         payload := new Dictionary<string, object>()
-        payload["context"] = CompletionContextToJsonText(result.Context)
+        payload["context"] = SymbolDisplayFacts.CompletionContextText(result.Context)
 
         if result.Receiver != null {
             payload["receiver"] = result.Receiver ?? ""
@@ -1357,7 +1341,7 @@ class OutputFormatterJsonKernels {
     static func BuildSymbolResult(result: SymbolResult): Dictionary<string, object> {
         payload := new Dictionary<string, object>()
         payload["name"] = result.Name
-        payload["kind"] = SymbolKindToJsonText(result.Kind)
+        payload["kind"] = SymbolDisplayFacts.SymbolKindJsonText(result.Kind)
         payload["file"] = result.File
         payload["line"] = result.Line
         payload["column"] = result.Column
@@ -1429,7 +1413,7 @@ class OutputFormatterJsonKernels {
     static func BuildOutlineEntry(entry: OutlineEntry): Dictionary<string, object> {
         payload := new Dictionary<string, object>()
         payload["name"] = entry.Name
-        payload["kind"] = SymbolKindToJsonText(entry.Kind)
+        payload["kind"] = SymbolDisplayFacts.SymbolKindJsonText(entry.Kind)
         payload["line"] = entry.Line
         payload["endLine"] = entry.EndLine
 
@@ -1447,78 +1431,6 @@ class OutputFormatterJsonKernels {
         }
 
         return payload
-    }
-
-    static func SymbolKindToJsonText(kind: SymbolKind): string {
-        if kind == SymbolKind.Function {
-            return "function"
-        }
-
-        if kind == SymbolKind.Class {
-            return "class"
-        }
-
-        if kind == SymbolKind.Struct {
-            return "struct"
-        }
-
-        if kind == SymbolKind.Record {
-            return "record"
-        }
-
-        if kind == SymbolKind.Interface {
-            return "interface"
-        }
-
-        if kind == SymbolKind.Enum {
-            return "enum"
-        }
-
-        if kind == SymbolKind.Union {
-            return "union"
-        }
-
-        if kind == SymbolKind.Property {
-            return "property"
-        }
-
-        if kind == SymbolKind.Field {
-            return "field"
-        }
-
-        if kind == SymbolKind.Method {
-            return "method"
-        }
-
-        if kind == SymbolKind.Variable {
-            return "variable"
-        }
-
-        if kind == SymbolKind.Parameter {
-            return "parameter"
-        }
-
-        if kind == SymbolKind.Constructor {
-            return "constructor"
-        }
-
-        if kind == SymbolKind.EnumMember {
-            return "enumMember"
-        }
-
-        if kind == SymbolKind.TypeAlias {
-            return "typeAlias"
-        }
-
-        if kind == SymbolKind.Test {
-            return "test"
-        }
-
-        if kind == SymbolKind.Event {
-            return "event"
-        }
-
-        return "unknown"
     }
 
     static func BuildTypeResult(result: TypeResult): Dictionary<string, object> {

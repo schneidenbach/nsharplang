@@ -109,10 +109,6 @@ class BatchQueryOutputItem {
 }
 
 class BatchQueryOutputKernels {
-    static func CreateWriteIndentedOptions(): JsonSerializerOptions {
-        return new JsonSerializerOptions { WriteIndented: true }
-    }
-
     static func BuildExecutionResultJson(projectRoot: string?, items: IReadOnlyList<BatchQueryOutputItem>, successCount: int, failureCount: int): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
@@ -128,7 +124,7 @@ class BatchQueryOutputKernels {
         envelope["successCount"] = successCount
         envelope["failureCount"] = failureCount
         envelope["results"] = BuildResultItems(items)
-        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+        return JsonSerializer.Serialize(envelope, CommandOutputKernels.CreateWriteIndentedOptions())
     }
 
     static func NormalizeForOutput(command: string?, filePath: string?, pos: string?, name: string?, query: string?, kind: string?, severity: string?, includeKeywords: bool, summary: bool, compact: bool, clusters: bool): BatchQueryOutputRequest {

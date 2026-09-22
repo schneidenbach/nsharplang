@@ -27,7 +27,7 @@ class EnvCommand {
             return 0
         }
 
-        outputMode := EnvCommandKernels.GetOutputMode(options.Json)
+        outputMode := CommandOutputKernels.GetOutputMode(options.Json)
 
         nlcVersion := GetNlcVersion()
         dotnetVersion := RunCapture("--version") ?? "unknown"
@@ -163,71 +163,37 @@ class EnvCommand {
         builder := new StringBuilder()
         builder.Append("{\"schemaVersion\":2,\"command\":\"env\",\"ok\":true")
         builder.Append(",\"nlcVersion\":")
-        AppendJsonString(builder, nlcVersion)
+        CommandOutputKernels.AppendJsonString(builder, nlcVersion)
         builder.Append(",\"dotnetVersion\":")
-        AppendJsonString(builder, dotnetVersion)
+        CommandOutputKernels.AppendJsonString(builder, dotnetVersion)
         builder.Append(",\"runtime\":")
-        AppendJsonString(builder, runtime)
+        CommandOutputKernels.AppendJsonString(builder, runtime)
         builder.Append(",\"os\":")
-        AppendJsonString(builder, os)
+        CommandOutputKernels.AppendJsonString(builder, os)
         builder.Append(",\"arch\":")
-        AppendJsonString(builder, arch)
+        CommandOutputKernels.AppendJsonString(builder, arch)
         builder.Append(",\"nugetCachePath\":")
-        AppendJsonString(builder, nugetCachePath)
+        CommandOutputKernels.AppendJsonString(builder, nugetCachePath)
         builder.Append(",\"nsharpBinPath\":")
-        AppendJsonString(builder, nsharpBinPath)
+        CommandOutputKernels.AppendJsonString(builder, nsharpBinPath)
         builder.Append(",\"nsharpPackageCachePath\":")
-        AppendJsonString(builder, nsharpPackageCachePath)
+        CommandOutputKernels.AppendJsonString(builder, nsharpPackageCachePath)
 
         if projectInfo != null {
             info := projectInfo ?? new EnvProjectInfo(null, null, null, null)
             builder.Append(",\"project\":{")
             builder.Append("\"name\":")
-            AppendJsonNullableString(builder, info.Name)
+            CommandOutputKernels.AppendJsonNullableString(builder, info.Name)
             builder.Append(",\"targetFramework\":")
-            AppendJsonNullableString(builder, info.TargetFramework)
+            CommandOutputKernels.AppendJsonNullableString(builder, info.TargetFramework)
             builder.Append(",\"outputType\":")
-            AppendJsonNullableString(builder, info.OutputType)
+            CommandOutputKernels.AppendJsonNullableString(builder, info.OutputType)
             builder.Append(",\"sdk\":")
-            AppendJsonNullableString(builder, info.Sdk)
+            CommandOutputKernels.AppendJsonNullableString(builder, info.Sdk)
             builder.Append("}")
         }
 
         builder.Append("}")
         return builder.ToString()
-    }
-
-    static func AppendJsonNullableString(builder: StringBuilder, value: string?) {
-        if value == null {
-            builder.Append("null")
-            return
-        }
-
-        AppendJsonString(builder, value ?? "")
-    }
-
-    static func AppendJsonString(builder: StringBuilder, value: string) {
-        builder.Append('"')
-        index := 0
-        while index < value.Length {
-            ch := value[index]
-            if ch == '"' {
-                builder.Append("\\\"")
-            } else if ch == '\\' {
-                builder.Append("\\\\")
-            } else if ch == '\n' {
-                builder.Append("\\n")
-            } else if ch == '\r' {
-                builder.Append("\\r")
-            } else if ch == '\t' {
-                builder.Append("\\t")
-            } else {
-                builder.Append(value.Substring(index, 1))
-            }
-
-            index = index + 1
-        }
-
-        builder.Append('"')
     }
 }

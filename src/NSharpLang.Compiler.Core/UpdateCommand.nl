@@ -18,7 +18,7 @@ class UpdateCommand {
         dryRun := arguments.DryRun
 
         if !File.Exists(projectYml) {
-            return Error(UpdateCommandKernels.GetMissingProjectFileMessage())
+            return CommandOutputKernels.Error(UpdateCommandKernels.GetMissingProjectFileMessage())
         }
 
         targetPackage := arguments.TargetPackage
@@ -37,7 +37,7 @@ class UpdateCommand {
                 targetValue := targetPackage ?? ""
                 nugetDeps = UpdateDependencyFilter.FilterTargetNuGetDependencies(allNuGetDeps, targetValue)
                 if nugetDeps.Count == 0 {
-                    return Error(UpdateCommandKernels.GetPackageNotFoundMessage(targetValue))
+                    return CommandOutputKernels.Error(UpdateCommandKernels.GetPackageNotFoundMessage(targetValue))
                 }
             }
 
@@ -88,7 +88,7 @@ class UpdateCommand {
 
             return 0
         } catch ex: Exception {
-            return Error(UpdateCommandKernels.GetFailedMessage(ex.Message))
+            return CommandOutputKernels.Error(UpdateCommandKernels.GetFailedMessage(ex.Message))
         }
     }
 
@@ -187,10 +187,5 @@ class UpdateCommand {
         }
 
         File.WriteAllText(projectYml, builder.ToString())
-    }
-
-    static func Error(message: string): int {
-        Console.Error.WriteLine(message)
-        return 1
     }
 }

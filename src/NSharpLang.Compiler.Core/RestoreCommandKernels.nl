@@ -89,120 +89,92 @@ class RestoreCommandKernels {
         builder.Append('"')
         builder.Append("http://schemas.microsoft.com/developer/msbuild/2003")
         builder.Append('"')
-        AppendLine(builder, ">")
-        AppendLine(builder, "  <PropertyGroup>")
+        CommandOutputKernels.AppendLine(builder, ">")
+        CommandOutputKernels.AppendLine(builder, "  <PropertyGroup>")
         builder.Append("    <TargetFramework>")
         builder.Append(targetFramework)
-        AppendLine(builder, "</TargetFramework>")
+        CommandOutputKernels.AppendLine(builder, "</TargetFramework>")
         builder.Append("    <OutputType>")
         builder.Append(outputType)
-        AppendLine(builder, "</OutputType>")
+        CommandOutputKernels.AppendLine(builder, "</OutputType>")
         builder.Append("    <_NSharpOriginalOutputType>")
         builder.Append(outputType)
-        AppendLine(builder, "</_NSharpOriginalOutputType>")
+        CommandOutputKernels.AppendLine(builder, "</_NSharpOriginalOutputType>")
         builder.Append("    <AssemblyName>")
         builder.Append(projectName)
-        AppendLine(builder, "</AssemblyName>")
+        CommandOutputKernels.AppendLine(builder, "</AssemblyName>")
         if packageId != null && packageId.Trim().Length > 0 {
             builder.Append("    <PackageId>")
             builder.Append(XmlElementEscape(packageId))
-            AppendLine(builder, "</PackageId>")
+            CommandOutputKernels.AppendLine(builder, "</PackageId>")
         }
         if packageReadme != null && packageReadme.Trim().Length > 0 {
             builder.Append("    <PackageReadmeFile>")
             builder.Append(XmlElementEscape(packageReadme))
-            AppendLine(builder, "</PackageReadmeFile>")
+            CommandOutputKernels.AppendLine(builder, "</PackageReadmeFile>")
         }
         if packageAuthors != null && packageAuthors.Trim().Length > 0 {
             builder.Append("    <Authors>")
             builder.Append(XmlElementEscape(packageAuthors))
-            AppendLine(builder, "</Authors>")
+            CommandOutputKernels.AppendLine(builder, "</Authors>")
         }
         if packageDescription != null && packageDescription.Trim().Length > 0 {
             builder.Append("    <Description>")
             builder.Append(XmlElementEscape(packageDescription))
-            AppendLine(builder, "</Description>")
+            CommandOutputKernels.AppendLine(builder, "</Description>")
         }
         if packageTags != null && packageTags.Trim().Length > 0 {
             builder.Append("    <PackageTags>")
             builder.Append(XmlElementEscape(packageTags))
-            AppendLine(builder, "</PackageTags>")
+            CommandOutputKernels.AppendLine(builder, "</PackageTags>")
         }
         if packageLicenseExpression != null && packageLicenseExpression.Trim().Length > 0 {
             builder.Append("    <PackageLicenseExpression>")
             builder.Append(XmlElementEscape(packageLicenseExpression))
-            AppendLine(builder, "</PackageLicenseExpression>")
+            CommandOutputKernels.AppendLine(builder, "</PackageLicenseExpression>")
         }
         if packageProjectUrl != null && packageProjectUrl.Trim().Length > 0 {
             builder.Append("    <PackageProjectUrl>")
             builder.Append(XmlElementEscape(packageProjectUrl))
-            AppendLine(builder, "</PackageProjectUrl>")
+            CommandOutputKernels.AppendLine(builder, "</PackageProjectUrl>")
         }
         if repositoryUrl != null && repositoryUrl.Trim().Length > 0 {
             builder.Append("    <RepositoryUrl>")
             builder.Append(XmlElementEscape(repositoryUrl))
-            AppendLine(builder, "</RepositoryUrl>")
+            CommandOutputKernels.AppendLine(builder, "</RepositoryUrl>")
         }
         builder.Append("    <NSharpCompilationBackend>")
         builder.Append(backend)
-        AppendLine(builder, "</NSharpCompilationBackend>")
+        CommandOutputKernels.AppendLine(builder, "</NSharpCompilationBackend>")
         builder.Append("    <NSharpTestFramework>")
         builder.Append(testFramework)
-        AppendLine(builder, "</NSharpTestFramework>")
+        CommandOutputKernels.AppendLine(builder, "</NSharpTestFramework>")
         builder.Append("    <_NSharpBaseSdk>")
         builder.Append(baseSdk)
-        AppendLine(builder, "</_NSharpBaseSdk>")
-        AppendLine(builder, "  </PropertyGroup>")
+        CommandOutputKernels.AppendLine(builder, "</_NSharpBaseSdk>")
+        CommandOutputKernels.AppendLine(builder, "  </PropertyGroup>")
 
         if projectReferences.Length > 0 {
-            AppendLine(builder, "  <ItemGroup>")
+            CommandOutputKernels.AppendLine(builder, "  <ItemGroup>")
 
             i := 0
             while i < projectReferences.Length {
                 builder.Append("    <ProjectReference Include=")
                 builder.Append('"')
-                builder.Append(XmlAttributeEscape(projectReferences[i]))
+                builder.Append(CommandOutputKernels.XmlEscape(projectReferences[i]))
                 builder.Append('"')
-                AppendLine(builder, " />")
+                CommandOutputKernels.AppendLine(builder, " />")
                 i = i + 1
             }
 
-            AppendLine(builder, "  </ItemGroup>")
+            CommandOutputKernels.AppendLine(builder, "  </ItemGroup>")
         }
 
-        AppendLine(builder, "</Project>")
+        CommandOutputKernels.AppendLine(builder, "</Project>")
         return builder.ToString()
     }
 
-    static func AppendLine(builder: StringBuilder, text: string) {
-        builder.Append(text)
-        builder.Append((char)10)
-    }
-
-    static func XmlAttributeEscape(value: string): string {
-        result := ""
-        index := 0
-        while index < value.Length {
-            ch := value[index]
-            if ch == '&' {
-                result = result + "&amp;"
-            } else if ch == '"' {
-                result = result + "&quot;"
-            } else if ch == '<' {
-                result = result + "&lt;"
-            } else if ch == '>' {
-                result = result + "&gt;"
-            } else {
-                result = result + value.Substring(index, 1)
-            }
-
-            index = index + 1
-        }
-
-        return result
-    }
-
     static func XmlElementEscape(value: string): string {
-        return XmlAttributeEscape(value)
+        return CommandOutputKernels.XmlEscape(value)
     }
 }

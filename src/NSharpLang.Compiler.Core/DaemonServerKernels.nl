@@ -31,13 +31,13 @@ class DaemonServerKernels {
 
         parsedAny := false
         parsedLine := 0
-        if TryParseIntSegment(position, 0, colon, out parsedLine) {
+        if CommandOutputKernels.TryParseIntSegment(position, 0, colon, out parsedLine) {
             line = parsedLine
             parsedAny = true
         }
 
         parsedColumn := 0
-        if TryParseIntSegment(position, colon + 1, position.Length, out parsedColumn) {
+        if CommandOutputKernels.TryParseIntSegment(position, colon + 1, position.Length, out parsedColumn) {
             column = parsedColumn
             parsedAny = true
         }
@@ -200,70 +200,5 @@ class DaemonServerKernels {
         }
 
         return String.Compare(text, start, value, 0, value.Length, StringComparison.OrdinalIgnoreCase) == 0
-    }
-
-    static func TryParseIntSegment(text: string, start: int, end: int, out result: int): bool {
-        result = 0
-
-        while start < end && char.IsWhiteSpace(text[start]) {
-            start = start + 1
-        }
-
-        while end > start && char.IsWhiteSpace(text[end - 1]) {
-            end = end - 1
-        }
-
-        if start >= end {
-            return false
-        }
-
-        negative := false
-        if text[start] == '+' || text[start] == '-' {
-            negative = text[start] == '-'
-            start = start + 1
-            if start >= end {
-                return false
-            }
-        }
-
-        parsedValue := 0
-        index := start
-        while index < end {
-            ch := text[index]
-            if ch < '0' || ch > '9' {
-                return false
-            }
-
-            digit := ch - '0'
-            if parsedValue > 214748364 {
-                return false
-            }
-
-            if parsedValue == 214748364 {
-                if negative {
-                    if digit == 8 && index == end - 1 {
-                        result = 0 - 2147483647 - 1
-                        return true
-                    }
-
-                    return false
-                }
-
-                if digit > 7 {
-                    return false
-                }
-            }
-
-            parsedValue = parsedValue * 10 + digit
-            index = index + 1
-        }
-
-        if negative {
-            result = 0 - parsedValue
-        } else {
-            result = parsedValue
-        }
-
-        return true
     }
 }

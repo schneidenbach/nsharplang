@@ -18,13 +18,13 @@ class DocCommand {
             return 0
         }
 
-        outputMode := DocCommandKernels.GetOutputMode(options.Json)
+        outputMode := CommandOutputKernels.GetOutputMode(options.Json)
         openAfterGenerate := options.Open
-        projectRoot := DocCommandKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory())
+        projectRoot := CommandOutputKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory())
         outputDir := DocCommandKernels.GetOutputDirectory(projectRoot, options.OutputOption)
 
         if !Directory.Exists(projectRoot) {
-            return EmitError(outputMode, projectRoot, DocCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot))
+            return EmitError(outputMode, projectRoot, CommandOutputKernels.GetProjectDirectoryNotFoundMessage(projectRoot))
         }
 
         try {

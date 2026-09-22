@@ -198,10 +198,6 @@ class WatchCommandKernels {
         return new WatchPositiveIntOption(false, false, 0)
     }
 
-    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
-        return Path.GetFullPath(projectOption ?? currentDirectory)
-    }
-
     static func GetParsedOptionalIntValue(parsed: WatchPositiveIntOption): int? {
         if parsed.HasValue {
             return parsed.Value
@@ -240,10 +236,6 @@ class WatchCommandKernels {
 
     static func GetUnsupportedTargetMessage(target: string): string {
         return "Unsupported watch target '" + target + "'. Expected check, build, test, lint, or format."
-    }
-
-    static func GetProjectDirectoryNotFoundMessage(projectRoot: string): string {
-        return "Project directory not found: " + projectRoot
     }
 
     static func GetPositiveIntExpectedMessage(flag: string): string {

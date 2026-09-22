@@ -135,10 +135,6 @@ class TestOptionSummary {
 }
 
 class TestCommandKernels {
-    static func GetProjectRoot(projectOption: string?, currentDirectory: string): string {
-        return Path.GetFullPath(projectOption ?? currentDirectory)
-    }
-
     static func GetProjectYmlPath(projectRoot: string): string {
         return Path.Combine(projectRoot, "project.yml")
     }
@@ -236,11 +232,11 @@ class TestCommandKernels {
     }
 
     static func IsJsonOutputMode(outputMode: int): bool {
-        return outputMode == GetOutputMode(true)
+        return outputMode == CommandOutputKernels.GetOutputMode(true)
     }
 
     static func IsTextOutputMode(outputMode: int): bool {
-        return outputMode == GetOutputMode(false)
+        return outputMode == CommandOutputKernels.GetOutputMode(false)
     }
 
     // ── THE OUTCOME VOCABULARY ────────────────────────────────────────────────
@@ -328,7 +324,7 @@ class TestCommandKernels {
         envelope["schemaVersion"] = 1
         envelope["command"] = "test"
         envelope["ok"] = ok
-        envelope["projectRoot"] = NormalizePath(projectRoot)
+        envelope["projectRoot"] = CommandOutputKernels.NormalizePath(projectRoot)
 
         if errorMessage != null {
             envelope["error"] = errorMessage ?? ""
@@ -336,7 +332,7 @@ class TestCommandKernels {
 
         envelope["summary"] = BuildNativeTestSummary(summary)
         envelope["results"] = BuildNativeTestResults(testResults)
-        return JsonSerializer.Serialize(envelope, CreateWriteIndentedOptions())
+        return JsonSerializer.Serialize(envelope, CommandOutputKernels.CreateWriteIndentedOptions())
     }
 
     static func BuildNativeTestSummary(summary: NativeTestSummary): Dictionary<string, object> {
@@ -440,14 +436,6 @@ class TestCommandKernels {
         return new TestOptionSummary(project, backend, filter, timeout, verbose, json, coverageReport, collectCoverage, noCache, showHelp)
     }
 
-    static func GetOutputMode(json: bool): int {
-        if json {
-            return 1
-        }
-
-        return 2
-    }
-
     static func GetDurationMilliseconds(duration: string): int? {
         value := DurationMilliseconds(duration)
         if value < 0 {
@@ -523,40 +511,40 @@ class TestCommandKernels {
 
     static func GetHelpText(): string {
         builder := new StringBuilder()
-        AppendLine(builder, "N# Test")
-        AppendLine(builder, "")
-        AppendLine(builder, "Usage: nlc test [options]")
-        AppendLine(builder, "")
-        AppendLine(builder, "Run `.tests.nl` suites through the IL compilation backend.")
-        AppendLine(builder, "")
-        AppendLine(builder, "Options:")
-        AppendLine(builder, "  --project <dir>       Project root directory (default: current directory)")
-        AppendLine(builder, "  --backend <mode>      Compilation backend: il")
-        AppendLine(builder, "  --filter <name>       Run only tests whose display name or fully-qualified name matches")
-        AppendLine(builder, "  --verbose             Show individual test results")
-        AppendLine(builder, "  --json                Output results as structured JSON (schemaVersion 1 envelope)")
-        AppendLine(builder, "  --timeout <duration>  Test timeout per assembly (e.g., 30s, 5m, 1h). Default: no timeout")
-        AppendLine(builder, "  --no-cache            Force clean rebuild before running tests (bypass incremental build)")
-        AppendLine(builder, "  --coverage            Planned; currently exits with unsupported-feature guidance")
-        AppendLine(builder, "  --coverage-report     Planned; currently exits with unsupported-feature guidance")
-        AppendLine(builder, "  --help, -h            Show this help text")
-        AppendLine(builder, "")
-        AppendLine(builder, "The test framework is configured in project.yml via the `testFramework` field.")
-        AppendLine(builder, "Supported values: xunit (default), nunit")
-        AppendLine(builder, "")
-        AppendLine(builder, "Coverage collection is not available in the native nlc test runner yet.")
-        AppendLine(builder, "When --coverage or --coverage-report is requested, nlc exits 1 and emits")
-        AppendLine(builder, "a structured JSON error if --json was also requested.")
-        AppendLine(builder, "")
-        AppendLine(builder, "Examples:")
-        AppendLine(builder, "  nlc test")
-        AppendLine(builder, "  nlc test --backend il")
-        AppendLine(builder, "  nlc test --filter AddPerson")
-        AppendLine(builder, "  nlc test --project examples/16-task-cli --verbose")
-        AppendLine(builder, "  nlc test --json")
-        AppendLine(builder, "")
-        AppendLine(builder, "Exit codes:")
-        AppendLine(builder, "  0  Tests passed")
+        CommandOutputKernels.AppendLine(builder, "N# Test")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Usage: nlc test [options]")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Run `.tests.nl` suites through the IL compilation backend.")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Options:")
+        CommandOutputKernels.AppendLine(builder, "  --project <dir>       Project root directory (default: current directory)")
+        CommandOutputKernels.AppendLine(builder, "  --backend <mode>      Compilation backend: il")
+        CommandOutputKernels.AppendLine(builder, "  --filter <name>       Run only tests whose display name or fully-qualified name matches")
+        CommandOutputKernels.AppendLine(builder, "  --verbose             Show individual test results")
+        CommandOutputKernels.AppendLine(builder, "  --json                Output results as structured JSON (schemaVersion 1 envelope)")
+        CommandOutputKernels.AppendLine(builder, "  --timeout <duration>  Test timeout per assembly (e.g., 30s, 5m, 1h). Default: no timeout")
+        CommandOutputKernels.AppendLine(builder, "  --no-cache            Force clean rebuild before running tests (bypass incremental build)")
+        CommandOutputKernels.AppendLine(builder, "  --coverage            Planned; currently exits with unsupported-feature guidance")
+        CommandOutputKernels.AppendLine(builder, "  --coverage-report     Planned; currently exits with unsupported-feature guidance")
+        CommandOutputKernels.AppendLine(builder, "  --help, -h            Show this help text")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "The test framework is configured in project.yml via the `testFramework` field.")
+        CommandOutputKernels.AppendLine(builder, "Supported values: xunit (default), nunit")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Coverage collection is not available in the native nlc test runner yet.")
+        CommandOutputKernels.AppendLine(builder, "When --coverage or --coverage-report is requested, nlc exits 1 and emits")
+        CommandOutputKernels.AppendLine(builder, "a structured JSON error if --json was also requested.")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Examples:")
+        CommandOutputKernels.AppendLine(builder, "  nlc test")
+        CommandOutputKernels.AppendLine(builder, "  nlc test --backend il")
+        CommandOutputKernels.AppendLine(builder, "  nlc test --filter AddPerson")
+        CommandOutputKernels.AppendLine(builder, "  nlc test --project examples/16-task-cli --verbose")
+        CommandOutputKernels.AppendLine(builder, "  nlc test --json")
+        CommandOutputKernels.AppendLine(builder, "")
+        CommandOutputKernels.AppendLine(builder, "Exit codes:")
+        CommandOutputKernels.AppendLine(builder, "  0  Tests passed")
         builder.Append("  1  Compilation or test execution failed")
         return builder.ToString()
     }
@@ -767,23 +755,5 @@ class TestCommandKernels {
 
     static func ContainsIgnoreCase(text: string, part: string): bool {
         return text.IndexOf(part, StringComparison.OrdinalIgnoreCase) >= 0
-    }
-
-    static func CreateWriteIndentedOptions(): JsonSerializerOptions {
-        return new JsonSerializerOptions { WriteIndented: true }
-    }
-
-    static func NormalizePath(path: string): string {
-        normalized := OutputFormatterNormalizationKernels.NormalizePath(path)
-        if normalized != null {
-            return normalized ?? ""
-        }
-
-        return path
-    }
-
-    static func AppendLine(builder: StringBuilder, text: string) {
-        builder.Append(text)
-        builder.Append((char)10)
     }
 }

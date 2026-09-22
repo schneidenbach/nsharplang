@@ -184,7 +184,7 @@ test "the format help text names the command, its usage and its failure exit con
 test "the format command's failure sentences are exactly these" {
     assert FormatCommandKernels.GetStdinWithFilesMessage() == "Cannot combine --stdin with file arguments."
     assert FormatCommandKernels.GetNoFilesFoundMessage() == "No .nl files found to format."
-    assert FormatCommandKernels.GetFileNotFoundMessage("Missing.nl") == "File not found: Missing.nl"
+    assert CommandOutputKernels.GetFileNotFoundMessage("Missing.nl") == "File not found: Missing.nl"
     assert FormatCommandKernels.GetErrorFormattingMessage("Broken.nl", "parse failed") == "Error formatting Broken.nl: parse failed"
     assert FormatCommandKernels.GetFailedMessage("disk full") == "Format failed: disk full"
     assert FormatCommandKernels.GetParseErrorsMessage("src/Broken.nl", "expected expression") == "Parse errors in src/Broken.nl: expected expression"

@@ -260,13 +260,13 @@ class QueryCommandKernels {
             return false
         }
 
-        if !TryParseIntSegment(position, 0, colon, out line) {
+        if !CommandOutputKernels.TryParseIntSegment(position, 0, colon, out line) {
             line = 0
             column = 0
             return false
         }
 
-        if !TryParseIntSegment(position, colon + 1, position.Length, out column) {
+        if !CommandOutputKernels.TryParseIntSegment(position, colon + 1, position.Length, out column) {
             column = 0
             return false
         }
@@ -276,7 +276,7 @@ class QueryCommandKernels {
 
     static func ParsePositiveInt(valueText: string, out result: int): bool {
         result = 0
-        if !TryParseIntSegment(valueText, 0, valueText.Length, out result) {
+        if !CommandOutputKernels.TryParseIntSegment(valueText, 0, valueText.Length, out result) {
             result = 0
             return false
         }
@@ -594,7 +594,7 @@ class QueryCommandKernels {
             return false
         }
 
-        if TryParseIntSegment(kind, start, end, out result) {
+        if CommandOutputKernels.TryParseIntSegment(kind, start, end, out result) {
             return true
         }
 
@@ -760,71 +760,6 @@ class QueryCommandKernels {
         line = localLine
         column = localColumn
         return 1
-    }
-
-    static func TryParseIntSegment(text: string, start: int, end: int, out result: int): bool {
-        result = 0
-
-        while start < end && IsWhiteSpace(text[start]) {
-            start = start + 1
-        }
-
-        while end > start && IsWhiteSpace(text[end - 1]) {
-            end = end - 1
-        }
-
-        if start >= end {
-            return false
-        }
-
-        negative := false
-        if text[start] == '+' || text[start] == '-' {
-            negative = text[start] == '-'
-            start = start + 1
-            if start >= end {
-                return false
-            }
-        }
-
-        parsedValue := 0
-        index := start
-        while index < end {
-            ch := text[index]
-            if ch < '0' || ch > '9' {
-                return false
-            }
-
-            digit := ch - '0'
-            if parsedValue > 214748364 {
-                return false
-            }
-
-            if parsedValue == 214748364 {
-                if negative {
-                    if digit == 8 && index == end - 1 {
-                        result = 0 - 2147483647 - 1
-                        return true
-                    }
-
-                    return false
-                }
-
-                if digit > 7 {
-                    return false
-                }
-            }
-
-            parsedValue = parsedValue * 10 + digit
-            index = index + 1
-        }
-
-        if negative {
-            result = 0 - parsedValue
-        } else {
-            result = parsedValue
-        }
-
-        return true
     }
 
     static func IsWhiteSpace(ch: char): bool {

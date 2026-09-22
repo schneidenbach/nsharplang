@@ -26,8 +26,8 @@ test "doctor asks for help on the bare word and on a trailing short flag, and re
 }
 
 test "doctor output mode is 2 for text and 1 for json" {
-    assert DoctorCommandKernels.GetOutputMode(false) == 2
-    assert DoctorCommandKernels.GetOutputMode(true) == 1
+    assert CommandOutputKernels.GetOutputMode(false) == 2
+    assert CommandOutputKernels.GetOutputMode(true) == 1
 }
 
 test "the doctor help text names the command, its usage and its failure banner" {

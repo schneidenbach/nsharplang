@@ -47,8 +47,8 @@ test "the bare word help asks for help" {
 // ── the output mode ───────────────────────────────────────────────────────────
 
 test "tree output mode is 2 for text and 1 for json" {
-    assert TreeCommandKernels.GetOutputMode(false) == 2
-    assert TreeCommandKernels.GetOutputMode(true) == 1
+    assert CommandOutputKernels.GetOutputMode(false) == 2
+    assert CommandOutputKernels.GetOutputMode(true) == 1
 }
 
 // ── the depth parser ──────────────────────────────────────────────────────────
@@ -125,7 +125,7 @@ test "the tree help text names the command, its usage and its failure banner" {
 }
 
 test "every tree message is spelled by a kernel, character for character" {
-    assert TreeCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing") == "Project directory not found: /tmp/nsharp-missing"
+    assert CommandOutputKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing") == "Project directory not found: /tmp/nsharp-missing"
     assert TreeCommandKernels.GetTreeFailedMessage("bad graph") == "Tree failed: bad graph"
     assert TreeCommandKernels.GetNoProjectFileMessage().Contains("No project.yml or .csproj found")
     assert TreeCommandKernels.GetProjectYmlLimitationMessage().Contains("direct runtime dependencies")

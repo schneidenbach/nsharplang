@@ -181,7 +181,7 @@ class OutputFormatterTextBuilders {
 
     static func CompletionsToText(result: CompletionResult, fileName: string, line: int, column: int): string {
         builder := new StringBuilder()
-        builder.AppendLine(OutputFormatterTextKernels.GetCompletionsHeaderText(fileName, line, column, CompletionContextText(result.Context)))
+        builder.AppendLine(OutputFormatterTextKernels.GetCompletionsHeaderText(fileName, line, column, SymbolDisplayFacts.CompletionContextText(result.Context)))
 
         if result.Receiver != null {
             receiver := result.Receiver ?? ""
@@ -499,21 +499,5 @@ class OutputFormatterTextBuilders {
                 }
             }
         }
-    }
-
-    static func CompletionContextText(context: CompletionContext): string {
-        if context == CompletionContext.MemberAccess {
-            return "memberaccess"
-        }
-
-        if context == CompletionContext.Identifier {
-            return "identifier"
-        }
-
-        if context == CompletionContext.Namespace {
-            return "namespace"
-        }
-
-        return "unknown"
     }
 }

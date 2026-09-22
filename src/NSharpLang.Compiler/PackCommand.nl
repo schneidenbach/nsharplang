@@ -20,12 +20,12 @@ class PackCommand {
             return 0
         }
 
-        projectRoot := PackCommandKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory())
+        projectRoot := CommandOutputKernels.GetProjectRoot(options.ProjectOption, Directory.GetCurrentDirectory())
         outputDir := options.OutputDir
         versionOverride := options.VersionOverride
         configuration := options.Configuration
         includeSymbols := options.IncludeSymbols
-        outputMode := PackCommandKernels.GetOutputMode(options.JsonOutput)
+        outputMode := CommandOutputKernels.GetOutputMode(options.JsonOutput)
 
         projectYmlPath := PackCommandKernels.GetProjectYmlPath(projectRoot)
         if !File.Exists(projectYmlPath) {

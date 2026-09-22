@@ -34,8 +34,8 @@ test "audit asks for help on the bare word and on a trailing short flag" {
 }
 
 test "audit output mode is 2 for text and 1 for json" {
-    assert AuditCommandKernels.GetOutputMode(false) == 2
-    assert AuditCommandKernels.GetOutputMode(true) == 1
+    assert CommandOutputKernels.GetOutputMode(false) == 2
+    assert CommandOutputKernels.GetOutputMode(true) == 1
 }
 
 test "the audit help text names the command, its usage and its failure banner" {
@@ -47,7 +47,7 @@ test "the audit help text names the command, its usage and its failure banner" {
 }
 
 test "every audit sentence is spelled by a kernel, character for character" {
-    assert AuditCommandKernels.GetProjectDirectoryNotFoundMessage("/missing/project") == "Project directory not found: /missing/project"
+    assert CommandOutputKernels.GetProjectDirectoryNotFoundMessage("/missing/project") == "Project directory not found: /missing/project"
     assert AuditCommandKernels.GetNoCsprojFileMessage() == "No .csproj file found. Run 'nlc init' to create one."
     assert AuditCommandKernels.GetVulnerableFlagUnsupportedMessage() == "The --vulnerable flag requires .NET SDK 8.0 or later."
     assert AuditCommandKernels.GetFailedMessage("denied") == "Audit failed: denied"

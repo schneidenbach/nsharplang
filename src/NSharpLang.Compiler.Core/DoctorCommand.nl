@@ -42,7 +42,7 @@ class DoctorCommand {
             return 0
         }
 
-        outputMode := DoctorCommandKernels.GetOutputMode(options.Json)
+        outputMode := CommandOutputKernels.GetOutputMode(options.Json)
         requireVscode := options.RequireVscode
         skipVscode := options.SkipVscode
         checks := new List<DoctorCheck>()
@@ -311,11 +311,11 @@ class DoctorCommand {
             }
 
             builder.Append("{\"name\":")
-            AppendJsonString(builder, check.Name)
+            CommandOutputKernels.AppendJsonString(builder, check.Name)
             builder.Append(",\"status\":")
-            AppendJsonString(builder, check.Status)
+            CommandOutputKernels.AppendJsonString(builder, check.Status)
             builder.Append(",\"detail\":")
-            AppendJsonString(builder, check.Detail)
+            CommandOutputKernels.AppendJsonString(builder, check.Detail)
             builder.Append(",\"required\":")
             if check.IsRequired {
                 builder.Append("true")
@@ -329,30 +329,5 @@ class DoctorCommand {
 
         builder.Append("]}")
         return builder.ToString()
-    }
-
-    static func AppendJsonString(builder: StringBuilder, value: string) {
-        builder.Append('"')
-        index := 0
-        while index < value.Length {
-            ch := value[index]
-            if ch == '"' {
-                builder.Append("\\\"")
-            } else if ch == '\\' {
-                builder.Append("\\\\")
-            } else if ch == '\n' {
-                builder.Append("\\n")
-            } else if ch == '\r' {
-                builder.Append("\\r")
-            } else if ch == '\t' {
-                builder.Append("\\t")
-            } else {
-                builder.Append(value.Substring(index, 1))
-            }
-
-            index = index + 1
-        }
-
-        builder.Append('"')
     }
 }
