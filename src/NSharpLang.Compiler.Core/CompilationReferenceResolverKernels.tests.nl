@@ -260,40 +260,46 @@ test "a compatible older framework scores by family and version, and a newer one
     assert CompilationReferenceResolverKernels.GetFrameworkCompatibilityScore("netbad", "net10.0") == -1
 }
 
-// ── nearest-wins, the rule that replaced first-wins ───────────────────────────
+// ── direct wins, then highest wins ───────────────────────────────────────────
 //
-// A `nuget:` list is a set of ROOTS. Distance from the project, not position in the list, decides
-// which occurrence of a package id survives — which is why a pin written after a package that
-// already carries that dependency must still bind.
+// A `nuget:` list is a set of ROOTS. A DIRECT reference overrides the graph however the list is
+// written; among transitive occurrences the highest version wins, because a declared dependency
+// version is a minimum bound and satisfying every edge means taking the highest of them. Both
+// halves are what `dotnet restore` was measured doing — see the kernel's own comment for the two
+// graphs and their resolved answers.
 
 test "the first occurrence of a package id is always taken" {
-    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(false, "", 0, "1.0.0", 0)
-    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(false, "", 0, "6.0.0", 3)
+    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(false, "", false, "1.0.0", true)
+    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(false, "", false, "6.0.0", false)
 }
 
-test "a nearer occurrence replaces a further one, whichever version it names" {
+test "a direct reference overrides a transitive one, including downwards" {
     // the round-11 shape: a transitive 6.0.0 reached first, then the project's own 9.0.0 pin
-    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "6.0.0", 1, "9.0.0", 0)
-    // and a nearer occurrence wins even when it is LOWER, because nearest-wins is not highest-wins
-    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "9.0.0", 2, "6.0.0", 1)
+    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "6.0.0", false, "9.0.0", true)
+    // and a direct DOWNGRADE still wins, which is `dotnet restore`'s answer too: a direct
+    // `Microsoft.OpenApi 1.6.17` beneath a transitive 1.6.22 resolves 1.6.17 and warns NU1605
+    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "1.6.22", false, "1.6.17", true)
 }
 
-test "a further occurrence never replaces a nearer one" {
-    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "9.0.0", 0, "10.0.0", 1)
-    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "1.0.0", 1, "2.0.0", 2)
+test "a transitive occurrence never displaces a direct one" {
+    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "9.0.0", true, "10.0.0", false)
+    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "1.6.17", true, "1.6.22", false)
 }
 
-test "two occurrences the same distance out unify on the higher version" {
-    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "6.0.0", 1, "9.0.0", 1)
-    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "9.0.0", 1, "6.0.0", 1)
+test "two transitive occurrences unify on the higher version whatever their distance" {
+    // the `nsharp-webapi` graph: `Microsoft.AspNetCore.OpenApi` names 1.6.17 one level NEARER than
+    // `Swashbuckle.AspNetCore -> ...Swagger` names 1.6.22, and `dotnet restore` resolves 1.6.22
+    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "1.6.17", false, "1.6.22", false)
+    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "1.6.22", false, "1.6.17", false)
     // an equal version is not higher, so the standing selection stands and its subtree is not rewalked
-    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "9.0.0", 1, "9.0.0", 1)
+    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "9.0.0", false, "9.0.0", false)
+    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "9.0.0", true, "9.0.0", true)
     // Ordering is `BestNuGetVersionCompare`, the SAME comparison `SelectBestNuGetVersionIndex`
     // already uses to pick an installed version, so the two places that order versions cannot
     // drift apart. It compares the numeric core and falls back to an ordinal string compare, which
     // ranks `2.0.0-preview` ABOVE `2.0.0`; that is this kernel's established behavior, pinned by
-    // the rows above, and nearest-wins inherits it rather than introducing a second ordering.
-    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "2.0.0", 0, "2.0.0-preview", 0)
+    // the rows above, and the selection inherits it rather than introducing a second ordering.
+    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "2.0.0", false, "2.0.0-preview", false)
 }
 
 // ── the install markers that make a version directory a package ───────────────

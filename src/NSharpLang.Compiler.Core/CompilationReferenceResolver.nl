@@ -338,16 +338,18 @@ sealed class CompilationReferenceResolver {
     // ── LEVEL-ORDER SELECTION ─────────────────────────────────────────────────────────────────
     //
     // Every declared `nuget:` entry enters at depth 0 and every dependency a selected package
-    // declares enters one level further out, so the queue is drained nearest-first. A candidate
-    // replaces the standing selection only when it is strictly nearer, or equally near and a
-    // higher version — which is NuGet's rule, and which also terminates on a dependency cycle
-    // because depth grows along every path while a win requires it not to.
+    // declares enters one level further out, so the queue is drained nearest-first and every
+    // DIRECT reference is settled before any transitive occurrence is looked at.
+    // `ShouldSelectNuGetPackageCandidate` carries the rule and says why it is direct-then-highest
+    // rather than plain nearest. The walk terminates because a win requires either a direct
+    // reference — only depth 0, each declared once — or a strictly higher version of the same id,
+    // and the versions reachable for an id are a finite set the nuspecs fix.
     private static func SelectNuGetPackageVersions(
         packageReferences: List<Reference>,
         targetFramework: string
     ): Dictionary<string, string> {
         selectedVersions := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        selectedDepths := new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        selectedDirect := new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
         pending := new List<PackageResolutionNode>()
 
         rootIndex := 0
@@ -374,26 +376,26 @@ sealed class CompilationReferenceResolver {
 
             let selectedVersion: string = ""
             hasSelection := selectedVersions.TryGetValue(normalizedId, out selectedVersion)
-            selectedDepth := 0
+            selectedIsDirect := false
             if hasSelection {
-                let existingDepth: int = 0
-                if selectedDepths.TryGetValue(normalizedId, out existingDepth) {
-                    selectedDepth = existingDepth
+                let existingDirect: bool = false
+                if selectedDirect.TryGetValue(normalizedId, out existingDirect) {
+                    selectedIsDirect = existingDirect
                 }
             }
 
             if !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(
                 hasSelection,
                 selectedVersion,
-                selectedDepth,
+                selectedIsDirect,
                 candidateVersion,
-                node.Depth
+                node.Depth == 0
             ) {
                 continue
             }
 
             selectedVersions[normalizedId] = candidateVersion
-            selectedDepths[normalizedId] = node.Depth
+            selectedDirect[normalizedId] = node.Depth == 0
 
             dependencies := ReadPackageDependencies(versionDirectory, targetFramework)
             dependencyIndex := 0

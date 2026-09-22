@@ -127,34 +127,50 @@ class CompilationReferenceResolverKernels {
         return Path.GetFileName(versionDirectory) ?? ""
     }
 
-    // ── NEAREST-WINS, WHICH IS WHAT NUGET DOES AND WHAT FIRST-WINS IS NOT ─────────────────────
+    // ── DIRECT WINS, THEN HIGHEST WINS — MEASURED AGAINST `dotnet restore`, NOT RECALLED ──────
     //
-    // A `nuget:` list is a set of ROOTS, not an ordered search path. NuGet walks the graph in
-    // level order and, for one package id, keeps the occurrence CLOSEST to the project; a direct
-    // reference is at distance zero, so it beats every transitive one however the list is written.
-    // Two occurrences the same distance away unify on the HIGHER version.
+    // A `nuget:` list is a set of ROOTS, not an ordered search path. Resolving each root's closure
+    // in turn and keeping the first version reached makes the ORDER of the list decide: measured,
+    // `Microsoft.Extensions.Logging 9.0.0` written after `OmniSharp.Extensions.LanguageServer`
+    // bound OmniSharp's transitive 6.0.0 through `nlc build` while `dotnet build` bound the pin.
     //
-    // Resolving each root's closure in turn and keeping the first version reached instead makes a
-    // pin written after a package that already carries that dependency silently ineffective:
-    // measured, `Microsoft.Extensions.Logging 9.0.0` written after `OmniSharp.Extensions.
-    // LanguageServer` bound OmniSharp's transitive 6.0.0 through `nlc build` while `dotnet build`
-    // bound the pinned 9.0.0 from the same tree.
+    // THE RULE IS NOT PLAIN NEAREST-WINS, AND THAT COST A BROKEN TEMPLATE TO LEARN. Selecting the
+    // occurrence closest to the project resolved `Microsoft.OpenApi 1.6.17` for the `nsharp-webapi`
+    // template, because `Microsoft.AspNetCore.OpenApi 9.0.0` names it one level nearer than
+    // `Swashbuckle.AspNetCore -> Swashbuckle.AspNetCore.Swagger` does. `dotnet restore` of the same
+    // two references resolves **1.6.22** — the FURTHER, higher one. A dependency version is a
+    // minimum bound, so satisfying every edge means taking the highest of them; distance only
+    // decides when a DIRECT reference overrides the graph, and NuGet reports that as NU1605 rather
+    // than resolving it by version:
+    //
+    //   | graph | `dotnet restore` resolves |
+    //   | Swashbuckle 7.2.0 (-> 1.6.22 at depth 3) + AspNetCore.OpenApi 9.0.0 (-> 1.6.17 at depth 2) | 1.6.22 |
+    //   | the same, plus a DIRECT `Microsoft.OpenApi 1.6.17` | 1.6.17, with NU1605 |
+    //
+    // So: a direct reference beats every transitive occurrence however the list is written, and
+    // among transitive occurrences the HIGHEST version wins whatever their distance. Distance
+    // beyond direct-or-not is not consulted, because it is not what NuGet consults.
+    //
+    // `NormalizeNuGetDependencyVersion` collapses a declared range to its minimum, so an EXACT
+    // range (`[1.0.0]`) is indistinguishable here from a lower bound. NuGet would report that
+    // conflict; this cannot, and a package pinned that way is the one shape this rule can still
+    // resolve higher than its author allowed.
     static func ShouldSelectNuGetPackageCandidate(
         hasSelection: bool,
         selectedVersion: string,
-        selectedDepth: int,
+        selectedIsDirect: bool,
         candidateVersion: string,
-        candidateDepth: int
+        candidateIsDirect: bool
     ): bool {
         if !hasSelection {
             return true
         }
 
-        if candidateDepth < selectedDepth {
+        if candidateIsDirect && !selectedIsDirect {
             return true
         }
 
-        if candidateDepth > selectedDepth {
+        if selectedIsDirect && !candidateIsDirect {
             return false
         }
 

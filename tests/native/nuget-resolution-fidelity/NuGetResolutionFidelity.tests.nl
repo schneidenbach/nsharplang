@@ -24,27 +24,61 @@ func ResolutionBuildLeaf(cli: string, scratch: string, version: string, marker: 
     return Path.Combine(ResolutionOutputDirectory(projectDirectory), "ResolutionLeaf.dll")
 }
 
-// THE PIN IS WRITTEN LAST, ON PURPOSE. `NlcResolution.Mid` carries `NlcResolution.Leaf 1.0.0`
-// transitively and is declared first, so a resolver that takes each root's closure in turn and
-// keeps the first version it reaches binds 1.0.0 and the pin below does nothing at all. NuGet
-// binds 2.0.0: the declared reference is at distance zero.
-func ResolutionAppProjectYml(): string {
-    return """
-name: ResolutionApp
-version: 1.0.0
-backend: il
-outputType: exe
-targetFramework: net10.0
-dependencies:
-  - nuget: NlcResolution.Mid
-    version: 1.0.0
-  - nuget: NlcResolution.Leaf
-    version: 2.0.0
-"""
+// ── THE GRAPH EACH ROW BUILDS, AND WHY THE ORDER OF THE LIST IS PART OF IT ───────────────────
+//
+// Every row below declares its `nuget:` entries in the order that makes a first-wins resolver give
+// the WRONG answer, so the list order is under test rather than routed around.
+func ResolutionAppProjectYml(dependencies: string): string {
+    return "name: ResolutionApp\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n" + dependencies
+}
+
+func ResolutionDependency(packageId: string, version: string): string {
+    return "  - nuget: " + packageId + "\n    version: " + version + "\n"
 }
 
 func ResolutionAppSource(): string {
     return "namespace ResolutionApp\n\nimport ResolutionLeaf\n\nfunc main() {\n    name := LeafMarker.Name()\n    print name\n}\n"
+}
+
+func ResolutionNoDependencies(): string {
+    return "      <group targetFramework=\"net10.0\" />\n"
+}
+
+func ResolutionDependsOn(packageId: string, version: string): string {
+    return "      <group targetFramework=\"net10.0\">\n        <dependency id=\"" + packageId + "\" version=\"" + version + "\" />\n      </group>\n"
+}
+
+// Both leaf builds installed as packages, so a row only has to describe the graph ABOVE them.
+func ResolutionInstallLeaves(cli: string, scratch: string, cache: string) {
+    leafOne := ResolutionBuildLeaf(cli, scratch, "1.0.0", "leaf-1")
+    leafTwo := ResolutionBuildLeaf(cli, scratch, "2.0.0", "leaf-2")
+
+    leafOneDirectory := ResolutionPackageDirectory(cache, "NlcResolution.Leaf", "1.0.0")
+    ResolutionWriteNuspec(leafOneDirectory, "NlcResolution.Leaf", "1.0.0", ResolutionNoDependencies())
+    ResolutionInstallLibrary(leafOneDirectory, leafOne)
+
+    leafTwoDirectory := ResolutionPackageDirectory(cache, "NlcResolution.Leaf", "2.0.0")
+    ResolutionWriteNuspec(leafTwoDirectory, "NlcResolution.Leaf", "2.0.0", ResolutionNoDependencies())
+    ResolutionInstallLibrary(leafTwoDirectory, leafTwo)
+}
+
+func ResolutionWriteCarrier(cache: string, packageId: string, dependenciesXml: string) {
+    ResolutionWriteNuspec(ResolutionPackageDirectory(cache, packageId, "1.0.0"), packageId, "1.0.0", dependenciesXml)
+}
+
+// The answer to "which version did the COMPILER bind", read out of the emitted assembly, plus the
+// program's own answer as a second, independent witness that the binding is usable.
+func ResolutionBoundLeaf(cli: string, scratch: string, cache: string, dependencies: string, contextName: string): ResolutionRun {
+    appDirectory := Path.Combine(scratch, "app")
+    ResolutionWriteProject(appDirectory, ResolutionAppProjectYml(dependencies), "Program.nl", ResolutionAppSource())
+    build := ResolutionRunInCache(ResolutionQuote(cli) + " build", appDirectory, cache)
+    ResolutionRequireSuccess(build, "nlc build of the resolution sample")
+
+    appAssembly := Path.Combine(ResolutionOutputDirectory(appDirectory), "ResolutionApp.dll")
+    bound := ResolutionReferencedAssembly(appAssembly, contextName, "ResolutionLeaf,")
+    run := ResolutionRunDotnet(ResolutionQuote(appAssembly), appDirectory)
+    ResolutionRequireSuccess(run, "running the resolution sample")
+    return new ResolutionRun(0, bound, run.Stdout.Trim())
 }
 
 func ResolutionSha512Base64(path: string): string {
@@ -58,47 +92,82 @@ func ResolutionSha512Base64(path: string): string {
     }
 }
 
-test "a direct nuget pin binds even when a package declared earlier already carries it" {
-    root := ResolutionRepositoryRoot()
-    cli := ResolutionCliPath(root)
-    scratch := Path.Combine(Path.Combine(root, "artifacts"), "nuget-resolution-nearest-" + Guid.NewGuid().ToString("N"))
+// The scaffolding every resolution row shares: a throwaway cache, both leaf builds installed, and
+// whatever carrier packages the row's graph needs.
+func ResolutionScratch(name: string): string {
+    scratch := Path.Combine(Path.Combine(ResolutionRepositoryRoot(), "artifacts"), "nuget-resolution-" + name + "-" + Guid.NewGuid().ToString("N"))
     Directory.CreateDirectory(scratch)
+    return scratch
+}
+
+test "a direct nuget reference beats a transitive one however the list is ordered" {
+    cli := ResolutionCliPath(ResolutionRepositoryRoot())
+    scratch := ResolutionScratch("direct")
     try {
         cache := Path.Combine(scratch, "packages")
         Directory.CreateDirectory(cache)
+        ResolutionInstallLeaves(cli, scratch, cache)
 
-        leafOne := ResolutionBuildLeaf(cli, scratch, "1.0.0", "leaf-1")
-        leafTwo := ResolutionBuildLeaf(cli, scratch, "2.0.0", "leaf-2")
+        // `NlcResolution.Mid` carries leaf 1.0.0 and is declared FIRST, so a resolver that takes
+        // each root's closure in turn and keeps the first version it reaches binds 1.0.0 and the
+        // pin below does nothing at all.
+        ResolutionWriteCarrier(cache, "NlcResolution.Mid", ResolutionDependsOn("NlcResolution.Leaf", "1.0.0"))
+        dependencies := ResolutionDependency("NlcResolution.Mid", "1.0.0") + ResolutionDependency("NlcResolution.Leaf", "2.0.0")
 
-        leafOneDirectory := ResolutionPackageDirectory(cache, "NlcResolution.Leaf", "1.0.0")
-        ResolutionWriteNuspec(leafOneDirectory, "NlcResolution.Leaf", "1.0.0", "      <group targetFramework=\"net10.0\" />\n")
-        ResolutionInstallLibrary(leafOneDirectory, leafOne)
+        answer := ResolutionBoundLeaf(cli, scratch, cache, dependencies, "resolution-direct")
+        assert answer.Stdout.StartsWith("ResolutionLeaf, Version=2.0.0.0", StringComparison.Ordinal), "the build bound " + answer.Stdout
+        assert answer.Stderr == "leaf-2", answer.Stderr
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
 
-        leafTwoDirectory := ResolutionPackageDirectory(cache, "NlcResolution.Leaf", "2.0.0")
-        ResolutionWriteNuspec(leafTwoDirectory, "NlcResolution.Leaf", "2.0.0", "      <group targetFramework=\"net10.0\" />\n")
-        ResolutionInstallLibrary(leafTwoDirectory, leafTwo)
+// THE ROW THAT SAYS DIRECT-WINS IS NOT MERELY HIGHEST-WINS, and the one a plain nearest-wins rule
+// also satisfies while getting the row below wrong. `dotnet restore` of the same shape resolves the
+// DIRECT version and reports NU1605: a direct `Microsoft.OpenApi 1.6.17` under a transitive 1.6.22
+// lands 1.6.17. So must this.
+test "a direct nuget reference wins even when it is a downgrade" {
+    cli := ResolutionCliPath(ResolutionRepositoryRoot())
+    scratch := ResolutionScratch("downgrade")
+    try {
+        cache := Path.Combine(scratch, "packages")
+        Directory.CreateDirectory(cache)
+        ResolutionInstallLeaves(cli, scratch, cache)
 
-        midDirectory := ResolutionPackageDirectory(cache, "NlcResolution.Mid", "1.0.0")
-        ResolutionWriteNuspec(
-            midDirectory,
-            "NlcResolution.Mid",
-            "1.0.0",
-            "      <group targetFramework=\"net10.0\">\n        <dependency id=\"NlcResolution.Leaf\" version=\"1.0.0\" />\n      </group>\n"
-        )
+        ResolutionWriteCarrier(cache, "NlcResolution.Mid", ResolutionDependsOn("NlcResolution.Leaf", "2.0.0"))
+        dependencies := ResolutionDependency("NlcResolution.Mid", "1.0.0") + ResolutionDependency("NlcResolution.Leaf", "1.0.0")
 
-        appDirectory := Path.Combine(scratch, "app")
-        ResolutionWriteProject(appDirectory, ResolutionAppProjectYml(), "Program.nl", ResolutionAppSource())
+        answer := ResolutionBoundLeaf(cli, scratch, cache, dependencies, "resolution-downgrade")
+        assert answer.Stdout.StartsWith("ResolutionLeaf, Version=1.0.0.0", StringComparison.Ordinal), "the build bound " + answer.Stdout
+        assert answer.Stderr == "leaf-1", answer.Stderr
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
 
-        build := ResolutionRunInCache(ResolutionQuote(cli) + " build", appDirectory, cache)
-        ResolutionRequireSuccess(build, "nlc build of the resolution sample")
+// THE SHAPE THAT BROKE THE `nsharp-webapi` TEMPLATE UNDER A PLAIN NEAREST-WINS RULE. `Near` names
+// leaf 1.0.0 one level closer than `Deep -> Deeper` names 2.0.0, exactly as
+// `Microsoft.AspNetCore.OpenApi 9.0.0` names `Microsoft.OpenApi 1.6.17` closer than
+// `Swashbuckle.AspNetCore -> ...Swagger` names 1.6.22. `dotnet restore` of those two resolves
+// 1.6.22: a dependency version is a MINIMUM, so satisfying every edge means taking the highest,
+// and distance decides nothing between two transitive occurrences. Selecting the nearer one bound
+// 1.6.17 and `IServiceCollection.AddSwaggerGen` stopped being modeled at all.
+test "two transitive occurrences unify on the higher version whatever their distance" {
+    cli := ResolutionCliPath(ResolutionRepositoryRoot())
+    scratch := ResolutionScratch("transitive")
+    try {
+        cache := Path.Combine(scratch, "packages")
+        Directory.CreateDirectory(cache)
+        ResolutionInstallLeaves(cli, scratch, cache)
 
-        appAssembly := Path.Combine(ResolutionOutputDirectory(appDirectory), "ResolutionApp.dll")
-        bound := ResolutionReferencedAssembly(appAssembly, "resolution-nearest", "ResolutionLeaf,")
-        assert bound.StartsWith("ResolutionLeaf, Version=2.0.0.0", StringComparison.Ordinal), "the build bound " + bound + "; the pinned NlcResolution.Leaf 2.0.0 is nearer than the 1.0.0 NlcResolution.Mid carries"
+        ResolutionWriteCarrier(cache, "NlcResolution.Near", ResolutionDependsOn("NlcResolution.Leaf", "1.0.0"))
+        ResolutionWriteCarrier(cache, "NlcResolution.Deep", ResolutionDependsOn("NlcResolution.Deeper", "1.0.0"))
+        ResolutionWriteCarrier(cache, "NlcResolution.Deeper", ResolutionDependsOn("NlcResolution.Leaf", "2.0.0"))
+        dependencies := ResolutionDependency("NlcResolution.Near", "1.0.0") + ResolutionDependency("NlcResolution.Deep", "1.0.0")
 
-        run := ResolutionRunDotnet(ResolutionQuote(appAssembly), appDirectory)
-        ResolutionRequireSuccess(run, "running the resolution sample")
-        assert run.Stdout.Trim() == "leaf-2", run.Output()
+        answer := ResolutionBoundLeaf(cli, scratch, cache, dependencies, "resolution-transitive")
+        assert answer.Stdout.StartsWith("ResolutionLeaf, Version=2.0.0.0", StringComparison.Ordinal), "the build bound " + answer.Stdout
+        assert answer.Stderr == "leaf-2", answer.Stderr
     } finally {
         Directory.Delete(scratch, true)
     }
