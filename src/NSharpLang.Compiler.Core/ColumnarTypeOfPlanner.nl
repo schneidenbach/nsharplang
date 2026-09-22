@@ -25,7 +25,7 @@ class ColumnarTypeOfPlanner {
         if nodes == null || node < 0 || node >= nodes.Kinds.Length {
             return false
         }
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression()
     }
 
@@ -41,13 +41,13 @@ class ColumnarTypeOfPlanner {
             return false
         }
         ColumnarCodePlanExecutor.Execute(plan, il)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "typeof expression")
         return true
     }
 
     static func TryGetType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
         ValidateInputs(nodes, source, node, bindings, plan)
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         selected := ColumnarSelectedTypeReference.Missing(bindings.StructuralTypeReferences)
         if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression() && (!TryResolveTarget(nodes, source, candidate, bindings, out selected) || !IsSupportedTypeOfTarget(selected.RuntimeType)) {
             plan.PrepareV3()
@@ -58,7 +58,7 @@ class ColumnarTypeOfPlanner {
             resultType = typeof(Type)
             return false
         }
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "typeof expression")
         return true
     }
 
@@ -87,7 +87,7 @@ class ColumnarTypeOfPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.TypeOfExpression() {
             return false
         }
@@ -2178,33 +2178,9 @@ class ColumnarTypeOfPlanner {
         return result
     }
 
-    static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
-        depth := 0
-        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
-            if depth > 200 || nodes.ChildCount(node) != 1 {
-                return -1
-            }
-            node = nodes.Child(node, 0)
-            depth += 1
-        }
-        return node
-    }
-
     static func ValidateInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan) {
-        if nodes == null || source == null || bindings == null || plan == null || bindings.SourceTypeDefinitions == null || bindings.SourceUnionDefinitions == null {
-            throw new InvalidOperationException("Typeof planning inputs and source type facts cannot be null.")
-        }
-        if node < 0 || node >= nodes.Kinds.Length {
-            throw new InvalidOperationException("Typeof planning received an invalid root node index.")
-        }
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        result := plan.ResultType
-        if result == null {
-            throw new InvalidOperationException("Planned typeof expression has no result type.")
-        }
-        return result
+        ColumnarPlannerSupport.RequirePresent(nodes != null && source != null && bindings != null && plan != null && bindings.SourceTypeDefinitions != null && bindings.SourceUnionDefinitions != null, "Typeof planning inputs and source type facts cannot be null.")
+        ColumnarPlannerSupport.RequireNodeInRange(nodes, node, "Typeof planning received an invalid root node index.")
     }
 
     // The read-only dictionary definition is fetched BY NAME rather than by `typeof`: this kernel is

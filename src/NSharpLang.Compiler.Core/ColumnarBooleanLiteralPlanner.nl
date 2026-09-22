@@ -11,7 +11,7 @@ class ColumnarBooleanLiteralPlanner {
         }
 
         ColumnarCodePlanExecutor.Execute(plan, il)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "boolean literal")
         return true
     }
 
@@ -21,7 +21,7 @@ class ColumnarBooleanLiteralPlanner {
             return false
         }
 
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "boolean literal")
         return true
     }
 
@@ -72,19 +72,7 @@ class ColumnarBooleanLiteralPlanner {
     }
 
     static func ValidateInputs(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan) {
-        if nodes == null || source == null || plan == null {
-            throw new InvalidOperationException("Boolean-literal planning inputs cannot be null.")
-        }
-        if node < 0 || node >= nodes.Kinds.Length {
-            throw new InvalidOperationException("Boolean-literal planning received an invalid node index.")
-        }
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        resultType := plan.ResultType
-        if resultType == null {
-            throw new InvalidOperationException("Planned boolean literal has no result type.")
-        }
-        return resultType
+        ColumnarPlannerSupport.RequirePresent(nodes != null && source != null && plan != null, "Boolean-literal planning inputs cannot be null.")
+        ColumnarPlannerSupport.RequireNodeInRange(nodes, node, "Boolean-literal planning received an invalid node index.")
     }
 }

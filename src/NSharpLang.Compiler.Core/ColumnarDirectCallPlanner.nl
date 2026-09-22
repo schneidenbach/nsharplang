@@ -20,7 +20,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.CallExpression()
     }
 
@@ -35,7 +35,7 @@ class ColumnarDirectCallPlanner {
 
         nsharpOwned = true
         ColumnarCodePlanExecutor.Execute(plan, il, modifiedMemberReferences)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "direct call")
         return true
     }
 
@@ -49,7 +49,7 @@ class ColumnarDirectCallPlanner {
         }
 
         nsharpOwned = true
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "direct call")
         return true
     }
 
@@ -93,7 +93,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.CallExpression() {
             return false
         }
@@ -157,7 +157,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        callee := UnwrapParentheses(nodes, nodes.Child(node, 0))
+        callee := ColumnarPlannerSupport.UnwrapParentheses(nodes, nodes.Child(node, 0))
         if callee < 0 {
             return false
         }
@@ -628,7 +628,7 @@ class ColumnarDirectCallPlanner {
         receiverNode := nodes.Child(callee, 0)
         ownerName := ""
         rootName := ""
-        if TryGetQualifiedName(nodes, source, receiverNode, 0, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) {
+        if ColumnarPlannerSupport.TryGetQualifiedName(nodes, source, receiverNode, 0, true, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) {
             scope := nodes.BindingScope
             exactOwnerName := ownerName
             ownerBlocked := false
@@ -866,7 +866,7 @@ class ColumnarDirectCallPlanner {
         ownerName := ""
         rootName := ""
         scope := nodes.BindingScope
-        if TryGetQualifiedName(nodes, source, receiverNode, 0, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) && scope != null && scope.TryResolveExternalStaticOwnerType(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out lookupType) {
+        if ColumnarPlannerSupport.TryGetQualifiedName(nodes, source, receiverNode, 0, true, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) && scope != null && scope.TryResolveExternalStaticOwnerType(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out lookupType) {
             isStatic = true
         } else {
             receiverOwnership := ColumnarDirectCallOwnership.NotOwned
@@ -1037,7 +1037,7 @@ class ColumnarDirectCallPlanner {
         }
         ownerName := ""
         rootName := ""
-        if TryGetQualifiedName(nodes, source, receiverNode, 0, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) {
+        if ColumnarPlannerSupport.TryGetQualifiedName(nodes, source, receiverNode, 0, true, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) {
             scope := nodes.BindingScope
             exactSourceOwnerName := ownerName
             sourceOwnerBlocked := false
@@ -1128,7 +1128,7 @@ class ColumnarDirectCallPlanner {
         // an external one.
         ownerName := ""
         rootName := ""
-        if TryGetQualifiedName(nodes, source, receiverNode, 0, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) {
+        if ColumnarPlannerSupport.TryGetQualifiedName(nodes, source, receiverNode, 0, true, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) {
             scope := nodes.BindingScope
             exactSourceOwnerName := ownerName
             sourceOwnerBlocked := false
@@ -2217,7 +2217,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        calleeCandidate := UnwrapParentheses(nodes, callee)
+        calleeCandidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, callee)
         if calleeCandidate < 0 {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
@@ -2351,7 +2351,7 @@ class ColumnarDirectCallPlanner {
         ownerName := ""
         rootName := ""
         sourceOwner: ColumnarStructDef? = null
-        qualifiedOwner := TryGetQualifiedName(nodes, source, receiverNode, 0, out ownerName, out rootName)
+        qualifiedOwner := ColumnarPlannerSupport.TryGetQualifiedName(nodes, source, receiverNode, 0, true, out ownerName, out rootName)
 
         // A CONSTRUCTED GENERIC TYPE RECEIVER — `Comparer<int>.Create(...)`. `TryGetQualifiedName`
         // cannot spell it (its walk admits a bare identifier and a dotted member access, and a kind-70
@@ -3009,7 +3009,7 @@ class ColumnarDirectCallPlanner {
                 // it binds to, not the position it was typed at.
                 argumentNode := argumentFacts.ArgumentNodes[index]
                 if parameters[index].get_ParameterType().get_IsByRef() {
-                    candidate := UnwrapParentheses(nodes, argumentNode)
+                    candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
                     if candidate < 0 || nodes.Kind(candidate) != 54 || nodes.ChildCount(candidate) != 1 {
                         return false
                     }
@@ -3147,7 +3147,7 @@ class ColumnarDirectCallPlanner {
                 return ColumnarBoundIdentifierPlanner.TryAppendReceiver(nodes, source, receiverNode, bindings, true, plan, out receiverType, out isAddress) && isAddress
             }
 
-            candidate := UnwrapParentheses(nodes, receiverNode)
+            candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, receiverNode)
             if candidate < 0 {
                 return false
             }
@@ -3344,7 +3344,7 @@ class ColumnarDirectCallPlanner {
         }
 
         if argumentFacts.IsNullLiteral[index] {
-            candidate := UnwrapParentheses(nodes, argumentNode)
+            candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
             if candidate < 0 || !ColumnarNullableArgumentLowering.TryAppendNullArgument(plan, parentFragment, nodes.Kind(candidate), candidate, parameterTypes[index]) {
                 return false
             }
@@ -3399,7 +3399,7 @@ class ColumnarDirectCallPlanner {
     }
 
     static func TryAppendTargetTypedIntegerArgument(nodes: ColumnarNodeTable, argumentNode: int, plan: ColumnarCodePlan, parentFragment: int, targetType: Type, value: long): bool {
-        candidate := UnwrapParentheses(nodes, argumentNode)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
         if candidate < 0 {
             return false
         }
@@ -3586,7 +3586,7 @@ class ColumnarDirectCallPlanner {
             // ends up in.
             argumentNode := ColumnarNamedArgumentBinder.ArgumentValueNode(nodes, nodes.Child(callNode, index + 1))
             argumentFacts.ArgumentNodes[index] = argumentNode
-            argumentCandidate := UnwrapParentheses(nodes, argumentNode)
+            argumentCandidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
             if argumentCandidate >= 0 && nodes.Kind(argumentCandidate) == ColumnarExpressionNodeKind.NullLiteralExpression() {
                 argumentTypes[index] = typeof(object)
                 argumentFacts.IsNullLiteral[index] = true
@@ -3661,7 +3661,7 @@ class ColumnarDirectCallPlanner {
     static func TryGetTargetTypedIntegerArgumentValue(nodes: ColumnarNodeTable, source: string, node: int, out value: long, out isNegative: bool): bool {
         value = 0
         isNegative = false
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -3697,7 +3697,7 @@ class ColumnarDirectCallPlanner {
     static func TryGetIntegerConstantArrayLiteralRange(nodes: ColumnarNodeTable, source: string, argumentNode: int, out minimumValue: long, out maximumValue: long): bool {
         minimumValue = 0L
         maximumValue = 0L
-        literal := UnwrapParentheses(nodes, argumentNode)
+        literal := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
         if literal < 0 || nodes.Kind(literal) != ColumnarExpressionNodeKind.ArrayLiteralExpression() {
             return false
         }
@@ -3812,7 +3812,7 @@ class ColumnarDirectCallPlanner {
             if nodes.ChildCount(node) != 1 {
                 return false
             }
-            target := UnwrapParentheses(nodes, nodes.Child(node, 0))
+            target := ColumnarPlannerSupport.UnwrapParentheses(nodes, nodes.Child(node, 0))
             return target >= 0 && nodes.Kind(target) == ColumnarExpressionNodeKind.IdentifierExpression() && nodes.ChildCount(target) == 0
         }
 
@@ -3871,7 +3871,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        callee := UnwrapParentheses(nodes, nodes.Child(node, 0))
+        callee := ColumnarPlannerSupport.UnwrapParentheses(nodes, nodes.Child(node, 0))
         if callee < 0 || (nodes.Kind(callee) != ColumnarExpressionNodeKind.IdentifierExpression() && nodes.Kind(callee) != ColumnarExpressionNodeKind.MemberAccessExpression() && nodes.Kind(callee) != ColumnarExpressionNodeKind.BaseMemberExpression()) {
             return false
         }
@@ -4071,76 +4071,12 @@ class ColumnarDirectCallPlanner {
         return false
     }
 
-    static func TryGetQualifiedName(nodes: ColumnarNodeTable, source: string, node: int, depth: int, out qualifiedName: string, out rootName: string): bool {
-        qualifiedName = ""
-        rootName = ""
-        if depth > 200 || node < 0 || node >= nodes.Kinds.Length {
-            return false
-        }
-
-        kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
-            if nodes.ChildCount(node) != 0 || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, node) {
-                return false
-            }
-
-            rootName = nodes.Text(source, node)
-            qualifiedName = rootName
-            return rootName.Length > 0
-        }
-
-        if kind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(node) != 1 {
-            return false
-        }
-
-        prefix := ""
-        if !TryGetQualifiedName(nodes, source, nodes.Child(node, 0), depth + 1, out prefix, out rootName) {
-            return false
-        }
-
-        member := nodes.Text(source, node)
-        if member.Length == 0 {
-            return false
-        }
-
-        qualifiedName = prefix + "." + member
-        return true
-    }
-
     static func IsVoidType(valueType: Type): bool {
         return valueType != null && valueType.FullName == "System.Void"
     }
 
-    static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
-        depth := 0
-        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
-            if depth > 200 || nodes.ChildCount(node) != 1 {
-                return -1
-            }
-
-            node = nodes.Child(node, 0)
-            depth += 1
-        }
-
-        return node
-    }
-
     static func ValidateInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan) {
-        if nodes == null || source == null || bindings == null || plan == null {
-            throw new InvalidOperationException("Direct-call planning inputs cannot be null.")
-        }
-
-        if node < 0 || node >= nodes.Kinds.Length {
-            throw new InvalidOperationException("Direct-call planning received an invalid root node index.")
-        }
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        resultType := plan.ResultType
-        if resultType == null {
-            throw new InvalidOperationException("Planned direct call has no result type.")
-        }
-
-        return resultType
+        ColumnarPlannerSupport.RequirePresent(nodes != null && source != null && bindings != null && plan != null, "Direct-call planning inputs cannot be null.")
+        ColumnarPlannerSupport.RequireNodeInRange(nodes, node, "Direct-call planning received an invalid root node index.")
     }
 }

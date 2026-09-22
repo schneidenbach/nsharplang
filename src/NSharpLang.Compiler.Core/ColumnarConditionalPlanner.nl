@@ -24,7 +24,7 @@ class ColumnarConditionalPlanner {
         if nodes == null || source == null || node < 0 || node >= nodes.Kinds.Length {
             return false
         }
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -58,7 +58,7 @@ class ColumnarConditionalPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -112,7 +112,7 @@ class ColumnarConditionalPlanner {
 
         nsharpOwned = true
         ColumnarCodePlanExecutor.Execute(plan, il)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "conditional expression")
         return true
     }
 
@@ -126,7 +126,7 @@ class ColumnarConditionalPlanner {
         }
 
         nsharpOwned = true
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "conditional expression")
         return true
     }
 
@@ -183,7 +183,7 @@ class ColumnarConditionalPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -561,30 +561,6 @@ class ColumnarConditionalPlanner {
         start := nodes.ValueStart(node)
         length := nodes.ValueLengths[node]
         return start >= 0 && length == expected.Length && length <= source.Length && start <= source.Length - length && source.Substring(start, length) == expected
-    }
-
-    static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
-        depth := 0
-        current := node
-        while current >= 0 && current < nodes.Kinds.Length && nodes.Kind(current) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
-            if nodes.ChildCount(current) != 1 || depth > 200 {
-                return -1
-            }
-            current = nodes.Child(current, 0)
-            depth += 1
-        }
-        if current < 0 || current >= nodes.Kinds.Length {
-            return -1
-        }
-        return current
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        resultType := plan.ResultType
-        if resultType == null {
-            throw new InvalidOperationException("Planned conditional expression has no result type.")
-        }
-        return resultType
     }
 
     static func ValidateRootInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan) {

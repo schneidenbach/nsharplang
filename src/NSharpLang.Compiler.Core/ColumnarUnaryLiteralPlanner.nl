@@ -17,7 +17,7 @@ class ColumnarUnaryLiteralPlanner {
         }
 
         ColumnarCodePlanExecutor.Execute(plan, il)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "unary literal")
         return true
     }
 
@@ -27,7 +27,7 @@ class ColumnarUnaryLiteralPlanner {
             return false
         }
 
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "unary literal")
         return true
     }
 
@@ -78,7 +78,7 @@ class ColumnarUnaryLiteralPlanner {
         }
 
         operatorText := ""
-        if !TryGetNodeText(nodes, source, node, out operatorText) || (operatorText != "-" && operatorText != "~" && operatorText != "!") {
+        if !ColumnarPlannerSupport.TryGetNodeText(nodes, source, node, out operatorText) || (operatorText != "-" && operatorText != "~" && operatorText != "!") {
             return false
         }
 
@@ -141,7 +141,7 @@ class ColumnarUnaryLiteralPlanner {
 
     static func TryAppendBoolean(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan): bool {
         text := ""
-        if nodes.ChildCount(node) != 0 || !TryGetNodeText(nodes, source, node, out text) {
+        if nodes.ChildCount(node) != 0 || !ColumnarPlannerSupport.TryGetNodeText(nodes, source, node, out text) {
             return false
         }
         if text == "true" {
@@ -158,7 +158,7 @@ class ColumnarUnaryLiteralPlanner {
     static func TryAppendMinimumMagnitude(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(int)
         text := ""
-        if nodes.Kind(node) != ColumnarExpressionNodeKind.IntLiteralExpression() || nodes.ChildCount(node) != 0 || !TryGetNodeText(nodes, source, node, out text) {
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.IntLiteralExpression() || nodes.ChildCount(node) != 0 || !ColumnarPlannerSupport.TryGetNodeText(nodes, source, node, out text) {
             return false
         }
         suffix := NumericLiteralFacts.GetIntegerSuffix(text)
@@ -182,17 +182,6 @@ class ColumnarUnaryLiteralPlanner {
             throw new InvalidOperationException("Decimal.op_UnaryNegation(Decimal) has an unexpected runtime signature.")
         }
         return method
-    }
-
-    static func TryGetNodeText(nodes: ColumnarNodeTable, source: string, node: int, out text: string): bool {
-        text = ""
-        start := nodes.ValueStart(node)
-        length := nodes.ValueLengths[node]
-        if start < 0 || length <= 0 || length > source.Length || start > source.Length - length {
-            return false
-        }
-        text = source.Substring(start, length)
-        return true
     }
 
     static func ValidateRootInputs(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan) {
@@ -219,13 +208,5 @@ class ColumnarUnaryLiteralPlanner {
         if parentFragment < 0 || parentFragment >= plan.FragmentCount || plan.FragmentCompleted == null || plan.FragmentCompleted.Length <= parentFragment || plan.FragmentCompleted[parentFragment] {
             throw new InvalidOperationException("Unary literals require an open parent expression fragment.")
         }
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        resultType := plan.ResultType
-        if resultType == null {
-            throw new InvalidOperationException("Planned unary literal has no result type.")
-        }
-        return resultType
     }
 }

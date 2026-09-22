@@ -15,7 +15,7 @@ class ColumnarNameOfPlanner {
         }
 
         ColumnarCodePlanExecutor.Execute(plan, il)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "nameof expression")
         return true
     }
 
@@ -25,7 +25,7 @@ class ColumnarNameOfPlanner {
             return false
         }
 
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "nameof expression")
         return true
     }
 
@@ -70,7 +70,7 @@ class ColumnarNameOfPlanner {
             return false
         }
 
-        target := UnwrapParentheses(nodes, nodes.Child(node, 0))
+        target := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, nodes.Child(node, 0))
         if target < 0 {
             return false
         }
@@ -86,21 +86,6 @@ class ColumnarNameOfPlanner {
         valueIndex := plan.AddString(name)
         plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), valueIndex)
         return true
-    }
-
-    static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
-        depth := 0
-        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
-            if depth > 200 || nodes.ChildCount(node) != 1 {
-                return -1
-            }
-            node = nodes.Child(node, 0)
-            depth = depth + 1
-        }
-        if node < 0 || node >= nodes.Kinds.Length {
-            return -1
-        }
-        return node
     }
 
     static func ValidateRootInputs(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan) {
@@ -138,13 +123,5 @@ class ColumnarNameOfPlanner {
         if !hasOpenFragment {
             throw new InvalidOperationException("Nameof expressions require an open fragment.")
         }
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        resultType := plan.ResultType
-        if resultType == null {
-            throw new InvalidOperationException("Planned nameof expression has no result type.")
-        }
-        return resultType
     }
 }

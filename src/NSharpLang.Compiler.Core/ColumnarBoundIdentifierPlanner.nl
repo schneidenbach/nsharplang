@@ -70,7 +70,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         return candidate >= 0 && (nodes.Kind(candidate) == ColumnarExpressionNodeKind.IdentifierExpression() || nodes.Kind(candidate) == ColumnarExpressionNodeKind.BaseMemberExpression())
     }
 
@@ -79,7 +79,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 || candidate >= nodes.Kinds.Length || nodes.ChildCount(candidate) != 0 {
             return false
         }
@@ -138,7 +138,7 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         ColumnarCodePlanExecutor.Execute(plan, il)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "bound-identifier expression")
         return true
     }
 
@@ -148,14 +148,14 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "bound-identifier expression")
         return true
     }
 
     static func Plan(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): ColumnarFragmentPlanStatus {
         ValidateInputs(nodes, source, node, bindings, plan)
         plan.PrepareV3()
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 || (nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() && nodes.Kind(candidate) != ColumnarExpressionNodeKind.BaseMemberExpression()) {
             return plan.Status
         }
@@ -398,7 +398,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -476,7 +476,7 @@ class ColumnarBoundIdentifierPlanner {
         resultType = typeof(int)
         directStorage = false
         byRefParameter = false
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -527,7 +527,7 @@ class ColumnarBoundIdentifierPlanner {
     // reads: lifted/boxed captures and current properties remain outside this addressable surface.
     static func TryGetAddressableTargetType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out resultType: Type): bool {
         resultType = typeof(int)
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 {
             return false
         }
@@ -557,7 +557,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -661,7 +661,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -1510,35 +1510,7 @@ class ColumnarBoundIdentifierPlanner {
     }
 
     static func ValidateInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan) {
-        if nodes == null || source == null || bindings == null || plan == null {
-            throw new InvalidOperationException("Bound-identifier planning inputs cannot be null.")
-        }
-
-        if node < 0 || node >= nodes.Kinds.Length {
-            throw new InvalidOperationException("Bound-identifier planning received an invalid root node index.")
-        }
-    }
-
-    static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
-        depth := 0
-        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
-            if depth > 200 || nodes.ChildCount(node) != 1 {
-                return -1
-            }
-
-            node = nodes.Child(node, 0)
-            depth = depth + 1
-        }
-
-        return node
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        resultType := plan.ResultType
-        if resultType == null {
-            throw new InvalidOperationException("Planned bound-identifier expression has no result type.")
-        }
-
-        return resultType
+        ColumnarPlannerSupport.RequirePresent(nodes != null && source != null && bindings != null && plan != null, "Bound-identifier planning inputs cannot be null.")
+        ColumnarPlannerSupport.RequireNodeInRange(nodes, node, "Bound-identifier planning received an invalid root node index.")
     }
 }

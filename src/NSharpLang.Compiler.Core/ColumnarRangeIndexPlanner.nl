@@ -165,7 +165,7 @@ class ColumnarRangeIndexPlanner {
         }
 
         ColumnarCodePlanExecutor.Execute(plan, il)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "range/index expression")
         return true
     }
 
@@ -175,7 +175,7 @@ class ColumnarRangeIndexPlanner {
             return false
         }
 
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "range/index expression")
         return true
     }
 
@@ -189,7 +189,7 @@ class ColumnarRangeIndexPlanner {
         }
 
         plan.PrepareV3()
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 || !IsRootCandidate(nodes, source, candidate) {
             return plan.Status
         }
@@ -221,7 +221,7 @@ class ColumnarRangeIndexPlanner {
     }
 
     static func FacadeRootMayNeedFacts(nodes: ColumnarNodeTable, source: string, node: int): bool {
-        node = UnwrapParentheses(nodes, node)
+        node = ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if node < 0 || node >= nodes.Kinds.Length {
             return false
         }
@@ -274,7 +274,7 @@ class ColumnarRangeIndexPlanner {
             return false
         }
 
-        node = UnwrapParentheses(nodes, node)
+        node = ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if node < 0 || node >= nodes.Kinds.Length {
             return false
         }
@@ -304,7 +304,7 @@ class ColumnarRangeIndexPlanner {
     }
 
     static func FacadeRootMayBeOwned(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings): bool {
-        node = UnwrapParentheses(nodes, node)
+        node = ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if node < 0 || node >= nodes.Kinds.Length {
             return false
         }
@@ -330,7 +330,7 @@ class ColumnarRangeIndexPlanner {
             return false
         }
 
-        node = UnwrapParentheses(nodes, node)
+        node = ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if node < 0 || node >= nodes.Kinds.Length {
             return false
         }
@@ -428,7 +428,7 @@ class ColumnarRangeIndexPlanner {
             return false
         }
 
-        node = UnwrapParentheses(nodes, node)
+        node = ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if node < 0 || node >= nodes.Kinds.Length {
             return false
         }
@@ -607,7 +607,7 @@ class ColumnarRangeIndexPlanner {
 
         qualifiedOwner := ""
         rootName := ""
-        if !TryGetQualifiedName(nodes, source, nodes.Child(node, 0), 0, out qualifiedOwner, out rootName) || bindings.IsValueBinding(rootName) || bindings.IsCallable(rootName) || !bindings.Enums.ContainsKey(qualifiedOwner) {
+        if !ColumnarPlannerSupport.TryGetQualifiedName(nodes, source, nodes.Child(node, 0), 0, false, out qualifiedOwner, out rootName) || bindings.IsValueBinding(rootName) || bindings.IsCallable(rootName) || !bindings.Enums.ContainsKey(qualifiedOwner) {
             return false
         }
 
@@ -657,7 +657,7 @@ class ColumnarRangeIndexPlanner {
             return false
         }
 
-        operandNode := UnwrapParentheses(nodes, nodes.Child(node, 1))
+        operandNode := ColumnarPlannerSupport.UnwrapParentheses(nodes, nodes.Child(node, 1))
         if operandNode < 0 || operandNode >= nodes.Kinds.Length {
             return false
         }
@@ -1196,64 +1196,5 @@ class ColumnarRangeIndexPlanner {
         }
 
         return false
-    }
-
-    static func TryGetQualifiedName(nodes: ColumnarNodeTable, source: string, node: int, depth: int, out qualifiedName: string, out rootName: string): bool {
-        qualifiedName = ""
-        rootName = ""
-        if depth > 200 || node < 0 || node >= nodes.Kinds.Length {
-            return false
-        }
-
-        kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
-            if nodes.ChildCount(node) != 0 {
-                return false
-            }
-
-            rootName = nodes.Text(source, node)
-            qualifiedName = rootName
-            return rootName.Length > 0
-        }
-
-        if kind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(node) != 1 {
-            return false
-        }
-
-        prefix := ""
-        if !TryGetQualifiedName(nodes, source, nodes.Child(node, 0), depth + 1, out prefix, out rootName) {
-            return false
-        }
-
-        member := nodes.Text(source, node)
-        if member.Length == 0 {
-            return false
-        }
-
-        qualifiedName = prefix + "." + member
-        return true
-    }
-
-    static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
-        depth := 0
-        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
-            if depth > 200 || nodes.ChildCount(node) != 1 {
-                return -1
-            }
-
-            node = nodes.Child(node, 0)
-            depth = depth + 1
-        }
-
-        return node
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        resultType := plan.ResultType
-        if resultType == null {
-            throw new InvalidOperationException("Planned range/index expression has no result type.")
-        }
-
-        return resultType
     }
 }

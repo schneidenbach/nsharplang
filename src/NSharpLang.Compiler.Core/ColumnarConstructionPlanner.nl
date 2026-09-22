@@ -25,7 +25,7 @@ class ColumnarConstructionPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -41,7 +41,7 @@ class ColumnarConstructionPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -117,7 +117,7 @@ class ColumnarConstructionPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -188,7 +188,7 @@ class ColumnarConstructionPlanner {
         }
 
         ColumnarCodePlanExecutor.Execute(plan, il, modifiedMemberReferences)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "construction expression")
         return true
     }
 
@@ -201,7 +201,7 @@ class ColumnarConstructionPlanner {
             return false
         }
 
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "construction expression")
         return true
     }
 
@@ -212,7 +212,7 @@ class ColumnarConstructionPlanner {
         resultType = typeof(int)
         plan.PrepareV3()
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 || !MayPlanRoot(nodes, candidate) {
             return plan.Status
         }
@@ -257,7 +257,7 @@ class ColumnarConstructionPlanner {
             throw new InvalidOperationException("Construction append requires an open schema-v3 or method-body plan.")
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -445,7 +445,7 @@ class ColumnarConstructionPlanner {
         index := 0
         while index < elementCount {
             elementNode := nodes.Child(node, index)
-            candidate := UnwrapParentheses(nodes, elementNode)
+            candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, elementNode)
             if candidate < 0 {
                 return false
             }
@@ -534,7 +534,7 @@ class ColumnarConstructionPlanner {
         if nodes == null || source == null || plan == null || node < 0 || node >= nodes.Kinds.Length || depth > 200 {
             return false
         }
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.ArrayLiteralExpression() {
             return false
         }
@@ -572,7 +572,7 @@ class ColumnarConstructionPlanner {
         if targetType == null || node < 0 || node >= nodes.Kinds.Length {
             return false
         }
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.ArrayLiteralExpression() && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
             return TryAppendTargetTypedArray(nodes, source, candidate, bindings, handles, plan, fragment, depth, targetType)
         }
@@ -804,7 +804,7 @@ class ColumnarConstructionPlanner {
                         return false
                     }
                     parameterTypes := Types1(propertyType)
-                    methodIndex := plan.AddMethodWithSignature(setter, declaringType, parameterTypes, RequiredVoidType(), false, setter.get_IsAbstract())
+                    methodIndex := plan.AddMethodWithSignature(setter, declaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.get_IsAbstract())
                     if modifierSignatureSource != null {
                         plan.MarkMethodForModifiedMemberReferenceRepair(methodIndex, modifierSignatureSource)
                     }
@@ -891,7 +891,7 @@ class ColumnarConstructionPlanner {
                 return false
             }
             parameterTypes := Types1(propertyType)
-            methodIndex := plan.AddMethodWithSignature(setter, setterDeclaringType, parameterTypes, RequiredVoidType(), false, setter.get_IsAbstract())
+            methodIndex := plan.AddMethodWithSignature(setter, setterDeclaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.get_IsAbstract())
             if requiresModifierRepair {
                 plan.MarkMethodForModifiedMemberReferenceRepair(methodIndex, setter)
             }
@@ -961,7 +961,7 @@ class ColumnarConstructionPlanner {
                 if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, valuePropertyType, out ownership, out legacyWholeSubtreePlanning) {
                     return false
                 }
-                valueSetterIndex := plan.AddMethodWithSignature(valueSetter, valueSetterDeclaringType, Types1(valuePropertyType), RequiredVoidType(), false, false)
+                valueSetterIndex := plan.AddMethodWithSignature(valueSetter, valueSetterDeclaringType, Types1(valuePropertyType), ColumnarTypeOfPlanner.RequiredVoidType(), false, false)
                 if valueModifierSignatureSource != null {
                     plan.MarkMethodForModifiedMemberReferenceRepair(valueSetterIndex, valueModifierSignatureSource)
                 }
@@ -1008,7 +1008,7 @@ class ColumnarConstructionPlanner {
     static func TryAppendObjectInitializerValue(nodes: ColumnarNodeTable, source: string, valueNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, expectedType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
         ownership = ColumnarDirectCallOwnership.OwnedRejected
         legacyWholeSubtreePlanning = false
-        candidate := UnwrapParentheses(nodes, valueNode)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, valueNode)
         if candidate < 0 {
             return false
         }
@@ -1141,14 +1141,6 @@ class ColumnarConstructionPlanner {
             current = candidate.BaseDef
         }
         return false
-    }
-
-    static func RequiredVoidType(): Type {
-        result := Type.GetType("System.Void")
-        if result == null {
-            throw new InvalidOperationException("System.Void runtime type was not found.")
-        }
-        return result
     }
 
     static func TryResolveExplicitUnionCase(nodes: ColumnarNodeTable, canonical: string, bindings: ColumnarFragmentBindings, out claimed: bool, out unionDefinition: ColumnarUnionDef?, out caseDefinition: ColumnarUnionCaseDef?, out unionType: Type, out caseType: Type, out typeArguments: Type[]): bool {
@@ -2968,7 +2960,7 @@ class ColumnarConstructionPlanner {
     }
 
     static func ValueSyntaxIsAdmitted(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int): bool {
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.NullLiteralExpression() && nodes.ChildCount(candidate) == 0 {
             return true
         }
@@ -3138,32 +3130,8 @@ class ColumnarConstructionPlanner {
         }
     }
 
-    static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
-        depth := 0
-        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
-            if depth > 200 || nodes.ChildCount(node) != 1 {
-                return -1
-            }
-            node = nodes.Child(node, 0)
-            depth += 1
-        }
-        return node
-    }
-
     static func ValidateInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan) {
-        if nodes == null || source == null || bindings == null || plan == null || bindings.SourceTypeDefinitions == null || bindings.SourceUnionDefinitions == null || bindings.Enums == null {
-            throw new InvalidOperationException("Construction planning inputs and binding facts cannot be null.")
-        }
-        if node < 0 || node >= nodes.Kinds.Length {
-            throw new InvalidOperationException("Construction planning received an invalid root node index.")
-        }
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        resultType := plan.ResultType
-        if resultType == null {
-            throw new InvalidOperationException("Planned construction expression has no result type.")
-        }
-        return resultType
+        ColumnarPlannerSupport.RequirePresent(nodes != null && source != null && bindings != null && plan != null && bindings.SourceTypeDefinitions != null && bindings.SourceUnionDefinitions != null && bindings.Enums != null, "Construction planning inputs and binding facts cannot be null.")
+        ColumnarPlannerSupport.RequireNodeInRange(nodes, node, "Construction planning received an invalid root node index.")
     }
 }

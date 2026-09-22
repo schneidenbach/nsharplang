@@ -20,7 +20,7 @@ class ColumnarScalarLiteralPlanner {
         }
 
         ColumnarCodePlanExecutor.Execute(plan, il)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "scalar literal")
         return true
     }
 
@@ -30,7 +30,7 @@ class ColumnarScalarLiteralPlanner {
             return false
         }
 
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "scalar literal")
         return true
     }
 
@@ -61,7 +61,7 @@ class ColumnarScalarLiteralPlanner {
         ValidateAppendInputs(nodes, source, node, plan)
         resultType = typeof(int)
         text := ""
-        if nodes.ChildCount(node) != 0 || !TryGetNodeText(nodes, source, node, out text) {
+        if nodes.ChildCount(node) != 0 || !ColumnarPlannerSupport.TryGetNodeText(nodes, source, node, out text) {
             return false
         }
 
@@ -459,17 +459,6 @@ class ColumnarScalarLiteralPlanner {
         return kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression()
     }
 
-    static func TryGetNodeText(nodes: ColumnarNodeTable, source: string, node: int, out text: string): bool {
-        text = ""
-        start := nodes.ValueStart(node)
-        length := nodes.ValueLengths[node]
-        if start < 0 || length <= 0 || length > source.Length || start > source.Length - length {
-            return false
-        }
-        text = source.Substring(start, length)
-        return true
-    }
-
     static func ValidateRootInputs(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan) {
         if nodes == null || source == null || plan == null {
             throw new InvalidOperationException("Scalar-literal planning inputs cannot be null.")
@@ -507,13 +496,5 @@ class ColumnarScalarLiteralPlanner {
         if !hasOpenFragment {
             throw new InvalidOperationException("Scalar literals require an open expression fragment.")
         }
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        resultType := plan.ResultType
-        if resultType == null {
-            throw new InvalidOperationException("Planned scalar literal has no result type.")
-        }
-        return resultType
     }
 }

@@ -3477,7 +3477,7 @@ class ColumnarIteratorBodyPlanner {
         scope := nodes.BindingScope
         ownerName := ""
         rootName := ""
-        if scope == null || !ColumnarExternalStaticMemberPlanner.TryGetQualifiedName(nodes, emit.Context.Source, receiverNode, 0, out ownerName, out rootName) {
+        if scope == null || !ColumnarPlannerSupport.TryGetQualifiedName(nodes, emit.Context.Source, receiverNode, 0, true, out ownerName, out rootName) {
             return false
         }
         if emit.Context.HasHoistedField(rootName) || emit.Context.EnclosingFieldIndex(rootName) >= 0 || nodes.HasAdditionalRootBinding(rootName) {

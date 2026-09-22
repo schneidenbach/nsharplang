@@ -21,7 +21,7 @@ class ColumnarPrimitiveBinaryPlanner {
         if nodes == null || source == null || node < 0 || node >= nodes.Kinds.Length {
             return false
         }
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.BinaryExpression() || nodes.ChildCount(candidate) != 2 {
             return false
         }
@@ -42,7 +42,7 @@ class ColumnarPrimitiveBinaryPlanner {
 
         nsharpOwned = true
         ColumnarCodePlanExecutor.Execute(plan, il)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "primitive binary expression")
         return true
     }
 
@@ -56,7 +56,7 @@ class ColumnarPrimitiveBinaryPlanner {
         }
 
         nsharpOwned = true
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "primitive binary expression")
         return true
     }
 
@@ -98,7 +98,7 @@ class ColumnarPrimitiveBinaryPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, node)
         if candidate < 0 || !IsAdmittedSyntax(nodes, source, candidate, 0) {
             return false
         }
@@ -125,7 +125,7 @@ class ColumnarPrimitiveBinaryPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.BinaryExpression() || nodes.ChildCount(candidate) != 2 || !IsClaimedOperatorText(nodes, source, candidate) {
             return false
         }
@@ -139,7 +139,7 @@ class ColumnarPrimitiveBinaryPlanner {
         ValidateAppendInputs(nodes, source, node, bindings, handles, plan, parentFragment)
         resultType = typeof(int)
         nestedOwnership = ColumnarDirectCallOwnership.NotOwned
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, node)
         if candidate < 0 || !IsAdmittedSyntax(nodes, source, candidate, depth) {
             return false
         }
@@ -679,7 +679,7 @@ class ColumnarPrimitiveBinaryPlanner {
         if depth > 200 {
             return false
         }
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -775,30 +775,6 @@ class ColumnarPrimitiveBinaryPlanner {
         start := nodes.ValueStart(node)
         length := nodes.ValueLengths[node]
         return start >= 0 && length == expected.Length && length <= source.Length && start <= source.Length - length && source.Substring(start, length) == expected
-    }
-
-    static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
-        depth := 0
-        current := node
-        while current >= 0 && current < nodes.Kinds.Length && nodes.Kind(current) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
-            if nodes.ChildCount(current) != 1 || depth > 200 {
-                return -1
-            }
-            current = nodes.Child(current, 0)
-            depth += 1
-        }
-        if current < 0 || current >= nodes.Kinds.Length {
-            return -1
-        }
-        return current
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        resultType := plan.ResultType
-        if resultType == null {
-            throw new InvalidOperationException("Planned primitive binary expression has no result type.")
-        }
-        return resultType
     }
 
     static func ValidateRootInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan) {
