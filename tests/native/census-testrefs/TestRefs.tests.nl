@@ -18,8 +18,12 @@ class MarkedTarget {
     }
 }
 
+// THE LOWERED TYPE IS NAMED AFTER THE FILE THAT WROTE THE ROWS, in that file's namespace: the rows
+// below live in `TestRefs.tests.nl` under `NSharpLang.CensusTestRefs`, so they land on
+// `NSharpLang.CensusTestRefs.TestRefsTests`. `FactAttributes.tests.nl` declares no `test` block and
+// therefore contributes no type at all.
 func GeneratedTestType(): Type {
-    found: Type? = typeof(SlowFactAttribute).Assembly.GetType("NSharpTests")
+    found: Type? = typeof(SlowFactAttribute).Assembly.GetType("NSharpLang.CensusTestRefs.TestRefsTests")
     return must found
 }
 

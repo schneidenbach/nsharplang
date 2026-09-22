@@ -148,6 +148,10 @@ func TallyHandler(_sender: object?, _args: NotifyCollectionChangedEventArgs) {
 }
 
 func CountThroughMethodGroup(list: ObservableCollection<string>): int {
+    // `StaticTally.Hits` is shared with the generator row below, and the runner does not promise an
+    // order, so the count this row asserts has to start from a known value rather than from whatever
+    // ran before it.
+    StaticTally.Hits = 0
     sub := on list.CollectionChanged TallyHandler
     list.Add("m1")
     list.Add("m2")

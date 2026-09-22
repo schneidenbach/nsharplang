@@ -51,6 +51,12 @@
 # ESTATE rows whose fully-qualified name contains the same word. A pattern that matches nothing
 # is an error: zero matched tests is not evidence.
 #
+# AN ESTATE ROW'S FULLY-QUALIFIED NAME IS `<the file's namespace>.<the file's stem>Tests.<the row's
+# sentence, PascalCased>`. A `test` block is lowered onto a type named after the file that wrote it,
+# in that file's own namespace, so a pattern naming a file (`Columnar`, `Analyzer`, `Formatter`), a
+# file prefix, or a namespace segment selects the rows those files own — not merely the rows whose
+# prose happens to use the word. Case matters: the filter is a substring of the qualified name.
+#
 # Change-aware selection is an inner-loop accelerator ONLY. It is allowed to miss
 # tests precisely because the full --commit gate remains the backstop. Never treat
 # a green `dev.sh --since` as a substitute for the commit gate.

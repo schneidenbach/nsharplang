@@ -7283,10 +7283,34 @@ sealed class ColumnarIlEmitter {
                 return DeclineStatic("emit.tests.framework", frameworkName + " attribute constructors were not resolvable", "NSharpTests", -1, 0)
             }
 
-            testType := module.DefineType("NSharpTests", TypeAttributes.Public | TypeAttributes.Class)
-            usedTestMethodNames := new HashSet<string>(StringComparer.Ordinal)
+            // ONE LOWERED TYPE PER SOURCE FILE, IN THAT FILE'S OWN NAMESPACE. The bodies already bind
+            // their bare names through the file's namespace (`ColumnarTestTypeNames` states why), and
+            // the container now says the same thing, so the fully-qualified name a runner reports —
+            // and the only thing `--filter FullyQualifiedName~X` can match — carries the file and the
+            // subsystem instead of only the words the author's sentence happened to use.
+            //
+            // The types are built LAZILY and in first-row order, so a file with no rows defines
+            // nothing and the emission order of the methods themselves is exactly the order it was.
+            testTypesByFile := new Dictionary<int, TypeBuilder>()
+            testMethodNamesByFile := new Dictionary<int, HashSet<string>>()
+            usedTestTypeNames := new HashSet<string>(StringComparer.Ordinal)
+            orderedTestTypes := new List<TypeBuilder>()
             for testIndex := 0; testIndex < declarationPlan.CustomAttributes.TestBlobs.Length; testIndex++ {
                 testInput := program.Tests[testIndex]
+                testFileId := testInput.Body.SourceFileId
+                if (!testTypesByFile.ContainsKey(testFileId)) {
+                    testTypeName := ColumnarTestTypeNames.UniqueTypeName(
+                        usedTestTypeNames,
+                        ColumnarTestTypeNames.QualifiedTypeName(program.NamespaceNameForFile(testFileId), program.GetFileNameForFileId(testFileId))
+                    )
+                    definedTestType := module.DefineType(testTypeName, TypeAttributes.Public | TypeAttributes.Class)
+                    testTypesByFile[testFileId] = definedTestType
+                    testMethodNamesByFile[testFileId] = new HashSet<string>(StringComparer.Ordinal)
+                    orderedTestTypes.Add(definedTestType)
+                }
+
+                testType := testTypesByFile[testFileId]
+                usedTestMethodNames := testMethodNamesByFile[testFileId]
                 methodName := TestDescriptionToMethodName(testInput.Description)
                 if (!usedTestMethodNames.Add(methodName)) {
                     suffix := 2
@@ -7370,9 +7394,11 @@ sealed class ColumnarIlEmitter {
 
             // The test methods' own attributes bind LAST, because their types are the ones this
             // program just finished building: the queue is flushed a second time here, after every
-            // test method exists and before the type that holds them is baked.
+            // test method exists and before the types that hold them are baked.
             sourceAttributeQueue.Flush()
-            testType.CreateType()
+            for testTypeBuilder in orderedTestTypes {
+                testTypeBuilder.CreateType()
+            }
         }
 
         entryPointMethod: MethodBuilder? = null

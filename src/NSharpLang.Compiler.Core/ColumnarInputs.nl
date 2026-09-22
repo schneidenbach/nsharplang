@@ -606,6 +606,16 @@ class ColumnarProgramInput {
         return Source
     }
 
+    // The file's own name, for an owner that must NAME a declaration after the file that wrote it —
+    // the lowered `test` container above all. A single-source program has no file name to give.
+    func GetFileNameForFileId(fileId: int): string {
+        if fileId >= 0 && fileId < Sources.Length {
+            return Sources[fileId].FileName
+        }
+
+        return ""
+    }
+
     // The assembly owner asks N# for the semantic declaration identity and then uses the returned
     // string mechanically as the CLR builder/registry name. Namespace interpretation must never
     // be reconstructed in C#.
