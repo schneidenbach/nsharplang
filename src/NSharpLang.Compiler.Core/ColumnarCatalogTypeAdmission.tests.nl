@@ -108,7 +108,7 @@ test "typeof preserves a source identity that shares a BCL name" {
         bindings.StructuralTypeReferences
     )
     assert ColumnarTypeOfPlanner.TryResolveTarget(tree.Nodes, tree.Source, tree.Root, bindings, out selected)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(selected.RuntimeType, builder)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(selected.RuntimeType, builder)
     assert selected.RuntimeType != typeof(DateTime)
     assert selected.SourceProvenanceName == "Scope.DateTime"
     missing := CatalogTypeOfTree("Unrelated.DateTime", scope)

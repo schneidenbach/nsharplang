@@ -75,7 +75,7 @@ test "dictionary Keys concrete enumerator admission requires the exact closed BC
     assert !exact.get_IsGenericTypeDefinition()
     assert open == requiredDefinition
     assert exact.GetGenericArguments().Length == 2
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(exact)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(exact)
     assert ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(exact)
     assert ColumnarTypeOfPlanner.IsSupportedType(exact)
     assert !ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(open)
@@ -150,15 +150,15 @@ test "dictionary Keys concrete enumerator selects exact acquisition movement Cur
         false
     )
     assert acquisition.IsSelected
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(
         acquisition.LookupType,
         keys
     )
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(
         acquisition.DeclaringType,
         keys
     )
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(
         acquisition.ReturnType,
         enumerator
     )
@@ -172,7 +172,7 @@ test "dictionary Keys concrete enumerator selects exact acquisition movement Cur
         false
     )
     assert movement.IsSelected
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(
         movement.DeclaringType,
         enumerator
     )
@@ -191,7 +191,7 @@ test "dictionary Keys concrete enumerator selects exact acquisition movement Cur
         throw new InvalidOperationException("Dictionary Keys enumerator Current getter was not selected.")
     }
     assert !current.IsField
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(
         current.DeclaringType,
         enumerator
     )
@@ -208,7 +208,7 @@ test "dictionary Keys concrete enumerator selects exact acquisition movement Cur
         false
     )
     assert disposal.IsSelected
-    assert ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatches(
         disposal.DeclaringType,
         enumerator
     )

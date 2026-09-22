@@ -44,7 +44,7 @@ class ColumnarRuntimeGenericMethodResolver {
         // A builder-bound owner's members are only reachable through its open definition, where a
         // generic method's own parameters and the TYPE's parameters would both need closing at once.
         // That pairing has no call site yet and is left to the tier that grows one.
-        if ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(lookupType) || lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) || lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
             return Unselected(lookupType, expectedStatic)
         }
 
@@ -284,7 +284,7 @@ class ColumnarRuntimeGenericMethodResolver {
                     return true
                 }
 
-                return ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(existing, argumentType)
+                return RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(existing, argumentType)
             }
             bindings[position] = argumentType
             return true
@@ -354,7 +354,7 @@ class ColumnarRuntimeGenericMethodResolver {
         if !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
             return false
         }
-        return ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(candidate.GetGenericTypeDefinition(), definition)
+        return RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidate.GetGenericTypeDefinition(), definition)
     }
 
     static func InterfacesOrEmpty(argumentType: Type): Type[] {
@@ -408,7 +408,7 @@ class ColumnarRuntimeGenericMethodResolver {
         // and `MakeGenericMethod` over it is the same Reflection.Emit shape a bare source type
         // parameter already is. `CloseOrNull` is the arbiter: if Reflection refuses the
         // instantiation, the candidate is dropped there rather than guessed at here.
-        if ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(argumentType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(argumentType) {
             return false
         }
 
@@ -685,7 +685,7 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
         // The same owner boundary the inference tier keeps: a builder-bound or still-open lookup type
         // has no reachable member table, and closing a method on one would need the TYPE's arguments
         // bound at the same time.
-        if ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(lookupType) || lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) || lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
             return false
         }
 

@@ -2511,29 +2511,29 @@ test "construction planner rebinds inherited object members on a closed generic 
     closedBase := baseBuilderType.MakeGenericType(
         closedDerivedArguments
     )
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.ResultType,
         closedDerived
     )
     assert plan.FieldCount == 1
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.FieldDeclaringTypes[0],
         closedBase
     )
     assert plan.FieldValueTypes[0] == typeof(int)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.Fields[0].get_DeclaringType(),
         closedBase
     )
     assert ConstructionHasOpcode(plan, ColumnarCodePlanContract.Stfld())
     assert plan.MethodCount == 1
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.MethodDeclaringTypes[0],
         closedBase
     )
     assert plan.MethodParameterTypes[0].Length == 1
     assert plan.MethodParameterTypes[0][0] == typeof(int)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.Methods[0].get_DeclaringType(),
         closedBase
     )
@@ -2658,28 +2658,28 @@ test "construction planner follows multilevel reordered and fixed generic bases"
     closedBaseArguments[0] = typeof(string)
     closedBaseArguments[1] = typeof(long)
     closedBase := baseBuilderType.MakeGenericType(closedBaseArguments)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.ResultType,
         closedDerived
     )
     assert plan.FieldCount == 1
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.FieldDeclaringTypes[0],
         closedBase
     )
     assert plan.FieldValueTypes[0] == typeof(string)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.Fields[0].get_DeclaringType(),
         closedBase
     )
     assert plan.MethodCount == 1
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.MethodDeclaringTypes[0],
         closedBase
     )
     assert plan.MethodParameterTypes[0].Length == 1
     assert plan.MethodParameterTypes[0][0] == typeof(long)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.Methods[0].get_DeclaringType(),
         closedBase
     )
@@ -3151,15 +3151,15 @@ test "construction planner owns closed generic positional union cases and reject
     closedArguments[0] = typeof(int)
     closedUnion := unionBaseType.MakeGenericType(closedArguments)
     closedCase := caseBuilderType.MakeGenericType(closedArguments)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.ResultType,
         closedUnion
     )
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.ConstructorDeclaringTypes[0],
         closedCase
     )
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.FieldDeclaringTypes[0],
         closedCase
     )
@@ -3551,7 +3551,7 @@ test "construction planner owns closed generic default source values" {
     closedArguments := new Type[](1)
     closedArguments[0] = typeof(int)
     closedType := builderType.MakeGenericType(closedArguments)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.ResultType,
         closedType
     )
@@ -3560,7 +3560,7 @@ test "construction planner owns closed generic default source values" {
     assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldloca()
     assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Initobj()
     assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ldloc()
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.Types[plan.PlanLocalTypeIndices[0]],
         closedType
     )
@@ -3672,7 +3672,7 @@ test "construction planner resolves exact aliases and nested live type parameter
         firstElement.GetElementType(),
         arguments[0]
     ), "live generic element identity"
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         nestedPlan.Types[nestedPlan.OperandIndices[1]],
         firstElement
     ), "newarr operand identity"

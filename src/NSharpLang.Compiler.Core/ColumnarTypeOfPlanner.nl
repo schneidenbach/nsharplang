@@ -334,7 +334,7 @@ class ColumnarTypeOfPlanner {
             leftCanonical := unionParts[0]
             rightCanonical := unionParts[1]
             unionDefinition := typeof(object)
-            if !TryResolveRuntimeGenericDefinition("NSharpLang.Runtime.Union`2", "NSharpLang.Runtime", out unionDefinition) || !TryResolveType(leftCanonical, bindings, out left) || !TryResolveType(rightCanonical, bindings, out right) || !IsSupportedAnonymousUnionArm(left) || !IsSupportedAnonymousUnionArm(right) || SameTypeShape(left, right) {
+            if !TryResolveRuntimeGenericDefinition("NSharpLang.Runtime.Union`2", "NSharpLang.Runtime", out unionDefinition) || !TryResolveType(leftCanonical, bindings, out left) || !TryResolveType(rightCanonical, bindings, out right) || !IsSupportedAnonymousUnionArm(left) || !IsSupportedAnonymousUnionArm(right) || RuntimeTypeShapeFacts.ExactTypeShapeMatches(left, right) {
                 return false
             }
             arguments := new Type[](2)
@@ -496,7 +496,7 @@ class ColumnarTypeOfPlanner {
                     firstCanonical = argumentCanonicals[0]
                     secondCanonical = argumentCanonicals[1]
                 }
-                if !TryResolveRuntimeGenericDefinition("NSharpLang.Runtime.Result`2", "NSharpLang.Runtime", out definition) || argumentCanonicals.Count != 2 || !TryResolveType(firstCanonical, bindings, out first) || !TryResolveType(secondCanonical, bindings, out second) || IsByRefLike(first) || IsByRefLike(second) || !IsSupportedType(first) || !IsSupportedType(second) {
+                if !TryResolveRuntimeGenericDefinition("NSharpLang.Runtime.Result`2", "NSharpLang.Runtime", out definition) || argumentCanonicals.Count != 2 || !TryResolveType(firstCanonical, bindings, out first) || !TryResolveType(secondCanonical, bindings, out second) || RuntimeTypeShapeFacts.IsByRefLike(first) || RuntimeTypeShapeFacts.IsByRefLike(second) || !IsSupportedType(first) || !IsSupportedType(second) {
                     return false
                 }
                 arguments := new Type[](2)
@@ -559,98 +559,26 @@ class ColumnarTypeOfPlanner {
         return false
     }
 
+    // The catalogue's `IComparable`-admitting projection, with this owner's `object` on the false
+    // path restored for the same reason.
     static func TryResolveSpecialKnownType(canonical: string, out result: Type): bool {
-        result = typeof(object)
-        if canonical == "StringBuilder" {
-            result = typeof(StringBuilder)
-        } else if canonical == "object" {
-            result = typeof(object)
-        } else if canonical == "StringComparer" {
-            result = typeof(StringComparer)
-        } else if canonical == "SearchOption" {
-            result = typeof(SearchOption)
-        } else if canonical == "IList" {
-            result = typeof(IList)
-        } else if canonical == "IComparable" {
-            comparable := Type.GetType("System.IComparable")
-            if comparable == null {
-                return false
-            }
-            result = comparable
-        } else if canonical == "Type" {
-            result = typeof(Type)
-        } else if canonical == "Version" {
-            result = typeof(Version)
-        } else if canonical == "TimeSpan" {
-            result = typeof(TimeSpan)
-        } else if canonical == "Random" {
-            result = typeof(Random)
-        } else if canonical == "Process" {
-            result = typeof(Process)
-        } else if canonical == "ProcessStartInfo" {
-            result = typeof(ProcessStartInfo)
-        } else if canonical == "StreamReader" {
-            result = typeof(StreamReader)
-        } else if canonical == "Stream" {
-            result = typeof(Stream)
-        } else if canonical == "CancellationToken" {
-            result = typeof(CancellationToken)
-        } else if canonical == "Task" {
-            result = typeof(Task)
-        } else if canonical == "ValueTask" {
-            result = typeof(ValueTask)
-        } else if canonical == "Assembly" {
-            result = typeof(Assembly)
-        } else {
-            return false
+        if WellKnownTypeCatalog.TryResolveSpecialKnownTypeOrComparable(canonical, out result) {
+            return true
         }
-        return true
+
+        result = typeof(object)
+        return false
     }
 
+    // `WellKnownTypeCatalog` owns the table. This owner has always left `object` in `result` when
+    // the name is not a builtin, and a caller may read it, so the value is restored here.
     static func TryResolveBuiltinType(canonical: string, out result: Type): bool {
-        result = typeof(object)
-        if canonical == "int" {
-            result = typeof(int)
-        } else if canonical == "long" {
-            result = typeof(long)
-        } else if canonical == "uint" {
-            result = typeof(uint)
-        } else if canonical == "ulong" {
-            result = typeof(ulong)
-        } else if canonical == "short" {
-            result = typeof(short)
-        } else if canonical == "ushort" {
-            result = typeof(ushort)
-        } else if canonical == "byte" {
-            result = typeof(byte)
-        } else if canonical == "sbyte" {
-            result = typeof(sbyte)
-        } else if canonical == "bool" {
-            result = typeof(bool)
-        } else if canonical == "char" {
-            result = typeof(char)
-        } else if canonical == "double" {
-            result = typeof(double)
-        } else if canonical == "float" {
-            result = typeof(float)
-        } else if canonical == "decimal" {
-            result = typeof(decimal)
-        } else if canonical == "string" {
-            result = typeof(string)
-        } else if canonical == "IntPtr" || canonical == "nint" {
-            result = typeof(IntPtr)
-        } else if canonical == "UIntPtr" || canonical == "nuint" {
-            result = typeof(UIntPtr)
-        } else if canonical == "DateTime" {
-            result = typeof(DateTime)
-        } else if canonical == "Index" {
-            result = typeof(Index)
-        } else if canonical == "Range" {
-            result = typeof(Range)
-        } else {
-            return false
+        if WellKnownTypeCatalog.TryResolveBuiltinType(canonical, out result) {
+            return true
         }
-        return true
+
+        result = typeof(object)
+        return false
     }
 
     static func TryResolveKnownExternalType(canonical: string, out result: Type): bool {
@@ -830,7 +758,7 @@ class ColumnarTypeOfPlanner {
                 keyCanonical = argumentCanonicals[0]
                 valueCanonical = argumentCanonicals[1]
             }
-            if argumentCanonicals.Count != 2 || !TryResolveType(keyCanonical, bindings, out key) || !TryResolveType(valueCanonical, bindings, out value) || (head == "SortedDictionary" ? ContainsBuilderBoundType(key) : !IsAdmissibleDictionaryKey(key)) || !IsAdmissibleCollectionElement(value) {
+            if argumentCanonicals.Count != 2 || !TryResolveType(keyCanonical, bindings, out key) || !TryResolveType(valueCanonical, bindings, out value) || (head == "SortedDictionary" ? RuntimeTypeShapeFacts.ContainsBuilderBoundType(key) : !IsAdmissibleDictionaryKey(key)) || !IsAdmissibleCollectionElement(value) {
                 return false
             }
             definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
@@ -1134,7 +1062,7 @@ class ColumnarTypeOfPlanner {
         if valueType == typeof(int) || valueType == typeof(bool) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(string) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(uint) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(decimal) || valueType == typeof(object) {
             return true
         }
-        if IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || IsClosedSourceGeneric(valueType) {
+        if RuntimeTypeShapeFacts.IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || IsClosedSourceGeneric(valueType) {
             return true
         }
         // SymbolType reports IsSZArray for pointers and byrefs too. Those shapes belong to their
@@ -1155,7 +1083,7 @@ class ColumnarTypeOfPlanner {
         if IsSupportedCecilSequenceType(valueType) {
             return true
         }
-        if ContainsBuilderBoundType(valueType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) {
             // `Nullable<T>` keeps ONE owner on both sides of this branch. Its lifting rules decide
             // which elements have a modelled null-carrying representation, and a builder-bound
             // argument must not reach the general external-construction arm and borrow an answer
@@ -1168,7 +1096,7 @@ class ColumnarTypeOfPlanner {
         if IsExactNullableConstruction(valueType) {
             return IsSupportedNullable(valueType)
         }
-        if IsByRefLike(valueType) {
+        if RuntimeTypeShapeFacts.IsByRefLike(valueType) {
             return IsSupportedSpanLikeType(valueType)
         }
         return IsSupportedCatalogType(valueType)
@@ -1187,7 +1115,7 @@ class ColumnarTypeOfPlanner {
     // shapes whose storage is not ordinary — a by-ref-like type, which may not be a field at all,
     // and a source `TypeBuilder` argument, which would name a type that does not exist yet.
     static func IsSupportedExternalGenericOverTypeParameters(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || IsByRefLike(valueType) {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || RuntimeTypeShapeFacts.IsByRefLike(valueType) {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1195,7 +1123,7 @@ class ColumnarTypeOfPlanner {
         // asks it there: a builder-bound instantiation REFUSES the read and answers "not
         // by-ref-like", so `Span<T>` over a declaration's own parameter would slip through the
         // instantiation check above. `IsSupportedSpanLikeType` is the only owner of a span shape.
-        if definition == null || ContainsBuilderBoundType(definition) || IsByRefLike(definition) {
+        if definition == null || RuntimeTypeShapeFacts.ContainsBuilderBoundType(definition) || RuntimeTypeShapeFacts.IsByRefLike(definition) {
             return false
         }
 
@@ -1204,10 +1132,10 @@ class ColumnarTypeOfPlanner {
         while index < arguments.Length {
             argument := arguments[index]
             if argument.get_IsGenericParameter() {
-                if IsByRefLike(argument) {
+                if RuntimeTypeShapeFacts.IsByRefLike(argument) {
                     return false
                 }
-            } else if ContainsBuilderBoundType(argument) || !IsSupportedType(argument) {
+            } else if RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsSupportedType(argument) {
                 return false
             }
             index = index + 1
@@ -1216,7 +1144,7 @@ class ColumnarTypeOfPlanner {
     }
 
     static func IsSupportedCecilSequenceType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
             return false
         }
 
@@ -1233,23 +1161,14 @@ class ColumnarTypeOfPlanner {
         }
 
         element := arguments[0]
-        return HasExactRuntimeTypeIdentity(element, typeof(TypeDefinition)) || HasExactRuntimeTypeIdentity(element, typeof(ExportedType)) || HasExactRuntimeTypeIdentity(element, typeof(AssemblyNameReference)) || HasExactRuntimeTypeIdentity(element, typeof(Mono.Cecil.TypeReference))
-    }
-
-    static func HasExactRuntimeTypeIdentity(candidate: Type, runtimeType: Type): bool {
-        if candidate is TypeBuilder || IsEnumBuilder(candidate) {
-            return false
-        }
-
-        identity := runtimeType.get_AssemblyQualifiedName()
-        return identity != null && ExternalAssemblyScan.HasExactTypeIdentity(candidate, identity)
+        return RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(element, typeof(TypeDefinition)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(element, typeof(ExportedType)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(element, typeof(AssemblyNameReference)) || RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(element, typeof(Mono.Cecil.TypeReference))
     }
 
     // Resolution has already selected this assembly. Its own type catalog must reproduce the exact
     // assembly-qualified identity; a familiar namespace or a matching short name is no evidence.
     // This works in both runtime and MetadataLoadContext universes without loading another assembly.
     static func IsSupportedCatalogType(valueType: Type): bool {
-        if valueType == null || valueType.get_HasElementType() || ContainsBuilderBoundType(valueType) || ContainsOpenGenericParameters(valueType) {
+        if valueType == null || valueType.get_HasElementType() || RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) || ContainsOpenGenericParameters(valueType) {
             return false
         }
         // `Assembly.GetType` accepts the open name but cannot reproduce the full name of a
@@ -1337,7 +1256,7 @@ class ColumnarTypeOfPlanner {
     // owner. And the head must come from a real reference, never from the assembly being emitted, so
     // a source declaration that spells a BCL generic's name cannot borrow that name's admission.
     static func IsSupportedExternalConstruction(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || valueType.get_IsGenericParameter() || valueType.get_HasElementType() {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || valueType.get_IsGenericParameter() || valueType.get_HasElementType() {
             return false
         }
         if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
@@ -1346,7 +1265,7 @@ class ColumnarTypeOfPlanner {
         definition := valueType.GetGenericTypeDefinition()
         // The BY-REF-LIKE question is asked of the DEFINITION. A builder-bound instantiation refuses
         // the read outright, so asking it would silently answer "not by-ref-like" for `Span<T>`.
-        if definition is TypeBuilder || IsEnumBuilder(definition) || IsEmittedAssemblyType(definition) || IsByRefLike(definition) || IsByRefLike(valueType) || !HasSelfConsistentCatalogIdentity(definition) {
+        if definition is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(definition) || IsEmittedAssemblyType(definition) || RuntimeTypeShapeFacts.IsByRefLike(definition) || RuntimeTypeShapeFacts.IsByRefLike(valueType) || !HasSelfConsistentCatalogIdentity(definition) {
             return false
         }
         arguments := valueType.GetGenericArguments()
@@ -1361,7 +1280,7 @@ class ColumnarTypeOfPlanner {
     }
 
     static func IsSupportedElementType(valueType: Type): bool {
-        if valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(string) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(object) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) || IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedNullable(valueType) {
+        if valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(string) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(object) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) || RuntimeTypeShapeFacts.IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedNullable(valueType) {
             return true
         }
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
@@ -1422,7 +1341,7 @@ class ColumnarTypeOfPlanner {
             return HasNotNullableValueTypeConstraint(valueType)
         }
 
-        return IsValueTypeSafely(valueType) && !IsByRefLike(valueType)
+        return IsValueTypeSafely(valueType) && !RuntimeTypeShapeFacts.IsByRefLike(valueType)
     }
 
     // The `struct` bit of a type parameter's own `GenericParameterAttributes`, read defensively
@@ -1465,7 +1384,7 @@ class ColumnarTypeOfPlanner {
     }
 
     static func IsSupportedReadOnlySpanElement(valueType: Type): bool {
-        return valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || IsEnumType(valueType)
+        return valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || RuntimeTypeShapeFacts.IsEnumType(valueType)
     }
 
     // A span head alone is NOT admissibility: the span read/write/slice/conversion lowerings are
@@ -1606,7 +1525,7 @@ class ColumnarTypeOfPlanner {
             return false
         }
         arguments := valueType.GetGenericArguments()
-        return arguments.Length == 2 && !IsByRefLike(arguments[0]) && !IsByRefLike(arguments[1]) && IsSupportedType(arguments[0]) && IsSupportedType(arguments[1])
+        return arguments.Length == 2 && !RuntimeTypeShapeFacts.IsByRefLike(arguments[0]) && !RuntimeTypeShapeFacts.IsByRefLike(arguments[1]) && IsSupportedType(arguments[0]) && IsSupportedType(arguments[1])
     }
 
     static func IsSupportedAnonymousUnionType(valueType: Type): bool {
@@ -1635,7 +1554,7 @@ class ColumnarTypeOfPlanner {
     }
 
     static func IsSupportedCollectionType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1659,7 +1578,7 @@ class ColumnarTypeOfPlanner {
     // complete source class even while its TypeBuilder is unbaked. Keep this exception to that one
     // interface shell and direct, non-generic source class argument.
     static func IsSupportedReferenceEqualityComparerType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1673,7 +1592,7 @@ class ColumnarTypeOfPlanner {
             return false
         }
         argument := arguments[0]
-        return argument is TypeBuilder && !IsEnumBuilder(argument) && !argument.get_IsGenericTypeDefinition() && !argument.get_IsValueType() && !argument.get_IsInterface()
+        return argument is TypeBuilder && !RuntimeTypeShapeFacts.IsEnumBuilder(argument) && !argument.get_IsGenericTypeDefinition() && !argument.get_IsValueType() && !argument.get_IsInterface()
     }
 
     // IEnumerator<T> is storable protocol state, not a collection expression or foreach source.
@@ -1681,7 +1600,7 @@ class ColumnarTypeOfPlanner {
     // discovery needs the same narrow shape as a local so it can preserve the typed Current slot and
     // explicit disposal around an early first-hit return.
     static func IsSupportedEnumeratorType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1697,7 +1616,7 @@ class ColumnarTypeOfPlanner {
     // it unboxed so mutation detection and finally disposal operate on the same receiver state. The
     // one generic argument retains List's existing element-admissibility boundary.
     static func IsSupportedListEnumeratorType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1713,7 +1632,7 @@ class ColumnarTypeOfPlanner {
     // getter. Compiler realization passes that exact view to source-definition scans so its delayed
     // getter, live enumeration, and mutation behavior remain intact even when TValue is unbaked.
     static func IsSupportedDictionaryValueCollectionType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1730,7 +1649,7 @@ class ColumnarTypeOfPlanner {
     // this exact view into set constructors and UnionWith, so keep the concrete result type rather
     // than materializing or copying its keys in the compiler host.
     static func IsSupportedDictionaryKeyCollectionType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1747,7 +1666,7 @@ class ColumnarTypeOfPlanner {
     // receiver and retain Dictionary's version check. Its two generic arguments use the same key and
     // value boundary as the live KeyCollection that produced it.
     static func IsSupportedDictionaryKeyEnumeratorType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1762,7 +1681,7 @@ class ColumnarTypeOfPlanner {
     // Dictionary<TKey, TValue>.GetEnumerator returns this concrete mutable struct. Keeping it
     // unboxed preserves one receiver across MoveNext/Current/Dispose and the BCL's mutation check.
     static func IsSupportedDictionaryEnumeratorType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1785,7 +1704,7 @@ class ColumnarTypeOfPlanner {
     // that exact struct in a local so Current and Dispose operate on the same unboxed state. Its
     // two generic arguments retain Dictionary's existing key and value admissibility boundaries.
     static func IsSupportedDictionaryValueEnumeratorType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -1811,10 +1730,10 @@ class ColumnarTypeOfPlanner {
     // argument were resolved before this admission question, and construction/member planning
     // rebinds the definition's handles onto the exact instantiation.
     static func IsAdmissibleCollectionElement(valueType: Type): bool {
-        if IsEnumBuilder(valueType) {
+        if RuntimeTypeShapeFacts.IsEnumBuilder(valueType) {
             return false
         }
-        if IsEnumType(valueType) {
+        if RuntimeTypeShapeFacts.IsEnumType(valueType) {
             return true
         }
         if valueType is TypeBuilder {
@@ -1841,11 +1760,11 @@ class ColumnarTypeOfPlanner {
             if IsExactNullableConstruction(valueType) {
                 return IsSupportedNullable(valueType)
             }
-            if ContainsBuilderBoundType(valueType) {
+            if RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) {
                 return false
             }
         }
-        return IsSupportedType(valueType) && !ContainsBuilderBoundType(valueType)
+        return IsSupportedType(valueType) && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType)
     }
 
     // HashSet<T> elements are keys. A complete non-generic source declaration — reference OR value —
@@ -1869,14 +1788,14 @@ class ColumnarTypeOfPlanner {
     // direct builder leaf: an open definition names no single type, an `EnumBuilder` is handled by the
     // enum rule beside this one, and arrays or constructed builder-bound shapes must not inherit it.
     static func IsAdmissibleSourceDeclarationKey(valueType: Type): bool {
-        return valueType is TypeBuilder && !IsEnumBuilder(valueType) && !valueType.get_IsGenericTypeDefinition()
+        return valueType is TypeBuilder && !RuntimeTypeShapeFacts.IsEnumBuilder(valueType) && !valueType.get_IsGenericTypeDefinition()
     }
 
     static func IsSupportedDelegateType(valueType: Type): bool {
         if valueType == typeof(Action) || valueType == typeof(ThreadStart) {
             return true
         }
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if valueType is TypeBuilder || RuntimeTypeShapeFacts.IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
         name := valueType.GetGenericTypeDefinition().FullName ?? ""
@@ -1886,7 +1805,7 @@ class ColumnarTypeOfPlanner {
         arguments := valueType.GetGenericArguments()
         i := 0
         while i < arguments.Length {
-            if ContainsBuilderBoundType(arguments[i]) || !IsSupportedType(arguments[i]) {
+            if RuntimeTypeShapeFacts.ContainsBuilderBoundType(arguments[i]) || !IsSupportedType(arguments[i]) {
                 return false
             }
             i += 1
@@ -1900,7 +1819,7 @@ class ColumnarTypeOfPlanner {
         }
         definition := valueType.GetGenericTypeDefinition()
         name := definition.FullName ?? ""
-        containsBuilder := ContainsBuilderBoundType(valueType)
+        containsBuilder := RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType)
         isLongTuple := definition == OpenValueTupleType(8)
         if name != "System.ValueTuple`2" && name != "System.ValueTuple`3" && name != "System.ValueTuple`4" && name != "System.ValueTuple`5" && name != "System.ValueTuple`6" && name != "System.ValueTuple`7" && !isLongTuple {
             return false
@@ -1922,8 +1841,8 @@ class ColumnarTypeOfPlanner {
                 i += 1
                 continue
             }
-            directSourceReference := argument is TypeBuilder && !IsEnumBuilder(argument) && !argument.get_IsGenericTypeDefinition() && !argument.get_IsValueType() && !argument.get_IsInterface()
-            if !directSourceReference && (IsEnumType(argument) || IsClosedSourceGeneric(argument) || IsSupportedDelegateType(argument) || ContainsBuilderBoundType(argument) || !IsSupportedType(argument)) {
+            directSourceReference := argument is TypeBuilder && !RuntimeTypeShapeFacts.IsEnumBuilder(argument) && !argument.get_IsGenericTypeDefinition() && !argument.get_IsValueType() && !argument.get_IsInterface()
+            if !directSourceReference && (RuntimeTypeShapeFacts.IsEnumType(argument) || IsClosedSourceGeneric(argument) || IsSupportedDelegateType(argument) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsSupportedType(argument)) {
                 return false
             }
             i += 1
@@ -1960,60 +1879,11 @@ class ColumnarTypeOfPlanner {
         return null
     }
 
-    static func IsEnumType(valueType: Type): bool {
-        if IsEnumBuilder(valueType) {
-            return true
-        }
-        if valueType is TypeBuilder {
-            try {
-                baseType := valueType.get_BaseType()
-                return baseType != null && baseType.FullName == "System.Enum"
-            } catch ex: NotSupportedException {
-                return false
-            } catch ex: NotImplementedException {
-                return false
-            }
-        }
-        try {
-            return valueType.get_IsEnum()
-        } catch ex: NotSupportedException {
-            return false
-        } catch ex: NotImplementedException {
-            return false
-        }
-    }
-
-    static func ContainsBuilderBoundType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || valueType.get_IsGenericParameter() {
-            return true
-        }
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
-            element := valueType.GetElementType()
-            return element != null && ContainsBuilderBoundType(element)
-        }
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
-            return false
-        }
-        definition := valueType.GetGenericTypeDefinition()
-        if definition is TypeBuilder || IsEnumBuilder(definition) {
-            return true
-        }
-        arguments := valueType.GetGenericArguments()
-        i := 0
-        while i < arguments.Length {
-            if ContainsBuilderBoundType(arguments[i]) {
-                return true
-            }
-            i += 1
-        }
-        return false
-    }
-
     static func ContainsNonEnumBuilderBoundType(valueType: Type): bool {
-        if IsEnumBuilder(valueType) {
+        if RuntimeTypeShapeFacts.IsEnumBuilder(valueType) {
             return true
         }
-        if IsEnumType(valueType) {
+        if RuntimeTypeShapeFacts.IsEnumType(valueType) {
             return false
         }
         if valueType is TypeBuilder || valueType.get_IsGenericParameter() {
@@ -2049,20 +1919,6 @@ class ColumnarTypeOfPlanner {
     // or `RuntimeEnumBuilder` (run emit), so an EXACT match on the base name can never be true and the
     // predicate silently reported every EnumBuilder as baked. The base chain is walked, exactly as
     // IsAssemblyBuilderBacked already walks it for AssemblyBuilder.
-    static func IsEnumBuilder(valueType: Type): bool {
-        if valueType == null {
-            return false
-        }
-        candidate := valueType.GetType()
-        while candidate != null {
-            if candidate.FullName == "System.Reflection.Emit.EnumBuilder" {
-                return true
-            }
-            candidate = candidate.get_BaseType()
-        }
-        return false
-    }
-
     // A definition that lives in an assembly this process is EMITTING is not an external reference,
     // even after `CreateType` has baked it and even when its name matches a BCL generic exactly. The
     // builder check alone is not enough: a baked type reports the underlying dynamic assembly rather
@@ -2103,46 +1959,6 @@ class ColumnarTypeOfPlanner {
         } catch ex: NotImplementedException {
             return false
         }
-    }
-
-    static func IsByRefLike(valueType: Type): bool {
-        try {
-            return valueType.get_IsByRefLike()
-        } catch ex: NotSupportedException {
-            return false
-        } catch ex: NotImplementedException {
-            return false
-        }
-    }
-
-    static func SameTypeShape(left: Type, right: Type): bool {
-        if left == right {
-            return true
-        }
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
-            if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
-                return false
-            }
-            leftElement := left.GetElementType()
-            rightElement := right.GetElementType()
-            return leftElement != null && rightElement != null && SameTypeShape(leftElement, rightElement)
-        }
-        if !left.get_IsGenericType() || !right.get_IsGenericType() || left.get_IsGenericTypeDefinition() || right.get_IsGenericTypeDefinition() || left.GetGenericTypeDefinition() != right.GetGenericTypeDefinition() {
-            return false
-        }
-        leftArguments := left.GetGenericArguments()
-        rightArguments := right.GetGenericArguments()
-        if leftArguments.Length != rightArguments.Length {
-            return false
-        }
-        i := 0
-        while i < leftArguments.Length {
-            if !SameTypeShape(leftArguments[i], rightArguments[i]) {
-                return false
-            }
-            i += 1
-        }
-        return true
     }
 
     static func SplitTopLevelPipes(canonical: string): List<string> {

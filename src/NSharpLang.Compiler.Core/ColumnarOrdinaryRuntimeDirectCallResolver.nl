@@ -361,7 +361,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
         index := 0
         while index < leftParameters.Length {
-            if !ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(leftParameters[index].get_ParameterType(), rightParameters[index].get_ParameterType()) {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatches(leftParameters[index].get_ParameterType(), rightParameters[index].get_ParameterType()) {
                 return false
             }
 
@@ -375,7 +375,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     static func HidesDeclaration(candidate: MethodInfo, existing: MethodInfo): bool {
         candidateOwner := candidate.get_DeclaringType()
         existingOwner := existing.get_DeclaringType()
-        if candidateOwner == null || existingOwner == null || ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(candidateOwner, existingOwner) {
+        if candidateOwner == null || existingOwner == null || RuntimeTypeShapeFacts.ExactTypeShapeMatches(candidateOwner, existingOwner) {
             return false
         }
 
@@ -770,7 +770,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         // receiver at all: its members belong to the exact source resolver, and the reflection objects
         // an instantiation hands out cannot even be asked about their custom attributes (the base
         // `ParameterInfo` answers "not implemented"), so it must be refused before any candidate is read.
-        if ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(lookupType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
         }
 
@@ -831,7 +831,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             }
         }
 
-        if ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(lookupType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) {
             return empty
         }
 
@@ -1009,7 +1009,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     static func TryGetBuilderBoundRuntimeDefinition(lookupType: Type, out definition: Type, out closedArguments: Type[]): bool {
         definition = typeof(object)
         closedArguments = new Type[](0)
-        if !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() || !ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(lookupType) {
+        if !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() || !RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) {
             return false
         }
 
@@ -1262,7 +1262,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
             exactMethod = (MethodInfo)rebound
             reboundDeclaringType := exactMethod.get_DeclaringType()
-            if reboundDeclaringType == null || !ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(reboundDeclaringType, lookupType) {
+            if reboundDeclaringType == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatches(reboundDeclaringType, lookupType) {
                 throw new InvalidOperationException("The rebound builder-bound runtime method has the wrong declaring type.")
             }
 

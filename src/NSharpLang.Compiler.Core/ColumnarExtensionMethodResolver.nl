@@ -693,7 +693,7 @@ class ColumnarExtensionMethodResolver {
         inferredIndex := 0
         while inferredIndex < inferred.Length {
             inferredArgument := inferred[inferredIndex]
-            if inferredArgument == null || ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(inferredArgument) {
+            if inferredArgument == null || RuntimeTypeShapeFacts.ContainsBuilderBoundType(inferredArgument) {
                 return null
             }
 
@@ -1238,7 +1238,7 @@ class ColumnarExtensionMethodResolver {
             return false
         }
 
-        if ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(expectedType, actualType) {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatches(expectedType, actualType) {
             return true
         }
 

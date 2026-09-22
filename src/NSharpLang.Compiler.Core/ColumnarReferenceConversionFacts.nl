@@ -403,7 +403,7 @@ class ColumnarReferenceConversionFacts {
     }
 
     static func RuntimeInterfaceEqualsOrExtends(candidate: Type, target: Type): bool {
-        if ExactTypeShapeMatches(candidate, target) {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidate, target) {
             return true
         }
 
@@ -442,7 +442,7 @@ class ColumnarReferenceConversionFacts {
         if targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
             sourceElement := sourceType.GetElementType()
             targetArguments := targetType.GetGenericArguments()
-            if sourceElement == null || targetArguments.Length != 1 || !ExactTypeShapeMatches(sourceElement, targetArguments[0]) {
+            if sourceElement == null || targetArguments.Length != 1 || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(sourceElement, targetArguments[0]) {
                 return false
             }
 
@@ -458,7 +458,7 @@ class ColumnarReferenceConversionFacts {
         targetArguments := targetType.GetGenericArguments()
         // Dictionary<K,V>.ValueCollection is a live IEnumerable<V>. The nested view keeps both
         // declaring-type arguments, so compare its VALUE slot to the target's sole element slot.
-        if sourceArguments.Length == 2 && targetArguments.Length == 1 && ExactTypeShapeMatches(sourceArguments[1], targetArguments[0]) {
+        if sourceArguments.Length == 2 && targetArguments.Length == 1 && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(sourceArguments[1], targetArguments[0]) {
             sourceDefinition := sourceType.GetGenericTypeDefinition()
             targetDefinition := targetType.GetGenericTypeDefinition()
             if sourceDefinition == ColumnarTypeOfPlanner.RequiredDictionaryValueCollectionDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition() {
@@ -467,7 +467,7 @@ class ColumnarReferenceConversionFacts {
         }
         // Dictionary<K,V>.KeyCollection is the corresponding live IEnumerable<K>; its second
         // generic slot is retained only because the nested CLR type closes over its owner.
-        if sourceArguments.Length == 2 && targetArguments.Length == 1 && ExactTypeShapeMatches(sourceArguments[0], targetArguments[0]) {
+        if sourceArguments.Length == 2 && targetArguments.Length == 1 && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(sourceArguments[0], targetArguments[0]) {
             sourceDefinition := sourceType.GetGenericTypeDefinition()
             targetDefinition := targetType.GetGenericTypeDefinition()
             if sourceDefinition == ColumnarTypeOfPlanner.RequiredDictionaryKeyCollectionDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition() {
@@ -481,17 +481,17 @@ class ColumnarReferenceConversionFacts {
         enumerableTargetDefinition := targetType.GetGenericTypeDefinition()
         if sourceArguments.Length == 2 && targetArguments.Length == 1 && IsReadOnlyDictionaryEnumerableShell(dictionarySourceDefinition, enumerableTargetDefinition, targetArguments[0]) {
             pairArguments := targetArguments[0].GetGenericArguments()
-            if pairArguments.Length == 2 && ExactTypeShapeMatches(sourceArguments[0], pairArguments[0]) && ExactTypeShapeMatches(sourceArguments[1], pairArguments[1]) {
+            if pairArguments.Length == 2 && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(sourceArguments[0], pairArguments[0]) && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(sourceArguments[1], pairArguments[1]) {
                 return true
             }
         }
         // The one two-argument upcast: Dictionary<K,V>/SortedDictionary<K,V> -> IReadOnlyDictionary<K,V>,
         // the two-argument mirror of List<T> -> IReadOnlyList<T> below. Both arguments must match exactly.
-        if targetArguments.Length == 2 && sourceArguments.Length == 2 && (targetType.GetGenericTypeDefinition().FullName ?? "") == "System.Collections.Generic.IReadOnlyDictionary`2" && ExactTypeShapeMatches(sourceArguments[0], targetArguments[0]) && ExactTypeShapeMatches(sourceArguments[1], targetArguments[1]) {
+        if targetArguments.Length == 2 && sourceArguments.Length == 2 && (targetType.GetGenericTypeDefinition().FullName ?? "") == "System.Collections.Generic.IReadOnlyDictionary`2" && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(sourceArguments[0], targetArguments[0]) && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(sourceArguments[1], targetArguments[1]) {
             sourceDictionaryDefinition := sourceType.GetGenericTypeDefinition()
             return sourceDictionaryDefinition == typeof(Dictionary<int, int>).GetGenericTypeDefinition() || sourceDictionaryDefinition == typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()
         }
-        if sourceArguments.Length < 1 || targetArguments.Length != 1 || !(ExactTypeShapeMatches(sourceArguments[0], targetArguments[0]) || IsCovariantSlotConversion(targetType, 0, sourceArguments[0], targetArguments[0])) {
+        if sourceArguments.Length < 1 || targetArguments.Length != 1 || !(RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(sourceArguments[0], targetArguments[0]) || IsCovariantSlotConversion(targetType, 0, sourceArguments[0], targetArguments[0])) {
             return false
         }
 
@@ -609,10 +609,10 @@ class ColumnarReferenceConversionFacts {
             if baseType == null {
                 return false
             }
-            if ExactTypeShapeMatches(baseType, targetType) {
+            if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(baseType, targetType) {
                 return true
             }
-            if ExactTypeShapeMatches(baseType, candidate) {
+            if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(baseType, candidate) {
                 return false
             }
             current = baseType
@@ -669,7 +669,7 @@ class ColumnarReferenceConversionFacts {
     static func UpcastReaches(openCandidate: Type, closedArguments: Type[], targetType: Type, exact: bool): bool {
         substituted := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openCandidate, closedArguments)
         if exact {
-            return ExactTypeShapeMatches(substituted, targetType)
+            return RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(substituted, targetType)
         }
         return ColumnarTypeEquivalenceFacts.TypesEquivalent(substituted, targetType)
     }
@@ -757,46 +757,5 @@ class ColumnarReferenceConversionFacts {
             return true
         }
         return valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && valueType.GetGenericTypeDefinition() is TypeBuilder
-    }
-
-    static func ExactTypeShapeMatches(left: Type, right: Type): bool {
-        if left == right {
-            return true
-        }
-
-        if left.get_IsGenericParameter() || right.get_IsGenericParameter() {
-            return left.get_IsGenericParameter() && right.get_IsGenericParameter() && ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(left, right)
-        }
-
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
-            if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
-                return false
-            }
-
-            leftElement := left.GetElementType()
-            rightElement := right.GetElementType()
-            return leftElement != null && rightElement != null && ExactTypeShapeMatches(leftElement, rightElement)
-        }
-
-        if !left.get_IsGenericType() || !right.get_IsGenericType() || left.get_IsGenericTypeDefinition() || right.get_IsGenericTypeDefinition() || left.GetGenericTypeDefinition() != right.GetGenericTypeDefinition() {
-            return false
-        }
-
-        leftArguments := left.GetGenericArguments()
-        rightArguments := right.GetGenericArguments()
-        if leftArguments.Length != rightArguments.Length {
-            return false
-        }
-
-        index := 0
-        while index < leftArguments.Length {
-            if !ExactTypeShapeMatches(leftArguments[index], rightArguments[index]) {
-                return false
-            }
-
-            index += 1
-        }
-
-        return true
     }
 }

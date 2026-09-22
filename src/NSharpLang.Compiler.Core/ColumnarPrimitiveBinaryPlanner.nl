@@ -260,7 +260,7 @@ class ColumnarPrimitiveBinaryPlanner {
                 if runtimeMethod == null {
                     throw new InvalidOperationException("A selected runtime operator has no exact method handle.")
                 }
-                if ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(runtimeSelection.ParameterTypes[0], leftType) && ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(runtimeSelection.ParameterTypes[1], rightType) {
+                if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(runtimeSelection.ParameterTypes[0], leftType) && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(runtimeSelection.ParameterTypes[1], rightType) {
                     runtimeIndex := plan.AddMethodWithSignature(runtimeMethod, runtimeSelection.DeclaringType, runtimeSelection.ParameterTypes, runtimeSelection.ReturnType, true, false)
                     plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), runtimeIndex)
                     resultType = runtimeSelection.ReturnType

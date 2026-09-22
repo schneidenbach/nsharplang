@@ -317,7 +317,7 @@ class ColumnarInstanceMemberPlanner {
 
             memberName := RewriteTupleMemberName(nodes, source, receiver, nodes.Text(source, candidate), bindings)
             selection := EmptySelection()
-            if !TrySelect(receiverType, memberName, bindings, out selection) || selection.Kind != ColumnarInstanceMemberKind.Field || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(selection.ResultType, expectedType) {
+            if !TrySelect(receiverType, memberName, bindings, out selection) || selection.Kind != ColumnarInstanceMemberKind.Field || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(selection.ResultType, expectedType) {
                 plan.Rollback(checkpoint)
                 return false
             }
@@ -688,7 +688,7 @@ class ColumnarInstanceMemberPlanner {
                 throw new InvalidOperationException("Source instance-member base facts have no exact type template.")
             }
             emittedBaseTemplate := current.Builder.get_BaseType()
-            if emittedBaseTemplate == null || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(exactBaseTemplate, emittedBaseTemplate) {
+            if emittedBaseTemplate == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(exactBaseTemplate, emittedBaseTemplate) {
                 throw new InvalidOperationException("Source instance-member exact base template does not match emitted inheritance.")
             }
 

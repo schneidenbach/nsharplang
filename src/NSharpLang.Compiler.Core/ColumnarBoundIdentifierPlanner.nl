@@ -1366,7 +1366,7 @@ class ColumnarBoundIdentifierPlanner {
         if openField == null {
             throw new InvalidOperationException("StrongBox<T>.Value was not found.")
         }
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(boxType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(boxType) {
             rebound := TypeBuilder.GetField(boxType, openField)
             if rebound == null {
                 throw new InvalidOperationException("StrongBox<T>.Value could not be rebound onto its builder-bound instantiation.")
@@ -1428,7 +1428,7 @@ class ColumnarBoundIdentifierPlanner {
         while index < plan.ArgumentCount {
             if plan.ArgumentOrdinals[index] == ordinal {
                 existingType := plan.Types[plan.ArgumentTypeIndices[index]]
-                if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(existingType, valueType) || plan.ArgumentIsAddress[index] != isAddress {
+                if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(existingType, valueType) || plan.ArgumentIsAddress[index] != isAddress {
                     throw new InvalidOperationException("One argument ordinal cannot carry conflicting bound-identifier facts.")
                 }
 

@@ -23,7 +23,7 @@ class ColumnarNullableArgumentLowering {
             return false
         }
 
-        if ExactTypeShapeMatches(actualType, targetType) || ExactTypeShapeMatches(actualType, element) {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatches(actualType, targetType) || RuntimeTypeShapeFacts.ExactTypeShapeMatches(actualType, element) {
             return true
         }
 
@@ -97,13 +97,13 @@ class ColumnarNullableArgumentLowering {
             return false
         }
 
-        if ExactTypeShapeMatches(actualType, targetType) {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatches(actualType, targetType) {
             return true
         }
 
         conversionMethod: MethodInfo? = null
         conversionSource := actualType
-        requiresConversion := !ExactTypeShapeMatches(actualType, element)
+        requiresConversion := !RuntimeTypeShapeFacts.ExactTypeShapeMatches(actualType, element)
         if requiresConversion && !TryGetNumericConversion(actualType, element, out conversionSource, out conversionMethod) {
             return false
         }
@@ -241,43 +241,6 @@ class ColumnarNullableArgumentLowering {
     // list, and three copies of a list are three chances to disagree about a type.
     static func IsLiftableNullableElement(valueType: Type): bool {
         return ColumnarTypeOfPlanner.IsLiftableNullableElement(valueType)
-    }
-
-    static func ExactTypeShapeMatches(left: Type, right: Type): bool {
-        if left == right {
-            return true
-        }
-
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
-            if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
-                return false
-            }
-
-            leftElement := left.GetElementType()
-            rightElement := right.GetElementType()
-            return leftElement != null && rightElement != null && ExactTypeShapeMatches(leftElement, rightElement)
-        }
-
-        if !left.get_IsGenericType() || !right.get_IsGenericType() || left.get_IsGenericTypeDefinition() || right.get_IsGenericTypeDefinition() || left.GetGenericTypeDefinition() != right.GetGenericTypeDefinition() {
-            return false
-        }
-
-        leftArguments := left.GetGenericArguments()
-        rightArguments := right.GetGenericArguments()
-        if leftArguments.Length != rightArguments.Length {
-            return false
-        }
-
-        i := 0
-        while i < leftArguments.Length {
-            if !ExactTypeShapeMatches(leftArguments[i], rightArguments[i]) {
-                return false
-            }
-
-            i += 1
-        }
-
-        return true
     }
 
     static func RequiredNullableDefinition(): Type {

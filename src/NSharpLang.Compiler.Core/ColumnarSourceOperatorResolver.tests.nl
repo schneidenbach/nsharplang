@@ -77,7 +77,7 @@ func AssertSelectedSourceOperator(
         owner.Builder
     )
     assert selection.ParameterTypes.Length == parameterCount
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         selection.ReturnType,
         definition.ReturnType
     )
@@ -443,9 +443,9 @@ test "source operator resolver selects a constructed generic type's own operator
     assert ColumnarConstructionPlanner.SameObject(selection.OperatorDefinition, definition)
     assert selection.ReturnType == typeof(bool)
     assert selection.ParameterTypes.Length == 2
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(selection.ParameterTypes[0], intType)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(selection.ParameterTypes[1], intType)
-    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(selection.DeclaringType, intType)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(selection.ParameterTypes[0], intType)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(selection.ParameterTypes[1], intType)
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(selection.DeclaringType, intType)
     selectedMethod := selection.Method
     if selectedMethod == null {
         throw new InvalidOperationException("Selected constructed source operator has no method handle.")

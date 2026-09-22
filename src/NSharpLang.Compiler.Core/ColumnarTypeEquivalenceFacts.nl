@@ -54,7 +54,7 @@ class ColumnarTypeEquivalenceFacts {
             return true
         }
 
-        if ColumnarTypeOfPlanner.IsEnumType(a) || ColumnarTypeOfPlanner.IsEnumType(b) {
+        if RuntimeTypeShapeFacts.IsEnumType(a) || RuntimeTypeShapeFacts.IsEnumType(b) {
             return IsSameEnumType(a, b)
         }
 
@@ -215,7 +215,7 @@ class ColumnarTypeEquivalenceFacts {
     // case: the enum's declared name inside its own module is the identity, because a source enum
     // cannot be declared twice under one name in one module.
     static func IsSameEnumType(a: Type, b: Type): bool {
-        if !ColumnarTypeOfPlanner.IsEnumType(a) || !ColumnarTypeOfPlanner.IsEnumType(b) {
+        if !RuntimeTypeShapeFacts.IsEnumType(a) || !RuntimeTypeShapeFacts.IsEnumType(b) {
             return false
         }
 

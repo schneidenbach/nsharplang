@@ -11,7 +11,7 @@ import System.Reflection.Emit
 // generic parameters by ordinal, including parameters declared by another source owner.
 class ColumnarClosedGenericMemberResolver {
     static func ResolveMethod(closedType: Type, openMethod: MethodInfo): MethodInfo {
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(closedType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(closedType) {
             rebound := TypeBuilder.GetMethod(closedType, OpenDefinitionDeclaration(closedType, openMethod))
             return rebound
         }

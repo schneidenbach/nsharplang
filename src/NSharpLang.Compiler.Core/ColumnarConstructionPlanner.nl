@@ -412,12 +412,12 @@ class ColumnarConstructionPlanner {
             }
             return false
         }
-        if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(lengthType, typeof(int)) {
+        if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(lengthType, typeof(int)) {
             return false
         }
 
         emittedLengthType := typeof(int)
-        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, lengthNode, bindings, handles, plan, fragment, depth + 1, out emittedLengthType, out nestedOwnership) || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(emittedLengthType, typeof(int)) {
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, lengthNode, bindings, handles, plan, fragment, depth + 1, out emittedLengthType, out nestedOwnership) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(emittedLengthType, typeof(int)) {
             if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                 ownership = nestedOwnership
             }
@@ -473,7 +473,7 @@ class ColumnarConstructionPlanner {
                     return false
                 }
                 elementType = currentType
-            } else if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(elementType, currentType) {
+            } else if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(elementType, currentType) {
                 // THIS OWNER INFERS; IT IS NOT THE ONE THAT KNOWS THE TARGET. A literal whose
                 // elements do not all have the same type is not ill-formed — analysis accepted it
                 // because the POSITION named an element type each element converts to, which is how
@@ -502,7 +502,7 @@ class ColumnarConstructionPlanner {
 
             emittedType := typeof(int)
             nestedOwnership := ColumnarDirectCallOwnership.NotOwned
-            if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(node, index), bindings, handles, plan, fragment, depth + 1, out emittedType, out nestedOwnership) || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(emittedType, elementType) {
+            if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(node, index), bindings, handles, plan, fragment, depth + 1, out emittedType, out nestedOwnership) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(emittedType, elementType) {
                 if nestedOwnership == ColumnarDirectCallOwnership.OwnedRejected {
                     ownership = nestedOwnership
                 }
@@ -630,7 +630,7 @@ class ColumnarConstructionPlanner {
             if !TryFindSourceDefinition(constructedType, bindings, out constructedDefinition) {
                 TryFindClosedSourceDefinition(constructedType, bindings, out constructedDefinition)
             }
-            if constructedDefinition == null && (constructedType is TypeBuilder || ContainsBuilderBoundType(constructedType)) {
+            if constructedDefinition == null && (constructedType is TypeBuilder || RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(constructedType)) {
                 ownership = ColumnarDirectCallOwnership.NotOwned
                 legacyWholeSubtreePlanning = true
                 return false
@@ -1032,7 +1032,7 @@ class ColumnarConstructionPlanner {
             }
             return false
         }
-        if ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(actualType, expectedType) {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualType, expectedType) {
             return true
         }
         return ColumnarDirectCallPlanner.AppendArgumentConversion(plan, actualType, expectedType, bindings.SourceTypeDefinitions)
@@ -1243,7 +1243,7 @@ class ColumnarConstructionPlanner {
                 throw new InvalidOperationException("Construction union facts cannot contain null values.")
             }
             candidateType: Type = candidate.Base
-            if ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(candidateType, openTarget) {
+            if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidateType, openTarget) {
                 if selected != null && !SameObject(selected, candidate) {
                     throw new InvalidOperationException("One construction union target cannot map to two definitions.")
                 }
@@ -1876,7 +1876,7 @@ class ColumnarConstructionPlanner {
         if targetType == null || !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() {
             return false
         }
-        if !ContainsBuilderBoundType(targetType) {
+        if !RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(targetType) {
             return TrySelectRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameterTypes, out elementType)
         }
 
@@ -1931,7 +1931,7 @@ class ColumnarConstructionPlanner {
                 throw new InvalidOperationException("Construction source-type facts cannot contain null values.")
             }
             candidateType: Type = candidate.Builder
-            if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(candidateType, openType) {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidateType, openType) {
                 continue
             }
             if selected != null && !SameObject(selected, candidate) {
@@ -1986,28 +1986,6 @@ class ColumnarConstructionPlanner {
             return definition.MakeGenericType(closedArguments)
         }
         return signatureType
-    }
-
-    static func ContainsBuilderBoundType(valueType: Type): bool {
-        if valueType is TypeBuilder || valueType.get_IsGenericParameter() {
-            return true
-        }
-        if valueType.get_HasElementType() {
-            element := valueType.GetElementType()
-            return element != null && ContainsBuilderBoundType(element)
-        }
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
-            return false
-        }
-        arguments := valueType.GetGenericArguments()
-        index := 0
-        while index < arguments.Length {
-            if ContainsBuilderBoundType(arguments[index]) {
-                return true
-            }
-            index += 1
-        }
-        return false
     }
 
     // The names a `new` may write are its type's constructors' parameter names. A source type answers
@@ -2174,7 +2152,7 @@ class ColumnarConstructionPlanner {
             return false
         }
         declaringType := constructor.get_DeclaringType()
-        return declaringType != null && ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(declaringType, ownerType)
+        return declaringType != null && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(declaringType, ownerType)
     }
 
     static func PrefixTypes(values: Type[], count: int): Type[] {
@@ -2374,7 +2352,7 @@ class ColumnarConstructionPlanner {
     // rather than probed: `GetConstructors` over Reflection.Emit metadata is not a semantic answer, and
     // the closed-generic and source paths own those shapes before this one is reached.
     static func IsConstructibleRuntimeTarget(targetType: Type): bool {
-        if targetType == null || ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(targetType) {
+        if targetType == null || RuntimeTypeShapeFacts.ContainsBuilderBoundType(targetType) {
             return false
         }
 
@@ -2621,7 +2599,7 @@ class ColumnarConstructionPlanner {
         }
         definition := bindings.Enums[ownerName]
         constants := definition.StringConstants
-        if constants == null || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(definition.EnumType, expectedType) || !constants.ContainsKey(memberName) {
+        if constants == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.EnumType, expectedType) || !constants.ContainsKey(memberName) {
             return false
         }
         value = constants[memberName]
@@ -2661,7 +2639,7 @@ class ColumnarConstructionPlanner {
 
         if bindings.Enums.ContainsKey(ownerName) {
             definition := bindings.Enums[ownerName]
-            if ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(definition.EnumType, expectedType) && definition.Constants.ContainsKey(memberName) {
+            if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.EnumType, expectedType) && definition.Constants.ContainsKey(memberName) {
                 value = definition.Constants[memberName]
                 return true
             }
@@ -2686,7 +2664,7 @@ class ColumnarConstructionPlanner {
         if scope.TryResolveExactExplicitType(ownerName, bindings, out resolvedType, out claimed) {
             resolvedByScope = true
             ownerType = resolvedType
-            return ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(resolvedType, expectedType)
+            return RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(resolvedType, expectedType)
         }
         if claimed {
             resolvedByScope = true
@@ -2706,7 +2684,7 @@ class ColumnarConstructionPlanner {
             }
             claimed = true
             constants := definition.StringConstants
-            if constants == null || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(definition.EnumType, expectedType) || !constants.ContainsKey(memberName) {
+            if constants == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.EnumType, expectedType) || !constants.ContainsKey(memberName) {
                 return false
             }
             if selected != null && !SameObject(selected, definition) {
@@ -2731,7 +2709,7 @@ class ColumnarConstructionPlanner {
                 continue
             }
             claimed = true
-            if definition.IsStringBacked || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(definition.EnumType, expectedType) || !definition.Constants.ContainsKey(memberName) {
+            if definition.IsStringBacked || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.EnumType, expectedType) || !definition.Constants.ContainsKey(memberName) {
                 return false
             }
             if selected != null && !SameObject(selected, definition) {
@@ -2752,7 +2730,7 @@ class ColumnarConstructionPlanner {
         for pair in bindings.Enums {
             definition := pair.Value
             constants := definition.StringConstants
-            if constants == null || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(definition.EnumType, ownerType) || !ExactScopeSelectsEnumDefinition(nodes, ownerName, definition, bindings) || !constants.ContainsKey(memberName) {
+            if constants == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.EnumType, ownerType) || !ExactScopeSelectsEnumDefinition(nodes, ownerName, definition, bindings) || !constants.ContainsKey(memberName) {
                 continue
             }
             if selected != null && !SameObject(selected, definition) {
@@ -2772,7 +2750,7 @@ class ColumnarConstructionPlanner {
         selected: ColumnarEnumDef? = null
         for pair in bindings.Enums {
             definition := pair.Value
-            if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(definition.EnumType, ownerType) || !ExactScopeSelectsEnumDefinition(nodes, ownerName, definition, bindings) || !definition.Constants.ContainsKey(memberName) {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(definition.EnumType, ownerType) || !ExactScopeSelectsEnumDefinition(nodes, ownerName, definition, bindings) || !definition.Constants.ContainsKey(memberName) {
                 continue
             }
             if selected != null && !SameObject(selected, definition) {
@@ -2798,14 +2776,14 @@ class ColumnarConstructionPlanner {
         candidateBindings := bindings.CreateSingleEnumTypeResolutionBindings(definition)
         candidateType := typeof(object)
         claimed := false
-        if !scope.TryResolveExactExplicitType(ownerName, candidateBindings, out candidateType, out claimed) || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(candidateType, definition.EnumType) {
+        if !scope.TryResolveExactExplicitType(ownerName, candidateBindings, out candidateType, out claimed) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidateType, definition.EnumType) {
             return false
         }
 
         emptyBindings := bindings.CreateEmptySourceTypeResolutionBindings()
         typeWithoutCandidate := typeof(object)
         claimedWithoutCandidate := false
-        return !scope.TryResolveExactExplicitType(ownerName, emptyBindings, out typeWithoutCandidate, out claimedWithoutCandidate) || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(typeWithoutCandidate, candidateType)
+        return !scope.TryResolveExactExplicitType(ownerName, emptyBindings, out typeWithoutCandidate, out claimedWithoutCandidate) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(typeWithoutCandidate, candidateType)
     }
 
     static func TryResolveRuntimeEnumMember(enumType: Type, memberName: string, out value: int): bool {
@@ -2926,7 +2904,7 @@ class ColumnarConstructionPlanner {
                 throw new InvalidOperationException("Construction source-type facts cannot contain null values.")
             }
             candidateType: Type = candidate.Builder
-            if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(candidateType, targetType) {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidateType, targetType) {
                 continue
             }
             if selected != null && !SameObject(selected, candidate) {
@@ -2944,7 +2922,7 @@ class ColumnarConstructionPlanner {
                 throw new InvalidOperationException("Construction source-union facts cannot contain null values.")
             }
             candidateType: Type = candidate.Base
-            if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(candidateType, targetType) {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidateType, targetType) {
                 continue
             }
             if selected != null && !SameObject(selected, candidate) {

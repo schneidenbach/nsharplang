@@ -620,10 +620,10 @@ test "canonical resolver member and exact-runtime compatibility surfaces preserv
 
 test "canonical resolver leaf maps preserve their false null contract and YAML identity" {
     builtin := typeof(string)
-    assert ColumnarCanonicalTypeResolver.TryResolveBuiltin("nint", out builtin)
+    assert WellKnownTypeCatalog.TryResolveBuiltinType("nint", out builtin)
     assert builtin == typeof(IntPtr)
     builtin = typeof(string)
-    assert !ColumnarCanonicalTypeResolver.TryResolveBuiltin("Int32", out builtin)
+    assert !WellKnownTypeCatalog.TryResolveBuiltinType("Int32", out builtin)
     assert builtin == null
 
     exceptionType := typeof(string)

@@ -136,7 +136,7 @@ test "the collection element tail requires a supported value that is not builder
     // refuses never enters the question. A byref or a pointer is refused before either — SymbolType
     // reports `IsSZArray` for both, and neither is a value a collection may hold.
     assert ColumnarTypeOfPlanner.IsSupportedType(sourceStruct.MakeArrayType())
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(sourceStruct.MakeArrayType())
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(sourceStruct.MakeArrayType())
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakeArrayType())
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakeArrayType().MakeArrayType())
     assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(sourceStruct.MakeByRefType())
@@ -147,7 +147,7 @@ test "the collection element tail requires a supported value that is not builder
     builderTuple := AdmissibilityClosed2("System.ValueTuple`2", typeof(int), sourceStruct)
     assert ColumnarTypeOfPlanner.IsSupportedValueTuple(builderTuple)
     assert ColumnarTypeOfPlanner.IsSupportedType(builderTuple)
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(builderTuple)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(builderTuple)
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(builderTuple)
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(AdmissibilityClosed2("System.ValueTuple`2", typeof(int), typeof(string)))
 }

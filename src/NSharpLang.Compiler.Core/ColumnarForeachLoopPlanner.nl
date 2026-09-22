@@ -110,7 +110,7 @@ class ColumnarForeachLoopPlanner {
             return PlanSourceCollection(sourceDefinition, collectionType, definitions)
         }
 
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(collectionType) && !collectionType.get_IsGenericType() {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(collectionType) && !collectionType.get_IsGenericType() {
             return null
         }
 
@@ -184,7 +184,7 @@ class ColumnarForeachLoopPlanner {
     // definition and rebound; every other type answers from itself.
     static func PlanExternalCollection(collectionType: Type, definitions: IReadOnlyDictionary<string, ColumnarStructDef>): ColumnarForeachPlan? {
         definition := collectionType
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(collectionType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(collectionType) {
             definition = OpenDefinitionOf(collectionType)
         }
 
@@ -223,7 +223,7 @@ class ColumnarForeachLoopPlanner {
 
     static func PlanThroughSequenceInterface(closedInterface: Type, definitions: IReadOnlyDictionary<string, ColumnarStructDef>): ColumnarForeachPlan? {
         openInterface := closedInterface
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(closedInterface) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(closedInterface) {
             openInterface = OpenDefinitionOf(closedInterface)
         }
         getEnumerator := ForeachPatternFacts.FindParameterlessInstanceMethod(openInterface, "GetEnumerator")
@@ -251,12 +251,12 @@ class ColumnarForeachLoopPlanner {
             return BuildSourceEnumeratorPlan(getEnumerator, enumeratorType, sourceEnumerator)
         }
 
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(enumeratorType) && !enumeratorType.get_IsGenericType() {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(enumeratorType) && !enumeratorType.get_IsGenericType() {
             return null
         }
 
         openEnumerator := enumeratorType
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(enumeratorType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(enumeratorType) {
             openEnumerator = OpenDefinitionOf(enumeratorType)
         }
         moveNext := ForeachPatternFacts.FindParameterlessInstanceMethod(openEnumerator, "MoveNext")

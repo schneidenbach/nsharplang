@@ -287,7 +287,7 @@ class ColumnarClosureBindingPlanner {
     }
 
     static func IsLiftableValueType(valueType: Type): bool {
-        return ColumnarTypeOfPlanner.IsSupportedType(valueType) && !(valueType.get_Assembly() is AssemblyBuilder) && !valueType.get_IsGenericParameter() && !valueType.get_ContainsGenericParameters() && !ColumnarTypeOfPlanner.ContainsBuilderBoundType(valueType)
+        return ColumnarTypeOfPlanner.IsSupportedType(valueType) && !(valueType.get_Assembly() is AssemblyBuilder) && !valueType.get_IsGenericParameter() && !valueType.get_ContainsGenericParameters() && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType)
     }
 
     static func StrongBoxValueField(valueType: Type): FieldInfo? {
@@ -299,7 +299,7 @@ class ColumnarClosureBindingPlanner {
         if openField == null {
             throw new InvalidOperationException("StrongBox<T>.Value was not found.")
         }
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(boxType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(boxType) {
             return TypeBuilder.GetField(boxType, openField)
         }
         return boxType.GetField("Value")
@@ -315,7 +315,7 @@ class ColumnarClosureBindingPlanner {
         arguments := new Type[](1)
         arguments[0] = valueType
         boxType := openStrongBox.MakeGenericType(arguments)
-        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(boxType) {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(boxType) {
             return TypeBuilder.GetConstructor(boxType, openConstructor)
         }
         constructor := boxType.GetConstructor([valueType])

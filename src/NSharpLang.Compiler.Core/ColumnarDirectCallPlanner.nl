@@ -2246,7 +2246,7 @@ class ColumnarDirectCallPlanner {
     // change what it derives from.
     static func IsDelegateValueType(valueType: Type): bool {
         candidate := valueType
-        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(valueType) {
+        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) {
             candidate = valueType.GetGenericTypeDefinition()
         }
 
@@ -3114,7 +3114,7 @@ class ColumnarDirectCallPlanner {
             return
         }
 
-        if ColumnarReferenceConversionFacts.ExactTypeShapeMatches(selection.ReceiverType, selection.DeclaringType) {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(selection.ReceiverType, selection.DeclaringType) {
             return
         }
 
@@ -3137,7 +3137,7 @@ class ColumnarDirectCallPlanner {
         }
 
         if ColumnarBoundIdentifierPlanner.TryGetReceiverType(nodes, source, receiverNode, bindings, out receiverType, out directStorage, out byRefParameter) {
-            if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(receiverType, expectedType) {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(receiverType, expectedType) {
                 return false
             }
 
@@ -3154,7 +3154,7 @@ class ColumnarDirectCallPlanner {
 
             receiverFragment := plan.BeginFragment(parentFragment, nodes.Kind(candidate), candidate)
 
-            if !ColumnarBoundIdentifierPlanner.TryAppendReceiver(nodes, source, receiverNode, bindings, false, plan, out receiverType, out isAddress) || isAddress || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(receiverType, expectedType) {
+            if !ColumnarBoundIdentifierPlanner.TryAppendReceiver(nodes, source, receiverNode, bindings, false, plan, out receiverType, out isAddress) || isAddress || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(receiverType, expectedType) {
                 return false
             }
 
@@ -3166,7 +3166,7 @@ class ColumnarDirectCallPlanner {
             return true
         }
 
-        if !ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, receiverNode, bindings, handles, plan, parentFragment, depth, out receiverType) || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(receiverType, expectedType) {
+        if !ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, receiverNode, bindings, handles, plan, parentFragment, depth, out receiverType) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(receiverType, expectedType) {
             return false
         }
 
@@ -3336,7 +3336,7 @@ class ColumnarDirectCallPlanner {
             }
 
             expectedElement := parameterTypes[index].GetElementType()
-            if expectedElement == null || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(expectedElement, byRefElement) {
+            if expectedElement == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(expectedElement, byRefElement) {
                 return false
             }
 
@@ -3391,7 +3391,7 @@ class ColumnarDirectCallPlanner {
         } else {
             valuePlanned = ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, argumentNode, bindings, handles, plan, parentFragment, depth, out actualType)
         }
-        if !valuePlanned || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(actualType, inferredTypes[index]) || !AppendArgumentConversion(plan, actualType, parameterTypes[index], argumentFacts.SourceTypeDefinitions) {
+        if !valuePlanned || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualType, inferredTypes[index]) || !AppendArgumentConversion(plan, actualType, parameterTypes[index], argumentFacts.SourceTypeDefinitions) {
             return false
         }
 

@@ -826,7 +826,7 @@ class ColumnarIteratorRealization {
     // say so, and widening it is a question about the whole value surface rather than about the one
     // field a generator hoists for a local the author wrote a delegate type on.
     static func IsOrdinaryDelegateFieldType(candidate: Type): bool {
-        if candidate == null || candidate is TypeBuilder || candidate.get_IsGenericTypeDefinition() || candidate.get_IsByRef() || candidate.get_IsPointer() || ColumnarTypeOfPlanner.ContainsBuilderBoundType(candidate) {
+        if candidate == null || candidate is TypeBuilder || candidate.get_IsGenericTypeDefinition() || candidate.get_IsByRef() || candidate.get_IsPointer() || RuntimeTypeShapeFacts.ContainsBuilderBoundType(candidate) {
             return false
         }
         return typeof(Delegate).IsAssignableFrom(candidate)

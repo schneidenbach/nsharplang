@@ -195,7 +195,7 @@ class ColumnarGenericTypeReceiverFacts {
     // DEFINITION and rebound onto the instantiation with `TypeBuilder.GetField`/`GetMethod`, exactly
     // as every other builder-bound member owner in the backend already does.
     static func IsBuilderBoundConstruction(receiverType: Type): bool {
-        if !ColumnarTypeOfPlanner.ContainsBuilderBoundType(receiverType) {
+        if !RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) {
             return false
         }
         if !receiverType.get_IsGenericType() || receiverType.get_IsGenericTypeDefinition() {

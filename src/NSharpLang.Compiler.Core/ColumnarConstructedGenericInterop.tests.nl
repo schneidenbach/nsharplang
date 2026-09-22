@@ -36,7 +36,7 @@ test "an external generic over the enclosing declaration's own parameter is a st
     parameter := InteropTypeParameter(owner)
 
     comparer := AdmissibilityClosed1("System.Collections.Generic.EqualityComparer`1", parameter)
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(comparer)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(comparer)
     assert ColumnarTypeOfPlanner.IsSupportedExternalConstruction(comparer)
     assert ColumnarTypeOfPlanner.IsSupportedType(comparer)
 
@@ -64,7 +64,7 @@ test "a builder-bound construction over complete arguments is an ordinary storab
     ownerType: Type = owner
 
     delegateOverSource := AdmissibilityClosed1("System.Func`1", ownerType)
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(delegateOverSource), "delegate over a complete source type is builder-bound"
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateOverSource), "delegate over a complete source type is builder-bound"
     assert ColumnarTypeOfPlanner.IsSupportedExternalConstruction(delegateOverSource), "delegate over a complete source type is an external construction"
     assert ColumnarTypeOfPlanner.IsSupportedType(delegateOverSource), "delegate over a complete source type is storable"
 
@@ -93,7 +93,7 @@ test "an emitted namesake definition is not an external head" {
     arguments[0] = parameter
     impostor := namesake.MakeGenericType(arguments)
 
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(impostor)
+    assert RuntimeTypeShapeFacts.ContainsBuilderBoundType(impostor)
     assert !ColumnarTypeOfPlanner.IsSupportedExternalConstruction(impostor)
 }
 

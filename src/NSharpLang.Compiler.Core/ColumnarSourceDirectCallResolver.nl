@@ -1069,8 +1069,8 @@ class ColumnarSourceDirectCallResolver {
             index += 1
 
             verdicts.Add(AnalyzerOverloadSpecificity.CompareConversionTargets(
-                ExactTypeShapeMatches(leftType, actualType),
-                ExactTypeShapeMatches(rightType, actualType),
+                RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(leftType, actualType),
+                RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(rightType, actualType),
                 ArgumentFlowScore(rightType, leftType, argumentFacts.SourceTypeDefinitions) >= 0,
                 ArgumentFlowScore(leftType, rightType, argumentFacts.SourceTypeDefinitions) >= 0
             ))
@@ -1105,7 +1105,7 @@ class ColumnarSourceDirectCallResolver {
                 }
 
                 byRefElement := expected[index].GetElementType()
-                if byRefElement == null || !ExactTypeShapeMatches(byRefElement, actual[index]) {
+                if byRefElement == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(byRefElement, actual[index]) {
                     return -1
                 }
 
@@ -1358,7 +1358,7 @@ class ColumnarSourceDirectCallResolver {
     // 1 when `candidateType` is the better conversion target, -1 when `otherType` is, 0 when neither is
     // more specific than the other (identical shapes, or a pair with conversions in both directions).
     static func CompareConversionTargets(candidateType: Type, otherType: Type, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>): int {
-        if candidateType == null || otherType == null || ExactTypeShapeMatches(candidateType, otherType) {
+        if candidateType == null || otherType == null || RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidateType, otherType) {
             return 0
         }
 
@@ -1386,7 +1386,7 @@ class ColumnarSourceDirectCallResolver {
             throw new InvalidOperationException("Source direct-call conversion definitions cannot be null.")
         }
 
-        if ExactTypeShapeMatches(expectedType, actualType) {
+        if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(expectedType, actualType) {
             return 8
         }
 
@@ -1572,10 +1572,6 @@ class ColumnarSourceDirectCallResolver {
         return signatureType
     }
 
-    static func ExactTypeShapeMatches(left: Type, right: Type): bool {
-        return ColumnarReferenceConversionFacts.ExactTypeShapeMatches(left, right)
-    }
-
     static func ValidateInstanceMethodFact(owner: ColumnarStructDef, memberName: string, definition: ColumnarInstanceMethodDef) {
         if definition == null || definition.Builder == null || definition.ParamTypes == null || definition.ParamModifierKinds == null || definition.ReturnType == null {
             throw new InvalidOperationException("Source instance-method definition facts cannot be null.")
@@ -1589,7 +1585,7 @@ class ColumnarSourceDirectCallResolver {
             throw new InvalidOperationException("An abstract source instance method requires an abstract declaring type.")
         }
 
-        if method.get_IsStatic() || method.get_Name() != memberName || method.get_DeclaringType() != ownerType || !ExactTypeShapeMatches(method.get_ReturnType(), definition.ReturnType) {
+        if method.get_IsStatic() || method.get_Name() != memberName || method.get_DeclaringType() != ownerType || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.get_ReturnType(), definition.ReturnType) {
             throw new InvalidOperationException("Source instance-method facts do not identify an exact instance declaration.")
         }
     }
@@ -1607,7 +1603,7 @@ class ColumnarSourceDirectCallResolver {
             throw new InvalidOperationException("An abstract source static method requires an abstract declaring type.")
         }
 
-        if !method.get_IsStatic() || method.get_Name() != memberName || method.get_DeclaringType() != ownerType || !ExactTypeShapeMatches(method.get_ReturnType(), definition.ReturnType) {
+        if !method.get_IsStatic() || method.get_Name() != memberName || method.get_DeclaringType() != ownerType || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.get_ReturnType(), definition.ReturnType) {
             throw new InvalidOperationException("Source static-method facts do not identify an exact static declaration.")
         }
     }

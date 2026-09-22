@@ -360,11 +360,11 @@ test "direct-call planner validates List of source values flowing to IReadOnlyLi
     assert plan.MethodUsesDeclaredSignature[methodIndex]
     assert plan.Methods[methodIndex].get_Name() == "Consume"
     assert plan.MethodParameterTypes[methodIndex].Length == 1
-    assert ColumnarReferenceConversionFacts.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         actualType,
         listType
     )
-    assert ColumnarReferenceConversionFacts.ExactTypeShapeMatches(
+    assert RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(
         plan.MethodParameterTypes[methodIndex][0],
         readOnlyListType
     )

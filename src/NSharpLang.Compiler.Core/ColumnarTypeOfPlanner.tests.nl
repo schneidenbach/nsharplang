@@ -816,7 +816,7 @@ test "nullable enum parameters emit, round trip, and retain their reflected CLR 
     enumType := typeof(ColumnarTypeOfProbeEnum)
     nullableEnumType := TypeOfNullableEnumType()
 
-    assert ColumnarTypeOfPlanner.IsEnumType(enumType)
+    assert RuntimeTypeShapeFacts.IsEnumType(enumType)
     assert ColumnarTypeOfPlanner.IsLiftableNullableElement(enumType)
     assert ColumnarTypeOfPlanner.IsSupportedNullable(nullableEnumType)
     assert !ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(string))
