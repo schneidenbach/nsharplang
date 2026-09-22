@@ -76,6 +76,25 @@ func workspaceRootOf(request: InitializeParams): string? {
 // `emit.call.instance-member-unmodeled` as soon as the enclosing `options => { ... }` reads a local
 // of `main`. Naming the body captures nothing, and the registration order is the same statement
 // order the C# chain had.
+//
+// SEED: lsflip-1 ITSELF IS FIXED AT THE TIP (47a4eac1b) AND THIS STILL DOES NOT COLLAPSE YET.
+//
+// The root of lsflip-1 was the lambda PLACEMENT planner giving a static helper body an instance
+// context it holds no instance of, which `ColumnarDirectCallPlanner` reads as the contextual-lambda
+// preflight frame and yields the whole call for; a lambda nested in a capturing lambda is static on
+// the parent DISPLAY, so every call in it fell to the legacy residual. `logger.LogInformation(...)`
+// inside `OnInitialize` now emits with the outer lambda capturing `clientInput` and `logPath`,
+// measured against a scratch stage-2 seed built from that commit — and 73 of this function's 74
+// lines inline cleanly with it.
+//
+// ONE STATEMENT DOES NOT, and it is a DIFFERENT defect: `initializedServer.TextDocument
+// .PublishDiagnostics(<params>)` in `OnInitialized` declines at
+// `emit.call.static-member-unmodeled` naming `LanguageServer.From` whenever it is written at lambda
+// depth 2 — with no loop around it, with the params object hoisted to a local, and with the
+// receiver hoisted to a local as well. `logger.LogInformation(...)` at the SAME depth in the SAME
+// body emits, so it is not depth and not "an external extension call". Filed as lsflip-6 in
+// LS2-COMPILER-BLOCKERS.md. Until it closes, inlining this body trades a named function for a
+// decline, so the named function stays and this is NOT waiting on the reseed alone.
 func configureServer(options: LanguageServerOptions, clientInput: Pipe, logPath: string): LanguageServerOptions {
     options.WithInput(clientInput.Reader)
     options.WithOutput(Console.OpenStandardOutput())
