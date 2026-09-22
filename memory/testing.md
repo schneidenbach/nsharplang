@@ -947,8 +947,11 @@ the gate log as `Testing native project: tests/native/compile-time-bench` and it
 named `compile-time gate: …`.
 
 What the gate block does: it spawns the freshly built CLI (`src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll`,
-found by walking up from the test assembly's directory) three times as
-`nlc build --project src/NSharpLang.Compiler.Core --timings -o <fresh temp dir>`, takes
+found by walking up from the test assembly's directory) as
+`nlc build --project src/NSharpLang.Compiler.Core --timings -o <fresh temp dir>` — THREE times
+whenever the timing judgement will be made, and ONCE when the load reading below has already
+declined it (`BenchGateRunCount`; a median nobody reads is not worth three builds of the compiler,
+and the correctness half is a per-run property one run proves as completely as three) — takes
 the median wall clock, and compares it to the checked-in baseline
 `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json` (the `tests/fixtures/*.golden.json`
 path is the ratchet's one JSON exemption). The baseline pins `medianWallMs`, a `toleranceFactor`
@@ -981,7 +984,8 @@ The gate refuses to judge a LOADED machine. The baseline records observed idle a
 field says so), so a median taken while the machine is busy measures the machine, not the compiler:
 five product gates in two days went red at one-minute load averages of 4.4–8.1 on this 10-core M4,
 with medians of 11,941–17,010 ms against the 11,802 ms limit, while the same code measured 6–7 s on
-a quiet box. So the block reads the one-minute load average BEFORE its three runs — `sysctl -n
+a quiet box. So the block reads the one-minute load average BEFORE its runs, and that same reading decides both
+whether to judge and how many runs to take — `sysctl -n
 vm.loadavg` on macOS (the systems throughput gate's own source, so the two gates agree), falling
 back to `/usr/bin/uptime`, which is also the Linux reader — and compares it with a threshold of
 **0.2 × logical cores** (2.0 on a 10-core box; 2.0 when the platform gives no core count). At or
@@ -989,7 +993,9 @@ above it, the timing judgement is not made: the block passes and records SKIPPED
 number. An UNREADABLE load skips too — a gate must not judge a machine it cannot compare — and a
 live contract asserts the platform answers with a positive load, so a broken reader turns that test
 red instead of switching the gate off in silence. (Consequence to know: inside a full product gate
-the box is loaded by the gate's own Step 3a, so the timing judgement usually IS skipped there; and
+the box is loaded by the gate's own Step 3a, so the timing judgement usually IS skipped there — and
+that is exactly the case the single run covers, which is why the block costs about 2 minutes inside
+a gate and about 6m23s on a machine quiet enough to judge; and
 in a container `uptime` reports the host's load. The timing number is meant to be taken on a quiet
 box, which is what the re-baseline recipe below already requires.)
 
@@ -1002,6 +1008,20 @@ Skipping and re-baselining:
 ```bash
 SYSTEMS_BENCH=skip VSCODE_TESTS=skip ./scripts/test-all.sh --commit   # the gate block returns without measuring and passes
 ```
+
+Step 3a runs one `nlc test` PROCESS per project over ~129 projects. Since 2026-09-22 it runs them
+under `xargs -P` with a capped worker count, in the same numbered-results-directory pattern Steps 8,
+9 and 10 have always used, with a pinned SERIAL group that runs first: the projects whose claim is
+about the machine (`compile-time-bench`), that own state outside their own directory (daemon
+sockets, the installers, the whole-tree walk of `ownership-audit`) or that drive real `dotnet`
+restores and builds against the package cache. The serial group running first also warms that cache
+before anything runs concurrently. The parent replays every project in DISCOVERY order, so a
+parallel log reads like a serial one, and prints one `project=<dir> seconds=<n>` line per project —
+the only durable record of what the step spends, since the per-project JSON goes to a temporary file
+the step deletes. Measured on the 10-core M4: ~14m18s serial against 5m39s–8m06s parallel over three
+runs, with identical counts (4,775 passed / 0 failed / 1 skipped). The predicate that decides which
+group a project runs in, the discovery-order replay and every clause of the JSON validator are
+pinned by `tests/native/gate-script-contracts/NativeSweepParallelism.tests.nl`.
 
 A native test must write nothing to stdout or stderr: Step 3a captures both streams into one file
 and `json.load`s the whole thing, so a single printed line turns a passing test document into a red step.
