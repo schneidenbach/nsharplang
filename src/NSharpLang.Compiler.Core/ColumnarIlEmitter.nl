@@ -1534,8 +1534,17 @@ sealed class ColumnarIlEmitter {
             // inside a type is placed on that type, so the holder is resolved — and therefore
             // CREATED — only for the file-level shape that actually lands on it.
             fileLevelHolder: TypeBuilder? = null
+            staticOwner: ColumnarStructDef? = null
             if (_currentStruct == null) {
-                fileLevelHolder = _programHolder.Builder()
+                // A STATIC body of a named type is not file level. `_currentStruct` is the
+                // instance-context marker and is null in every static method, static field
+                // initializer and `.cctor`, so reading it alone sent those lambdas to the
+                // namespace's `Program` holder and created that public type for a namespace that
+                // declares no free function. Only a body with no enclosing type at all uses it.
+                staticOwner = _enclosingType
+                if (staticOwner == null) {
+                    fileLevelHolder = _programHolder.Builder()
+                }
             }
             placement := ColumnarLambdaPlacementPlanner.PlanNonCapturingPlacement(
                 fileLevelHolder,
@@ -1544,7 +1553,8 @@ sealed class ColumnarIlEmitter {
                 _typeParameters,
                 delegateReturnType,
                 signatureTypes,
-                hasThisCapture
+                hasThisCapture,
+                staticOwner
             )
             // The METHOD's signature is the delegate's; only the BODY sees the unwrapped type.
             if (placement == null) {
@@ -2357,8 +2367,12 @@ sealed class ColumnarIlEmitter {
             _siblings
         )
         inferredFileLevelHolder: TypeBuilder? = null
+        inferredStaticOwner: ColumnarStructDef? = null
         if (_currentStruct == null) {
-            inferredFileLevelHolder = _programHolder.Builder()
+            inferredStaticOwner = _enclosingType
+            if (inferredStaticOwner == null) {
+                inferredFileLevelHolder = _programHolder.Builder()
+            }
         }
         placement := ColumnarLambdaPlacementPlanner.PlanInferredPlacement(
             inferredFileLevelHolder,
@@ -2366,7 +2380,8 @@ sealed class ColumnarIlEmitter {
             _lambdaCounter,
             _typeParameters,
             signatureTypes,
-            inferredThisCapture
+            inferredThisCapture,
+            inferredStaticOwner
         )
         if (placement == null) {
             return DeclineMember("emit.lambda.inferred-placement", "inferred lambda helper placement could not be selected", lambdaIdx, "lambda")

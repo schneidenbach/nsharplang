@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.Reflection
 import Census.FreeFunctionIdentity.Holder
 import Census.FreeFunctionIdentity.Spread
+import Census.FreeFunctionIdentity.StaticOnly
 import Census.FreeFunctionIdentity.TypesOnly
 import Census.FreeFunctionIdentity.X
 import Census.FreeFunctionIdentity.X.Deep
@@ -70,6 +71,21 @@ class IdentityFacts {
             }
         }
         return empty
+    }
+
+    static func LoweredLambdaCount(owner: Type?): int {
+        if owner == null {
+            return -1
+        }
+
+        count := 0
+        for method in owner.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly) {
+            if method.Name.StartsWith("<Lambda>_", StringComparison.Ordinal) {
+                count = count + 1
+            }
+        }
+
+        return count
     }
 
     static func HolderMethodCount(namespaceName: string, name: string): int {
@@ -227,6 +243,32 @@ test "a namespace that declares only types emits no holder" {
     assert IdentityFacts.Assembly().GetType("Census.FreeFunctionIdentity.TypesOnly.Calc") != null
     assert IdentityFacts.Holder("Census.FreeFunctionIdentity.TypesOnly") == null
     assert IdentityFacts.Assembly().GetType("Census.FreeFunctionIdentity.TypesOnly.<Program>") == null
+}
+
+test "a namespace whose only lambdas are in static bodies emits no holder" {
+    // `Census.FreeFunctionIdentity.StaticOnly` declares one class and no free function, and every
+    // lambda in it is written in a STATIC body: a static field initializer, a static method with a
+    // delegate-typed target, a static method whose lambda infers its own signature, and a static
+    // method whose lambda captures a local. None of them is file level, so the namespace still has
+    // nothing to put on a `Program` and gets none.
+    //
+    // The placement decision used to read the INSTANCE-context marker, which is null in all four,
+    // so all four landed on the holder and DEFINED it — a public `Program` for a namespace that
+    // declares no free function. `NSharpLang.Cli.Program` in the emitted `Compiler` assembly was
+    // exactly that, and it is what CS0436 names in `src/NSharpLang.Cli/Program.cs`.
+    assert StaticHost.PlusOne(1) == 2
+    assert StaticHost.Inferred(1) == 42
+    assert StaticHost.Captured(1) == 42
+
+    assert IdentityFacts.Assembly().GetType("Census.FreeFunctionIdentity.StaticOnly.StaticHost") != null
+    assert IdentityFacts.Holder("Census.FreeFunctionIdentity.StaticOnly") == null
+    assert IdentityFacts.Assembly().GetType("Census.FreeFunctionIdentity.StaticOnly.<Program>") == null
+
+    // And the lambdas are on the type whose static member was being emitted, not merely elsewhere:
+    // three of the four, because the CAPTURING one becomes an instance method on a module-level
+    // display class as it always did and never touched the holder.
+    host := IdentityFacts.Assembly().GetType("Census.FreeFunctionIdentity.StaticOnly.StaticHost")
+    assert IdentityFacts.LoweredLambdaCount(host) == 3
 }
 
 test "no holder type in the emitted assembly is empty" {

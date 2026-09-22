@@ -313,10 +313,21 @@ class ColumnarLambdaPlacementPlanner {
     // lambda is program-static.
     //
     // `programType` IS THE FILE-LEVEL PLACEMENT'S OWNER AND NOTHING ELSE, so it is null whenever the
-    // lambda is written inside a type: those two shapes put their method on `enclosing` and never
-    // touch the holder. The host resolves it only for the file-level shape, because resolving a
-    // holder is what CREATES it — see `ColumnarFreeFunctionHolders`.
-    static func PlanNonCapturingPlacement(programType: TypeBuilder?, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, returnType: Type, parameterTypes: Type[], hasThisCapture: bool): ColumnarLambdaPlacement? {
+    // lambda is written inside a type: those shapes put their method on `enclosing` or on
+    // `staticOwner` and never touch the holder. The host resolves it only for the file-level shape,
+    // because resolving a holder is what CREATES it — see `ColumnarFreeFunctionHolders`.
+    //
+    // `staticOwner` IS THE TYPE WHOSE STATIC MEMBER IS BEING EMITTED, and it exists because
+    // `enclosing` is the INSTANCE-context marker and is null in every static body. Without it a
+    // lambda written in a static method, a static field initializer or a `.cctor` of a named type
+    // was treated as FILE-LEVEL and landed on the namespace's `Program` holder — which created that
+    // public holder for a namespace declaring no free function at all. `NSharpLang.Cli.Program` and
+    // `NSharpLang.Cli.Commands.Program` in the emitted `Compiler` assembly each held nothing but two
+    // lowered lambdas, and the first of them is what made `src/NSharpLang.Cli/Program.cs` warn
+    // CS0436 against its own compiler. The body keeps NO instance context: `CurrentStructForBody`
+    // stays null, so a static body cannot start resolving an instance member chain because its
+    // lambda moved.
+    static func PlanNonCapturingPlacement(programType: TypeBuilder?, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, returnType: Type, parameterTypes: Type[], hasThisCapture: bool, staticOwner: ColumnarStructDef? = null): ColumnarLambdaPlacement? {
         if lambdaCounter == null || visibleTypeParameters == null || returnType == null || parameterTypes == null {
             throw new InvalidOperationException("Lambda placement planning requires non-null placement facts.")
         }
@@ -357,6 +368,16 @@ class ColumnarLambdaPlacementPlanner {
             return placement
         }
 
+        if staticOwner != null {
+            if !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(returnType, parameterTypes, staticOwner.Builder) {
+                return null
+            }
+            staticOwnerMethod := staticOwner.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes(), returnType, parameterTypes)
+            staticOwnerPlacement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticEnclosing, staticOwnerMethod, staticOwner.Builder)
+            staticOwnerPlacement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, staticOwner.Builder)
+            return staticOwnerPlacement
+        }
+
         if programType == null {
             throw new InvalidOperationException("A file-level lambda's placement requires its namespace's program holder.")
         }
@@ -378,8 +399,9 @@ class ColumnarLambdaPlacementPlanner {
     // only a file-level lambda uses the program type.
     // Asking it only for a lambda with a delegate target is why `f := () => this.Value` declined at
     // `emit.body` while `f: Func<int> = () => this.Value` emitted.
-    // `programType` is null for a lambda written inside a type, for the same reason as above.
-    static func PlanInferredPlacement(programType: TypeBuilder?, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, parameterTypes: Type[], hasThisCapture: bool): ColumnarLambdaPlacement? {
+    // `programType` is null for a lambda written inside a type, for the same reason as above, and
+    // `staticOwner` carries the same static-body owner `PlanNonCapturingPlacement` documents.
+    static func PlanInferredPlacement(programType: TypeBuilder?, enclosing: ColumnarStructDef?, lambdaCounter: int[], visibleTypeParameters: Dictionary<string, Type>, parameterTypes: Type[], hasThisCapture: bool, staticOwner: ColumnarStructDef? = null): ColumnarLambdaPlacement? {
         if lambdaCounter == null || visibleTypeParameters == null || parameterTypes == null {
             throw new InvalidOperationException("Lambda placement planning requires non-null placement facts.")
         }
@@ -405,6 +427,13 @@ class ColumnarLambdaPlacementPlanner {
             placement.CurrentStructForBody = enclosing
             placement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, enclosing.Builder)
             return placement
+        }
+
+        if staticOwner != null {
+            staticOwnerMethod := staticOwner.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes())
+            staticOwnerPlacement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticEnclosing, staticOwnerMethod, staticOwner.Builder)
+            staticOwnerPlacement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, staticOwner.Builder)
+            return staticOwnerPlacement
         }
 
         if programType == null {
