@@ -513,27 +513,56 @@ else
             fi
         done < <(find examples tests -name "project.yml" -type f 2>/dev/null | sort)
     )
-    if [ -z "$NATIVE_PROJECTS" ]; then
-        handle_error "Native N# tests (no projects found)"
-        NATIVE_STEP_OK=0
-    else
-        while IFS= read -r native_project; do
-            [ -n "$native_project" ] || continue
-            native_dir=$(dirname "$native_project")
-            echo
-            echo "Testing native project: $native_dir"
-            NATIVE_OUTPUT=$(mktemp)
-            NATIVE_STDERR=$(mktemp)
-            # PER-PROJECT WALL TIME. `nlc test --json` goes to a mktemp file this loop deletes again,
-            # so the only durable record of what each project costs is the line printed here into the
-            # gate log. Read it back with: grep '^project=' <gate log>. It is a plain `date +%s` pair
-            # rather than anything read out of the envelope, because the envelope carries test
-            # outcomes and not the process's build time, and build is where this step's minutes go.
-            NATIVE_START_TIME=$(date +%s)
-            # --json is a stdout contract: warnings and progress go to stderr and must not reach the parser.
-            if dotnet "$CLI_DLL" test --project "$native_dir" --no-cache --json \
-                    > "$NATIVE_OUTPUT" 2> "$NATIVE_STDERR" \
-                && python3 - "$NATIVE_OUTPUT" <<'PY'
+    # THE SWEEP RUNS IN PARALLEL, WITH A PINNED SERIAL GROUP IN FRONT OF IT.
+    #
+    # 129 projects, one `nlc test` PROCESS each, ran strictly one at a time and cost about 17
+    # minutes of a 33-minute gate. Steps 8, 9 and 10 in this same file already run their per-project
+    # work under `xargs -P "$MAX_JOBS"` with a numbered results directory, and this block now uses
+    # the same pattern: each worker writes its own files, and the PARENT replays every project in
+    # discovery order, so the log reads exactly as it did when the loop was sequential.
+    #
+    # Two things stay serial, both because they read or write state that is NOT per-project:
+    #   * a project whose claim is about the MACHINE (`compile-time-bench` reads the one-minute load
+    #     average and measures latency against a baseline);
+    #   * a project that mutates or depends on state outside its own directory - daemon sockets and
+    #     `~/.nsharp`, the shared NuGet cache through a real `dotnet restore`/`dotnet build`, the
+    #     installers, or a walk of the whole working tree that concurrent `bin`/`obj` writes would
+    #     perturb.
+    # The serial group also runs FIRST, which warms the NuGet cache before anything runs in
+    # parallel - the same race Step 8 avoids with its single warm-up build at :750.
+    #
+    # Every `dll:` dependency these projects name is a prebuilt binary under `src/*/bin/Debug/...`
+    # produced ONCE, serially, by Step 2 (Cli, Build.Tasks, LanguageServer, Playground; the Cli
+    # build carries Compiler, Compiler.Core, TestHost and the Runtime with it). Nothing in this step
+    # builds them, so no two workers can race to produce one. The preflight below proves they are
+    # all present before the first worker starts, rather than letting 120 parallel processes each
+    # discover the same missing file.
+    native_requires_serial_run() {
+        case "$1" in
+            # Reads `sysctl -n vm.loadavg` and judges a median against a baseline measured on an
+            # idle machine: it may not run beside seven siblings.
+            tests/native/compile-time-bench) return 0 ;;
+            # Starts daemons, binds their sockets and writes their state outside the project.
+            tests/native/daemon-command) return 0 ;;
+            # Runs the installers, the reseed fixtures and `scripts/dev.sh` as PROCESSES.
+            tests/native/gate-script-contracts) return 0 ;;
+            # Real `dotnet` restores/builds against a package cache: keep them off each other.
+            tests/native/compilation-backend) return 0 ;;
+            tests/native/nuget-resolution-fidelity) return 0 ;;
+            tests/native/reference-resolution) return 0 ;;
+            tests/native/sdk-emit-path-parity) return 0 ;;
+            tests/native/template-project-smoke) return 0 ;;
+            # Walks the whole working tree and counts what it finds there.
+            tests/native/ownership-audit) return 0 ;;
+            *) return 1 ;;
+        esac
+    }
+
+    # The validator is the one that guarded the sequential loop, moved into the worker verbatim. It
+    # is carried as a string here and written to the throwaway results directory below rather than
+    # added to the repository, for the same reason `SELF_HOST_READ_COUNT` is a string: a new Python
+    # FILE under version control would be a CODE row in the ownership ratchet.
+    NATIVE_READ_SUMMARY='
 import json
 import sys
 
@@ -576,19 +605,115 @@ if not valid:
     raise SystemExit("native N# test JSON did not prove a nonempty successful run")
 
 print(f"Passed: {passed}, Failed: {failed}, Skipped: {skipped}, Total: {total}")
-PY
-            then
-                printf 'project=%s seconds=%s\n' "$native_dir" "$(($(date +%s) - NATIVE_START_TIME))"
+'
+
+    NATIVE_WORKER='
+entry="$1"
+results_dir="$2"
+cli_dll="$3"
+reader="$4"
+idx="${entry%%|*}"
+native_dir="${entry#*|}"
+native_start=$(date +%s)
+native_output="$results_dir/$idx.json"
+native_stderr="$results_dir/$idx.err"
+native_summary="$results_dir/$idx.summary"
+native_status=FAIL
+# --json is a stdout contract: warnings and progress go to stderr and must not reach the parser.
+if dotnet "$cli_dll" test --project "$native_dir" --no-cache --json \
+        > "$native_output" 2> "$native_stderr" \
+    && python3 "$reader" "$native_output" > "$native_summary" 2>&1; then
+    native_status=OK
+fi
+printf "%s|%s\n" "$native_status" "$(($(date +%s) - native_start))" > "$results_dir/$idx.result"
+'
+
+    if [ -z "$NATIVE_PROJECTS" ]; then
+        handle_error "Native N# tests (no projects found)"
+        NATIVE_STEP_OK=0
+    else
+        NATIVE_MAX_JOBS="$MAX_JOBS"
+        if [ "$NATIVE_MAX_JOBS" -gt 6 ]; then
+            NATIVE_MAX_JOBS=6
+        fi
+
+        # PREFLIGHT: every `dll:` dependency named by the projects about to run must already exist.
+        NATIVE_MISSING_DLLS=$(
+            grep -h -E "^[[:space:]]*-[[:space:]]*dll:" $(printf '%s\n' "$NATIVE_PROJECTS") 2>/dev/null \
+                | sed -E "s|^[[:space:]]*-[[:space:]]*dll:[[:space:]]*||" \
+                | sed -E "s|^\.\./\.\./\.\./||" \
+                | sort -u \
+                | while IFS= read -r dll_path; do
+                    if [ "${dll_path#src/}" != "$dll_path" ] && [ ! -f "$dll_path" ]; then
+                        printf '%s\n' "$dll_path"
+                    fi
+                done
+        )
+        if [ -n "$NATIVE_MISSING_DLLS" ]; then
+            echo "These shared dependencies are named by a native project but were not built by Step 2:"
+            printf '  %s\n' $NATIVE_MISSING_DLLS
+            handle_error "Native N# tests (missing shared dependencies)"
+            NATIVE_STEP_OK=0
+        fi
+
+        NATIVE_RESULTS_DIR=$(mktemp -d)
+        NATIVE_READER="$NATIVE_RESULTS_DIR/read-summary.py"
+        printf '%s\n' "$NATIVE_READ_SUMMARY" > "$NATIVE_READER"
+        NATIVE_LIST="$NATIVE_RESULTS_DIR/items.txt"
+        NATIVE_SERIAL_LIST="$NATIVE_RESULTS_DIR/serial.txt"
+        NATIVE_PARALLEL_LIST="$NATIVE_RESULTS_DIR/parallel.txt"
+        : > "$NATIVE_LIST"
+        : > "$NATIVE_SERIAL_LIST"
+        : > "$NATIVE_PARALLEL_LIST"
+        native_index=0
+        while IFS= read -r native_project; do
+            [ -n "$native_project" ] || continue
+            native_dir=$(dirname "$native_project")
+            native_index=$((native_index + 1))
+            printf '%04d|%s\n' "$native_index" "$native_dir" >> "$NATIVE_LIST"
+            if native_requires_serial_run "$native_dir"; then
+                printf '%04d|%s\n' "$native_index" "$native_dir" >> "$NATIVE_SERIAL_LIST"
+            else
+                printf '%04d|%s\n' "$native_index" "$native_dir" >> "$NATIVE_PARALLEL_LIST"
+            fi
+        done <<< "$NATIVE_PROJECTS"
+
+        echo "Running $(wc -l < "$NATIVE_SERIAL_LIST" | tr -d ' ') projects serially, then $(wc -l < "$NATIVE_PARALLEL_LIST" | tr -d ' ') with up to $NATIVE_MAX_JOBS parallel workers..."
+
+        xargs -P 1 -I{} bash -lc "$NATIVE_WORKER" _ {} "$NATIVE_RESULTS_DIR" "$CLI_DLL" "$NATIVE_READER" < "$NATIVE_SERIAL_LIST"
+        xargs -P "$NATIVE_MAX_JOBS" -I{} bash -lc "$NATIVE_WORKER" _ {} "$NATIVE_RESULTS_DIR" "$CLI_DLL" "$NATIVE_READER" < "$NATIVE_PARALLEL_LIST"
+
+        # Replayed in discovery order, so the log is identical whatever order the workers finished in.
+        while IFS='|' read -r native_index native_dir; do
+            [ -n "$native_index" ] || continue
+            echo
+            echo "Testing native project: $native_dir"
+            native_result_file="$NATIVE_RESULTS_DIR/$native_index.result"
+            if [ ! -f "$native_result_file" ]; then
+                echo "No result was recorded for $native_dir - its worker did not finish."
+                handle_error "Native N# tests: $native_dir"
+                NATIVE_STEP_OK=0
+                continue
+            fi
+
+            native_status=$(cut -d'|' -f1 "$native_result_file")
+            # PER-PROJECT WALL TIME. `nlc test --json` lands in a file this step deletes again, so
+            # the only durable record of what each project costs is this line in the gate log.
+            # Read it back with: grep '^project=' <gate log>.
+            printf 'project=%s seconds=%s\n' "$native_dir" "$(cut -d'|' -f2 "$native_result_file")"
+            if [ "$native_status" = "OK" ]; then
+                cat "$NATIVE_RESULTS_DIR/$native_index.summary" || true
                 handle_success "Native N# tests: $native_dir"
             else
-                printf 'project=%s seconds=%s\n' "$native_dir" "$(($(date +%s) - NATIVE_START_TIME))"
-                cat "$NATIVE_OUTPUT"
-                cat "$NATIVE_STDERR" >&2
+                cat "$NATIVE_RESULTS_DIR/$native_index.json" 2>/dev/null || true
+                cat "$NATIVE_RESULTS_DIR/$native_index.summary" 2>/dev/null || true
+                cat "$NATIVE_RESULTS_DIR/$native_index.err" >&2 2>/dev/null || true
                 handle_error "Native N# tests: $native_dir"
                 NATIVE_STEP_OK=0
             fi
-            rm -f "$NATIVE_OUTPUT" "$NATIVE_STDERR"
-        done <<< "$NATIVE_PROJECTS"
+        done < "$NATIVE_LIST"
+
+        rm -rf "$NATIVE_RESULTS_DIR"
     fi
 
     if [ "$NATIVE_STEP_OK" = "1" ]; then
