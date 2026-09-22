@@ -20,12 +20,16 @@ func Describe(value: int): string {
     return "positive"
 }
 
-// The lowered `NSharpTests` type, read back out of the running assembly. A test that asks what the
-// EMITTER wrote has to find the emitter's own output, and the type name is the lowering's contract.
+// The lowered test type, read back out of the running assembly. A test that asks what the EMITTER
+// wrote has to find the emitter's own output, and the type name is the lowering's contract: the rows
+// are written in `NUnitTestBlocks.tests.nl` under `NSharpLang.CensusNUnitTestBlocks.Tests`, so they
+// land on `NSharpLang.CensusNUnitTestBlocks.Tests.NUnitTestBlocksTests` — the file's own namespace,
+// which is the one its bodies already bind their bare names through.
 func RequiredTestMethod(name: string): MethodInfo {
-    testType := Type.GetType("NSharpTests")
+    loweredTestTypeName := "NSharpLang.CensusNUnitTestBlocks.Tests.NUnitTestBlocksTests"
+    testType := Type.GetType(loweredTestTypeName)
     if testType == null {
-        throw new InvalidOperationException("The lowered 'NSharpTests' type was not found in this assembly.")
+        throw new InvalidOperationException("The lowered '" + loweredTestTypeName + "' type was not found in this assembly.")
     }
     method := testType.GetMethod(name)
     if method == null {
