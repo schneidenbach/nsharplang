@@ -47,7 +47,7 @@ class ColumnarInstanceMemberPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression()
     }
 
@@ -59,7 +59,7 @@ class ColumnarInstanceMemberPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(candidate) != 1 {
             return false
         }
@@ -86,7 +86,7 @@ class ColumnarInstanceMemberPlanner {
         }
 
         ColumnarCodePlanExecutor.Execute(plan, il)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "instance-member expression")
         return true
     }
 
@@ -96,7 +96,7 @@ class ColumnarInstanceMemberPlanner {
             return false
         }
 
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "instance-member expression")
         return true
     }
 
@@ -143,7 +143,7 @@ class ColumnarInstanceMemberPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression() {
             return false
         }
@@ -216,7 +216,7 @@ class ColumnarInstanceMemberPlanner {
                         return false
                     }
                 } else {
-                    receiverFragment := plan.BeginFragment(parentFragment, nodes.Kind(UnwrapParentheses(nodes, receiver)), UnwrapParentheses(nodes, receiver))
+                    receiverFragment := plan.BeginFragment(parentFragment, nodes.Kind(ColumnarPlannerSupport.UnwrapParentheses(nodes, receiver)), ColumnarPlannerSupport.UnwrapParentheses(nodes, receiver))
 
                     if !ColumnarBoundIdentifierPlanner.TryAppendReceiver(nodes, source, receiver, bindings, false, plan, out receiverType, out receiverIsAddress) || receiverIsAddress {
                         plan.Rollback(checkpoint)
@@ -229,7 +229,7 @@ class ColumnarInstanceMemberPlanner {
                     }
                 }
             } else {
-                receiverNode := UnwrapParentheses(nodes, receiver)
+                receiverNode := ColumnarPlannerSupport.UnwrapParentheses(nodes, receiver)
                 if receiverNode < 0 {
                     plan.Rollback(checkpoint)
                     return false
@@ -299,7 +299,7 @@ class ColumnarInstanceMemberPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(candidate) != 1 {
             return false
         }
@@ -324,7 +324,7 @@ class ColumnarInstanceMemberPlanner {
 
             receiverIsAddress := false
             if selection.ReceiverIsReference {
-                receiverNode := UnwrapParentheses(nodes, receiver)
+                receiverNode := ColumnarPlannerSupport.UnwrapParentheses(nodes, receiver)
                 if receiverNode < 0 {
                     plan.Rollback(checkpoint)
                     return false
@@ -358,7 +358,7 @@ class ColumnarInstanceMemberPlanner {
 
     static func TryGetComposedReceiverType(nodes: ColumnarNodeTable, source: string, receiver: int, bindings: ColumnarFragmentBindings, out receiverType: Type): bool {
         receiverType = typeof(int)
-        receiverNode := UnwrapParentheses(nodes, receiver)
+        receiverNode := ColumnarPlannerSupport.UnwrapParentheses(nodes, receiver)
         if receiverNode < 0 {
             return false
         }
@@ -1067,7 +1067,7 @@ class ColumnarInstanceMemberPlanner {
     // arm sees it: without the rewrite here, `rows[0].Item` was claimed, failed to select a member and
     // declined the whole expression, so `ItemN` was the only spelling that compiled.
     static func RewriteTupleMemberName(nodes: ColumnarNodeTable, source: string, receiver: int, memberName: string, bindings: ColumnarFragmentBindings): string {
-        candidate := UnwrapParentheses(nodes, receiver)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, receiver)
         if candidate < 0 {
             return memberName
         }
@@ -1125,7 +1125,7 @@ class ColumnarInstanceMemberPlanner {
     static func TryReceiverWrittenType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out labeled: string, out writtenType: Type): bool {
         labeled = ""
         writtenType = typeof(int)
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 {
             return false
         }
@@ -1171,7 +1171,7 @@ class ColumnarInstanceMemberPlanner {
             return false
         }
 
-        memberReceiver := UnwrapParentheses(nodes, nodes.Child(memberNode, 0))
+        memberReceiver := ColumnarPlannerSupport.UnwrapParentheses(nodes, nodes.Child(memberNode, 0))
         if memberReceiver < 0 {
             return false
         }
@@ -1215,7 +1215,7 @@ class ColumnarInstanceMemberPlanner {
     static func TryIndexedElementWrittenType(nodes: ColumnarNodeTable, source: string, indexNode: int, bindings: ColumnarFragmentBindings, out labeled: string, out writtenType: Type): bool {
         labeled = ""
         writtenType = typeof(int)
-        indexedReceiver := UnwrapParentheses(nodes, nodes.Child(indexNode, 0))
+        indexedReceiver := ColumnarPlannerSupport.UnwrapParentheses(nodes, nodes.Child(indexNode, 0))
         if indexedReceiver < 0 {
             return false
         }
@@ -1352,36 +1352,8 @@ class ColumnarInstanceMemberPlanner {
         return new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.None, false, false, typeof(object), typeof(int), null, null)
     }
 
-    static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
-        depth := 0
-        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
-            if depth > 200 || nodes.ChildCount(node) != 1 {
-                return -1
-            }
-
-            node = nodes.Child(node, 0)
-            depth += 1
-        }
-
-        return node
-    }
-
     static func ValidateInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan) {
-        if nodes == null || source == null || bindings == null || plan == null {
-            throw new InvalidOperationException("Instance-member planning inputs cannot be null.")
-        }
-
-        if node < 0 || node >= nodes.Kinds.Length {
-            throw new InvalidOperationException("Instance-member planning received an invalid root node index.")
-        }
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        resultType := plan.ResultType
-        if resultType == null {
-            throw new InvalidOperationException("Planned instance-member expression has no result type.")
-        }
-
-        return resultType
+        ColumnarPlannerSupport.RequirePresent(nodes != null && source != null && bindings != null && plan != null, "Instance-member planning inputs cannot be null.")
+        ColumnarPlannerSupport.RequireNodeInRange(nodes, node, "Instance-member planning received an invalid root node index.")
     }
 }

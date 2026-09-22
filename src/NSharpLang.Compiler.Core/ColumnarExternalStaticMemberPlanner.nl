@@ -13,7 +13,7 @@ class ColumnarExternalStaticMemberPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression()
     }
 
@@ -24,7 +24,7 @@ class ColumnarExternalStaticMemberPlanner {
         }
 
         ColumnarCodePlanExecutor.Execute(plan, il)
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "external static-member expression")
         return true
     }
 
@@ -34,7 +34,7 @@ class ColumnarExternalStaticMemberPlanner {
             return false
         }
 
-        resultType = RequiredResultType(plan)
+        resultType = ColumnarPlannerSupport.RequiredResultType(plan, "external static-member expression")
         return true
     }
 
@@ -84,7 +84,7 @@ class ColumnarExternalStaticMemberPlanner {
             return false
         }
 
-        candidate := UnwrapParentheses(nodes, node)
+        candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression() {
             return false
         }
@@ -128,7 +128,7 @@ class ColumnarExternalStaticMemberPlanner {
 
         ownerName := ""
         rootName := ""
-        if !TryGetQualifiedName(nodes, source, nodes.Child(node, 0), 0, out ownerName, out rootName) || bindings.IsValueBinding(rootName) || bindings.IsCallable(rootName) || bindings.Enums.ContainsKey(ownerName) || bindings.Enums.ContainsKey(rootName) {
+        if !ColumnarPlannerSupport.TryGetQualifiedName(nodes, source, nodes.Child(node, 0), 0, true, out ownerName, out rootName) || bindings.IsValueBinding(rootName) || bindings.IsCallable(rootName) || bindings.Enums.ContainsKey(ownerName) || bindings.Enums.ContainsKey(rootName) {
             return false
         }
 
@@ -624,72 +624,8 @@ class ColumnarExternalStaticMemberPlanner {
         return false
     }
 
-    static func TryGetQualifiedName(nodes: ColumnarNodeTable, source: string, node: int, depth: int, out qualifiedName: string, out rootName: string): bool {
-        qualifiedName = ""
-        rootName = ""
-        if depth > 200 || node < 0 || node >= nodes.Kinds.Length {
-            return false
-        }
-
-        kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
-            if nodes.ChildCount(node) != 0 || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, node) {
-                return false
-            }
-
-            rootName = nodes.Text(source, node)
-            qualifiedName = rootName
-            return rootName.Length > 0
-        }
-
-        if kind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(node) != 1 {
-            return false
-        }
-
-        prefix := ""
-        if !TryGetQualifiedName(nodes, source, nodes.Child(node, 0), depth + 1, out prefix, out rootName) {
-            return false
-        }
-
-        member := nodes.Text(source, node)
-        if member.Length == 0 {
-            return false
-        }
-
-        qualifiedName = prefix + "." + member
-        return true
-    }
-
-    static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
-        depth := 0
-        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
-            if depth > 200 || nodes.ChildCount(node) != 1 {
-                return -1
-            }
-
-            node = nodes.Child(node, 0)
-            depth = depth + 1
-        }
-
-        return node
-    }
-
     static func ValidateInputs(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan) {
-        if nodes == null || source == null || bindings == null || plan == null {
-            throw new InvalidOperationException("External static-member planning inputs cannot be null.")
-        }
-
-        if node < 0 || node >= nodes.Kinds.Length {
-            throw new InvalidOperationException("External static-member planning received an invalid root node index.")
-        }
-    }
-
-    static func RequiredResultType(plan: ColumnarCodePlan): Type {
-        resultType := plan.ResultType
-        if resultType == null {
-            throw new InvalidOperationException("Planned external static-member expression has no result type.")
-        }
-
-        return resultType
+        ColumnarPlannerSupport.RequirePresent(nodes != null && source != null && bindings != null && plan != null, "External static-member planning inputs cannot be null.")
+        ColumnarPlannerSupport.RequireNodeInRange(nodes, node, "External static-member planning received an invalid root node index.")
     }
 }

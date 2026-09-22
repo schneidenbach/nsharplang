@@ -227,7 +227,7 @@ class ColumnarSourceStaticMemberPlanner {
 
         ownerName := ""
         rootName := ""
-        if !ColumnarExternalStaticMemberPlanner.TryGetQualifiedName(nodes, source, nodes.Child(node, 0), 0, out ownerName, out rootName) {
+        if !ColumnarPlannerSupport.TryGetQualifiedName(nodes, source, nodes.Child(node, 0), 0, true, out ownerName, out rootName) {
             return false
         }
         if bindings.IsValueBinding(rootName) || bindings.IsCallable(rootName) || bindings.Enums.ContainsKey(ownerName) || bindings.Enums.ContainsKey(rootName) {

@@ -29238,7 +29238,7 @@ sealed class ColumnarIlEmitter {
         scope := _nodes.BindingScope
         ownerName := ""
         rootName := ""
-        if (scope == null || !ColumnarExternalStaticMemberPlanner.TryGetQualifiedName(_nodes, _source, receiverNode, 0, out ownerName, out rootName)) {
+        if (scope == null || !ColumnarPlannerSupport.TryGetQualifiedName(_nodes, _source, receiverNode, 0, true, out ownerName, out rootName)) {
             return false
         }
         // A VALUE BINDING SHADOWS A TYPE NAME. `watcher.Changed` where `watcher` is a local, a parameter,
