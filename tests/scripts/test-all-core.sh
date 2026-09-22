@@ -419,12 +419,34 @@ else:
     print(len(results))
 '
     SELF_HOST_OK=1
+    # What the front door measured for Compiler.Core itself, in THIS run. It decides whether a
+    # project that REFERENCES Core can produce a diagnostic list at all: `check` resolves references
+    # with BuildProjectReferences on, so a referencing project's check first builds Core from source,
+    # and that build cannot succeed while Core's own front door is not clean. Empty until Core has
+    # been checked -- Core is first in the array above, and if that ever stops being true the
+    # referencing projects are checked for real rather than skipped on an unread number.
+    SELF_HOST_CORE_COUNT=""
     for ((self_host_index = 0; self_host_index < ${#SELF_HOST_PROJECTS[@]}; self_host_index++)); do
         SELF_HOST_PROJECT="${SELF_HOST_PROJECTS[$self_host_index]}"
         SELF_HOST_CEILING="${SELF_HOST_CEILINGS[$self_host_index]}"
+        # STRUCTURALLY UNREACHABLE WORK IS NOT PERFORMED. A BLOCKED project (ceiling -1) whose block
+        # is already proven by Core's own nonzero count would spend a full front-end compile of all
+        # of Core to arrive at the same BLOCKED line: about 2 minutes each, for a number the step
+        # itself records as "not counted yet". The row is printed with the reason it is blocked
+        # instead. The day Core reaches 0 diagnostics this guard stops firing on its own and both
+        # projects are checked for real, which is exactly when their -1 ceilings become real numbers.
+        if [ "$SELF_HOST_CEILING" -lt 0 ] \
+            && [[ "$SELF_HOST_CORE_COUNT" =~ ^[0-9]+$ ]] \
+            && [ "$SELF_HOST_CORE_COUNT" -gt 0 ]; then
+            echo "  $SELF_HOST_PROJECT: BLOCKED behind Compiler.Core's own front door; not counted yet (not attempted: src/NSharpLang.Compiler.Core reported $SELF_HOST_CORE_COUNT diagnostics through this same front door, so the project-reference build this check begins with cannot succeed)."
+            continue
+        fi
         SELF_HOST_OUTPUT=$(mktemp)
         dotnet "$CLI_DLL" check --project "$SELF_HOST_PROJECT" --json > "$SELF_HOST_OUTPUT" 2>&1 || true
         SELF_HOST_COUNT=$(python3 -c "$SELF_HOST_READ_COUNT" "$SELF_HOST_OUTPUT")
+        if [ "$SELF_HOST_PROJECT" = "src/NSharpLang.Compiler.Core" ]; then
+            SELF_HOST_CORE_COUNT="$SELF_HOST_COUNT"
+        fi
         if [ "$SELF_HOST_CEILING" -lt 0 ]; then
             echo "  $SELF_HOST_PROJECT: BLOCKED behind Compiler.Core's own front door; not counted yet ($SELF_HOST_COUNT)."
         elif [[ ! "$SELF_HOST_COUNT" =~ ^[0-9]+$ ]]; then

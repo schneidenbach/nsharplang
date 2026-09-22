@@ -120,6 +120,13 @@ nothing to count. The original SELFHOST measurement found zero diagnostics in th
 through `--text`; that observation does not make their blocked project checks clean. When Core reaches
 0 their ceilings become real numbers.
 
+Since the block is structural, the step no longer STARTS those two checks while Core's own count in
+the same run is a number above zero: each one spent a full front-end compile of all of Core (~2
+minutes apiece, measured) to arrive at the BLOCKED line it is recorded with anyway. The row is
+printed with the count that proves the block instead, and the guard stops firing on its own the day
+Core reaches 0 — at which point both projects are checked for real. Pinned by
+`tests/native/gate-script-contracts/SelfHostFrontDoor.tests.nl`.
+
 The remaining backlog, measured at `5de55561b`, is NL905 (424 possible null dereferences), NL202 (352
 argument type mismatches), NL002 (239 missing imports), NL010 (165 unused imports), and 96
 NL012/NL011/NL304 findings (unused parameters, empty catches and definite-assignment holes), with 42
