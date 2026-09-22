@@ -16,6 +16,23 @@
   <Import Project="$(MSBuildProjectDirectory)/obj/project.g.props"
           Condition="Exists('$(MSBuildProjectDirectory)/obj/project.g.props')" />
 
+  <!-- OutputType cannot wait for a target. The base SDK derives _IsExecutable, HasRuntimeOutput and
+       IsRidAgnostic from it during EVALUATION, and a referencing project reads those three back as this
+       project's outer facts, so an `outputType: library` project whose OutputType still held the Exe
+       placeholder announced itself as a non self-contained executable: a self-contained consumer then
+       failed NETSDK1150 in ValidateExecutableReferences, before a single N# file was compiled. Only
+       `nlc restore` writes obj/project.g.props, so on any clean checkout the placeholder is what the
+       consumer saw. Read that one field out of project.yml here, at evaluation time, in pure MSBuild.
+       The YamlDotNet projection above still wins whenever it exists, and the LoadProjectConfig task in
+       Sdk.targets re-asserts every field - including this one - from the real parser. Only the two values
+       ProjectFileParser accepts are recognized; anything else keeps the placeholder so the parser can
+       report the malformed value with its own diagnostic. -->
+  <PropertyGroup Condition="'$(OutputType)' == '' And Exists('$(NSharpProjectFile)')">
+    <_NSharpDeclaredOutputType>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText($(NSharpProjectFile))), '(?m)^outputType[ \t]*:[ \t]*[&quot;%27]?(exe|library)[&quot;%27]?(?:[ \t]+#[^\r\n]*)?[ \t]*\r?$').Groups.get_Item(1).Value)</_NSharpDeclaredOutputType>
+    <OutputType Condition="'$(_NSharpDeclaredOutputType)' == 'library'">Library</OutputType>
+    <OutputType Condition="'$(_NSharpDeclaredOutputType)' == 'exe'">Exe</OutputType>
+  </PropertyGroup>
+
   <!-- Minimum defaults so MSBuild evaluation doesn't crash when project.g.props
        is missing. The validation target in Sdk.targets will emit a clear error
        at build time if project.yml exists but project.g.props does not. -->
