@@ -37,5 +37,5 @@ The earlier task checkbox recorded policy migration only. Complete-class ownersh
 metadata and routes lifecycle assertions directly to N#. The fresh gate at `3617a809a` passes
 574 unit / 7,940 canonical / 53 native projects / 12 throughput / 68 IL assemblies in 474s.
 Official SDK publication, ordinary package tests 11/11 and installed self-host 7,940/7,940 pass.
-See [the accepted boundary](../systems-language-closeout/decodes/2026-09-07-complete-systems-analyzer-ownership.md)
+See the accepted boundary (`2026-09-07-complete-systems-analyzer-ownership.md`)
 and [compiler cursor](../systems-language-closeout/STATUS.md). The compiler-wide objective remains open.

@@ -4,7 +4,7 @@
 # Completed goal: sole N# compiler ownership
 
 Accepted on 2026-09-09 after the final fresh gate at `0cc84110`.
-[Completion, boundaries and evidence](systems-language-closeout/decodes/2026-09-09-compiler-only-ownership-complete.md).
+Completion, boundaries and evidence (`2026-09-09-compiler-only-ownership-complete.md`).
 The compiler-only objective is complete; broader branch work remains separately held.
 The following contract remains the ownership requirement for future compiler changes.
 

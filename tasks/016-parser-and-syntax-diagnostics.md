@@ -45,6 +45,6 @@ Do not normalize these distinct states or add validation that changes failure or
 This complete class is integrated as c2379140a/7f747d76a. The fresh backend gate passes
 574 unit / 7,943 canonical / 53 native projects / 12 throughput / 68 IL assemblies; ordinary installed
 SDK probe15/15 and fresh self-host7,943/7,943 pass. The cross-assembly boundary and evidence are
-[recorded here](../systems-language-closeout/decodes/2026-09-07-complete-columnar-input-builder-ownership.md).
+recorded here (`2026-09-07-complete-columnar-input-builder-ownership.md`).
 Compiler-wide ownership remains open. See the current compiler cursor in
 [STATUS.md](../systems-language-closeout/STATUS.md).

@@ -69,7 +69,7 @@ selected area has passed review, required checks, commits and push.
 The complete C# emitter is deleted, its canonical cases execute in N#, and production binds
 directly to the N# owner. Final code is `8ec52542b`; exact 87, complete owner IL and metadata,
 the fresh IDE-enabled product gate, installed SDK self-host, and visual formatting verification
-pass. [Boundary and evidence](../systems-language-closeout/decodes/2026-09-08-complete-columnar-emitter-ownership.md).
+pass. Boundary and evidence (`2026-09-08-complete-columnar-emitter-ownership.md`).
 Continue with complete MultiFileCompiler under task 021; the compiler-wide objective remains open.
 
 ## Historical in-flight evidence (superseded by the acceptance above)

@@ -12,7 +12,7 @@ and package flows.
 The parser, AST, syntax diagnostics, semantic analysis, systems analysis, columnar input builder,
 IL emitter, multi-file compiler, recursive reference resolver and complete SDK EmitIlAssembly task
 are N#-owned. The final canonical assertion and surviving-boundary audits pass at `0cc84110`;
-[compiler-only completion](../systems-language-closeout/decodes/2026-09-09-compiler-only-ownership-complete.md). CLI/editor policy and broader branch initiatives are tracked
+compiler-only completion (`2026-09-09-compiler-only-ownership-complete.md`). CLI/editor policy and broader branch initiatives are tracked
 separately. Historical allowlist labels below do not establish current completion.
 
 ```text
@@ -137,7 +137,7 @@ remaining state/control ownership from the active goal:
   `src/NSharpLang.Compiler.Core/ColumnarIlEmitter.nl`; its C# owner is deleted.
   Checkpoint `8ec52542b`, published with `d533cd51e`, passed the fresh IDE-enabled product gate,
   installed SDK verification and real-editor formatting checks. See
-  [the acceptance evidence](../systems-language-closeout/decodes/2026-09-08-complete-columnar-emitter-ownership.md).
+  the acceptance evidence (`2026-09-08-complete-columnar-emitter-ownership.md`).
 - The existing `tests/native/systems-vectorization-facts` assertions and product-gate throughput
   checks remain the vectorizer's regression coverage. Calls into
   `src/NSharpLang.Runtime/SimdReductions.cs` are runtime calls; runtime reimplementation remains
@@ -145,7 +145,7 @@ remaining state/control ownership from the active goal:
 - The complete `MultiFileCompiler.nl` owns pipeline sequencing, state, diagnostics, emission-thread
   lifetime and failure behavior. Its ten recovery cases execute in N#. Fresh product/IDE checks,
   installed SDK self-host and real unsaved-buffer verification pass at `27b1a8a1b`.
-  [Acceptance](../systems-language-closeout/decodes/2026-09-08-complete-multifile-compiler-ownership.md).
+  Acceptance (`2026-09-08-complete-multifile-compiler-ownership.md`).
 - `CompilationReferenceResolver.nl` solely owns recursive reference builds, package traversal,
   caching and failure behavior. The C# owner is deleted; seven direct and four command canonicals
   execute in N#. Fresh gate and installed SDK verification are accepted at `a20dc98af`.
@@ -155,7 +155,7 @@ remaining state/control ownership from the active goal:
   ITaskItem and logging objects and Cecil metadata objects are external ecosystem APIs; all task
   policy and control flow reside in N#. This does not require a new metadata writer. The ownership
   change is accepted at `b13cc7622` with fresh product gate and installed self-host8017/8017;
-  [SDK task acceptance](../systems-language-closeout/decodes/2026-09-09-complete-sdk-emit-task-ownership.md).
+  SDK task acceptance (`2026-09-09-complete-sdk-emit-task-ownership.md`).
 - The former Analyzer metadata quarantine is removed with the complete C# class. Its metadata
   lifecycle and existing reflection operations are owned by N#; no metadata-writer rewrite was
   required to achieve that ownership. NativeAOT and a broader metadata-writer initiative remain

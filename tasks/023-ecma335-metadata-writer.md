@@ -96,12 +96,12 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   domains, flags, late errors and iterator reflection phases are preserved. Emitter −26 lines;
   estate 7,676, native declarations 76, audit 18/18. Three-arm parity compares 94 images and 2,145
   native tests per arm with zero differences; exact new controls pass 10/10 on both compilers.
-  See STATUS's fresh gate pointer and [i proof](../systems-language-closeout/decodes/2026-09-04-s21i-parity-proof.md).
+  See STATUS's fresh gate pointer and i proof (`2026-09-04-s21i-parity-proof.md`).
 - **S2.2 — resolution moves to N#**: the revalidated 56 ordinary and 30 type-parameter-aware resolver calls (definitions excluded) emit a resolved type-reference KEY, `AddType` gains its
   structural form, the override resolver returns a descriptor beside its `MethodInfo`, maxstack becomes a plan column
   from `ValidateMethodBodyStack`'s heights, ambient locals become slot indices. The first connected
   resolver cut and required production key consumer are specified in the
-  [next-cut decode](../systems-language-closeout/decodes/2026-09-04-s22-resolution-next-cut.md).
+  next-cut decode (`2026-09-04-s22-resolution-next-cut.md`).
   **S2.2(a) implemented at `77686382`:** the connected canonical resolver and dependency
   closure are N#-owned; thirteen C# helper definitions are deleted. Resolution retains immutable
   structural identity and emission provenance, consumed by the existing `typeof` type-pool/ldtoken
@@ -109,7 +109,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   iterators 25. The corrected pool census is 36 calls across 12 files: one keyed, 35 still
   handle-only. Member/override descriptors, remaining type consumers, ambient locals and maxstack
   are later S2.2 cuts. See STATUS and the
-  [implementation decode](../systems-language-closeout/decodes/2026-09-04-s22a-canonical-structural-resolution.md).
+  implementation decode (`2026-09-04-s22a-canonical-structural-resolution.md`).
   **S2.2(b) implemented at `4b592311`, production controls integrated at `ad303387`:**
   ordinary source-interface member lookup is N#-owned and its actual declaring/signature identity
   is consumed by the existing override attachment executor. The C# recursive helper is deleted;
@@ -118,7 +118,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   did not prove backing-storage immutability. Estate 7,714, native declarations 85, iterators 25;
   strict source retains 259 findings. Closed-source, external/base/iterator member resolution,
   remaining type consumers, ambient locals and maxstack remain open. See STATUS and the
-  [implementation decode](../systems-language-closeout/decodes/2026-09-05-s22b-source-interface-member-resolution.md).
+  implementation decode (`2026-09-05-s22b-source-interface-member-resolution.md`).
   **S2.2(c) implemented at `0813c1ac`, controls integrated at `93ecaf6d`:** closed source-interface
   matching, completeness and signature substitution are N#-owned, as is the shared generic method
   rebinder. Four C# helpers are deleted; successful immutable open/context/effective bindings remain
@@ -127,7 +127,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   strict 259 unchanged. Three-arm parity covers 94 images and 2,165 tests per arm with zero differences;
   exact controls pass 20/20 with all 24 MethodImpl rows equal. External/base/iterator members,
   source discovery/call admission, remaining type consumers, ambient locals and maxstack remain open.
-  See STATUS and the [implementation decode](../systems-language-closeout/decodes/2026-09-05-s22c-closed-source-interface-members.md).
+  See STATUS and the implementation decode (`2026-09-05-s22c-closed-source-interface-members.md`).
   **S2.2(d) implemented at `405483ca4`, controls integrated at `7009a190d`:** external-interface
   enumeration, matching and completeness are N#-owned; the C# matcher and both loops are deleted.
   Consumed descriptors retain actual external VAR/MVAR ownership, open/context/effective types and
@@ -136,7 +136,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   259 unchanged. Three-arm parity covers 94 images and 2,169 tests per arm with zero differences;
   exact controls pass 24/24 with all 31 MethodImpl rows equal. Base/iterator descriptors, source
   discovery/call admission, remaining type consumers, ambient locals and maxstack remain open.
-  See STATUS and the [implementation decode](../systems-language-closeout/decodes/2026-09-05-s22d-external-interface-members.md).
+  See STATUS and the implementation decode (`2026-09-05-s22d-external-interface-members.md`).
   **S2.2(e) implemented at `588195300`, native controls integrated at `78082a678`:** all eleven
   iterator declaration lookups and five rebindings move from C# into consumed N# bindings. Actual
   open members, machine VAR contexts and derived effective signatures are validated at each original
@@ -145,7 +145,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   94 images and 2,173 tests per arm with zero differences; exact controls pass 97+25 per arm with all
   42+117 physical MethodImpl rows equal. Base descriptors, source discovery/call admission, remaining
   type consumers, ambient locals and maxstack remain open. See STATUS and the
-  [implementation decode](../systems-language-closeout/decodes/2026-09-05-s22e-iterator-declaration-members.md).
+  implementation decode (`2026-09-05-s22e-iterator-declaration-members.md`).
   **S2.2(f) implemented at `86c88c496`, controls at `453e467b8` / `f6191720f`:** the existing
   base walk now derives consumed immutable base bindings; ordinary completion captures declaration
   handles and realizes DefineMethod. The actual ancestor, open VAR/closed context, AQN policy and
@@ -153,7 +153,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   native declarations 99; 94-image/2,177-test corpus parity and exact 45+5 MethodImpl rows match.
   Strict diagnostics remain 259; audit 18/18. Pure first-hit source-definition discovery is the
   next contingent prerequisite, before coupled constrained-call admission and remaining type/local/
-  maxstack work. [Integration proof](../systems-language-closeout/decodes/2026-09-05-s22f-parity-proof.md).
+  maxstack work. Integration proof (`2026-09-05-s22f-parity-proof.md`).
   **S2.2(g0) storage prerequisite at `504946215`, native controls `958bffd63`:** a genuine
   IEnumerator<T> closed over an admitted source element is storable while remaining outside collection
   classification. Exact Current/disposal IL is verified; the old compiler's same-source local declines
@@ -162,7 +162,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   in g0. Require the fresh gate and verified SDK repin before S2.2(g) consumes this shape. Preserve
   explicit finally, first-hit/out timing and closed argument reads; covariance/bare-for drafts were
   rejected. Source discovery/call admission and the rest of S2.2 remain open.
-  [Prerequisite proof](../systems-language-closeout/decodes/2026-09-05-s22g0-parity-proof.md).
+  Prerequisite proof (`2026-09-05-s22g0-parity-proof.md`).
   **S2.2(g1) BCL field prerequisite at `f243d421` (worker `765776ce`):** four N# lines bind
   Type.EmptyTypes through the unchanged semantic static-field planner. Four native read forms preserve
   actual Array.Empty<Type>() reference identity, including typed out assignment. Estate7,759 and native
@@ -171,7 +171,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   field-probe receipts at `/private/tmp/gate-20260905-goal-s22g1-r1/`; the same seed remains valid
   through h. Subsequent g discovery preserves delayed Values and proves the throwing-disposal
   boundary with the actual consumed enumerator.
-  [Field prerequisite proof](../systems-language-closeout/decodes/2026-09-05-s22g1-parity-proof.md).
+  Field prerequisite proof (`2026-09-05-s22g1-parity-proof.md`).
   **S2.2(g) discovery owner at `770482e8e`, controls `de83c4197`, catch correction `096968ae7`:**
   first-hit live Builder identity and direct/struct/interface/closed resolution are N#-owned. Three C#
   helpers are deleted, retaining only direct forwarding doors; emitter −107 lines / −98 nonblank / −2,646 bytes.
@@ -182,7 +182,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   593 unit / 7,769 canonical / 105 native declaration tests, audit18, 52 native projects and 68 IL
   assemblies; receipts at `/private/tmp/gate-20260905-goal-s22g-r1/`. The combined duplicate scan and constrained/member
   admission, remaining type-pool consumers and local/maxstack work remain open.
-  [Discovery proof](../systems-language-closeout/decodes/2026-09-05-s22g-parity-proof.md).
+  Discovery proof (`2026-09-05-s22g-parity-proof.md`).
   **S2.2(h) constraint lookup at `47d0a062d`, final controls `18c079268`, ratchet `e170415204`:**
   exact-map lookup, live weak name/ordinal fallback and safe raw reflection move to the existing N#
   planner. Two C# helpers are deleted; one direct forwarding door remains. Emitter −43 lines / −41
@@ -195,8 +195,8 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   distinguish the tested source from the documentation-only follow-up. Existing g1 SDK is unchanged.
   Next S2.2(i): complete record synthesis plus its five structural type consumers; first validate the
   actual driver with that seed. Map production, connected call admission and later writer work remain
-  open. [Lookup proof](../systems-language-closeout/decodes/2026-09-05-s22h-parity-proof.md) and
-  [next cut](../systems-language-closeout/decodes/2026-09-05-s22i-record-next-cut.md).
+  open. Lookup proof (`2026-09-05-s22h-parity-proof.md`) and
+  next cut (`2026-09-05-s22i-record-next-cut.md`).
   **S2.2(i) record synthesis at `1b067f203`, controls `0d3c14c35` / `2d156b43b`:** the complete
   PASS 0e driver and five record type consumers are N#-owned. Both C# synthesis helpers are deleted;
   emitter −70 lines /−66 nonblank /−3,479 bytes to19,264/18,300. Same-table keyed census6/36 across
@@ -209,8 +209,8 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   acceptance follow-up. Existing g1 SDK remains unchanged. Next S2.2(j): sync/async iterator realization,
   exclusive canonical helpers and all15 iterator type consumers, first gated by an exact generic
   machine/factory owner proof. Member discovery, remaining call/type/local/maxstack and later writer
-  work remain open. [Proof](../systems-language-closeout/decodes/2026-09-05-s22i-parity-proof.md) and
-  [next cut](../systems-language-closeout/decodes/2026-09-05-s22j-iterator-next-cut.md).
+  work remain open. Proof (`2026-09-05-s22i-parity-proof.md`) and
+  next cut (`2026-09-05-s22j-iterator-next-cut.md`).
   **S2.2(j0) continuation binding at `74e0c908a`, wording `9be5346d4`, native/tested `b57676617`:**
   N# admits only the BCL Ldftn field through the existing planner; no C# or iterator driver changed.
   Explicit MethodInfo/FieldInfo constructor controls preserve the old decline, then bake/invoke a real
@@ -222,8 +222,8 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   Gate and seed receipts: `/private/tmp/gate-20260906-goal-s22j0-r1/`. Legacy validation remains debt.
   At j0, next j preserved the real source T[] refusal and required direct declaration plus actual
   internal rebased T/T[] field measurements; those prerequisite checks are discharged by j1 below.
-  Frozen 109/109 controls `86405783` remain unintegrated until the connected j owner. [Proof](../systems-language-closeout/decodes/2026-09-06-s22j0-parity-proof.md) and
-  [corrected next cut](../systems-language-closeout/decodes/2026-09-05-s22j-iterator-next-cut.md).
+  Frozen 109/109 controls `86405783` remain unintegrated until the connected j owner. Proof (`2026-09-06-s22j0-parity-proof.md`) and
+  corrected next cut (`2026-09-05-s22j-iterator-next-cut.md`).
   **S2.2(j1) generic declaration at `4ab360c71`, native/tested `a8a5fb436`:** exact direct
   TypeBuilder.DefineGenericParameters(string[]) binding with genuine GenericTypeParameterBuilder[]
   return and concrete element admission, all in existing N# owner; no C# change. Canonical 2/2,
@@ -235,7 +235,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   linkage. Gate and seed receipts: `/private/tmp/gate-20260906-goal-s22j1-r1/`. Next connected j uses
   Type base-view MakeGenericType and retains actual machine VAR fields versus factory MVAR owner;
   full persisted-production/table controls remain required. No source T[] admission or broad-j owner
-  move is claimed. [Proof](../systems-language-closeout/decodes/2026-09-06-s22j1-parity-proof.md).
+  move is claimed. Proof (`2026-09-06-s22j1-parity-proof.md`).
   **S2.2(j) connected iterator realization at `20caf6997`, controls/tested `4b5399140`:**
   Complete sync/async drivers and exclusive canonical resolver/recursive guard now live in N#;
   exact-signature C# forwards retain ambient decline recording. All 15 original consumed type rows
@@ -245,9 +245,9 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   identity/decline timing and fresh companion rejection; native 109/109 image equals i baseline.
   Fixed 94-image/2,184-test corpus equal; strict 258 ordered findings across 434 files, raw same-source
   pre/post output equal. Fresh 458s gate 593/7,803/109, audit 18,52 projects/68 IL assemblies; accepted
-  j1 SDK unchanged. [Proof](../systems-language-closeout/decodes/2026-09-06-s22j-parity-proof.md).
+  j1 SDK unchanged. Proof (`2026-09-06-s22j-parity-proof.md`).
   Next S2.2(k): remaining 70-line member-iterator discovery/admission owner, preserving disposal and
-  ordinal/read/failure timing. [Plan](../systems-language-closeout/decodes/2026-09-06-s22k-member-iterator-next-cut.md).
+  ordinal/read/failure timing. Plan (`2026-09-06-s22k-member-iterator-next-cut.md`).
   **S2.2(k) member discovery/admission at `137462ab1`:** complete ten-input owner moves to N#;
   C# retains only decline forwarding and shrinks 51 lines /51 nonblank /3,115 bytes to 18,923/17,984.
   Four member controls preserve first-hit/disposal, actual field repair, live Name/overload and
@@ -258,9 +258,9 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   Fresh 522s IDE-enabled gate: 593 unit /7,809 canonical /36 VS Code /109 declarations, audit 18,
   52 native projects and 68 IL assemblies. Reinstalled editor visually accepts the valid source-element
   call, retains the invalid one and clears Problems on removal. All 12 j1 SDK payloads are unchanged.
-  [Proof](../systems-language-closeout/decodes/2026-09-06-s22k-parity-proof.md).
+  Proof (`2026-09-06-s22k-parity-proof.md`).
   Next S2.2(l): complete entry-point selection/wrapper block and keyed awaiter local, then remaining
-  call/type/local/maxstack work. [Plan](../systems-language-closeout/decodes/2026-09-06-s22l-entrypoint-next-cut.md).
+  call/type/local/maxstack work. Plan (`2026-09-06-s22l-entrypoint-next-cut.md`).
   **S2.2(l0) catalog reference array prerequisite accepted at `71d489a5c`:** the exact Dictionary
   array input is admitted through the existing N# catalog identity gate. Four canonical controls and
   two native controls preserve exclusions, exact signature, allocation/read/write/iteration/Fill and
@@ -269,7 +269,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   18 audit and 68 IL assemblies. Published SDK matches all 12 live payloads and executes the same
   committed fixture 2/2. The original l refusal and the separate direct Array.Empty binding limitation
   remain recorded. Resume l against this verified seed; no entry-point ownership move is claimed.
-  [Proof](../systems-language-closeout/decodes/2026-09-06-s22l0-parity-proof.md).
+  Proof (`2026-09-06-s22l0-parity-proof.md`).
   **S2.2(l1) concrete value-enumerator prerequisite accepted at `6687505e4`:** the actual
   source-builder initializer is admitted by the exact nested BCL predicate in N#'s builder arm.
   Three canonical and three native controls preserve closed/key/value identity boundaries, first-hit
@@ -277,7 +277,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   fixed 94-image corpus and strict 258/434 equal. Fresh 448s backend gate: 593 unit /7,816 canonical
   /114 declarations, 18 audit and 68 IL assemblies. Published SDK matches all 12 live payloads and
   executes the same committed fixture 3/3. Resume the complete l owner from this verified seed.
-  [Proof](../systems-language-closeout/decodes/2026-09-06-s22l1-parity-proof.md).
+  Proof (`2026-09-06-s22l1-parity-proof.md`).
   **S2.2(l) entry-point realization at `070ad0a49`, tested `efa3a8cab`:** complete main/Main selection,
   concrete static fallback and async-wrapper coordination now live in N#; one mechanical C# forward.
   Emitter −40 lines/−37 nonblank/−2,422 bytes to 18,883/17,947; awaiter consumes the catalog structural
@@ -287,7 +287,7 @@ declaration host is imperative C# over the source-shaped `ColumnarProgramInput` 
   same-source258/435 byte-identical. Audit17/18→18/18 with only the emitter row lowered and both
   head keys recomputed. Fresh 461s backend gate 593/7,821/115,18 audit,52 projects /68 IL;
   all 12 l1 SDK payloads unchanged. Next S2.2(m): constrained-call map production.
-  [Proof](../systems-language-closeout/decodes/2026-09-06-s22l-parity-proof.md).
+  Proof (`2026-09-06-s22l-parity-proof.md`).
 - **S2.3 — the writer, declarations only**, behind `backend: il-writer` (the switch already exists in N#; one C# branch in
   `MultiFileCompiler.cs` paid by an exact shrink; `_NSharpEmitKey` gains the backend so the arms never share `obj/`), grown
   table by table against the hello-world probe, `ilverify` on the declarations-only image, a metadata-table diff against

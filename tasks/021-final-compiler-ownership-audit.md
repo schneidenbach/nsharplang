@@ -2,7 +2,7 @@
 
 **Complete, 2026-09-09.** Source ownership and all23 remaining C# test-file boundaries are audited;
 canonical corrections and fresh integration verification pass at `0cc84110`.
-[Completion record](../systems-language-closeout/decodes/2026-09-09-compiler-only-ownership-complete.md). Earlier pending/provisional entries below are historical
+Completion record (`2026-09-09-compiler-only-ownership-complete.md`). Earlier pending/provisional entries below are historical
 and are superseded by their acceptance records and this final verdict.
 
 ## Execution contract
@@ -185,7 +185,7 @@ This supersedes the provisional prerequisite status above. MultiFileCompiler is 
 511 C# /7,985 N# /54 native-project entries /36 VS Code /12 throughput /68 IL assemblies. Installed
 SDK self-host executes 7,985 canonicals; native194/query76, metadata and unfiltered IL pass. Real
 unsaved-buffer diagnostics and cross-file definition navigation are visually verified after reinstall.
-[Complete acceptance](../systems-language-closeout/decodes/2026-09-08-complete-multifile-compiler-ownership.md).
+Complete acceptance (`2026-09-08-complete-multifile-compiler-ownership.md`).
 The source-probe history above is retained evidence, not remaining prerequisite work.
 
 The entire `src/NSharpLang.Cli/CompilationReferenceResolver.cs` owner is deleted in `a641613ed`:
@@ -196,7 +196,7 @@ The entire `src/NSharpLang.Cli/CompilationReferenceResolver.cs` owner is deleted
 and `reference-resolver-tests/final-receipt-r1.json` in that directory. The fresh combined gate and
 installed complete-owner verification now pass at `a20dc98af`: 7,999 self-host canonicals, installed
 native47/196/76/4/82, unfiltered IL and package identity.
-[Complete acceptance](../systems-language-closeout/decodes/2026-09-08-complete-reference-resolver-ownership.md).
+Complete acceptance (`2026-09-08-complete-reference-resolver-ownership.md`).
 Its recursive project builds, package cache lifecycle,
 dependency mutation, I/O ordering and cleanup are compiler reference-resolution behavior.
 Existing N# kernels do not make that orchestration mechanical. The current dependency on
@@ -253,7 +253,7 @@ resolver ownership: final canonical acceptance, production integration and push 
 
 The complete task is accepted at `b13cc7622`: sole N# production owner,303 C# lines deleted,
 12 native SDK cases, fresh backend gate and installed self-host8017/8017.
-[Acceptance and remaining audit](../systems-language-closeout/decodes/2026-09-09-complete-sdk-emit-task-ownership.md).
+Acceptance and remaining audit (`2026-09-09-complete-sdk-emit-task-ownership.md`).
 The following records the original selection boundary; its implementation and seed checks are complete.
 
 The source audit at `27b1a8a1b` disproves the broad mechanical label on

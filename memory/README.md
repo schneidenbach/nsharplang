@@ -6,7 +6,7 @@ only when they match product-path behavior.
 ## Compiler Ownership Rule
 
 The compiler-only ownership objective is complete at the verified `0cc84110` checkpoint;
-[final acceptance](../systems-language-closeout/decodes/2026-09-09-compiler-only-ownership-complete.md). Sole N# compiler behavior and canonical assertions remain required;
+final acceptance (`2026-09-09-compiler-only-ownership-complete.md`). Sole N# compiler behavior and canonical assertions remain required;
 see [the execution contract](../tasks/README.md) and [current cursor](../systems-language-closeout/STATUS.md).
 The complete Analyzer and SystemsAnalyzer are N#-owned in Compiler Core; both C# classes are
 deleted and verified through installed SDK self-hosting. The complete ColumnarProgramInputBuilder
@@ -19,7 +19,7 @@ branch, with its C# class deleted and seven direct plus four command-level N# ca
 its fresh gate and installed SDK verification are accepted at `a20dc98af`. The complete SDK task,
 including reference-assembly scan/rewrite, is now N#-owned in `EmitIlAssembly.nl`; its C# class is
 deleted and SDK routing is direct. Fresh integration and installed self-host verification pass at
-`b13cc7622`; see [SDK task acceptance](../systems-language-closeout/decodes/2026-09-09-complete-sdk-emit-task-ownership.md). Historical allowlist labels do not prove
+`b13cc7622`; see SDK task acceptance (`2026-09-09-complete-sdk-emit-task-ownership.md`). Historical allowlist labels do not prove
 current compiler-wide completion. CLI/editor features and broader branch work stay separately
 recorded; SDK/tooling changes are in scope only as demonstrated compiler migration dependencies.
 Do not preserve fallback emitters or expand `*DogfoodAdapter` layers into product architecture.

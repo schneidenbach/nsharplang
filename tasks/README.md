@@ -4,7 +4,7 @@
 # N# compiler ownership queue
 
 **Compiler-only objective complete, 2026-09-09.** Final fresh gate at `0cc84110` and source/assertion
-audits pass. [Completion and evidence](../systems-language-closeout/decodes/2026-09-09-compiler-only-ownership-complete.md).
+audits pass. Completion and evidence (`2026-09-09-compiler-only-ownership-complete.md`).
 Broader branch initiatives remain held separately.
 
 The completed objective covers compiler ownership: preprocessing, lexing, parsing, binding, type checking,
@@ -134,10 +134,10 @@ Current measured route and boundaries are in [STATUS §1](../systems-language-cl
    at `8ec52542b` preserves all 62 private fields and passes the exact 87 selected assertions.
    The N# formatter dependency is fixed in `6d8970fd5`. Fresh IDE-enabled integration passes
    521 C# / 7,968 N# canonicals / 36 VS Code tests; installed SDK self-host and visual formatter
-   verification pass. [Acceptance](../systems-language-closeout/decodes/2026-09-08-complete-columnar-emitter-ownership.md).
+   verification pass. Acceptance (`2026-09-08-complete-columnar-emitter-ownership.md`).
    MultiFileCompiler is entirely N#-owned in `51fded82` with all ten recovery canonicals migrated.
    Final `7a3579e5` passes the fresh IDE-enabled gate, installed SDK self-host and real unsaved-buffer
-   verification. [Acceptance](../systems-language-closeout/decodes/2026-09-08-complete-multifile-compiler-ownership.md).
+   verification. Acceptance (`2026-09-08-complete-multifile-compiler-ownership.md`).
    CompilationReferenceResolver is entirely N#-owned and its 497-line C# owner is deleted; its
    complete verification is published at `6d90129fb`. Additional workspace, command and CLI parity
    compiler canonicals are published at `698a34f30` (fresh gate:399 C#/8000 N# assertions).
@@ -151,7 +151,7 @@ Current measured route and boundaries are in [STATUS §1](../systems-language-cl
    the separate branch backlog and do not block independent compiler ownership work.
 3. Visual IDE verification is available and has been performed, including the 2026-09-04 package
    catalog growth, completion import acceptance, NL002 quick fix, and fresh-server lifetime checks.
-   It is no longer accurately described as unavailable. [Evidence](../systems-language-closeout/decodes/2026-09-04-takeover-verification.md).
+   It is no longer accurately described as unavailable. Evidence (`2026-09-04-takeover-verification.md`).
 
 The 2026-09-03 handoff snapshot was retired after its four streams landed; current ownership,
 remaining source/tooling chips, verification procedure, and owner choices are carried in STATUS §1.
@@ -165,4 +165,4 @@ worktree and local branch are retired with verified recovery history in
 checkout is now a plain evidence snapshot with source hashes checked before and after detachment.
 Together with the eight earlier verification registrations retired above, this leaves only the main
 checkout and four held query/configuration/signature-help backlog worktrees.
-[Acceptance and evidence](../systems-language-closeout/decodes/2026-09-09-compiler-core-name.md).
+Acceptance and evidence (`2026-09-09-compiler-core-name.md`).

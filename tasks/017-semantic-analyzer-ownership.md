@@ -28,6 +28,6 @@ new owner, with no compatibility wrapper or legacy fallback. Four remaining C# a
 their canonical assertions are migrated; existing accepted semantic families remain accepted.
 
 The final fresh gate and ordinary installed-SDK self-host, native corpus, metadata and package
-verification pass. See [the complete-owner record](../systems-language-closeout/decodes/2026-09-06-complete-analyzer-ownership.md)
+verification pass. See the complete-owner record (`2026-09-06-complete-analyzer-ownership.md`)
 and the current [compiler cursor](../systems-language-closeout/STATUS.md) for exact evidence.
 Task 017 is complete; the broader compiler-only objective remains open.

@@ -7,10 +7,12 @@ options side by side so the user can.
 Everything here was measured on 2026-09-01 on one idle machine (Apple M4, 10 logical cores, macOS
 15.6 / Darwin 24.6.0, .NET SDK 10.0.105) with a CLI built from `systems-language` tip `8cf40128a`
 (the harness commit adds only the harness, its baseline, docs and these results; the compiler under
-test is `8cf40128a`). The harness is `tests/native/compile-time-bench`; its raw output is committed
+test is `8cf40128a`). The harness is `tests/native/compile-time-bench`; its raw output was committed
 under `artifacts/compile-time/2026-09-01/` (`runs.csv`, `compile-time.csv`, `compile-time.md`, the
 C# reference sweep under `csharp-reference-5fce5896f/`, and the SDK emit-only logs under
-`sdk-emit-only/`).
+`sdk-emit-only/`). **Those raw files were pruned from the tree on 2026-09-22** — nothing reads them
+and `artifacts/` is gitignored — and remain recoverable from git history at `6cab15e2f`. Every
+number quoted below is stated here; the pruned files are the backing rows, not the verdict.
 
 ## 1. What was measured, and how
 
@@ -278,7 +280,9 @@ outcome 021 was written to refuse.
   reported the failure itself".
 - **The SDK emit-only measurement is manual** (six commands, logged), not part of the N# harness,
   because it measures the packaged compiler through MSBuild rather than the CLI under test.
-- **Artifacts are `git add -f`'d:** `artifacts/` is gitignored and `.gitignore` is ratchet-pinned.
+- **Artifacts were `git add -f`'d:** `artifacts/` is gitignored and `.gitignore` is ratchet-pinned.
+  That force-add was undone on 2026-09-22 (see the prune note in this directory's `README.md`); the
+  ignore rule stands, so a future sweep's output stays out of the tree on its own.
 - **Gate runs:** the first `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` (23:31–00:24) went red for
   two reasons: the gate block printed one line ahead of its JSON envelope and Step 3a's whole-file
   `json.load` refused it (fixed: a native test writes nothing; the block is silent on success), and the
