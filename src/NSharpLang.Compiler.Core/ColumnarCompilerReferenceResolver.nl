@@ -47,17 +47,25 @@ class ColumnarCompilerReferenceResolver {
             }
         }
 
+        // The test framework is the HOST's assembly, not a file in the project's closure, so this
+        // last resort is the owner's documented by-name route into the default context rather than
+        // a fourth `Assembly.Load` of its own.
         assemblyIndex := 0
         while assemblyIndex < assemblyNames.Length {
             assemblyName := assemblyNames[assemblyIndex]
             try {
                 assemblyIdentity := new AssemblyName(assemblyName)
-                assembly := Assembly.Load(assemblyIdentity)
-                loadedType := assembly.GetType(fullTypeName, false)
-                if loadedType != null {
-                    return loadedType
+                assembly := ExternalAssemblyScan.TryLoadHostAssemblyByName(assemblyIdentity)
+                if assembly != null {
+                    loadedType := assembly.GetType(fullTypeName, false)
+                    if loadedType != null {
+                        return loadedType
+                    }
                 }
             } catch {
+
+                // A name this host cannot spell, or a type whose own dependencies will not load, is
+                // not the answer; the next candidate name is.
             }
             assemblyIndex = assemblyIndex + 1
         }
@@ -124,7 +132,10 @@ class ColumnarCompilerReferenceResolver {
             return false
         }
 
-        assemblies := AppDomain.CurrentDomain.GetAssemblies()
+        // The same snapshot the owner reads, rather than a fourth walk of the process's assemblies:
+        // membership and order are identical to the `AppDomain` call this replaced, so which type a
+        // program binds here is unchanged.
+        assemblies := ExternalAssemblyScan.LoadedAcrossContexts()
         assemblyIndex := 0
         while assemblyIndex < assemblies.Length {
             assembly := assemblies[assemblyIndex]
@@ -148,17 +159,39 @@ class ColumnarCompilerReferenceResolver {
         return referenceAssemblyPaths.GetEnumerator()
     }
 
+    // ONE OWNER DECIDES WHICH RUNTIME ASSEMBLY A REFERENCE PATH MEANS, and it is
+    // `ExternalAssemblyScan`. This walk used to call `Assembly.LoadFrom` itself, which is a SECOND
+    // answer to that question and therefore a second LOAD CONTEXT: the owner's rule puts a reference
+    // the default context does not already answer for into the compiler's owned context, so a path
+    // loaded here into the DEFAULT context produced a second copy of the same types. Types from two
+    // contexts share their names and nothing else, so the AspNet route residual's synthesized
+    // `Func<HttpContext, Task>` stopped matching the `HttpContext` the lambda's parameter had
+    // resolved to -- measured on `tests/fixtures/issue-tracker`, where the residual emitted the
+    // pattern string, declined at the handler, and a later tier emitted the whole call again over
+    // the leftover: `ilverify` refused `Routes::Map` with `StackUnexpected` and `ReturnVoid`.
+    //
+    // Asking the owner costs one `AssemblyName.GetAssemblyName` and answers with whatever context
+    // already holds that exact identity, so this walk and the scan can no longer disagree.
     static func TryLoadTypeFromReferencePath(referencePath: string, fullTypeName: string, out result: Type): bool {
         result = null
         try {
-            loadedAssembly := Assembly.LoadFrom(referencePath)
+            identity := AssemblyName.GetAssemblyName(referencePath).get_FullName()
+            loadedAssembly := ExternalAssemblyScan.TryLoadExactIdentityAssembly(referencePath, identity)
+            if loadedAssembly == null {
+                return false
+            }
+
             loadedType := loadedAssembly.GetType(fullTypeName, false)
             if loadedType != null {
                 result = loadedType
                 return true
             }
         } catch {
+
+            // A path with no readable identity, or an image with no executable handle, is not an
+            // answer; the caller's next reference path is.
         }
+
         return false
     }
 

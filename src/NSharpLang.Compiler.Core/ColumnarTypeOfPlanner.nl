@@ -540,7 +540,9 @@ class ColumnarTypeOfPlanner {
             return true
         }
 
-        assemblies := AppDomain.CurrentDomain.GetAssemblies()
+        // `ExternalAssemblyScan` owns every read of the process's loaded assemblies; this is the
+        // same unfiltered snapshot in the same order the `AppDomain` call gave.
+        assemblies := ExternalAssemblyScan.LoadedAcrossContexts()
         i := 0
         while i < assemblies.Length {
             assembly := assemblies[i]

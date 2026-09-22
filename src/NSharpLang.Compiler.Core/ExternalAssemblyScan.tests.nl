@@ -599,6 +599,141 @@ test "a file that is not an assembly at all has no executable handle" {
     }
 }
 
+// A FILE ON DISK WHOSE IDENTITY THE DEFAULT CONTEXT DOES NOT ANSWER FOR, which is the shape every
+// package reference has and the shape the runtime directory does NOT have: everything beside
+// `System.Private.CoreLib` is on this host's own probing list, so the default context binds all of
+// it. The .NET SDK directory beside it is not, and neither is any other shared framework -- and the
+// SDK directory is exactly where the `Microsoft.Extensions.*` family that started this whole
+// investigation lives. Chosen by LOOKING rather than by naming a file, so no row depends on which
+// assemblies this particular host happened to ship.
+func ExternalUnboundAssemblyDirectories(): List<string> {
+    roots := new List<string>()
+    versionDirectory := Path.GetDirectoryName(RuntimeEnvironment.GetRuntimeDirectory())
+    frameworkDirectory := Path.GetDirectoryName(versionDirectory ?? "")
+    sharedDirectory := Path.GetDirectoryName(frameworkDirectory ?? "")
+    dotnetRoot := Path.GetDirectoryName(sharedDirectory ?? "")
+    if dotnetRoot == null || dotnetRoot.Length == 0 {
+        return roots
+    }
+
+    sdkRoot := Path.Combine(dotnetRoot, "sdk")
+    if Directory.Exists(sdkRoot) {
+        sdkDirectories := Directory.GetDirectories(sdkRoot)
+        Array.Sort(sdkDirectories, StringComparer.Ordinal)
+        for sdkDirectory in sdkDirectories {
+            roots.Add(sdkDirectory)
+        }
+    }
+
+    if sharedDirectory != null && Directory.Exists(sharedDirectory) {
+        frameworkDirectories := Directory.GetDirectories(sharedDirectory)
+        Array.Sort(frameworkDirectories, StringComparer.Ordinal)
+        for candidateFramework in frameworkDirectories {
+            versionDirectories := Directory.GetDirectories(candidateFramework)
+            Array.Sort(versionDirectories, StringComparer.Ordinal)
+            for candidateVersion in versionDirectories {
+                roots.Add(candidateVersion)
+            }
+        }
+    }
+
+    return roots
+}
+
+func ExternalUnboundAssemblyPath(): string {
+    for root in ExternalUnboundAssemblyDirectories() {
+        candidates := Directory.GetFiles(root, "*.dll", SearchOption.TopDirectoryOnly)
+        Array.Sort(candidates, StringComparer.Ordinal)
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            identity := ""
+            try {
+                identity = AssemblyName.GetAssemblyName(candidate).get_FullName()
+            } catch {
+                identity = ""
+            }
+
+            // A native image or a file with no managed metadata is not a candidate; keep looking.
+
+            if identity.Length > 0 && ExternalAssemblyScan.DefaultContextAssemblyForIdentity(identity) == null {
+                return candidate
+            }
+
+            index = index + 1
+        }
+    }
+
+    return ""
+}
+
+func ExternalDefaultContextCarries(identity: string): bool {
+    loaded := ExternalAssemblyScan.Loaded()
+    index := 0
+    while index < loaded.Length {
+        candidate := loaded[index]
+        name := ""
+        try {
+            name = candidate.GetName().get_FullName()
+        } catch {
+            name = ""
+        }
+
+        // A hostile loaded assembly is not evidence either way; keep looking.
+
+        if name == identity && Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(candidate), AssemblyLoadContext.Default) {
+            return true
+        }
+
+        index = index + 1
+    }
+
+    return false
+}
+
+// THE PARITY RULE. A reference the default context does not already answer for goes into the ONE
+// owned context, and the default context does not gain it -- so the whole of a project's reference
+// closure resolves its own members out of one context's cache instead of being split between the
+// host's build of every shared name and the project's.
+test "a reference the default context does not answer for lands in the compiler's own context" {
+    path := ExternalUnboundAssemblyPath()
+    assert path.Length > 0
+    identity := AssemblyName.GetAssemblyName(path).get_FullName()
+    assert !ExternalDefaultContextCarries(identity)
+
+    resolved := ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, identity)
+    assert resolved != null
+    assert resolved.GetName().get_FullName() == identity
+    assert Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(resolved), ExternalAssemblyScan.ExactIdentityLoadContext())
+    assert !ExternalDefaultContextCarries(identity)
+}
+
+// THE SEED SELF-HOST RULE, and the one that reverted the previous attempt. Under MSBuild the build
+// task IS `NSharpLang.Compiler.Core.dll`, loaded into a context of the HOST's, and a project that
+// references the compiler carries a DIFFERENT build of that same identity on its reference path.
+// A process-wide identity index answers such a path with the TASK's assembly, the project's own file
+// is never loaded at all, and the project's `Compiler.dll` -- which the default context has never
+// heard of, so it lands in the owned context -- then has no `NSharpLang.Compiler.Core` to bind:
+// `Could not load file or assembly 'NSharpLang.Compiler.Core'`, measured on `src/NSharpLang.Playground`.
+// Asking the DEFAULT context rather than every context is what keeps the file the answer.
+test "an identity only another context carries is not the default context's to give" {
+    path := ExternalUnboundAssemblyPath()
+    assert path.Length > 0
+    identity := AssemblyName.GetAssemblyName(path).get_FullName()
+
+    owned := ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, identity)
+    assert owned != null
+    assert !Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(owned), AssemblyLoadContext.Default)
+
+    // The process now carries the identity, and the default context still does not answer for it.
+    assert ExternalAssemblyScan.LoadedByIdentity().ContainsKey(identity)
+    assert ExternalAssemblyScan.DefaultContextAssemblyForIdentity(identity) == null
+
+    // And the owner still answers with the same handle rather than loading a second copy.
+    again := ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, identity)
+    assert Object.ReferenceEquals(again, owned)
+}
+
 test "the compiler's own reference context is a stable context that is not the default one" {
     first := ExternalAssemblyScan.ExactIdentityLoadContext()
     second := ExternalAssemblyScan.ExactIdentityLoadContext()

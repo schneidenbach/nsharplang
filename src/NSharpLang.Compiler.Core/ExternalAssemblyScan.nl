@@ -98,28 +98,61 @@ class ExternalAssemblyScan {
     //
     // A context of the compiler's own gives the requested FILE an executable handle without
     // displacing the host's. Unresolved dependencies of an assembly loaded here still fall back to
-    // the default context, so it keeps binding `System.Runtime` and friends exactly as before, and
-    // the context is consulted ONLY after the default context has failed to answer with the exact
-    // identity -- a same-name build the host already owns is still preferred when its identity is
-    // the requested one.
+    // the default context, so it keeps binding `System.Runtime` and friends exactly as before.
     private static readonly s_exactIdentityReferences: AssemblyLoadContext = new AssemblyLoadContext("nsharp-exact-identity-references", false)
 
     static func ExactIdentityLoadContext(): AssemblyLoadContext {
         return s_exactIdentityReferences
     }
 
-    // The default context first, exactly as before, and the compiler's own context only for the
-    // file the default context declined to answer for. Both answers are checked against the exact
-    // identity, so neither route can substitute a different build.
+    // ── THE ONE OWNER OF "WHAT DOES THIS REFERENCE PATH LOAD" ────────────────────────────────────
+    //
+    // Every consumer in the compiler -- this scan, `ColumnarCompilerReferenceResolver`'s
+    // reference-path walks, the AspNet route residual, the runtime member resolvers -- asks THIS
+    // function, so a reference path can never mean two different runtime assemblies in one process.
+    // A second `Assembly.LoadFrom` elsewhere is a second load CONTEXT, and types from two contexts
+    // share their names and nothing else.
+    //
+    // THE RULE, AND WHY IT IS NOT "THE DEFAULT CONTEXT FIRST".
+    //
+    // A reference's own DEPENDENCIES are resolved by the context it was loaded into, and the two
+    // contexts answer differently. `Assembly.LoadFrom` PLACES a new assembly in the default context,
+    // and that split the project's reference closure in half under MSBuild, in the direction nobody
+    // expects: a package whose simple name the host ALSO carries was refused by the default context
+    // on identity, landed in the owned context, and resolved its dependencies out of the owned
+    // context's own cache -- so it was CONSISTENT with the project. A package whose simple name the
+    // host does NOT carry was TAKEN by the default context, and its dependencies then resolved out
+    // of the default context, which serves the HOST's build of every shared name. MEASURED:
+    // `ILoggingBuilder.SetMinimumLevel` (`Microsoft.Extensions.Logging`, a name MSBuild carries ->
+    // owned) emitted through the SDK while `ILoggingBuilder.AddFile`
+    // (`Serilog.Extensions.Logging.File`, a name MSBuild does not carry -> default) declined,
+    // because `AddFile`'s `this` parameter was the HOST's `ILoggingBuilder` and the receiver was the
+    // project's. An inferred lambda parameter for an external delegate is the same split one hop
+    // later. Under the standalone CLI the default context carries nothing but the compiler, so every
+    // reference was consistent and the same program built -- which is the whole of the parity gap.
+    //
+    // So: THE DEFAULT CONTEXT IS CONSULTED ONLY FOR AN IDENTITY IT ALREADY ANSWERS FOR, AND IS NEVER
+    // ASKED TO TAKE THE PROJECT'S FILE. That is the same first question `Assembly.LoadFrom` asked --
+    // a build the host already owns still wins when its identity is exactly the requested one, so
+    // the framework, the compiler's own assemblies under the CLI, and every host dependency bind
+    // exactly as before. What changes is the answer for a file the default context did NOT already
+    // have: it goes into the ONE owned context rather than being placed in the default one, so the
+    // rest of the project's closure resolves it out of that context's own cache.
+    //
+    // THE CONTEXT THE DEFAULT ONE IS **NOT** ALLOWED TO STAND IN FOR IS THE COMPILER'S OWN. Under
+    // MSBuild the build task IS `NSharpLang.Compiler.Core.dll`, loaded into MSBuild's task context,
+    // and a project that references the compiler (`src/NSharpLang.Playground`,
+    // `src/NSharpLang.TestHost`) has a DIFFERENT build of that same identity on its reference path.
+    // Answering that path with the task's own assembly leaves the project's `Compiler.dll` -- which
+    // the default context has never heard of, so it lands in the owned context -- with no
+    // `NSharpLang.Compiler.Core` to bind at all, and the code generator fails with `Could not load
+    // file or assembly 'NSharpLang.Compiler.Core'`. Asking the DEFAULT context, rather than every
+    // context in the process, is what keeps the project's own build the answer for the project's own
+    // reference path.
     static func TryLoadExactIdentityAssembly(path: string, identity: string): Assembly? {
-        try {
-            loaded := Assembly.LoadFrom(path)
-            if RuntimeAssemblyHasIdentity(loaded, identity) {
-                return loaded
-            }
-        } catch {
-
-            // A file the default context cannot take is still a candidate for the owned context.
+        carried := DefaultContextAssemblyForIdentity(identity)
+        if carried != null {
+            return carried
         }
 
         try {
@@ -135,8 +168,61 @@ class ExternalAssemblyScan {
         return null
     }
 
+    // THE ONE QUESTION THE DEFAULT CONTEXT IS ASKED: "do you already answer for this exact
+    // identity?". `LoadFromAssemblyName` is the same binder call `Assembly.LoadFrom` made before it
+    // touched the file, so a name the host publishes still binds to the host's copy and a name it
+    // does not publish raises rather than pulling the project's file in. The answer is accepted only
+    // when the identity matches byte-for-byte AND the assembly really is the default context's, so a
+    // host that rolls a request forward to a higher version is refused here exactly as it was.
+    static func DefaultContextAssemblyForIdentity(identity: string): Assembly? {
+        if identity == null || identity.Length == 0 {
+            return null
+        }
+
+        try {
+            bound := AssemblyLoadContext.Default.LoadFromAssemblyName(new AssemblyName(identity))
+            if RuntimeAssemblyHasIdentity(bound, identity) && Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(bound), AssemblyLoadContext.Default) {
+                return bound
+            }
+        } catch {
+
+            // No build of this identity is the default context's to give; the owned context answers.
+        }
+
+        return null
+    }
+
+    // THE HOST'S OWN ASSEMBLIES, BY NAME RATHER THAN BY PATH, and the second of the two documented
+    // routes into the default context. A framework reference pack and the test framework name a
+    // runtime assembly the HOST supplies, not a file in the project's closure, so the default
+    // context is the right owner for both -- but the call still lives here, so the compiler has one
+    // place that loads an assembly and one place where the rule is written down.
+    static func LoadHostAssemblyByName(name: string): Assembly {
+        return Assembly.Load(name)
+    }
+
+    static func TryLoadHostAssemblyByName(name: AssemblyName): Assembly? {
+        try {
+            return Assembly.Load(name)
+        } catch {
+
+            // A name this host does not carry is not an executable handle; the caller's next
+            // candidate is.
+            return null
+        }
+    }
+
+    // THE PROCESS'S ASSEMBLIES ACROSS EVERY CONTEXT, unfiltered and in load order, so the walks that
+    // used to call `AppDomain.CurrentDomain.GetAssemblies()` for themselves now read the same
+    // snapshot this owner does. Order and membership are deliberately identical to that call --
+    // dynamic and collectible assemblies included -- because these walks answer type lookups and
+    // dropping either would change which type a program binds.
+    static func LoadedAcrossContexts(): Assembly[] {
+        return AppDomain.CurrentDomain.GetAssemblies()
+    }
+
     static func Loaded(): Assembly[] {
-        assemblies := AppDomain.CurrentDomain.GetAssemblies()
+        assemblies := LoadedAcrossContexts()
         loaded := new List<Assembly>()
         index := 0
         while index < assemblies.Length {
@@ -193,7 +279,7 @@ class ExternalAssemblyScan {
             return byIdentity
         }
 
-        loaded := AppDomain.CurrentDomain.GetAssemblies()
+        loaded := LoadedAcrossContexts()
         loadedIndex := 0
         while loadedIndex < loaded.Length {
             candidate := loaded[loadedIndex]
@@ -226,7 +312,7 @@ class ExternalAssemblyScan {
         while commonIndex < commonNames.Length {
             name := commonNames[commonIndex]
             try {
-                runtimeAssembly := Assembly.Load(name)
+                runtimeAssembly := LoadHostAssemblyByName(name)
                 identityName := runtimeAssembly.GetName()
                 identity := identityName.get_FullName()
                 metadataPath := CommonAssemblyMetadataPath(searchDirectories, name)
@@ -1003,6 +1089,13 @@ class ExternalAssemblyScan {
             }
         }
 
+        // THE THIRD AND LAST DOCUMENTED ROUTE INTO THE DEFAULT CONTEXT, and the narrowest: a
+        // SHARED-FRAMEWORK implementation file selected by framework resolution, never a file from
+        // the project's own package closure. The framework is the one closure the host and the
+        // project always agree about -- `FrameworkRuntimePathForReference` only answers for a
+        // `packs/*.Ref` reference image, and the answer is the matching `shared/<pack>/<version>`
+        // file the host itself binds -- so placing it in the default context cannot give a project
+        // reference the host's build of anything.
         try {
             runtimeAssembly := Assembly.LoadFrom(runtimePath)
             if RuntimeAssemblyHasIdentity(runtimeAssembly, identity) {

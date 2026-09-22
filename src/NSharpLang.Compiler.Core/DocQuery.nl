@@ -87,7 +87,9 @@ class DocQuery {
     // clause declines the whole `try`. Measured by execution; recorded as finding 99.2.)
     func LoadReferencePackAssembly(assemblyName: string) {
         try {
-            loaded := Assembly.Load(assemblyName)
+            // A reference pack names a HOST assembly, which is `ExternalAssemblyScan`'s documented
+            // by-name route into the default context, not a load of this file's own.
+            loaded := ExternalAssemblyScan.LoadHostAssemblyByName(assemblyName)
             typeIndex.AddAssembly(loaded)
         } catch ex: Exception {
             if !IsAssemblyUnloadable(ex) {
