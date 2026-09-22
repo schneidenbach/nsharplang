@@ -69,6 +69,13 @@ func workspaceRootOf(request: InitializeParams): string? {
 
 // Everything the host is told, in the order the client is told it: the two streams, the log
 // file, the two services, the 27 handlers and the two lifecycle callbacks.
+//
+// COMPILER: lsflip-1. This is a NAMED function rather than the block lambda the C# wrote inline,
+// because a CAPTURING outer lambda breaks an external extension call inside a lambda nested in it:
+// `logger.LogInformation(...)` in `OnInitialize` declines with
+// `emit.call.instance-member-unmodeled` as soon as the enclosing `options => { ... }` reads a local
+// of `main`. Naming the body captures nothing, and the registration order is the same statement
+// order the C# chain had.
 func configureServer(options: LanguageServerOptions, clientInput: Pipe, logPath: string): LanguageServerOptions {
     options.WithInput(clientInput.Reader)
     options.WithOutput(Console.OpenStandardOutput())

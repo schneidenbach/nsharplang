@@ -92,6 +92,7 @@ class SemanticTokensHandler: SemanticTokensHandlerBase {
         tokenTypes := new List<SemanticTokenType>()
         index := 0
         while index < TokenTypes.Length {
+            // COMPILER: lsflip-2. The element and the construction are both bound to locals.
             typeName := TokenTypes[index]
             tokenType := new SemanticTokenType(typeName)
             tokenTypes.Add(tokenType)

@@ -90,6 +90,8 @@ class CodeActionHandler: CodeActionHandlerBase {
         lspDiagnostic: OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic,
         doc: DocumentState
     ): NSharpLang.Compiler.Diagnostic? {
+        // COMPILER: lsflip-2. The three argument values are bound to locals; written inline the
+        // call declines at `emit.call.static-member-unmodeled`.
         start := lspDiagnostic.Range.Start
         code := lspDiagnostic.Code?.String
         // The wire counts from zero and the compiler counts from one.
@@ -140,6 +142,8 @@ class CodeActionHandler: CodeActionHandlerBase {
             linkedDiagnostics = new Container<OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic>(diagnostic)
         }
 
+        // COMPILER: lsflip-2. Same family at the return: the initializer declines at
+        // `emit.return.expression` while its member values are computed in place.
         kind := convertCodeActionKind(action.Kind)
         // Safe fixes are preferred (shown first / auto-applicable)
         isPreferred := action.Safety == FixSafety.Safe

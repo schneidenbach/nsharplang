@@ -41,6 +41,8 @@ class DocumentSymbolHandler: DocumentSymbolHandlerBase {
 
         logger.LogDebug("Document symbol request for {Uri}", uri)
 
+        // COMPILER: lsflip-2. Written inline the call declines at
+        // `emit.call.static-member-unmodeled`.
         sourceLines := doc.Text?.Split('\n')
         rows := NSharpLang.Compiler.CodeIntelligence.EditorDocumentSymbolFacts.SymbolRows(doc.CompilationUnit, sourceLines)
 
@@ -82,6 +84,8 @@ class DocumentSymbolHandler: DocumentSymbolHandlerBase {
         }
     }
 
+    // COMPILER: lsflip-3. The returned enum is named IN FULL although `SymbolKind` is unambiguous
+    // in this file: the simple name declines at `emit.return.expression` here.
     static func toSymbolKind(kind: NSharpLang.Compiler.CodeIntelligence.EditorSymbolKind): OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind {
         if kind == NSharpLang.Compiler.CodeIntelligence.EditorSymbolKind.Function {
             return OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind.Function

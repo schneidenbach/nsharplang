@@ -57,6 +57,8 @@ class DefinitionHandler: DefinitionHandlerBase {
     func createProjectLocation(uri: string, result: DefinitionResult): LocationOrLocationLinks {
         projectRoot := documentManager.GetProjectRootForUri(uri)
         filePath := documentManager.ResolveProjectFilePath(projectRoot, result.File)
+        // COMPILER: lsflip-2. Both values are bound to locals because an object initializer whose
+        // member value is itself a `new` declines at `emit.local.initializer`.
         absoluteUri := new Uri(filePath).AbsoluteUri
         range := new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
             result.Line - 1,

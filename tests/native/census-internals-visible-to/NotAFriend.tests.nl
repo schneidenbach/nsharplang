@@ -103,6 +103,8 @@ func NotAFriendBuild(assemblyName: string, source: string): IReadOnlyList<Compil
 
     config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
     compiler := new MultiFileCompiler(root, config)
+    // COMPILER: lsflip-2. Written inline as the second argument the call declines at
+    // `emit.call.instance-member-unmodeled`.
     outputPath := Path.Combine(root, assemblyName + ".dll")
     result := compiler.CompileToIlAssembly(assemblyName, outputPath)
     return NotAFriendList(result.Errors)
