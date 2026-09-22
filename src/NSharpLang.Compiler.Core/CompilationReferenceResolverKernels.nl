@@ -3,6 +3,7 @@ namespace NSharpLang.Cli
 import System
 import System.Collections.Generic
 import System.IO
+import System.Security.Cryptography
 import NSharpLang.Compiler
 
 class TargetFrameworkVersionParseResult {
@@ -82,6 +83,83 @@ class CompilationReferenceResolverKernels {
 
     static func GetNuGetPackagePath(tempDirectory: string, packageName: string, version: string): string {
         return Path.Combine(tempDirectory, GetNuGetPackageFileName(packageName, version))
+    }
+
+    // ── NUGET'S INSTALL MARKERS ───────────────────────────────────────────────────────────────
+    //
+    // Unzipping a package into `<packages>/<id>/<version>/` does NOT install it. NuGet decides
+    // whether a version directory holds a package by looking for the install markers beside the
+    // content — the `.nupkg` itself and its `<id>.<version>.nupkg.sha512` — and a directory that
+    // carries only the extracted files is invisible to `dotnet restore`, which then reports NU1101
+    // for a package that is sitting right there. `nlc build` and `dotnet build` share ONE global
+    // packages folder, so an install only one of them can see is a lie about that cache.
+    //
+    // The `.sha512` file is the base64 SHA-512 of the `.nupkg` bytes, with no trailing newline.
+    // `.nupkg.metadata` is deliberately NOT written here: its `contentHash` is the SIGNED content
+    // hash for a signed package, which is not the hash of the file, and writing a value this side
+    // cannot compute would be a false claim about the cache. NuGet writes that file itself on the
+    // first restore that finds these two (measured against the 10.0.105 SDK: restore succeeds
+    // offline with no sources and leaves a correct `.nupkg.metadata` behind).
+    static func GetNuGetPackageHashFileName(packageName: string, version: string): string {
+        return GetNuGetPackageFileName(packageName, version) + ".sha512"
+    }
+
+    static func GetInstalledNuGetPackagePath(installDirectory: string, packageName: string, version: string): string {
+        return Path.Combine(installDirectory, GetNuGetPackageFileName(packageName, version))
+    }
+
+    static func GetInstalledNuGetPackageHashPath(installDirectory: string, packageName: string, version: string): string {
+        return Path.Combine(installDirectory, GetNuGetPackageHashFileName(packageName, version))
+    }
+
+    static func GetNuGetPackageContentHash(packageBytes: byte[]): string {
+        algorithm := SHA512.Create()
+        try {
+            hashBytes := algorithm.ComputeHash(packageBytes)
+            encoded := Convert.ToBase64String(hashBytes)
+            return encoded
+        } finally {
+            algorithm.Dispose()
+        }
+    }
+
+    static func GetInstalledNuGetPackageVersion(versionDirectory: string): string {
+        return Path.GetFileName(versionDirectory) ?? ""
+    }
+
+    // ── NEAREST-WINS, WHICH IS WHAT NUGET DOES AND WHAT FIRST-WINS IS NOT ─────────────────────
+    //
+    // A `nuget:` list is a set of ROOTS, not an ordered search path. NuGet walks the graph in
+    // level order and, for one package id, keeps the occurrence CLOSEST to the project; a direct
+    // reference is at distance zero, so it beats every transitive one however the list is written.
+    // Two occurrences the same distance away unify on the HIGHER version.
+    //
+    // Resolving each root's closure in turn and keeping the first version reached instead makes a
+    // pin written after a package that already carries that dependency silently ineffective:
+    // measured, `Microsoft.Extensions.Logging 9.0.0` written after `OmniSharp.Extensions.
+    // LanguageServer` bound OmniSharp's transitive 6.0.0 through `nlc build` while `dotnet build`
+    // bound the pinned 9.0.0 from the same tree.
+    static func ShouldSelectNuGetPackageCandidate(
+        hasSelection: bool,
+        selectedVersion: string,
+        selectedDepth: int,
+        candidateVersion: string,
+        candidateDepth: int
+    ): bool {
+        if !hasSelection {
+            return true
+        }
+
+        if candidateDepth < selectedDepth {
+            return true
+        }
+
+        if candidateDepth > selectedDepth {
+            return false
+        }
+
+        compareScratch := new int[](9)
+        return BestNuGetVersionCompare(candidateVersion, selectedVersion, compareScratch) > 0
     }
 
     static func GetNuGetTempDirectory(tempRoot: string, uniqueName: string): string {

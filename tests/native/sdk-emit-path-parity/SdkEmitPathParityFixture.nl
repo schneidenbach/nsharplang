@@ -148,14 +148,15 @@ func ParityPreparePackage(root: string, scratch: string): ParityPackage {
 // 6.0.0 and NOT the 9.0.0 the sample PINS ON PURPOSE, and door two failed NU1101 with the private
 // feed as its only source.
 //
-// Door one never noticed, and could not have: `nlc build` resolves `nuget:` itself against
-// api.nuget.org and unzips straight into the packages folder, writing none of NuGet's install
-// markers (`.nupkg.metadata`, the `.nupkg`, the `.sha512`). So after door one there WAS a 9.0.0
-// directory in the fallback folder and NuGet still refused to see it -- which is also why the
-// fallback folder is gone rather than merely supplemented: door one pollutes the very folder door
-// two would have read, and a row about what the two doors bind must not depend on ambient cache
-// state. `globalPackagesFolder` stays redirected at the run's own throwaway cache, so the
-// disposable `NSharpLang.Sdk` version this fixture packs never lands in a real one.
+// Door one never noticed, and could not have: `nlc build` resolved `nuget:` itself against
+// api.nuget.org and unzipped straight into the packages folder, writing none of NuGet's install
+// markers. So after door one there WAS a 9.0.0 directory in the fallback folder and NuGet still
+// refused to see it. `nlc build` now writes the `.nupkg` and its `.sha512` beside the content, so
+// such a directory IS an install both doors can read -- `tests/native/nuget-resolution-fidelity`
+// is the row for that -- but the fallback folder stays gone rather than merely supplemented: a row
+// about what the two doors bind must not depend on ambient cache state either way.
+// `globalPackagesFolder` stays redirected at the run's own throwaway cache, so the disposable
+// `NSharpLang.Sdk` version this fixture packs never lands in a real one.
 //
 // Private feed for the packed SDK and Runtime, `nuget.org` for everything the sample names, is the
 // contract every other SDK-path row already uses: `tests/native/sdk-project-reference-boundary`

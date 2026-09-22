@@ -70,8 +70,10 @@ test "CompilationReferenceResolver has exactly the two cross assembly entries an
         }
         privateMethodIndex = privateMethodIndex + 1
     }
-    assert privateMethodCount == 22
-    expectedPrivateMethods := new string[](22)
+    assert privateMethodCount == 23
+    expectedPrivateMethods := new string[](23)
+    // Declaration order. `SelectNuGetPackageVersions` is the level-order pass that decides one
+    // version per package id before `ResolveNuGetPackage` takes a single asset.
     expectedPrivateMethods[0] = "CreateHttpClient"
     expectedPrivateMethods[1] = "GetStableOutputDirectory"
     expectedPrivateMethods[2] = "ResolveProjectReferences"
@@ -80,20 +82,21 @@ test "CompilationReferenceResolver has exactly the two cross assembly entries an
     expectedPrivateMethods[5] = "FormatCompilerDiagnostics"
     expectedPrivateMethods[6] = "AddImplicitTestDependencies"
     expectedPrivateMethods[7] = "ResolveFrameworkReferenceDirectories"
-    expectedPrivateMethods[8] = "ResolveNuGetPackage"
-    expectedPrivateMethods[9] = "EnsurePackageAvailable"
-    expectedPrivateMethods[10] = "GetLatestPackageVersion"
-    expectedPrivateMethods[11] = "ReadNuGetVersionStrings"
-    expectedPrivateMethods[12] = "DownloadPackage"
-    expectedPrivateMethods[13] = "TryDeleteDirectoryRecursively"
-    expectedPrivateMethods[14] = "ReadPackageIdentity"
-    expectedPrivateMethods[15] = "FindFirstElementByLocalName"
-    expectedPrivateMethods[16] = "CollectElementsByLocalName"
-    expectedPrivateMethods[17] = "ReadPackageDependencies"
-    expectedPrivateMethods[18] = "SelectBestAssetAssemblies"
-    expectedPrivateMethods[19] = "AddDllReference"
-    expectedPrivateMethods[20] = "GetGlobalPackagesFolder"
-    expectedPrivateMethods[21] = "FindSharedFrameworkDirectory"
+    expectedPrivateMethods[8] = "SelectNuGetPackageVersions"
+    expectedPrivateMethods[9] = "ResolveNuGetPackage"
+    expectedPrivateMethods[10] = "EnsurePackageAvailable"
+    expectedPrivateMethods[11] = "GetLatestPackageVersion"
+    expectedPrivateMethods[12] = "ReadNuGetVersionStrings"
+    expectedPrivateMethods[13] = "DownloadPackage"
+    expectedPrivateMethods[14] = "TryDeleteDirectoryRecursively"
+    expectedPrivateMethods[15] = "ReadPackageIdentity"
+    expectedPrivateMethods[16] = "FindFirstElementByLocalName"
+    expectedPrivateMethods[17] = "CollectElementsByLocalName"
+    expectedPrivateMethods[18] = "ReadPackageDependencies"
+    expectedPrivateMethods[19] = "SelectBestAssetAssemblies"
+    expectedPrivateMethods[20] = "AddDllReference"
+    expectedPrivateMethods[21] = "GetGlobalPackagesFolder"
+    expectedPrivateMethods[22] = "FindSharedFrameworkDirectory"
     expectedPrivateIndex := 0
     while expectedPrivateIndex < expectedPrivateMethods.Length {
         expectedPrivateMethod := owner.GetMethod(

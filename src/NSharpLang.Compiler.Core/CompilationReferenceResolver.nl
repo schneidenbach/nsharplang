@@ -79,6 +79,12 @@ sealed class CompilationReferenceResolver {
             config.TestDependencies,
             options.IncludeTests
         )
+        // THE VERSION OF EVERY PACKAGE IN THE CLOSURE IS DECIDED BEFORE ANY ASSET IS TAKEN.
+        // Walking each root's closure and keeping whatever version was reached first makes the
+        // order of the `nuget:` list decide the answer; NuGet's rule is nearest-wins, so the
+        // selection is a level-order pass of its own and the asset walk below reads its result.
+        selectedVersions := SelectNuGetPackageVersions(packageReferences, config.TargetFramework)
+
         packageIndex := 0
         while packageIndex < packageReferences.Count {
             packageReference := packageReferences[packageIndex]
@@ -86,7 +92,8 @@ sealed class CompilationReferenceResolver {
                 packageReference.Nuget,
                 packageReference.Version,
                 config.TargetFramework,
-                context
+                context,
+                selectedVersions
             )
 
             for assemblyPath in packageAssets.CompileAssemblies {
@@ -328,13 +335,97 @@ sealed class CompilationReferenceResolver {
         return directories
     }
 
+    // ── LEVEL-ORDER SELECTION ─────────────────────────────────────────────────────────────────
+    //
+    // Every declared `nuget:` entry enters at depth 0 and every dependency a selected package
+    // declares enters one level further out, so the queue is drained nearest-first. A candidate
+    // replaces the standing selection only when it is strictly nearer, or equally near and a
+    // higher version — which is NuGet's rule, and which also terminates on a dependency cycle
+    // because depth grows along every path while a win requires it not to.
+    private static func SelectNuGetPackageVersions(
+        packageReferences: List<Reference>,
+        targetFramework: string
+    ): Dictionary<string, string> {
+        selectedVersions := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        selectedDepths := new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        pending := new List<PackageResolutionNode>()
+
+        rootIndex := 0
+        while rootIndex < packageReferences.Count {
+            rootReference := packageReferences[rootIndex]
+            rootName := rootReference.Nuget
+            if rootName != null {
+                pending.Add(new PackageResolutionNode(rootName, rootReference.Version, 0))
+            }
+
+            rootIndex = rootIndex + 1
+        }
+
+        cursor := 0
+        while cursor < pending.Count {
+            node := pending[cursor]
+            cursor = cursor + 1
+
+            normalizedId := CompilationReferenceResolverKernels.NormalizeNuGetPackageId(node.Id)
+            versionDirectory := EnsurePackageAvailable(node.Id, node.Version)
+            candidateVersion := CompilationReferenceResolverKernels.GetInstalledNuGetPackageVersion(
+                versionDirectory
+            )
+
+            let selectedVersion: string = ""
+            hasSelection := selectedVersions.TryGetValue(normalizedId, out selectedVersion)
+            selectedDepth := 0
+            if hasSelection {
+                let existingDepth: int = 0
+                if selectedDepths.TryGetValue(normalizedId, out existingDepth) {
+                    selectedDepth = existingDepth
+                }
+            }
+
+            if !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(
+                hasSelection,
+                selectedVersion,
+                selectedDepth,
+                candidateVersion,
+                node.Depth
+            ) {
+                continue
+            }
+
+            selectedVersions[normalizedId] = candidateVersion
+            selectedDepths[normalizedId] = node.Depth
+
+            dependencies := ReadPackageDependencies(versionDirectory, targetFramework)
+            dependencyIndex := 0
+            while dependencyIndex < dependencies.Count {
+                dependency := dependencies[dependencyIndex]
+                pending.Add(
+                    new PackageResolutionNode(dependency.Id, dependency.Version, node.Depth + 1)
+                )
+                dependencyIndex = dependencyIndex + 1
+            }
+        }
+
+        return selectedVersions
+    }
+
     private static func ResolveNuGetPackage(
         packageName: string,
         version: string?,
         targetFramework: string,
-        context: ResolutionContext
+        context: ResolutionContext,
+        selectedVersions: Dictionary<string, string>
     ): NuGetPackageAssets {
-        versionDirectory := EnsurePackageAvailable(packageName, version)
+        resolvedVersion := version
+        let selectedVersion: string = ""
+        if selectedVersions.TryGetValue(
+            CompilationReferenceResolverKernels.NormalizeNuGetPackageId(packageName),
+            out selectedVersion
+        ) {
+            resolvedVersion = selectedVersion
+        }
+
+        versionDirectory := EnsurePackageAvailable(packageName, resolvedVersion)
         declaredIdentity := ReadPackageIdentity(versionDirectory)
         packageIdentity := CompilationReferenceResolverKernels.ResolveNuGetPackageIdentity(
             versionDirectory,
@@ -363,7 +454,8 @@ sealed class CompilationReferenceResolver {
                 dependency.Id,
                 dependency.Version,
                 targetFramework,
-                context
+                context,
+                selectedVersions
             )
             assets.Add(dependencyAssets)
             dependencyIndex = dependencyIndex + 1
@@ -497,6 +589,30 @@ sealed class CompilationReferenceResolver {
                 Guid.NewGuid().ToString("N")
             )
             ZipFile.ExtractToDirectory(packagePath, extractDirectory)
+
+            // NUGET'S INSTALL MARKERS, WRITTEN BEFORE THE DIRECTORY IS PUBLISHED. The extracted
+            // content alone is not an install: `dotnet restore` decides a version directory holds
+            // a package by the `.nupkg` and its `.sha512` beside the content, and answers NU1101
+            // for a directory that carries neither. Both doors share this folder, so writing them
+            // here is what makes that cache mean the same thing to both. They go into the staging
+            // directory so the move that publishes the version directory publishes a COMPLETE
+            // install, never a half-marked one another process could read.
+            File.WriteAllBytes(
+                CompilationReferenceResolverKernels.GetInstalledNuGetPackagePath(
+                    extractDirectory,
+                    packageName,
+                    version
+                ),
+                bytes
+            )
+            File.WriteAllText(
+                CompilationReferenceResolverKernels.GetInstalledNuGetPackageHashPath(
+                    extractDirectory,
+                    packageName,
+                    version
+                ),
+                CompilationReferenceResolverKernels.GetNuGetPackageContentHash(bytes)
+            )
 
             if Directory.Exists(versionDirectory) {
                 Directory.Delete(extractDirectory, true)

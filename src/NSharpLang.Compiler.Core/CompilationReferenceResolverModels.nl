@@ -329,6 +329,21 @@ class PackageDependency {
     }
 }
 
+// One occurrence of a package id in the dependency graph, with its DISTANCE from the project.
+// A declared `nuget:` entry is at distance zero; everything a package brings with it is one
+// further out. The distance is the whole of NuGet's nearest-wins rule.
+class PackageResolutionNode {
+    Id: string
+    Version: string?
+    Depth: int
+
+    constructor(Id: string, Version: string?, Depth: int) {
+        this.Id = Id
+        this.Version = Version
+        this.Depth = Depth
+    }
+}
+
 class ImplicitTestDependencyPlan {
     ShouldAdd: bool
     PackageName: string

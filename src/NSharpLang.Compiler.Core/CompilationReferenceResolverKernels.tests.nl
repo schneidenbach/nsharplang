@@ -259,3 +259,60 @@ test "a compatible older framework scores by family and version, and a newer one
     assert CompilationReferenceResolverKernels.GetFrameworkCompatibilityScore("unsupported", "net10.0") == -1
     assert CompilationReferenceResolverKernels.GetFrameworkCompatibilityScore("netbad", "net10.0") == -1
 }
+
+// ── nearest-wins, the rule that replaced first-wins ───────────────────────────
+//
+// A `nuget:` list is a set of ROOTS. Distance from the project, not position in the list, decides
+// which occurrence of a package id survives — which is why a pin written after a package that
+// already carries that dependency must still bind.
+
+test "the first occurrence of a package id is always taken" {
+    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(false, "", 0, "1.0.0", 0)
+    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(false, "", 0, "6.0.0", 3)
+}
+
+test "a nearer occurrence replaces a further one, whichever version it names" {
+    // the round-11 shape: a transitive 6.0.0 reached first, then the project's own 9.0.0 pin
+    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "6.0.0", 1, "9.0.0", 0)
+    // and a nearer occurrence wins even when it is LOWER, because nearest-wins is not highest-wins
+    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "9.0.0", 2, "6.0.0", 1)
+}
+
+test "a further occurrence never replaces a nearer one" {
+    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "9.0.0", 0, "10.0.0", 1)
+    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "1.0.0", 1, "2.0.0", 2)
+}
+
+test "two occurrences the same distance out unify on the higher version" {
+    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "6.0.0", 1, "9.0.0", 1)
+    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "9.0.0", 1, "6.0.0", 1)
+    // an equal version is not higher, so the standing selection stands and its subtree is not rewalked
+    assert !CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "9.0.0", 1, "9.0.0", 1)
+    // Ordering is `BestNuGetVersionCompare`, the SAME comparison `SelectBestNuGetVersionIndex`
+    // already uses to pick an installed version, so the two places that order versions cannot
+    // drift apart. It compares the numeric core and falls back to an ordinal string compare, which
+    // ranks `2.0.0-preview` ABOVE `2.0.0`; that is this kernel's established behavior, pinned by
+    // the rows above, and nearest-wins inherits it rather than introducing a second ordering.
+    assert CompilationReferenceResolverKernels.ShouldSelectNuGetPackageCandidate(true, "2.0.0", 0, "2.0.0-preview", 0)
+}
+
+// ── the install markers that make a version directory a package ───────────────
+
+test "the install marker names are the lowercased id, version and extensions NuGet looks for" {
+    assert CompilationReferenceResolverKernels.GetNuGetPackageFileName("YamlDotNet", "16.3.0") == "yamldotnet.16.3.0.nupkg"
+    assert CompilationReferenceResolverKernels.GetNuGetPackageHashFileName("YamlDotNet", "16.3.0") == "yamldotnet.16.3.0.nupkg.sha512"
+    assert CompilationReferenceResolverKernels.GetInstalledNuGetPackagePath("/c/yamldotnet/16.3.0", "YamlDotNet", "16.3.0") == "/c/yamldotnet/16.3.0/yamldotnet.16.3.0.nupkg"
+    assert CompilationReferenceResolverKernels.GetInstalledNuGetPackageHashPath("/c/yamldotnet/16.3.0", "YamlDotNet", "16.3.0") == "/c/yamldotnet/16.3.0/yamldotnet.16.3.0.nupkg.sha512"
+}
+
+test "the content hash marker is the base64 SHA-512 of the package bytes and nothing else" {
+    // the published SHA-512 of the empty input, base64-encoded: the marker is a hash of the file
+    // it sits beside, so a placeholder or a hex spelling would be a false claim about the cache
+    assert CompilationReferenceResolverKernels.GetNuGetPackageContentHash(new byte[](0)) == "z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg=="
+    assert CompilationReferenceResolverKernels.GetNuGetPackageContentHash(new byte[](0)).Length == 88
+}
+
+test "an installed version directory names its own version" {
+    assert CompilationReferenceResolverKernels.GetInstalledNuGetPackageVersion("/c/yamldotnet/16.3.0") == "16.3.0"
+    assert CompilationReferenceResolverKernels.GetInstalledNuGetPackageVersion("/c/omnisharp.extensions.languageserver/0.19.9") == "0.19.9"
+}

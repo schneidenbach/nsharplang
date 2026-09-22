@@ -274,13 +274,20 @@ func ResolverFrameworkAssembly(name: string): string {
     return path
 }
 
+// THE SELECTION MAP IS EMPTY ON PURPOSE. `ResolveNuGetPackage` is the ASSET walk, and the version
+// each id resolves at is decided before it runs by `SelectNuGetPackageVersions`. Handing it an
+// empty map is what makes the rows below measure the walk itself — descent order, the cache key,
+// the aggregate ref/lib preference — against the versions each nuspec declares, unchanged by the
+// nearest-wins pass. The rule itself is pinned by `ShouldSelectNuGetPackageCandidate`'s kernel rows
+// and end to end by `tests/native/nuget-resolution-fidelity`.
 func ResolverPackageAssets(packageName: string, version: string?, targetFramework: string, context: ResolutionContext): NuGetPackageAssets {
-    method := ResolverPrivateMethod("ResolveNuGetPackage", 4)
-    arguments := new object?[](4)
+    method := ResolverPrivateMethod("ResolveNuGetPackage", 5)
+    arguments := new object?[](5)
     ResolverSetObject(arguments, 0, packageName)
     ResolverSetObject(arguments, 1, version)
     ResolverSetObject(arguments, 2, targetFramework)
     ResolverSetObject(arguments, 3, context)
+    ResolverSetObject(arguments, 4, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))
     result := ResolverInvoke(method, arguments) as NuGetPackageAssets
     if result == null {
         throw new InvalidOperationException("ResolveNuGetPackage returned no assets.")

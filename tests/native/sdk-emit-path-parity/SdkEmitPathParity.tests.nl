@@ -63,15 +63,16 @@ func main() {
 """
 }
 
-// THE PIN IS LISTED FIRST, AND THAT IS A MEASURED FINDING ABOUT RESOLUTION, NOT A STYLE CHOICE.
+// THE PIN IS LISTED LAST, AND THAT IS A MEASURED FINDING ABOUT RESOLUTION, NOT A STYLE CHOICE.
 // With `Microsoft.Extensions.Logging 9.0.0` written AFTER `OmniSharp.Extensions.LanguageServer`,
-// the two doors bound DIFFERENT versions of it: `dotnet build` bound the pinned 9.0.0.0 (NuGet's
-// nearest-wins -- a direct reference beats any transitive one), and `nlc build` bound OmniSharp's
-// TRANSITIVE 6.0.0.0, because the CLI's own `nuget:` resolution is first-wins over the declared
-// order followed by each package's closure. That is a second, INDEPENDENT parity gap between the
-// two doors, in package RESOLUTION rather than in reference loading, and it is recorded rather than
-// fixed here. Leading with the pin makes both doors resolve 9.0.0 so this row measures the loading
-// contract it is for; when resolution is made nearest-wins the order here stops mattering.
+// the two doors once bound DIFFERENT versions of it: `dotnet build` bound the pinned 9.0.0.0
+// (NuGet's nearest-wins -- a direct reference is at distance zero and beats any transitive one),
+// and `nlc build` bound OmniSharp's TRANSITIVE 6.0.0.0, because the CLI resolved each root's
+// closure in turn and kept the first version it reached. That was a second, INDEPENDENT parity
+// gap between the two doors -- package RESOLUTION rather than reference loading -- and the sample
+// once led with the pin to route around it. It leads with OmniSharp now: the CLI selects versions
+// in level order, so the ORDER OF THIS LIST IS ITSELF UNDER TEST and the `Version=9.0.0.0`
+// assertion below reads both contracts at once.
 func ParitySampleProjectYml(): string {
     return """
 name: ParitySample
@@ -80,12 +81,12 @@ backend: il
 outputType: exe
 targetFramework: net10.0
 dependencies:
-  - nuget: Microsoft.Extensions.Logging
-    version: 9.0.0
   - nuget: OmniSharp.Extensions.LanguageServer
     version: 0.19.9
   - nuget: Serilog.Extensions.Logging.File
     version: 3.0.0
+  - nuget: Microsoft.Extensions.Logging
+    version: 9.0.0
 """
 }
 
