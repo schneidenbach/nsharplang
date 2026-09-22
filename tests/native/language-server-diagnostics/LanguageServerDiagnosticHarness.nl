@@ -15,16 +15,31 @@ func LsdRequiredType(name: string): Type {
     return resolved
 }
 
+// A NAMED MEMBER, whether its owner spells it as a property or as a field. The OmniSharp wire
+// records this harness reads are C# auto-properties; the language server's own models are N# now,
+// and a declared member there is a FIELD. The question every caller is asking — "what does this
+// object carry under this name" — is the same either way, so the lookup answers for both rather
+// than the call sites carrying two spellings.
 func LsdRequiredProperty(value: object, name: string): object {
-    property := value.GetType().GetProperty(name)
-    if property == null {
+    owner := value.GetType()
+    property := owner.GetProperty(name)
+    if property != null {
+        result := property.GetValue(value)
+        if result == null {
+            throw new InvalidOperationException("Required property was null: " + name)
+        }
+        return result
+    }
+
+    field := owner.GetField(name)
+    if field == null {
         throw new InvalidOperationException("Required property was not found: " + name)
     }
-    result := property.GetValue(value)
-    if result == null {
+    fieldValue := field.GetValue(value)
+    if fieldValue == null {
         throw new InvalidOperationException("Required property was null: " + name)
     }
-    return result
+    return fieldValue
 }
 
 func LsdRequiredField(value: object, name: string): object {

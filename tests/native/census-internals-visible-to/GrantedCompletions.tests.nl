@@ -16,8 +16,8 @@ import NSharpLang.LanguageServer.Handlers
 // `MemberAccessibility.IsAccessible` the one owner of the relation; completion now asks both.
 //
 // THIS PROJECT IS THE ONLY PLACE THE ASSERTION IS REAL. It is called `Tests`, which is the name
-// `LanguageServer.csproj` spells in its `InternalsVisibleTo`, so the grant below is the shipped one
-// rather than a fixture.
+// the language server's `project.yml` spells in its `internalsVisibleTo:`, so the grant below is the
+// shipped one rather than a fixture.
 func GrantedCompletionGrants(): InternalsVisibleToGrants {
     grants := new InternalsVisibleToGrants()
     grants.SetCompilingAssemblyName("Tests")
@@ -31,7 +31,7 @@ func GrantedCompletionItems(grants: InternalsVisibleToGrants?, owner: Type): boo
 
     index := 0
     while index < items.Count {
-        if items[index].Name == "MatchesQuery" {
+        if items[index].Name == "matchesQuery" {
             return true
         }
 
@@ -48,7 +48,7 @@ test "the grant is real: the referenced assembly names THIS assembly a friend" {
 }
 
 test "an internal static member of a granting reference is OFFERED, because the compiler binds it" {
-    // `WorkspaceSymbolHandler.MatchesQuery` is `internal static` on a public type, and
+    // `WorkspaceSymbolHandler.matchesQuery` is camelCase — CLR `assembly` — on a public type, and
     // `GrantedInternals.tests.nl` calls it for real.
     assert GrantedCompletionItems(GrantedCompletionGrants(), typeof(WorkspaceSymbolHandler))
 }

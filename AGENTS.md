@@ -100,7 +100,7 @@ This script:
 - Reopens VS Code with a sample project
 
 Files that require extension reload:
-- `src/NSharpLang.LanguageServer/**/*.cs` (any Language Server changes)
+- `src/NSharpLang.LanguageServer/**/*.nl` (any Language Server changes)
 - `editors/vscode/**/*.ts` (VS Code extension TypeScript code)
 
 IMPORTANT: Always test LSP changes in VS Code to verify the user experience!

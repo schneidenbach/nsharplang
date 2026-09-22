@@ -15,7 +15,7 @@ import System.IO
 // client declared in `initialize` left it alive past 25 seconds. Only an orderly `exit` after the
 // handshake ended it, in 0.03 s.
 //
-// `src/NSharpLang.LanguageServer/Program.cs` answers both, event-driven and without a poll loop:
+// `src/NSharpLang.LanguageServer/Program.nl` answers both, event-driven and without a poll loop:
 // stdin is pumped into a `System.IO.Pipelines.Pipe` whose copy completing at EOF exits the process,
 // and `OnInitialize` watches the declared pid with `WaitForExitAsync`. These blocks are what keeps
 // that true. Each measures a REAL server process, because that is the only thing an orphan is.

@@ -1,6 +1,7 @@
 namespace Tests
 
 import System.Collections
+import System.Reflection
 import NSharpLang.Compiler
 import NSharpLang.LanguageServer.Handlers
 import NSharpLang.LanguageServer.Services
@@ -8,136 +9,103 @@ import NSharpLang.LanguageServer.Services
 
 // A REFERENCED ASSEMBLY'S INTERNALS, REACHED BECAUSE IT NAMED THIS ONE A FRIEND.
 //
-// THIS PROJECT IS CALLED `Tests` ON PURPOSE. `LanguageServer.csproj` and `Cli.csproj` both carry
-// `<InternalsVisibleTo Include="Tests" />`, so the assembly this project emits is exactly the one
-// those two declare as a friend — which is what makes every block below a real exercise of the rule
-// rather than a re-test of public API. Renaming this project would silently turn every positive here
-// into a compile error, and `NotAFriend.tests.nl` next door asserts precisely that.
+// THIS PROJECT IS CALLED `Tests` ON PURPOSE. The language server's `project.yml` carries
+// `internalsVisibleTo: [Tests]` and `Cli.csproj` carries `<InternalsVisibleTo Include="Tests" />`,
+// so the assembly this project emits is exactly the one those two declare as a friend — which is
+// what makes every block below a real exercise of the rule rather than a re-test of public API.
+// Renaming this project would silently turn every positive here into a build error, and
+// `NotAFriend.tests.nl` next door asserts precisely that.
 //
 // WHAT IS BEING ASSERTED IS RUNTIME BEHAVIOUR, not resolution. These blocks compile to ordinary IL
-// — `call`, `ldsfld`, `newobj` — and the CLR re-checks the friend grant when it loads the emitted
-// assembly, so a block that RUNS is proof that the whole path (naming the type, selecting the
-// member, emitting the instruction and passing the runtime's own accessibility check) holds.
+// — `call`, `ldsfld` — and the CLR re-checks the friend grant when it loads the emitted assembly,
+// so a block that RUNS is proof that the whole path (naming the type, selecting the member,
+// emitting the instruction and passing the runtime's own accessibility check) holds.
 //
-// THE FIXTURES ARE THE REAL SHAPES A FRIEND REACHES:
-//   * an `internal static class` whose members are public — `LspDiagnosticConverter`,
-//     the type the converted language-server test project reported NL301 x23 on;
-//   * an `internal static` METHOD of a PUBLIC type — `WorkspaceSymbolHandler.MatchesQuery`;
-//   * an `internal static` FIELD of a PUBLIC type — `SemanticTokensHandler.TokenTypes`;
-//   * an `internal` TYPE named in an annotation, constructed and passed —
-//     `NSharpLang.LanguageServer.Program`.
+// ── WHICH INTERNAL MEMBERS THIS FIXTURE STANDS ON, AND WHY THOSE ──────────────────────────────
 //
-// ── WHICH INTERNAL TYPE THIS FIXTURE STANDS ON, AND WHY THAT ONE ──────────────────────────────
+// This file used to stand on C# shapes the language server no longer has: an `internal static
+// class` (`LspDiagnosticConverter`), an `internal static` FIELD (`SemanticTokensHandler.TokenTypes`)
+// and an `internal` TYPE (`NSharpLang.LanguageServer.Program`). The language server is N# now, and
+// N# decides CLR accessibility differently: it emits every TYPE and every FIELD as CLR `public`,
+// and a camelCase, unexported FUNCTION or METHOD as CLR `assembly`. `SourceGrants.tests.nl` next
+// door MEASURES that rule rather than assuming it, and the last block here measures it again
+// against the real `LanguageServer.dll`.
 //
-// This block used to stand on `SemanticTokenLocation`, an internal record struct in the language
-// server's semantic-token handler. The N# ownership lane moved that walk into
-// `EditorSemanticTokenFacts` and deleted the C# type, and the fixture went red — the subject was
-// incidental helper surface, which is exactly the surface a conversion lane exists to delete.
+// SO THE SUBJECT IS THE ONE SHAPE AN N# GRANT CAN ACTUALLY EXPOSE: an unexported METHOD of a
+// PUBLIC type. Two of them, on two different types, so the fixture is about the RULE and not about
+// one member surviving:
+//   * `WorkspaceSymbolHandler.matchesQuery` — the workspace-symbol subsequence match;
+//   * `SemanticTokensHandler.legendIndex` — the semantic-token legend lookup.
 //
-// THE SUBJECT IS NOW THE LANGUAGE SERVER'S ENTRY-POINT CLASS, `NSharpLang.LanguageServer.Program`,
-// which C# makes `internal` by default — and letting a test assembly reach `Program` is the single
-// most ordinary reason `[InternalsVisibleTo]` exists in .NET at all. It is not helper surface: an
-// executable has an entry point for as long as it is an executable. When it does go, the whole
-// `LanguageServer.dll` has gone with it — and so has the `InternalsVisibleTo("Tests")` grant that
-// every block in this project reads, so that is the flip where this fixture is rewritten whole,
-// not a lane that quietly deletes one type out from under it.
-//
-// THE NAME IS WRITTEN IN FULL, never as bare `Program`. N# puts this file's free functions in
-// `Tests.Program`, so the simple name resolves HERE and would assert nothing about the reference.
-// `NotAFriend.tests.nl` next door needs a simple name that cannot collide that way, and stands on
-// `CallHierarchyProtocol` for it — read the note there before re-pointing either one.
-func GrantedConverterCharacter(line: int, column: int, length: int): int {
-    diagnostic := new Diagnostic(
-        "NL012",
-        "Parameter 'unusedName' in 'greet' is never read — is it needed?",
-        new Location(line, column, "Program.nl"),
-        DiagnosticSeverity.Info,
-        "Prefix with '_' if this is intentional",
-        length
-    )
-
-    converted := LspDiagnosticConverter.FromLinterDiagnostic(diagnostic)
-    return (int)converted.Range.Start.Character
-}
-
-func GrantedConverterEndCharacter(line: int, column: int, length: int): int {
-    diagnostic := new Diagnostic(
-        "NL012",
-        "message",
-        new Location(line, column, "Program.nl"),
-        DiagnosticSeverity.Info,
-        "hint",
-        length
-    )
-
-    converted := LspDiagnosticConverter.FromLinterDiagnostic(diagnostic)
-    return (int)converted.Range.End.Character
-}
-
-// The internal type is written as a PARAMETER type as well as inside a body, because an annotation
-// is a different resolution position from an expression and both had to learn the rule. These two
-// are EMITTED, so the parameter's type lands in the produced metadata and the CLR checks it when
-// the call is JITted — a signature naming a type this assembly may not see would fail at load.
-func GrantedHostTypeName(host: NSharpLang.LanguageServer.Program): string {
-    return host.GetType().FullName ?? ""
-}
-
-func GrantedHostIsNonPublic(host: NSharpLang.LanguageServer.Program): bool {
-    return !host.GetType().IsPublic
-}
-
+// Both are pure, both are named in full where a simple name could collide, and both are the
+// residue the N# ownership lanes PRODUCE rather than delete: the decisions are owned by
+// `EditorWorkspaceSymbolFacts` and `EditorSemanticTokenFacts`, and what stays behind in the server
+// is the protocol mapping. If one of them ever goes, the whole `LanguageServer.dll` reference and
+// the `internalsVisibleTo: [Tests]` grant this project reads have gone with it.
 func GrantedSequenceCount(sequence: object): int {
     values := (IList)sequence
     return values.Count
 }
 
-test "an internal static class of a granting reference converts a diagnostic at run time" {
-    assert GrantedConverterCharacter(1, 12, 10) == 11
-    assert GrantedConverterEndCharacter(1, 12, 10) == 21
-    assert GrantedConverterCharacter(1, 1, 1) == 0
-    assert GrantedConverterEndCharacter(1, 1, 1) == 1
+// The legend index the server answers for a kind word. `legendIndex` is camelCase, so this call
+// only binds because the reference names this compilation a friend.
+func GrantedLegendIndex(kind: string): int {
+    return SemanticTokensHandler.legendIndex(kind)
 }
 
 test "an internal static method of a public type of a granting reference runs" {
-    assert WorkspaceSymbolHandler.MatchesQuery("WorkspaceSymbolHandler", "wsh")
-    assert WorkspaceSymbolHandler.MatchesQuery("Alpha", "")
-    assert !WorkspaceSymbolHandler.MatchesQuery("Alpha", "zz")
+    assert WorkspaceSymbolHandler.matchesQuery("WorkspaceSymbolHandler", "wsh")
+    assert WorkspaceSymbolHandler.matchesQuery("Alpha", "")
+    assert !WorkspaceSymbolHandler.matchesQuery("Alpha", "zz")
 }
 
-test "an internal static field of a public type of a granting reference reads" {
+// A SECOND INTERNAL MEMBER, ON A DIFFERENT TYPE OF THE SAME REFERENCE. One member could be an
+// accident of how that one file was written; two on two types is the grant.
+test "a second internal static method, on another type of the same reference, runs" {
+    assert GrantedLegendIndex("namespace") == 0
+    assert GrantedLegendIndex("enumMember") == 17
+    // The owner's fallback: a kind the legend does not carry is painted as "type", index 1.
+    assert GrantedLegendIndex("not-a-token-kind") == 1
+}
+
+// THE LEGEND ITSELF IS PUBLIC, and that is the point of reading it here: N# emits fields as CLR
+// public, so the grant exposes nothing extra at a field and the legend is readable by anyone. The
+// INDEX LOOKUP over it is what the grant admits, and the two agree.
+test "the public legend and the granted lookup over it agree" {
     tokenTypes := SemanticTokensHandler.TokenTypes
     assert tokenTypes.Length == 18
     assert tokenTypes[0] == "namespace"
     assert tokenTypes[17] == "enumMember"
     assert SemanticTokensHandler.TokenModifiers.Length > 0
-}
 
-test "an internal type of a granting reference is constructed and passed at run time" {
-    // `newobj` on a type the CLR calls non-public. The runtime resolves the constructor against
-    // the friend grant at JIT time, so reaching this line at all is the grant being honoured —
-    // and the value then crosses a call whose SIGNATURE names the same internal type.
-    host := new NSharpLang.LanguageServer.Program()
-
-    assert GrantedHostTypeName(host) == "NSharpLang.LanguageServer.Program"
-    assert GrantedHostIsNonPublic(host)
-    assert !host.GetType().IsVisible
+    index := 0
+    while index < tokenTypes.Length {
+        assert GrantedLegendIndex(tokenTypes[index]) == index, tokenTypes[index]
+        index = index + 1
+    }
 }
 
 // THE CLR METADATA HALF. The rule is about what the METADATA says, so the metadata is read back:
-// the type really is non-public, and the assembly really does carry the friend declaration that
-// makes the blocks above legal. `GetCustomAttributesData()` is the reader, exactly as the compiler's
-// own `InternalsVisibleToGrants` uses.
-test "the reached type is non-public and its assembly names this one in an InternalsVisibleTo" {
-    hostType := typeof(NSharpLang.LanguageServer.Program)
-    assert !hostType.IsPublic
-    assert hostType.IsNotPublic
-    assert !hostType.IsVisible
+// the member really is CLR `assembly` on a type that really is public, and the assembly really does
+// carry the friend declaration that makes the blocks above legal. `GetCustomAttributesData()` is
+// the reader, exactly as the compiler's own `InternalsVisibleToGrants` uses.
+test "the reached member is CLR assembly on a public type, and its assembly names this one a friend" {
+    ownerType := typeof(WorkspaceSymbolHandler)
+    assert ownerType.IsPublic, "the DECLARING type is public — only the member is withheld"
+    assert ownerType.IsVisible
 
-    converterType := typeof(LspDiagnosticConverter)
-    assert !converterType.IsVisible
+    reached := ownerType.GetMethod("matchesQuery", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+    assert reached != null
+    assert reached.IsAssembly, "an unexported N# method is exactly what an InternalsVisibleTo grant admits"
+    assert !reached.IsPublic
+    assert !reached.IsPrivate
+
+    second := typeof(SemanticTokensHandler).GetMethod("legendIndex", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+    assert second != null
+    assert second.IsAssembly
 
     grants := 0
-    attributes := hostType.Assembly.GetCustomAttributesData()
+    attributes := ownerType.Assembly.GetCustomAttributesData()
     count := GrantedSequenceCount(attributes)
     index := 0
     while index < count {
@@ -153,6 +121,34 @@ test "the reached type is non-public and its assembly names this one in an Inter
     }
 
     assert grants == 1, "the referenced LanguageServer assembly must declare InternalsVisibleTo(\"Tests\")"
+}
+
+// WHAT THE FLIP CHANGED, MEASURED RATHER THAN REMEMBERED. The C# language server withheld TYPES
+// and FIELDS as well, and three of this file's blocks used to stand on that. N# does not: casing
+// decides PACKAGE export, which is invisible to the CLR, so every type and every field it emits is
+// CLR public and an `internalsVisibleTo:` grant adds nothing at either. This block is the reason
+// the subjects above are METHODS and nothing else.
+test "the granting assembly emits its types and fields public, so only its unexported methods are withheld" {
+    converterType := typeof(LspDiagnosticConverter)
+    assert converterType.IsPublic, "N# emits a type as CLR public; the C# `internal static class` is gone"
+    assert converterType.IsVisible
+
+    legendField := typeof(SemanticTokensHandler).GetField("TokenTypes", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+    assert legendField != null
+    assert legendField.IsPublic, "N# emits fields as CLR public, so a grant exposes nothing extra at a field"
+
+    converted := LspDiagnosticConverter.FromLinterDiagnostic(new Diagnostic(
+        "NL012",
+        "Parameter 'unusedName' in 'greet' is never read — is it needed?",
+        new Location(1, 12, "Program.nl"),
+        DiagnosticSeverity.Info,
+        "Prefix with '_' if this is intentional",
+        10
+    ))
+
+    // It is ordinary public API now, and it still answers the same 0-based end-exclusive span.
+    assert (int)converted.Range.Start.Character == 11
+    assert (int)converted.Range.End.Character == 21
 }
 
 // A PUBLIC MEMBER OF A GRANTING REFERENCE IS STILL AN ORDINARY PUBLIC MEMBER. The widened binding

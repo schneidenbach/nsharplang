@@ -1245,22 +1245,24 @@ func LshHasLinkTargetContaining(links: DocumentLinkContainer, fragment: string):
     return false
 }
 
-// WorkspaceSymbolHandler.MatchesQuery is internal; reached through reflection
-// for the same reason the semantic token helpers are.
+// WorkspaceSymbolHandler.matchesQuery is internal; reached through reflection
+// for the same reason the semantic token helpers are. The name is camelCase because
+// the language server is N# now, and casing is what decides export there — the member
+// and its accessibility are the same ones the C# `internal static MatchesQuery` had.
 func LshMatchesQuery(symbolName: string, query: string): bool {
     method := typeof(WorkspaceSymbolHandler).GetMethod(
-        "MatchesQuery",
+        "matchesQuery",
         BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic
     )
     if method == null {
-        throw new InvalidOperationException("WorkspaceSymbolHandler.MatchesQuery was not found.")
+        throw new InvalidOperationException("WorkspaceSymbolHandler.matchesQuery was not found.")
     }
     arguments := new object?[](2)
     LshPut(arguments, 0, symbolName)
     LshPut(arguments, 1, query)
     result := method.Invoke(null, arguments)
     if result == null {
-        throw new InvalidOperationException("WorkspaceSymbolHandler.MatchesQuery returned null.")
+        throw new InvalidOperationException("WorkspaceSymbolHandler.matchesQuery returned null.")
     }
     return Convert.ToBoolean(result)
 }

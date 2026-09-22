@@ -2032,7 +2032,7 @@ this MetadataLoadContext" whenever the restored version was not the lexically gr
 which assemblies the editor may see, which short names a general completion always volunteers and
 what each denotes, which namespaces a bare name is probed in and in what order, how a written type
 name is spelled, which CLR types may be offered, how they are ranked, and how many may be sent.
-`src/NSharpLang.LanguageServer/Services/TypeResolver.cs` performs the reflection reads and the
+`src/NSharpLang.LanguageServer/Services/TypeResolver.nl` performs the reflection reads and the
 caching; it decides nothing. `AnalyzerTypeReferenceFacts.BuiltInClrTypeName` still owns the built-in
 aliases and is consulted before this catalogue.
 

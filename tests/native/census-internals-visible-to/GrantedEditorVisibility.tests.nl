@@ -56,11 +56,11 @@ func EditorVisibilityReferenceLines(): string {
     return lines
 }
 
-// Line 6 is the call. `MatchesQuery` is `internal static` on the PUBLIC type
-// `WorkspaceSymbolHandler`, and `Handle` beside it is public, so the same file asks both questions
-// of the same reference.
+// Line 6 is the call. `matchesQuery` is camelCase on the PUBLIC type `WorkspaceSymbolHandler`, so
+// N# emits it CLR `assembly` — and `Handle` beside it is public, so the same file asks both
+// questions of the same reference.
 func EditorVisibilitySource(): string {
-    return "namespace Consumer\n\nimport NSharpLang.LanguageServer.Handlers\n\nfunc CallInternal(): bool {\n    return WorkspaceSymbolHandler.MatchesQuery(\"Alpha\", \"a\")\n}\n"
+    return "namespace Consumer\n\nimport NSharpLang.LanguageServer.Handlers\n\nfunc CallInternal(): bool {\n    return WorkspaceSymbolHandler.matchesQuery(\"Alpha\", \"a\")\n}\n"
 }
 
 func EditorVisibilitySnapshot(assemblyName: string): ProjectSnapshot {
@@ -81,7 +81,7 @@ func EditorVisibilityHover(assemblyName: string, line: int, column: int): HoverR
     return service.GetHoverInfo(EditorVisibilitySnapshot(assemblyName), "Consumer.nl", line, column)
 }
 
-// `    return WorkspaceSymbolHandler.MatchesQuery("Alpha", "a")` — `MatchesQuery` starts at 35.
+// `    return WorkspaceSymbolHandler.matchesQuery("Alpha", "a")` — `matchesQuery` starts at 35.
 func EditorVisibilityMemberColumn(): int {
     return 35
 }

@@ -196,7 +196,7 @@ Then in VS Code:
 
 **In VS Code:**
 1. Install a .NET debugger extension
-2. Open `src/NSharpLang.LanguageServer/Program.cs`
+2. Open `src/NSharpLang.LanguageServer/Program.nl`
 3. Set breakpoint in `CompletionHandler.cs:Handle` method
 4. Press F5 → "Attach to Process"
 5. Find `dotnet LanguageServer.dll` process
