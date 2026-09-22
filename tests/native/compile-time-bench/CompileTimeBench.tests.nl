@@ -900,6 +900,55 @@ test "compile-time bench: the record a JUDGED and PASSING gate leaves behind sti
     assert BenchGateRecordLine("skipped-by-load: x", detail) == "skipped-by-load: x"
 }
 
+// ─── HOW MANY RUNS THE GATE TAKES ─────────────────────────────────────────────────────────────
+//
+// The timing gate is NOT weakened by taking one run when the verdict will be unjudged: the number
+// of runs is decided by the SAME predicate that decides whether the median is judged at all, so a
+// judged median is always the median of three.
+
+test "compile-time gate: a machine quiet enough to be JUDGED is measured THREE times — a judged median is never one run" {
+    quiet := new BenchMachineLoad(1200, 10)
+    assert !BenchLoadRefusesTimingJudgement(quiet)
+    assert BenchGateRunCount(quiet) == 3
+
+    // Right at the threshold the judgement is declined, so the run count drops with it and not
+    // before it: 1.999 on ten cores is still judged and still costs three runs.
+    justUnder := new BenchMachineLoad(1999, 10)
+    assert !BenchLoadRefusesTimingJudgement(justUnder)
+    assert BenchGateRunCount(justUnder) == 3
+}
+
+test "compile-time gate: a machine whose timing verdict will be SKIPPED is measured once, and the unjudged verdict reads exactly as it did on three runs" {
+    atThreshold := new BenchMachineLoad(2000, 10)
+    loaded := new BenchMachineLoad(3400, 10)
+    assert BenchGateRunCount(atThreshold) == 1
+    assert BenchGateRunCount(loaded) == 1
+
+    // An unreadable load refuses judgement, so it also refuses to pay for a median nobody reads.
+    assert BenchGateRunCount(BenchUnknownLoad()) == 1
+
+    // The single run still carries the whole correctness half, and the verdict is the same
+    // `skipped-by-load:` sentence — one `runs=[...]` entry instead of three is the only difference.
+    baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
+    single := new long[](1)
+    single[0] = 200000L
+    exitCodes := new int[](1)
+    exitCodes[0] = 1
+    banners := new bool[](1)
+    banners[0] = true
+    outcome := BenchGateOutcome(single, exitCodes, banners, 1, BenchMedian(single, 1), baseline, "deadbeef", loaded)
+    assert outcome.StartsWith(BenchSkippedByLoadPrefix())
+    assert BenchGateOutcomeIsSilent(outcome)
+    assert outcome.IndexOf("did NOT judge the median", StringComparison.Ordinal) > 0
+    assert outcome.IndexOf("runs=[200000] ms", StringComparison.Ordinal) > 0
+
+    // …and a wrong exit code on that one run is still a failure, on a loaded machine, in one run.
+    exitCodes[0] = 0
+    wrongExit := BenchGateOutcome(single, exitCodes, banners, 1, 200000, baseline, "deadbeef", loaded)
+    assert wrongExit.IndexOf("exited 0 on run 1 but the baseline pins 1", StringComparison.Ordinal) > 0
+    assert !BenchGateOutcomeIsSilent(wrongExit)
+}
+
 test "compile-time bench: the gate's own verdict form judges unconditionally and states the load as unknown" {
     baseline := BenchParseBaseline(BenchTestMeasuredBaselineJson())
     wallMs := BenchTestLongs(200000, 190000, 210000)
@@ -977,14 +1026,19 @@ test "compile-time gate: nlc build on src/NSharpLang.Compiler.Core stays inside 
         sourceScope := BenchAbsoluteSelfHostScopeDetail(sourceMeasure.Files, sourceMeasure.Lines, baseline)
 
         // BEFORE the runs, so the figure describes the machine these medians were taken on rather
-        // than the machine after three builds of the compiler have loaded it.
+        // than the machine after three builds of the compiler have loaded it. It is also what
+        // decides HOW MANY runs to take: the same reading that will decline the timing judgement
+        // decides that a median nobody will read is not worth measuring three times. A load under
+        // the threshold still takes three, and the tolerance is still compared against THEIR
+        // median — see `BenchGateRunCount`.
         load := BenchReadMachineLoad()
+        runCount := BenchGateRunCount(load)
 
-        wallMs := new long[](3)
-        exitCodes := new int[](3)
-        banners := new bool[](3)
+        wallMs := new long[](runCount)
+        exitCodes := new int[](runCount)
+        banners := new bool[](runCount)
         i := 0
-        while i < 3 {
+        while i < runCount {
             measured := BenchMeasureOnce(cliDll, projectDirectory, "build", i + 1)
             wallMs[i] = measured.WallMs
             exitCodes[i] = measured.ExitCode
@@ -992,9 +1046,9 @@ test "compile-time gate: nlc build on src/NSharpLang.Compiler.Core stays inside 
             i = i + 1
         }
 
-        median := BenchMedian(wallMs, 3)
+        median := BenchMedian(wallMs, runCount)
         cliCommit := BenchReadCliCommit(repositoryRoot)
-        outcome := BenchGateOutcome(wallMs, exitCodes, banners, 3, median, baseline, cliCommit, load)
+        outcome := BenchGateOutcome(wallMs, exitCodes, banners, runCount, median, baseline, cliCommit, load)
         recordedOutcome := outcome
         if outcome != "ok" {
             recordedOutcome = outcome + " " + sourceScope
@@ -1002,7 +1056,7 @@ test "compile-time gate: nlc build on src/NSharpLang.Compiler.Core stays inside 
 
         // The one place a GREEN gate can still say what it did: a skipped timing judgement nobody
         // can see is the failure mode being removed, and the block may not print.
-        BenchWriteGateRecord(repositoryRoot, BenchGateRecordLine(recordedOutcome, BenchGateDetail(wallMs, exitCodes, 3, median, baseline, cliCommit, load) + " " + sourceScope))
+        BenchWriteGateRecord(repositoryRoot, BenchGateRecordLine(recordedOutcome, BenchGateDetail(wallMs, exitCodes, runCount, median, baseline, cliCommit, load) + " " + sourceScope))
         assert BenchGateOutcomeIsSilent(recordedOutcome), recordedOutcome
     }
 }

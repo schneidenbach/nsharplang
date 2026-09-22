@@ -1408,6 +1408,26 @@ func BenchLoadRefusesTimingJudgement(load: BenchMachineLoad): bool {
     return load.LoadThousandths >= BenchLoadThresholdThousandths(load.Cores)
 }
 
+// HOW MANY RUNS THE VERDICT IS WORTH.
+//
+// A median only means something when it will be JUDGED, and the load read BEFORE the first run
+// already decides that (`BenchLoadRefusesTimingJudgement`). Three runs of `nlc build` on
+// Compiler.Core cost about six and a half minutes inside the product gate, and inside that gate the
+// judgement is usually declined — Step 3a's own work is what pushes the load past the threshold.
+//
+// So: THREE runs whenever the timing half will be judged, because a single measurement is not a
+// median and must never reach the tolerance comparison; ONE run when it will not, because the half
+// that still runs — the exact exit code and the CLI's own `Build failed in ` banner — is a per-run
+// property that one run proves as completely as three. The unjudged verdict is the same
+// `skipped-by-load:` string either way; only the number of discarded medians changes.
+func BenchGateRunCount(load: BenchMachineLoad): int {
+    if BenchLoadRefusesTimingJudgement(load) {
+        return 1
+    }
+
+    return 3
+}
+
 func BenchLoadText(thousandths: long): string {
     if thousandths < 0 {
         return "unknown"
