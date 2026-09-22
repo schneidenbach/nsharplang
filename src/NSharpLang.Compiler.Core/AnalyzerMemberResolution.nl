@@ -708,6 +708,73 @@ class AnalyzerMemberResolution {
         return IsReachableReflectedLevel(MemberAccessibility.LevelOfMethod(method), inheritedProtectedAccess, FriendAdmits(grants, method.get_DeclaringType()))
     }
 
+    // WAS THE FRIEND RULE THE ONLY REASON THIS NAME DID NOT RESOLVE?
+    //
+    // THE ANALYZER OWNED THE RELATION AND THE MISS NEVER ASKED IT. Every arm above narrows the
+    // reflection flags to what this compilation may see, so an `assembly`-level member of a
+    // referenced assembly simply is not there for a non-friend and the walk answers `unknown` — and
+    // an unknown member on a non-BCL reflected receiver is deliberately LENIENT, so nothing was
+    // reported at all. The refusal then arrived from the EMITTER, as `NL103 … is not modeled`, which
+    // names a backend where the developer needed to be told about a visibility rule. N# makes this
+    // the common case rather than a corner: it emits every type and every field CLR `public` and
+    // withholds only unexported (camelCase) FUNCTIONS and METHODS, so an `assembly`-level METHOD on a
+    // `public` type is exactly what a grant admits and a stranger must be refused.
+    //
+    // THE QUESTION IS AS NARROW AS THE TYPE PROBE'S. `AnalyzerExternalTypeProbe.DeclaresUnnameableFullName`
+    // asks whether the metadata really declares this exact TYPE and whether the friend rule is the
+    // only reason it was rejected; this asks the same of a MEMBER NAME. It answers only when the
+    // level is one the grant alone decides — `internal`, and the assembly half of
+    // `protected internal` — so a `private` or `protected` member of a referenced type keeps the
+    // pre-existing leniency and a member that does not exist at all is still a miss and not a
+    // refusal. Arity is deliberately not consulted: the objection is to the NAME being reachable,
+    // which is settled before any overload is chosen.
+    static func TryFindFriendBarredReflectedMemberLevel(clrType: Type?, memberName: string, includeStaticMembers: bool, grants: InternalsVisibleToGrants?, out level: int): bool {
+        level = MemberAccessibility.Public
+        if clrType == null || string.IsNullOrEmpty(memberName) {
+            return false
+        }
+
+        // A FRIEND SEES THE MEMBER, so there is nothing barred to report and the miss is an ordinary
+        // one. This also keeps the probe off the hot path for the compilation's own assembly.
+        if FriendAdmits(grants, clrType) {
+            return false
+        }
+
+        probeFlags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        if includeStaticMembers {
+            probeFlags = probeFlags | BindingFlags.Static
+        }
+
+        methods := AnalyzerReflectionMemberProbe.MethodsOrEmpty(clrType, probeFlags)
+        methodIndex := 0
+        while methodIndex < methods.Length {
+            probedMethod := methods[methodIndex]
+            if probedMethod.get_Name() == memberName && !probedMethod.get_IsSpecialName() && IsFriendBarredLevel(MemberAccessibility.LevelOfMethod(probedMethod)) {
+                level = MemberAccessibility.LevelOfMethod(probedMethod)
+                return true
+            }
+
+            methodIndex = methodIndex + 1
+        }
+
+        probedField := clrType.GetField(memberName, probeFlags)
+        if probedField != null && IsFriendBarredLevel(MemberAccessibility.LevelOfField(probedField)) {
+            level = MemberAccessibility.LevelOfField(probedField)
+            return true
+        }
+
+        return false
+    }
+
+    // THE LEVELS A GRANT ALONE DECIDES, stated as the relation rather than as a list: reachable when
+    // the declaring assembly befriends this one and unreachable otherwise, with every other input
+    // held at what an ordinary outside read supplies. `internal` and `protected internal` answer
+    // yes; `public` is reachable either way, and `private`, `protected` and `private protected` are
+    // unreachable either way, so none of them is the friend rule's business.
+    static func IsFriendBarredLevel(level: int): bool {
+        return MemberAccessibility.IsAccessible(level, false, false, true, true) && !MemberAccessibility.IsAccessible(level, false, false, true, false)
+    }
+
     // PROPERTY, THEN FIELD, THEN EVENT — and a name that is more than one answers as the earlier
     // kind.
     //

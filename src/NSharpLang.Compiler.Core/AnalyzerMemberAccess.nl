@@ -433,6 +433,17 @@ class AnalyzerMemberAccess {
             return
         }
 
+        // NL308 BEFORE NL303, AND BEFORE THE LENIENCY. A name that is really declared on the
+        // receiver's metadata and is out of reach for ONE reason — the declaring assembly did not
+        // name this compilation a friend — is a visibility refusal, not a missing member. It is
+        // asked here rather than in `ValidateDeclaredMemberVisibility` above because it is only
+        // worth asking once resolution has MISSED: a member this compilation may see has already
+        // answered, so the reflection sweep never runs on the resolving path.
+        if BuiltInTypes.IsUnknown(memberType) && ReportFriendBarredMemberIfNeeded(receiverType, member, includeStaticMembers) {
+            state.ResultType = BuiltInTypes.Unknown
+            return
+        }
+
         if BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member.MemberName, includeStaticMembers) {
             // The report is RENDERED HERE. It used to be a step the driver performed, because building
             // the did-you-mean list reads `PropertyInfo.Name` and `FieldInfo.Name` off the receiver's
@@ -1563,6 +1574,41 @@ class AnalyzerMemberAccess {
         }
 
         return candidate
+    }
+
+    // NL308 FOR A MEMBER OF A REFERENCED ASSEMBLY THAT ONLY A FRIEND MAY READ.
+    //
+    // The report is the SAME one a source `internal` member gets — same code, same sentence shape,
+    // same three facts (the word, the declaring type, where the access was written from) — because
+    // it is the same question. Only the system that answers it differs: a source member's level is
+    // its written modifiers, a referenced one's is its metadata, and the grant is what makes the
+    // assembly half of both reachable.
+    //
+    // UNTIL THIS, `nlc check` told a non-friend author the wrong thing at the wrong stage: the
+    // analysis pass was clean and the refusal arrived from the columnar backend as
+    // `NL103 … 'Handler.matchesQuery' … is not modeled`. THE EMIT-TIME REFUSAL IS UNCHANGED AND IS
+    // STILL THE BACKSTOP — the SDK's emit-only path runs no analysis at all, so it is the only
+    // refusal there, and a shape this probe cannot see still reaches it.
+    func ReportFriendBarredMemberIfNeeded(receiverType: TypeInfo, member: MemberAccessExpression, includeStaticMembers: bool): bool {
+        reflection := ResolveAliasAndMetadata(receiverType) as ReflectionTypeInfo
+        if reflection == null {
+            return false
+        }
+
+        level := MemberAccessibility.Public
+        if !AnalyzerMemberResolution.TryFindFriendBarredReflectedMemberLevel(reflection.Type, member.MemberName, includeStaticMembers, externalTypeProbeValue.Grants, out level) {
+            return false
+        }
+
+        return diagnosticsValue.ReportInaccessibleDeclaredMember(
+            member.MemberName,
+            NullabilityMetadataReflection.FormatTypeInfo(receiverType),
+            level,
+            AccessingTypeDisplayName(),
+            member.Line,
+            spansValue.GetMemberNameColumn(member),
+            Math.Max(1, member.MemberName.Length)
+        )
     }
 
     // NL303, THE RENDERING, IN BOTH SHAPES. The report lands at the MEMBER NAME's column rather than

@@ -190,3 +190,54 @@ test "the back end reaches public always, assembly levels only through a friend,
     assert !InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.Private, typeof(string))
     assert InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.Public, null)
 }
+
+// ── THE ANALYZER'S HALF OF THE SAME RULE ──────────────────────────────────────────────────────
+//
+// The back-end relation above decides what may be EMITTED. This is the relation that decides what
+// the ANALYZER says about the same member, and it did not exist: every reflection arm narrows its
+// binding flags to what this compilation may see, so an `assembly`-level member of a referenced
+// assembly is simply absent for a non-friend, the walk answers `unknown`, and an unknown member on
+// a non-BCL reflected receiver is deliberately LENIENT. So `nlc check` was clean and the refusal
+// arrived from the emitter as `NL103 … is not modeled`, naming a backend where the developer needed
+// to be told about a visibility rule.
+test "the levels a friend grant alone decides are internal and protected internal" {
+    assert AnalyzerMemberResolution.IsFriendBarredLevel(MemberAccessibility.Assembly)
+    assert AnalyzerMemberResolution.IsFriendBarredLevel(MemberAccessibility.FamilyOrAssembly)
+
+    // Reachable with or without a grant.
+    assert !AnalyzerMemberResolution.IsFriendBarredLevel(MemberAccessibility.Public)
+    // Unreachable with or without one, from a plain outside read — so none of them is the grant's
+    // business and each keeps the pre-existing leniency.
+    assert !AnalyzerMemberResolution.IsFriendBarredLevel(MemberAccessibility.Private)
+    assert !AnalyzerMemberResolution.IsFriendBarredLevel(MemberAccessibility.Family)
+    assert !AnalyzerMemberResolution.IsFriendBarredLevel(MemberAccessibility.PrivateProtected)
+}
+
+// AN `internal` MEMBER OF THE CORE LIBRARY IS THE ONE EVERY HOST HAS. `string.FastAllocateString`
+// is `internal static` on `System.String`, and nothing this compilation can be called makes it a
+// friend of the core library — so the probe answers, and names the level the report will quote.
+test "an internal member of a reference with no grant is found and named as internal" {
+    level := MemberAccessibility.Public
+    assert AnalyzerMemberResolution.TryFindFriendBarredReflectedMemberLevel(typeof(string), "FastAllocateString", true, new InternalsVisibleToGrants(), out level)
+    assert level == MemberAccessibility.Assembly
+}
+
+// A PUBLIC MEMBER IS NOT THE PROBE'S BUSINESS, so an ordinary miss stays an ordinary miss and the
+// undefined-member report keeps every position it already owned.
+test "a public member and a name nothing declares are both left alone" {
+    publicLevel := MemberAccessibility.Public
+    assert !AnalyzerMemberResolution.TryFindFriendBarredReflectedMemberLevel(typeof(string), "Substring", false, new InternalsVisibleToGrants(), out publicLevel)
+
+    missingLevel := MemberAccessibility.Public
+    assert !AnalyzerMemberResolution.TryFindFriendBarredReflectedMemberLevel(typeof(string), "NoSuchMemberAnywhere", true, new InternalsVisibleToGrants(), out missingLevel)
+
+    nullOwnerLevel := MemberAccessibility.Public
+    assert !AnalyzerMemberResolution.TryFindFriendBarredReflectedMemberLevel(null, "FastAllocateString", true, new InternalsVisibleToGrants(), out nullOwnerLevel)
+}
+
+// A STATIC MEMBER IS OUT OF REACH OF AN INSTANCE-ONLY QUESTION, exactly as it is for resolution:
+// the probe asks the same surface the walk that missed was asking.
+test "the probe sees only the surface the miss was looking at" {
+    staticOnlyLevel := MemberAccessibility.Public
+    assert !AnalyzerMemberResolution.TryFindFriendBarredReflectedMemberLevel(typeof(string), "FastAllocateString", false, new InternalsVisibleToGrants(), out staticOnlyLevel)
+}

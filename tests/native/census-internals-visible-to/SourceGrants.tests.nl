@@ -122,6 +122,26 @@ func SourceGrantConsumerSource(): string {
 
 // Compile the consumer UNDER A GIVEN NAME against the helper. Only `name:` differs between the
 // arms, so the answer is about the grant and not about a spelling.
+// THE SDK'S OWN ANALYSIS-FREE PATH, which is where the emitter's refusal is the ONLY one. The
+// analyzer now reports the same refusal as NL308 through the ordinary entry above; this keeps the
+// emit-time backstop asserted, because a `<Project Sdk="NSharpLang.Sdk" />` build never runs
+// analysis and nothing else stands between a stranger and a member the CLR refuses at load.
+func SourceGrantEmitOnlyConsumer(root: string, helperPath: string, assemblyName: string): IReadOnlyList<CompilerError> {
+    consumerRoot := Path.Combine(root, "emit-only-" + assemblyName)
+    Directory.CreateDirectory(consumerRoot)
+    File.WriteAllText(
+        Path.Combine(consumerRoot, "project.yml"),
+        "name: " + assemblyName + "\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n\ndependencies:\n  - dll: " + helperPath + "\n"
+    )
+    File.WriteAllText(Path.Combine(consumerRoot, "Consumer.nl"), SourceGrantConsumerSource())
+
+    config := ProjectFileParser.Parse(Path.Combine(consumerRoot, "project.yml"))
+    compiler := new MultiFileCompiler(consumerRoot, config)
+    emitOnlyOutput := Path.Combine(consumerRoot, assemblyName + ".dll")
+    result := compiler.CompileToIlAssembly(assemblyName, emitOnlyOutput, false, false)
+    return SourceGrantList(result.Errors)
+}
+
 func SourceGrantCompileConsumer(root: string, helperPath: string, assemblyName: string, out outputPath: string): IReadOnlyList<CompilerError> {
     consumerRoot := Path.Combine(root, "consumer-" + assemblyName)
     Directory.CreateDirectory(consumerRoot)
@@ -261,8 +281,16 @@ test "a consumer the N# source grant names reaches the unexported member; a stra
     strangerOutput := ""
     stranger := SourceGrantCompileConsumer(root, helperPath, "Stranger", out strangerOutput)
     assert stranger.Count > 0, "a project the grant does not name must not compile against the unexported member"
-    assert SourceGrantCount(stranger, "NL103") == 1, SourceGrantCodes(stranger)
-    assert SourceGrantCodes(stranger).IndexOf("unexported", StringComparison.Ordinal) >= 0, SourceGrantCodes(stranger)
+    // THE ANALYZER'S REFUSAL, which is what `nlc check` and `nlc build` now report first: NL308,
+    // the same code and sentence a source `internal` member gets. It used to be NL103 from the
+    // emitter and nothing at all from analysis.
+    assert SourceGrantCount(stranger, "NL308") == 1, SourceGrantCodes(stranger)
+    assert SourceGrantCodes(stranger).IndexOf("internal", StringComparison.Ordinal) >= 0, SourceGrantCodes(stranger)
+
+    // AND THE EMIT-TIME BACKSTOP IS UNCHANGED, measured through the analysis-free path the SDK uses.
+    strangerEmitOnly := SourceGrantEmitOnlyConsumer(root, helperPath, "StrangerEmitOnly")
+    assert SourceGrantCount(strangerEmitOnly, "NL103") == 1, SourceGrantCodes(strangerEmitOnly)
+    assert SourceGrantCodes(strangerEmitOnly).IndexOf("unexported", StringComparison.Ordinal) >= 0, SourceGrantCodes(strangerEmitOnly)
 
     // THE ONLY DIFFERENCE BETWEEN THE TWO ARMS IS `name:`, so the refusal is the rule and not the
     // source: the public member of the same type compiles under either name.
