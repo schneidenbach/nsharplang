@@ -24,7 +24,7 @@ func CaptureSetEmptyNames(): HashSet<string> {
 
 test "capture set captures an enclosing name read in the body" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    root := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "count")
+    root := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "count")
     tree := builder.Build(root)
 
     enclosing := new string[](1)
@@ -44,14 +44,14 @@ test "capture set captures an enclosing name read in the body" {
 
 test "capture set captures multiple enclosing names through a container expression" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "total")
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "amount")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "total")
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "amount")
     operatorStart := builder.AddToken("+")
     children := new int[](2)
     children[0] = left
     children[1] = right
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.BinaryExpression(),
+        ColumnarExpressionNodeKind.BinaryExpression,
         operatorStart,
         1,
         operatorStart,
@@ -79,7 +79,7 @@ test "capture set captures multiple enclosing names through a container expressi
 
 test "capture set excludes a name bound by the lambda's own parameters" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    root := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "x")
+    root := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "x")
     tree := builder.Build(root)
 
     enclosing := new string[](1)
@@ -100,15 +100,15 @@ test "capture set excludes a name bound by the lambda's own parameters" {
 
 test "capture set excludes a nested lambda's parameter but captures its free names" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    nestedParameter := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "y")
-    bodyLeft := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "y")
-    bodyRight := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "z")
+    nestedParameter := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "y")
+    bodyLeft := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "y")
+    bodyRight := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "z")
     operatorStart := builder.AddToken("+")
     bodyChildren := new int[](2)
     bodyChildren[0] = bodyLeft
     bodyChildren[1] = bodyRight
     nestedBody := builder.AddNode(
-        ColumnarExpressionNodeKind.BinaryExpression(),
+        ColumnarExpressionNodeKind.BinaryExpression,
         operatorStart,
         1,
         operatorStart,
@@ -141,14 +141,14 @@ test "capture set excludes a nested lambda's parameter but captures its free nam
 
 test "capture set captures a member-access base but not the member name" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "item")
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "item")
     // A member access (kind 8) carries the member NAME in its value span and the receiver as its only
     // child, so the member name is never a capture candidate; only the base is walked.
     memberStart := builder.AddToken("Tags")
     memberChildren := new int[](1)
     memberChildren[0] = receiver
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.MemberAccessExpression(),
+        ColumnarExpressionNodeKind.MemberAccessExpression,
         memberStart,
         4,
         memberStart,
@@ -176,15 +176,15 @@ test "capture set captures a member-access base but not the member name" {
 
 test "capture set steps over the type child of a cast expression" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    typeChild := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "Widget")
-    valueChild := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "w")
+    typeChild := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "Widget")
+    valueChild := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "w")
     // A cast (kind 16) has its TYPE subtree at child[0] and the value at child[1]; the type child is
     // never a capture candidate.
     castChildren := new int[](2)
     castChildren[0] = typeChild
     castChildren[1] = valueChild
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.CastExpression(),
+        ColumnarExpressionNodeKind.CastExpression,
         -1,
         0,
         0,
@@ -212,11 +212,11 @@ test "capture set steps over the type child of a cast expression" {
 
 test "capture set skips a typeof subtree entirely" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    typeChild := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "T")
+    typeChild := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "T")
     typeofChildren := new int[](1)
     typeofChildren[0] = typeChild
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.TypeOfExpression(),
+        ColumnarExpressionNodeKind.TypeOfExpression,
         -1,
         0,
         0,
@@ -243,7 +243,7 @@ test "capture set skips a value-less masquerading type identifier" {
     builder := new ColumnarRangePlannerNodeBuilder()
     // A value-less identifier (valueStart -1) is a masquerading TYPE node, never a name read; the scan
     // must skip it without reading its text.
-    root := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), -1, 0, 0, 0, new int[](0))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression, -1, 0, 0, 0, new int[](0))
     tree := builder.Build(root)
 
     enclosing := new string[](1)
@@ -262,7 +262,7 @@ test "capture set skips a value-less masquerading type identifier" {
 
 test "capture set does not capture a name absent from the enclosing scope" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    root := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "localOnly")
+    root := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "localOnly")
     tree := builder.Build(root)
 
     enclosing := new string[](1)

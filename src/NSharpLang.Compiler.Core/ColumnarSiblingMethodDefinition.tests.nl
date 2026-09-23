@@ -17,15 +17,15 @@ import System
 // dotted-name tiers still read the written spelling.
 func GenericCalleeDottedFixture(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "values")
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "values")
     memberStart := builder.AddToken(".OfType")
     memberChildren: int[] = [receiver]
-    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart + 1, 6, 0, memberStart + 7, memberChildren)
+    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart + 1, 6, 0, memberStart + 7, memberChildren)
     typeArgument := builder.AddLeaf(0, "string")
     calleeChildren: int[] = [member, typeArgument]
     callee := builder.AddNode(38, 0, memberStart + 7, 0, builder.Source.Length, calleeChildren)
     callChildren: int[] = [callee]
-    call := builder.AddNode(ColumnarExpressionNodeKind.CallExpression(), -1, 0, 0, builder.Source.Length, callChildren)
+    call := builder.AddNode(ColumnarExpressionNodeKind.CallExpression, -1, 0, 0, builder.Source.Length, callChildren)
     return builder.Build(call)
 }
 
@@ -34,7 +34,7 @@ func GenericCalleeDottedFixture(): ColumnarRangePlannerTestTree {
 func GenericCalleeBareFixture(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     calleeStart := builder.AddToken("Pick")
-    calleeExpression := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), calleeStart, 4, calleeStart, 4, new int[](0))
+    calleeExpression := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression, calleeStart, 4, calleeStart, 4, new int[](0))
     first := builder.AddLeaf(0, "int")
     second := builder.AddLeaf(0, "string")
     calleeChildren: int[] = [calleeExpression, first, second]
@@ -55,12 +55,12 @@ test "a dotted generic callee carries its receiver as child 0 and its type argum
     assert ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee) == 1
 
     calleeExpression := ColumnarGenericCalleeFacts.CalleeExpressionNode(nodes, callee)
-    assert nodes.Kind(calleeExpression) == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert nodes.Kind(calleeExpression) == ColumnarExpressionNodeKind.MemberAccessExpression
     assert nodes.Text(tree.Source, calleeExpression) == "OfType"
 
     receiver := ColumnarGenericCalleeFacts.ReceiverNode(nodes, callee)
     assert receiver >= 0
-    assert nodes.Kind(receiver) == ColumnarExpressionNodeKind.IdentifierExpression()
+    assert nodes.Kind(receiver) == ColumnarExpressionNodeKind.IdentifierExpression
     assert nodes.Text(tree.Source, receiver) == "values"
 
     typeArgument := ColumnarGenericCalleeFacts.TypeArgumentNode(nodes, callee, 0)
@@ -83,7 +83,7 @@ test "a bare generic callee has no receiver and its type arguments start at chil
     assert ColumnarGenericCalleeFacts.ReceiverNode(nodes, callee) == -1
 
     calleeExpression := ColumnarGenericCalleeFacts.CalleeExpressionNode(nodes, callee)
-    assert nodes.Kind(calleeExpression) == ColumnarExpressionNodeKind.IdentifierExpression()
+    assert nodes.Kind(calleeExpression) == ColumnarExpressionNodeKind.IdentifierExpression
     assert nodes.Text(tree.Source, calleeExpression) == "Pick"
 
     assert nodes.Text(tree.Source, ColumnarGenericCalleeFacts.TypeArgumentNode(nodes, callee, 0)) == "int"

@@ -127,12 +127,12 @@ func ColumnarRangePlannerAddNumericEnum(bindings: ColumnarFragmentBindings, name
 func ColumnarRangePlannerFromEndLiteral(text: string, parentheses: int = 0): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     caretStart := builder.AddToken("^")
-    literal := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), text)
-    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caretStart, 1, caretStart, 1 + text.Length, ColumnarRangePlannerChildren1(literal))
+    literal := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, text)
+    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, caretStart, 1, caretStart, 1 + text.Length, ColumnarRangePlannerChildren1(literal))
 
     i := 0
     while i < parentheses {
-        root = builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, caretStart, 1 + text.Length, ColumnarRangePlannerChildren1(root))
+        root = builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, caretStart, 1 + text.Length, ColumnarRangePlannerChildren1(root))
 
         i = i + 1
     }
@@ -143,26 +143,26 @@ func ColumnarRangePlannerFromEndLiteral(text: string, parentheses: int = 0): Col
 func ColumnarRangePlannerFromEndIdentifier(name: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     caretStart := builder.AddToken("^")
-    identifier := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
-    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caretStart, 1, caretStart, 1 + name.Length, ColumnarRangePlannerChildren1(identifier))
+    identifier := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, name)
+    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, caretStart, 1, caretStart, 1 + name.Length, ColumnarRangePlannerChildren1(identifier))
 
     return builder.Build(root)
 }
 
 func ColumnarRangePlannerDirectAccess(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "target")
-    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "selector")
-    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "target")
+    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "selector")
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
 
     return builder.Build(root)
 }
 
 func ColumnarRangePlannerOrdinaryLiteralAccess(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "target")
-    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
-    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "target")
+    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "0")
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
 
     return builder.Build(root)
 }
@@ -170,12 +170,12 @@ func ColumnarRangePlannerOrdinaryLiteralAccess(): ColumnarRangePlannerTestTree {
 // `target[1 + 1]` — an ordinary index whose SELECTOR is a primitive binary. 015-B10.
 func ColumnarRangePlannerBinarySelectorAccess(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "target")
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "target")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
     operatorStart := builder.AddToken("+")
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
-    selector := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, operatorStart, 1, ColumnarRangePlannerChildren2(left, right))
-    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
+    selector := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, 1, operatorStart, 1, ColumnarRangePlannerChildren2(left, right))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
 
     return builder.Build(root)
 }
@@ -183,12 +183,12 @@ func ColumnarRangePlannerBinarySelectorAccess(): ColumnarRangePlannerTestTree {
 // `("ab" + "cd")[0]` — an ordinary index whose indexed RECEIVER is a primitive binary. 015-B10.
 func ColumnarRangePlannerBinaryReceiverAccess(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), "\"ab\"")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression, "\"ab\"")
     operatorStart := builder.AddToken("+")
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), "\"cd\"")
-    receiver := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, operatorStart, 1, ColumnarRangePlannerChildren2(left, right))
-    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
-    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression, "\"cd\"")
+    receiver := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, 1, operatorStart, 1, ColumnarRangePlannerChildren2(left, right))
+    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "0")
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
 
     return builder.Build(root)
 }
@@ -198,14 +198,14 @@ func ColumnarRangePlannerBinaryReceiverAccess(): ColumnarRangePlannerTestTree {
 // claimed the same selector everywhere else.
 func ColumnarRangePlannerMemberOverBinarySelector(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "names")
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "names")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
     operatorStart := builder.AddToken("+")
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
-    selector := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, operatorStart, 1, ColumnarRangePlannerChildren2(left, right))
-    access := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
+    selector := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, 1, operatorStart, 1, ColumnarRangePlannerChildren2(left, right))
+    access := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
     memberStart := builder.AddToken("Length")
-    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, 6, 0, builder.Source.Length, ColumnarRangePlannerChildren1(access))
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, 6, 0, builder.Source.Length, ColumnarRangePlannerChildren1(access))
 
     return builder.Build(root)
 }
@@ -214,53 +214,53 @@ func ColumnarRangePlannerMemberOverBinarySelector(): ColumnarRangePlannerTestTre
 // proves the decline above belongs to the BINARY and not to the member access or the index.
 func ColumnarRangePlannerMemberOverLiteralSelector(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "names")
-    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
-    access := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "names")
+    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
+    access := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
     memberStart := builder.AddToken("Length")
-    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, 6, 0, builder.Source.Length, ColumnarRangePlannerChildren1(access))
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, 6, 0, builder.Source.Length, ColumnarRangePlannerChildren1(access))
 
     return builder.Build(root)
 }
 
 func ColumnarRangePlannerFromEndIndexedCount(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    values := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "values")
-    counts := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "counts")
-    zero := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
-    count := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(counts, zero))
+    values := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "values")
+    counts := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "counts")
+    zero := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "0")
+    count := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(counts, zero))
 
     caret := builder.AddToken("^")
-    fromEnd := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caret, 1, caret, 1, ColumnarRangePlannerChildren1(count))
+    fromEnd := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, caret, 1, caret, 1, ColumnarRangePlannerChildren1(count))
 
-    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(values, fromEnd))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(values, fromEnd))
 
     return builder.Build(root)
 }
 
 func ColumnarRangePlannerOrdinaryIndexedCount(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    values := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "values")
-    counts := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "counts")
-    zero := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
-    count := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(counts, zero))
+    values := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "values")
+    counts := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "counts")
+    zero := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "0")
+    count := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(counts, zero))
 
-    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(values, count))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(values, count))
 
     return builder.Build(root)
 }
 
 func ColumnarRangePlannerNestedArrayFromEnd(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    matrix := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "matrix")
-    zero := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
-    row := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(matrix, zero))
+    matrix := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "matrix")
+    zero := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "0")
+    row := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(matrix, zero))
 
     caret := builder.AddToken("^")
-    one := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
-    fromEnd := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caret, 1, caret, 2, ColumnarRangePlannerChildren1(one))
+    one := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
+    fromEnd := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, caret, 1, caret, 2, ColumnarRangePlannerChildren1(one))
 
-    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(row, fromEnd))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(row, fromEnd))
 
     return builder.Build(root)
 }
@@ -283,11 +283,11 @@ func ColumnarRangePlannerRangeForm(form: int): ColumnarRangePlannerTestTree {
     }
 
     if startToken >= 0 {
-        startNode = builder.AddNode(ColumnarExpressionNodeKind.IntLiteralExpression(), startToken, 1, startToken, 1, new int[](0))
+        startNode = builder.AddNode(ColumnarExpressionNodeKind.IntLiteralExpression, startToken, 1, startToken, 1, new int[](0))
     }
 
     if endToken >= 0 {
-        endNode = builder.AddNode(ColumnarExpressionNodeKind.IntLiteralExpression(), endToken, 1, endToken, 1, new int[](0))
+        endNode = builder.AddNode(ColumnarExpressionNodeKind.IntLiteralExpression, endToken, 1, endToken, 1, new int[](0))
     }
 
     nodeChildren := new int[](0)
@@ -299,7 +299,7 @@ func ColumnarRangePlannerRangeForm(form: int): ColumnarRangePlannerTestTree {
         nodeChildren = ColumnarRangePlannerChildren1(endNode)
     }
 
-    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression(), dotToken, 2, 0, builder.Source.Length, nodeChildren)
+    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression, dotToken, 2, 0, builder.Source.Length, nodeChildren)
 
     return builder.Build(root)
 }
@@ -370,8 +370,8 @@ test "range planner owns from-end literals with transparent parentheses" {
     assert plan.ResultType == typeof(Index)
     assert plan.OperationCount == 3
     assert plan.FragmentCount == 2
-    assert plan.FragmentKinds[0] == ColumnarExpressionNodeKind.UnaryExpression()
-    assert plan.FragmentKinds[1] == ColumnarExpressionNodeKind.IntLiteralExpression()
+    assert plan.FragmentKinds[0] == ColumnarExpressionNodeKind.UnaryExpression
+    assert plan.FragmentKinds[1] == ColumnarExpressionNodeKind.IntLiteralExpression
     assert plan.FragmentParentIndices[0] == -1
     assert plan.FragmentParentIndices[1] == 0
     assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4()
@@ -448,24 +448,24 @@ test "range planner owns parenthesized start through an inclusive from-end-zero 
     dotToken := builder.AddToken("..")
     caretToken := builder.AddToken("^")
     zeroToken := builder.AddToken("0")
-    start := builder.AddNode(ColumnarExpressionNodeKind.IntLiteralExpression(), startToken, 1, startToken, 1, new int[](0))
+    start := builder.AddNode(ColumnarExpressionNodeKind.IntLiteralExpression, startToken, 1, startToken, 1, new int[](0))
 
-    parenthesizedStart := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, startToken, 1, ColumnarRangePlannerChildren1(start))
+    parenthesizedStart := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, startToken, 1, ColumnarRangePlannerChildren1(start))
 
-    zero := builder.AddNode(ColumnarExpressionNodeKind.IntLiteralExpression(), zeroToken, 1, zeroToken, 1, new int[](0))
+    zero := builder.AddNode(ColumnarExpressionNodeKind.IntLiteralExpression, zeroToken, 1, zeroToken, 1, new int[](0))
 
-    fromEndZero := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caretToken, 1, caretToken, 2, ColumnarRangePlannerChildren1(zero))
+    fromEndZero := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, caretToken, 1, caretToken, 2, ColumnarRangePlannerChildren1(zero))
 
-    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression(), dotToken, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(parenthesizedStart, fromEndZero))
+    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression, dotToken, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(parenthesizedStart, fromEndZero))
 
     plan := ColumnarRangePlannerPlan(builder.Build(root), ColumnarRangePlannerEmptyBindings())
 
     assert plan.ResultType == typeof(Range)
     assert plan.OperationCount == 7
     assert plan.FragmentCount == 4
-    assert plan.FragmentKinds[1] == ColumnarExpressionNodeKind.IntLiteralExpression()
-    assert plan.FragmentKinds[2] == ColumnarExpressionNodeKind.UnaryExpression()
-    assert plan.FragmentKinds[3] == ColumnarExpressionNodeKind.IntLiteralExpression()
+    assert plan.FragmentKinds[1] == ColumnarExpressionNodeKind.IntLiteralExpression
+    assert plan.FragmentKinds[2] == ColumnarExpressionNodeKind.UnaryExpression
+    assert plan.FragmentKinds[3] == ColumnarExpressionNodeKind.IntLiteralExpression
     assert plan.OpCodeValues[3] == ColumnarCodePlanContract.LdcI4()
     assert plan.Int32Values[plan.OperandIndices[3]] == 0
     assert plan.OpCodeValues[4] == ColumnarCodePlanContract.LdcI4_1()
@@ -473,10 +473,10 @@ test "range planner owns parenthesized start through an inclusive from-end-zero 
 
 test "range planner accepts direct Index endpoints and exact small integral conversions" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    start := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "start")
+    start := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "start")
     dot := builder.AddToken("..")
-    end := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "end")
-    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression(), dot, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(start, end))
+    end := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "end")
+    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression, dot, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(start, end))
 
     tree := builder.Build(root)
 
@@ -501,11 +501,11 @@ test "range planner accepts direct Index endpoints and exact small integral conv
 test "range planner resolves exact numeric enum members and rejects every shadow tier" {
     builder := new ColumnarRangePlannerNodeBuilder()
     caret := builder.AddToken("^")
-    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "Bound")
+    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "Bound")
     memberToken := builder.AddToken("One")
-    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberToken, 3, 1, 8, ColumnarRangePlannerChildren1(owner))
+    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberToken, 3, 1, 8, ColumnarRangePlannerChildren1(owner))
 
-    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caret, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(member))
+    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, caret, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(member))
 
     tree := builder.Build(root)
 
@@ -563,14 +563,14 @@ test "range planner resolves exact numeric enum members and rejects every shadow
 test "range planner resolves dotted enum names by exact root and member identity" {
     builder := new ColumnarRangePlannerNodeBuilder()
     caret := builder.AddToken("^")
-    packageNode := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "Pkg")
+    packageNode := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "Pkg")
     ownerToken := builder.AddToken("Bound")
-    owner := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), ownerToken, 5, 1, 8, ColumnarRangePlannerChildren1(packageNode))
+    owner := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, ownerToken, 5, 1, 8, ColumnarRangePlannerChildren1(packageNode))
 
     memberToken := builder.AddToken("Four")
-    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberToken, 4, 1, 12, ColumnarRangePlannerChildren1(owner))
+    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberToken, 4, 1, 12, ColumnarRangePlannerChildren1(owner))
 
-    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caret, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(member))
+    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, caret, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(member))
 
     tree := builder.Build(root)
     bindings := ColumnarRangePlannerEmptyBindings()
@@ -685,19 +685,19 @@ test "range planner closes exact GetSubArray handles for concrete and generic ar
 
 test "range planner recursively plans conditional Index and Range selectors" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "values")
-    condition := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "choose")
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "values")
+    condition := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "choose")
     firstCaret := builder.AddToken("^")
-    firstValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
-    firstIndex := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), firstCaret, 1, firstCaret, 2, ColumnarRangePlannerChildren1(firstValue))
+    firstValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
+    firstIndex := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, firstCaret, 1, firstCaret, 2, ColumnarRangePlannerChildren1(firstValue))
 
     secondCaret := builder.AddToken("^")
-    secondValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
-    secondIndex := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), secondCaret, 1, secondCaret, 2, ColumnarRangePlannerChildren1(secondValue))
+    secondValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "2")
+    secondIndex := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, secondCaret, 1, secondCaret, 2, ColumnarRangePlannerChildren1(secondValue))
 
-    conditional := builder.AddNode(ColumnarExpressionNodeKind.TernaryExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren3(condition, firstIndex, secondIndex))
+    conditional := builder.AddNode(ColumnarExpressionNodeKind.TernaryExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren3(condition, firstIndex, secondIndex))
 
-    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, conditional))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, conditional))
 
     tree := builder.Build(root)
 
@@ -716,17 +716,17 @@ test "range planner recursively plans conditional Index and Range selectors" {
 
 test "range planner recursively plans bool literal and parenthesized conditional Range selectors" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "text")
-    condition := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true")
-    firstRange := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "first")
-    firstParenthesized := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(firstRange))
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "text")
+    condition := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression, "true")
+    firstRange := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "first")
+    firstParenthesized := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(firstRange))
 
-    secondRange := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "second")
-    secondParenthesized := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(secondRange))
+    secondRange := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "second")
+    secondParenthesized := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(secondRange))
 
-    conditional := builder.AddNode(ColumnarExpressionNodeKind.TernaryExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren3(condition, firstParenthesized, secondParenthesized))
+    conditional := builder.AddNode(ColumnarExpressionNodeKind.TernaryExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren3(condition, firstParenthesized, secondParenthesized))
 
-    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, conditional))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, conditional))
 
     tree := builder.Build(root)
 
@@ -738,9 +738,9 @@ test "range planner recursively plans bool literal and parenthesized conditional
     assert plan.ResultType == typeof(string)
     assert plan.LabelCount == 2
     assert plan.FragmentCount == 6
-    assert plan.FragmentKinds[3] == ColumnarExpressionNodeKind.BoolLiteralExpression()
-    assert plan.FragmentKinds[4] == ColumnarExpressionNodeKind.IdentifierExpression()
-    assert plan.FragmentKinds[5] == ColumnarExpressionNodeKind.IdentifierExpression()
+    assert plan.FragmentKinds[3] == ColumnarExpressionNodeKind.BoolLiteralExpression
+    assert plan.FragmentKinds[4] == ColumnarExpressionNodeKind.IdentifierExpression
+    assert plan.FragmentKinds[5] == ColumnarExpressionNodeKind.IdentifierExpression
 
     bindings.ParameterTypes["second"] = typeof(Index)
     rejected := new ColumnarCodePlan()
@@ -858,7 +858,7 @@ test "range planner declines malformed literals branches and node shapes atomica
 
     builder := new ColumnarRangePlannerNodeBuilder()
     caret := builder.AddToken("^")
-    badRoot := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caret, 1, 0, 1, new int[](0))
+    badRoot := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, caret, 1, 0, 1, new int[](0))
 
     malformed := builder.Build(badRoot)
     malformedPlan := new ColumnarCodePlan()
@@ -869,7 +869,7 @@ test "range planner declines malformed literals branches and node shapes atomica
 
 test "range planner root ownership excludes scalar leaves and standalone ternaries" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    literal := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    literal := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
     scalar := builder.Build(literal)
     plan := new ColumnarCodePlan()
     assert ColumnarRangeIndexPlanner.Plan(scalar.Nodes, scalar.Source, scalar.Root, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), plan) == ColumnarFragmentPlanStatus.NotOwned
@@ -1129,14 +1129,14 @@ test "the instance-member owner inherits the value surface of the position it is
 
     constructionPlan := new ColumnarCodePlan()
     constructionPlan.PrepareV3()
-    constructionFragment := constructionPlan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression(), tree.Root)
+    constructionFragment := constructionPlan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression, tree.Root)
     constructionType := typeof(string)
     assert ColumnarInstanceMemberPlanner.TryAppend(tree.Nodes, tree.Source, tree.Root, bindings, constructionPlan, constructionFragment, true, out constructionType)
     assert constructionType == typeof(int)
 
     plainPlan := new ColumnarCodePlan()
     plainPlan.PrepareV3()
-    plainFragment := plainPlan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression(), tree.Root)
+    plainFragment := plainPlan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression, tree.Root)
     plainType := typeof(string)
     assert !ColumnarInstanceMemberPlanner.TryAppend(tree.Nodes, tree.Source, tree.Root, bindings, plainPlan, plainFragment, false, out plainType)
 
@@ -1145,7 +1145,7 @@ test "the instance-member owner inherits the value surface of the position it is
     literal := ColumnarRangePlannerMemberOverLiteralSelector()
     literalPlan := new ColumnarCodePlan()
     literalPlan.PrepareV3()
-    literalFragment := literalPlan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression(), literal.Root)
+    literalFragment := literalPlan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression, literal.Root)
     literalType := typeof(string)
     assert ColumnarInstanceMemberPlanner.TryAppend(literal.Nodes, literal.Source, literal.Root, bindings, literalPlan, literalFragment, false, out literalType)
     assert literalType == typeof(int)

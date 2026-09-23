@@ -738,14 +738,14 @@ class ColumnarIteratorPlanner {
             return false
         }
         kind := nodes.Kind(node)
-        if kind == 25 {
+        if kind == ColumnarStatementNodeKind.BlockStatement {
             // Block: stop at the first non-falling child (everything after it is dead code).
             return WalkBlockChildrenFrom(nodes, source, node, 0, state)
         }
-        if kind == 77 || kind == 81 {
+        if kind == ColumnarStatementNodeKind.UsingStatement || kind == ColumnarStatementNodeKind.AwaitUsingStatement {
             return WalkUsingStatement(nodes, source, node, state)
         }
-        if kind == 40 {
+        if kind == ColumnarStatementNodeKind.TypedLocalDeclaration {
             // TypedLocalDeclaration: value span = declared type canonical, child 0 = name, child 1 = init.
             declaredType := nodes.Text(source, node)
             nameNode := nodes.Child(node, 0)
@@ -756,7 +756,7 @@ class ColumnarIteratorPlanner {
             state.AddLocal(name, declaredType)
             return true
         }
-        if kind == 24 {
+        if kind == ColumnarStatementNodeKind.VariableDeclarationStatement {
             // VariableDeclaration (`:=`): value span = name, child 0 = initializer. The local's TYPE is
             // whatever the one expression owner says its initializer is, and that answer needs live CLR
             // handles the classification pass does not have — so the hoisted field is declared with the
@@ -770,7 +770,7 @@ class ColumnarIteratorPlanner {
             state.AddLocal(name, UnresolvedCanonical())
             return true
         }
-        if kind == 23 {
+        if kind == ColumnarStatementNodeKind.ExpressionStatement {
             // ExpressionStatement: a unit `await` suspension, a postfix step, an assignment to a hoisted
             // binding, or ANY ordinary value expression whose result is discarded (a call statement is
             // the common one). The value forms are not classified here — the expression owner plans them
@@ -782,7 +782,7 @@ class ColumnarIteratorPlanner {
             inner := nodes.Child(node, 0)
             // `await <task-expr>` as a bare statement (a unit await) is a suspension point in an async
             // iterator; control falls through to the following statement at the await-resume label.
-            if nodes.Kind(inner) == 53 {
+            if nodes.Kind(inner) == ColumnarExpressionNodeKind.AwaitExpression {
                 if !state.IsAsync {
                     state.Decline("emit.iterator.unsupported-shape", "`await` is only valid inside an async iterator body")
                     return false
@@ -792,17 +792,17 @@ class ColumnarIteratorPlanner {
             }
             // A bare `<ident>++` / `<ident>--` statement (the classic-for increment clause parses to
             // exactly this shape) — the stepped value is discarded.
-            if nodes.Kind(inner) == 44 {
+            if nodes.Kind(inner) == ColumnarExpressionNodeKind.PostfixUnary {
                 WalkPostfixStep(nodes, source, inner, state)
                 return !state.Declined
             }
-            if nodes.Kind(inner) == 14 {
+            if nodes.Kind(inner) == ColumnarExpressionNodeKind.AssignmentExpression {
                 if nodes.ChildCount(inner) != 2 {
                     state.Decline("emit.iterator.unsupported-shape", "unsupported assignment in an iterator body")
                     return false
                 }
                 target := nodes.Child(inner, 0)
-                if nodes.Kind(target) != 6 {
+                if nodes.Kind(target) != ColumnarExpressionNodeKind.IdentifierExpression {
                     // A MEMBER or INDEXER target is an ordinary store — `ColumnarStoreTargetPlanner`
                     // decides which member or `set_Item` it selects, and it needs live CLR handles
                     // this pass does not have. Classification admits the shape and walks both sides
@@ -829,7 +829,7 @@ class ColumnarIteratorPlanner {
             WalkExpression(nodes, source, inner, state)
             return !state.Declined
         }
-        if kind == 26 {
+        if kind == ColumnarStatementNodeKind.WhileStatement {
             // While [condition, body]: the loop's false-condition exit edge always falls through,
             // whatever the body's own flow does — the body result only drives dead-code dropping.
             if nodes.ChildCount(node) != 2 {
@@ -840,7 +840,7 @@ class ColumnarIteratorPlanner {
             WalkLoopBody(nodes, source, nodes.Child(node, 1), state)
             return !state.Declined
         }
-        if kind == 27 {
+        if kind == ColumnarStatementNodeKind.IfStatement {
             // If [condition, then, else?]: falls through when either branch does (a missing else is a
             // trivially falling branch).
             childCount := nodes.ChildCount(node)
@@ -859,7 +859,7 @@ class ColumnarIteratorPlanner {
             }
             return thenFalls || elseFalls
         }
-        if kind == 28 {
+        if kind == ColumnarStatementNodeKind.ForStatement {
             // For [init, cond, incr, body] — the C-style counting loop. Every clause reuses the
             // statement/expression walk unchanged: the init's local hoists like any declaration, the
             // false-condition exit edge always falls through, and the body result only drives
@@ -888,7 +888,7 @@ class ColumnarIteratorPlanner {
             WalkLoopBody(nodes, source, nodes.Child(node, 3), state)
             return !state.Declined
         }
-        if kind == 72 {
+        if kind == ColumnarExpressionNodeKind.YieldExpression {
             // YieldStatement: 1 child = yield return (a resume state, falls through at its resume
             // label), 0 children = yield break (transfers to the shared end label — never falls).
             if nodes.ChildCount(node) == 1 {
@@ -900,10 +900,10 @@ class ColumnarIteratorPlanner {
             }
             return false
         }
-        if kind == 49 {
+        if kind == ColumnarStatementNodeKind.TryStatement {
             return WalkTryStatement(nodes, source, node, state)
         }
-        if kind == 29 {
+        if kind == ColumnarStatementNodeKind.ForeachStatement {
             // Foreach / `for..in` [source, body], loop-var name in the value span. A hoisted ARRAY
             // identifier lowers as an index loop over its own length; EVERY OTHER SOURCE lowers
             // through the sequence's own enumerator, hoisted into a `<>__enum{k}` field inside
@@ -917,7 +917,7 @@ class ColumnarIteratorPlanner {
             }
             return WalkForIn(nodes, source, node, nodes.Child(node, 0), nodes.Child(node, 1), nodes.Text(source, node), "", state)
         }
-        if kind == 73 {
+        if kind == ColumnarStatementNodeKind.AwaitForeachStatement {
             // `await foreach` composes two machines. What it needs is an AWAIT INSIDE A HANDLER — the
             // inner `IAsyncEnumerator<T>` is released by awaiting its `DisposeAsync()` on the loop's
             // normal exit, on an exception passing through the body, and when a consumer abandons the
@@ -932,7 +932,7 @@ class ColumnarIteratorPlanner {
             }
             return WalkAwaitForIn(nodes, source, nodes.Child(node, 0), nodes.Child(node, 1), nodes.Text(source, node), state)
         }
-        if kind == 48 {
+        if kind == ColumnarStatementNodeKind.ThrowStatement {
             // Throw [exception]: the thrown value is an ordinary expression — `new T(...)` with any
             // constructor arguments, a hoisted exception binding, a factory call. ZERO children is a
             // bare `throw`, the rethrow: it has no operand to hoist and reads nothing. A throw of
@@ -947,7 +947,7 @@ class ColumnarIteratorPlanner {
             WalkExpression(nodes, source, nodes.Child(node, 0), state)
             return false
         }
-        if kind == 80 {
+        if kind == ColumnarStatementNodeKind.OffStatement {
             // `off <handle>`: one expression in statement position, exactly like `throw`'s operand.
             // Nothing about it is hoisted — the handle is an ordinary value the expression owner
             // plans — so the walk only has to read it for suspension points.
@@ -958,22 +958,22 @@ class ColumnarIteratorPlanner {
             WalkExpression(nodes, source, nodes.Child(node, 0), state)
             return !state.Declined
         }
-        if kind == 20 {
+        if kind == ColumnarStatementNodeKind.ReturnStatement {
             state.Decline("emit.iterator.unsupported-shape", "a `return` statement cannot appear in an iterator body; use `yield` to produce a value and `yield break` to stop")
             return false
         }
-        if kind == 21 || kind == 22 {
+        if kind == ColumnarStatementNodeKind.BreakStatement || kind == ColumnarStatementNodeKind.ContinueStatement {
             // Break / Continue: a branch to the enclosing loop's exit or step. Neither carries a
             // value, hoists a local or suspends, so the walk has nothing to record — it only has to
             // say that the path does not fall through, which is what makes the rows after it dead.
             // `LoopDepth` is the walk's own nesting count; a placement outside a loop is the
             // analyzer's NL318/NL319 to report, and the decline here is this owner's contract guard.
             if state.LoopDepth == 0 {
-                state.Decline("emit.iterator.loop-branch-placement", (kind == 21 ? "`break`" : "`continue`") + " is only valid inside a loop")
+                state.Decline("emit.iterator.loop-branch-placement", (kind == ColumnarStatementNodeKind.BreakStatement ? "`break`" : "`continue`") + " is only valid inside a loop")
             }
             return false
         }
-        if kind == 76 {
+        if kind == ColumnarStatementNodeKind.TypedForeachStatement {
             // TypedForeach: the annotation's source span is the VALUE slot, children are
             // [name (kind 6), collection, body]. The loop variable's canonical is WRITTEN, so its
             // hoisted field is defined from the annotation rather than from the element, and each
@@ -994,7 +994,7 @@ class ColumnarIteratorPlanner {
     // hoists at its annotation (the field's type is what the author wrote); an inferred one hoists
     // UNRESOLVED and realization defines it from the element the planned source actually produces.
     static func WalkForIn(nodes: ColumnarNodeTable, source: string, node: int, sourceNode: int, bodyNode: int, varName: string, declaredCanonical: string, state: ColumnarIteratorWalkState): bool {
-        if nodes.Kind(sourceNode) == 6 {
+        if nodes.Kind(sourceNode) == ColumnarExpressionNodeKind.IdentifierExpression {
             sourceName := nodes.Text(source, sourceNode)
             arrayElement := ArrayElementCanonicalOf(state.LookupCanonical(sourceName))
             if arrayElement != "" && IsLowerableArrayElementCanonical(arrayElement) {
@@ -1113,7 +1113,7 @@ class ColumnarIteratorPlanner {
             }
 
             child := nodes.Child(node, n)
-            if (nodes.Kind(child) == 77 || nodes.Kind(child) == 81) && nodes.ChildCount(child) == 1 {
+            if (nodes.Kind(child) == ColumnarStatementNodeKind.UsingStatement || nodes.Kind(child) == ColumnarStatementNodeKind.AwaitUsingStatement) && nodes.ChildCount(child) == 1 {
                 return WalkUsingDeclarationRegion(nodes, source, node, n, state)
             }
 
@@ -1149,7 +1149,7 @@ class ColumnarIteratorPlanner {
         region := state.TryRegionCount
         state.TryRegionParents[region] = state.CurrentRegion
         state.TryRegionCount = state.TryRegionCount + 1
-        awaited := nodes.Kind(node) == 81
+        awaited := nodes.Kind(node) == ColumnarStatementNodeKind.AwaitUsingStatement
         if awaited && !DeclareHoistedHandlerFields(region, state) {
             return false
         }
@@ -1186,7 +1186,7 @@ class ColumnarIteratorPlanner {
         region := state.TryRegionCount
         state.TryRegionParents[region] = state.CurrentRegion
         state.TryRegionCount = state.TryRegionCount + 1
-        awaited := nodes.Kind(usingNode) == 81
+        awaited := nodes.Kind(usingNode) == ColumnarStatementNodeKind.AwaitUsingStatement
         if awaited && !DeclareHoistedHandlerFields(region, state) {
             return false
         }
@@ -1206,14 +1206,14 @@ class ColumnarIteratorPlanner {
     // unbound one still needs a field to be read from in the handler, so it is given a synthesized name
     // numbered in walk order.
     static func BeginUsingResourceWalk(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState): bool {
-        if nodes.Kind(node) == 81 && !state.IsAsync {
+        if nodes.Kind(node) == ColumnarStatementNodeKind.AwaitUsingStatement && !state.IsAsync {
             state.Decline("emit.iterator.async-await-unsupported", "`await using` is only valid inside an `async func*` body")
             return false
         }
 
         resourceNode := nodes.Child(node, 0)
         resourceKind := nodes.Kind(resourceNode)
-        if resourceKind == 24 || resourceKind == 40 {
+        if resourceKind == ColumnarStatementNodeKind.VariableDeclarationStatement || resourceKind == ColumnarStatementNodeKind.TypedLocalDeclaration {
             return WalkStatement(nodes, source, resourceNode, state)
         }
 
@@ -1334,7 +1334,7 @@ class ColumnarIteratorPlanner {
         c = 1
         while c < handlerEnd {
             clause := nodes.Child(node, c)
-            if nodes.Kind(clause) != 50 || nodes.ChildCount(clause) < 1 {
+            if nodes.Kind(clause) != ColumnarStatementNodeKind.CatchClause || nodes.ChildCount(clause) < 1 {
                 state.Decline("emit.iterator.unsupported-shape", "unsupported catch clause in an iterator body")
                 return false
             }
@@ -1413,7 +1413,7 @@ class ColumnarIteratorPlanner {
             return
         }
         kind := nodes.Kind(node)
-        if kind == 53 {
+        if kind == ColumnarExpressionNodeKind.AwaitExpression {
             // `await` reaches WalkExpression only in a VALUE position (initializer, yield value,
             // operand); suspension points are statement-position unit awaits handled by WalkStatement.
             if !state.IsAsync {
@@ -1423,7 +1423,7 @@ class ColumnarIteratorPlanner {
             state.Decline("emit.iterator.async-await-unsupported", "an `await` nested inside a larger expression is not yet lowered in an async iterator body; bind it first (`value := await ...`)")
             return
         }
-        if kind == 44 {
+        if kind == ColumnarExpressionNodeKind.PostfixUnary {
             // postfix `++`/`--` in VALUE position (`yield i++`): pushes the pre-step value, then steps
             // the binding — the same target admission as the statement form.
             WalkPostfixStep(nodes, source, node, state)
@@ -1453,7 +1453,7 @@ class ColumnarIteratorPlanner {
             return
         }
         target := nodes.Child(node, 0)
-        if nodes.Kind(target) != 6 {
+        if nodes.Kind(target) != ColumnarExpressionNodeKind.IdentifierExpression {
             state.Decline("emit.iterator.unsupported-shape", "a postfix step target must be a bound identifier in an iterator body")
             return
         }
@@ -1497,7 +1497,7 @@ class ColumnarIteratorPlanner {
 
     static func WalkAsyncLambdaExpression(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
         kind := nodes.Kind(node)
-        if kind == 44 {
+        if kind == ColumnarExpressionNodeKind.PostfixUnary {
             WalkPostfixStep(nodes, source, node, state)
             return
         }
@@ -1557,7 +1557,7 @@ class ColumnarIteratorPlanner {
     // suspension needs no spill slot of its own. An `await` nested inside a larger expression does
     // need one, and declines with that reason rather than silently losing its result.
     static func WalkBoundValue(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
-        if nodes.Kind(node) == 53 {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.AwaitExpression {
             if !state.IsAsync {
                 state.Decline("emit.iterator.unsupported-shape", "`await` is only valid inside an async iterator body")
                 return
@@ -1672,7 +1672,7 @@ class ColumnarIteratorPlanner {
     // True when the body contains any yield statement (kind 72) — the structural mark of a generator
     // body, used to classify type-member generators whose modifier facts do not reach the emit host.
     static func ContainsYield(nodes: ColumnarNodeTable, node: int): bool {
-        if nodes.Kind(node) == 72 {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.YieldExpression {
             return true
         }
         c := 0
@@ -1689,7 +1689,7 @@ class ColumnarIteratorPlanner {
     // `finally` body — is where the question matters: a suspension there has no resume label to come
     // back to, because resuming would re-enter the protected region the handler is unwinding.
     static func ContainsAwait(nodes: ColumnarNodeTable, node: int): bool {
-        if nodes.Kind(node) == 53 {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.AwaitExpression {
             return true
         }
         c := 0
@@ -3100,7 +3100,7 @@ class ColumnarIteratorBodyPlanner {
         // A POSTFIX STEP IS A WRITE, and a write to a hoisted binding is the state machine's own
         // rewrite rather than an expression the value owner can plan: `i++` reads a field, steps it and
         // stores it back. Its VALUE is the pre-step field value, which is what `yield i++` produces.
-        if emit.Context.Nodes.Kind(node) == 44 {
+        if emit.Context.Nodes.Kind(node) == ColumnarExpressionNodeKind.PostfixUnary {
             name := emit.Context.Nodes.Text(emit.Context.Source, emit.Context.Nodes.Child(node, 0))
             if !emit.Context.HasHoistedField(name) {
                 emit.Context.Decline("emit.iterator.unsupported-shape", "a postfix step of '" + name + "' is not a hoisted binding in an iterator body")
@@ -3114,7 +3114,7 @@ class ColumnarIteratorBodyPlanner {
         // it needs — a delegate built over a method the machine itself carries, and a `ldvirtftn` over
         // the receiver — are plan rows this owner appends, and the ONE expression door declines node
         // kind 79 wherever it is asked.
-        if emit.Context.Nodes.Kind(node) == 79 {
+        if emit.Context.Nodes.Kind(node) == ColumnarExpressionNodeKind.OnSubscriptionExpression {
             return AppendOnSubscription(emit, node, out resultType)
         }
         checkpoint := emit.Plan.CreateCheckpoint()
@@ -3139,7 +3139,7 @@ class ColumnarIteratorBodyPlanner {
         }
         // The iterator-owned value forms take the ordinary value path plus the storage conversion; only
         // target-typed forms need the position's type handed down.
-        if emit.Context.Nodes.Kind(node) == 79 {
+        if emit.Context.Nodes.Kind(node) == ColumnarExpressionNodeKind.OnSubscriptionExpression {
             subscriptionType := typeof(int)
             if !AppendValue(emit, node, out subscriptionType) {
                 return false
@@ -3153,7 +3153,7 @@ class ColumnarIteratorBodyPlanner {
             }
             return true
         }
-        if emit.Context.Nodes.Kind(node) == 44 {
+        if emit.Context.Nodes.Kind(node) == ColumnarExpressionNodeKind.PostfixUnary {
             steppedType := typeof(int)
             if !AppendValue(emit, node, out steppedType) {
                 return false
@@ -3183,7 +3183,7 @@ class ColumnarIteratorBodyPlanner {
     // only then is `this` loaded and the field written. Every other value keeps the ordinary order:
     // receiver, value, store.
     static func AppendBoundFieldStore(emit: ColumnarMoveNextEmit, valueNode: int, fieldPool: int, storageType: Type): bool {
-        if emit.Context.Nodes.Kind(valueNode) != 53 {
+        if emit.Context.Nodes.Kind(valueNode) != ColumnarExpressionNodeKind.AwaitExpression {
             LoadThis(emit)
             if !AppendStoredValue(emit, valueNode, storageType) {
                 return false
@@ -3221,11 +3221,11 @@ class ColumnarIteratorBodyPlanner {
         // AN `on` SUBSCRIPTION'S TYPE IS KNOWN WITHOUT PLANNING IT, and it MUST be answered that way:
         // this discovery runs the value into a plan nobody executes, and planning an `on` whose handler
         // is a lambda would define that lambda's method on the machine a second time.
-        if nodes.Kind(node) == 79 {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.OnSubscriptionExpression {
             resultType = typeof(NSharpLang.Runtime.NSharpEventSubscription)
             return true
         }
-        if nodes.Kind(node) != 53 {
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.AwaitExpression {
             return emit.Context.RequiredScope().TryDiscoverValueType(nodes, emit.Context.Source, node, out resultType)
         }
         if nodes.ChildCount(node) != 1 {
@@ -3278,7 +3278,7 @@ class ColumnarIteratorBodyPlanner {
             emit.Context.Decline("emit.iterator.on-shape", "`on` subscription target names no event")
             return false
         }
-        if nodes.Kind(targetNode) != 8 || nodes.ChildCount(targetNode) != 1 {
+        if nodes.Kind(targetNode) != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(targetNode) != 1 {
             // `on base.<Event>` inside a generator reaches its enclosing instance through `<>__this`,
             // but the machine carries no handle for that instance's BASE type, so the accessors cannot
             // be found. Said by shape rather than lowered to the wrong pair.
@@ -3392,7 +3392,7 @@ class ColumnarIteratorBodyPlanner {
     // mismatch against the target type rather than silently binding the wrong method.
     static func AppendSiblingMethodGroupHandler(emit: ColumnarMoveNextEmit, handlerNode: int, handlerType: Type): bool {
         nodes := emit.Context.Nodes
-        if nodes.Kind(handlerNode) != 6 {
+        if nodes.Kind(handlerNode) != ColumnarExpressionNodeKind.IdentifierExpression {
             return false
         }
         // A BINDING OF THAT SPELLING SHADOWS THE FREE FUNCTION, exactly as a local shadows one in an
@@ -3950,7 +3950,7 @@ class ColumnarIteratorBodyPlanner {
                 return false
             }
         } else {
-            if context.Nodes.Kind(bodyNode) == 25 {
+            if context.Nodes.Kind(bodyNode) == ColumnarStatementNodeKind.BlockStatement {
                 if !AppendLambdaBlockBody(emit, scope, bodyNode, plan, bodyReturnType, false) {
                     return false
                 }
@@ -3975,7 +3975,7 @@ class ColumnarIteratorBodyPlanner {
         resultLocal := plan.DeclarePlanLocal(plan.AddType(methodReturnType))
         endLabel := plan.DefineLabel()
         plan.AppendBeginExceptionBlock(endLabel)
-        if context.Nodes.Kind(bodyNode) == 25 {
+        if context.Nodes.Kind(bodyNode) == ColumnarStatementNodeKind.BlockStatement {
             if !AppendLambdaBlockBody(emit, scope, bodyNode, plan, bodyReturnType, true) {
                 return false
             }
@@ -3998,7 +3998,7 @@ class ColumnarIteratorBodyPlanner {
 
     static func AppendAsyncLambdaValue(emit: ColumnarMoveNextEmit, scope: ColumnarIteratorBodyScope, node: int, plan: ColumnarCodePlan, targetType: Type): bool {
         nodes := emit.Context.Nodes
-        if nodes.Kind(node) != 53 || nodes.ChildCount(node) != 1 {
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.AwaitExpression || nodes.ChildCount(node) != 1 {
             return scope.TryAppendTargetTypedValue(nodes, emit.Context.Source, node, plan, targetType)
         }
         awaitedType := typeof(object)
@@ -4011,7 +4011,7 @@ class ColumnarIteratorBodyPlanner {
     static func AppendAsyncLambdaAwaitExpression(emit: ColumnarMoveNextEmit, scope: ColumnarIteratorBodyScope, node: int, plan: ColumnarCodePlan, out awaitedType: Type): bool {
         awaitedType = typeof(object)
         nodes := emit.Context.Nodes
-        if nodes.Kind(node) != 53 || nodes.ChildCount(node) != 1 {
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.AwaitExpression || nodes.ChildCount(node) != 1 {
             return false
         }
         operandType := typeof(object)
@@ -4140,7 +4140,7 @@ class ColumnarIteratorBodyPlanner {
         nodes := context.Nodes
         source := context.Source
         kind := nodes.Kind(statement)
-        if kind == 25 {
+        if kind == ColumnarStatementNodeKind.BlockStatement {
             inner := 0
             while inner < nodes.ChildCount(statement) {
                 if !AppendLambdaBlockStatement(emit, scope, nodes.Child(statement, inner), plan, returnType, isLast && inner == nodes.ChildCount(statement) - 1, isAsync) {
@@ -4150,7 +4150,7 @@ class ColumnarIteratorBodyPlanner {
             }
             return true
         }
-        if kind == 20 {
+        if kind == ColumnarStatementNodeKind.ReturnStatement {
             if !isLast {
                 context.Decline("emit.iterator.lambda-unsupported", "a `return` before the end of a block-bodied lambda in an iterator body is not yet lowered")
                 return false
@@ -4165,8 +4165,8 @@ class ColumnarIteratorBodyPlanner {
             }
             return true
         }
-        if kind == 24 || kind == 40 {
-            if isAsync && kind == 24 && nodes.ChildCount(statement) == 1 && nodes.Kind(nodes.Child(statement, 0)) == 53 {
+        if kind == ColumnarStatementNodeKind.VariableDeclarationStatement || kind == ColumnarStatementNodeKind.TypedLocalDeclaration {
+            if isAsync && kind == ColumnarStatementNodeKind.VariableDeclarationStatement && nodes.ChildCount(statement) == 1 && nodes.Kind(nodes.Child(statement, 0)) == 53 {
                 name := nodes.Text(source, statement)
                 if name.Length == 0 || scope.Bindings.IsVisibleBindingName(name) {
                     return false
@@ -4186,18 +4186,18 @@ class ColumnarIteratorBodyPlanner {
             }
             return true
         }
-        if kind != 23 || nodes.ChildCount(statement) != 1 {
+        if kind != ColumnarStatementNodeKind.ExpressionStatement || nodes.ChildCount(statement) != 1 {
             context.Decline("emit.iterator.lambda-unsupported", "a statement (node kind " + kind.ToString() + ") inside a block-bodied lambda in an iterator body is not yet lowered")
             return false
         }
 
         inner := nodes.Child(statement, 0)
-        if nodes.Kind(inner) == 14 {
+        if nodes.Kind(inner) == ColumnarExpressionNodeKind.AssignmentExpression {
             return AppendLambdaBlockAssignment(emit, scope, inner, plan)
         }
 
         discardedType := typeof(int)
-        appendedExpression := isAsync && nodes.Kind(inner) == 53 ? AppendAsyncLambdaAwaitExpression(emit, scope, inner, plan, out discardedType) : scope.TryAppendValue(nodes, source, inner, plan, out discardedType)
+        appendedExpression := isAsync && nodes.Kind(inner) == ColumnarExpressionNodeKind.AwaitExpression ? AppendAsyncLambdaAwaitExpression(emit, scope, inner, plan, out discardedType) : scope.TryAppendValue(nodes, source, inner, plan, out discardedType)
         if !appendedExpression {
             context.Decline("emit.iterator.lambda-unsupported", "an expression statement inside a block-bodied lambda in an iterator body could not be lowered")
             return false
@@ -4220,7 +4220,7 @@ class ColumnarIteratorBodyPlanner {
         }
         target := nodes.Child(assignment, 0)
         value := nodes.Child(assignment, 1)
-        if nodes.Kind(target) == 6 {
+        if nodes.Kind(target) == ColumnarExpressionNodeKind.IdentifierExpression {
             name := nodes.Text(source, target)
             if scope.Bindings.BoxedCaptures.ContainsKey(name) {
                 boxed := scope.Bindings.BoxedCaptures[name]
@@ -4324,13 +4324,13 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         kind := nodes.Kind(node)
-        if kind == 25 {
+        if kind == ColumnarStatementNodeKind.BlockStatement {
             return EmitBlockChildrenFrom(emit, node, 0)
         }
-        if kind == 77 || kind == 81 {
+        if kind == ColumnarStatementNodeKind.UsingStatement || kind == ColumnarStatementNodeKind.AwaitUsingStatement {
             return EmitUsingStatement(emit, node)
         }
-        if kind == 40 {
+        if kind == ColumnarStatementNodeKind.TypedLocalDeclaration {
             // typed local declaration: value span = type, child 0 = name, child 1 = init. The field's
             // type came from the WRITTEN canonical, so it is already defined; a declaration without an
             // initializer leaves the field at its default — nothing to store.
@@ -4352,7 +4352,7 @@ class ColumnarIteratorBodyPlanner {
             }
             return true
         }
-        if kind == 24 {
+        if kind == ColumnarStatementNodeKind.VariableDeclarationStatement {
             // `:=` local declaration: value span = name, child 0 = init. The initializer's type IS the
             // local's type, so it is discovered first (by planning the value into a plan nobody runs),
             // the field is defined from it, and only then do the real rows go down in evaluation order.
@@ -4376,19 +4376,19 @@ class ColumnarIteratorBodyPlanner {
             }
             return true
         }
-        if kind == 23 {
+        if kind == ColumnarStatementNodeKind.ExpressionStatement {
             // expression statement: a unit await (async bodies), a bare postfix step (value dropped),
             // an assignment to a hoisted binding, or an ordinary value whose result is discarded.
             inner := nodes.Child(node, 0)
-            if nodes.Kind(inner) == 53 {
+            if nodes.Kind(inner) == ColumnarExpressionNodeKind.AwaitExpression {
                 EmitUnitAwait(emit, inner)
                 return !emit.Context.Declined
             }
-            if nodes.Kind(inner) == 44 {
+            if nodes.Kind(inner) == ColumnarExpressionNodeKind.PostfixUnary {
                 EmitPostfixStep(emit, inner, false)
                 return !emit.Context.Declined
             }
-            if nodes.Kind(inner) == 14 {
+            if nodes.Kind(inner) == ColumnarExpressionNodeKind.AssignmentExpression {
                 return EmitAssignment(emit, inner)
             }
             statementType := typeof(int)
@@ -4400,7 +4400,7 @@ class ColumnarIteratorBodyPlanner {
             }
             return true
         }
-        if kind == 26 {
+        if kind == ColumnarStatementNodeKind.WhileStatement {
             // while [condition, body]: the back edge only exists when the body can complete. A
             // `continue` targets the condition, which is where the loop's next iteration begins.
             condLabel := emit.Plan.DefineLabel()
@@ -4419,7 +4419,7 @@ class ColumnarIteratorBodyPlanner {
             emit.Plan.AppendMarkLabel(afterLabel)
             return !emit.Context.Declined
         }
-        if kind == 27 {
+        if kind == ColumnarStatementNodeKind.IfStatement {
             // if [condition, then, else?]: the join label is defined and jumped to only when the
             // then-branch falls through (otherwise the jump row would be unreachable).
             elseLabel := emit.Plan.DefineLabel()
@@ -4449,7 +4449,7 @@ class ColumnarIteratorBodyPlanner {
             }
             return thenFalls || elseFalls
         }
-        if kind == 72 {
+        if kind == ColumnarExpressionNodeKind.YieldExpression {
             if nodes.ChildCount(node) == 1 {
                 EmitYieldReturn(emit, nodes.Child(node, 0))
                 return !emit.Context.Declined
@@ -4457,10 +4457,10 @@ class ColumnarIteratorBodyPlanner {
             AppendBodyExit(emit, emit.EndLabel)
             return false
         }
-        if kind == 49 {
+        if kind == ColumnarStatementNodeKind.TryStatement {
             return EmitTryStatement(emit, node)
         }
-        if kind == 28 {
+        if kind == ColumnarStatementNodeKind.ForStatement {
             // For [init, cond, incr, body]: `init` runs once (its local is a hoisted field), then the
             // while discipline with a trailing increment — the back edge (and the increment before it)
             // only exists when the body can complete.
@@ -4498,25 +4498,25 @@ class ColumnarIteratorBodyPlanner {
             emit.Plan.AppendMarkLabel(afterLabel)
             return true
         }
-        if kind == 29 {
+        if kind == ColumnarStatementNodeKind.ForeachStatement {
             // for..in [source, body]: a hoisted ARRAY field takes the index loop; every other source
             // takes the hoisted-enumerator loop — mirroring the walk.
             return EmitForIn(emit, nodes.Child(node, 0), nodes.Child(node, 1), nodes.Text(source, node))
         }
-        if kind == 73 {
+        if kind == ColumnarStatementNodeKind.AwaitForeachStatement {
             // await foreach [source, body]: the asynchronous loop, which is also a region.
             return EmitAwaitForIn(emit, nodes.Child(node, 0), nodes.Child(node, 1), nodes.Text(source, node))
         }
-        if kind == 76 {
+        if kind == ColumnarStatementNodeKind.TypedForeachStatement {
             // The ANNOTATED spelling: name in child 0, collection in child 1, body in child 2. The
             // loop variable's field was defined from the annotation, so the element is converted to
             // it — the same conversion the ordinary form performs, once per iteration.
             return EmitForIn(emit, nodes.Child(node, 1), nodes.Child(node, 2), nodes.Text(source, nodes.Child(node, 0)))
         }
-        if kind == 80 {
+        if kind == ColumnarStatementNodeKind.OffStatement {
             return EmitOffStatement(emit, node)
         }
-        if kind == 48 {
+        if kind == ColumnarStatementNodeKind.ThrowStatement {
             // throw <expression>: the ordinary value owner builds the exception, then `throw`. A bare
             // `throw` (zero children) is the RETHROW — the exception the enclosing catch handler is
             // running for, re-raised with its stack trace intact. Either shape ends its path.
@@ -4537,8 +4537,8 @@ class ColumnarIteratorBodyPlanner {
             emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Throw())
             return false
         }
-        if kind == 21 || kind == 22 {
-            return EmitLoopBranch(emit, kind == 21)
+        if kind == ColumnarStatementNodeKind.BreakStatement || kind == ColumnarStatementNodeKind.ContinueStatement {
+            return EmitLoopBranch(emit, kind == ColumnarStatementNodeKind.BreakStatement)
         }
         emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
         return false
@@ -4595,7 +4595,7 @@ class ColumnarIteratorBodyPlanner {
         n := from
         while n < nodes.ChildCount(node) {
             child := nodes.Child(node, n)
-            if (nodes.Kind(child) == 77 || nodes.Kind(child) == 81) && nodes.ChildCount(child) == 1 {
+            if (nodes.Kind(child) == ColumnarStatementNodeKind.UsingStatement || nodes.Kind(child) == ColumnarStatementNodeKind.AwaitUsingStatement) && nodes.ChildCount(child) == 1 {
                 return EmitUsingDeclarationRegion(emit, node, n)
             }
 
@@ -4649,12 +4649,12 @@ class ColumnarIteratorBodyPlanner {
         resourceName = ""
         resourceNode := nodes.Child(node, 0)
         resourceKind := nodes.Kind(resourceNode)
-        if resourceKind == 24 || resourceKind == 40 {
+        if resourceKind == ColumnarStatementNodeKind.VariableDeclarationStatement || resourceKind == ColumnarStatementNodeKind.TypedLocalDeclaration {
             if !EmitStatement(emit, resourceNode) {
                 return false
             }
 
-            if resourceKind == 24 {
+            if resourceKind == ColumnarStatementNodeKind.VariableDeclarationStatement {
                 resourceName = nodes.Text(source, resourceNode)
             } else {
                 resourceName = nodes.Text(source, nodes.Child(resourceNode, 0))
@@ -4689,7 +4689,7 @@ class ColumnarIteratorBodyPlanner {
     // guarded statements are the remaining children of `blockNode` from `restFrom` — the using
     // DECLARATION, whose region is the rest of its block.
     static func EmitUsingRegion(emit: ColumnarMoveNextEmit, node: int, resourceName: string, bodyNode: int, blockNode: int, restFrom: int): bool {
-        if emit.Context.Nodes.Kind(node) == 81 {
+        if emit.Context.Nodes.Kind(node) == ColumnarStatementNodeKind.AwaitUsingStatement {
             return EmitAwaitedUsingRegion(emit, resourceName, bodyNode, blockNode, restFrom)
         }
 
@@ -5117,7 +5117,7 @@ class ColumnarIteratorBodyPlanner {
     static func EmitCatchClause(emit: ColumnarMoveNextEmit, clause: int, ordinal: int, regionEnd: int, out fellThrough: bool): bool {
         fellThrough = false
         nodes := emit.Context.Nodes
-        if nodes.Kind(clause) != 50 || nodes.ChildCount(clause) < 1 {
+        if nodes.Kind(clause) != ColumnarStatementNodeKind.CatchClause || nodes.ChildCount(clause) < 1 {
             emit.Context.Decline("emit.iterator.unsupported-shape", "unsupported catch clause in an iterator body")
             return false
         }
@@ -5160,7 +5160,7 @@ class ColumnarIteratorBodyPlanner {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
         target := nodes.Child(node, 0)
-        if nodes.Kind(target) != 6 {
+        if nodes.Kind(target) != ColumnarExpressionNodeKind.IdentifierExpression {
             return EmitStoreTargetAssignment(emit, node, target)
         }
         name := nodes.Text(source, target)
@@ -5311,7 +5311,7 @@ class ColumnarIteratorBodyPlanner {
     // variable's own field already records.
     static func EmitForIn(emit: ColumnarMoveNextEmit, sourceNode: int, bodyNode: int, varName: string): bool {
         nodes := emit.Context.Nodes
-        if nodes.Kind(sourceNode) != 6 {
+        if nodes.Kind(sourceNode) != ColumnarExpressionNodeKind.IdentifierExpression {
             return EmitEnumerableForIn(emit, sourceNode, bodyNode, varName)
         }
         sourceName := nodes.Text(emit.Context.Source, sourceNode)

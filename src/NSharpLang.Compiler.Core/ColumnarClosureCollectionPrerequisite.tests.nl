@@ -36,12 +36,12 @@ func ClosureCollectionListCopyTree(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     listType := builder.AddLeaf(0, "List<string>")
     source := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
+        ColumnarExpressionNodeKind.IdentifierExpression,
         "source"
     )
     keys := DirectCallAppendMember(builder, source, "Keys")
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         0,

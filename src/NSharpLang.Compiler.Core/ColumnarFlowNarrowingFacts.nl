@@ -63,13 +63,13 @@ class ColumnarFlowNarrowingFacts {
 
         kind := nodes.Kind(condition)
         // 7 Parenthesized — transparent, exactly as the analyzer reads it.
-        if kind == 7 && nodes.ChildCount(condition) == 1 {
+        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression && nodes.ChildCount(condition) == 1 {
             Collect(nodes, source, nodes.Child(condition, 0), thenNames, elseNames)
             return
         }
 
         // 11 Unary — only `!`, and it is the two lists the other way round.
-        if kind == 11 && nodes.ChildCount(condition) == 1 {
+        if kind == ColumnarExpressionNodeKind.UnaryExpression && nodes.ChildCount(condition) == 1 {
             if ColumnarNodeTextFacts.Text(nodes, source, condition) == "!" {
                 Collect(nodes, source, nodes.Child(condition, 0), elseNames, thenNames)
             }
@@ -79,7 +79,7 @@ class ColumnarFlowNarrowingFacts {
 
         // 8 MemberAccess — `x.HasValue` proves `x` present in the true branch and nothing in the
         // false one (the analyzer's `TryExtractHasValueNarrowing`, which likewise files no else fact).
-        if kind == 8 {
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression {
             if ColumnarNodeTextFacts.Text(nodes, source, condition) == "HasValue" && nodes.ChildCount(condition) == 1 {
                 receiverName := SimpleName(nodes, source, nodes.Child(condition, 0))
                 if receiverName != null {
@@ -90,7 +90,7 @@ class ColumnarFlowNarrowingFacts {
             return
         }
 
-        if kind != 12 || nodes.ChildCount(condition) != 2 {
+        if kind != ColumnarExpressionNodeKind.BinaryExpression || nodes.ChildCount(condition) != 2 {
             return
         }
 
@@ -135,7 +135,7 @@ class ColumnarFlowNarrowingFacts {
     // makes this callable twice with the operands swapped rather than needing to know which side the
     // reader wrote the literal on.
     static func CollectNullComparison(nodes: ColumnarNodeTable, source: string, value: int, other: int, notEqual: bool, thenNames: List<string>, elseNames: List<string>) {
-        if other < 0 || other >= nodes.Kinds.Length || nodes.Kind(other) != 5 {
+        if other < 0 || other >= nodes.Kinds.Length || nodes.Kind(other) != ColumnarExpressionNodeKind.NullLiteralExpression {
             return
         }
 
@@ -159,11 +159,11 @@ class ColumnarFlowNarrowingFacts {
             return null
         }
 
-        if nodes.Kind(node) == 7 && nodes.ChildCount(node) == 1 {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression && nodes.ChildCount(node) == 1 {
             return SimpleName(nodes, source, nodes.Child(node, 0))
         }
 
-        if nodes.Kind(node) != 6 || nodes.ChildCount(node) != 0 {
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.IdentifierExpression || nodes.ChildCount(node) != 0 {
             return null
         }
 
@@ -197,14 +197,14 @@ class ColumnarFlowNarrowingFacts {
         }
 
         kind := nodes.Kind(node)
-        if kind == 14 || kind == 44 {
+        if kind == ColumnarExpressionNodeKind.AssignmentExpression || kind == ColumnarExpressionNodeKind.PostfixUnary {
             if nodes.ChildCount(node) >= 1 {
                 target := SimpleName(nodes, source, nodes.Child(node, 0))
                 if target != null {
                     into.Add(target)
                 }
             }
-        } else if kind == 11 && nodes.ChildCount(node) == 1 {
+        } else if kind == ColumnarExpressionNodeKind.UnaryExpression && nodes.ChildCount(node) == 1 {
             op := ColumnarNodeTextFacts.Text(nodes, source, node)
             if op == "++" || op == "--" {
                 target := SimpleName(nodes, source, nodes.Child(node, 0))
@@ -212,14 +212,14 @@ class ColumnarFlowNarrowingFacts {
                     into.Add(target)
                 }
             }
-        } else if kind == 24 || kind == 29 || kind == 73 {
+        } else if kind == ColumnarStatementNodeKind.VariableDeclarationStatement || kind == ColumnarStatementNodeKind.ForeachStatement || kind == ColumnarStatementNodeKind.AwaitForeachStatement {
             // The BOUND NAME rides in the value slot for a `:=` declaration and for both `for x in`
             // spellings that carry no written type.
             declared := ColumnarNodeTextFacts.Text(nodes, source, node)
             if declared.Length > 0 {
                 into.Add(declared)
             }
-        } else if kind == 40 || kind == 76 {
+        } else if kind == ColumnarStatementNodeKind.TypedLocalDeclaration || kind == ColumnarStatementNodeKind.TypedForeachStatement {
             // An ANNOTATED declaration and an annotated loop variable put the written TYPE in the
             // value slot, so the name is the leading identifier child instead.
             if nodes.ChildCount(node) >= 1 {

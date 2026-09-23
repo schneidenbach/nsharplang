@@ -385,11 +385,11 @@ test "primitive binary planner declines other operators types and malformed arit
     malformedBuilder := new ColumnarRangePlannerNodeBuilder()
     plusStart := malformedBuilder.AddToken("+")
     one := malformedBuilder.AddLeaf(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         "1"
     )
     malformedRoot := malformedBuilder.AddNode(
-        ColumnarExpressionNodeKind.BinaryExpression(),
+        ColumnarExpressionNodeKind.BinaryExpression,
         plusStart,
         1,
         0,
@@ -410,15 +410,15 @@ test "primitive binary planner declines other operators types and malformed arit
 
     corruptBuilder := new ColumnarRangePlannerNodeBuilder()
     left := corruptBuilder.AddLeaf(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         "1"
     )
     right := corruptBuilder.AddLeaf(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         "2"
     )
     corruptRoot := corruptBuilder.AddNode(
-        ColumnarExpressionNodeKind.BinaryExpression(),
+        ColumnarExpressionNodeKind.BinaryExpression,
         200,
         1,
         0,
@@ -440,12 +440,12 @@ test "primitive binary planner declines other operators types and malformed arit
     childBuilder := new ColumnarRangePlannerNodeBuilder()
     childPlus := childBuilder.AddToken("+")
     childLeft := childBuilder.AddLeaf(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         "1"
     )
     invalidChildren := ColumnarRangePlannerChildren2(childLeft, 200)
     invalidChildRoot := childBuilder.AddNode(
-        ColumnarExpressionNodeKind.BinaryExpression(),
+        ColumnarExpressionNodeKind.BinaryExpression,
         childPlus,
         1,
         0,

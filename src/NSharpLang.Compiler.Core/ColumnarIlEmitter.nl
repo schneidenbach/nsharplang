@@ -296,7 +296,7 @@ sealed class ColumnarIlEmitter {
         // assigned a name an earlier guard clause proved present, and from here on that name
         // holds whatever the write put there.
         DropNarrowingsAssignedIn(child)
-        transfers := AlwaysReturns(child) || _nodes.Kind(child) == 21 || _nodes.Kind(child) == 22
+        transfers := AlwaysReturns(child) || _nodes.Kind(child) == ColumnarStatementNodeKind.BreakStatement || _nodes.Kind(child) == ColumnarStatementNodeKind.ContinueStatement
         if (transfers) {
             // A LOCAL FUNCTION DECLARATION (kind 41) EMITS NO IL AT ALL — the method was declared
             // before the body walk and its body is emitted separately — so one written after the
@@ -316,7 +316,7 @@ sealed class ColumnarIlEmitter {
     // A `using` NODE THAT CARRIES NO BODY — the using DECLARATION. Kind 77 is the synchronous
     // release, kind 81 the `await using` twin.
     private func IsUsingDeclarationNode(node: int): bool {
-        if (_nodes.Kind(node) != 77 && _nodes.Kind(node) != 81) {
+        if (_nodes.Kind(node) != ColumnarStatementNodeKind.UsingStatement && _nodes.Kind(node) != ColumnarStatementNodeKind.AwaitUsingStatement) {
             return false
         }
 
@@ -331,13 +331,13 @@ sealed class ColumnarIlEmitter {
         resourceLocal = null
         resourceName = ""
         resourceKind := _nodes.Kind(resourceNode)
-        if (resourceKind == 24 || resourceKind == 40) {
+        if (resourceKind == ColumnarStatementNodeKind.VariableDeclarationStatement || resourceKind == ColumnarStatementNodeKind.TypedLocalDeclaration) {
             if (!EmitStatement(resourceNode)) {
                 return false
             }
 
             boundName := ""
-            if (resourceKind == 24) {
+            if (resourceKind == ColumnarStatementNodeKind.VariableDeclarationStatement) {
                 boundName = ColumnarNodeTextFacts.Text(_nodes, _source, resourceNode)
             } else {
                 boundName = ColumnarNodeTextFacts.Text(_nodes, _source, _nodes.Child(resourceNode, 0))
@@ -395,7 +395,7 @@ sealed class ColumnarIlEmitter {
     // to drop with the rest of its locals, which is exactly the scope the declaration has.
     private func EmitUsingDeclarationRegion(blockIdx: int, ordinal: int): bool {
         usingNode := _nodes.Child(blockIdx, ordinal)
-        isAsyncUsing := _nodes.Kind(usingNode) == 81
+        isAsyncUsing := _nodes.Kind(usingNode) == ColumnarStatementNodeKind.AwaitUsingStatement
         resourceLocal: LocalBuilder? = null
         resourceName := ""
         if (!TryEmitUsingResource(_nodes.Child(usingNode, 0), out resourceLocal, out resourceName)) {
@@ -2055,7 +2055,7 @@ sealed class ColumnarIlEmitter {
     // return, and appends the `ret`.
     private func EmitLambdaBody(lambdaIl: ILGenerator, bodyNode: int, returnType: Type): bool {
         bodyNodeKind := _nodes.Kind(bodyNode)
-        if (bodyNodeKind == 25) {
+        if (bodyNodeKind == ColumnarStatementNodeKind.BlockStatement) {
             return EmitBody(bodyNode, returnType == ColumnarTypeOfPlanner.RequiredVoidType())
         }
         // AN EXPRESSION BODY IS ITS OWN ROOT. `EmitBody` sets this for a block; entering here left it
@@ -3307,7 +3307,7 @@ sealed class ColumnarIlEmitter {
     // its head name in the value span, its type arguments as TYPE-kernel children.
     private func TryResolveGenericTypeReceiverCanonical(receiver: int, out canonical: string): bool {
         canonical = null
-        if (_nodes.Kind(receiver) != 70 || _nodes.ChildCount(receiver) <= 0) {
+        if (_nodes.Kind(receiver) != ColumnarExpressionNodeKind.GenericTypeReceiverExpression || _nodes.ChildCount(receiver) <= 0) {
             return false
         }
         spelling := new StringBuilder()
@@ -8336,7 +8336,7 @@ sealed class ColumnarIlEmitter {
     // method) supplies the ILGenerator and appends its own control flow. Each selected statement is a
     // top-level `field = value` assignment, so it lowers to `ldarg.0; <value>; stfld <field>`.
     private func EmitSelectedInitializerStatements(bodyRoot: int, ordinals: IReadOnlyList<int>): bool {
-        if (_nodes.Kind(bodyRoot) != 25) {
+        if (_nodes.Kind(bodyRoot) != ColumnarStatementNodeKind.BlockStatement) {
             return false
         }
         _bodyRoot = bodyRoot
@@ -8608,7 +8608,7 @@ sealed class ColumnarIlEmitter {
 
     private func EmitStatement(idx: int): bool {
         columnarSwitchValue0 := _nodes.Kind(idx)
-        if columnarSwitchValue0 == 25 {
+        if columnarSwitchValue0 == ColumnarStatementNodeKind.BlockStatement {
             // Block — emit each statement in order.
 
             // Block scoping: a `:=` local declared in this block leaves scope when the block ends, so a
@@ -8659,7 +8659,7 @@ sealed class ColumnarIlEmitter {
             }
             _narrowedNonNull = outerNarrowed
             return true
-        } else if columnarSwitchValue0 == 49 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.TryStatement {
             // TryStatement [tryBlock, catch1..catchN] — each catch a kind-50 CatchClause (value
             // span = exception TYPE name, -1 = bare; children [nameIdent?, filter (kind 84)?, block],
             // read through ColumnarCatchClauseFacts rather than counted). An unfiltered clause
@@ -8691,7 +8691,7 @@ sealed class ColumnarIlEmitter {
             }
             for c := 1; c < _nodes.ChildCount(idx); c++ {
                 clause := Child(idx, c)
-                if (_nodes.Kind(clause) == 25) {
+                if (_nodes.Kind(clause) == ColumnarStatementNodeKind.BlockStatement) {
                     // The FINALLY block (E4) — always the LAST child. BeginFinallyBlock implicitly
                     // ends the prior region; EndExceptionBlock implicitly ends the handler.
                     if (c != _nodes.ChildCount(idx) - 1) {
@@ -8706,7 +8706,7 @@ sealed class ColumnarIlEmitter {
                     }
                     break
                 }
-                if (_nodes.Kind(clause) != 50) {
+                if (_nodes.Kind(clause) != ColumnarStatementNodeKind.CatchClause) {
                     return false
                 }
                 let catchType: System.Type? = null
@@ -8805,7 +8805,7 @@ sealed class ColumnarIlEmitter {
             _il.EndExceptionBlock()
             _protectedDepth = _protectedDepth - 1
             return true
-        } else if columnarSwitchValue0 == 51 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.LockStatement {
             // LockStatement [lockee, body] — `Monitor.Enter(obj); try { body } finally
             // { Monitor.Exit(obj) }`, the legacy emitter's EmitLock verbatim. The lockee must be a
             // REFERENCE value: the analyzer rejects value-type lockees with NL320 (legacy emitter
@@ -8847,7 +8847,7 @@ sealed class ColumnarIlEmitter {
             _il.EndExceptionBlock()
             _protectedDepth = _protectedDepth - 1
             return true
-        } else if columnarSwitchValue0 == 77 || columnarSwitchValue0 == 81 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.UsingStatement || columnarSwitchValue0 == ColumnarStatementNodeKind.AwaitUsingStatement {
             // UsingStatement (77) / await-using (79), BLOCK form: children [resource, body]. The
             // resource is materialized into a local, the body runs inside a protected region, and the
             // `finally` releases what the local holds — the C# lowering exactly, including the null
@@ -8860,7 +8860,7 @@ sealed class ColumnarIlEmitter {
             // brace-less body of an `if` or a loop — and there the region is the statement itself, so
             // the resource is acquired and released with nothing in between, which is what a
             // declaration whose remaining block is empty means.
-            isAsyncUsing := columnarSwitchValue0 == 81
+            isAsyncUsing := columnarSwitchValue0 == ColumnarStatementNodeKind.AwaitUsingStatement
             if (_nodes.ChildCount(idx) < 1 || _nodes.ChildCount(idx) > 2) {
                 return Decline("emit.using.shape", "using statement has an unsupported shape", idx)
             }
@@ -8886,7 +8886,7 @@ sealed class ColumnarIlEmitter {
                 _locals.Remove(usingResourceName)
             }
             return true
-        } else if columnarSwitchValue0 == 48 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.ThrowStatement {
             // Throw [exception] — `throw <expr>`: emit the exception REFERENCE and `throw`. The
             // expression must produce a System.Exception-derived reference (the whitelisted BCL
             // exception constructions; anything else declines — the analyzer's type rule stays
@@ -8913,7 +8913,7 @@ sealed class ColumnarIlEmitter {
             }
             _il.Emit(OpCodes.Throw)
             return true
-        } else if columnarSwitchValue0 == 56 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.PrintStatement {
             // Print [value] — `print <expr>`: evaluate the value, box a value type, and call
             // Console.WriteLine(object) — the legacy emitter's single canonical lowering
             // (EmitPrint parity: no per-type overload selection).
@@ -8932,7 +8932,7 @@ sealed class ColumnarIlEmitter {
             }
             _il.Emit(OpCodes.Call, typeof(Console).GetMethod(nameof(Console.WriteLine), [typeof(object)]))
             return true
-        } else if columnarSwitchValue0 == 20 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.ReturnStatement {
             // Return [value?] — in a VOID function a value-less `return` emits a bare `ret`; in a VALUE
             // function a value is REQUIRED (a value-less `ret` with an empty stack is invalid IL) and its
             // type must match the declared return type (TypesEquivalent — two closed instantiations of one
@@ -9055,7 +9055,7 @@ sealed class ColumnarIlEmitter {
             }
             _il.Emit(OpCodes.Ret)
             return true
-        } else if columnarSwitchValue0 == 24 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.VariableDeclarationStatement {
             // VariableDeclaration (`:=`): emit the initializer, declare a local of the initializer's
             // type (inferred), store into it.
             name := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
@@ -9141,7 +9141,7 @@ sealed class ColumnarIlEmitter {
                 }
             }
             return true
-        } else if columnarSwitchValue0 == 40 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.TypedLocalDeclaration {
             // TypedLocalDeclaration (`[let] name: Type = init` — L2): the DECLARED type's source
             // span rides in the value slot (whitespace-stripped to the canonical — canonicals never
             // contain spaces); children = [name Identifier, init]. A kind-39 lambda initializer is
@@ -9263,7 +9263,7 @@ sealed class ColumnarIlEmitter {
             if (declaredTupleNames != null) {
                 _tupleNamesByVariable[declaredName] = declaredTupleNames
             } else {
-                if (_nodes.Kind(declaredInit) != 39) {
+                if (_nodes.Kind(declaredInit) != ColumnarExpressionNodeKind.Lambda) {
                     typedInitNames := TupleNamesOfExpressionNode(declaredInit)
                     if (typedInitNames != null) {
                         _tupleNamesByVariable[declaredName] = typedInitNames
@@ -9271,7 +9271,7 @@ sealed class ColumnarIlEmitter {
                 }
             }
             return true
-        } else if columnarSwitchValue0 == 41 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.LocalFunctionDeclaration {
             // LocalFunctionDeclaration — the declaration itself emits NO IL (the method was
             // pre-declared before the body walk); reaching it makes the NAME visible (textual
             // scoping, probe-pinned). A kind-41 node NOT in the declared map is a nested-block
@@ -9282,7 +9282,7 @@ sealed class ColumnarIlEmitter {
             }
             _visibleLocalFuncs.Add(declaredLocalName)
             return true
-        } else if columnarSwitchValue0 == 27 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.IfStatement {
             // If [condition, then, else?] — general form covering all four then/else
             // fall-through-vs-return combinations, with a fall-through merge label.
             childCount := _nodes.ChildCount(idx)
@@ -9377,11 +9377,11 @@ sealed class ColumnarIlEmitter {
                 DropNarrowingsAssignedIn(thenStmt)
             }
             return true
-        } else if columnarSwitchValue0 == 80 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.OffStatement {
             // OffStatement [handle] — detach the handler this handle added. Idempotent by construction:
             // the runtime handle claims its remove accessor once, so a second `off` does nothing.
             return TryEmitOffStatement(idx)
-        } else if columnarSwitchValue0 == 23 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.ExpressionStatement {
             // ExpressionStatement — a SIMPLE `=` assignment (kind 14) to a `:=` local OR an array
             // element `a[i] = value`, OR a bare CALL statement (a void BCL call such as `Array.Fill(...)`,
             // `Array.Clear(...)`, `Array.Copy(...)`, `Array.Resize(...)`, `Array.Sort(...)`,
@@ -9390,13 +9390,13 @@ sealed class ColumnarIlEmitter {
             // (`+=` `-=` `*=` `/=` on a bare local/param — lowered to load/op/store below).
             expr := UnwrapParenthesizedNode(Child(idx, 0))
 
-            if (_nodes.Kind(expr) == 44) {
+            if (_nodes.Kind(expr) == ColumnarExpressionNodeKind.PostfixUnary) {
                 // a bare `n++` / `n--` statement — the stepped value is not kept.
                 let columnarDiscard13: System.Type = null
                 return TryEmitPostfixUnary(expr, false, out columnarDiscard13)
             }
 
-            if (_nodes.Kind(expr) == 79) {
+            if (_nodes.Kind(expr) == ColumnarExpressionNodeKind.OnSubscriptionExpression) {
                 // A BARE `on <target> <handler>` STATEMENT — the handler is attached and the handle is
                 // discarded, which is the "subscribe for the life of the process" shape. The `pop`
                 // matches what a discarded call result gets, so the side effect is identical and only
@@ -9409,7 +9409,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
 
-            if (_nodes.Kind(expr) == 9) {
+            if (_nodes.Kind(expr) == ColumnarExpressionNodeKind.CallExpression) {
                 // a bare call statement.
 
                 // Emit the call. A void call (e.g. Array.Fill/Array.Clear/Array.Copy) leaves nothing on the stack; a
@@ -9453,7 +9453,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
 
-            if (_nodes.Kind(expr) == 53) {
+            if (_nodes.Kind(expr) == ColumnarExpressionNodeKind.AwaitExpression) {
                 // `await expr` as a statement — legal in N# (the await-statement rule).
 
                 // The blocking await of a UNIT task leaves nothing; a value task's awaited result is
@@ -9468,7 +9468,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
 
-            if (_nodes.Kind(expr) != 14) {
+            if (_nodes.Kind(expr) != ColumnarExpressionNodeKind.AssignmentExpression) {
                 return Decline("emit.expression-statement.unsupported", "expression statement is not a modeled assignment, call, await, or postfix mutation", expr)
             }
             assignOp := ColumnarNodeTextFacts.Text(_nodes, _source, expr)
@@ -9481,7 +9481,7 @@ sealed class ColumnarIlEmitter {
                 // A COLLECTION indexer compound target (`d[k] += v` / `lst[i] += 1` — probe-pinned
                 // working legacy-emitter side): receiver and index evaluate ONCE into temps (N#'s
                 // single-evaluation semantics), then get_Item, the op, set_Item.
-                if (_nodes.Kind(compoundTarget) == 10) {
+                if (_nodes.Kind(compoundTarget) == ColumnarExpressionNodeKind.IndexAccessExpression) {
                     let idxRecvType: System.Type? = null
                     if (!EmitExpression(Child(compoundTarget, 0), out idxRecvType)) {
                         return false
@@ -9557,7 +9557,7 @@ sealed class ColumnarIlEmitter {
                 // address for value links, an object ref for reference links) makes the
                 // read-modify-write hit the SAME storage. The scalar/string op set matches the
                 // bare-local arm; decimal member compounds decline (unprobed — fallback).
-                if (_nodes.Kind(compoundTarget) == 8) {
+                if (_nodes.Kind(compoundTarget) == ColumnarExpressionNodeKind.MemberAccessExpression) {
                     let compoundChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, -1, null, null, null)
                     let compoundMemberField: System.Reflection.Emit.FieldBuilder? = null
                     if (!TryResolveMemberWriteChain(Child(compoundTarget, 0), out compoundChain)) {
@@ -9585,7 +9585,7 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Stfld, compoundMemberField)
                     return true
                 }
-                if (_nodes.Kind(compoundTarget) != 6) {
+                if (_nodes.Kind(compoundTarget) != ColumnarExpressionNodeKind.IdentifierExpression) {
                     return false
                 }
                 compoundName := ColumnarNodeTextFacts.Text(_nodes, _source, compoundTarget)
@@ -9636,7 +9636,7 @@ sealed class ColumnarIlEmitter {
             }
             target := UnwrapParenthesizedNode(Child(expr, 0))
 
-            if (_nodes.Kind(target) == 10) {
+            if (_nodes.Kind(target) == ColumnarExpressionNodeKind.IndexAccessExpression) {
                 // array element write: a[i] = value
                 let arrayType: System.Type? = null
                 if (!EmitExpression(Child(target, 0), out arrayType)) {
@@ -9731,7 +9731,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
 
-            if (_nodes.Kind(target) == 8) {
+            if (_nodes.Kind(target) == ColumnarExpressionNodeKind.MemberAccessExpression) {
                 // a member-access target: a class PROPERTY setter OR a value-type struct field.
                 fieldReceiver := Child(target, 0)
                 memberName := ColumnarNodeTextFacts.Text(_nodes, _source, target)
@@ -9739,7 +9739,7 @@ sealed class ColumnarIlEmitter {
                 // shadowed by a local/param/sibling) — chain-walk its static FIELDS (`<value>; stsfld`) then
                 // static PROPERTIES (`<value>; call set_Name`; a get-only static property declines). A
                 // type-name receiver whose member is NEITHER declines (a type name is not a value).
-                if (_nodes.Kind(fieldReceiver) == 6) {
+                if (_nodes.Kind(fieldReceiver) == ColumnarExpressionNodeKind.IdentifierExpression) {
                     staticRecvName := ColumnarNodeTextFacts.Text(_nodes, _source, fieldReceiver)
                     let staticWriteOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
                     if (!_locals.ContainsKey(staticRecvName) && !_liftedLocals.ContainsKey(staticRecvName) && !_paramOrdinals.ContainsKey(staticRecvName) && !_siblings.ContainsKey(staticRecvName) && _typeResolutionStructs.TryGetValue(staticRecvName, out staticWriteOwner)) {
@@ -9909,7 +9909,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
 
-            if (_nodes.Kind(target) != 6) {
+            if (_nodes.Kind(target) != ColumnarExpressionNodeKind.IdentifierExpression) {
                 return false
             }
             targetName := ColumnarNodeTextFacts.Text(_nodes, _source, target)
@@ -10211,7 +10211,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             return TryEmitInheritedExternalInstanceWrite(targetName, Child(expr, 1))
-        } else if columnarSwitchValue0 == 26 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.WhileStatement {
             // While [condition, body] — emit `check: cond; brfalse end; body; [br check]; end:`. The
             // stack is empty at both merge labels (cond pushes a bool, brfalse pops it; the body is
             // net-zero), so it is stack-consistent.
@@ -10290,7 +10290,7 @@ sealed class ColumnarIlEmitter {
             }
             _il.MarkLabel(endLabel)
             return true
-        } else if columnarSwitchValue0 == 28 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.ForStatement {
             // For [init, cond, incr, body] — C-style: emit `init; check: cond; brfalse end; body;
             // cont: incr; br check; end:`. `break` -> end, `continue` -> cont (the increment, THEN the
             // re-test), matching N# for-loop semantics. The loop's own locals (the `init` declaration's
@@ -10424,7 +10424,7 @@ sealed class ColumnarIlEmitter {
                 }
             }
             return true
-        } else if columnarSwitchValue0 == 29 || columnarSwitchValue0 == 76 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.ForeachStatement || columnarSwitchValue0 == ColumnarStatementNodeKind.TypedForeachStatement {
             // Foreach [collection, body] — the C# `foreach` shape, decided by
             // `ColumnarForeachLoopPlanner` and lowered here. An array and a `string` become index
             // loops; everything else becomes an enumerator loop over whatever the collection's own
@@ -10437,7 +10437,7 @@ sealed class ColumnarIlEmitter {
             // in the value slot (kind 40's discipline — a type TREE cannot share this table), so the
             // name moves into a leading child and the element is converted to the written type once
             // per iteration.
-            typedLoopVariable := columnarSwitchValue0 == 76
+            typedLoopVariable := columnarSwitchValue0 == ColumnarStatementNodeKind.TypedForeachStatement
             collectionNode := Child(idx, 0)
             body := Child(idx, 1)
             varName := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
@@ -10529,7 +10529,7 @@ sealed class ColumnarIlEmitter {
                 }
             }
             return true
-        } else if columnarSwitchValue0 == 73 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.AwaitForeachStatement {
             // AwaitForeach [collection, body] — consumer-side `await foreach <var> in <stream>`:
             // GetAsyncEnumerator(default)/MoveNextAsync/Current/DisposeAsync driving, each
             // ValueTask resolved through the blocking-await model exactly like this pipeline's
@@ -10609,7 +10609,7 @@ sealed class ColumnarIlEmitter {
                 }
             }
             return true
-        } else if columnarSwitchValue0 == 30 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.TupleDeconstructionStatement {
             // TupleDeconstruction [name0, ..., nameN-1, value] — `n0, n1, ... := <tuple>`. Emit the value
             // (a ValueTuple), store to a temp, then for each non-`_` name declare a local of the element
             // type and store the matching ItemN. Mirrors the tuple deconstruction emitter (plain path).
@@ -10741,7 +10741,7 @@ sealed class ColumnarIlEmitter {
             }
 
             return true
-        } else if columnarSwitchValue0 == 21 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.BreakStatement {
             // Break — branch to the innermost loop's end label. From inside a protected region
             // whose loop began OUTSIDE it, the branch crosses the boundary: `leave` (which also
             // runs an intervening finally — probe-pinned against the fixed legacy emitter). Out of a
@@ -10759,7 +10759,7 @@ sealed class ColumnarIlEmitter {
             breakLabel := breakTarget.Item1
             breakIl.Emit(breakOpCode, breakLabel)
             return true
-        } else if columnarSwitchValue0 == 22 {
+        } else if columnarSwitchValue0 == ColumnarStatementNodeKind.ContinueStatement {
             // Continue — branch to the innermost loop's condition-check label (same region rules
             // as break).
             if (_loopLabels.Count == 0) {
@@ -10853,7 +10853,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Throw)
             _il.MarkLabel(assertThrowsOk)
             return true
-        } else if columnarSwitchValue0 == 72 {
+        } else if columnarSwitchValue0 == ColumnarExpressionNodeKind.YieldExpression {
             // YieldStatement (`yield <value>` / `yield break`) — the func*/yield iterator shape now
             // PARSES into the columnar node table (kind 72), but state-machine lowering is owned by
             // the N# iterator planner in a later ownership slice. Decline at a precise site until then.
@@ -10912,7 +10912,7 @@ sealed class ColumnarIlEmitter {
     // used by regions that cannot route transfers across their boundary (assert throws).
     private func ContainsControlTransfer(idx: int): bool {
         controlTransferKind := _nodes.Kind(idx)
-        if (controlTransferKind == 21 || controlTransferKind == 22) {
+        if (controlTransferKind == ColumnarStatementNodeKind.BreakStatement || controlTransferKind == ColumnarStatementNodeKind.ContinueStatement) {
             return true
         }
         for c := 0; c < _nodes.ChildCount(idx); c++ {
@@ -10960,7 +10960,7 @@ sealed class ColumnarIlEmitter {
         }
 
         body := Child(whileNode, 1)
-        if (_nodes.Kind(body) != 25 || _nodes.ChildCount(body) != 2) {
+        if (_nodes.Kind(body) != ColumnarStatementNodeKind.BlockStatement || _nodes.ChildCount(body) != 2) {
             return false
         }
         let update: int = 0
@@ -11148,7 +11148,7 @@ sealed class ColumnarIlEmitter {
         }
 
         body := Child(whileNode, 1)
-        if (_nodes.Kind(body) != 25) {
+        if (_nodes.Kind(body) != ColumnarStatementNodeKind.BlockStatement) {
             return false
         }
 
@@ -11190,15 +11190,15 @@ sealed class ColumnarIlEmitter {
 
         let tempStatement: int = 0
         let ifStatement: int = 0
-        if (_nodes.Kind(bodyNode) == 27) {
+        if (_nodes.Kind(bodyNode) == ColumnarStatementNodeKind.IfStatement) {
             tempStatement = -1
             ifStatement = bodyNode
         } else {
-            if (_nodes.Kind(bodyNode) == 25 && _nodes.ChildCount(bodyNode) == 1) {
+            if (_nodes.Kind(bodyNode) == ColumnarStatementNodeKind.BlockStatement && _nodes.ChildCount(bodyNode) == 1) {
                 tempStatement = -1
                 ifStatement = Child(bodyNode, 0)
             } else {
-                if (_nodes.Kind(bodyNode) == 25 && _nodes.ChildCount(bodyNode) == 2) {
+                if (_nodes.Kind(bodyNode) == ColumnarStatementNodeKind.BlockStatement && _nodes.ChildCount(bodyNode) == 2) {
                     tempStatement = Child(bodyNode, 0)
                     ifStatement = Child(bodyNode, 1)
                 } else {
@@ -11212,16 +11212,16 @@ sealed class ColumnarIlEmitter {
 
     private func TryMatchRangeCountBody(tempStatementNode: int, ifStatementNode: int, indexNode: int, indexName: string, boundNode: int, out shape: ColumnarRangeCountShape): bool {
         shape = null
-        if (_nodes.Kind(ifStatementNode) != 27 || _nodes.ChildCount(ifStatementNode) != 2) {
+        if (_nodes.Kind(ifStatementNode) != ColumnarStatementNodeKind.IfStatement || _nodes.ChildCount(ifStatementNode) != 2) {
             return false
         }
         predicate := Child(ifStatementNode, 0)
-        if (_nodes.Kind(predicate) != 12 || _nodes.ChildCount(predicate) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, predicate) != "&&") {
+        if (_nodes.Kind(predicate) != ColumnarExpressionNodeKind.BinaryExpression || _nodes.ChildCount(predicate) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, predicate) != "&&") {
             return false
         }
         ge := Child(predicate, 0)
         le := Child(predicate, 1)
-        if (_nodes.Kind(ge) != 12 || _nodes.ChildCount(ge) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, ge) != ">=" || _nodes.Kind(le) != 12 || _nodes.ChildCount(le) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, le) != "<=") {
+        if (_nodes.Kind(ge) != ColumnarExpressionNodeKind.BinaryExpression || _nodes.ChildCount(ge) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, ge) != ">=" || _nodes.Kind(le) != ColumnarExpressionNodeKind.BinaryExpression || _nodes.ChildCount(le) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, le) != "<=") {
             return false
         }
 
@@ -11229,7 +11229,7 @@ sealed class ColumnarIlEmitter {
         let arrayName: string = null
         tempName: string? = null
         if (tempStatementNode >= 0) {
-            if (_nodes.Kind(tempStatementNode) != 24 || _nodes.ChildCount(tempStatementNode) != 1) {
+            if (_nodes.Kind(tempStatementNode) != ColumnarStatementNodeKind.VariableDeclarationStatement || _nodes.ChildCount(tempStatementNode) != 1) {
                 return false
             }
             tempName = ColumnarNodeTextFacts.Text(_nodes, _source, tempStatementNode)
@@ -11404,7 +11404,7 @@ sealed class ColumnarIlEmitter {
         }
 
         body := Child(whileNode, 1)
-        if (_nodes.Kind(body) != 25 || _nodes.ChildCount(body) < 2) {
+        if (_nodes.Kind(body) != ColumnarStatementNodeKind.BlockStatement || _nodes.ChildCount(body) < 2) {
             return false
         }
         incrementStatement := Child(body, _nodes.ChildCount(body) - 1)
@@ -11434,10 +11434,10 @@ sealed class ColumnarIlEmitter {
         }
 
         let statements: int[] = null
-        if (_nodes.Kind(bodyNode) == 27) {
+        if (_nodes.Kind(bodyNode) == ColumnarStatementNodeKind.IfStatement) {
             statements = [bodyNode]
         } else {
-            if (_nodes.Kind(bodyNode) == 25) {
+            if (_nodes.Kind(bodyNode) == ColumnarStatementNodeKind.BlockStatement) {
                 statements = new int[_nodes.ChildCount(bodyNode)]
                 for i := 0; i < statements.Length; i++ {
                     statements[i] = Child(bodyNode, i)
@@ -11460,7 +11460,7 @@ sealed class ColumnarIlEmitter {
         tempName: string? = null
         arrayNode := -1
         arrayName := ""
-        if (_nodes.Kind(statementNodes[0]) == 24) {
+        if (_nodes.Kind(statementNodes[0]) == ColumnarStatementNodeKind.VariableDeclarationStatement) {
             tempStatement := statementNodes[0]
             if (_nodes.ChildCount(tempStatement) != 1) {
                 return false
@@ -11516,12 +11516,12 @@ sealed class ColumnarIlEmitter {
 
     private func TryMatchMinMaxIf(ifStatementNode: int, indexName: string, tempName: string?, ref arrayNode: int, ref arrayName: string, out reduction: ColumnarMinMaxReduction): bool {
         reduction = null
-        if (_nodes.Kind(ifStatementNode) != 27 || _nodes.ChildCount(ifStatementNode) != 2) {
+        if (_nodes.Kind(ifStatementNode) != ColumnarStatementNodeKind.IfStatement || _nodes.ChildCount(ifStatementNode) != 2) {
             return false
         }
         let thenStatement: int = 0
         let assignment: int = 0
-        if (!TryGetSingleReductionBodyStatement(Child(ifStatementNode, 1), out thenStatement) || !TryGetExpressionStatementExpression(thenStatement, out assignment) || _nodes.Kind(assignment) != 14 || _nodes.ChildCount(assignment) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, assignment) != "=") {
+        if (!TryGetSingleReductionBodyStatement(Child(ifStatementNode, 1), out thenStatement) || !TryGetExpressionStatementExpression(thenStatement, out assignment) || _nodes.Kind(assignment) != ColumnarExpressionNodeKind.AssignmentExpression || _nodes.ChildCount(assignment) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, assignment) != "=") {
             return false
         }
         accumulatorNode := Child(assignment, 0)
@@ -11534,7 +11534,7 @@ sealed class ColumnarIlEmitter {
         }
 
         condition := Child(ifStatementNode, 0)
-        if (_nodes.Kind(condition) != 12 || _nodes.ChildCount(condition) != 2) {
+        if (_nodes.Kind(condition) != ColumnarExpressionNodeKind.BinaryExpression || _nodes.ChildCount(condition) != 2) {
             return false
         }
         minMaxOperator := ColumnarNodeTextFacts.Text(_nodes, _source, condition)
@@ -11748,7 +11748,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         body := Child(whileNode, 1)
-        if (_nodes.Kind(body) != 25 || _nodes.ChildCount(body) != 4) {
+        if (_nodes.Kind(body) != ColumnarStatementNodeKind.BlockStatement || _nodes.ChildCount(body) != 4) {
             return false
         }
         let increment: int = 0
@@ -11770,7 +11770,7 @@ sealed class ColumnarIlEmitter {
         if (!TryGetExpressionStatementExpression(iteratorStatementNode, out iterator) || !TryMatchUnitIndexIncrement(iterator, indexName, true)) {
             return false
         }
-        if (_nodes.Kind(bodyNode) != 25 || _nodes.ChildCount(bodyNode) != 3) {
+        if (_nodes.Kind(bodyNode) != ColumnarStatementNodeKind.BlockStatement || _nodes.ChildCount(bodyNode) != 3) {
             return false
         }
         return TryMatchCountTransitionsBody(Child(bodyNode, 0), Child(bodyNode, 1), Child(bodyNode, 2), indexNode, indexName, boundNode, out shape)
@@ -11779,7 +11779,7 @@ sealed class ColumnarIlEmitter {
     private func TryMatchCountTransitionsBody(tempStatementNode: int, ifStatementNode: int, carryStatementNode: int, indexNode: int, indexName: string, boundNode: int, out shape: ColumnarCountTransitionsShape): bool {
         shape = null
 
-        if (_nodes.Kind(tempStatementNode) != 24 || _nodes.ChildCount(tempStatementNode) != 1) {
+        if (_nodes.Kind(tempStatementNode) != ColumnarStatementNodeKind.VariableDeclarationStatement || _nodes.ChildCount(tempStatementNode) != 1) {
             return false
         }
         currentName := ColumnarNodeTextFacts.Text(_nodes, _source, tempStatementNode)
@@ -11792,11 +11792,11 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        if (_nodes.Kind(ifStatementNode) != 27 || _nodes.ChildCount(ifStatementNode) != 2) {
+        if (_nodes.Kind(ifStatementNode) != ColumnarStatementNodeKind.IfStatement || _nodes.ChildCount(ifStatementNode) != 2) {
             return false
         }
         condition := Child(ifStatementNode, 0)
-        if (_nodes.Kind(condition) != 12 || _nodes.ChildCount(condition) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, condition) != "!=") {
+        if (_nodes.Kind(condition) != ColumnarExpressionNodeKind.BinaryExpression || _nodes.ChildCount(condition) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, condition) != "!=") {
             return false
         }
         let previousNode: int = 0
@@ -11815,7 +11815,7 @@ sealed class ColumnarIlEmitter {
         let carry: int = 0
         let carryTarget: string? = null
         let carryValue: string? = null
-        if (!TryGetExpressionStatementExpression(carryStatementNode, out carry) || _nodes.Kind(carry) != 14 || _nodes.ChildCount(carry) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, carry) != "=" || !TryGetIdentifierName(Child(carry, 0), out carryTarget) || carryTarget != previousName || !TryGetIdentifierName(Child(carry, 1), out carryValue) || carryValue != currentName) {
+        if (!TryGetExpressionStatementExpression(carryStatementNode, out carry) || _nodes.Kind(carry) != ColumnarExpressionNodeKind.AssignmentExpression || _nodes.ChildCount(carry) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, carry) != "=" || !TryGetIdentifierName(Child(carry, 0), out carryTarget) || carryTarget != previousName || !TryGetIdentifierName(Child(carry, 1), out carryValue) || carryValue != currentName) {
             return false
         }
 
@@ -11943,7 +11943,7 @@ sealed class ColumnarIlEmitter {
         indexNode = -1
         indexName = ""
         boundNode = -1
-        if (_nodes.Kind(conditionNode) != 12 || _nodes.ChildCount(conditionNode) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, conditionNode) != "<") {
+        if (_nodes.Kind(conditionNode) != ColumnarExpressionNodeKind.BinaryExpression || _nodes.ChildCount(conditionNode) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, conditionNode) != "<") {
             return false
         }
         left := Child(conditionNode, 0)
@@ -11964,7 +11964,7 @@ sealed class ColumnarIlEmitter {
         accumulatorName = ""
         arrayNode = -1
         arrayName = ""
-        if (_nodes.Kind(updateNode) != 14 || _nodes.ChildCount(updateNode) != 2) {
+        if (_nodes.Kind(updateNode) != ColumnarExpressionNodeKind.AssignmentExpression || _nodes.ChildCount(updateNode) != 2) {
             return false
         }
         target := Child(updateNode, 0)
@@ -11975,7 +11975,7 @@ sealed class ColumnarIlEmitter {
         op := ColumnarNodeTextFacts.Text(_nodes, _source, updateNode)
         if (op == "=") {
             value := Child(updateNode, 1)
-            if (_nodes.Kind(value) != 12 || _nodes.ChildCount(value) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, value) != "+") {
+            if (_nodes.Kind(value) != ColumnarExpressionNodeKind.BinaryExpression || _nodes.ChildCount(value) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, value) != "+") {
                 return false
             }
             left := Child(value, 0)
@@ -12004,7 +12004,7 @@ sealed class ColumnarIlEmitter {
     private func TryMatchArrayIndexByIdentifier(node: int, indexName: string, out arrayNode: int, out arrayName: string): bool {
         arrayNode = -1
         arrayName = ""
-        if (_nodes.Kind(node) != 10 || _nodes.ChildCount(node) != 2) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.IndexAccessExpression || _nodes.ChildCount(node) != 2) {
             return false
         }
         receiver := Child(node, 0)
@@ -12018,7 +12018,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private func TryMatchUnitIndexIncrement(node: int, indexName: string, allowPostfix: bool): bool {
-        if (_nodes.Kind(node) == 14 && _nodes.ChildCount(node) == 2) {
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.AssignmentExpression && _nodes.ChildCount(node) == 2) {
             target := Child(node, 0)
             let targetName: string? = null
             if (!TryGetIdentifierName(target, out targetName) || targetName != indexName) {
@@ -12033,10 +12033,10 @@ sealed class ColumnarIlEmitter {
             }
             value := Child(node, 1)
             let leftName: string? = null
-            return _nodes.Kind(value) == 12 && _nodes.ChildCount(value) == 2 && ColumnarNodeTextFacts.Text(_nodes, _source, value) == "+" && TryGetIdentifierName(Child(value, 0), out leftName) && leftName == indexName && IsLiteralOne(Child(value, 1))
+            return _nodes.Kind(value) == ColumnarExpressionNodeKind.BinaryExpression && _nodes.ChildCount(value) == 2 && ColumnarNodeTextFacts.Text(_nodes, _source, value) == "+" && TryGetIdentifierName(Child(value, 0), out leftName) && leftName == indexName && IsLiteralOne(Child(value, 1))
         }
 
-        if (allowPostfix && _nodes.Kind(node) == 44 && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "++") {
+        if (allowPostfix && _nodes.Kind(node) == ColumnarExpressionNodeKind.PostfixUnary && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "++") {
             let targetName: string? = null
             return TryGetIdentifierName(Child(node, 0), out targetName) && targetName == indexName
         }
@@ -12046,7 +12046,7 @@ sealed class ColumnarIlEmitter {
 
     private func TryGetExpressionStatementExpression(statementNode: int, out expressionNode: int): bool {
         expressionNode = -1
-        if (_nodes.Kind(statementNode) != 23 || _nodes.ChildCount(statementNode) != 1) {
+        if (_nodes.Kind(statementNode) != ColumnarStatementNodeKind.ExpressionStatement || _nodes.ChildCount(statementNode) != 1) {
             return false
         }
         expressionNode = Child(statementNode, 0)
@@ -12055,7 +12055,7 @@ sealed class ColumnarIlEmitter {
 
     private func TryGetSingleReductionBodyStatement(bodyNode: int, out statementNode: int): bool {
         statementNode = -1
-        if (_nodes.Kind(bodyNode) == 25) {
+        if (_nodes.Kind(bodyNode) == ColumnarStatementNodeKind.BlockStatement) {
             if (_nodes.ChildCount(bodyNode) != 1) {
                 return false
             }
@@ -12063,7 +12063,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
-        if (_nodes.Kind(bodyNode) == 23) {
+        if (_nodes.Kind(bodyNode) == ColumnarStatementNodeKind.ExpressionStatement) {
             statementNode = bodyNode
             return true
         }
@@ -12074,7 +12074,7 @@ sealed class ColumnarIlEmitter {
     private func TryMatchUnitCounterIncrement(node: int, out counterNode: int, out counterName: string): bool {
         counterNode = -1
         counterName = ""
-        if (_nodes.Kind(node) == 44 && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "++") {
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.PostfixUnary && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "++") {
             target := Child(node, 0)
             if (!TryGetIdentifierName(target, out counterName)) {
                 return false
@@ -12083,7 +12083,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
-        if (_nodes.Kind(node) != 14 || _nodes.ChildCount(node) != 2) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.AssignmentExpression || _nodes.ChildCount(node) != 2) {
             return false
         }
         assignmentTarget := Child(node, 0)
@@ -12103,7 +12103,7 @@ sealed class ColumnarIlEmitter {
         }
         value := Child(node, 1)
         let leftName: string? = null
-        if (_nodes.Kind(value) != 12 || _nodes.ChildCount(value) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, value) != "+" || !TryGetIdentifierName(Child(value, 0), out leftName) || leftName != counterName || !IsLiteralOne(Child(value, 1))) {
+        if (_nodes.Kind(value) != ColumnarExpressionNodeKind.BinaryExpression || _nodes.ChildCount(value) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, value) != "+" || !TryGetIdentifierName(Child(value, 0), out leftName) || leftName != counterName || !IsLiteralOne(Child(value, 1))) {
             return false
         }
         counterNode = assignmentTarget
@@ -12133,7 +12133,7 @@ sealed class ColumnarIlEmitter {
         if (IsInt32Literal(node)) {
             return true
         }
-        if (_nodes.Kind(node) == 8 && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "Length") {
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.MemberAccessExpression && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "Length") {
             receiver := Child(node, 0)
             let columnarDiscard41: string = null
             let receiverType: System.Type? = null
@@ -12159,7 +12159,7 @@ sealed class ColumnarIlEmitter {
             return id == name
         }
         let receiver: string? = null
-        return _nodes.Kind(node) == 8 && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "Length" && TryGetIdentifierName(Child(node, 0), out receiver) && receiver == name
+        return _nodes.Kind(node) == ColumnarExpressionNodeKind.MemberAccessExpression && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "Length" && TryGetIdentifierName(Child(node, 0), out receiver) && receiver == name
     }
 
     private func TryGetPureLocalOrParameterType(node: int, out name: string, out columnarResolvedType: Type): bool {
@@ -12200,7 +12200,7 @@ sealed class ColumnarIlEmitter {
 
     private func TryGetIdentifierName(node: int, out name: string): bool {
         name = ""
-        if (_nodes.Kind(node) != 6 || _nodes.ValueStart(node) < 0) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.IdentifierExpression || _nodes.ValueStart(node) < 0) {
             return false
         }
         name = ColumnarNodeTextFacts.Text(_nodes, _source, node)
@@ -12209,7 +12209,7 @@ sealed class ColumnarIlEmitter {
 
     private func IsInt32Literal(node: int): bool {
         let columnarDiscard44: int = 0
-        if (_nodes.Kind(node) != 0 || _nodes.ValueStart(node) < 0 || ColumnarNodeTextFacts.Text(_nodes, _source, node).Length == 0) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.IntLiteralExpression || _nodes.ValueStart(node) < 0 || ColumnarNodeTextFacts.Text(_nodes, _source, node).Length == 0) {
             return false
         }
         suffix := ColumnarNodeTextFacts.Text(_nodes, _source, node)[^1]
@@ -12219,7 +12219,7 @@ sealed class ColumnarIlEmitter {
         return int.TryParse(ColumnarNodeTextFacts.Text(_nodes, _source, node), out columnarDiscard44)
     }
 
-    private func IsLiteralOne(node: int): bool => _nodes.Kind(node) == 0 && _nodes.ValueStart(node) >= 0 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "1"
+    private func IsLiteralOne(node: int): bool => _nodes.Kind(node) == ColumnarExpressionNodeKind.IntLiteralExpression && _nodes.ValueStart(node) >= 0 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "1"
 
     /// <summary>
     /// Emit an `if`/`while` CONDITION as a bool (i4 0/1) on the stack for a following <c>brfalse</c>/<c>brtrue</c>.
@@ -12278,11 +12278,11 @@ sealed class ColumnarIlEmitter {
     // which only this emitter's own arm does; the recursive door would resolve the member against the
     // declared `Nullable<T>` and find nothing.
     private func IsNarrowedNullableMemberRead(idx: int): bool {
-        if (_narrowedNonNull.Count == 0 || idx < 0 || idx >= _nodes.Kinds.Length || _nodes.Kind(idx) != 8 || _nodes.ChildCount(idx) != 1) {
+        if (_narrowedNonNull.Count == 0 || idx < 0 || idx >= _nodes.Kinds.Length || _nodes.Kind(idx) != ColumnarExpressionNodeKind.MemberAccessExpression || _nodes.ChildCount(idx) != 1) {
             return false
         }
         receiver := UnwrapParenthesizedNode(Child(idx, 0))
-        if (receiver < 0 || _nodes.Kind(receiver) != 6 || _nodes.ChildCount(receiver) != 0) {
+        if (receiver < 0 || _nodes.Kind(receiver) != ColumnarExpressionNodeKind.IdentifierExpression || _nodes.ChildCount(receiver) != 0) {
             return false
         }
         member := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
@@ -12313,12 +12313,12 @@ sealed class ColumnarIlEmitter {
     // shape — the set is empty outside a proven-present region, and inside one the door was either
     // declining or about to disagree with the unwrap this emitter writes.
     private func IsNarrowedNullableCallArgument(idx: int): bool {
-        if (_narrowedNonNull.Count == 0 || idx < 0 || idx >= _nodes.Kinds.Length || _nodes.Kind(idx) != 9) {
+        if (_narrowedNonNull.Count == 0 || idx < 0 || idx >= _nodes.Kinds.Length || _nodes.Kind(idx) != ColumnarExpressionNodeKind.CallExpression) {
             return false
         }
         for a := 1; a < _nodes.ChildCount(idx); a++ {
             argument := UnwrapParenthesizedNode(Child(idx, a))
-            if (argument < 0 || _nodes.Kind(argument) != 6 || _nodes.ChildCount(argument) != 0) {
+            if (argument < 0 || _nodes.Kind(argument) != ColumnarExpressionNodeKind.IdentifierExpression || _nodes.ChildCount(argument) != 0) {
                 continue
             }
             name := ColumnarNodeTextFacts.Text(_nodes, _source, argument)
@@ -12345,12 +12345,12 @@ sealed class ColumnarIlEmitter {
     // other way round, which is the direction that would matter.
     private func CallStatementNeverReturns(callNode: int, out calleeDescription: string): bool {
         calleeDescription = ""
-        if (_nodes.Kind(callNode) != 9 || _nodes.ChildCount(callNode) < 1) {
+        if (_nodes.Kind(callNode) != ColumnarExpressionNodeKind.CallExpression || _nodes.ChildCount(callNode) < 1) {
             return false
         }
         callee := UnwrapParenthesizedNode(Child(callNode, 0))
         argCount := _nodes.ChildCount(callNode) - 1
-        if (_nodes.Kind(callee) == 6) {
+        if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.IdentifierExpression) {
             bareName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
             calleeDescription = bareName
             let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
@@ -12363,12 +12363,12 @@ sealed class ColumnarIlEmitter {
             }
             return false
         }
-        if (_nodes.Kind(callee) != 8 || _nodes.ChildCount(callee) != 1) {
+        if (_nodes.Kind(callee) != ColumnarExpressionNodeKind.MemberAccessExpression || _nodes.ChildCount(callee) != 1) {
             return false
         }
         member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
         receiver := UnwrapParenthesizedNode(Child(callee, 0))
-        if (_nodes.Kind(receiver) != 6) {
+        if (_nodes.Kind(receiver) != ColumnarExpressionNodeKind.IdentifierExpression) {
             return false
         }
         ownerName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
@@ -12406,17 +12406,17 @@ sealed class ColumnarIlEmitter {
     // same answer the reader gave before the resolver could reach the shape at all.
     private func TryResolveExternalCallStatementMethod(callNode: int, out externalMethod: MethodInfo): bool {
         externalMethod = null
-        if (_nodes.Kind(callNode) != 9 || _nodes.ChildCount(callNode) < 1) {
+        if (_nodes.Kind(callNode) != ColumnarExpressionNodeKind.CallExpression || _nodes.ChildCount(callNode) < 1) {
             return false
         }
         callee := UnwrapParenthesizedNode(Child(callNode, 0))
         argCount := _nodes.ChildCount(callNode) - 1
-        if (_nodes.Kind(callee) != 8 || _nodes.ChildCount(callee) != 1) {
+        if (_nodes.Kind(callee) != ColumnarExpressionNodeKind.MemberAccessExpression || _nodes.ChildCount(callee) != 1) {
             return false
         }
         member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
         receiver := UnwrapParenthesizedNode(Child(callee, 0))
-        if (_nodes.Kind(receiver) == 6) {
+        if (_nodes.Kind(receiver) == ColumnarExpressionNodeKind.IdentifierExpression) {
             ownerName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
             if (!_locals.ContainsKey(ownerName) && !_liftedLocals.ContainsKey(ownerName) && !_paramOrdinals.ContainsKey(ownerName) && !_siblings.ContainsKey(ownerName) && !IsCurrentInstanceMemberName(ownerName) && !IsCurrentStaticMemberName(ownerName)) {
                 let staticOwnerType: System.Type? = null
@@ -12478,12 +12478,12 @@ sealed class ColumnarIlEmitter {
     }
 
     private func CallStatementParameterReachabilityFacts(callNode: int): int[]? {
-        if (_nodes.Kind(callNode) != 9 || _nodes.ChildCount(callNode) < 1) {
+        if (_nodes.Kind(callNode) != ColumnarExpressionNodeKind.CallExpression || _nodes.ChildCount(callNode) < 1) {
             return null
         }
         callee := UnwrapParenthesizedNode(Child(callNode, 0))
         argCount := _nodes.ChildCount(callNode) - 1
-        if (_nodes.Kind(callee) == 6) {
+        if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.IdentifierExpression) {
             bareName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
             let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
             if (_siblings.TryGetValue(bareName, out sibling)) {
@@ -12495,12 +12495,12 @@ sealed class ColumnarIlEmitter {
             }
             return null
         }
-        if (_nodes.Kind(callee) != 8 || _nodes.ChildCount(callee) != 1) {
+        if (_nodes.Kind(callee) != ColumnarExpressionNodeKind.MemberAccessExpression || _nodes.ChildCount(callee) != 1) {
             return null
         }
         member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
         receiver := UnwrapParenthesizedNode(Child(callee, 0))
-        if (_nodes.Kind(receiver) != 6) {
+        if (_nodes.Kind(receiver) != ColumnarExpressionNodeKind.IdentifierExpression) {
             return null
         }
         ownerName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
@@ -12736,7 +12736,7 @@ sealed class ColumnarIlEmitter {
     // the fallback of a `??`, a conditional arm, an expression body — each ask before they emit,
     // because a throw produces no value and every one of them otherwise expects a value AND a type.
     private func IsThrowExpressionNode(idx: int): bool {
-        return idx >= 0 && idx < _nodes.Kinds.Length && _nodes.Kind(idx) == ColumnarExpressionNodeKind.ThrowExpression()
+        return idx >= 0 && idx < _nodes.Kinds.Length && _nodes.Kind(idx) == ColumnarExpressionNodeKind.ThrowExpression
     }
 
     // A THROW EXPRESSION, EMITTED IN PLACE: the exception reference, then `throw`. NOTHING is left on
@@ -12768,7 +12768,7 @@ sealed class ColumnarIlEmitter {
         if (_narrowedNonNull.Count == 0 || idx < 0 || idx == _preserveNullableNode || idx >= _nodes.Kinds.Length) {
             return null
         }
-        if (_nodes.Kind(idx) != 6 || _nodes.ChildCount(idx) != 0 || !ColumnarTypeOfPlanner.IsSupportedNullable(resolvedType)) {
+        if (_nodes.Kind(idx) != ColumnarExpressionNodeKind.IdentifierExpression || _nodes.ChildCount(idx) != 0 || !ColumnarTypeOfPlanner.IsSupportedNullable(resolvedType)) {
             return null
         }
         if (!_narrowedNonNull.Contains(ColumnarNodeTextFacts.Text(_nodes, _source, idx))) {
@@ -12822,10 +12822,10 @@ sealed class ColumnarIlEmitter {
         steps := 0
         while (node >= 0 && steps <= 200) {
             kind := _nodes.Kind(node)
-            if (kind == ColumnarExpressionNodeKind.NullGuardExpression()) {
+            if (kind == ColumnarExpressionNodeKind.NullGuardExpression) {
                 return true
             }
-            if ((kind != ColumnarExpressionNodeKind.MemberAccessExpression() && kind != ColumnarExpressionNodeKind.CallExpression() && kind != ColumnarExpressionNodeKind.IndexAccessExpression()) || _nodes.ChildCount(node) < 1) {
+            if ((kind != ColumnarExpressionNodeKind.MemberAccessExpression && kind != ColumnarExpressionNodeKind.CallExpression && kind != ColumnarExpressionNodeKind.IndexAccessExpression) || _nodes.ChildCount(node) < 1) {
                 return false
             }
             node = Child(node, 0)
@@ -12845,7 +12845,7 @@ sealed class ColumnarIlEmitter {
         receivers := new bool[](nodeCount)
         for n := 0; n < nodeCount; n++ {
             kind := _nodes.Kind(n)
-            if ((kind == ColumnarExpressionNodeKind.MemberAccessExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression()) && _nodes.ChildCount(n) >= 1) {
+            if ((kind == ColumnarExpressionNodeKind.MemberAccessExpression || kind == ColumnarExpressionNodeKind.CallExpression || kind == ColumnarExpressionNodeKind.IndexAccessExpression) && _nodes.ChildCount(n) >= 1) {
                 receiverNode := Child(n, 0)
                 if (receiverNode >= 0 && receiverNode < nodeCount) {
                     receivers[receiverNode] = true
@@ -13067,7 +13067,7 @@ sealed class ColumnarIlEmitter {
             legacyWholeSubtreePlanning = true
         }
         columnarSwitchValue2 := _nodes.Kind(idx)
-        if columnarSwitchValue2 == 82 {
+        if columnarSwitchValue2 == ColumnarExpressionNodeKind.ThisExpression {
             // A BARE `this` — the current instance AS A VALUE. Argument zero of an instance body IS the
             // instance, so a reference type loads it directly; a value type's argument zero is a MANAGED
             // POINTER to it, and a value is what the position asked for, so the pointer is dereferenced.
@@ -13075,12 +13075,12 @@ sealed class ColumnarIlEmitter {
             // there, and emitting `ldarg.0` would silently hand out the first parameter.
             return TryEmitThisExpression(idx, out columnarResolvedType)
         }
-        if columnarSwitchValue2 == 79 {
+        if columnarSwitchValue2 == ColumnarExpressionNodeKind.OnSubscriptionExpression {
             // `on <receiver>.<Event> <handler>` — the subscription VALUE. It sits ahead of the chain
             // because its own owner reads the target and handler itself; nothing below can see an event.
             return TryEmitOnSubscription(idx, out columnarResolvedType)
         }
-        if columnarSwitchValue2 == 6 {
+        if columnarSwitchValue2 == ColumnarExpressionNodeKind.IdentifierExpression {
             // N# owns ordinary lexical/current-instance reads. The mechanical host retains only
             // address dereference for ref/out parameters plus the separate bare-static fallback.
             name := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
@@ -13125,7 +13125,7 @@ sealed class ColumnarIlEmitter {
             }
 
             return false
-        } else if columnarSwitchValue2 == 0 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.IntLiteralExpression {
             // Decimal literals remain on the contextual reflection-backed lowering path.
             text := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
             if (text.Length > 0) {
@@ -13135,7 +13135,7 @@ sealed class ColumnarIlEmitter {
                 }
             }
             return false
-        } else if columnarSwitchValue2 == 1 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.FloatLiteralExpression {
             // Decimal literals remain on the contextual reflection-backed lowering path.
             raw := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
             last := raw.Length > 0 ? raw[raw.Length - 1] : '\0'
@@ -13144,17 +13144,17 @@ sealed class ColumnarIlEmitter {
             }
             // `2.5m`
             return false
-        } else if columnarSwitchValue2 == 3 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.StringLiteralExpression {
             // StringLiteral
             stringText := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
             if (stringText.Length > 0 && stringText[0] == '$') {
                 return TryEmitInterpolatedString(stringText, out columnarResolvedType)
             }
             return false
-        } else if columnarSwitchValue2 == 7 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.ParenthesizedExpression {
             // Parenthesized — emit the inner expression, propagating its type.
             return EmitExpression(Child(idx, 0), out columnarResolvedType)
-        } else if columnarSwitchValue2 == 53 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.AwaitExpression {
             // AwaitExpression [operand] — the legacy emitter's SYNC lowering (no state machine in
             // EITHER pipeline): a blocking GetAwaiter().GetResult() on the four BCL task
             // shapes (ValueTask(/T) converts via AsTask() first). Awaits are legal in
@@ -13165,7 +13165,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             return TryEmitBlockingAwait(awaitableType, out columnarResolvedType)
-        } else if columnarSwitchValue2 == 57 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.CheckedContextExpression {
             // CheckedContextExpression [value] — `checked(expr)` / `unchecked(expr)`.
             if (_nodes.ChildCount(idx) != 1) {
                 return false
@@ -13175,10 +13175,10 @@ sealed class ColumnarIlEmitter {
                 "unchecked" => EmitExpressionWithOverflowChecking(idx, false, out columnarResolvedType),
                 _ => false
             }
-        } else if columnarSwitchValue2 == 64 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.SpreadArgumentExpression {
             // SpreadArgumentExpression [value] — `...expr` in a call argument list.
             return _nodes.ChildCount(idx) == 1 && EmitExpression(Child(idx, 0), out columnarResolvedType)
-        } else if columnarSwitchValue2 == 11 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.UnaryExpression {
             // Unary [operand] — int/long prefix `-`/`~`, or bool `!`. Index-from-end `^` and every
             // range/index read are owned by ColumnarRangeIndexPlanner ahead of this switch.
             //
@@ -13255,7 +13255,7 @@ sealed class ColumnarIlEmitter {
             } else {
                 return false
             }
-        } else if columnarSwitchValue2 == 12 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.BinaryExpression {
             // Binary [left, right] — int/long arithmetic & bitwise, short-circuit `&&`/`||`, or a
             // comparison producing bool. Most operators need both operands the SAME type.
             op := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
@@ -13626,10 +13626,10 @@ sealed class ColumnarIlEmitter {
             } else {
                 return false
             }
-        } else if columnarSwitchValue2 == 9 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.CallExpression {
             // Calls not terminally owned by the N# direct-call planner.
             callee := Child(idx, 0)
-            if (_nodes.Kind(callee) == 6) {
+            if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.IdentifierExpression) {
                 // bare identifier -> resolved in the N# pipeline's EMPIRICALLY PINNED order.
                 name := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
                 // Values invoke only when delegate-typed; any same-named method tier remains terminal.
@@ -13798,7 +13798,7 @@ sealed class ColumnarIlEmitter {
                 }
                 return Decline("emit.call.bare-unresolved", "bare call '" + name + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
             }
-            if (_nodes.Kind(callee) == 38) {
+            if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.GenericCallee) {
                 // GenericCallee — an EXPLICIT generic call `F<T1, T2>(args)`.
                 if (TryEmitJsonSerializerSerializeGenericCall(idx, callee, out columnarResolvedType)) {
                     return true
@@ -13881,7 +13881,7 @@ sealed class ColumnarIlEmitter {
                 }
                 return TryEmitGenericSiblingCall(idx, gTarget, explicitBinding, out columnarResolvedType)
             }
-            if (_nodes.Kind(callee) == 8) {
+            if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.MemberAccessExpression) {
                 // MemberAccess callee -> a BCL instance/static method call.
                 return TryEmitBclMethodCall(idx, callee, legacyWholeSubtreePlanning, out columnarResolvedType)
             }
@@ -13892,7 +13892,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             return Decline("emit.call.callee-kind", "call callee (node kind " + _nodes.Kind(callee).ToString() + ") is not a name, a generic name or a member access", callee)
-        } else if columnarSwitchValue2 == 8 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.MemberAccessExpression {
             // MemberAccess [receiver] — an ENUM CONSTANT (e.g. StringComparison.Ordinal), or `.Length` on
             // an array/string/StringBuilder (-> int). The member name is the value span.
             memberAccessReceiver := Child(idx, 0)
@@ -13937,7 +13937,7 @@ sealed class ColumnarIlEmitter {
                 }
                 return false
             }
-            if (_nodes.Kind(memberAccessReceiver) == 6) {
+            if (_nodes.Kind(memberAccessReceiver) == ColumnarExpressionNodeKind.IdentifierExpression) {
                 receiverIdent := ColumnarNodeTextFacts.Text(_nodes, _source, memberAccessReceiver)
                 // A USER-DEFINED enum constant: the receiver names a registered enum TYPE (not shadowed by a
                 // local/param/sibling) and the member is one of its constants -> load the underlying int. The
@@ -14009,7 +14009,7 @@ sealed class ColumnarIlEmitter {
             isTupleItem := member.Length > 4 && member.StartsWith("Item", StringComparison.Ordinal) && char.IsDigit(member[4])
             directReadReceiver := UnwrapParenthesizedNode(Child(idx, 0))
             let directReadChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null)
-            if (_nodes.Kind(directReadReceiver) == 8 && TryResolveMemberWriteChain(directReadReceiver, out directReadChain)) {
+            if (_nodes.Kind(directReadReceiver) == ColumnarExpressionNodeKind.MemberAccessExpression && TryResolveMemberWriteChain(directReadReceiver, out directReadChain)) {
                 directReadOwnerTb := directReadChain.ReceiverType as TypeBuilder
                 if (directReadOwnerTb != null) {
                     directReadOwnerDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), directReadOwnerTb)
@@ -14340,7 +14340,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             return false
-        } else if columnarSwitchValue2 == 10 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.IndexAccessExpression {
             // IndexAccess [object, index] — ordinary Int32 element READ over arrays, strings, and
             // collections. Every Index (`^`) and Range (`..`) read is owned by
             // ColumnarRangeIndexPlanner ahead of this switch.
@@ -14452,7 +14452,7 @@ sealed class ColumnarIlEmitter {
             EmitArrayElementLoad(elementType)
             columnarResolvedType = elementType
             return true
-        } else if columnarSwitchValue2 == 15 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.NewExpression {
             // New [type, args...] — `new T[](size)` array allocation, OR `new string(char[], int, int)`
             // (the String(char[],int,int) constructor). child[0] is a TYPE subtree (2 = Array, 0 = Simple).
             typeNode := Child(idx, 0)
@@ -14462,7 +14462,7 @@ sealed class ColumnarIlEmitter {
             if (TryEmitContextualConstruction(idx, typeNode, out columnarResolvedType)) {
                 return true
             }
-            if (_nodes.Kind(typeNode) == 0) {
+            if (_nodes.Kind(typeNode) == ColumnarExpressionNodeKind.IntLiteralExpression) {
                 // a Simple type -> a constructor call (string or StringBuilder).
                 newTypeName := ColumnarNodeTextFacts.Text(_nodes, _source, typeNode)
                 // Alias/namespace-QUALIFIED user type (`Ids.UserId`): normalize to the
@@ -14723,7 +14723,7 @@ sealed class ColumnarIlEmitter {
             // POSITIONALLY SUBSTITUTED param type (v: T on Box<int> expects int), then `newobj` the
             // ctor REBOUND onto the closed type (TypeBuilder.GetConstructor — the same machinery the
             // previous parity baseline uses; reflection member queries throw on TypeBuilderInstantiation).
-            if (_nodes.Kind(typeNode) == 1) {
+            if (_nodes.Kind(typeNode) == ColumnarExpressionNodeKind.FloatLiteralExpression) {
                 // CLOSED GENERIC UNION CASE: `new Option.Some<int>(value)` — a Generic type root whose
                 // dotted head names a registered union case. The case fields define positional argument
                 // order, and each expected field type substitutes the case arguments.
@@ -14869,7 +14869,7 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = closedType
                 return true
             }
-            if (_nodes.ChildCount(idx) != 2 || _nodes.Kind(typeNode) != 2) {
+            if (_nodes.ChildCount(idx) != 2 || _nodes.Kind(typeNode) != ColumnarExpressionNodeKind.CharLiteralExpression) {
                 // array alloc: exactly one ctor arg; type must be Array.
                 return false
             }
@@ -14888,14 +14888,14 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Newarr, newElementType)
             columnarResolvedType = newElementType.MakeArrayType()
             return true
-        } else if columnarSwitchValue2 == 58 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.ArrayLiteralExpression {
             // ArrayLiteral [elements...] — inferred homogeneous array literal.
             let literalElementType: System.Type? = null
             if (!TryInferArrayLiteralElementType(idx, out literalElementType)) {
                 return false
             }
             return TryEmitArrayLiteralAsType(idx, literalElementType.MakeArrayType(), out columnarResolvedType)
-        } else if columnarSwitchValue2 == 16 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.CastExpression {
             // Cast [type, operand]. child[0] is a TYPE subtree and child[1] is the operand. The type
             // subtree is read through the ordinary canonical builder rather than as a bare name, so a
             // written cast to a CONSTRUCTED type — `(Union<int, string>)5`, reaching the runtime
@@ -14919,7 +14919,7 @@ sealed class ColumnarIlEmitter {
             }
             columnarResolvedType = targetType
             return true
-        } else if columnarSwitchValue2 == 17 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.TupleExpression {
             // Tuple [e0, e1, ...] — construct a positional System.ValueTuple<...>: emit each element value
             // (left-to-right, the ctor's argument order), then `newobj` the matching ValueTuple ctor.
             // Arity 2-7 (a 1-tuple is not a tuple; >7 needs the nested TRest form — both decline).
@@ -14958,7 +14958,7 @@ sealed class ColumnarIlEmitter {
                 // A NAMED element (kind-43 wrapper, `(x: 1, y: 2)`) emits its VALUE child — names are
                 // compile-time metadata (the `:=` declaration path records them for member access).
                 elementNode := Child(idx, i)
-                if (_nodes.Kind(elementNode) == 43) {
+                if (_nodes.Kind(elementNode) == ColumnarExpressionNodeKind.NamedTupleElement) {
                     elementNode = Child(elementNode, 0)
                 }
                 // A BUILDER-BOUND ELEMENT IS ADMITTED BY THE SAME RULE THE TUPLE'S FIELD READ USES.
@@ -14981,7 +14981,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Newobj, tupleCtor)
             columnarResolvedType = tupleType
             return true
-        } else if columnarSwitchValue2 == 42 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.BareNew {
             // BareNew [typeRoot] — `new <type>` with neither `( args )` nor `{ inits }`. Modelled ONLY for
             // UNION CASES (the pipeline's brace-less construction form — fields stay CLR-default, probe-
             // pinned): `new Color.Red` (Simple root) and `new Opt.None<int>` (Generic root with explicit
@@ -14991,7 +14991,7 @@ sealed class ColumnarIlEmitter {
             bareRoot := Child(idx, 0)
             let columnarDiscard51: string = null
             let bareCaseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
-            if (_nodes.Kind(bareRoot) == 0 && TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, bareRoot), out columnarDiscard51, out bareCaseDef)) {
+            if (_nodes.Kind(bareRoot) == ColumnarExpressionNodeKind.IntLiteralExpression && TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, bareRoot), out columnarDiscard51, out bareCaseDef)) {
                 if (bareCaseDef.UnionBase.get_IsGenericTypeDefinition()) {
                     return false
                 }
@@ -15000,11 +15000,11 @@ sealed class ColumnarIlEmitter {
             let columnarDiscard52: string = null
             let bareGenericCaseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
             let bareArgs: System.Type[]? = null
-            if (_nodes.Kind(bareRoot) == 1 && TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, bareRoot), out columnarDiscard52, out bareGenericCaseDef) && bareGenericCaseDef.UnionBase.get_IsGenericTypeDefinition() && TryResolveUnionCaseTypeArgs(bareRoot, bareGenericCaseDef, out bareArgs)) {
+            if (_nodes.Kind(bareRoot) == ColumnarExpressionNodeKind.FloatLiteralExpression && TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, bareRoot), out columnarDiscard52, out bareGenericCaseDef) && bareGenericCaseDef.UnionBase.get_IsGenericTypeDefinition() && TryResolveUnionCaseTypeArgs(bareRoot, bareGenericCaseDef, out bareArgs)) {
                 return TryEmitUnionCaseConstruction(bareGenericCaseDef, bareArgs, idx, 0, out columnarResolvedType)
             }
             return false
-        } else if columnarSwitchValue2 == 36 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.ObjectInitializerExpression {
             // ObjectInitializer [typeRoot, name0, value0, ...] — `new Struct { Field: value, ... }`. Build a
             // user-struct value: a temp local, `ldloca; initobj` (zero all fields), then per named field
             // `ldloca; <value>; stfld <FieldBuilder>`, then `ldloc` the temp. Mirrors the struct
@@ -15018,7 +15018,7 @@ sealed class ColumnarIlEmitter {
             }
             pairCount := (initChildCount - 1) / 2
 
-            if (_nodes.Kind(typeRootNode) == 0) {
+            if (_nodes.Kind(typeRootNode) == ColumnarExpressionNodeKind.IntLiteralExpression) {
                 bclInitTypeName := ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode)
                 let bclInitType: Type? = null
                 if (bclInitTypeName == "JsonSerializerOptions") {
@@ -15044,7 +15044,7 @@ sealed class ColumnarIlEmitter {
                     for p := 0; p < pairCount; p++ {
                         nameNode := Child(idx, 1 + (2 * p))
                         valueNode := Child(idx, 2 + (2 * p))
-                        if (_nodes.Kind(nameNode) != 6) {
+                        if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
                             return false
                         }
                         memberName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
@@ -15086,7 +15086,7 @@ sealed class ColumnarIlEmitter {
                 }
             }
 
-            if (_nodes.Kind(typeRootNode) == 15) {
+            if (_nodes.Kind(typeRootNode) == ColumnarExpressionNodeKind.NewExpression) {
                 let constructedType: System.Type? = null
                 if (!EmitExpression(typeRootNode, out constructedType)) {
                     return false
@@ -15095,7 +15095,7 @@ sealed class ColumnarIlEmitter {
                 for p := 0; p < pairCount; p++ {
                     nameNode := Child(idx, 1 + (2 * p))
                     valueNode := Child(idx, 2 + (2 * p))
-                    if (_nodes.Kind(nameNode) != 6) {
+                    if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
                         return false
                     }
                     memberName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
@@ -15267,7 +15267,7 @@ sealed class ColumnarIlEmitter {
             // type is the BASE closed over the same arguments.
             let columnarDiscard53: string = null
             let genericInitCaseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
-            if (_nodes.Kind(typeRootNode) == 1 && TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode), out columnarDiscard53, out genericInitCaseDef)) {
+            if (_nodes.Kind(typeRootNode) == ColumnarExpressionNodeKind.FloatLiteralExpression && TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode), out columnarDiscard53, out genericInitCaseDef)) {
                 let explicitArgs: System.Type[]? = null
                 if (!genericInitCaseDef.UnionBase.get_IsGenericTypeDefinition() || !TryResolveUnionCaseTypeArgs(typeRootNode, genericInitCaseDef, out explicitArgs)) {
                     return false
@@ -15284,7 +15284,7 @@ sealed class ColumnarIlEmitter {
             // struct path: temp local, initobj, then address-based field stores. A user-ctor class has
             // no default ctor — object-init declines exactly like the non-generic rule below.
             let closedInitDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-            if (_nodes.Kind(typeRootNode) == 1 && _structRegistry.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode), out closedInitDef) && closedInitDef.Builder.get_IsGenericTypeDefinition()) {
+            if (_nodes.Kind(typeRootNode) == ColumnarExpressionNodeKind.FloatLiteralExpression && _structRegistry.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode), out closedInitDef) && closedInitDef.Builder.get_IsGenericTypeDefinition()) {
                 // A user GENERIC type named List/Dictionary/SortedDictionary/HashSet: the pipeline's analyzer binds the BCL
                 // head for `new List<int> { ... }` and rejects its members (NL303, probe-pinned) —
                 // the user definition must not claim the construction. Decline (parity by rejection).
@@ -15323,7 +15323,7 @@ sealed class ColumnarIlEmitter {
                     for p := 0; p < pairCount; p++ {
                         nameNode := Child(idx, 1 + (2 * p))
                         valueNode := Child(idx, 2 + (2 * p))
-                        if (_nodes.Kind(nameNode) != 6) {
+                        if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
                             return false
                         }
                         fieldName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
@@ -15350,7 +15350,7 @@ sealed class ColumnarIlEmitter {
                 for p := 0; p < pairCount; p++ {
                     nameNode := Child(idx, 1 + (2 * p))
                     valueNode := Child(idx, 2 + (2 * p))
-                    if (_nodes.Kind(nameNode) != 6) {
+                    if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
                         return false
                     }
                     fieldName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
@@ -15372,7 +15372,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
 
-            if (_nodes.Kind(typeRootNode) != 0) {
+            if (_nodes.Kind(typeRootNode) != ColumnarExpressionNodeKind.IntLiteralExpression) {
                 return false
             }
             // not a Simple type-ref.
@@ -15420,7 +15420,7 @@ sealed class ColumnarIlEmitter {
                 for p := 0; p < pairCount; p++ {
                     nameNode := Child(idx, 1 + (2 * p))
                     valueNode := Child(idx, 2 + (2 * p))
-                    if (_nodes.Kind(nameNode) != 6) {
+                    if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
                         return false
                     }
                     fieldName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
@@ -15483,7 +15483,7 @@ sealed class ColumnarIlEmitter {
             for p := 0; p < pairCount; p++ {
                 nameNode := Child(idx, 1 + (2 * p))
                 valueNode := Child(idx, 2 + (2 * p))
-                if (_nodes.Kind(nameNode) != 6) {
+                if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
                     return false
                 }
                 fieldName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
@@ -15521,7 +15521,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ldloc, structValue)
             columnarResolvedType = initStructDef.Builder
             return true
-        } else if columnarSwitchValue2 == 52 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.WithExpression {
             // WithExpression [receiver, name0, value0, ...] — `r with { Field: v, ... }`. N# owns
             // the clone/copy strategy, the receiver address-versus-value shape, the ordered
             // replacement set, the readonly rule, the exact call form, and the result type
@@ -15538,7 +15538,7 @@ sealed class ColumnarIlEmitter {
             withNames := new string[withPairCount]
             for p := 0; p < withPairCount; p++ {
                 withNameChild := Child(idx, 1 + (2 * p))
-                if (_nodes.Kind(withNameChild) != 6 || _nodes.ValueStart(withNameChild) < 0) {
+                if (_nodes.Kind(withNameChild) != ColumnarExpressionNodeKind.IdentifierExpression || _nodes.ValueStart(withNameChild) < 0) {
                     return Decline("emit.with.field-name", "with expression field name is not modeled", withNameChild)
                 }
                 withNames[p] = ColumnarNodeTextFacts.Text(_nodes, _source, withNameChild)
@@ -15586,7 +15586,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ldloc, withLocal)
             columnarResolvedType = withPlan.ResultType
             return true
-        } else if columnarSwitchValue2 == 44 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.PostfixUnary {
             // PostfixUnary [target] — `n++` / `n--` in EXPRESSION position: N# post-semantics, the
             // value is the PRE-step value. Bare LOCAL/PARAM targets of int/long/ulong only (the
             // pipeline's double/float `++` silently NO-OPS — an known defect; columnar declines those
@@ -15595,9 +15595,9 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             return true
-        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.NullGuardExpression() {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.NullGuardExpression {
             return TryEmitNullGuard(idx, out columnarResolvedType)
-        } else if columnarSwitchValue2 == 46 || columnarSwitchValue2 == 47 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.IsExpression || columnarSwitchValue2 == ColumnarExpressionNodeKind.AsExpression {
             // bool; AsExpression [value, typeRoot] — `value as Type`: `isinst <T>` keeping the
             // target type (null on mismatch). The typeRoot resolves a UNION CASE (closed over a
             // generic scrutinee via the match machinery) or a registered REFERENCE TYPE; a value-type
@@ -15614,9 +15614,9 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             isAsTypeRoot := Child(idx, 1)
-            isTypeTest := _nodes.Kind(idx) == 46
+            isTypeTest := _nodes.Kind(idx) == ColumnarExpressionNodeKind.IsExpression
             targetTestType: Type? = null
-            if (_nodes.Kind(isAsTypeRoot) == 0) {
+            if (_nodes.Kind(isAsTypeRoot) == ColumnarExpressionNodeKind.IntLiteralExpression) {
                 isAsName := ColumnarNodeTextFacts.Text(_nodes, _source, isAsTypeRoot)
                 let columnarDiscard57: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef = null
                 let columnarDiscard56: string = null
@@ -15682,7 +15682,7 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = targetTestType
             }
             return true
-        } else if columnarSwitchValue2 == 45 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.MustExpression {
             // MustExpression [operand] — `must x`, the prefix null-assert (the legacy emitter's
             // EmitMustExpression mirror): a NULLABLE<T> unwraps via HasValue/get_Value (throwing
             // InvalidOperationException("must unwrap failed: value was null") when empty — the EXACT
@@ -15726,7 +15726,7 @@ sealed class ColumnarIlEmitter {
             // is correct — so the emitter has to produce that correct program rather than decline.
             columnarResolvedType = mustType
             return true
-        } else if columnarSwitchValue2 == 13 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.TernaryExpression {
             // Ternary [cond, then, else] — a branch/merge with ONE result; both arms must be the SAME
             // type (TypesEquivalent — the match-arm unification rule).
             //
@@ -15747,8 +15747,8 @@ sealed class ColumnarIlEmitter {
             // REFERENCE type — `ldnull` is not a value of any other.
             ternaryThenNode := Child(idx, 1)
             ternaryElseNode := Child(idx, 2)
-            ternaryThenIsNull := _nodes.Kind(ternaryThenNode) == 5
-            ternaryElseIsNull := _nodes.Kind(ternaryElseNode) == 5
+            ternaryThenIsNull := _nodes.Kind(ternaryThenNode) == ColumnarExpressionNodeKind.NullLiteralExpression
+            ternaryElseIsNull := _nodes.Kind(ternaryElseNode) == ColumnarExpressionNodeKind.NullLiteralExpression
             if (ternaryThenIsNull && ternaryElseIsNull) {
                 return false
             }
@@ -15847,7 +15847,7 @@ sealed class ColumnarIlEmitter {
             _il.MarkLabel(ternaryEnd)
             columnarResolvedType = ternaryThenType
             return true
-        } else if columnarSwitchValue2 == 18 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.MatchExpression {
             // Match [value, pat0, res0, pat1, res1, ...] — `match value { p => r, ... }`, lowered to a
             // linear chain mirroring the match-expression emitter: eval value -> temp; per case test the
             // pattern, on match eval the result + br end; no match -> throw. An EXPRESSION: leaves one
@@ -15904,19 +15904,19 @@ sealed class ColumnarIlEmitter {
                 hasCatchAll := false
                 for c := 0; c < caseCount; c++ {
                     rawP := Child(idx, 1 + (2 * c))
-                    if (_nodes.Kind(rawP) == 19) {
+                    if (_nodes.Kind(rawP) == ColumnarExpressionNodeKind.GuardedPattern) {
                         // a `when`-guarded arm does not contribute to coverage.
                         continue
                     }
-                    if (_nodes.Kind(rawP) == 6) {
+                    if (_nodes.Kind(rawP) == ColumnarExpressionNodeKind.IdentifierExpression) {
                         // `_` discard or an unguarded binding -> a catch-all.
                         hasCatchAll = true
                     } else {
-                        if (_nodes.Kind(rawP) == 8) {
+                        if (_nodes.Kind(rawP) == ColumnarExpressionNodeKind.MemberAccessExpression) {
                             // `Enum.Member` -> covers that member (if it is THIS enum's).
                             recv := Child(rawP, 0)
                             let rd: NSharpLang.Compiler.Columnar.ColumnarEnumDef? = null
-                            if (_nodes.Kind(recv) == 6 && _typeResolutionEnums.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, recv), out rd) && rd.EnumType == matchValueType && matchEnumDef.Constants.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, rawP))) {
+                            if (_nodes.Kind(recv) == ColumnarExpressionNodeKind.IdentifierExpression && _typeResolutionEnums.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, recv), out rd) && rd.EnumType == matchValueType && matchEnumDef.Constants.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, rawP))) {
                                 covered.Add(ColumnarNodeTextFacts.Text(_nodes, _source, rawP))
                             }
                         }
@@ -15943,20 +15943,20 @@ sealed class ColumnarIlEmitter {
                 hasCatchAll := false
                 for c := 0; c < caseCount; c++ {
                     rawP := Child(idx, 1 + (2 * c))
-                    if (_nodes.Kind(rawP) == 19) {
+                    if (_nodes.Kind(rawP) == ColumnarExpressionNodeKind.GuardedPattern) {
                         // a `when`-guarded arm does not contribute to coverage.
                         continue
                     }
-                    if (_nodes.Kind(rawP) == 6) {
+                    if (_nodes.Kind(rawP) == ColumnarExpressionNodeKind.IdentifierExpression) {
                         // `_` discard or an unguarded binding -> a catch-all.
                         hasCatchAll = true
                     } else {
-                        if (_nodes.Kind(rawP) == 37) {
+                        if (_nodes.Kind(rawP) == ColumnarExpressionNodeKind.UnionCasePattern) {
                             // union-case PROPERTY pattern -> covers that case (if THIS union's).
                             mem := Child(rawP, 0)
-                            if (_nodes.Kind(mem) == 8) {
+                            if (_nodes.Kind(mem) == ColumnarExpressionNodeKind.MemberAccessExpression) {
                                 memRecv := Child(mem, 0)
-                                if (_nodes.Kind(memRecv) == 6) {
+                                if (_nodes.Kind(memRecv) == ColumnarExpressionNodeKind.IdentifierExpression) {
                                     qualified := ColumnarNodeTextFacts.Text(_nodes, _source, memRecv) + "." + ColumnarNodeTextFacts.Text(_nodes, _source, mem)
                                     let columnarDiscard61: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef = null
                                     let primaryCase: string? = null
@@ -15966,10 +15966,10 @@ sealed class ColumnarIlEmitter {
                                 }
                             }
                         } else {
-                            if (_nodes.Kind(rawP) == 8) {
+                            if (_nodes.Kind(rawP) == ColumnarExpressionNodeKind.MemberAccessExpression) {
                                 // bare `Union.Case` TYPE pattern -> covers that case (no binding).
                                 bareRecv := Child(rawP, 0)
-                                if (_nodes.Kind(bareRecv) == 6) {
+                                if (_nodes.Kind(bareRecv) == ColumnarExpressionNodeKind.IdentifierExpression) {
                                     qualified := ColumnarNodeTextFacts.Text(_nodes, _source, bareRecv) + "." + ColumnarNodeTextFacts.Text(_nodes, _source, rawP)
                                     let columnarDiscard62: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef = null
                                     let primaryCase: string? = null
@@ -15995,18 +15995,18 @@ sealed class ColumnarIlEmitter {
                 hasCatchAll := false
                 for c := 0; c < caseCount; c++ {
                     rawP := Child(idx, 1 + (2 * c))
-                    if (_nodes.Kind(rawP) == 19) {
+                    if (_nodes.Kind(rawP) == ColumnarExpressionNodeKind.GuardedPattern) {
                         // a `when`-guarded arm does not contribute to coverage.
                         continue
                     }
-                    if (_nodes.Kind(rawP) == 6) {
+                    if (_nodes.Kind(rawP) == ColumnarExpressionNodeKind.IdentifierExpression) {
                         // `_` discard or an unguarded binding -> a catch-all.
                         hasCatchAll = true
                         continue
                     }
                     let columnarDiscard63: string = null
                     let armType: System.Type? = null
-                    if (_nodes.Kind(rawP) == 61 && TryResolveAnonymousUnionTypeBindingPattern(rawP, matchValueType, out armType, out columnarDiscard63)) {
+                    if (_nodes.Kind(rawP) == ColumnarExpressionNodeKind.TypeBindingPattern && TryResolveAnonymousUnionTypeBindingPattern(rawP, matchValueType, out armType, out columnarDiscard63)) {
                         for a := 0; a < unionArmTypes.Length; a++ {
                             if (TypesEquivalent(armType, unionArmTypes[a])) {
                                 coveredArms[a] = true
@@ -16038,7 +16038,7 @@ sealed class ColumnarIlEmitter {
                 // trailing no-match throw remains correct.
                 let patternNode: int = 0
                 let guardNode: int = 0
-                if (_nodes.Kind(rawPattern) == 19) {
+                if (_nodes.Kind(rawPattern) == ColumnarExpressionNodeKind.GuardedPattern) {
                     if (_nodes.ChildCount(rawPattern) != 2) {
                         return false
                     }
@@ -16049,7 +16049,7 @@ sealed class ColumnarIlEmitter {
                     guardNode = -1
                 }
 
-                if (_nodes.Kind(patternNode) == 6) {
+                if (_nodes.Kind(patternNode) == ColumnarExpressionNodeKind.IdentifierExpression) {
                     // top-level identifier: `_` discard or a binding -> always matches.
                     patName := ColumnarNodeTextFacts.Text(_nodes, _source, patternNode)
                     if (patName != "_") {
@@ -16064,7 +16064,7 @@ sealed class ColumnarIlEmitter {
                     }
                 } else {
                     // Always matches -> fall through to the guard / result.
-                    if (_nodes.Kind(patternNode) == 37) {
+                    if (_nodes.Kind(patternNode) == ColumnarExpressionNodeKind.UnionCasePattern) {
                         // union-case pattern `Union.Case { f }` (top-level only).
 
                         // isinst-test the case + bind its named fields; on MATCH fall through to the guard/result
@@ -16077,7 +16077,7 @@ sealed class ColumnarIlEmitter {
                         }
                         _il.MarkLabel(armBody)
                     } else {
-                        if (_nodes.Kind(patternNode) == 61) {
+                        if (_nodes.Kind(patternNode) == ColumnarExpressionNodeKind.TypeBindingPattern) {
                             // type binding `Type name`.
                             armBody := _il.DefineLabel()
                             if (!EmitTypeBindingPattern(patternNode, matchValueType, matchLocal, armBody, nextCase)) {
@@ -16085,7 +16085,7 @@ sealed class ColumnarIlEmitter {
                             }
                             _il.MarkLabel(armBody)
                         } else {
-                            if (_nodes.Kind(patternNode) == 65) {
+                            if (_nodes.Kind(patternNode) == ColumnarExpressionNodeKind.ListPattern) {
                                 // list pattern `[head, .. rest, tail]` over arrays.
                                 armBody := _il.DefineLabel()
                                 if (!EmitArrayListPattern(patternNode, matchValueType, matchLocal, armBody, nextCase)) {
@@ -16093,7 +16093,7 @@ sealed class ColumnarIlEmitter {
                                 }
                                 _il.MarkLabel(armBody)
                             } else {
-                                if (_nodes.Kind(patternNode) == 67) {
+                                if (_nodes.Kind(patternNode) == ColumnarExpressionNodeKind.ObjectPattern) {
                                     // object/property pattern `{ Field, Field: pat }`.
                                     armBody := _il.DefineLabel()
                                     if (!EmitObjectPattern(patternNode, matchValueType, matchLocal, armBody, nextCase)) {
@@ -16158,10 +16158,10 @@ sealed class ColumnarIlEmitter {
             _il.MarkLabel(matchEnd)
             columnarResolvedType = matchResultType
             return true
-        } else if columnarSwitchValue2 == 59 {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.AnonymousObjectInitializer {
             // AnonymousObjectInitializer [name0, value0, ...] — `new { Name: value, ... }`.
             return TryEmitAnonymousObjectInitializer(idx, out columnarResolvedType)
-        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.GenericTypeReceiverExpression() {
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.GenericTypeReceiverExpression {
             // A CONSTRUCTED GENERIC TYPE RECEIVER that no planner claimed. Reaching here means the
             // static member behind it could not be resolved on the closed type — an instance member
             // named through the type, a member the constructed type does not declare, or a closed
@@ -16198,7 +16198,7 @@ sealed class ColumnarIlEmitter {
         seen := new HashSet<string>(StringComparer.Ordinal)
         for p := 0; p < propertyCount; p++ {
             nameNode := Child(idx, 2 * p)
-            if (_nodes.Kind(nameNode) != 6) {
+            if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
                 return false
             }
             name := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
@@ -16274,19 +16274,19 @@ sealed class ColumnarIlEmitter {
     // an arm, so an identifier inside a combinator declines (returns false) and required columnar emission rejects
     // the program. A `false` return discards the entire emitted assembly, so a partially-emitted test is harmless.
     private func EmitNestedPattern(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
-        if (_nodes.Kind(patternNode) == 6) {
+        if (_nodes.Kind(patternNode) == ColumnarExpressionNodeKind.IdentifierExpression) {
             return EmitPatternBinding(ColumnarNodeTextFacts.Text(_nodes, _source, patternNode), matchValueType, matchLocal, successLabel)
         }
-        if (_nodes.Kind(patternNode) == 66) {
+        if (_nodes.Kind(patternNode) == ColumnarExpressionNodeKind.SlicePattern) {
             return false
         }
-        if (_nodes.Kind(patternNode) == 37) {
+        if (_nodes.Kind(patternNode) == ColumnarExpressionNodeKind.UnionCasePattern) {
             return EmitUnionCasePattern(patternNode, matchValueType, matchLocal, successLabel, failLabel)
         }
-        if (_nodes.Kind(patternNode) == 65) {
+        if (_nodes.Kind(patternNode) == ColumnarExpressionNodeKind.ListPattern) {
             return EmitArrayListPattern(patternNode, matchValueType, matchLocal, successLabel, failLabel)
         }
-        if (_nodes.Kind(patternNode) == 67) {
+        if (_nodes.Kind(patternNode) == ColumnarExpressionNodeKind.ObjectPattern) {
             return EmitObjectPattern(patternNode, matchValueType, matchLocal, successLabel, failLabel)
         }
         return EmitPatternMatch(patternNode, matchValueType, matchLocal, successLabel, failLabel)
@@ -16307,7 +16307,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private func EmitObjectPattern(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
-        if (_nodes.Kind(patternNode) != 67 || !ColumnarTypeOfPlanner.IsSupportedType(matchValueType)) {
+        if (_nodes.Kind(patternNode) != ColumnarExpressionNodeKind.ObjectPattern || !ColumnarTypeOfPlanner.IsSupportedType(matchValueType)) {
             return false
         }
 
@@ -16329,7 +16329,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private func EmitPropertyPattern(propertyNode: int, ownerType: Type, ownerLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
-        if (_nodes.Kind(propertyNode) != 68 || _nodes.ChildCount(propertyNode) > 1) {
+        if (_nodes.Kind(propertyNode) != ColumnarExpressionNodeKind.PropertyPattern || _nodes.ChildCount(propertyNode) > 1) {
             return false
         }
 
@@ -16454,7 +16454,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private func EmitArrayListPattern(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
-        if (_nodes.Kind(patternNode) != 65 || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(matchValueType)) {
+        if (_nodes.Kind(patternNode) != ColumnarExpressionNodeKind.ListPattern || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(matchValueType)) {
             return false
         }
         elementType := matchValueType.GetElementType()
@@ -16538,7 +16538,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private func EmitArrayListSliceBinding(sliceNode: int, arrayType: Type, elementType: Type, arrayLocal: LocalBuilder, lengthLocal: LocalBuilder, leadingCount: int, trailingCount: int): bool {
-        if (_nodes.Kind(sliceNode) != 66) {
+        if (_nodes.Kind(sliceNode) != ColumnarExpressionNodeKind.SlicePattern) {
             return false
         }
         if (_nodes.ValueStart(sliceNode) < 0) {
@@ -16582,7 +16582,7 @@ sealed class ColumnarIlEmitter {
 
     private func EmitPatternMatch(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
         columnarSwitchValue5 := _nodes.Kind(patternNode)
-        if columnarSwitchValue5 == 34 {
+        if columnarSwitchValue5 == ColumnarExpressionNodeKind.OrPattern {
             // OrPattern [left, right]: left matches -> success; else fall through and try right.
             if (_nodes.ChildCount(patternNode) != 2) {
                 return false
@@ -16593,7 +16593,7 @@ sealed class ColumnarIlEmitter {
             }
             _il.MarkLabel(orNext)
             return EmitPatternMatch(Child(patternNode, 1), matchValueType, matchLocal, successLabel, failLabel)
-        } else if columnarSwitchValue5 == 33 {
+        } else if columnarSwitchValue5 == ColumnarExpressionNodeKind.AndPattern {
             // AndPattern [left, right]: left must match (else fail), then right decides.
             if (_nodes.ChildCount(patternNode) != 2) {
                 return false
@@ -16604,13 +16604,13 @@ sealed class ColumnarIlEmitter {
             }
             _il.MarkLabel(andNext)
             return EmitPatternMatch(Child(patternNode, 1), matchValueType, matchLocal, successLabel, failLabel)
-        } else if columnarSwitchValue5 == 35 {
+        } else if columnarSwitchValue5 == ColumnarExpressionNodeKind.NotPattern {
             // NotPattern [inner]: inner matches -> fail, inner fails -> success (just swap the labels).
             if (_nodes.ChildCount(patternNode) != 1) {
                 return false
             }
             return EmitPatternMatch(Child(patternNode, 0), matchValueType, matchLocal, failLabel, successLabel)
-        } else if columnarSwitchValue5 == 32 {
+        } else if columnarSwitchValue5 == ColumnarExpressionNodeKind.RelationalPattern {
             // RelationalPattern `<op> <constant>` -> ordered comparison (the pattern-test emitter mirror).
             if (_nodes.ChildCount(patternNode) != 1 || !ColumnarPatternFacts.IsOrderedMatchType(matchValueType)) {
                 return false
@@ -16645,7 +16645,7 @@ sealed class ColumnarIlEmitter {
             }
             _il.Emit(OpCodes.Br, failLabel)
             return true
-        } else if columnarSwitchValue5 == 8 {
+        } else if columnarSwitchValue5 == ColumnarExpressionNodeKind.MemberAccessExpression {
             // MemberAccess pattern: `Enum.Member` (enum-constant equality) OR `Union.Case` (a bare union TYPE
             // pattern — match the case by type, NO destructuring/binding).
             recv := Child(patternNode, 0)
@@ -16836,7 +16836,7 @@ sealed class ColumnarIlEmitter {
         for p := 0; p < pairCount; p++ {
             nameNode := Child(initIdx, 1 + (2 * p))
             valueNode := Child(initIdx, 2 + (2 * p))
-            if (_nodes.Kind(nameNode) != 6) {
+            if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
                 return false
             }
             fieldName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
@@ -16888,17 +16888,17 @@ sealed class ColumnarIlEmitter {
     // (NL207, no expected type), so kind-15/36/42 nodes reaching plain EmitExpression with a generic case decline
     // there.
     private func IsAdoptableUnionConstruction(exprNode: int, expectedType: Type): bool {
-        if (_nodes.Kind(exprNode) != 15 && _nodes.Kind(exprNode) != 36 && _nodes.Kind(exprNode) != 42) {
+        if (_nodes.Kind(exprNode) != ColumnarExpressionNodeKind.NewExpression && _nodes.Kind(exprNode) != ColumnarExpressionNodeKind.ObjectInitializerExpression && _nodes.Kind(exprNode) != ColumnarExpressionNodeKind.BareNew) {
             return false
         }
-        if (_nodes.Kind(exprNode) == 15 && _nodes.ChildCount(exprNode) != 1) {
+        if (_nodes.Kind(exprNode) == ColumnarExpressionNodeKind.NewExpression && _nodes.ChildCount(exprNode) != 1) {
             return false
         }
-        if (_nodes.Kind(exprNode) == 36 && (_nodes.ChildCount(exprNode) % 2) != 1) {
+        if (_nodes.Kind(exprNode) == ColumnarExpressionNodeKind.ObjectInitializerExpression && (_nodes.ChildCount(exprNode) % 2) != 1) {
             return false
         }
         root := Child(exprNode, 0)
-        if (_nodes.Kind(root) != 0) {
+        if (_nodes.Kind(root) != ColumnarExpressionNodeKind.IntLiteralExpression) {
             return false
         }
         let columnarDiscard67: string = null
@@ -16921,7 +16921,7 @@ sealed class ColumnarIlEmitter {
         if (!TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, Child(exprNode, 0)), out columnarDiscard68, out caseDef)) {
             return false
         }
-        pairCount := _nodes.Kind(exprNode) == 36 ? (_nodes.ChildCount(exprNode) - 1) / 2 : 0
+        pairCount := _nodes.Kind(exprNode) == ColumnarExpressionNodeKind.ObjectInitializerExpression ? (_nodes.ChildCount(exprNode) - 1) / 2 : 0
         return TryEmitUnionCaseConstruction(caseDef, expectedType.GetGenericArguments(), exprNode, pairCount, out columnarResolvedType)
     }
 
@@ -16933,11 +16933,11 @@ sealed class ColumnarIlEmitter {
     // caller); on NO-MATCH to failLabel. Returns false (whole match declines) on any unsupported shape.
     private func EmitUnionCasePattern(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
         memberNode := Child(patternNode, 0)
-        if (_nodes.Kind(memberNode) != 8) {
+        if (_nodes.Kind(memberNode) != ColumnarExpressionNodeKind.MemberAccessExpression) {
             return false
         }
         caseRecv := Child(memberNode, 0)
-        if (_nodes.Kind(caseRecv) != 6) {
+        if (_nodes.Kind(caseRecv) != ColumnarExpressionNodeKind.IdentifierExpression) {
             return false
         }
         // the head must be a bare `Union` identifier (a qualified `Union.Case`).
@@ -16989,8 +16989,8 @@ sealed class ColumnarIlEmitter {
     }
 
     private func EmitUnionCasePropertyPattern(propertyNode: int, caseDef: ColumnarUnionCaseDef, caseArgs: Type[], caseTestType: Type, caseLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
-        legacyBareBinding := _nodes.Kind(propertyNode) == 6
-        if (!legacyBareBinding && (_nodes.Kind(propertyNode) != 68 || _nodes.ChildCount(propertyNode) > 1)) {
+        legacyBareBinding := _nodes.Kind(propertyNode) == ColumnarExpressionNodeKind.IdentifierExpression
+        if (!legacyBareBinding && (_nodes.Kind(propertyNode) != ColumnarExpressionNodeKind.PropertyPattern || _nodes.ChildCount(propertyNode) > 1)) {
             return false
         }
 
@@ -17102,14 +17102,14 @@ sealed class ColumnarIlEmitter {
     private func TryResolveTypeBindingPattern(patternNode: int, out targetType: Type, out bindName: string): bool {
         targetType = null
         bindName = ""
-        if (_nodes.Kind(patternNode) != 61 || _nodes.ChildCount(patternNode) != 2) {
+        if (_nodes.Kind(patternNode) != ColumnarExpressionNodeKind.TypeBindingPattern || _nodes.ChildCount(patternNode) != 2) {
             return false
         }
 
         typeNode := Child(patternNode, 0)
         bindNode := Child(patternNode, 1)
         let canonical: string? = null
-        if (_nodes.Kind(bindNode) != 6 || !TryBuildTypeNodeCanonical(typeNode, out canonical) || !TryResolveBodyType(canonical, out targetType) || !ColumnarTypeOfPlanner.IsSupportedType(targetType)) {
+        if (_nodes.Kind(bindNode) != ColumnarExpressionNodeKind.IdentifierExpression || !TryBuildTypeNodeCanonical(typeNode, out canonical) || !TryResolveBodyType(canonical, out targetType) || !ColumnarTypeOfPlanner.IsSupportedType(targetType)) {
             return false
         }
 
@@ -17368,7 +17368,7 @@ sealed class ColumnarIlEmitter {
         receiver := Child(callee, 0)
         argCount := _nodes.ChildCount(callIdx) - 1
 
-        if (_nodes.Kind(receiver) == 6) {
+        if (_nodes.Kind(receiver) == ColumnarExpressionNodeKind.IdentifierExpression) {
             // a bare identifier receiver that is NOT a value (local/param/sibling) is a type name.
             receiverName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
             // `this` IS THE ONE BARE IDENTIFIER THAT CAN NEVER BE A TYPE NAME. It is not in any
@@ -17424,7 +17424,7 @@ sealed class ColumnarIlEmitter {
         // A CONSTRUCTED GENERIC TYPE receiver in static position — `Box<int>.Of(4)`. The receiver is a
         // type, not a value, so nothing is loaded: the instantiation is resolved and the generic
         // static is closed on it.
-        if (_nodes.Kind(receiver) == 70) {
+        if (_nodes.Kind(receiver) == ColumnarExpressionNodeKind.GenericTypeReceiverExpression) {
             let constructedReceiverCanonical: string? = null
             let constructedOwnerType: System.Type? = null
             let constructedOwnerDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
@@ -17941,7 +17941,7 @@ sealed class ColumnarIlEmitter {
 
     private func TryGetPtrReceiverNode(node: int, out receiverNode: int): bool {
         node = UnwrapParenthesizedNode(node)
-        if (_nodes.Kind(node) == 8 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "ptr" && _nodes.ChildCount(node) == 1) {
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.MemberAccessExpression && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "ptr" && _nodes.ChildCount(node) == 1) {
             receiverNode = Child(node, 0)
             return true
         }
@@ -18120,7 +18120,7 @@ sealed class ColumnarIlEmitter {
         }
         if ((typeName == "Interlocked" || typeName == "System.Threading.Interlocked") && member == nameof(System.Threading.Interlocked.Increment) && argCount == 1) {
             refArg := Child(callIdx, 1)
-            if (_nodes.Kind(refArg) != 54 || _nodes.ChildCount(refArg) != 1 || ColumnarNodeTextFacts.Text(_nodes, _source, refArg) != "ref") {
+            if (_nodes.Kind(refArg) != ColumnarExpressionNodeKind.RefOutArgument || _nodes.ChildCount(refArg) != 1 || ColumnarNodeTextFacts.Text(_nodes, _source, refArg) != "ref") {
                 return false
             }
             elementType: System.Type? = null
@@ -18696,7 +18696,7 @@ sealed class ColumnarIlEmitter {
             // Array.Resize<T>(ref T[] array, int newSize) -> void. Keep this as an exact ref-to-SZ-array
             // special case instead of opening general byref reference slots in IsSupportedParameterType.
             refArg := Child(callIdx, 1)
-            if (_nodes.Kind(refArg) != 54 || _nodes.ChildCount(refArg) != 1 || ColumnarNodeTextFacts.Text(_nodes, _source, refArg) != "ref") {
+            if (_nodes.Kind(refArg) != ColumnarExpressionNodeKind.RefOutArgument || _nodes.ChildCount(refArg) != 1 || ColumnarNodeTextFacts.Text(_nodes, _source, refArg) != "ref") {
                 return false
             }
             arrayType: System.Type? = null
@@ -19012,20 +19012,20 @@ sealed class ColumnarIlEmitter {
 
     private func TupleNamesOfExpressionNodeCore(node: int): string[]? {
         nodeKind := _nodes.Kind(node)
-        if (nodeKind == 6) {
+        if (nodeKind == ColumnarExpressionNodeKind.IdentifierExpression) {
             variableNames: string[]? = null
             if (_nodes.ValueStart(node) >= 0 && _tupleNamesByVariable.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, node), out variableNames)) {
                 return variableNames
             }
             return null
         }
-        if (nodeKind == 7) {
+        if (nodeKind == ColumnarExpressionNodeKind.ParenthesizedExpression) {
             if (_nodes.ChildCount(node) == 1) {
                 return TupleNamesOfExpressionNode(Child(node, 0))
             }
             return null
         }
-        if (nodeKind == 17) {
+        if (nodeKind == ColumnarExpressionNodeKind.TupleExpression) {
             if (_nodes.ChildCount(node) == 0) {
                 return null
             }
@@ -19036,7 +19036,7 @@ sealed class ColumnarIlEmitter {
             anyNamed := false
             for i := 0; i < literalNames.Length; i++ {
                 elementNode := Child(node, i)
-                if (_nodes.Kind(elementNode) == 43) {
+                if (_nodes.Kind(elementNode) == ColumnarExpressionNodeKind.NamedTupleElement) {
                     literalNames[i] = ColumnarNodeTextFacts.Text(_nodes, _source, elementNode)
                     anyNamed = true
                 } else {
@@ -19048,13 +19048,13 @@ sealed class ColumnarIlEmitter {
             }
             return literalNames
         }
-        if (nodeKind == 9) {
+        if (nodeKind == ColumnarExpressionNodeKind.CallExpression) {
             callee := Child(node, 0)
             siblingLabeled := SiblingReturnLabeledCanonical(callee)
             if (siblingLabeled != null) {
                 return ColumnarTupleElementNames.TopLevelNames(siblingLabeled)
             }
-            if (_nodes.Kind(callee) == 8 && _nodes.ChildCount(callee) >= 1) {
+            if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.MemberAccessExpression && _nodes.ChildCount(callee) >= 1) {
                 declaredLabeled := DeclaredMethodCallLabeledCanonical(node, callee)
                 if (declaredLabeled != null) {
                     return ColumnarTupleElementNames.TopLevelNames(declaredLabeled)
@@ -19068,7 +19068,7 @@ sealed class ColumnarIlEmitter {
 
     // The return type AS WRITTEN of the FREE FUNCTION a call names, or null when the callee is not one.
     private func SiblingReturnLabeledCanonical(callee: int): string? {
-        if (_nodes.Kind(callee) != 6 || _nodes.ValueStart(callee) < 0 || _siblingReturnLabeledCanonicals == null) {
+        if (_nodes.Kind(callee) != ColumnarExpressionNodeKind.IdentifierExpression || _nodes.ValueStart(callee) < 0 || _siblingReturnLabeledCanonicals == null) {
             return null
         }
         calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
@@ -19097,7 +19097,7 @@ sealed class ColumnarIlEmitter {
     // declared with that same parameter. Two positions declared with it cannot say which argument the
     // result came from, so the call says nothing and the read stays positional.
     private func SiblingInferredReturnLabeled(callNode: int, callee: int): string? {
-        if (_nodes.Kind(callee) != 6 || _nodes.ValueStart(callee) < 0) {
+        if (_nodes.Kind(callee) != ColumnarExpressionNodeKind.IdentifierExpression || _nodes.ValueStart(callee) < 0) {
             return null
         }
         calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
@@ -19183,7 +19183,7 @@ sealed class ColumnarIlEmitter {
         // PREFLIGHT CANNOT TYPE AN INDEX READ BEFORE ITS RECEIVER IS EMITTED, and a member rewrite has
         // to decide the name BEFORE anything is emitted. An index read has a structural answer that
         // needs no preflight at all: the element its receiver's own indexer answers.
-        if (_nodes.Kind(node) == 10) {
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.IndexAccessExpression) {
             indexedLabeled: string? = null
             if (TryIndexedElementLabeled(ReceiverOfExpressionNode(node), receiverLabeled, out indexedLabeled)) {
                 return indexedLabeled
@@ -19258,7 +19258,7 @@ sealed class ColumnarIlEmitter {
     // answered. Returns null for every binding that answers for itself.
     private func LabeledContextOfBindingNode(node: int): string? {
         unwrapped := UnwrapParenthesizedNode(node)
-        if (_nodes.Kind(unwrapped) != 6 || _nodes.ValueStart(unwrapped) < 0) {
+        if (_nodes.Kind(unwrapped) != ColumnarExpressionNodeKind.IdentifierExpression || _nodes.ValueStart(unwrapped) < 0) {
             return null
         }
         context: string? = null
@@ -19337,7 +19337,7 @@ sealed class ColumnarIlEmitter {
     private func TryGetDeclaredBindingType(node: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         unwrapped := UnwrapParenthesizedNode(node)
-        if (_nodes.Kind(unwrapped) == 6 && _nodes.ValueStart(unwrapped) >= 0) {
+        if (_nodes.Kind(unwrapped) == ColumnarExpressionNodeKind.IdentifierExpression && _nodes.ValueStart(unwrapped) >= 0) {
             name := ColumnarNodeTextFacts.Text(_nodes, _source, unwrapped)
             let declaredLocal: System.Reflection.Emit.LocalBuilder? = null
             if (_locals.TryGetValue(name, out declaredLocal)) {
@@ -19365,14 +19365,14 @@ sealed class ColumnarIlEmitter {
     // of this compilation's own types.
     private func DirectLabeledTypeOfExpressionNode(node: int): string? {
         nodeKind := _nodes.Kind(node)
-        if (nodeKind == 6) {
+        if (nodeKind == ColumnarExpressionNodeKind.IdentifierExpression) {
             labeled: string? = null
             if (_nodes.ValueStart(node) >= 0 && _labeledTypeByVariable.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, node), out labeled)) {
                 return labeled
             }
             return null
         }
-        if (nodeKind == 7 || nodeKind == 45) {
+        if (nodeKind == ColumnarExpressionNodeKind.ParenthesizedExpression || nodeKind == ColumnarExpressionNodeKind.MustExpression) {
             // A parenthesised wrap and a `must` unwrap are both transparent to the WRITTEN type: `must t`
             // is the same tuple `t` is, minus the nullable annotation the walk already sees through.
             if (_nodes.ChildCount(node) == 1) {
@@ -19380,7 +19380,7 @@ sealed class ColumnarIlEmitter {
             }
             return null
         }
-        if (nodeKind == 9 && _nodes.ChildCount(node) >= 1) {
+        if (nodeKind == ColumnarExpressionNodeKind.CallExpression && _nodes.ChildCount(node) >= 1) {
             callee := Child(node, 0)
             siblingLabeled := SiblingReturnLabeledCanonical(callee)
             if (siblingLabeled != null) {
@@ -19390,12 +19390,12 @@ sealed class ColumnarIlEmitter {
             if (inferredSiblingLabeled != null) {
                 return inferredSiblingLabeled
             }
-            if (_nodes.Kind(callee) == 8 && _nodes.ChildCount(callee) >= 1) {
+            if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.MemberAccessExpression && _nodes.ChildCount(callee) >= 1) {
                 return DeclaredMethodCallLabeledCanonical(node, callee)
             }
             return null
         }
-        if (nodeKind == 15 && _nodes.ChildCount(node) >= 1) {
+        if (nodeKind == ColumnarExpressionNodeKind.NewExpression && _nodes.ChildCount(node) >= 1) {
             // `new Dictionary<string, (Item: string, Ranges: List<int>)>()` WRITES the names, exactly as
             // an annotation does, so a local inferred from one carries them.
             newLabeled: string? = null
@@ -19404,7 +19404,7 @@ sealed class ColumnarIlEmitter {
             }
             return null
         }
-        if (nodeKind == 8 && _nodes.ChildCount(node) >= 1) {
+        if (nodeKind == ColumnarExpressionNodeKind.MemberAccessExpression && _nodes.ChildCount(node) >= 1) {
             member := ColumnarNodeTextFacts.Text(_nodes, _source, node)
             if (member == "") {
                 return null
@@ -19431,12 +19431,12 @@ sealed class ColumnarIlEmitter {
     // receiver.
     private func ReceiverOfExpressionNode(node: int): int {
         nodeKind := _nodes.Kind(node)
-        if ((nodeKind == 8 || nodeKind == 10) && _nodes.ChildCount(node) >= 1) {
+        if ((nodeKind == ColumnarExpressionNodeKind.MemberAccessExpression || nodeKind == ColumnarExpressionNodeKind.IndexAccessExpression) && _nodes.ChildCount(node) >= 1) {
             return UnwrapParenthesizedNode(Child(node, 0))
         }
-        if (nodeKind == 9 && _nodes.ChildCount(node) >= 1) {
+        if (nodeKind == ColumnarExpressionNodeKind.CallExpression && _nodes.ChildCount(node) >= 1) {
             callee := Child(node, 0)
-            if (_nodes.Kind(callee) == 8 && _nodes.ChildCount(callee) >= 1) {
+            if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.MemberAccessExpression && _nodes.ChildCount(callee) >= 1) {
                 return UnwrapParenthesizedNode(Child(callee, 0))
             }
             return -1
@@ -19490,7 +19490,7 @@ sealed class ColumnarIlEmitter {
         receiver := UnwrapParenthesizedNode(Child(callee, 0))
 
         // A STATIC call: the receiver spells a source type rather than a value.
-        if (_nodes.Kind(receiver) == 6 && _nodes.ValueStart(receiver) >= 0) {
+        if (_nodes.Kind(receiver) == ColumnarExpressionNodeKind.IdentifierExpression && _nodes.ValueStart(receiver) >= 0) {
             receiverText := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
             if (!_locals.ContainsKey(receiverText) && !_paramOrdinals.ContainsKey(receiverText) && _typeResolutionStructs != null) {
                 staticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
@@ -19547,7 +19547,7 @@ sealed class ColumnarIlEmitter {
 
         // A STATIC call into a referenced assembly: the receiver spells the owning type rather than a
         // value, and no source declaration answers it (those are handled by the declared-method arm).
-        if (_nodes.Kind(receiver) == 6 && _nodes.ValueStart(receiver) >= 0) {
+        if (_nodes.Kind(receiver) == ColumnarExpressionNodeKind.IdentifierExpression && _nodes.ValueStart(receiver) >= 0) {
             receiverText := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
             if (!_locals.ContainsKey(receiverText) && !_paramOrdinals.ContainsKey(receiverText) && !_liftedLocals.ContainsKey(receiverText)) {
                 let staticOwnerType: System.Type? = null
@@ -20998,7 +20998,7 @@ sealed class ColumnarIlEmitter {
         receiverType: Type = null
         receiverLocal: LocalBuilder? = null
         receiverOrdinal := -1
-        if (_nodes.Kind(receiverNode) == 6) {
+        if (_nodes.Kind(receiverNode) == ColumnarExpressionNodeKind.IdentifierExpression) {
             receiverName := ColumnarNodeTextFacts.Text(_nodes, _source, receiverNode)
             if (_liftedLocals.ContainsKey(receiverName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(receiverName))) {
                 return false
@@ -21087,7 +21087,7 @@ sealed class ColumnarIlEmitter {
     private func TryEmitValueAsNullable(node: int, target: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
         element := target.GetGenericArguments()[0]
-        if (_nodes.Kind(node) == 5 || _nodes.Kind(node) == ColumnarExpressionNodeKind.DefaultExpression()) {
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.NullLiteralExpression || _nodes.Kind(node) == ColumnarExpressionNodeKind.DefaultExpression) {
             defaultLocal := _il.DeclareLocal(target)
             _il.Emit(OpCodes.Ldloca, defaultLocal)
             _il.Emit(OpCodes.Initobj, target)
@@ -21139,7 +21139,7 @@ sealed class ColumnarIlEmitter {
     // produces a value, which is the same shape the unification arm writes for a throwing arm.
     private func TryEmitConditionalAsType(node: int, target: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
-        if (target == null || _nodes.Kind(node) != 13 || _nodes.ChildCount(node) != 3) {
+        if (target == null || _nodes.Kind(node) != ColumnarExpressionNodeKind.TernaryExpression || _nodes.ChildCount(node) != 3) {
             return false
         }
         thenNode := Child(node, 1)
@@ -21186,7 +21186,7 @@ sealed class ColumnarIlEmitter {
     // An arm with no type of its own: the two keyword literals and a `throw`.
     private func IsTypelessConditionalArm(node: int): bool {
         kind := _nodes.Kind(node)
-        return kind == 5 || kind == ColumnarExpressionNodeKind.DefaultExpression() || IsThrowExpressionNode(node)
+        return kind == ColumnarExpressionNodeKind.NullLiteralExpression || kind == ColumnarExpressionNodeKind.DefaultExpression || IsThrowExpressionNode(node)
     }
 
     // ONE ARM AS THE TARGET TYPE, through the same three doors the return and typed-local ladders use
@@ -21219,14 +21219,14 @@ sealed class ColumnarIlEmitter {
     private func TryEmitZeroLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
         nodeKind := _nodes.Kind(node)
-        if (nodeKind == ColumnarExpressionNodeKind.DefaultExpression()) {
+        if (nodeKind == ColumnarExpressionNodeKind.DefaultExpression) {
             if (!EmitDefaultValueOfType(target)) {
                 return false
             }
             resolvedClrType = target
             return true
         }
-        if (nodeKind != 5 || target.get_IsValueType()) {
+        if (nodeKind != ColumnarExpressionNodeKind.NullLiteralExpression || target.get_IsValueType()) {
             return false
         }
         _il.Emit(OpCodes.Ldnull)
@@ -21299,7 +21299,7 @@ sealed class ColumnarIlEmitter {
 
     private func CanUseTupleLiteralAsType(node: int, target: Type): bool {
         literalNode := UnwrapParenthesizedNode(node)
-        if (_nodes.Kind(literalNode) != 17 || target == null || !ColumnarTypeOfPlanner.IsSupportedValueTuple(target)) {
+        if (_nodes.Kind(literalNode) != ColumnarExpressionNodeKind.TupleExpression || target == null || !ColumnarTypeOfPlanner.IsSupportedValueTuple(target)) {
             return false
         }
         elementTypes := target.GetGenericArguments()
@@ -21318,7 +21318,7 @@ sealed class ColumnarIlEmitter {
     // node itself when the element is positional. Naming is per element, so one literal carries both.
     private func TupleLiteralElementValueNode(literalNode: int, index: int): int {
         elementNode := Child(literalNode, index)
-        if (_nodes.Kind(elementNode) == 43 && _nodes.ChildCount(elementNode) == 1) {
+        if (_nodes.Kind(elementNode) == ColumnarExpressionNodeKind.NamedTupleElement && _nodes.ChildCount(elementNode) == 1) {
             return Child(elementNode, 0)
         }
         return elementNode
@@ -21350,7 +21350,7 @@ sealed class ColumnarIlEmitter {
 
     private func CanUseArrayLiteralAsType(node: int, target: Type): bool {
         node = UnwrapParenthesizedNode(node)
-        if (_nodes.Kind(node) != 58 || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(target)) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.ArrayLiteralExpression || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(target)) {
             return false
         }
         elementType := target.GetElementType()
@@ -21398,7 +21398,7 @@ sealed class ColumnarIlEmitter {
         elementType: System.Type? = null
         ignoredCtor: System.Reflection.ConstructorInfo? = null
         ignoredAddMethod: System.Reflection.MethodInfo? = null
-        if (_nodes.Kind(node) != 58 || !TryGetCollectionLiteralTarget(target, out elementType, out ignoredCtor, out ignoredAddMethod)) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.ArrayLiteralExpression || !TryGetCollectionLiteralTarget(target, out elementType, out ignoredCtor, out ignoredAddMethod)) {
             return false
         }
         elementCount := _nodes.ChildCount(node)
@@ -21440,10 +21440,10 @@ sealed class ColumnarIlEmitter {
         if (IsContextualDelegateValueNode(valueNode)) {
             return CanDeclaredCallArgumentMatch(valueNode, targetType, true)
         }
-        if (_nodes.Kind(valueNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
+        if (_nodes.Kind(valueNode) == ColumnarExpressionNodeKind.DefaultExpression) {
             return CanEmitDefaultValueOfType(targetType)
         }
-        if (_nodes.Kind(valueNode) == 5) {
+        if (_nodes.Kind(valueNode) == ColumnarExpressionNodeKind.NullLiteralExpression) {
             return !targetType.get_IsValueType() || ColumnarTypeOfPlanner.IsSupportedNullable(targetType)
         }
         if (CanUseTargetTypedNewAsType(valueNode, targetType)) {
@@ -21477,7 +21477,7 @@ sealed class ColumnarIlEmitter {
 
     private func CanUseObjectInitializerAsType(node: int, targetType: Type): bool {
         node = UnwrapParenthesizedNode(node)
-        if (_nodes.Kind(node) != 36 || (targetType.get_IsValueType() && (targetType as TypeBuilder) == null)) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.ObjectInitializerExpression || (targetType.get_IsValueType() && (targetType as TypeBuilder) == null)) {
             return false
         }
 
@@ -21517,7 +21517,7 @@ sealed class ColumnarIlEmitter {
         for p := 1; p + 1 < initChildCount; p += 2 {
             nameNode := Child(node, p)
             valueNode := Child(node, p + 1)
-            if (_nodes.Kind(nameNode) != 6) {
+            if (_nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression) {
                 return false
             }
             memberName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
@@ -21611,11 +21611,11 @@ sealed class ColumnarIlEmitter {
     private func TryEmitIntLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
         negative := false
-        if (_nodes.Kind(node) == 11 && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "-") {
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.UnaryExpression && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "-") {
             negative = true
             node = Child(node, 0)
         }
-        if (_nodes.Kind(node) != 0 || _nodes.ValueStart(node) < 0) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.IntLiteralExpression || _nodes.ValueStart(node) < 0) {
             return false
         }
         text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
@@ -21654,10 +21654,10 @@ sealed class ColumnarIlEmitter {
             return false
         }
         target := UnwrapParenthesizedNode(Child(idx, 0))
-        if (_nodes.Kind(target) == 8) {
+        if (_nodes.Kind(target) == ColumnarExpressionNodeKind.MemberAccessExpression) {
             return TryEmitMemberPostfixUnary(idx, target, keepValue, out resolvedClrType)
         }
-        if (_nodes.Kind(target) != 6 || _nodes.ValueStart(target) < 0) {
+        if (_nodes.Kind(target) != ColumnarExpressionNodeKind.IdentifierExpression || _nodes.ValueStart(target) < 0) {
             return false
         }
         name := ColumnarNodeTextFacts.Text(_nodes, _source, target)
@@ -22033,11 +22033,11 @@ sealed class ColumnarIlEmitter {
     // which is the only form an element read can take its names from.
     private func TryBuildLabeledTypeNodeCanonical(typeNode: int, out labeled: string): bool {
         typeNodeKind := _nodes.Kind(typeNode)
-        if (typeNodeKind == 0) {
+        if (typeNodeKind == ColumnarExpressionNodeKind.IntLiteralExpression) {
             labeled = ColumnarNodeTextFacts.Text(_nodes, _source, typeNode)
             return true
         }
-        if (typeNodeKind == 1) {
+        if (typeNodeKind == ColumnarExpressionNodeKind.FloatLiteralExpression) {
             builder := new System.Text.StringBuilder(ColumnarNodeTextFacts.Text(_nodes, _source, typeNode))
             builder.Append('<')
             for c := 0; c < _nodes.ChildCount(typeNode); c++ {
@@ -22055,20 +22055,20 @@ sealed class ColumnarIlEmitter {
             labeled = builder.ToString()
             return true
         }
-        if (typeNodeKind == 2 || typeNodeKind == 3) {
+        if (typeNodeKind == ColumnarExpressionNodeKind.CharLiteralExpression || typeNodeKind == ColumnarExpressionNodeKind.StringLiteralExpression) {
             elementLabeled: string? = null
             if (_nodes.ChildCount(typeNode) != 1 || !TryBuildLabeledTypeNodeCanonical(Child(typeNode, 0), out elementLabeled)) {
                 labeled = ""
                 return false
             }
-            if (typeNodeKind == 2) {
+            if (typeNodeKind == ColumnarExpressionNodeKind.CharLiteralExpression) {
                 labeled = elementLabeled + "[]"
             } else {
                 labeled = elementLabeled + "?"
             }
             return true
         }
-        if (typeNodeKind == 6) {
+        if (typeNodeKind == ColumnarExpressionNodeKind.IdentifierExpression) {
             childCount := _nodes.ChildCount(typeNode)
             if (childCount < 2) {
                 labeled = ""
@@ -22090,7 +22090,7 @@ sealed class ColumnarIlEmitter {
             labeled = builder.ToString()
             return true
         }
-        if (typeNodeKind == 7) {
+        if (typeNodeKind == ColumnarExpressionNodeKind.ParenthesizedExpression) {
             innerLabeled: string? = null
             if (_nodes.ChildCount(typeNode) != 1 || !TryBuildLabeledTypeNodeCanonical(Child(typeNode, 0), out innerLabeled)) {
                 labeled = ""
@@ -22110,11 +22110,11 @@ sealed class ColumnarIlEmitter {
 
     private func TryBuildTypeNodeCanonical(typeNode: int, out canonical: string): bool {
         typeNodeKind := _nodes.Kind(typeNode)
-        if (typeNodeKind == 0) {
+        if (typeNodeKind == ColumnarExpressionNodeKind.IntLiteralExpression) {
             canonical = ColumnarNodeTextFacts.Text(_nodes, _source, typeNode)
             return true
         }
-        if (typeNodeKind == 1) {
+        if (typeNodeKind == ColumnarExpressionNodeKind.FloatLiteralExpression) {
             builder := new System.Text.StringBuilder(ColumnarNodeTextFacts.Text(_nodes, _source, typeNode))
             builder.Append('<')
             for c := 0; c < _nodes.ChildCount(typeNode); c++ {
@@ -22132,7 +22132,7 @@ sealed class ColumnarIlEmitter {
             canonical = builder.ToString()
             return true
         }
-        if (typeNodeKind == 2) {
+        if (typeNodeKind == ColumnarExpressionNodeKind.CharLiteralExpression) {
             elementCanonical: string? = null
             if (!TryBuildTypeNodeCanonical(Child(typeNode, 0), out elementCanonical)) {
                 canonical = ""
@@ -22141,7 +22141,7 @@ sealed class ColumnarIlEmitter {
             canonical = elementCanonical + "[]"
             return true
         }
-        if (typeNodeKind == 3) {
+        if (typeNodeKind == ColumnarExpressionNodeKind.StringLiteralExpression) {
             elementCanonical: string? = null
             if (!TryBuildTypeNodeCanonical(Child(typeNode, 0), out elementCanonical)) {
                 canonical = ""
@@ -22150,7 +22150,7 @@ sealed class ColumnarIlEmitter {
             canonical = elementCanonical + "?"
             return true
         }
-        if (typeNodeKind == 4) {
+        if (typeNodeKind == ColumnarExpressionNodeKind.BoolLiteralExpression) {
             childCount := _nodes.ChildCount(typeNode)
             if (childCount != 2) {
                 canonical = ""
@@ -22171,7 +22171,7 @@ sealed class ColumnarIlEmitter {
             canonical = builder.ToString()
             return true
         }
-        if (typeNodeKind == 6) {
+        if (typeNodeKind == ColumnarExpressionNodeKind.IdentifierExpression) {
             childCount := _nodes.ChildCount(typeNode)
             if (childCount < 2 || childCount > 7) {
                 canonical = ""
@@ -22193,7 +22193,7 @@ sealed class ColumnarIlEmitter {
             canonical = builder.ToString()
             return true
         }
-        if (typeNodeKind == 7) {
+        if (typeNodeKind == ColumnarExpressionNodeKind.ParenthesizedExpression) {
             if (_nodes.ChildCount(typeNode) != 1) {
                 canonical = ""
                 return false
@@ -22323,7 +22323,7 @@ sealed class ColumnarIlEmitter {
 
     private func CanUseTargetTypedNewAsType(node: int, target: Type): bool {
         node = UnwrapParenthesizedNode(node)
-        if (_nodes.Kind(node) != 63) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.TargetTypedNewExpression) {
             return false
         }
         if (target == ColumnarTypeOfPlanner.RequiredVoidType()) {
@@ -22422,7 +22422,7 @@ sealed class ColumnarIlEmitter {
     private func TryEmitTargetTypedNewAsType(node: int, target: Type, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         node = UnwrapParenthesizedNode(node)
-        if (_nodes.Kind(node) != 63) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.TargetTypedNewExpression) {
             return false
         }
         if (target == ColumnarTypeOfPlanner.RequiredVoidType()) {
@@ -22585,10 +22585,10 @@ sealed class ColumnarIlEmitter {
 
     private func CanEmitConstructorArgumentAs(argNode: int, expectedType: Type): bool {
         argNode = UnwrapParenthesizedNode(argNode)
-        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.DefaultExpression) {
             return CanEmitDefaultValueOfType(expectedType)
         }
-        if (_nodes.Kind(argNode) == 5) {
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.NullLiteralExpression) {
             return !expectedType.get_IsValueType()
         }
         if (CanUseTargetTypedNewAsType(argNode, expectedType)) {
@@ -22609,7 +22609,7 @@ sealed class ColumnarIlEmitter {
 
     private func TryGetCollectionCapacityConstructorArgument(argNode: int, out valueNode: int): bool {
         argNode = UnwrapParenthesizedNode(argNode)
-        if (_nodes.Kind(argNode) != 60) {
+        if (_nodes.Kind(argNode) != ColumnarExpressionNodeKind.NamedArgumentExpression) {
             valueNode = argNode
             return true
         }
@@ -22715,14 +22715,14 @@ sealed class ColumnarIlEmitter {
             return false
         }
         columnarSwitchValue11 := _nodes.Kind(node)
-        if columnarSwitchValue11 == 0 {
+        if columnarSwitchValue11 == ColumnarExpressionNodeKind.IntLiteralExpression {
             text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
             if (text.Length > 0 && (text[^1] == 'm' || text[^1] == 'M')) {
                 columnarResolvedType = typeof(decimal)
                 return true
             }
             return false
-        } else if columnarSwitchValue11 == 1 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.FloatLiteralExpression {
             raw := ColumnarNodeTextFacts.Text(_nodes, _source, node)
             last := raw.Length > 0 ? raw[raw.Length - 1] : '\0'
             if (last == 'm' || last == 'M') {
@@ -22730,14 +22730,14 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             return false
-        } else if columnarSwitchValue11 == 3 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.StringLiteralExpression {
             text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
             if (text.Length > 0 && text[0] == '$') {
                 columnarResolvedType = typeof(string)
                 return true
             }
             return false
-        } else if columnarSwitchValue11 == 6 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.IdentifierExpression {
             name := ColumnarNodeTextFacts.Text(_nodes, _source, node)
             let paramType: System.Type? = null
             if (!ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, node) && _paramTypes.TryGetValue(name, out paramType) && _paramOrdinals.ContainsKey(name) && paramType.get_IsByRef()) {
@@ -22745,7 +22745,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             return false
-        } else if columnarSwitchValue11 == 75 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.NullGuardExpression {
             // THE GUARD IS TRANSPARENT TO THE TYPE. `?.` tests its receiver and hands the access the
             // SAME value; a `Nullable<T>` receiver hands over its `T`, which is what makes
             // `when?.Year` read `Year` off a `DateTime?`. The LIFT belongs to the chain's root.
@@ -22761,9 +22761,9 @@ sealed class ColumnarIlEmitter {
             }
             columnarResolvedType = guardedReceiverType
             return true
-        } else if columnarSwitchValue11 == 8 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.MemberAccessExpression {
             return TryGetPreflightMemberAccessType(node, out columnarResolvedType)
-        } else if columnarSwitchValue11 == 11 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.UnaryExpression {
             if (_nodes.ChildCount(node) != 1) {
                 return false
             }
@@ -22794,7 +22794,7 @@ sealed class ColumnarIlEmitter {
             } else {
                 return false
             }
-        } else if columnarSwitchValue11 == 17 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.TupleExpression {
             // A TUPLE LITERAL IS A `ValueTuple<…>` OVER ITS ELEMENTS' OWN TYPES, and it was the one
             // composite literal preflight could not name. Everything that asks what an expression
             // PRODUCES before emitting it therefore stopped at a tuple: a lambda whose body is a
@@ -22802,23 +22802,23 @@ sealed class ColumnarIlEmitter {
             // declined at the extension call while `xs.Select(d => d.Code)` emitted. Element NAMES
             // play no part — they are metadata the CLR tuple does not carry.
             return TryGetPreflightTupleLiteralType(node, out columnarResolvedType)
-        } else if columnarSwitchValue11 == 12 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.BinaryExpression {
             return TryGetPreflightBinaryExpressionType(node, out columnarResolvedType)
-        } else if columnarSwitchValue11 == 15 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.NewExpression {
             return TryGetNewExpressionResultType(node, out columnarResolvedType)
-        } else if columnarSwitchValue11 == 16 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.CastExpression {
             if (_nodes.ChildCount(node) != 2 || _nodes.Kind(Child(node, 0)) != 0) {
                 return false
             }
             castTargetName := ColumnarNodeTextFacts.Text(_nodes, _source, Child(node, 0))
             return (WellKnownTypeCatalog.TryResolveBuiltinType(castTargetName, out columnarResolvedType) || TryResolveBodyType(castTargetName, out columnarResolvedType)) && ColumnarTypeOfPlanner.IsSupportedType(columnarResolvedType)
-        } else if columnarSwitchValue11 == 9 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.CallExpression {
 
             // Preflight a CALL's result type via the bare-call resolution tiers (no emission):
             // local function -> sibling top-level -> instance chain -> static chain. Shadowed
             // names and member-access callees stay un-preflighted.
             callee := Child(node, 0)
-            if (_nodes.Kind(callee) == 8) {
+            if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.MemberAccessExpression) {
                 receiver := Child(callee, 0)
                 let receiverType: System.Type? = null
                 if (TryGetPreflightExpressionType(receiver, out receiverType) && TryGetPreflightInstanceCallType(receiverType, ColumnarNodeTextFacts.Text(_nodes, _source, callee), node, legacyWholeSubtreePlanning, out columnarResolvedType)) {
@@ -22830,7 +22830,7 @@ sealed class ColumnarIlEmitter {
             // nothing could say so — which is why a CHAIN of them declined at the second link even
             // once the first emitted: the second call's receiver is the first call, and the receiver
             // has to be TYPED before its member can be selected.
-            if (_nodes.Kind(callee) == 38) {
+            if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.GenericCallee) {
                 return TryGetPreflightExplicitGenericCallType(node, callee, out columnarResolvedType)
             }
             // A CALLEE THAT IS NOT A NAME AT ALL PRODUCES THE DELEGATE IT INVOKES. `three(1)(2)` is
@@ -22838,7 +22838,7 @@ sealed class ColumnarIlEmitter {
             // had no case for, so it answered nothing and the emitter's delegate-invoke door (which
             // asks this preflight what the callee is worth) declined the whole expression with
             // `emit.call.callee-kind`.
-            if (_nodes.Kind(callee) != 6) {
+            if (_nodes.Kind(callee) != ColumnarExpressionNodeKind.IdentifierExpression) {
                 return TryGetPreflightDelegateInvocationType(node, callee, out columnarResolvedType)
             }
             calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
@@ -22912,7 +22912,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             return false
-        } else if columnarSwitchValue11 == 10 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.IndexAccessExpression {
             let indexedType: System.Type? = null
             if (_nodes.ChildCount(node) != 2 || !TryGetPreflightExpressionType(Child(node, 0), out indexedType)) {
                 return false
@@ -22973,7 +22973,7 @@ sealed class ColumnarIlEmitter {
             }
             columnarResolvedType = elementType
             return true
-        } else if columnarSwitchValue11 == 45 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.MustExpression {
             // `must x` PRODUCES THE UNWRAPPED TYPE — exactly what the emission arm writes: a
             // `Nullable<T>` operand yields `T`, and every other operand keeps its own type (the unwrap
             // is a null assert, not a conversion). Preflight had no arm for it at all, so an argument
@@ -22989,9 +22989,9 @@ sealed class ColumnarIlEmitter {
             }
             columnarResolvedType = mustOperandType
             return true
-        } else if columnarSwitchValue11 == 57 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.CheckedContextExpression {
             return _nodes.ChildCount(node) == 1 && TryGetPreflightExpressionType(Child(node, 0), out columnarResolvedType)
-        } else if columnarSwitchValue11 == 64 {
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.SpreadArgumentExpression {
             return _nodes.ChildCount(node) == 1 && TryGetPreflightExpressionType(Child(node, 0), out columnarResolvedType)
         } else {
             return false
@@ -23003,7 +23003,7 @@ sealed class ColumnarIlEmitter {
     // anything is written, so the type this answers is exactly the type that arm would produce.
     private func TryGetPreflightTupleLiteralType(node: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
-        if (_nodes.Kind(node) != 17) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.TupleExpression) {
             return false
         }
         arity := _nodes.ChildCount(node)
@@ -23055,7 +23055,7 @@ sealed class ColumnarIlEmitter {
 
     private func TryGetPreflightBinaryExpressionType(node: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
-        if (_nodes.Kind(node) != 12 || _nodes.ChildCount(node) != 2) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.BinaryExpression || _nodes.ChildCount(node) != 2) {
             return false
         }
         op := ColumnarNodeTextFacts.Text(_nodes, _source, node)
@@ -23152,7 +23152,7 @@ sealed class ColumnarIlEmitter {
             argumentNode := Child(callIdx, i + 1)
             let byRefElementType: System.Type? = null
             let argumentType: System.Type? = null
-            if (_nodes.Kind(argumentNode) == 54 && _nodes.ChildCount(argumentNode) == 1) {
+            if (_nodes.Kind(argumentNode) == ColumnarExpressionNodeKind.RefOutArgument && _nodes.ChildCount(argumentNode) == 1) {
                 argumentModifierText := ColumnarNodeTextFacts.Text(_nodes, _source, argumentNode)
                 if ((argumentModifierText == "ref" || argumentModifierText == "out") && TryGetAddressableTargetType(Child(argumentNode, 0), out byRefElementType)) {
                     byRefType := byRefElementType.MakeByRefType()
@@ -23585,7 +23585,7 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        if (_nodes.Kind(receiver) == 6) {
+        if (_nodes.Kind(receiver) == ColumnarExpressionNodeKind.IdentifierExpression) {
             receiverIdent := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
             isUnshadowedTypeName := !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
             if (!isUnshadowedTypeName) {
@@ -23688,11 +23688,11 @@ sealed class ColumnarIlEmitter {
 
     private func CanAdoptIntLiteralAsType(node: int, target: Type): bool {
         negative := false
-        if (_nodes.Kind(node) == 11 && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "-") {
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.UnaryExpression && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "-") {
             negative = true
             node = Child(node, 0)
         }
-        if (_nodes.Kind(node) != 0 || _nodes.ValueStart(node) < 0) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.IntLiteralExpression || _nodes.ValueStart(node) < 0) {
             return false
         }
         text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
@@ -23861,7 +23861,7 @@ sealed class ColumnarIlEmitter {
     // is exactly what the two emission arms do with the same nodes.
     private func SeedPreflightBlockDeclaration(node: int) {
         kind := _nodes.Kind(node)
-        if (kind == 24) {
+        if (kind == ColumnarStatementNodeKind.VariableDeclarationStatement) {
             if (_nodes.ChildCount(node) != 1) {
                 return
             }
@@ -23871,7 +23871,7 @@ sealed class ColumnarIlEmitter {
             }
             return
         }
-        if (kind != 40 || _nodes.ChildCount(node) != 2 || _nodes.Kind(Child(node, 0)) != 6) {
+        if (kind != ColumnarStatementNodeKind.TypedLocalDeclaration || _nodes.ChildCount(node) != 2 || _nodes.Kind(Child(node, 0)) != 6) {
             return
         }
         declaredCanonical := ColumnarTypeCanonicalizer.RemoveWhitespace(ColumnarNodeTextFacts.Text(_nodes, _source, node))
@@ -23884,7 +23884,7 @@ sealed class ColumnarIlEmitter {
     private func TryPreflightContextualLambdaReturnType(lambdaNode: int, parameterTypes: Type[], out returnType: Type): bool {
         returnType = null
         isAsyncLambda := ColumnarLambdaNodeFacts.IsAsyncLambda(_nodes.Kind(lambdaNode))
-        if (_nodes.Kind(lambdaNode) != 39 && !isAsyncLambda) {
+        if (_nodes.Kind(lambdaNode) != ColumnarExpressionNodeKind.Lambda && !isAsyncLambda) {
             return false
         }
         signature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(
@@ -23969,7 +23969,7 @@ sealed class ColumnarIlEmitter {
         // resolver could not type an `async` argument at all, and `Task.Run(async () => { … })` — the
         // shape a per-member `Task.Run` row used to answer by hand — reached no candidate.
         if (isAsyncLambda) {
-            if (_nodes.Kind(signature.BodyNode) == 25) {
+            if (_nodes.Kind(signature.BodyNode) == ColumnarStatementNodeKind.BlockStatement) {
                 return subEmitter.TryPreflightAsyncBlockBodyReturnType(signature.BodyNode, out returnType)
             }
 
@@ -23984,7 +23984,7 @@ sealed class ColumnarIlEmitter {
         // A BLOCK BODY HAS NO EXPRESSION TO PREFLIGHT, AND ITS `return` STATEMENTS ARE WHAT IT GIVES.
         // Without this arm `names.Select(name => { … return new Range(…) })` left `TResult` with
         // nothing to bind it and declined at emit after the analyzer had accepted the same program.
-        if (_nodes.Kind(signature.BodyNode) == 25) {
+        if (_nodes.Kind(signature.BodyNode) == ColumnarStatementNodeKind.BlockStatement) {
             return subEmitter.TryPreflightBlockBodyReturnType(signature.BodyNode, out returnType)
         }
 
@@ -24149,20 +24149,20 @@ sealed class ColumnarIlEmitter {
     // `try` without this owner having to know the shape of each.
     private func CollectBlockReturnTypes(node: int, collected: List<Type>): bool {
         kind := _nodes.Kind(node)
-        if (ColumnarLambdaNodeFacts.IsLambda(kind) || kind == 41) {
+        if (ColumnarLambdaNodeFacts.IsLambda(kind) || kind == ColumnarStatementNodeKind.LocalFunctionDeclaration) {
             return true
         }
         // A DECLARATION SEEDS THE FRAME THE `return`s AFTER IT ARE TYPED IN. The walk reaches
         // statements in source order, so a name is in scope for exactly the arms that could read it.
         SeedPreflightBlockDeclaration(node)
-        if (kind == 20) {
+        if (kind == ColumnarStatementNodeKind.ReturnStatement) {
             if (_nodes.ChildCount(node) != 1) {
                 return false
             }
             // `return null` CONSTRAINS NOTHING. A null literal has no type of its own, so it takes
             // whichever type the other returns agree on rather than disagreeing with all of them.
             valueNode := UnwrapParenthesizedNode(Child(node, 0))
-            if (_nodes.Kind(valueNode) == ColumnarExpressionNodeKind.NullLiteralExpression()) {
+            if (_nodes.Kind(valueNode) == ColumnarExpressionNodeKind.NullLiteralExpression) {
                 return true
             }
             // A RETURN THIS PREFLIGHT CANNOT TYPE CONTRIBUTES NOTHING RATHER THAN ENDING THE READ. The
@@ -24238,7 +24238,7 @@ sealed class ColumnarIlEmitter {
 
         let contextType: System.Type? = null
         let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
-        if (_nodes.Kind(handlerNode) == 6 && _currentStruct != null && _currentStruct.IsReference && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextType(_referenceAssemblyPaths, out contextType) && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, ColumnarNodeTextFacts.Text(_nodes, _source, handlerNode), 1, out method) && TypesEquivalent(method.ParamTypes[0], contextType) && ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType)) {
+        if (_nodes.Kind(handlerNode) == ColumnarExpressionNodeKind.IdentifierExpression && _currentStruct != null && _currentStruct.IsReference && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextType(_referenceAssemblyPaths, out contextType) && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, ColumnarNodeTextFacts.Text(_nodes, _source, handlerNode), 1, out method) && TypesEquivalent(method.ParamTypes[0], contextType) && ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType)) {
             delegateType = typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([contextType, method.ReturnType])
             let delegateCtor: System.Reflection.ConstructorInfo? = null
             let ignoredDelegateReturnType: System.Type? = null
@@ -24748,7 +24748,7 @@ sealed class ColumnarIlEmitter {
         columnarResolvedType = null
         argCount := _nodes.ChildCount(callIdx) - 1
         typeKind := _nodes.Kind(typeNode)
-        if (argCount < 1 || (typeKind != 0 && typeKind != 1) || !HasContextualDelegateArgument(callIdx, argCount)) {
+        if (argCount < 1 || (typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression) || !HasContextualDelegateArgument(callIdx, argCount)) {
             return false
         }
 
@@ -26529,13 +26529,13 @@ sealed class ColumnarIlEmitter {
             let targetType: System.Type? = null
             // The MODIFIER NODE IS OPTIONAL, because `in` is: an argument written bare is addressed
             // directly. See `EmitByRefCallArgument` for why a bare argument here can only be an `in`.
-            addressableNode := _nodes.Kind(argNode) == 54 ? (_nodes.ChildCount(argNode) == 1 ? Child(argNode, 0) : -1) : argNode
+            addressableNode := _nodes.Kind(argNode) == ColumnarExpressionNodeKind.RefOutArgument ? (_nodes.ChildCount(argNode) == 1 ? Child(argNode, 0) : -1) : argNode
             return addressableNode >= 0 && TryGetAddressableTargetType(addressableNode, out targetType) && TypesEquivalent(targetType, expectedParamType.GetElementType())
         }
-        if (_nodes.Kind(argNode) == 54) {
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.RefOutArgument) {
             return false
         }
-        if (_nodes.Kind(argNode) == 64) {
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.SpreadArgumentExpression) {
             return _nodes.ChildCount(argNode) == 1 && CanDeclaredCallArgumentMatch(Child(argNode, 0), expectedParamType, allowLambdaLiteral)
         }
         if (allowLambdaLiteral && ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode))) {
@@ -26544,10 +26544,10 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && (CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitExternalStaticMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitReceiverInstanceMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
         }
-        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.DefaultExpression) {
             return CanEmitDefaultValueOfType(expectedParamType)
         }
-        if (_nodes.Kind(argNode) == 5) {
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.NullLiteralExpression) {
             return !expectedParamType.get_IsValueType() || ColumnarTypeOfPlanner.IsSupportedNullable(expectedParamType)
         }
         if (CanUseTargetTypedNewAsType(argNode, expectedParamType)) {
@@ -26586,10 +26586,10 @@ sealed class ColumnarIlEmitter {
         if (expectedParamType.get_IsByRef()) {
             return EmitByRefCallArgument(argNode, expectedParamType)
         }
-        if (_nodes.Kind(argNode) == 54) {
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.RefOutArgument) {
             return false
         }
-        if (_nodes.Kind(argNode) == 64) {
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.SpreadArgumentExpression) {
             return _nodes.ChildCount(argNode) == 1 && EmitDeclaredCallArgument(Child(argNode, 0), expectedParamType, allowLambdaLiteral)
         }
         if (allowLambdaLiteral && ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode))) {
@@ -26633,7 +26633,7 @@ sealed class ColumnarIlEmitter {
     private func TryGetVisibleLocalFunctionMethodGroup(argNode: int, out localTarget: (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)): bool {
         localTarget = new ValueTuple<MethodBuilder, Type[], Type>(null, null, null)
         argNode = UnwrapParenthesizedNode(argNode)
-        if (_nodes.Kind(argNode) != 6 || _localFuncs == null) {
+        if (_nodes.Kind(argNode) != ColumnarExpressionNodeKind.IdentifierExpression || _localFuncs == null) {
             return false
         }
         name := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
@@ -26648,7 +26648,7 @@ sealed class ColumnarIlEmitter {
     private func TryGetSiblingMethodGroup(argNode: int, out siblingTarget: ColumnarSiblingMethodDefinition): bool {
         siblingTarget = null
         argNode = UnwrapParenthesizedNode(argNode)
-        if (_nodes.Kind(argNode) != 6 || _siblings == null) {
+        if (_nodes.Kind(argNode) != ColumnarExpressionNodeKind.IdentifierExpression || _siblings == null) {
             return false
         }
         name := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
@@ -26700,7 +26700,7 @@ sealed class ColumnarIlEmitter {
     private func TryGetExternalStaticMethodGroupOwner(argNode: int, out ownerType: Type, out memberName: string): bool {
         ownerType = null
         memberName = null
-        if (_nodes.Kind(argNode) != 8 || _nodes.ChildCount(argNode) != 1) {
+        if (_nodes.Kind(argNode) != ColumnarExpressionNodeKind.MemberAccessExpression || _nodes.ChildCount(argNode) != 1) {
             return false
         }
         member := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
@@ -26862,7 +26862,7 @@ sealed class ColumnarIlEmitter {
     private func TryGetEnclosingMethodGroupCandidates(argNode: int, out candidates: List<ColumnarEnclosingMethodGroupCandidate>): bool {
         candidates = new List<ColumnarEnclosingMethodGroupCandidate>()
         argNode = UnwrapParenthesizedNode(argNode)
-        if (_nodes.Kind(argNode) != 6 || _enclosingType == null) {
+        if (_nodes.Kind(argNode) != ColumnarExpressionNodeKind.IdentifierExpression || _enclosingType == null) {
             return false
         }
         name := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
@@ -26995,7 +26995,7 @@ sealed class ColumnarIlEmitter {
         receiverType = null
         candidates = new List<ColumnarEnclosingMethodGroupCandidate>()
         argNode = UnwrapParenthesizedNode(argNode)
-        if (_nodes.Kind(argNode) != 8 || _nodes.ChildCount(argNode) != 1) {
+        if (_nodes.Kind(argNode) != ColumnarExpressionNodeKind.MemberAccessExpression || _nodes.ChildCount(argNode) != 1) {
             return false
         }
         member := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
@@ -27301,7 +27301,7 @@ sealed class ColumnarIlEmitter {
         if (!expectedByRefType.get_IsByRef()) {
             return false
         }
-        if (_nodes.Kind(argNode) != 54) {
+        if (_nodes.Kind(argNode) != ColumnarExpressionNodeKind.RefOutArgument) {
             return EmitAddressOfByRefTarget(argNode, expectedByRefType.GetElementType())
         }
         if (_nodes.ChildCount(argNode) != 1) {
@@ -27318,7 +27318,7 @@ sealed class ColumnarIlEmitter {
         targetType = ColumnarTypeOfPlanner.RequiredVoidType()
         targetNode = UnwrapParenthesizedNode(targetNode)
 
-        if (_nodes.Kind(targetNode) == 6) {
+        if (_nodes.Kind(targetNode) == ColumnarExpressionNodeKind.IdentifierExpression) {
             name := ColumnarNodeTextFacts.Text(_nodes, _source, targetNode)
             if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))) {
                 return false
@@ -27342,7 +27342,7 @@ sealed class ColumnarIlEmitter {
         }
 
         let memberChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null)
-        if (_nodes.Kind(targetNode) == 8 && TryResolveMemberWriteChain(targetNode, out memberChain)) {
+        if (_nodes.Kind(targetNode) == ColumnarExpressionNodeKind.MemberAccessExpression && TryResolveMemberWriteChain(targetNode, out memberChain)) {
             targetType = memberChain.ReceiverType
             return true
         }
@@ -27379,7 +27379,7 @@ sealed class ColumnarIlEmitter {
     private func EmitAddressOfByRefTarget(targetNode: int, expectedElementType: Type): bool {
         targetNode = UnwrapParenthesizedNode(targetNode)
 
-        if (_nodes.Kind(targetNode) == 6) {
+        if (_nodes.Kind(targetNode) == ColumnarExpressionNodeKind.IdentifierExpression) {
             name := ColumnarNodeTextFacts.Text(_nodes, _source, targetNode)
             if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))) {
                 return false
@@ -27421,7 +27421,7 @@ sealed class ColumnarIlEmitter {
         }
 
         let memberChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null)
-        if (_nodes.Kind(targetNode) == 8 && TryResolveMemberWriteChain(targetNode, out memberChain) && TypesEquivalent(memberChain.ReceiverType, expectedElementType)) {
+        if (_nodes.Kind(targetNode) == ColumnarExpressionNodeKind.MemberAccessExpression && TryResolveMemberWriteChain(targetNode, out memberChain) && TypesEquivalent(memberChain.ReceiverType, expectedElementType)) {
             EmitMemberWriteLocator(memberChain)
             return true
         }
@@ -28043,11 +28043,11 @@ sealed class ColumnarIlEmitter {
         // are pipeline-REJECTED writes (NL322 — parity by rejection via the fallback) and never emit here.
         hopNodes := new List<int>()
         cursor := UnwrapParenthesizedNode(node)
-        while (_nodes.Kind(cursor) == 8) {
+        while (_nodes.Kind(cursor) == ColumnarExpressionNodeKind.MemberAccessExpression) {
             hopNodes.Add(cursor)
             cursor = UnwrapParenthesizedNode(Child(cursor, 0))
         }
-        if (_nodes.Kind(cursor) != 6) {
+        if (_nodes.Kind(cursor) != ColumnarExpressionNodeKind.IdentifierExpression) {
             return false
         }
         rootName := ColumnarNodeTextFacts.Text(_nodes, _source, cursor)
@@ -28095,7 +28095,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private func UnwrapParenthesizedNode(node: int): int {
-        while (_nodes.Kind(node) == 7 && _nodes.ChildCount(node) == 1) {
+        while (_nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression && _nodes.ChildCount(node) == 1) {
             node = Child(node, 0)
         }
         return node
@@ -29485,7 +29485,7 @@ sealed class ColumnarIlEmitter {
         // whole prefix resolves to a TYPE is a static subscription with no receiver at all.
         let ownerType: System.Type? = null
         let receiverLocal: System.Reflection.Emit.LocalBuilder? = null
-        if (targetKind == 71) {
+        if (targetKind == ColumnarExpressionNodeKind.BaseMemberExpression) {
             if (_currentStruct == null || !_currentStruct.IsReference) {
                 return Decline("emit.on.base-receiver", "`on base.<Event>` needs an enclosing reference type", targetNode)
             }
@@ -29500,7 +29500,7 @@ sealed class ColumnarIlEmitter {
             receiverLocal = _il.DeclareLocal(_currentStruct.Builder)
             _il.Emit(OpCodes.Ldarg_0)
             _il.Emit(OpCodes.Stloc, receiverLocal)
-        } else if (targetKind == 6) {
+        } else if (targetKind == ColumnarExpressionNodeKind.IdentifierExpression) {
             // A BARE NAME IS THE ENCLOSING TYPE'S OWN EVENT. `on this.Changed` collapses to the bare
             // member read in the parser exactly as every other `this.Member` does, so this arm serves
             // both spellings — and inside the declaring type the name SUBSCRIBES, which is the same
@@ -29518,7 +29518,7 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Stloc, receiverLocal)
             }
         } else {
-            if (targetKind != 8 || _nodes.ChildCount(targetNode) != 1) {
+            if (targetKind != ColumnarExpressionNodeKind.MemberAccessExpression || _nodes.ChildCount(targetNode) != 1) {
                 return Decline("emit.on.target-shape", "`on` subscription target is not a member access ending in an event name", targetNode)
             }
             receiverNode := Child(targetNode, 0)
@@ -29664,14 +29664,14 @@ sealed class ColumnarIlEmitter {
     private func Child(idx: int, n: int): int => _nodes.Child(idx, n)
 
     private func TryGetDottedMemberAccessName(node: int, out name: string, out rootName: string): bool {
-        if (_nodes.Kind(node) == 6) {
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.IdentifierExpression) {
             name = ColumnarNodeTextFacts.Text(_nodes, _source, node)
             rootName = name
             return name.Length > 0
         }
 
         let receiverName: string? = null
-        if (_nodes.Kind(node) == 8 && _nodes.ChildCount(node) == 1 && TryGetDottedMemberAccessName(Child(node, 0), out receiverName, out rootName)) {
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.MemberAccessExpression && _nodes.ChildCount(node) == 1 && TryGetDottedMemberAccessName(Child(node, 0), out receiverName, out rootName)) {
             memberName := ColumnarNodeTextFacts.Text(_nodes, _source, node)
             if (memberName.Length == 0) {
                 name = null
@@ -29699,7 +29699,7 @@ sealed class ColumnarIlEmitter {
     // is consulted here: the receiver question is answered before the member question is asked.
     private func TryClassifyDottedTypeNameReceiver(receiver: int, out typeName: string): bool {
         typeName = null
-        if (_nodes.Kind(receiver) != 8) {
+        if (_nodes.Kind(receiver) != ColumnarExpressionNodeKind.MemberAccessExpression) {
             return false
         }
         let receiverName: string? = null
@@ -29797,11 +29797,11 @@ sealed class ColumnarIlEmitter {
 
     private func TryGetNewExpressionResultType(node: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
-        if (_nodes.Kind(node) != 15 || _nodes.ChildCount(node) == 0) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.NewExpression || _nodes.ChildCount(node) == 0) {
             return false
         }
         typeNode := Child(node, 0)
-        if (_nodes.Kind(typeNode) == 0) {
+        if (_nodes.Kind(typeNode) == ColumnarExpressionNodeKind.IntLiteralExpression) {
             typeName := ColumnarNodeTextFacts.Text(_nodes, _source, typeNode)
             if (typeName == "string") {
                 columnarResolvedType = typeof(string)
@@ -29838,11 +29838,11 @@ sealed class ColumnarIlEmitter {
             }
             return false
         }
-        if (_nodes.Kind(typeNode) == 1) {
+        if (_nodes.Kind(typeNode) == ColumnarExpressionNodeKind.FloatLiteralExpression) {
             let canonical: string? = null
             return TryBuildTypeNodeCanonical(typeNode, out canonical) && ColumnarCanonicalTypeResolver.TryResolveType(canonical, _typeResolutionEnums, _typeResolutionStructs, _typeResolutionUnions, out columnarResolvedType)
         }
-        if (_nodes.Kind(typeNode) == 2) {
+        if (_nodes.Kind(typeNode) == ColumnarExpressionNodeKind.CharLiteralExpression) {
             elementNode := Child(typeNode, 0)
             let elementCanonical: string? = null
             let elementType: System.Type? = null
@@ -29857,7 +29857,7 @@ sealed class ColumnarIlEmitter {
 
     private func TryInferArrayLiteralElementType(node: int, out elementType: Type): bool {
         elementType = null
-        if (_nodes.Kind(node) != 58) {
+        if (_nodes.Kind(node) != ColumnarExpressionNodeKind.ArrayLiteralExpression) {
             return false
         }
         elementCount := _nodes.ChildCount(node)
@@ -29901,7 +29901,7 @@ sealed class ColumnarIlEmitter {
         }
 
         kind := _nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+        if kind == ColumnarExpressionNodeKind.NameOfExpression || kind == ColumnarExpressionNodeKind.TypeOfExpression {
             return false
         }
         // `base.Member` AND `base.Method()` ARE CURRENT-INSTANCE ACCESS, exactly as `this.Member` is.
@@ -29910,7 +29910,7 @@ sealed class ColumnarIlEmitter {
         // reads storage that does not exist yet. It reaches this walk as a node kind of its own
         // (`BaseMemberExpression`, a leaf carrying the member name), so the identifier arm below
         // cannot see it and neither can the child walk: a `base.M()` call node's callee IS this node.
-        if kind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+        if kind == ColumnarExpressionNodeKind.BaseMemberExpression {
             return true
         }
         // A BARE `this` IS THE CURRENT INSTANCE, AND THAT IS THE WHOLE RULE. Before the chained
@@ -29918,10 +29918,10 @@ sealed class ColumnarIlEmitter {
         // hands out a half-built object — which is why C# refuses `this` in a constructor initializer
         // outright (CS0027). Until the kernel had a node for a bare `this` this arm could not exist,
         // and the shape declined one step earlier, at the parse.
-        if kind == ColumnarExpressionNodeKind.ThisExpression() {
+        if kind == ColumnarExpressionNodeKind.ThisExpression {
             return true
         }
-        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression {
             name := ColumnarNodeTextFacts.Text(_nodes, _source, node)
             spanStart := _nodes.SpanStart(node)
             valueStart := _nodes.ValueStart(node)
@@ -29932,9 +29932,9 @@ sealed class ColumnarIlEmitter {
             if !_paramOrdinals.ContainsKey(name) && !_locals.ContainsKey(name) && !_liftedLocals.ContainsKey(name) && (_boxedCaptures == null || !_boxedCaptures.ContainsKey(name)) && IsCurrentInstanceMemberName(name) {
                 return true
             }
-        } else if kind == ColumnarExpressionNodeKind.CallExpression() && _nodes.ChildCount(node) > 0 {
+        } else if kind == ColumnarExpressionNodeKind.CallExpression && _nodes.ChildCount(node) > 0 {
             callee := Child(node, 0)
-            if _nodes.Kind(callee) == ColumnarExpressionNodeKind.IdentifierExpression() && !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, callee) {
+            if _nodes.Kind(callee) == ColumnarExpressionNodeKind.IdentifierExpression && !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, callee) {
                 name := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
                 let instanceMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
                 if !_paramOrdinals.ContainsKey(name) && !_locals.ContainsKey(name) && !_liftedLocals.ContainsKey(name) && (_boxedCaptures == null || !_boxedCaptures.ContainsKey(name)) && !_siblings.ContainsKey(name) && _currentStruct != null && TrySelectInstanceMethodOnChain(_currentStruct, name, node, out instanceMethod) {

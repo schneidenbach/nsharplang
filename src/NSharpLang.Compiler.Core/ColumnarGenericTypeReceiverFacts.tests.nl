@@ -102,7 +102,7 @@ test "an unterminated list refuses at the end of the token run rather than readi
 }
 
 test "the constructed-generic node kind is 70 and is distinct from the generic callee kind 38" {
-    assert ColumnarExpressionNodeKind.GenericTypeReceiverExpression() == 70
-    assert ColumnarExpressionNodeKind.GenericTypeReceiverExpression() != ColumnarExpressionNodeKind.TypeOfExpression()
-    assert ColumnarExpressionNodeKind.GenericTypeReceiverExpression() != ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert ColumnarExpressionNodeKind.GenericTypeReceiverExpression == 70
+    assert ColumnarExpressionNodeKind.GenericTypeReceiverExpression != ColumnarExpressionNodeKind.TypeOfExpression
+    assert ColumnarExpressionNodeKind.GenericTypeReceiverExpression != ColumnarExpressionNodeKind.MemberAccessExpression
 }

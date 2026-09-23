@@ -53,12 +53,12 @@ class ColumnarUnaryLiteralPlanner {
     // A decline rolls the plan back to the caller's exact state and opens no fragment.
     static func TryAppendRoot(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(int)
-        if nodes == null || source == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.UnaryExpression() {
+        if nodes == null || source == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.UnaryExpression {
             return false
         }
 
         checkpoint := plan.CreateCheckpoint()
-        fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.UnaryExpression(), node)
+        fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.UnaryExpression, node)
         if !TryAppendUnaryLiteral(nodes, source, node, plan, fragment, out resultType) {
             plan.Rollback(checkpoint)
             return false
@@ -73,7 +73,7 @@ class ColumnarUnaryLiteralPlanner {
     static func TryAppendUnaryLiteral(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, parentFragment: int, out resultType: Type): bool {
         ValidateAppendInputs(nodes, source, node, plan, parentFragment)
         resultType = typeof(int)
-        if nodes.Kind(node) != ColumnarExpressionNodeKind.UnaryExpression() || nodes.ChildCount(node) != 1 {
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.UnaryExpression || nodes.ChildCount(node) != 1 {
             return false
         }
 
@@ -88,10 +88,10 @@ class ColumnarUnaryLiteralPlanner {
         }
         operandKind := nodes.Kind(operand)
         if operatorText == "!" {
-            if operandKind != ColumnarExpressionNodeKind.BoolLiteralExpression() {
+            if operandKind != ColumnarExpressionNodeKind.BoolLiteralExpression {
                 return false
             }
-        } else if operandKind != ColumnarExpressionNodeKind.IntLiteralExpression() && (operatorText != "-" || operandKind != ColumnarExpressionNodeKind.FloatLiteralExpression()) {
+        } else if operandKind != ColumnarExpressionNodeKind.IntLiteralExpression && (operatorText != "-" || operandKind != ColumnarExpressionNodeKind.FloatLiteralExpression) {
             return false
         }
 
@@ -158,7 +158,7 @@ class ColumnarUnaryLiteralPlanner {
     static func TryAppendMinimumMagnitude(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(int)
         text := ""
-        if nodes.Kind(node) != ColumnarExpressionNodeKind.IntLiteralExpression() || nodes.ChildCount(node) != 0 || !ColumnarPlannerSupport.TryGetNodeText(nodes, source, node, out text) {
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.IntLiteralExpression || nodes.ChildCount(node) != 0 || !ColumnarPlannerSupport.TryGetNodeText(nodes, source, node, out text) {
             return false
         }
         suffix := NumericLiteralFacts.GetIntegerSuffix(text)

@@ -137,24 +137,24 @@ test "boolean code-plan rejects unknown operation operand and opcode values" {
 }
 
 test "boolean planner consumes the live parser node-kind ledger" {
-    assert ColumnarExpressionNodeKind.BoolLiteralExpression() == 4
+    assert ColumnarExpressionNodeKind.BoolLiteralExpression == 4
 
     plan := new ColumnarCodePlan()
-    trueNodes := SingleNodeTable(ColumnarExpressionNodeKind.BoolLiteralExpression(), 4)
+    trueNodes := SingleNodeTable(ColumnarExpressionNodeKind.BoolLiteralExpression, 4)
     assert ColumnarBooleanLiteralPlanner.Plan(trueNodes, "true", 0, plan) == ColumnarFragmentPlanStatus.Planned
     assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4_1()
 
-    falseNodes := SingleNodeTable(ColumnarExpressionNodeKind.BoolLiteralExpression(), 5)
+    falseNodes := SingleNodeTable(ColumnarExpressionNodeKind.BoolLiteralExpression, 5)
     assert ColumnarBooleanLiteralPlanner.Plan(falseNodes, "false", 0, plan) == ColumnarFragmentPlanStatus.Planned
     assert plan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4_0()
 
-    otherNodes := SingleNodeTable(ColumnarExpressionNodeKind.IntLiteralExpression(), 1)
+    otherNodes := SingleNodeTable(ColumnarExpressionNodeKind.IntLiteralExpression, 1)
     assert ColumnarBooleanLiteralPlanner.Plan(otherNodes, "1", 0, plan) == ColumnarFragmentPlanStatus.NotOwned
 }
 
 test "boolean planner rejects corrupt parser payloads" {
     plan := new ColumnarCodePlan()
-    boolNodes := SingleNodeTable(ColumnarExpressionNodeKind.BoolLiteralExpression(), 5)
+    boolNodes := SingleNodeTable(ColumnarExpressionNodeKind.BoolLiteralExpression, 5)
 
     assert throws InvalidOperationException {
         ColumnarBooleanLiteralPlanner.Plan(boolNodes, "truth", 0, plan)
@@ -2104,7 +2104,7 @@ test "a nested-value frame refuses a plan that has already been used" {
     // statement about the WHOLE plan, so it cannot be arrived at halfway through one.
     building := new ColumnarCodePlan()
     building.PrepareV3()
-    building.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    building.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression, 0)
     assert throws InvalidOperationException {
         building.EnableNestedValueFrame()
     }

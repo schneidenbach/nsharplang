@@ -44,7 +44,7 @@ func TypeOfSimpleTree(name: string): ColumnarRangePlannerTestTree {
     typeNode := builder.AddLeaf(0, name)
     builder.AddToken(")")
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.TypeOfExpression(),
+        ColumnarExpressionNodeKind.TypeOfExpression,
         -1,
         0,
         0,
@@ -75,7 +75,7 @@ func TypeOfUnaryTypeTree(
     )
     builder.AddToken(")")
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.TypeOfExpression(),
+        ColumnarExpressionNodeKind.TypeOfExpression,
         -1,
         0,
         0,
@@ -120,7 +120,7 @@ func TypeOfGenericTree(
     )
     builder.AddToken(")")
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.TypeOfExpression(),
+        ColumnarExpressionNodeKind.TypeOfExpression,
         -1,
         0,
         0,
@@ -182,7 +182,7 @@ func TypeOfTupleTree(
     )
     builder.AddToken(")")
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.TypeOfExpression(),
+        ColumnarExpressionNodeKind.TypeOfExpression,
         -1,
         0,
         0,
@@ -211,7 +211,7 @@ func TypeOfUnionTree(
     )
     builder.AddToken(")")
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.TypeOfExpression(),
+        ColumnarExpressionNodeKind.TypeOfExpression,
         -1,
         0,
         0,
@@ -257,7 +257,7 @@ func TypeOfArrayUnionTree(name: string): ColumnarRangePlannerTestTree {
     )
     builder.AddToken(")")
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.TypeOfExpression(),
+        ColumnarExpressionNodeKind.TypeOfExpression,
         -1,
         0,
         0,
@@ -299,7 +299,7 @@ func TypeOfDelegateWithSourceCollectionTree(
     )
     builder.AddToken(")")
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.TypeOfExpression(),
+        ColumnarExpressionNodeKind.TypeOfExpression,
         -1,
         0,
         0,
@@ -330,7 +330,7 @@ func TypeOfMalformedTree(
     }
     builder.AddToken(")")
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.TypeOfExpression(),
+        ColumnarExpressionNodeKind.TypeOfExpression,
         -1,
         0,
         0,

@@ -12,7 +12,7 @@ func ColumnarNameOfPlannerTree(
     i := 0
     while i < parentheses {
         target = builder.AddNode(
-            ColumnarExpressionNodeKind.ParenthesizedExpression(),
+            ColumnarExpressionNodeKind.ParenthesizedExpression,
             -1,
             0,
             0,
@@ -22,7 +22,7 @@ func ColumnarNameOfPlannerTree(
         i = i + 1
     }
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.NameOfExpression(),
+        ColumnarExpressionNodeKind.NameOfExpression,
         -1,
         0,
         0,
@@ -38,10 +38,10 @@ func ColumnarNameOfPlannerMemberTree(
     parentheses: int
 ): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), owner)
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, owner)
     memberStart := builder.AddToken(member)
     target := builder.AddNode(
-        ColumnarExpressionNodeKind.MemberAccessExpression(),
+        ColumnarExpressionNodeKind.MemberAccessExpression,
         memberStart,
         member.Length,
         0,
@@ -51,7 +51,7 @@ func ColumnarNameOfPlannerMemberTree(
     i := 0
     while i < parentheses {
         target = builder.AddNode(
-            ColumnarExpressionNodeKind.ParenthesizedExpression(),
+            ColumnarExpressionNodeKind.ParenthesizedExpression,
             -1,
             0,
             0,
@@ -61,7 +61,7 @@ func ColumnarNameOfPlannerMemberTree(
         i = i + 1
     }
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.NameOfExpression(),
+        ColumnarExpressionNodeKind.NameOfExpression,
         -1,
         0,
         0,
@@ -82,9 +82,9 @@ func ColumnarNameOfRangeReceiverTree(useNameOf: bool): ColumnarRangePlannerTestT
     builder := new ColumnarRangePlannerNodeBuilder()
     receiver := -1
     if useNameOf {
-        target := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "values")
+        target := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "values")
         receiver = builder.AddNode(
-            ColumnarExpressionNodeKind.NameOfExpression(),
+            ColumnarExpressionNodeKind.NameOfExpression,
             -1,
             0,
             0,
@@ -93,14 +93,14 @@ func ColumnarNameOfRangeReceiverTree(useNameOf: bool): ColumnarRangePlannerTestT
         )
     } else {
         receiver = builder.AddLeaf(
-            ColumnarExpressionNodeKind.StringLiteralExpression(),
+            ColumnarExpressionNodeKind.StringLiteralExpression,
             "\"values\""
         )
     }
     caret := builder.AddToken("^")
-    one := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    one := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
     fromEnd := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
+        ColumnarExpressionNodeKind.UnaryExpression,
         caret,
         1,
         caret,
@@ -108,7 +108,7 @@ func ColumnarNameOfRangeReceiverTree(useNameOf: bool): ColumnarRangePlannerTestT
         ColumnarRangePlannerChildren1(one)
     )
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.IndexAccessExpression(),
+        ColumnarExpressionNodeKind.IndexAccessExpression,
         -1,
         0,
         0,
@@ -121,9 +121,9 @@ func ColumnarNameOfRangeReceiverTree(useNameOf: bool): ColumnarRangePlannerTestT
 func ColumnarNameOfCharFromEndTree(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     caret := builder.AddToken("^")
-    character := builder.AddLeaf(ColumnarExpressionNodeKind.CharLiteralExpression(), "'A'")
+    character := builder.AddLeaf(ColumnarExpressionNodeKind.CharLiteralExpression, "'A'")
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
+        ColumnarExpressionNodeKind.UnaryExpression,
         caret,
         1,
         0,
@@ -148,7 +148,7 @@ func ColumnarNameOfPlannerAssertEmpty(plan: ColumnarCodePlan) {
 
 test "nameof planner owns identifier member and transparent-parenthesis targets" {
     identifier := ColumnarNameOfPlannerPlan(ColumnarNameOfPlannerTree(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
+        ColumnarExpressionNodeKind.IdentifierExpression,
         "value",
         0
     ))
@@ -167,7 +167,7 @@ test "nameof planner owns identifier member and transparent-parenthesis targets"
 
 test "nameof planner type facade seals the exact string result" {
     tree := ColumnarNameOfPlannerTree(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
+        ColumnarExpressionNodeKind.IdentifierExpression,
         "value",
         1
     )
@@ -188,7 +188,7 @@ test "nameof planner type facade seals the exact string result" {
 
 test "nameof planner declines malformed and non-name targets without mutation" {
     nonName := ColumnarNameOfPlannerTree(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         "1",
         0
     )
@@ -202,7 +202,7 @@ test "nameof planner declines malformed and non-name targets without mutation" {
     ColumnarNameOfPlannerAssertEmpty(nonNamePlan)
 
     emptyName := ColumnarNameOfPlannerTree(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
+        ColumnarExpressionNodeKind.IdentifierExpression,
         "",
         0
     )
@@ -217,7 +217,7 @@ test "nameof planner declines malformed and non-name targets without mutation" {
 
     builder := new ColumnarRangePlannerNodeBuilder()
     malformedRoot := builder.AddNode(
-        ColumnarExpressionNodeKind.NameOfExpression(),
+        ColumnarExpressionNodeKind.NameOfExpression,
         -1,
         0,
         0,
@@ -237,7 +237,7 @@ test "nameof planner declines malformed and non-name targets without mutation" {
 
 test "nameof recursive append is mutation-free on rejection" {
     tree := ColumnarNameOfPlannerTree(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         "1",
         0
     )

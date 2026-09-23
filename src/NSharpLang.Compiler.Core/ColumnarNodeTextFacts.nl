@@ -6,7 +6,7 @@ namespace NSharpLang.Compiler.Columnar
 // other node delegates to the original source-backed table read.
 class ColumnarNodeTextFacts {
     static func Text(nodes: ColumnarNodeTable, source: string, node: int): string {
-        if nodes.Kind(node) == 14 && nodes.ValueStart(node) < 0 && nodes.ValueLengths[node] == 1 {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.AssignmentExpression && nodes.ValueStart(node) < 0 && nodes.ValueLengths[node] == 1 {
             return "="
         }
         return nodes.Text(source, node)

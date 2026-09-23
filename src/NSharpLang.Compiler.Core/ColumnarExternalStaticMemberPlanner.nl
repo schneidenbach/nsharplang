@@ -14,7 +14,7 @@ class ColumnarExternalStaticMemberPlanner {
         }
 
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression()
+        return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression
     }
 
     static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, il: ILGenerator, out resultType: Type): bool {
@@ -85,12 +85,12 @@ class ColumnarExternalStaticMemberPlanner {
         }
 
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression {
             return false
         }
 
         checkpoint := plan.CreateCheckpoint()
-        fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression(), candidate)
+        fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression, candidate)
 
         if !TryAppendStaticMember(nodes, source, candidate, bindings, plan, out resultType) {
             plan.Rollback(checkpoint)
@@ -103,7 +103,7 @@ class ColumnarExternalStaticMemberPlanner {
 
     static func TryAppendStaticMember(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(int)
-        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(node) != 1 {
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(node) != 1 {
             return false
         }
 

@@ -7,7 +7,7 @@ namespace NSharpLang.Compiler.Columnar
 // the token stream, so the source between those two offsets may contain whitespace or comments.
 class ColumnarExpressionSyntaxFacts {
     static func IsExplicitThisIdentifier(nodes: ColumnarNodeTable, source: string, node: int): bool {
-        if nodes == null || source == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(node) != 0 {
+        if nodes == null || source == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.IdentifierExpression || nodes.ChildCount(node) != 0 {
             return false
         }
 

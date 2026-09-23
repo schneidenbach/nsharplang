@@ -182,7 +182,7 @@ class ColumnarLambdaPlacementPlanner {
         p := 0
         while p < parameterCount {
             parameterNode := nodes.Child(lambdaNode, p)
-            if nodes.Kind(parameterNode) != ColumnarExpressionNodeKind.IdentifierExpression() {
+            if nodes.Kind(parameterNode) != ColumnarExpressionNodeKind.IdentifierExpression {
                 return null
             }
 
@@ -229,10 +229,10 @@ class ColumnarLambdaPlacementPlanner {
     // a value-less identifier is a masquerading TYPE node and is never a name read.
     static func CollectContextualLambdaCaptures(nodes: ColumnarNodeTable, source: string, node: int, bound: HashSet<string>, enclosingCapturableNames: HashSet<string>, captures: HashSet<string>) {
         kind := nodes.Kind(node)
-        if kind == 42 || kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+        if kind == ColumnarExpressionNodeKind.BareNew || kind == ColumnarExpressionNodeKind.TypeOfExpression {
             return
         }
-        if kind == 38 {
+        if kind == ColumnarExpressionNodeKind.GenericCallee {
             CollectContextualLambdaCaptures(nodes, source, ColumnarGenericCalleeFacts.CalleeExpressionNode(nodes, node), bound, enclosingCapturableNames, captures)
             return
         }
@@ -247,7 +247,7 @@ class ColumnarLambdaPlacementPlanner {
             p := 0
             while p < nestedParameterCount {
                 parameterNode := nodes.Child(node, p)
-                if nodes.Kind(parameterNode) == ColumnarExpressionNodeKind.IdentifierExpression() {
+                if nodes.Kind(parameterNode) == ColumnarExpressionNodeKind.IdentifierExpression {
                     nestedBound.Add(nodes.Text(source, parameterNode))
                 }
 
@@ -258,7 +258,7 @@ class ColumnarLambdaPlacementPlanner {
             return
         }
 
-        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression {
             if nodes.ValueStart(node) >= 0 {
                 name := nodes.Text(source, node)
                 if !bound.Contains(name) && enclosingCapturableNames.Contains(name) {
@@ -267,13 +267,13 @@ class ColumnarLambdaPlacementPlanner {
             }
         }
 
-        if kind == 46 || kind == 47 {
+        if kind == ColumnarExpressionNodeKind.IsExpression || kind == ColumnarExpressionNodeKind.AsExpression {
             CollectContextualLambdaCaptures(nodes, source, nodes.Child(node, 0), bound, enclosingCapturableNames, captures)
             return
         }
 
         first := 0
-        if kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.CastExpression() {
+        if kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.CastExpression {
             first = 1
         }
 

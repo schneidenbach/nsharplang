@@ -21,7 +21,7 @@ class ColumnarDirectCallPlanner {
         }
 
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.CallExpression()
+        return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.CallExpression
     }
 
     static func TryEmit(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, il: ILGenerator, out nsharpOwned: bool, out legacyWholeSubtreePlanning: bool, out resultType: Type, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger? = null): bool {
@@ -94,13 +94,13 @@ class ColumnarDirectCallPlanner {
         }
 
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.CallExpression() {
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.CallExpression {
             return false
         }
 
         checkpoint := plan.CreateCheckpoint()
         try {
-            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.CallExpression(), candidate)
+            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.CallExpression, candidate)
 
             handles := ColumnarRangeIndexHandles.Resolve()
             if !TryAppendCall(nodes, source, candidate, bindings, handles, plan, fragment, 0, out ownership, out legacyWholeSubtreePlanning, out resultType) {
@@ -133,7 +133,7 @@ class ColumnarDirectCallPlanner {
         ownership = ColumnarDirectCallOwnership.NotOwned
         legacyWholeSubtreePlanning = false
         resultType = typeof(int)
-        if nodes == null || source == null || bindings == null || handles == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.CallExpression() || nodes.ChildCount(node) < 1 || depth > 200 {
+        if nodes == null || source == null || bindings == null || handles == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.CallExpression || nodes.ChildCount(node) < 1 || depth > 200 {
             return false
         }
 
@@ -163,21 +163,21 @@ class ColumnarDirectCallPlanner {
         }
 
         calleeKind := nodes.Kind(callee)
-        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression() && calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() && calleeKind != 38 && calleeKind != ColumnarExpressionNodeKind.BaseMemberExpression() {
+        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression && calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression && calleeKind != ColumnarExpressionNodeKind.GenericCallee && calleeKind != ColumnarExpressionNodeKind.BaseMemberExpression {
             return false
         }
 
         // Callable names that are NOT plannable siblings stay legacy: visible local functions and
         // any residual declared-callable name without routed sibling facts decline here exactly as
         // before. A plannable sibling flows through to the sibling-ownership path below.
-        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() && !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, callee) {
+        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression && !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, callee) {
             bareCallable := nodes.Text(source, callee)
             if bindings.IsCallable(bareCallable) && !bindings.HasSiblingCallable(bareCallable) {
                 return false
             }
         }
 
-        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() {
+        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression {
             bareName := nodes.Text(source, callee)
             explicitThis := ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, callee)
 
@@ -248,17 +248,17 @@ class ColumnarDirectCallPlanner {
         namedPlacement := new int[](0)
         if ColumnarNamedArgumentBinder.HasNamedArgument(nodes, node, 1, argumentTypes.Length) && !TryPlaceNamedCallArguments(nodes, source, node, callee, calleeKind, bindings, handles, depth, plan.IsMethodBodySchema(), argumentTypes, argumentFacts, out namedPlacement) {
             sparseCheckpoint := plan.CreateCheckpoint()
-            if calleeKind == 38 && TryAppendExplicitGenericSourceInstanceCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+            if calleeKind == ColumnarExpressionNodeKind.GenericCallee && TryAppendExplicitGenericSourceInstanceCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning, out resultType) {
                 return true
             }
             plan.Rollback(sparseCheckpoint)
             sparseCheckpoint = plan.CreateCheckpoint()
-            if calleeKind == 38 && TryAppendExplicitGenericSiblingCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+            if calleeKind == ColumnarExpressionNodeKind.GenericCallee && TryAppendExplicitGenericSiblingCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning, out resultType) {
                 return true
             }
             plan.Rollback(sparseCheckpoint)
             sparseCheckpoint = plan.CreateCheckpoint()
-            if calleeKind == 38 && TryAppendExplicitGenericStaticCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, sparseCheckpoint, out ownership, out legacyWholeSubtreePlanning, out resultType) {
+            if calleeKind == ColumnarExpressionNodeKind.GenericCallee && TryAppendExplicitGenericStaticCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, sparseCheckpoint, out ownership, out legacyWholeSubtreePlanning, out resultType) {
                 return true
             }
             plan.Rollback(sparseCheckpoint)
@@ -332,7 +332,7 @@ class ColumnarDirectCallPlanner {
     // The exact-arity dispatch, unchanged, named so the default-fill retry above can run after it.
     static func TryAppendPlacedCall(nodes: ColumnarNodeTable, source: string, node: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
         try {
-            if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() {
+            if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression {
                 return TryAppendBareCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
             }
 
@@ -346,7 +346,7 @@ class ColumnarDirectCallPlanner {
                 return TryAppendExplicitGenericStaticCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
             }
 
-            if calleeKind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+            if calleeKind == ColumnarExpressionNodeKind.BaseMemberExpression {
                 return TryAppendBaseCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
             }
 
@@ -545,7 +545,7 @@ class ColumnarDirectCallPlanner {
 
     static func TryAppendSparseNamedSiblingCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out resultType: Type): bool {
         resultType = typeof(int)
-        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression() {
+        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression {
             return false
         }
         name := nodes.Text(source, callee)
@@ -624,7 +624,7 @@ class ColumnarDirectCallPlanner {
 
     static func TryAppendSparseNamedSourceMemberCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out resultType: Type): bool {
         resultType = typeof(int)
-        if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(callee) != 1 {
+        if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(callee) != 1 {
             return false
         }
         receiverNode := nodes.Child(callee, 0)
@@ -858,7 +858,7 @@ class ColumnarDirectCallPlanner {
 
     static func TryAppendSparseNamedRuntimeMemberCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out resultType: Type): bool {
         resultType = typeof(int)
-        if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(callee) != 1 {
+        if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(callee) != 1 {
             return false
         }
         memberName := nodes.Text(source, callee)
@@ -994,7 +994,7 @@ class ColumnarDirectCallPlanner {
     static func TryFlattenAgreedInPositionNames(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, calleeKind: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int, methodBodySchema: bool, arity: int, out placement: int[]): bool {
         placement = new int[](0)
         candidates := new List<string[]>()
-        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() {
+        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression {
             bareName := nodes.Text(source, callee)
             siblingFacts: ColumnarSiblingCallFacts? = null
             if bindings.SiblingCallables.TryGetValue(bareName, out siblingFacts) {
@@ -1017,7 +1017,7 @@ class ColumnarDirectCallPlanner {
             return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
         }
 
-        if calleeKind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+        if calleeKind == ColumnarExpressionNodeKind.BaseMemberExpression {
             current := bindings.CurrentInstance
             if current != null && current.SourceDefinition != null {
                 ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(current.SourceDefinition.BaseDef, nodes.Text(source, callee), arity, candidates)
@@ -1026,7 +1026,7 @@ class ColumnarDirectCallPlanner {
             return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
         }
 
-        if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(callee) != 1 {
+        if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(callee) != 1 {
             return false
         }
         memberName := nodes.Text(source, callee)
@@ -1072,7 +1072,7 @@ class ColumnarDirectCallPlanner {
         candidates := new List<ColumnarNamedArgumentCandidate>()
         arity := argumentTypes.Length
 
-        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() {
+        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression {
             bareName := nodes.Text(source, callee)
             siblingFacts: ColumnarSiblingCallFacts? = null
             if bindings.SiblingCallables.TryGetValue(bareName, out siblingFacts) {
@@ -1101,7 +1101,7 @@ class ColumnarDirectCallPlanner {
             return ColumnarNamedArgumentBinder.TryBestPlacement(nodes, source, callNode, 1, argumentTypes, argumentFacts, candidates, out placement)
         }
 
-        if calleeKind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+        if calleeKind == ColumnarExpressionNodeKind.BaseMemberExpression {
             currentInstance := bindings.CurrentInstance
             if currentInstance != null && currentInstance.SourceDefinition != null {
                 baseDefinition := currentInstance.SourceDefinition.BaseDef
@@ -1112,7 +1112,7 @@ class ColumnarDirectCallPlanner {
             return ColumnarNamedArgumentBinder.TryBestPlacement(nodes, source, callNode, 1, argumentTypes, argumentFacts, candidates, out placement)
         }
 
-        if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(callee) != 1 {
+        if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(callee) != 1 {
             return false
         }
 
@@ -1237,7 +1237,7 @@ class ColumnarDirectCallPlanner {
             value := ColumnarNamedArgumentBinder.ArgumentValueNode(nodes, raw)
             name := ColumnarNamedArgumentBinder.ArgumentName(nodes, source, raw)
             slot := -1
-            completeParamsArray := (name != null && ColumnarNamedArgumentBinder.ParameterIndexOf(parameterNames, name) == fixedCount) || nodes.Kind(value) == 64
+            completeParamsArray := (name != null && ColumnarNamedArgumentBinder.ParameterIndexOf(parameterNames, name) == fixedCount) || nodes.Kind(value) == ColumnarExpressionNodeKind.SpreadArgumentExpression
             if completeParamsArray {
                 if paramsArrayClaimed || expandedSeen {
                     score = -1
@@ -1457,7 +1457,7 @@ class ColumnarDirectCallPlanner {
             value := ColumnarNamedArgumentBinder.ArgumentValueNode(nodes, raw)
             name := ColumnarNamedArgumentBinder.ArgumentName(nodes, source, raw)
             slot := -1
-            completeParamsArray := (name != null && ColumnarNamedArgumentBinder.ParameterIndexOf(parameterNames, name) == paramsSlot) || nodes.Kind(value) == 64
+            completeParamsArray := (name != null && ColumnarNamedArgumentBinder.ParameterIndexOf(parameterNames, name) == paramsSlot) || nodes.Kind(value) == ColumnarExpressionNodeKind.SpreadArgumentExpression
             if completeParamsArray {
                 if paramsArrayLocal >= 0 || expandedCount > 0 {
                     return false
@@ -1486,7 +1486,7 @@ class ColumnarDirectCallPlanner {
             expectedArray := new Type[](1)
             expectedArray[0] = expected
             oneFacts := CopyArgumentFact(argumentFacts, written)
-            if nodes.Kind(value) == 64 && nodes.ChildCount(value) == 1 {
+            if nodes.Kind(value) == ColumnarExpressionNodeKind.SpreadArgumentExpression && nodes.ChildCount(value) == 1 {
                 oneFacts.ArgumentNodes[0] = nodes.Child(value, 0)
             }
             if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expectedArray, actual, oneFacts) < 0 || !AppendArgumentSlot(nodes, source, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), actual, expectedArray, oneFacts, 0) {
@@ -3012,7 +3012,7 @@ class ColumnarDirectCallPlanner {
                 argumentNode := argumentFacts.ArgumentNodes[index]
                 if parameters[index].get_ParameterType().get_IsByRef() {
                     candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
-                    if candidate < 0 || nodes.Kind(candidate) != 54 || nodes.ChildCount(candidate) != 1 {
+                    if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.RefOutArgument || nodes.ChildCount(candidate) != 1 {
                         return false
                     }
 
@@ -3593,7 +3593,7 @@ class ColumnarDirectCallPlanner {
             argumentNode := ColumnarNamedArgumentBinder.ArgumentValueNode(nodes, nodes.Child(callNode, index + 1))
             argumentFacts.ArgumentNodes[index] = argumentNode
             argumentCandidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
-            if argumentCandidate >= 0 && nodes.Kind(argumentCandidate) == ColumnarExpressionNodeKind.NullLiteralExpression() {
+            if argumentCandidate >= 0 && nodes.Kind(argumentCandidate) == ColumnarExpressionNodeKind.NullLiteralExpression {
                 argumentTypes[index] = typeof(object)
                 argumentFacts.IsNullLiteral[index] = true
                 index += 1
@@ -3615,7 +3615,7 @@ class ColumnarDirectCallPlanner {
             }
 
             valueTypeNode := argumentNode
-            if nodes.Kind(argumentNode) == 64 && nodes.ChildCount(argumentNode) == 1 {
+            if nodes.Kind(argumentNode) == ColumnarExpressionNodeKind.SpreadArgumentExpression && nodes.ChildCount(argumentNode) == 1 {
                 valueTypeNode = nodes.Child(argumentNode, 0)
             }
             argumentType := typeof(int)
@@ -3653,7 +3653,7 @@ class ColumnarDirectCallPlanner {
     // with its own overload-resolution rules, and admitting it through the `ref`/`out` door would bind
     // the wrong overload.
     static func ByRefArgumentTarget(nodes: ColumnarNodeTable, source: string, argumentNode: int): int {
-        if argumentNode < 0 || argumentNode >= nodes.Kinds.Length || nodes.Kind(argumentNode) != 54 || nodes.ChildCount(argumentNode) != 1 {
+        if argumentNode < 0 || argumentNode >= nodes.Kinds.Length || nodes.Kind(argumentNode) != ColumnarExpressionNodeKind.RefOutArgument || nodes.ChildCount(argumentNode) != 1 {
             return -1
         }
 
@@ -3669,7 +3669,7 @@ class ColumnarDirectCallPlanner {
     // rather than folded into it, because the two answer different questions: one is "is there storage
     // here", the other is "which direction did the caller ask for".
     static func IsInArgumentNode(nodes: ColumnarNodeTable, source: string, argumentNode: int): bool {
-        if argumentNode < 0 || argumentNode >= nodes.Kinds.Length || nodes.Kind(argumentNode) != 54 || nodes.ChildCount(argumentNode) != 1 {
+        if argumentNode < 0 || argumentNode >= nodes.Kinds.Length || nodes.Kind(argumentNode) != ColumnarExpressionNodeKind.RefOutArgument || nodes.ChildCount(argumentNode) != 1 {
             return false
         }
 
@@ -3684,7 +3684,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.UnaryExpression() {
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.UnaryExpression {
             if nodes.ChildCount(candidate) != 1 || nodes.Text(source, candidate) != "-" {
                 return false
             }
@@ -3697,7 +3697,7 @@ class ColumnarDirectCallPlanner {
         }
 
         magnitude := 0
-        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IntLiteralExpression() || nodes.ChildCount(candidate) != 0 || !ColumnarScalarLiteralPlanner.TryGetTargetTypedIntegerMagnitude(nodes.Text(source, candidate), out magnitude) {
+        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IntLiteralExpression || nodes.ChildCount(candidate) != 0 || !ColumnarScalarLiteralPlanner.TryGetTargetTypedIntegerMagnitude(nodes.Text(source, candidate), out magnitude) {
             return false
         }
 
@@ -3716,7 +3716,7 @@ class ColumnarDirectCallPlanner {
         minimumValue = 0L
         maximumValue = 0L
         literal := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
-        if literal < 0 || nodes.Kind(literal) != ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+        if literal < 0 || nodes.Kind(literal) != ColumnarExpressionNodeKind.ArrayLiteralExpression {
             return false
         }
 
@@ -3826,36 +3826,36 @@ class ColumnarDirectCallPlanner {
         // storage binding. The ordinary external-call owner performs the exact address and mode
         // checks later; admitting the wrapper here lets a nested external call preserve normal
         // left-to-right argument evaluation without opening source/sibling byref surfaces.
-        if kind == 54 {
+        if kind == ColumnarExpressionNodeKind.RefOutArgument {
             if nodes.ChildCount(node) != 1 {
                 return false
             }
             target := ColumnarPlannerSupport.UnwrapParentheses(nodes, nodes.Child(node, 0))
-            return target >= 0 && nodes.Kind(target) == ColumnarExpressionNodeKind.IdentifierExpression() && nodes.ChildCount(target) == 0
+            return target >= 0 && nodes.Kind(target) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ChildCount(target) == 0
         }
 
         // Await is admitted as nested value syntax only so the recursive planner can ask the live
         // scope whether blocking await is enabled. With the default disabled binding the append is
         // atomic and the ordinary emitter retains ownership.
-        if kind == 53 {
+        if kind == ColumnarExpressionNodeKind.AwaitExpression {
             return nodes.ChildCount(node) == 1 && IsAdmittedValueSyntax(nodes, source, nodes.Child(node, 0), depth + 1)
         }
 
-        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression() {
+        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression {
             return nodes.ChildCount(node) == 1 && IsAdmittedValueSyntax(nodes, source, nodes.Child(node, 0), depth + 1)
         }
 
-        if kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+        if kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression {
             return ColumnarConstructionPlanner.IsAdmittedValueSyntax(nodes, source, node, depth)
         }
 
         // A cast's first child is a TYPE subtree in the type-kernel encoding, so only the operand
         // participates in expression-syntax admission.
-        if kind == ColumnarExpressionNodeKind.CastExpression() {
+        if kind == ColumnarExpressionNodeKind.CastExpression {
             return nodes.ChildCount(node) == 2 && IsAdmittedValueSyntax(nodes, source, nodes.Child(node, 1), depth + 1)
         }
 
-        if kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression() || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.BaseMemberExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression || kind == ColumnarExpressionNodeKind.FloatLiteralExpression || kind == ColumnarExpressionNodeKind.CharLiteralExpression || kind == ColumnarExpressionNodeKind.StringLiteralExpression || kind == ColumnarExpressionNodeKind.BoolLiteralExpression || kind == ColumnarExpressionNodeKind.NullLiteralExpression || kind == ColumnarExpressionNodeKind.IdentifierExpression || kind == ColumnarExpressionNodeKind.BaseMemberExpression || kind == ColumnarExpressionNodeKind.NameOfExpression || kind == ColumnarExpressionNodeKind.TypeOfExpression || kind == ColumnarExpressionNodeKind.RangeExpression || kind == ColumnarExpressionNodeKind.IndexAccessExpression || kind == ColumnarExpressionNodeKind.UnaryExpression || kind == ColumnarExpressionNodeKind.MemberAccessExpression {
             return true
         }
 
@@ -3885,12 +3885,12 @@ class ColumnarDirectCallPlanner {
             return true
         }
 
-        if kind != ColumnarExpressionNodeKind.CallExpression() || nodes.ChildCount(node) < 1 {
+        if kind != ColumnarExpressionNodeKind.CallExpression || nodes.ChildCount(node) < 1 {
             return false
         }
 
         callee := ColumnarPlannerSupport.UnwrapParentheses(nodes, nodes.Child(node, 0))
-        if callee < 0 || (nodes.Kind(callee) != ColumnarExpressionNodeKind.IdentifierExpression() && nodes.Kind(callee) != ColumnarExpressionNodeKind.MemberAccessExpression() && nodes.Kind(callee) != ColumnarExpressionNodeKind.BaseMemberExpression()) {
+        if callee < 0 || (nodes.Kind(callee) != ColumnarExpressionNodeKind.IdentifierExpression && nodes.Kind(callee) != ColumnarExpressionNodeKind.MemberAccessExpression && nodes.Kind(callee) != ColumnarExpressionNodeKind.BaseMemberExpression) {
             return false
         }
 

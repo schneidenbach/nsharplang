@@ -208,7 +208,7 @@ test "direct-call planner selects the exact semantic source owner" {
     fileNames[1] = "caller.nl"
     scope := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 1)
 
-    tree := DirectCallQualifiedTree("Owner", "Run", DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    tree := DirectCallQualifiedTree("Owner", "Run", DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
 
     tree.Nodes.SetBindingContext(scope, "Demo.Caller", new string[](0), new string[](0))
 
@@ -230,7 +230,7 @@ test "direct-call planner resolves source aliases to exact definitions" {
     fileNames[0] = "alias-owner.nl"
     scope := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 0)
 
-    tree := DirectCallQualifiedTree("Alias", "Run", DirectCallOneText("8"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    tree := DirectCallQualifiedTree("Alias", "Run", DirectCallOneText("8"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
 
     tree.Nodes.SetBindingContext(scope, "", new string[](0), new string[](0))
 
@@ -250,7 +250,7 @@ test "direct-call planner defers file-import alias call-style owners as whole su
     fileNames[1] = "source-owner-alias/ids.nl"
     scope := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 0)
 
-    tree := DirectCallQualifiedTree("Ids", "UserId", DirectCallOneText("42"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    tree := DirectCallQualifiedTree("Ids", "UserId", DirectCallOneText("42"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
 
     tree.Nodes.SetBindingContext(scope, "", new string[](0), new string[](0))
 
@@ -279,7 +279,7 @@ test "direct-call planner ignores unrelated duplicate source shorts for runtime 
     fileNames[2] = "caller.nl"
     scope := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 2)
 
-    tree := DirectCallQualifiedTree("Math", "Abs", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    tree := DirectCallQualifiedTree("Math", "Abs", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
 
     tree.Nodes.SetBindingContext(scope, "", new string[](0), new string[](0))
 
@@ -296,7 +296,7 @@ test "direct-call planner does not reinterpret value and callable roots as sourc
     owner := SourceCallDefinition("Owner", true)
     SourceCallPublicStatic(owner, "Run", AdversarialDirectCallOneType(typeof(int)), typeof(int))
 
-    tree := DirectCallQualifiedTree("Owner", "Run", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    tree := DirectCallQualifiedTree("Owner", "Run", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
 
     ExternalStampScope(tree, "class Owner {}\n")
 

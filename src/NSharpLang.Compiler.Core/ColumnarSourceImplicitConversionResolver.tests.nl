@@ -336,7 +336,7 @@ test "direct-call planner places the exact source implicit operator before its t
 
     bindings := DirectCallBindings(definitions)
     ColumnarRangePlannerAddParameter(bindings, "value", 0, sourceType)
-    tree := DirectCallQualifiedTree("SourceImplicitPlannerOwner", "Take", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    tree := DirectCallQualifiedTree("SourceImplicitPlannerOwner", "Take", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
 
     plan := DirectCallPlan(tree, bindings)
 

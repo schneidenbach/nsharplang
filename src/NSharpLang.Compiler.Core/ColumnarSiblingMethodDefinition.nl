@@ -107,7 +107,7 @@ class ColumnarGenericCalleeFacts {
     // a bare-name callee, which has no receiver to load.
     static func ReceiverNode(nodes: ColumnarNodeTable, callee: int): int {
         calleeExpression := nodes.Child(callee, 0)
-        if nodes.Kind(calleeExpression) != 8 || nodes.ChildCount(calleeExpression) != 1 {
+        if nodes.Kind(calleeExpression) != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(calleeExpression) != 1 {
             return -1
         }
         return nodes.Child(calleeExpression, 0)

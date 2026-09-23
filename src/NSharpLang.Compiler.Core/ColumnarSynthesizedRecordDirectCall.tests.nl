@@ -119,7 +119,7 @@ test "direct-call planner lowers synthesized record dispatch boxing and value ad
     referenceBindings := DirectCallSingleDefinitionBindings(referenceRecord)
     referenceRecordType: Type = referenceRecord.Builder
     ColumnarRangePlannerAddParameter(referenceBindings, "receiver", 0, referenceRecordType)
-    referenceTree := DirectCallInstanceTree("receiver", "Equals", DirectCallOneText("17"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    referenceTree := DirectCallInstanceTree("receiver", "Equals", DirectCallOneText("17"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
     referencePlan := DirectCallPlan(referenceTree, referenceBindings)
 
     assert referencePlan.ResultType == typeof(bool)

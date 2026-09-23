@@ -58,13 +58,13 @@ test "the named-argument kind is 60, and a `name: value` argument parses into it
     source := "Gate(flag: true)"
     nodes := NamedArgTable(source)
     root := NamedArgRoot(source)
-    assert nodes.Kind(root) == ColumnarExpressionNodeKind.CallExpression()
+    assert nodes.Kind(root) == ColumnarExpressionNodeKind.CallExpression
     assert nodes.ChildCount(root) == 2
 
     argument := nodes.Child(root, 1)
     assert ColumnarNamedArgumentBinder.IsNamedArgument(nodes, argument)
     assert ColumnarNamedArgumentBinder.ArgumentName(nodes, source, argument) == "flag"
-    assert nodes.Kind(ColumnarNamedArgumentBinder.ArgumentValueNode(nodes, argument)) == ColumnarExpressionNodeKind.BoolLiteralExpression()
+    assert nodes.Kind(ColumnarNamedArgumentBinder.ArgumentValueNode(nodes, argument)) == ColumnarExpressionNodeKind.BoolLiteralExpression
 }
 
 test "a positional argument carries no name, and the value node of one is the argument itself" {
@@ -259,8 +259,8 @@ test "an agreed IN-POSITION placement flattens the wrappers out of the node tabl
     // The wrappers carried nothing once the names were checked against a real signature, so the call
     // is now the positional one the names describe — which is what lets a residual owner emit it.
     assert !ColumnarNamedArgumentBinder.HasNamedArgument(nodes, root, 1, 2)
-    assert nodes.Kind(nodes.Child(root, 1)) == ColumnarExpressionNodeKind.IntLiteralExpression()
-    assert nodes.Kind(nodes.Child(root, 2)) == ColumnarExpressionNodeKind.IntLiteralExpression()
+    assert nodes.Kind(nodes.Child(root, 1)) == ColumnarExpressionNodeKind.IntLiteralExpression
+    assert nodes.Kind(nodes.Child(root, 2)) == ColumnarExpressionNodeKind.IntLiteralExpression
 }
 
 test "an agreed placement that MOVES an argument leaves the wrappers in the node table" {

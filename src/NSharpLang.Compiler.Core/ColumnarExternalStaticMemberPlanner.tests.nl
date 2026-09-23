@@ -9,11 +9,11 @@ import System.Text.Json
 
 func ExternalStaticMemberTree(ownerName: string, memberName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), ownerName)
+    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, ownerName)
 
     builder.AddToken(".")
     memberStart := builder.AddToken(memberName)
-    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(owner))
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(owner))
 
     return builder.Build(root)
 }
@@ -24,20 +24,20 @@ func ExternalQualifiedStaticMemberTree(ownerParts: string[], memberName: string)
     }
 
     builder := new ColumnarRangePlannerNodeBuilder()
-    root := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), ownerParts[0])
+    root := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, ownerParts[0])
 
     index := 1
     while index < ownerParts.Length {
         builder.AddToken(".")
         partStart := builder.AddToken(ownerParts[index])
-        root = builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), partStart, ownerParts[index].Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(root))
+        root = builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, partStart, ownerParts[index].Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(root))
 
         index = index + 1
     }
 
     builder.AddToken(".")
     memberStart := builder.AddToken(memberName)
-    root = builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(root))
+    root = builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(root))
 
     return builder.Build(root)
 }
@@ -46,50 +46,50 @@ func ExternalStaticExplicitThisTree(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     thisStart := builder.AddToken("this.")
     ownerStart := builder.AddToken("Environment")
-    owner := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), ownerStart, "Environment".Length, thisStart, ownerStart + "Environment".Length, new int[](0))
+    owner := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression, ownerStart, "Environment".Length, thisStart, ownerStart + "Environment".Length, new int[](0))
 
     builder.AddToken(".")
     memberStart := builder.AddToken("NewLine")
-    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, "NewLine".Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(owner))
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, "NewLine".Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(owner))
 
     return builder.Build(root)
 }
 
 func ExternalStaticNewLineFromEndTree(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "Environment")
+    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "Environment")
 
     builder.AddToken(".")
     memberStart := builder.AddToken("NewLine")
-    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, "NewLine".Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(owner))
+    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, "NewLine".Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(owner))
 
     builder.AddToken("[")
     caretStart := builder.AddToken("^")
-    one := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
-    fromEnd := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caretStart, 1, caretStart, 2, ColumnarRangePlannerChildren1(one))
+    one := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
+    fromEnd := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, caretStart, 1, caretStart, 2, ColumnarRangePlannerChildren1(one))
 
     builder.AddToken("]")
-    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(member, fromEnd))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(member, fromEnd))
 
     return builder.Build(root)
 }
 
 func ExternalStaticCurrentDirectoryRangeTree(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "Environment")
+    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "Environment")
 
     builder.AddToken(".")
     memberStart := builder.AddToken("CurrentDirectory")
-    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, "CurrentDirectory".Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(owner))
+    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, "CurrentDirectory".Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(owner))
 
     builder.AddToken("[")
-    zero := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
+    zero := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "0")
     rangeStart := builder.AddToken("..")
-    one := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
-    range := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression(), rangeStart, 2, zero, builder.Source.Length, ColumnarRangePlannerChildren2(zero, one))
+    one := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
+    range := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression, rangeStart, 2, zero, builder.Source.Length, ColumnarRangePlannerChildren2(zero, one))
 
     builder.AddToken("]")
-    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(member, range))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(member, range))
 
     return builder.Build(root)
 }
@@ -685,7 +685,7 @@ test "external static-member append rejects schema v2 without mutating plan pool
     ExternalStampScope(tree, tree.Source)
     plan := new ColumnarCodePlan()
     plan.PrepareV2()
-    _root := plan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression(), tree.Root)
+    _root := plan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression, tree.Root)
 
     resultType := typeof(int)
 

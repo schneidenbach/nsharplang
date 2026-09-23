@@ -69,19 +69,19 @@ class ColumnarScalarLiteralPlanner {
         // Decimal literals (`5m`, `2.5m`) arrive as an Int or Float literal token whose text carries
         // the `m`/`M` suffix. They lower to the System.Decimal(int,int,int,bool,byte) constructor,
         // exactly like the legacy TryEmitDecimalLiteral path, rather than an ldc numeric constant.
-        if (kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression()) && text.Length > 0 && (text[text.Length - 1] == 'm' || text[text.Length - 1] == 'M') {
+        if (kind == ColumnarExpressionNodeKind.IntLiteralExpression || kind == ColumnarExpressionNodeKind.FloatLiteralExpression) && text.Length > 0 && (text[text.Length - 1] == 'm' || text[text.Length - 1] == 'M') {
             return TryAppendDecimal(text.Substring(0, text.Length - 1), plan, out resultType)
         }
-        if kind == ColumnarExpressionNodeKind.IntLiteralExpression() {
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression {
             return TryAppendInteger(text, plan, out resultType)
         }
-        if kind == ColumnarExpressionNodeKind.FloatLiteralExpression() {
+        if kind == ColumnarExpressionNodeKind.FloatLiteralExpression {
             return TryAppendFloatingPoint(text, plan, out resultType)
         }
-        if kind == ColumnarExpressionNodeKind.CharLiteralExpression() {
+        if kind == ColumnarExpressionNodeKind.CharLiteralExpression {
             return TryAppendCharacter(text, plan, out resultType)
         }
-        if kind == ColumnarExpressionNodeKind.StringLiteralExpression() {
+        if kind == ColumnarExpressionNodeKind.StringLiteralExpression {
             return TryAppendString(text, plan, out resultType)
         }
         return false
@@ -454,7 +454,7 @@ class ColumnarScalarLiteralPlanner {
     }
 
     static func IsOwnedLiteralKind(kind: int): bool {
-        return kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression()
+        return kind == ColumnarExpressionNodeKind.IntLiteralExpression || kind == ColumnarExpressionNodeKind.FloatLiteralExpression || kind == ColumnarExpressionNodeKind.CharLiteralExpression || kind == ColumnarExpressionNodeKind.StringLiteralExpression
     }
 
     static func ValidateRootInputs(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan) {

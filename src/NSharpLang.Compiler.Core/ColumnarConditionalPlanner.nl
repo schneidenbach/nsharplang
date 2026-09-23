@@ -28,7 +28,7 @@ class ColumnarConditionalPlanner {
         if candidate < 0 {
             return false
         }
-        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.TernaryExpression() {
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.TernaryExpression {
             return nodes.ChildCount(candidate) == 3
         }
         return IsShortCircuitBinary(nodes, source, candidate)
@@ -36,7 +36,7 @@ class ColumnarConditionalPlanner {
 
     // Value-position gate consumed by the recursive plannable-value dispatcher: a `&&`/`||` binary.
     static func IsShortCircuitBinary(nodes: ColumnarNodeTable, source: string, node: int): bool {
-        return node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.BinaryExpression() && nodes.ChildCount(node) == 2 && IsShortCircuitOperator(nodes, source, node)
+        return node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.BinaryExpression && nodes.ChildCount(node) == 2 && IsShortCircuitOperator(nodes, source, node)
     }
 
     // Value-position gate for `a ?? b` — a kind-12 binary whose operator text is the two-character
@@ -44,7 +44,7 @@ class ColumnarConditionalPlanner {
     // belongs to this owner and not to `ColumnarPrimitiveBinaryPlanner`: the right operand is
     // evaluated only when the left is absent.
     static func IsNullCoalesceBinary(nodes: ColumnarNodeTable, source: string, node: int): bool {
-        return node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.BinaryExpression() && nodes.ChildCount(node) == 2 && HasExactOperatorText(nodes, source, node, "??")
+        return node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.BinaryExpression && nodes.ChildCount(node) == 2 && HasExactOperatorText(nodes, source, node, "??")
     }
 
     // IS THIS NODE ONE OF THE THREE BRANCH-MERGE VALUE FORMS? The ternary, `&&`/`||` and `??` are
@@ -63,7 +63,7 @@ class ColumnarConditionalPlanner {
             return false
         }
 
-        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.TernaryExpression() {
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.TernaryExpression {
             return nodes.ChildCount(candidate) == 3
         }
 
@@ -189,7 +189,7 @@ class ColumnarConditionalPlanner {
         }
 
         kind := nodes.Kind(candidate)
-        isTernary := kind == ColumnarExpressionNodeKind.TernaryExpression() && nodes.ChildCount(candidate) == 3
+        isTernary := kind == ColumnarExpressionNodeKind.TernaryExpression && nodes.ChildCount(candidate) == 3
         isShortCircuit := IsShortCircuitBinary(nodes, source, candidate)
         isNullCoalesce := IsNullCoalesceBinary(nodes, source, candidate)
         if !isTernary && !isShortCircuit && !isNullCoalesce {
@@ -467,7 +467,7 @@ class ColumnarConditionalPlanner {
         if ColumnarThrowExpressionPlanner.IsThrowExpression(nodes, fallback) {
             return ColumnarThrowExpressionPlanner.TryAppendThrow(nodes, source, fallback, bindings, handles, plan, fragment, depth)
         }
-        if nodes.Kind(fallback) == ColumnarExpressionNodeKind.NullLiteralExpression() {
+        if nodes.Kind(fallback) == ColumnarExpressionNodeKind.NullLiteralExpression {
             if mergeType.get_IsValueType() || mergeType.get_IsGenericParameter() {
                 return false
             }

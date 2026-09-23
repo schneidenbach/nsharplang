@@ -29,10 +29,10 @@ class ColumnarStoreTargetPlanner {
         }
 
         kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression {
             return nodes.ChildCount(node) == 1
         }
-        return kind == ColumnarExpressionNodeKind.IndexAccessExpression() && nodes.ChildCount(node) == 2
+        return kind == ColumnarExpressionNodeKind.IndexAccessExpression && nodes.ChildCount(node) == 2
     }
 
     // `<target> = <value>`. Rows are appended in source order — receiver, then index, then value —
@@ -46,7 +46,7 @@ class ColumnarStoreTargetPlanner {
 
         checkpoint := plan.CreateCheckpoint()
         stored := false
-        if nodes.Kind(targetNode) == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if nodes.Kind(targetNode) == ColumnarExpressionNodeKind.MemberAccessExpression {
             stored = TryAppendMemberStore(nodes, source, targetNode, valueNode, bindings, plan, out declineReason)
         } else {
             stored = TryAppendIndexStore(nodes, source, targetNode, valueNode, bindings, plan, out declineReason)

@@ -47,7 +47,7 @@ class ColumnarInstanceMemberPlanner {
         }
 
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression()
+        return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression
     }
 
     // A claim is terminal even when member selection later rejects a static, inaccessible,
@@ -59,7 +59,7 @@ class ColumnarInstanceMemberPlanner {
         }
 
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(candidate) != 1 {
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(candidate) != 1 {
             return false
         }
 
@@ -143,13 +143,13 @@ class ColumnarInstanceMemberPlanner {
         }
 
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression {
             return false
         }
 
         checkpoint := plan.CreateCheckpoint()
         try {
-            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression(), candidate)
+            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.MemberAccessExpression, candidate)
 
             if !TryAppend(nodes, source, candidate, bindings, plan, fragment, false, out resultType) {
                 plan.Rollback(checkpoint)
@@ -174,7 +174,7 @@ class ColumnarInstanceMemberPlanner {
     // parameter is REQUIRED rather than defaulted, so every caller states its own position.
     static func TryAppend(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, parentFragment: int, allowPrimitiveBinary: bool, out resultType: Type): bool {
         resultType = typeof(int)
-        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(node) != 1 {
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(node) != 1 {
             return false
         }
 
@@ -234,7 +234,7 @@ class ColumnarInstanceMemberPlanner {
                     return false
                 }
 
-                if nodes.Kind(receiverNode) == ColumnarExpressionNodeKind.IndexAccessExpression() {
+                if nodes.Kind(receiverNode) == ColumnarExpressionNodeKind.IndexAccessExpression {
                     // A List/array/string element receiver plans as a self-contained value fragment
                     // through the range/index owner, then composes with the ordinary member
                     // selection below (`issues[i].Id`). 015-B11: the element's SELECTOR inherits the
@@ -299,7 +299,7 @@ class ColumnarInstanceMemberPlanner {
         }
 
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(candidate) != 1 {
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(candidate) != 1 {
             return false
         }
 
@@ -374,7 +374,7 @@ class ColumnarInstanceMemberPlanner {
         scratch := new ColumnarCodePlan()
         scratch.EnablePlanLocalMirror(bindings.PlanLocalMirrorTypes())
         kind := nodes.Kind(receiverNode)
-        if kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
+        if kind == ColumnarExpressionNodeKind.IndexAccessExpression {
             // A List/array/string element receiver's type comes from planning the index access into
             // a throwaway schema-v3 plan; the open root fragment enables ordinary int indexing.
             //
@@ -397,7 +397,7 @@ class ColumnarInstanceMemberPlanner {
             handles := ColumnarRangeIndexHandles.Resolve()
             return ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, receiverNode, bindings, handles, scratch, rootFragment, 0, out receiverType)
         }
-        if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression {
             return ColumnarExternalStaticMemberPlanner.TryGetType(nodes, source, receiverNode, bindings, scratch, out receiverType)
         }
 
@@ -405,11 +405,11 @@ class ColumnarInstanceMemberPlanner {
             return ColumnarScalarLiteralPlanner.TryGetType(nodes, source, receiverNode, scratch, out receiverType)
         }
 
-        if kind == ColumnarExpressionNodeKind.NameOfExpression() {
+        if kind == ColumnarExpressionNodeKind.NameOfExpression {
             return ColumnarNameOfPlanner.TryGetType(nodes, source, receiverNode, scratch, out receiverType)
         }
 
-        if kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+        if kind == ColumnarExpressionNodeKind.TypeOfExpression {
             return ColumnarTypeOfPlanner.TryGetType(nodes, source, receiverNode, bindings, scratch, out receiverType)
         }
 
@@ -419,7 +419,7 @@ class ColumnarInstanceMemberPlanner {
     static func TryAppendComposedReceiver(nodes: ColumnarNodeTable, source: string, receiverNode: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out receiverType: Type): bool {
         receiverType = typeof(int)
         kind := nodes.Kind(receiverNode)
-        if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression {
             return ColumnarExternalStaticMemberPlanner.TryAppendStaticMember(nodes, source, receiverNode, bindings, plan, out receiverType)
         }
 
@@ -427,11 +427,11 @@ class ColumnarInstanceMemberPlanner {
             return ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, receiverNode, plan, out receiverType)
         }
 
-        if kind == ColumnarExpressionNodeKind.NameOfExpression() {
+        if kind == ColumnarExpressionNodeKind.NameOfExpression {
             return ColumnarNameOfPlanner.TryAppendNameOf(nodes, source, receiverNode, plan, out receiverType)
         }
 
-        if kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+        if kind == ColumnarExpressionNodeKind.TypeOfExpression {
             return ColumnarTypeOfPlanner.TryAppendTypeOf(nodes, source, receiverNode, bindings, plan, out receiverType)
         }
 
@@ -467,7 +467,7 @@ class ColumnarInstanceMemberPlanner {
         }
 
         kind := nodes.Kind(receiverNode)
-        if kind != ColumnarExpressionNodeKind.MemberAccessExpression() && kind != ColumnarExpressionNodeKind.CallExpression() {
+        if kind != ColumnarExpressionNodeKind.MemberAccessExpression && kind != ColumnarExpressionNodeKind.CallExpression {
             return false
         }
 
@@ -480,7 +480,7 @@ class ColumnarInstanceMemberPlanner {
     }
 
     static func IsScalarLiteralKind(kind: int): bool {
-        return kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression()
+        return kind == ColumnarExpressionNodeKind.IntLiteralExpression || kind == ColumnarExpressionNodeKind.FloatLiteralExpression || kind == ColumnarExpressionNodeKind.CharLiteralExpression || kind == ColumnarExpressionNodeKind.StringLiteralExpression
     }
 
     static func CanOwnReceiver(receiverType: Type, bindings: ColumnarFragmentBindings): bool {
@@ -1066,7 +1066,7 @@ class ColumnarInstanceMemberPlanner {
         }
 
         names: string[]? = null
-        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.IdentifierExpression() && nodes.ChildCount(candidate) == 0 {
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ChildCount(candidate) == 0 {
             receiverName := nodes.Text(source, candidate)
             if bindings.TupleNames.ContainsKey(receiverName) {
                 names = bindings.TupleNames[receiverName]
@@ -1124,7 +1124,7 @@ class ColumnarInstanceMemberPlanner {
         }
 
         candidateKind := nodes.Kind(candidate)
-        if candidateKind == ColumnarExpressionNodeKind.IdentifierExpression() && nodes.ChildCount(candidate) == 0 {
+        if candidateKind == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ChildCount(candidate) == 0 {
             bindingName := nodes.Text(source, candidate)
             if !bindings.LabeledTypes.ContainsKey(bindingName) {
                 return false
@@ -1142,11 +1142,11 @@ class ColumnarInstanceMemberPlanner {
             return true
         }
 
-        if candidateKind == ColumnarExpressionNodeKind.MemberAccessExpression() && nodes.ChildCount(candidate) >= 1 {
+        if candidateKind == ColumnarExpressionNodeKind.MemberAccessExpression && nodes.ChildCount(candidate) >= 1 {
             return TrySourceMemberWrittenType(nodes, source, candidate, bindings, out labeled, out writtenType)
         }
 
-        if candidateKind == ColumnarExpressionNodeKind.IndexAccessExpression() && nodes.ChildCount(candidate) >= 1 {
+        if candidateKind == ColumnarExpressionNodeKind.IndexAccessExpression && nodes.ChildCount(candidate) >= 1 {
             return TryIndexedElementWrittenType(nodes, source, candidate, bindings, out labeled, out writtenType)
         }
 

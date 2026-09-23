@@ -953,7 +953,7 @@ class ColumnarFunctionBodyDefaultProbe {
             bodyNodeCount := result[7]
             n := 0
             while n < bodyNodeCount {
-                if nodeKinds[n] == ColumnarExpressionNodeKind.DefaultExpression() {
+                if nodeKinds[n] == ColumnarExpressionNodeKind.DefaultExpression {
                     if DefaultNodeCount == 0 {
                         FirstDefaultChildCount = childCount[n]
                         FirstDefaultValueStart = valueStarts[n]
@@ -1234,7 +1234,7 @@ class ColumnarFunctionBodyUsingProbe {
 
 func AssertColumnarSeparatedIntegerLiteral(source: string, expectedValue: ulong): void {
     probe := new ColumnarNumericLiteralParseProbe(source)
-    probe.AssertSingleLiteral(1, ColumnarExpressionNodeKind.IntLiteralExpression())
+    probe.AssertSingleLiteral(1, ColumnarExpressionNodeKind.IntLiteralExpression)
     assert NumericLiteralFacts.ParseUnsignedIntegerMagnitude(source) == expectedValue
 }
 
@@ -1267,19 +1267,19 @@ func AssertMalformedColumnarNumberPrefix(source: string, consumedText: string): 
 }
 
 test "literal node-kind ledger owns every primary literal ordinal" {
-    assert ColumnarExpressionNodeKind.IntLiteralExpression() == 0
-    assert ColumnarExpressionNodeKind.FloatLiteralExpression() == 1
-    assert ColumnarExpressionNodeKind.CharLiteralExpression() == 2
-    assert ColumnarExpressionNodeKind.StringLiteralExpression() == 3
-    assert ColumnarExpressionNodeKind.TypeOfExpression() == 55
-    assert ColumnarExpressionNodeKind.BoolLiteralExpression() == 4
-    assert ColumnarExpressionNodeKind.NullLiteralExpression() == 5
-    assert ColumnarExpressionNodeKind.CallExpression() == 9
-    assert ColumnarExpressionNodeKind.BinaryExpression() == 12
+    assert ColumnarExpressionNodeKind.IntLiteralExpression == 0
+    assert ColumnarExpressionNodeKind.FloatLiteralExpression == 1
+    assert ColumnarExpressionNodeKind.CharLiteralExpression == 2
+    assert ColumnarExpressionNodeKind.StringLiteralExpression == 3
+    assert ColumnarExpressionNodeKind.TypeOfExpression == 55
+    assert ColumnarExpressionNodeKind.BoolLiteralExpression == 4
+    assert ColumnarExpressionNodeKind.NullLiteralExpression == 5
+    assert ColumnarExpressionNodeKind.CallExpression == 9
+    assert ColumnarExpressionNodeKind.BinaryExpression == 12
 
-    assert ColumnarExpressionNodeKind.DefaultExpression() == 74
-    assert ColumnarExpressionNodeKind.NullGuardExpression() == 75
-    assert ColumnarExpressionNodeKind.ThisExpression() == 82
+    assert ColumnarExpressionNodeKind.DefaultExpression == 74
+    assert ColumnarExpressionNodeKind.NullGuardExpression == 75
+    assert ColumnarExpressionNodeKind.ThisExpression == 82
 }
 
 // `default` IS A PRIMARY, AND IT IS THE NULL LITERAL'S TWIN. Both keywords name the target type's zero
@@ -1293,7 +1293,7 @@ test "the default keyword parses as a childless primary carrying only its own sp
     assert probe.NodeCount == 1
     assert probe.ParseResult[0] == 0
     assert probe.ParseResult[1] == 1
-    assert probe.NodeKinds[0] == ColumnarExpressionNodeKind.DefaultExpression()
+    assert probe.NodeKinds[0] == ColumnarExpressionNodeKind.DefaultExpression
     assert probe.NodeChildCounts[0] == 0
     assert probe.NodeValueStarts[0] == -1
     assert probe.NodeValueLengths[0] == 0
@@ -1312,7 +1312,7 @@ test "a bare this parses as a childless primary carrying only its own span" {
 
     assert probe.NodeCount == 1
     assert probe.ParseResult[0] == 0
-    assert probe.NodeKinds[0] == ColumnarExpressionNodeKind.ThisExpression()
+    assert probe.NodeKinds[0] == ColumnarExpressionNodeKind.ThisExpression
     assert probe.NodeChildCounts[0] == 0
     assert probe.NodeValueStarts[0] == -1
     assert probe.NodeValueLengths[0] == 0
@@ -1327,7 +1327,7 @@ test "this dot member stays a bare identifier rather than becoming a this node" 
     probe := new ColumnarNumericLiteralParseProbe(source)
 
     root := probe.ParseResult[0]
-    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.IdentifierExpression()
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.IdentifierExpression
     assert probe.NodeChildCounts[root] == 0
     assert source.Substring(probe.NodeValueStarts[root], probe.NodeValueLengths[root]) == "Label"
 }
@@ -1338,11 +1338,11 @@ test "a bare this reaches an argument position as its own node" {
     probe := new ColumnarNumericLiteralParseProbe(source)
 
     root := probe.ParseResult[0]
-    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.CallExpression()
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.CallExpression
     assert probe.NodeChildCounts[root] == 3
 
     firstArgument := probe.NodeChildren[probe.NodeChildStarts[root] + 1]
-    assert probe.NodeKinds[firstArgument] == ColumnarExpressionNodeKind.ThisExpression()
+    assert probe.NodeKinds[firstArgument] == ColumnarExpressionNodeKind.ThisExpression
     assert probe.NodeChildCounts[firstArgument] == 0
 }
 
@@ -1355,19 +1355,19 @@ test "a null-conditional access wraps its receiver in a null guard" {
     probe := new ColumnarNumericLiteralParseProbe(source)
 
     root := probe.ParseResult[0]
-    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.MemberAccessExpression
     assert probe.NodeChildCounts[root] == 1
     assert source.Substring(probe.NodeValueStarts[root], probe.NodeValueLengths[root]) == "Name"
 
     guard := probe.NodeChildren[probe.NodeChildStarts[root]]
-    assert probe.NodeKinds[guard] == ColumnarExpressionNodeKind.NullGuardExpression()
+    assert probe.NodeKinds[guard] == ColumnarExpressionNodeKind.NullGuardExpression
     assert probe.NodeChildCounts[guard] == 1
     assert probe.NodeValueStarts[guard] == -1
     assert probe.NodeSpanStarts[guard] == 0
     assert probe.NodeSpanLengths[guard] == "user".Length
 
     receiver := probe.NodeChildren[probe.NodeChildStarts[guard]]
-    assert probe.NodeKinds[receiver] == ColumnarExpressionNodeKind.IdentifierExpression()
+    assert probe.NodeKinds[receiver] == ColumnarExpressionNodeKind.IdentifierExpression
     assert source.Substring(probe.NodeValueStarts[receiver], probe.NodeValueLengths[receiver]) == "user"
 }
 
@@ -1375,9 +1375,9 @@ test "an ordinary dot access carries no guard" {
     probe := new ColumnarNumericLiteralParseProbe("user.Name")
 
     root := probe.ParseResult[0]
-    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.MemberAccessExpression
     guardless := probe.NodeChildren[probe.NodeChildStarts[root]]
-    assert probe.NodeKinds[guardless] == ColumnarExpressionNodeKind.IdentifierExpression()
+    assert probe.NodeKinds[guardless] == ColumnarExpressionNodeKind.IdentifierExpression
 }
 
 test "a null-conditional call is an ordinary call over a guarded access" {
@@ -1385,12 +1385,12 @@ test "a null-conditional call is an ordinary call over a guarded access" {
     probe := new ColumnarNumericLiteralParseProbe(source)
 
     root := probe.ParseResult[0]
-    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.CallExpression()
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.CallExpression
     callee := probe.NodeChildren[probe.NodeChildStarts[root]]
-    assert probe.NodeKinds[callee] == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert probe.NodeKinds[callee] == ColumnarExpressionNodeKind.MemberAccessExpression
     assert source.Substring(probe.NodeValueStarts[callee], probe.NodeValueLengths[callee]) == "ToString"
     guard := probe.NodeChildren[probe.NodeChildStarts[callee]]
-    assert probe.NodeKinds[guard] == ColumnarExpressionNodeKind.NullGuardExpression()
+    assert probe.NodeKinds[guard] == ColumnarExpressionNodeKind.NullGuardExpression
 }
 
 test "every link of a chain carries its own guard" {
@@ -1399,7 +1399,7 @@ test "every link of a chain carries its own guard" {
     guards := 0
     n := 0
     while n < probe.NodeCount {
-        if probe.NodeKinds[n] == ColumnarExpressionNodeKind.NullGuardExpression() {
+        if probe.NodeKinds[n] == ColumnarExpressionNodeKind.NullGuardExpression {
             guards = guards + 1
             assert probe.NodeChildCounts[n] == 1
         }
@@ -1416,7 +1416,7 @@ test "a guarded link followed by a plain one leaves the plain access unguarded" 
     guards := 0
     n := 0
     while n < probe.NodeCount {
-        if probe.NodeKinds[n] == ColumnarExpressionNodeKind.NullGuardExpression() {
+        if probe.NodeKinds[n] == ColumnarExpressionNodeKind.NullGuardExpression {
             guards = guards + 1
         }
 
@@ -1425,9 +1425,9 @@ test "a guarded link followed by a plain one leaves the plain access unguarded" 
 
     assert guards == 1
     root := probe.ParseResult[0]
-    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.MemberAccessExpression
     inner := probe.NodeChildren[probe.NodeChildStarts[root]]
-    assert probe.NodeKinds[inner] == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert probe.NodeKinds[inner] == ColumnarExpressionNodeKind.MemberAccessExpression
 }
 
 // THE `is` PATTERN VARIABLE. It has nowhere else to go: a kind-46 child run is [value, typeRoot] and
@@ -1500,7 +1500,7 @@ test "a pattern variable binds tighter than the conjunction that reads it" {
     probe := new ColumnarNumericLiteralParseProbe(source)
 
     root := probe.ParseResult[0]
-    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.BinaryExpression()
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.BinaryExpression
     assert probe.NodeChildCounts[root] == 2
     left := probe.NodeChildren[probe.NodeChildStarts[root]]
     assert probe.NodeKinds[left] == 46
@@ -1515,7 +1515,7 @@ test "default composes as an ordinary operand of the expression grammar" {
     defaultNodes := 0
     n := 0
     while n < probe.NodeCount {
-        if probe.NodeKinds[n] == ColumnarExpressionNodeKind.DefaultExpression() {
+        if probe.NodeKinds[n] == ColumnarExpressionNodeKind.DefaultExpression {
             defaultNodes = defaultNodes + 1
             assert probe.NodeChildCounts[n] == 0
             assert source.Substring(probe.NodeSpanStarts[n], probe.NodeSpanLengths[n]) == "default"
@@ -1525,7 +1525,7 @@ test "default composes as an ordinary operand of the expression grammar" {
     }
 
     assert defaultNodes == 1
-    assert probe.NodeKinds[probe.ParseResult[0]] == ColumnarExpressionNodeKind.CallExpression()
+    assert probe.NodeKinds[probe.ParseResult[0]] == ColumnarExpressionNodeKind.CallExpression
 }
 
 test "a function body carrying default parses through the product function ABI" {
@@ -2143,7 +2143,7 @@ test "columnar integer suffix remains inside a separated literal span" {
 test "columnar floating literal spans preserve separators and scanner kind" {
     source := "1_2.5_0e+1"
     probe := new ColumnarNumericLiteralParseProbe(source)
-    probe.AssertSingleLiteral(2, ColumnarExpressionNodeKind.FloatLiteralExpression())
+    probe.AssertSingleLiteral(2, ColumnarExpressionNodeKind.FloatLiteralExpression)
 }
 
 test "columnar range adjacency preserves both separated literal spans" {
@@ -2167,15 +2167,15 @@ test "columnar range adjacency preserves both separated literal spans" {
 
     assert probe.NodeCount == 3
     assert probe.ParseResult[0] == 2
-    assert probe.NodeKinds[0] == ColumnarExpressionNodeKind.IntLiteralExpression()
+    assert probe.NodeKinds[0] == ColumnarExpressionNodeKind.IntLiteralExpression
     assert probe.NodeValueStarts[0] == 0
     assert probe.NodeValueLengths[0] == 3
     assert source.Substring(probe.NodeValueStarts[0], probe.NodeValueLengths[0]) == "1_0"
-    assert probe.NodeKinds[1] == ColumnarExpressionNodeKind.IntLiteralExpression()
+    assert probe.NodeKinds[1] == ColumnarExpressionNodeKind.IntLiteralExpression
     assert probe.NodeValueStarts[1] == 5
     assert probe.NodeValueLengths[1] == 3
     assert source.Substring(probe.NodeValueStarts[1], probe.NodeValueLengths[1]) == "2_0"
-    assert probe.NodeKinds[2] == ColumnarExpressionNodeKind.RangeExpression()
+    assert probe.NodeKinds[2] == ColumnarExpressionNodeKind.RangeExpression
     assert probe.NodeValueStarts[2] == 3
     assert probe.NodeValueLengths[2] == 2
     assert probe.NodeChildCounts[2] == 2
@@ -2780,10 +2780,10 @@ func ThrowExpressionProbe(source: string): ColumnarNumericLiteralParseProbe {
 }
 
 test "the throw-expression kind is 83 and is distinct from the throw STATEMENT kind 48" {
-    assert ColumnarExpressionNodeKind.ThrowExpression() == 83
-    assert ColumnarExpressionNodeKind.ThrowExpression() != ColumnarExpressionNodeKind.OnSubscriptionExpression()
-    assert ColumnarExpressionNodeKind.ThrowExpression() != ColumnarExpressionNodeKind.ThisExpression()
-    assert ColumnarExpressionNodeKind.ThrowExpression() != 48
+    assert ColumnarExpressionNodeKind.ThrowExpression == 83
+    assert ColumnarExpressionNodeKind.ThrowExpression != ColumnarExpressionNodeKind.OnSubscriptionExpression
+    assert ColumnarExpressionNodeKind.ThrowExpression != ColumnarExpressionNodeKind.ThisExpression
+    assert ColumnarExpressionNodeKind.ThrowExpression != 48
 }
 
 test "the fallback of a coalesce parses as kind 83 with the exception as its ONE child" {
@@ -2795,7 +2795,7 @@ test "the fallback of a coalesce parses as kind 83 with the exception as its ONE
     assert probe.NodeChildCounts[root] == 2
 
     fallback := probe.NodeChildren[probe.NodeChildStarts[root] + 1]
-    assert probe.NodeKinds[fallback] == ColumnarExpressionNodeKind.ThrowExpression()
+    assert probe.NodeKinds[fallback] == ColumnarExpressionNodeKind.ThrowExpression
     assert probe.NodeChildCounts[fallback] == 1
     // NO value span — the keyword IS the node, exactly as `null` and `default` are.
     assert probe.NodeValueStarts[fallback] == -1
@@ -2804,21 +2804,21 @@ test "the fallback of a coalesce parses as kind 83 with the exception as its ONE
     assert probe.Source.Substring(probe.NodeSpanStarts[fallback], probe.NodeSpanLengths[fallback]) == "throw new System.Exception(\"x\")"
 
     operand := probe.NodeChildren[probe.NodeChildStarts[fallback]]
-    assert probe.NodeKinds[operand] == ColumnarExpressionNodeKind.NewExpression()
+    assert probe.NodeKinds[operand] == ColumnarExpressionNodeKind.NewExpression
 }
 
 test "either conditional arm parses as kind 83" {
     elseArm := ThrowExpressionProbe("ok ? value : throw new System.Exception(\"x\")")
     assert elseArm.NodeCount > 0
     elseRoot := elseArm.ParseResult[0]
-    assert elseArm.NodeKinds[elseRoot] == ColumnarExpressionNodeKind.TernaryExpression()
-    assert elseArm.NodeKinds[elseArm.NodeChildren[elseArm.NodeChildStarts[elseRoot] + 2]] == ColumnarExpressionNodeKind.ThrowExpression()
+    assert elseArm.NodeKinds[elseRoot] == ColumnarExpressionNodeKind.TernaryExpression
+    assert elseArm.NodeKinds[elseArm.NodeChildren[elseArm.NodeChildStarts[elseRoot] + 2]] == ColumnarExpressionNodeKind.ThrowExpression
 
     thenArm := ThrowExpressionProbe("ok ? throw new System.Exception(\"x\") : value")
     assert thenArm.NodeCount > 0
     thenRoot := thenArm.ParseResult[0]
-    assert thenArm.NodeKinds[thenRoot] == ColumnarExpressionNodeKind.TernaryExpression()
-    assert thenArm.NodeKinds[thenArm.NodeChildren[thenArm.NodeChildStarts[thenRoot] + 1]] == ColumnarExpressionNodeKind.ThrowExpression()
+    assert thenArm.NodeKinds[thenRoot] == ColumnarExpressionNodeKind.TernaryExpression
+    assert thenArm.NodeKinds[thenArm.NodeChildren[thenArm.NodeChildStarts[thenRoot] + 1]] == ColumnarExpressionNodeKind.ThrowExpression
 }
 
 test "every other value position refuses a throw rather than building a node" {
@@ -2837,11 +2837,11 @@ test "a coalesce chain admits a throw only at the LAST fallback, and nests left"
 
     root := probe.ParseResult[0]
     assert probe.NodeKinds[root] == 12
-    assert probe.NodeKinds[probe.NodeChildren[probe.NodeChildStarts[root] + 1]] == ColumnarExpressionNodeKind.ThrowExpression()
+    assert probe.NodeKinds[probe.NodeChildren[probe.NodeChildStarts[root] + 1]] == ColumnarExpressionNodeKind.ThrowExpression
     // `a ?? b` is the LEFT child: the chain is left-associative, so the throw is the outer fallback.
     left := probe.NodeChildren[probe.NodeChildStarts[root]]
     assert probe.NodeKinds[left] == 12
-    assert probe.NodeKinds[probe.NodeChildren[probe.NodeChildStarts[left] + 1]] == ColumnarExpressionNodeKind.IdentifierExpression()
+    assert probe.NodeKinds[probe.NodeChildren[probe.NodeChildStarts[left] + 1]] == ColumnarExpressionNodeKind.IdentifierExpression
 }
 
 test "a lambda's expression body may be a throw" {
@@ -2851,7 +2851,7 @@ test "a lambda's expression body may be a throw" {
     root := probe.ParseResult[0]
     assert ColumnarLambdaNodeFacts.IsLambda(probe.NodeKinds[root])
     assert probe.NodeChildCounts[root] == 2
-    assert probe.NodeKinds[probe.NodeChildren[probe.NodeChildStarts[root] + 1]] == ColumnarExpressionNodeKind.ThrowExpression()
+    assert probe.NodeKinds[probe.NodeChildren[probe.NodeChildStarts[root] + 1]] == ColumnarExpressionNodeKind.ThrowExpression
 }
 
 test "a typed lambda parameter keeps the parameter node and starts its body after the annotation" {
@@ -2863,7 +2863,7 @@ test "a typed lambda parameter keeps the parameter node and starts its body afte
     assert probe.NodeChildCounts[root] == 4
 
     parameter := probe.NodeChildren[probe.NodeChildStarts[root]]
-    assert probe.NodeKinds[parameter] == ColumnarExpressionNodeKind.IdentifierExpression()
+    assert probe.NodeKinds[parameter] == ColumnarExpressionNodeKind.IdentifierExpression
     assert probe.Source.Substring(probe.NodeValueStarts[parameter], probe.NodeValueLengths[parameter]) == "value"
 
     pair := probe.NodeChildren[probe.NodeChildStarts[root] + 1]
@@ -2872,6 +2872,6 @@ test "a typed lambda parameter keeps the parameter node and starts its body afte
     assert probe.Source.Substring(probe.NodeValueStarts[format], probe.NodeValueLengths[format]) == "format"
 
     body := probe.NodeChildren[probe.NodeChildStarts[root] + 3]
-    assert probe.NodeKinds[body] == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert probe.NodeKinds[body] == ColumnarExpressionNodeKind.MemberAccessExpression
     assert probe.Source.Substring(probe.NodeValueStarts[body], probe.NodeValueLengths[body]) == "Count"
 }

@@ -1516,7 +1516,7 @@ sealed class ColumnarProgramInputBuilder {
             ) {
                 return DeclineAtToken(ColumnarParseDeclines.ConstructorChain, cs, cv, ctorIndex, "constructor")
             }
-            if chainArgKinds[a] == 41 && chainNodes.Kind(chainRoot) == ColumnarExpressionNodeKind.NewExpression() && chainNodes.ChildCount(chainRoot) == 1 {
+            if chainArgKinds[a] == 41 && chainNodes.Kind(chainRoot) == ColumnarExpressionNodeKind.NewExpression && chainNodes.ChildCount(chainRoot) == 1 {
                 typeRoot := chainNodes.Child(chainRoot, 0)
                 typeStart := chainNodes.SpanStart(typeRoot)
                 typeLength := chainNodes.SpanLength(typeRoot)

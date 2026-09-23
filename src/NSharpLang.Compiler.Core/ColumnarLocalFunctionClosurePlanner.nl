@@ -156,7 +156,7 @@ class ColumnarLocalFunctionClosurePlanner {
     // `func visit(item: string)` in a body that also wrote `for item in items`, which `nlc check`
     // accepts and C# accepts, because the two `item`s never share a scope.
     static func CollectDeclaringScopeBindingNames(nodes: ColumnarNodeTable, source: string, blockNode: int, names: HashSet<string>) {
-        if nodes.Kind(blockNode) != 25 {
+        if nodes.Kind(blockNode) != ColumnarStatementNodeKind.BlockStatement {
             ColumnarClosureBindingPlanner.CollectBindingNames(nodes, source, blockNode, names)
             return
         }
@@ -165,11 +165,11 @@ class ColumnarLocalFunctionClosurePlanner {
         while childOrdinal < nodes.ChildCount(blockNode) {
             child := nodes.Child(blockNode, childOrdinal)
             childKind := nodes.Kind(child)
-            if childKind == 24 {
+            if childKind == ColumnarStatementNodeKind.VariableDeclarationStatement {
                 if nodes.ValueStart(child) >= 0 {
                     names.Add(nodes.Text(source, child))
                 }
-            } else if childKind == 50 {
+            } else if childKind == ColumnarStatementNodeKind.CatchClause {
                 // A catch clause's binding is asked for rather than counted, because a clause with an
                 // exception FILTER carries a third child and a filtered clause with no binding carries
                 // the same TWO a bound one used to.
@@ -177,18 +177,18 @@ class ColumnarLocalFunctionClosurePlanner {
                 if catchBinding >= 0 {
                     names.Add(nodes.Text(source, catchBinding))
                 }
-            } else if childKind == 40 {
+            } else if childKind == ColumnarStatementNodeKind.TypedLocalDeclaration {
                 if nodes.ChildCount(child) == 2 {
                     nameChild := nodes.Child(child, 0)
-                    if nodes.Kind(nameChild) == 6 && nodes.ValueStart(nameChild) >= 0 {
+                    if nodes.Kind(nameChild) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(nameChild) >= 0 {
                         names.Add(nodes.Text(source, nameChild))
                     }
                 }
-            } else if childKind == 30 {
+            } else if childKind == ColumnarStatementNodeKind.TupleDeconstructionStatement {
                 nameOrdinal := 0
                 while nameOrdinal < nodes.ChildCount(child) - 1 {
                     element := nodes.Child(child, nameOrdinal)
-                    if nodes.Kind(element) == 6 && nodes.ValueStart(element) >= 0 {
+                    if nodes.Kind(element) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(element) >= 0 {
                         names.Add(nodes.Text(source, element))
                     }
                     nameOrdinal = nameOrdinal + 1

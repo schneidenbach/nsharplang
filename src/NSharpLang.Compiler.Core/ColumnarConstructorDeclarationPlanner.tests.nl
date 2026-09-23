@@ -71,12 +71,12 @@ func ConstructorDeclarationControlsAssignmentTree(
 ): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     target := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
+        ColumnarExpressionNodeKind.IdentifierExpression,
         targetName
     )
     operatorStart := builder.AddToken(operatorText)
     value := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         "1"
     )
     assignment := builder.AddNode(
@@ -117,8 +117,8 @@ func ConstructorDeclarationControlsSpanlessEqualsTree(
     kinds[0] = 25
     kinds[1] = 23
     kinds[2] = 14
-    kinds[3] = ColumnarExpressionNodeKind.IdentifierExpression()
-    kinds[4] = ColumnarExpressionNodeKind.IntLiteralExpression()
+    kinds[3] = ColumnarExpressionNodeKind.IdentifierExpression
+    kinds[4] = ColumnarExpressionNodeKind.IntLiteralExpression
     valueStarts := new int[](5)
     valueStarts[2] = -1
     valueStarts[4] = targetName.Length

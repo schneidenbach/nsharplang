@@ -83,27 +83,27 @@ class ColumnarMethodBodyPlanner {
 
         kind := nodes.Kind(node)
         // 20 Return, 48 Throw — both exit unconditionally (E1).
-        if kind == 20 || kind == 48 {
+        if kind == ColumnarStatementNodeKind.ReturnStatement || kind == ColumnarStatementNodeKind.ThrowStatement {
             return true
         }
         // 21 Break, 22 Continue — final for the GUARD-CLAUSE question and not for the missing-return
         // one, which is the whole difference between the two entry points.
-        if kind == 21 {
+        if kind == ColumnarStatementNodeKind.BreakStatement {
             return breakLeaves
         }
-        if kind == 22 {
+        if kind == ColumnarStatementNodeKind.ContinueStatement {
             return continueLeaves
         }
         // 72 Yield — a value-less `yield break` (0 children) terminates the iterator exactly like
         // return/throw; a `yield <value>` (1 child) produces a value and continues.
-        if kind == 72 {
+        if kind == ColumnarExpressionNodeKind.YieldExpression {
             return nodes.ChildCount(node) == 0
         }
-        if kind == 49 {
+        if kind == ColumnarStatementNodeKind.TryStatement {
             return TryStatementLeaves(nodes, source, node, breakLeaves, continueLeaves, terminatingCalls)
         }
         // 25 Block.
-        if kind == 25 {
+        if kind == ColumnarStatementNodeKind.BlockStatement {
             n := 0
             while n < nodes.ChildCount(node) {
                 if Leaves(nodes, source, nodes.Child(node, n), breakLeaves, continueLeaves, terminatingCalls) {
@@ -114,7 +114,7 @@ class ColumnarMethodBodyPlanner {
             return false
         }
         // 27 If [cond, then, else?] — only an if WITH an else can exit on every path.
-        if kind == 27 {
+        if kind == ColumnarStatementNodeKind.IfStatement {
             if nodes.ChildCount(node) != 3 {
                 return false
             }
@@ -122,14 +122,14 @@ class ColumnarMethodBodyPlanner {
         }
         // 51 Lock [lockee, body] — exits iff the body exits (probe-pinned: `lock s { return 1 }` with
         // no trailing return satisfies the analyzer).
-        if kind == 51 {
+        if kind == ColumnarStatementNodeKind.LockStatement {
             return Leaves(nodes, source, nodes.Child(node, 1), breakLeaves, continueLeaves, terminatingCalls)
         }
         // 77 Using / 81 await using — the BLOCK form [resource, body] exits iff its body does; the
         // release in the `finally` runs on the way out and changes nothing about whether control
         // leaves. The DECLARATION form has one child and no body: it guards its SIBLINGS, which the
         // block arm above already walks, so it terminates nothing on its own.
-        if kind == 77 || kind == 81 {
+        if kind == ColumnarStatementNodeKind.UsingStatement || kind == ColumnarStatementNodeKind.AwaitUsingStatement {
             if nodes.ChildCount(node) != 2 {
                 return false
             }
@@ -140,16 +140,16 @@ class ColumnarMethodBodyPlanner {
         // is unreachable (C# §13.2), so a body that only leaves through a `return` or a `throw` needs
         // no trailing return. The analyzer's `AnalyzerStatementTermination.EndlessLoopLeaves` is the
         // same rule over AST statements and the two are kept verbatim-identical.
-        if kind == 26 {
+        if kind == ColumnarStatementNodeKind.WhileStatement {
             return EndlessLoopAlwaysReturns(nodes, source, nodes.Child(node, 0), nodes.Child(node, 1))
         }
-        if kind == 28 {
+        if kind == ColumnarStatementNodeKind.ForStatement {
             return EndlessLoopAlwaysReturns(nodes, source, nodes.Child(node, 1), nodes.Child(node, 3))
         }
         // 23 ExpressionStatement — a CALL the signature said never returns. The emitter records the
         // statement when it emits the call, which is where the callee is finally resolved, so this is
         // a lookup and never a second resolution.
-        if kind == 23 {
+        if kind == ColumnarStatementNodeKind.ExpressionStatement {
             return terminatingCalls != null && terminatingCalls.Contains(node)
         }
         return false
@@ -174,13 +174,13 @@ class ColumnarMethodBodyPlanner {
         }
 
         kind := nodes.Kind(node)
-        if kind == 4 {
+        if kind == ColumnarExpressionNodeKind.BoolLiteralExpression {
             return ColumnarNodeTextFacts.Text(nodes, source, node) == "true"
         }
-        if kind == 7 && nodes.ChildCount(node) == 1 {
+        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression && nodes.ChildCount(node) == 1 {
             return IsConstantTrueConditionNode(nodes, source, nodes.Child(node, 0))
         }
-        if kind == 11 && nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(nodes, source, node) == "!" {
+        if kind == ColumnarExpressionNodeKind.UnaryExpression && nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(nodes, source, node) == "!" {
             return IsConstantFalseConditionNode(nodes, source, nodes.Child(node, 0))
         }
         return false
@@ -192,13 +192,13 @@ class ColumnarMethodBodyPlanner {
         }
 
         kind := nodes.Kind(node)
-        if kind == 4 {
+        if kind == ColumnarExpressionNodeKind.BoolLiteralExpression {
             return ColumnarNodeTextFacts.Text(nodes, source, node) == "false"
         }
-        if kind == 7 && nodes.ChildCount(node) == 1 {
+        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression && nodes.ChildCount(node) == 1 {
             return IsConstantFalseConditionNode(nodes, source, nodes.Child(node, 0))
         }
-        if kind == 11 && nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(nodes, source, node) == "!" {
+        if kind == ColumnarExpressionNodeKind.UnaryExpression && nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(nodes, source, node) == "!" {
             return IsConstantTrueConditionNode(nodes, source, nodes.Child(node, 0))
         }
         return false
@@ -214,11 +214,11 @@ class ColumnarMethodBodyPlanner {
         }
 
         kind := nodes.Kind(node)
-        if kind == 21 {
+        if kind == ColumnarStatementNodeKind.BreakStatement {
             return true
         }
 
-        if kind == 25 || kind == 27 {
+        if kind == ColumnarStatementNodeKind.BlockStatement || kind == ColumnarStatementNodeKind.IfStatement {
             n := 0
             while n < nodes.ChildCount(node) {
                 if ContainsBreakTargetingThisLoop(nodes, nodes.Child(node, n)) {
@@ -229,18 +229,18 @@ class ColumnarMethodBodyPlanner {
             return false
         }
 
-        if kind == 51 {
+        if kind == ColumnarStatementNodeKind.LockStatement {
             return ContainsBreakTargetingThisLoop(nodes, nodes.Child(node, 1))
         }
 
-        if kind == 49 {
+        if kind == ColumnarStatementNodeKind.TryStatement {
             if ContainsBreakTargetingThisLoop(nodes, nodes.Child(node, 0)) {
                 return true
             }
             n := 1
             while n < nodes.ChildCount(node) {
                 clause := nodes.Child(node, n)
-                if nodes.Kind(clause) == 50 && ContainsBreakTargetingThisLoop(nodes, nodes.Child(clause, nodes.ChildCount(clause) - 1)) {
+                if nodes.Kind(clause) == ColumnarStatementNodeKind.CatchClause && ContainsBreakTargetingThisLoop(nodes, nodes.Child(clause, nodes.ChildCount(clause) - 1)) {
                     return true
                 }
                 n = n + 1
@@ -265,7 +265,7 @@ class ColumnarMethodBodyPlanner {
             clause := nodes.Child(node, n)
             // 50 CatchClause; anything else at this position is the finally block. A finally is
             // measured with BOTH jumps off: a `break` or a `continue` out of one is not legal IL.
-            if nodes.Kind(clause) != 50 && Leaves(nodes, source, clause, false, false, terminatingCalls) {
+            if nodes.Kind(clause) != ColumnarStatementNodeKind.CatchClause && Leaves(nodes, source, clause, false, false, terminatingCalls) {
                 return true
             }
             n = n + 1
@@ -278,7 +278,7 @@ class ColumnarMethodBodyPlanner {
         n = 1
         while n < nodes.ChildCount(node) {
             clause := nodes.Child(node, n)
-            if nodes.Kind(clause) == 50 {
+            if nodes.Kind(clause) == ColumnarStatementNodeKind.CatchClause {
                 if !Leaves(nodes, source, nodes.Child(clause, nodes.ChildCount(clause) - 1), breakLeaves, continueLeaves, terminatingCalls) {
                     return false
                 }
@@ -301,7 +301,7 @@ class ColumnarMethodBodyPlanner {
             throw new InvalidOperationException("Columnar return-statement search received an invalid node index.")
         }
 
-        if nodes.Kind(node) == 20 {
+        if nodes.Kind(node) == ColumnarStatementNodeKind.ReturnStatement {
             return true
         }
         n := 0
@@ -326,7 +326,7 @@ class ColumnarMethodBodyPlanner {
             throw new InvalidOperationException("Columnar return-statement search received an invalid node index.")
         }
 
-        if nodes.Kind(node) == 20 && nodes.ChildCount(node) != 0 {
+        if nodes.Kind(node) == ColumnarStatementNodeKind.ReturnStatement && nodes.ChildCount(node) != 0 {
             return true
         }
         n := 0
@@ -401,7 +401,7 @@ class ColumnarMethodBodyPlanner {
         if nodes == null || source == null || returnType == null || plan == null {
             return false
         }
-        if bodyRoot < 0 || bodyRoot >= nodes.Kinds.Length || nodes.Kind(bodyRoot) != 25 {
+        if bodyRoot < 0 || bodyRoot >= nodes.Kinds.Length || nodes.Kind(bodyRoot) != ColumnarStatementNodeKind.BlockStatement {
             return false
         }
 
@@ -446,7 +446,7 @@ class ColumnarMethodBodyPlanner {
             return false
         }
         statement := nodes.Child(bodyRoot, statementCount - 1)
-        if nodes.Kind(statement) != 20 || nodes.ChildCount(statement) != 1 {
+        if nodes.Kind(statement) != ColumnarStatementNodeKind.ReturnStatement || nodes.ChildCount(statement) != 1 {
             return false
         }
 
@@ -540,7 +540,7 @@ class ColumnarMethodBodyPlanner {
     // satisfied by construction and a call to it could never answer false. It arrives with the first
     // claimed shape that can fall through — a branch — not with this one.
     static func TryAppendLocalDeclaration(nodes: ColumnarNodeTable, source: string, statement: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
-        if statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != 24 || nodes.ChildCount(statement) != 1 {
+        if statement < 0 || statement >= nodes.Kinds.Length || nodes.Kind(statement) != ColumnarStatementNodeKind.VariableDeclarationStatement || nodes.ChildCount(statement) != 1 {
             return false
         }
 
@@ -601,7 +601,7 @@ class ColumnarMethodBodyPlanner {
         }
 
         statement := nodes.Child(bodyRoot, 0)
-        return nodes.Kind(statement) == 20 && nodes.ChildCount(statement) == 0
+        return nodes.Kind(statement) == ColumnarStatementNodeKind.ReturnStatement && nodes.ChildCount(statement) == 0
     }
 
     // THE APPEND-MODE EXPRESSION FRONT DOOR.
@@ -713,12 +713,12 @@ class ColumnarMethodBodyPlanner {
     // `-2.5` (a FLOAT literal child) and `~3` / `!true` (other operators) never reach the pre-pass at
     // all and stay claimed in both positions, as before.
     static func IsHostAdoptedReturnShape(nodes: ColumnarNodeTable, source: string, node: int): bool {
-        if nodes.Kind(node) != ColumnarExpressionNodeKind.UnaryExpression() || nodes.ChildCount(node) != 1 || nodes.Text(source, node) != "-" {
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.UnaryExpression || nodes.ChildCount(node) != 1 || nodes.Text(source, node) != "-" {
             return false
         }
 
         operand := nodes.Child(node, 0)
-        if operand < 0 || operand >= nodes.Kinds.Length || nodes.Kind(operand) != ColumnarExpressionNodeKind.IntLiteralExpression() {
+        if operand < 0 || operand >= nodes.Kinds.Length || nodes.Kind(operand) != ColumnarExpressionNodeKind.IntLiteralExpression {
             return false
         }
 
@@ -772,7 +772,7 @@ class ColumnarMethodBodyPlanner {
             return ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, node, plan, out resultType)
         }
         // 4 Bool — a different owner and therefore a different claim class, not a fifth literal.
-        if kind == ColumnarExpressionNodeKind.BoolLiteralExpression() {
+        if kind == ColumnarExpressionNodeKind.BoolLiteralExpression {
             if !ColumnarBooleanLiteralPlanner.TryAppendLiteral(nodes, source, node, plan) {
                 return false
             }
@@ -780,17 +780,17 @@ class ColumnarMethodBodyPlanner {
             return true
         }
         // 6 Identifier — five of the sole identifier owner's eight selection kinds.
-        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression {
             return TryAppendIdentifierRead(nodes, source, node, bindings, plan, out resultType)
         }
         // 11 Unary — the FIRST composite class this door claims (015-B6). The owner opens a NESTED
         // operand fragment and recurses into the scalar-literal owner, so this arm is what proves the
         // nine-gate widening end to end rather than as dead code.
-        if kind == ColumnarExpressionNodeKind.UnaryExpression() {
+        if kind == ColumnarExpressionNodeKind.UnaryExpression {
             return ColumnarUnaryLiteralPlanner.TryAppendRoot(nodes, source, node, plan, out resultType)
         }
         // 62 NameOf — one `ldstr` under a root fragment its own gate demands. A second of the nine.
-        if kind == ColumnarExpressionNodeKind.NameOfExpression() {
+        if kind == ColumnarExpressionNodeKind.NameOfExpression {
             return ColumnarNameOfPlanner.TryAppendRoot(nodes, source, node, plan, out resultType)
         }
         // 9 Call — THE DIRECT-CALL COMPOSITE (015-B7), and the first claimed kind whose owner consults
@@ -807,7 +807,7 @@ class ColumnarMethodBodyPlanner {
         // empty and the append threw out of the compiler. The scratch now carries the body's local
         // VOCABULARY — see `ColumnarCodePlan.EnablePlanLocalMirror` — so the shape the guard existed to
         // refuse is the shape this arm now claims.
-        if kind == ColumnarExpressionNodeKind.CallExpression() {
+        if kind == ColumnarExpressionNodeKind.CallExpression {
             ownership := ColumnarDirectCallOwnership.NotOwned
             legacyWholeSubtreePlanning := false
             return ColumnarDirectCallPlanner.TryAppendRoot(nodes, source, node, bindings, plan, out ownership, out legacyWholeSubtreePlanning, out resultType)
@@ -827,7 +827,7 @@ class ColumnarMethodBodyPlanner {
         // that belong to the CONDITIONAL owner, and until this slice the door sent every kind 12 to the
         // binary owner, whose `IsAdmittedSyntax` then refused them — a decline that was correct but
         // final. The door now asks the same question the emitter's cascade asks, in the same order.
-        if kind == ColumnarExpressionNodeKind.BinaryExpression() {
+        if kind == ColumnarExpressionNodeKind.BinaryExpression {
             if ColumnarConditionalPlanner.IsShortCircuitBinary(nodes, source, node) || ColumnarConditionalPlanner.IsNullCoalesceBinary(nodes, source, node) {
                 return ColumnarConditionalPlanner.TryAppendRoot(nodes, source, node, bindings, ColumnarRangeIndexHandles.Resolve(), plan, out resultType)
             }
@@ -847,7 +847,7 @@ class ColumnarMethodBodyPlanner {
         // and array literal, 5 null) and the seventh on the RETURN TYPE, which this driver already
         // refuses through `IsSupportedNullable`. Neither 13 nor a short-circuit 12 is in that set, so
         // ZERO pre-passes reach either shape.
-        if kind == ColumnarExpressionNodeKind.TernaryExpression() {
+        if kind == ColumnarExpressionNodeKind.TernaryExpression {
             return ColumnarConditionalPlanner.TryAppendRoot(nodes, source, node, bindings, ColumnarRangeIndexHandles.Resolve(), plan, out resultType)
         }
         // 57 CheckedContext — `checked(<expr>)` / `unchecked(<expr>)` (015-B13), and THE FIRST CLAIMED
@@ -859,14 +859,14 @@ class ColumnarMethodBodyPlanner {
         // whole body is `EmitExpressionWithOverflowChecking`: save the flag, set it, emit the ONE
         // child through the ordinary expression path, restore in a `finally`. So byte identity here is
         // against THIS door's own recursion, and the arm is that host arm transcribed.
-        if kind == ColumnarExpressionNodeKind.CheckedContextExpression() {
+        if kind == ColumnarExpressionNodeKind.CheckedContextExpression {
             return TryAppendCheckedContext(nodes, source, node, bindings, plan, out resultType)
         }
         // 8 MemberAccess — THE MEMBER-ACCESS COMPOSITE (015-B14, closed in 015-B15), and the ONE
         // claimed kind the cascade answers with TWO owners rather than one. See
         // `TryAppendMemberAccessRoot`: the door asks the cascade's SEVENTH arm (external static) first
         // and its EIGHTH (instance member) second, and since `015-B15` it CLAIMS either answer.
-        if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression {
             return TryAppendMemberAccessRoot(nodes, source, node, bindings, plan, out resultType)
         }
         // 55 TypeOf — `typeof(T)` (015-B16), and the SMALLEST remaining CASCADE arm. The owner's own
@@ -890,7 +890,7 @@ class ColumnarMethodBodyPlanner {
         // the arm is a ROOT claim rather than a new capability: `return typeof(int).Name` is a kind-8
         // root whose receiver is one of `TryGetComposedReceiverType`'s five arms, and a marked tip CLI
         // says the door claimed that body already. What kind 55 adds is the root position.
-        if kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+        if kind == ColumnarExpressionNodeKind.TypeOfExpression {
             return ColumnarTypeOfPlanner.TryAppendRoot(nodes, source, node, bindings, plan, out resultType)
         }
         // 7 Parenthesized — `(<expr>)` (015-B16), and THE SECOND CLAIMED KIND WITH NO PLANNER OF ITS
@@ -931,7 +931,7 @@ class ColumnarMethodBodyPlanner {
         // ⚠ AND THE CHILD IS DISPATCHED, NOT ADMITTED. `(null)` reaches the kind-5 refusal and
         // declines the body — which is also the only safe answer at a tip where the HOST cannot
         // compile `return (null)` at all (`NL103`, `emit.expression.unhandled-kind`, node kind 5).
-        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression() {
+        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression {
             if nodes.ChildCount(node) != 1 {
                 return false
             }
@@ -1075,7 +1075,7 @@ class ColumnarMethodBodyPlanner {
     // `TryAppendValue`'s arm, where the emitter's own cascade makes it. Duplicating the operator test
     // here would be a second copy of that judgement, and the two copies could disagree.
     static func IsClaimedExpressionKind(kind: int): bool {
-        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.BinaryExpression() || kind == ColumnarExpressionNodeKind.TernaryExpression() || kind == ColumnarExpressionNodeKind.CheckedContextExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() || kind == ColumnarExpressionNodeKind.ParenthesizedExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression()
+        return ColumnarScalarLiteralPlanner.IsOwnedLiteralKind(kind) || kind == ColumnarExpressionNodeKind.BoolLiteralExpression || kind == ColumnarExpressionNodeKind.IdentifierExpression || kind == ColumnarExpressionNodeKind.UnaryExpression || kind == ColumnarExpressionNodeKind.NameOfExpression || kind == ColumnarExpressionNodeKind.CallExpression || kind == ColumnarExpressionNodeKind.BinaryExpression || kind == ColumnarExpressionNodeKind.TernaryExpression || kind == ColumnarExpressionNodeKind.CheckedContextExpression || kind == ColumnarExpressionNodeKind.MemberAccessExpression || kind == ColumnarExpressionNodeKind.ParenthesizedExpression || kind == ColumnarExpressionNodeKind.TypeOfExpression
     }
 
     // The kinds the door refuses, named one by one rather than left to a fall-through. The reason is
@@ -1099,7 +1099,7 @@ class ColumnarMethodBodyPlanner {
         // reproducing the host's outer-node route exactly. And `(p).V` was never this kind at all: it
         // parses as `MemberAccess[Parenthesized[Identifier]]`, so its ROOT is kind 8 and `015-B14`
         // claimed it.
-        if kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
+        if kind == ColumnarExpressionNodeKind.NullLiteralExpression || kind == ColumnarExpressionNodeKind.IndexAccessExpression {
             return true
         }
         // 15 New, 16 Cast, 36 ObjectInitializer, 58 ArrayLiteral, 69 Range — the named
@@ -1108,14 +1108,14 @@ class ColumnarMethodBodyPlanner {
         // reproduce that arm's exact entry. Each arrives with its own corpus diff. 12 Binary LEFT THIS
         // LIST in `015-B9`, which is also what made the routed overflow flag load-bearing rather than
         // merely carried, and 13 TERNARY left it in `015-B12` through the cascade's FOURTH arm.
-        if kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.CastExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() {
+        if kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.CastExpression || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression {
             return true
         }
         // 55 TYPEOF LEFT THIS LIST in `015-B16` through the cascade's FIFTH arm, which is the only
         // UNCONDITIONAL one: the host sets `nsharpOwned = true` before it asks, so an unplannable
         // `typeof` root already declines the whole function on the host side and a door decline can
         // only narrow the body.
-        if kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() {
+        if kind == ColumnarExpressionNodeKind.ArrayLiteralExpression || kind == ColumnarExpressionNodeKind.RangeExpression {
             return true
         }
         // The kinds the parser produces in value position that have no named accessor on the ledger
@@ -1142,7 +1142,7 @@ class ColumnarMethodBodyPlanner {
         // of a `??`, a conditional arm, an expression body — each lower it themselves, in the host
         // emitter, where the branch structure the throw sits inside is already being written. A door
         // that claimed it would have to promise a result type it can never produce.
-        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 59 || kind == 64 || kind == ColumnarExpressionNodeKind.DefaultExpression() || kind == ColumnarExpressionNodeKind.NullGuardExpression() || kind == ColumnarExpressionNodeKind.OnSubscriptionExpression() || kind == ColumnarExpressionNodeKind.ThisExpression() || kind == ColumnarExpressionNodeKind.ThrowExpression()
+        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 59 || kind == 64 || kind == ColumnarExpressionNodeKind.DefaultExpression || kind == ColumnarExpressionNodeKind.NullGuardExpression || kind == ColumnarExpressionNodeKind.OnSubscriptionExpression || kind == ColumnarExpressionNodeKind.ThisExpression || kind == ColumnarExpressionNodeKind.ThrowExpression
     }
 
     // THE LEDGER THE DOOR PARTITIONS — every node kind the parser can produce in a return-VALUE

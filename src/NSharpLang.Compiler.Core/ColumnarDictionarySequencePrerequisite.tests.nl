@@ -81,7 +81,7 @@ func DictionarySequenceConstructionPlan(argumentType: Type): ColumnarCodePlan {
     tree := ConstructionNewTree(
         "Dictionary<string,string>",
         ConstructionOneText("source"),
-        ConstructionOneKind(ColumnarExpressionNodeKind.IdentifierExpression())
+        ConstructionOneKind(ColumnarExpressionNodeKind.IdentifierExpression)
     )
     ConstructionStampScope(tree, "")
     bindings := ColumnarRangePlannerEmptyBindings()
@@ -93,7 +93,7 @@ func DictionarySequenceConstructionRejected(argumentType: Type) {
     tree := ConstructionNewTree(
         "Dictionary<string,string>",
         ConstructionOneText("source"),
-        ConstructionOneKind(ColumnarExpressionNodeKind.IdentifierExpression())
+        ConstructionOneKind(ColumnarExpressionNodeKind.IdentifierExpression)
     )
     ConstructionStampScope(tree, "")
     bindings := ColumnarRangePlannerEmptyBindings()
@@ -176,7 +176,7 @@ test "dictionary sequence prerequisite retains ambiguity and unrelated copy-sour
     tree := ConstructionNewTree(
         "Dictionary<string,string>",
         ConstructionOneText("null"),
-        ConstructionOneKind(ColumnarExpressionNodeKind.NullLiteralExpression())
+        ConstructionOneKind(ColumnarExpressionNodeKind.NullLiteralExpression)
     )
     ConstructionStampScope(tree, "")
     ownership := ColumnarDirectCallOwnership.NotOwned

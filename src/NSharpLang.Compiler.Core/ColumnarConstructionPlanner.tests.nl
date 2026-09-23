@@ -39,7 +39,7 @@ func ConstructionNewTree(
         index += 1
     }
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         0,
@@ -67,7 +67,7 @@ func ConstructionObjectInitializerTree(
     index := 0
     while index < memberNames.Length {
         children[index * 2 + 1] = builder.AddLeaf(
-            ColumnarExpressionNodeKind.IdentifierExpression(),
+            ColumnarExpressionNodeKind.IdentifierExpression,
             memberNames[index]
         )
         children[index * 2 + 2] = builder.AddLeaf(
@@ -77,7 +77,7 @@ func ConstructionObjectInitializerTree(
         index += 1
     }
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.ObjectInitializerExpression(),
+        ColumnarExpressionNodeKind.ObjectInitializerExpression,
         -1,
         0,
         0,
@@ -96,7 +96,7 @@ func ConstructionObjectInitializerFromNewTree(
     builder := new ColumnarRangePlannerNodeBuilder()
     typeNode := builder.AddLeaf(0, typeName)
     constructed := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         0,
@@ -104,12 +104,12 @@ func ConstructionObjectInitializerFromNewTree(
         ColumnarRangePlannerChildren1(typeNode)
     )
     member := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
+        ColumnarExpressionNodeKind.IdentifierExpression,
         memberName
     )
     value := builder.AddLeaf(valueKind, valueText)
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.ObjectInitializerExpression(),
+        ColumnarExpressionNodeKind.ObjectInitializerExpression,
         -1,
         0,
         0,
@@ -123,20 +123,20 @@ func ConstructionNestedObjectInitializerTree(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     outerType := builder.AddLeaf(0, "ConstructionNestedOuter")
     outerMember := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
+        ColumnarExpressionNodeKind.IdentifierExpression,
         "Inner"
     )
     innerType := builder.AddLeaf(0, "ConstructionNestedInner")
     innerMember := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
+        ColumnarExpressionNodeKind.IdentifierExpression,
         "Value"
     )
     innerValue := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         "42"
     )
     inner := builder.AddNode(
-        ColumnarExpressionNodeKind.ObjectInitializerExpression(),
+        ColumnarExpressionNodeKind.ObjectInitializerExpression,
         -1,
         0,
         0,
@@ -148,7 +148,7 @@ func ConstructionNestedObjectInitializerTree(): ColumnarRangePlannerTestTree {
         )
     )
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.ObjectInitializerExpression(),
+        ColumnarExpressionNodeKind.ObjectInitializerExpression,
         -1,
         0,
         0,
@@ -170,16 +170,16 @@ func ConstructionNegativeObjectInitializerTree(
     builder := new ColumnarRangePlannerNodeBuilder()
     typeNode := builder.AddLeaf(0, typeName)
     member := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
+        ColumnarExpressionNodeKind.IdentifierExpression,
         memberName
     )
     minusStart := builder.AddToken("-")
     magnitude := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         magnitudeText
     )
     negative := builder.AddNode(
-        ColumnarExpressionNodeKind.UnaryExpression(),
+        ColumnarExpressionNodeKind.UnaryExpression,
         minusStart,
         1,
         minusStart,
@@ -187,7 +187,7 @@ func ConstructionNegativeObjectInitializerTree(
         ColumnarRangePlannerChildren1(magnitude)
     )
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.ObjectInitializerExpression(),
+        ColumnarExpressionNodeKind.ObjectInitializerExpression,
         -1,
         0,
         0,
@@ -214,7 +214,7 @@ func ConstructionSizedArrayTree(
     )
     length := builder.AddLeaf(lengthKind, lengthText)
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         0,
@@ -247,11 +247,11 @@ func ConstructionNullableSizedArrayTree(
         ColumnarRangePlannerChildren1(nullableElement)
     )
     length := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         lengthText
     )
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         0,
@@ -280,11 +280,11 @@ func ConstructionMalformedRepeatedSizedArrayTree(): ColumnarRangePlannerTestTree
         ColumnarRangePlannerChildren1(malformedElement)
     )
     length := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         "2"
     )
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         0,
@@ -317,11 +317,11 @@ func ConstructionNestedSizedArrayTree(
         ColumnarRangePlannerChildren1(innerArray)
     )
     length := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         lengthText
     )
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         0,
@@ -334,21 +334,21 @@ func ConstructionNestedSizedArrayTree(
 func ConstructionNestedDirectCallTree(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     owner := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
+        ColumnarExpressionNodeKind.IdentifierExpression,
         "ConstructionConsumer"
     )
     member := DirectCallAppendMember(builder, owner, "Consume")
     stringType := builder.AddLeaf(0, "string")
     character := builder.AddLeaf(
-        ColumnarExpressionNodeKind.CharLiteralExpression(),
+        ColumnarExpressionNodeKind.CharLiteralExpression,
         "'z'"
     )
     count := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IntLiteralExpression(),
+        ColumnarExpressionNodeKind.IntLiteralExpression,
         "2"
     )
     nested := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         0,
@@ -366,7 +366,7 @@ func ConstructionNestedDirectCallTree(): ColumnarRangePlannerTestTree {
 func ConstructionNestedGenericDirectCallTree(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     owner := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
+        ColumnarExpressionNodeKind.IdentifierExpression,
         "ConstructionGenericConsumer"
     )
     member := DirectCallAppendMember(builder, owner, "Consume")
@@ -381,7 +381,7 @@ func ConstructionNestedGenericDirectCallTree(): ColumnarRangePlannerTestTree {
         ColumnarRangePlannerChildren1(argumentType)
     )
     nested := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         typeStart,
@@ -410,7 +410,7 @@ func ConstructionNewWithNestedGenericTree(): ColumnarRangePlannerTestTree {
         ColumnarRangePlannerChildren1(argumentType)
     )
     nested := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         typeStart,
@@ -418,7 +418,7 @@ func ConstructionNewWithNestedGenericTree(): ColumnarRangePlannerTestTree {
         ColumnarRangePlannerChildren1(genericType)
     )
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         0,
@@ -439,7 +439,7 @@ func ConstructionDirectCallWithArrayLiteralTree(
     }
     builder := new ColumnarRangePlannerNodeBuilder()
     owner := builder.AddLeaf(
-        ColumnarExpressionNodeKind.IdentifierExpression(),
+        ColumnarExpressionNodeKind.IdentifierExpression,
         "ConstructionArrayConsumer"
     )
     member := DirectCallAppendMember(builder, owner, "Consume")
@@ -453,7 +453,7 @@ func ConstructionDirectCallWithArrayLiteralTree(
         index += 1
     }
     array := builder.AddNode(
-        ColumnarExpressionNodeKind.ArrayLiteralExpression(),
+        ColumnarExpressionNodeKind.ArrayLiteralExpression,
         -1,
         0,
         0,
@@ -490,7 +490,7 @@ func ConstructionNewWithArrayLiteralTree(
         index += 1
     }
     array := builder.AddNode(
-        ColumnarExpressionNodeKind.ArrayLiteralExpression(),
+        ColumnarExpressionNodeKind.ArrayLiteralExpression,
         -1,
         0,
         0,
@@ -498,7 +498,7 @@ func ConstructionNewWithArrayLiteralTree(
         elements
     )
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         0,
@@ -520,7 +520,7 @@ func ConstructionGenericNewTree(): ColumnarRangePlannerTestTree {
         ColumnarRangePlannerChildren1(argumentType)
     )
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         0,
@@ -568,7 +568,7 @@ func ConstructionExplicitGenericNewTree(
         index += 1
     }
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.NewExpression(),
+        ColumnarExpressionNodeKind.NewExpression,
         -1,
         0,
         0,
@@ -598,7 +598,7 @@ func ConstructionArrayLiteralTree(
         index += 1
     }
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.ArrayLiteralExpression(),
+        ColumnarExpressionNodeKind.ArrayLiteralExpression,
         -1,
         0,
         0,
@@ -905,7 +905,7 @@ test "construction planner owns sized arrays and inferred primitive arrays with 
     sized := ConstructionSizedArrayTree(
         "int",
         "3",
-        ColumnarExpressionNodeKind.IntLiteralExpression()
+        ColumnarExpressionNodeKind.IntLiteralExpression
     )
     ConstructionStampScope(sized, "")
     sizedPlan := ConstructionPlan(
@@ -921,9 +921,9 @@ test "construction planner owns sized arrays and inferred primitive arrays with 
     ints := ConstructionArrayLiteralTree(
         ConstructionThreeTexts("1", "2", "3"),
         ConstructionThreeKinds(
-            ColumnarExpressionNodeKind.IntLiteralExpression(),
-            ColumnarExpressionNodeKind.IntLiteralExpression(),
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression,
+            ColumnarExpressionNodeKind.IntLiteralExpression,
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(ints, "")
@@ -962,13 +962,13 @@ test "construction planner chooses every fixed and typed array store form" {
     texts[4] = "1.5f"
     texts[5] = "2.5"
     texts[6] = "\"x\""
-    kinds[0] = ColumnarExpressionNodeKind.BoolLiteralExpression()
-    kinds[1] = ColumnarExpressionNodeKind.CharLiteralExpression()
-    kinds[2] = ColumnarExpressionNodeKind.IdentifierExpression()
-    kinds[3] = ColumnarExpressionNodeKind.IdentifierExpression()
-    kinds[4] = ColumnarExpressionNodeKind.FloatLiteralExpression()
-    kinds[5] = ColumnarExpressionNodeKind.FloatLiteralExpression()
-    kinds[6] = ColumnarExpressionNodeKind.StringLiteralExpression()
+    kinds[0] = ColumnarExpressionNodeKind.BoolLiteralExpression
+    kinds[1] = ColumnarExpressionNodeKind.CharLiteralExpression
+    kinds[2] = ColumnarExpressionNodeKind.IdentifierExpression
+    kinds[3] = ColumnarExpressionNodeKind.IdentifierExpression
+    kinds[4] = ColumnarExpressionNodeKind.FloatLiteralExpression
+    kinds[5] = ColumnarExpressionNodeKind.FloatLiteralExpression
+    kinds[6] = ColumnarExpressionNodeKind.StringLiteralExpression
 
     expectedTypes := new Type[](7)
     expectedTypes[0] = typeof(bool)
@@ -1014,8 +1014,8 @@ test "construction planner chooses every fixed and typed array store form" {
     valueTree := ConstructionArrayLiteralTree(
         ConstructionTwoTexts("value", "value"),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.IdentifierExpression(),
-            ColumnarExpressionNodeKind.IdentifierExpression()
+            ColumnarExpressionNodeKind.IdentifierExpression,
+            ColumnarExpressionNodeKind.IdentifierExpression
         )
     )
     ConstructionStampScope(
@@ -1054,7 +1054,7 @@ test "construction planner defers contextual array shapes as whole subtrees" {
     nulls := ConstructionArrayLiteralTree(
         ConstructionOneText("null"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.NullLiteralExpression()
+            ColumnarExpressionNodeKind.NullLiteralExpression
         )
     )
     ConstructionStampScope(nulls, "")
@@ -1070,8 +1070,8 @@ test "construction planner defers contextual array shapes as whole subtrees" {
     stringAndNull := ConstructionArrayLiteralTree(
         ConstructionTwoTexts("\"value\"", "null"),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.StringLiteralExpression(),
-            ColumnarExpressionNodeKind.NullLiteralExpression()
+            ColumnarExpressionNodeKind.StringLiteralExpression,
+            ColumnarExpressionNodeKind.NullLiteralExpression
         )
     )
     ConstructionStampScope(stringAndNull, "")
@@ -1137,7 +1137,7 @@ test "construction planner defers contextual array shapes as whole subtrees" {
         "ConstructionArrayConstructorOwner",
         ConstructionOneText("null"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.NullLiteralExpression()
+            ColumnarExpressionNodeKind.NullLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1168,8 +1168,8 @@ test "construction planner rejects malformed admitted array shapes atomically" {
     mixed := ConstructionArrayLiteralTree(
         ConstructionTwoTexts("1", "\"two\""),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.IntLiteralExpression(),
-            ColumnarExpressionNodeKind.StringLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression,
+            ColumnarExpressionNodeKind.StringLiteralExpression
         )
     )
     ConstructionStampScope(mixed, "")
@@ -1186,7 +1186,7 @@ test "construction planner rejects malformed admitted array shapes atomically" {
     badLength := ConstructionSizedArrayTree(
         "int",
         "\"three\"",
-        ColumnarExpressionNodeKind.StringLiteralExpression()
+        ColumnarExpressionNodeKind.StringLiteralExpression
     )
     ConstructionStampScope(badLength, "")
     _lengthPlan := ConstructionRejected(
@@ -1240,7 +1240,7 @@ test "construction planner selects source constructors with exact arity before d
         "ConstructionArityOwner",
         ConstructionOneText("7"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1289,7 +1289,7 @@ test "construction planner prefers identity source constructors in either declar
         "ConstructionWideningFirstOwner",
         ConstructionOneText("7"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1324,7 +1324,7 @@ test "construction planner prefers identity source constructors in either declar
         "ConstructionIdentityFirstOwner",
         ConstructionOneText("7"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1366,7 +1366,7 @@ test "construction planner rejects equal best constructor ties in either order a
         "ConstructionByteFirstTieOwner",
         ConstructionOneText("7"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1402,7 +1402,7 @@ test "construction planner rejects equal best constructor ties in either order a
         "ConstructionSByteFirstTieOwner",
         ConstructionOneText("7"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1447,7 +1447,7 @@ test "construction planner emits supported source constructor defaults in declar
         "ConstructionDefaultOwner",
         ConstructionOneText("5"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1503,7 +1503,7 @@ test "construction planner emits dotted enum member constructor defaults" {
         "ConstructionEnumDefaultOwner",
         ConstructionOneText("5"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1576,7 +1576,7 @@ test "construction planner resolves aliased enum defaults before registry short 
         "ConstructionAliasEnumDefaultOwner",
         ConstructionOneText("5"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScopeFromFiles(tree, sources, fileNames, 2)
@@ -1641,7 +1641,7 @@ test "construction planner preserves aliased string enum default identity after 
         "ConstructionStringEnumDefaultOwner",
         ConstructionOneText("5"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScopeFromFiles(tree, sources, fileNames, 2)
@@ -1706,7 +1706,7 @@ test "construction planner does not rebind canonical enum defaults in caller sco
         "ConstructionCanonicalStringEnumDefaultOwner",
         ConstructionOneText("5"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScopeFromFiles(tree, sources, fileNames, 2)
@@ -1741,7 +1741,7 @@ test "construction planner uses unique compatibility and rejects ambiguity and s
         "ConstructionUniqueOwner",
         ConstructionOneText("3"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1782,7 +1782,7 @@ test "construction planner uses unique compatibility and rejects ambiguity and s
         "ConstructionSpecificOwner",
         ConstructionOneText("3"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1822,7 +1822,7 @@ test "construction planner uses unique compatibility and rejects ambiguity and s
         "ConstructionAmbiguousOwner",
         ConstructionOneText("3"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1853,7 +1853,7 @@ test "construction planner uses unique compatibility and rejects ambiguity and s
         "ConstructionMismatchOwner",
         ConstructionOneText("3"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1892,7 +1892,7 @@ test "construction planner rejects corrupt source constructor facts after comple
         "ConstructionCorruptOwner",
         ConstructionOneText("1"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -1923,8 +1923,8 @@ test "construction planner owns exact runtime catalog constructors and executes 
         "string",
         ConstructionTwoTexts("'x'", "4"),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.CharLiteralExpression(),
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.CharLiteralExpression,
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(repeat, "")
@@ -2027,8 +2027,8 @@ test "construction planner binds the exact Dictionary sequence and comparer cons
         ConstructionTwoTexts("string", "Type"),
         ConstructionTwoTexts("source", "comparer"),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.IdentifierExpression(),
-            ColumnarExpressionNodeKind.IdentifierExpression()
+            ColumnarExpressionNodeKind.IdentifierExpression,
+            ColumnarExpressionNodeKind.IdentifierExpression
         )
     )
     ConstructionStampScope(
@@ -2081,8 +2081,8 @@ test "construction planner binds the exact Dictionary sequence and comparer cons
         ConstructionTwoTexts("string", "Type"),
         ConstructionTwoTexts("source", "comparer"),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.IdentifierExpression(),
-            ColumnarExpressionNodeKind.IdentifierExpression()
+            ColumnarExpressionNodeKind.IdentifierExpression,
+            ColumnarExpressionNodeKind.IdentifierExpression
         )
     )
     ConstructionStampScope(
@@ -2131,7 +2131,7 @@ test "construction planner rebinds aliased source generic constructors to the cl
         "ConstructionIntBox",
         ConstructionOneText("42"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -2179,7 +2179,7 @@ test "construction planner ranks substituted source generic constructor conversi
         "ConstructionRankedIntBox",
         ConstructionOneText("42"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -2250,7 +2250,7 @@ test "construction planner substitutes closed generic parameter defaults before 
         "ConstructionIntOptional",
         ConstructionOneText("5"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -2305,8 +2305,8 @@ test "construction planner owns source class field and property object initializ
         ConstructionTwoTexts("Count", "Label"),
         ConstructionTwoTexts("7", "\"owned\""),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.IntLiteralExpression(),
-            ColumnarExpressionNodeKind.StringLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression,
+            ColumnarExpressionNodeKind.StringLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -2421,7 +2421,7 @@ test "construction planner rejects init-only object initializer fields" {
         ConstructionOneText("Value"),
         ConstructionOneText("1"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -2492,8 +2492,8 @@ test "construction planner rebinds inherited object members on a closed generic 
         ConstructionTwoTexts("Value", "Label"),
         ConstructionTwoTexts("42", "43"),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.IntLiteralExpression(),
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression,
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -2640,8 +2640,8 @@ test "construction planner follows multilevel reordered and fixed generic bases"
         ConstructionTwoTexts("Fixed", "Reordered"),
         ConstructionTwoTexts("\"fixed\"", "44"),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.StringLiteralExpression(),
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.StringLiteralExpression,
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -2765,9 +2765,9 @@ test "construction planner target-types nullable integer initializer boundaries"
         ConstructionThreeTexts("ByteValue", "ShortValue", "UIntValue"),
         ConstructionThreeTexts("255", "32767", "2147483647"),
         ConstructionThreeKinds(
-            ColumnarExpressionNodeKind.IntLiteralExpression(),
-            ColumnarExpressionNodeKind.IntLiteralExpression(),
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression,
+            ColumnarExpressionNodeKind.IntLiteralExpression,
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -2801,7 +2801,7 @@ test "construction planner target-types nullable integer initializer boundaries"
         ConstructionOneText("ByteValue"),
         ConstructionOneText("256"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -2822,7 +2822,7 @@ test "construction planner target-types nullable integer initializer boundaries"
         ConstructionOneText("ShortValue"),
         ConstructionOneText("32768"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -2863,7 +2863,7 @@ test "construction planner owns and executes an approved runtime object initiali
         ConstructionOneText("PropertyNameCaseInsensitive"),
         ConstructionOneText("true"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.BoolLiteralExpression()
+            ColumnarExpressionNodeKind.BoolLiteralExpression
         )
     )
     ConstructionStampScope(tree, "import System.Text.Json\n")
@@ -2905,7 +2905,7 @@ test "runtime object initializers resolve by ordinary member resolution in both 
         "StringBuilder",
         "Capacity",
         "16",
-        ColumnarExpressionNodeKind.IntLiteralExpression()
+        ColumnarExpressionNodeKind.IntLiteralExpression
     )
     ConstructionStampScope(constructed, "import System.Text\n")
     plan := ConstructionPlan(
@@ -2940,7 +2940,7 @@ test "runtime object initializers resolve by ordinary member resolution in both 
         ConstructionOneText("Capacity"),
         ConstructionOneText("16"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(bareNearMiss, "import System.Text\n")
@@ -3019,7 +3019,7 @@ test "construction planner owns source union case object initializers" {
         ConstructionOneText("number"),
         ConstructionOneText("42"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -3049,8 +3049,8 @@ test "construction planner owns source union case object initializers" {
         "ConstructionObjectUnion.Value",
         ConstructionTwoTexts("43", "\"ordered\""),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.IntLiteralExpression(),
-            ColumnarExpressionNodeKind.StringLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression,
+            ColumnarExpressionNodeKind.StringLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -3139,7 +3139,7 @@ test "construction planner owns closed generic positional union cases and reject
         ConstructionOneText("int"),
         ConstructionOneText("44"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -3194,7 +3194,7 @@ test "construction planner owns closed generic positional union cases and reject
         ConstructionTwoTexts("int", "string"),
         ConstructionOneText("44"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -3316,7 +3316,7 @@ test "construction planner owns payload-free value-struct union construction for
         "ConstructionValueUnion.Only",
         ConstructionOneText("1"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -3401,7 +3401,7 @@ test "construction planner owns default source values and JsonElement through in
         "ConstructionDefaultValue",
         ConstructionOneText("1"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -3421,7 +3421,7 @@ test "construction planner owns default source values and JsonElement through in
         "JsonElement",
         ConstructionOneText("1"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(invalidJson, "import System.Text.Json\n")
@@ -3464,7 +3464,7 @@ test "construction planner owns the exact Label zero value through initobj" {
         "Label",
         ConstructionOneText("1"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(invalidLabel, "import System.Reflection.Emit\n")
@@ -3570,7 +3570,7 @@ test "construction planner blocks a visible type parameter when its live handle 
     tree := ConstructionSizedArrayTree(
         "T",
         "2",
-        ColumnarExpressionNodeKind.IntLiteralExpression()
+        ColumnarExpressionNodeKind.IntLiteralExpression
     )
     visible := new string[](1)
     visible[0] = "T"
@@ -3603,7 +3603,7 @@ test "construction planner blocks a visible type parameter when its live handle 
     liveTree := ConstructionSizedArrayTree(
         liveParameterName,
         "2",
-        ColumnarExpressionNodeKind.IntLiteralExpression()
+        ColumnarExpressionNodeKind.IntLiteralExpression
     )
     liveVisible := new string[](1)
     liveVisible[0] = liveParameterName
@@ -3713,7 +3713,7 @@ test "construction planner terminally rejects raw union bases" {
         "ConstructionUnion.Value",
         ConstructionOneText("1"),
         ConstructionOneKind(
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(
@@ -3735,8 +3735,8 @@ test "construction TryGetType seals valid plans and rolls invalid plans back wit
         "string",
         ConstructionTwoTexts("'q'", "2"),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.CharLiteralExpression(),
-            ColumnarExpressionNodeKind.IntLiteralExpression()
+            ColumnarExpressionNodeKind.CharLiteralExpression,
+            ColumnarExpressionNodeKind.IntLiteralExpression
         )
     )
     ConstructionStampScope(valid, "")
@@ -3768,7 +3768,7 @@ test "construction TryGetType seals valid plans and rolls invalid plans back wit
     invalid := ConstructionSizedArrayTree(
         "int",
         "\"three\"",
-        ColumnarExpressionNodeKind.StringLiteralExpression()
+        ColumnarExpressionNodeKind.StringLiteralExpression
     )
     ConstructionStampScope(invalid, "")
     invalidPlan := new ColumnarCodePlan()
@@ -4060,8 +4060,8 @@ test "construction planner selects external closed generic constructors by argum
         "Vector<int>",
         ConstructionTwoTexts("values", "index"),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.IdentifierExpression(),
-            ColumnarExpressionNodeKind.IdentifierExpression()
+            ColumnarExpressionNodeKind.IdentifierExpression,
+            ColumnarExpressionNodeKind.IdentifierExpression
         )
     )
     ConstructionStampScope(valuesTree, "import System.Numerics\n")
@@ -4080,7 +4080,7 @@ test "construction planner selects external closed generic constructors by argum
     broadcastTree := ConstructionNewTree(
         "Vector<int>",
         ConstructionOneText("value"),
-        ConstructionOneKind(ColumnarExpressionNodeKind.IdentifierExpression())
+        ConstructionOneKind(ColumnarExpressionNodeKind.IdentifierExpression)
     )
     ConstructionStampScope(broadcastTree, "import System.Numerics\n")
     broadcastBindings := ColumnarRangePlannerEmptyBindings()
@@ -4113,8 +4113,8 @@ test "construction planner rejects external closed generic constructions with no
         "Vector<int>",
         ConstructionTwoTexts("values", "label"),
         ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.IdentifierExpression(),
-            ColumnarExpressionNodeKind.IdentifierExpression()
+            ColumnarExpressionNodeKind.IdentifierExpression,
+            ColumnarExpressionNodeKind.IdentifierExpression
         )
     )
     ConstructionStampScope(wrongTypeTree, "import System.Numerics\n")
@@ -4134,9 +4134,9 @@ test "construction planner rejects external closed generic constructions with no
         "Vector<int>",
         ConstructionThreeTexts("values", "index", "index"),
         ConstructionThreeKinds(
-            ColumnarExpressionNodeKind.IdentifierExpression(),
-            ColumnarExpressionNodeKind.IdentifierExpression(),
-            ColumnarExpressionNodeKind.IdentifierExpression()
+            ColumnarExpressionNodeKind.IdentifierExpression,
+            ColumnarExpressionNodeKind.IdentifierExpression,
+            ColumnarExpressionNodeKind.IdentifierExpression
         )
     )
     ConstructionStampScope(wrongArityTree, "import System.Numerics\n")

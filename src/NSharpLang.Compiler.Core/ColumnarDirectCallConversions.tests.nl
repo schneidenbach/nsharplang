@@ -20,10 +20,10 @@ func ConversionDirectCallLiteralFacts(isLiteral: bool, isNegative: bool, value: 
 
 func ConversionDirectCallLiteralTree(ownerName: string, methodName: string, literalText: string, literalKind: int, isNegative: bool, outerParentheses: int): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), ownerName)
+    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, ownerName)
 
     memberStart := builder.AddToken(methodName)
-    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, methodName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(owner))
+    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, methodName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(owner))
 
     minusStart := -1
     if isNegative {
@@ -32,12 +32,12 @@ func ConversionDirectCallLiteralTree(ownerName: string, methodName: string, lite
 
     argument := builder.AddLeaf(literalKind, literalText)
     if isNegative {
-        argument = builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), minusStart, 1, minusStart, builder.Source.Length - minusStart, ColumnarRangePlannerChildren1(argument))
+        argument = builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, minusStart, 1, minusStart, builder.Source.Length - minusStart, ColumnarRangePlannerChildren1(argument))
     }
 
     index := 0
     while index < outerParentheses {
-        argument = builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(argument))
+        argument = builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(argument))
 
         index += 1
     }
@@ -120,7 +120,7 @@ func ConversionDirectCallVariablePlan(ownerName: string, actualType: Type, param
 
     bindings := DirectCallSingleDefinitionBindings(owner)
     ColumnarRangePlannerAddParameter(bindings, "value", 0, actualType)
-    tree := DirectCallQualifiedTree(ownerName, "Take", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    tree := DirectCallQualifiedTree(ownerName, "Take", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
 
     plan := DirectCallPlan(tree, bindings)
     targetIndex := ConversionDirectCallTargetMethodIndex(plan)
@@ -261,14 +261,14 @@ test "source direct-call overload ranking is exact then numeric then boxing" {
     bindings := DirectCallSingleDefinitionBindings(owner)
     ColumnarRangePlannerAddParameter(bindings, "value", 0, typeof(int))
 
-    exactTree := DirectCallQualifiedTree("DirectCallConversionRanking", "ExactFirst", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    exactTree := DirectCallQualifiedTree("DirectCallConversionRanking", "ExactFirst", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
 
     exactPlan := DirectCallPlan(exactTree, bindings)
     exactTarget := ConversionDirectCallTargetMethodIndex(exactPlan)
     assert exactPlan.MethodParameterTypes[exactTarget][0] == typeof(int)
     assert exactPlan.OperationCount == 2
 
-    numericTree := DirectCallQualifiedTree("DirectCallConversionRanking", "NumericFirst", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    numericTree := DirectCallQualifiedTree("DirectCallConversionRanking", "NumericFirst", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
 
     numericPlan := DirectCallPlan(numericTree, bindings)
     numericTarget := ConversionDirectCallTargetMethodIndex(numericPlan)
@@ -279,7 +279,7 @@ test "source direct-call overload ranking is exact then numeric then boxing" {
     // used to be REJECTED as a tie. `AnalyzerOverloadSpecificity` breaks it: `IComparable` converts to
     // `object` and `object` does not convert back, so the interface is the more specific target —
     // which is also the overload C# picks.
-    specificTree := DirectCallQualifiedTree("DirectCallConversionRanking", "BoxingTie", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    specificTree := DirectCallQualifiedTree("DirectCallConversionRanking", "BoxingTie", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
 
     specificPlan := DirectCallPlan(specificTree, bindings)
     specificTarget := ConversionDirectCallTargetMethodIndex(specificPlan)
@@ -309,7 +309,7 @@ test "direct-call integer constants adopt fixed targets that int variables canno
     index = 0
     while index < targetTypes.Length {
         methodName := "Take" + index.ToString()
-        literalTree := DirectCallQualifiedTree("DirectCallLiteralAdoption", methodName, DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+        literalTree := DirectCallQualifiedTree("DirectCallLiteralAdoption", methodName, DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
 
         literalPlan := DirectCallPlan(literalTree, literalBindings)
         targetIndex := ConversionDirectCallTargetMethodIndex(literalPlan)
@@ -330,7 +330,7 @@ test "direct-call integer constants adopt fixed targets that int variables canno
         // every small/unsigned target in this matrix.
         if targetTypes[index] != typeof(long) {
             methodName := "Take" + index.ToString()
-            variableTree := DirectCallQualifiedTree("DirectCallLiteralAdoption", methodName, DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+            variableTree := DirectCallQualifiedTree("DirectCallLiteralAdoption", methodName, DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
 
             ownership := ColumnarDirectCallOwnership.NotOwned
             legacyWholeSubtreePlanning := true
@@ -343,7 +343,7 @@ test "direct-call integer constants adopt fixed targets that int variables canno
         index += 1
     }
 
-    overflowTree := DirectCallQualifiedTree("DirectCallLiteralAdoption", "Take0", DirectCallOneText("256"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    overflowTree := DirectCallQualifiedTree("DirectCallLiteralAdoption", "Take0", DirectCallOneText("256"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
 
     overflowOwnership := ColumnarDirectCallOwnership.NotOwned
     overflowLegacyChildPlanning := true
@@ -359,7 +359,7 @@ test "direct-call integer constants adopt supported nullable element targets" {
     SourceCallPublicStatic(owner, "Take", ConversionDirectCallOneType(nullableByte), typeof(int))
 
     bindings := DirectCallSingleDefinitionBindings(owner)
-    literalTree := DirectCallQualifiedTree("DirectCallNullableLiteralAdoption", "Take", DirectCallOneText("255"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    literalTree := DirectCallQualifiedTree("DirectCallNullableLiteralAdoption", "Take", DirectCallOneText("255"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
 
     literalPlan := DirectCallPlan(literalTree, bindings)
     targetIndex := ConversionDirectCallTargetMethodIndex(literalPlan)
@@ -381,7 +381,7 @@ test "direct-call integer constants adopt supported nullable element targets" {
 
     variableBindings := DirectCallSingleDefinitionBindings(owner)
     ColumnarRangePlannerAddParameter(variableBindings, "value", 0, typeof(int))
-    variableTree := DirectCallQualifiedTree("DirectCallNullableLiteralAdoption", "Take", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    variableTree := DirectCallQualifiedTree("DirectCallNullableLiteralAdoption", "Take", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
 
     variableOwnership := ColumnarDirectCallOwnership.NotOwned
     variableLegacyChildPlanning := true
@@ -390,7 +390,7 @@ test "direct-call integer constants adopt supported nullable element targets" {
     assert variableOwnership == ColumnarDirectCallOwnership.OwnedRejected
     assert !variableLegacyChildPlanning
 
-    overflowTree := DirectCallQualifiedTree("DirectCallNullableLiteralAdoption", "Take", DirectCallOneText("256"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    overflowTree := DirectCallQualifiedTree("DirectCallNullableLiteralAdoption", "Take", DirectCallOneText("256"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
 
     overflowOwnership := ColumnarDirectCallOwnership.NotOwned
     overflowLegacyChildPlanning := true
@@ -542,7 +542,7 @@ test "parenthesized negative zero retains its sign and emits no runtime negation
     SourceCallPublicStatic(owner, "TakeULongBoundary", ConversionDirectCallOneType(typeof(ulong)), typeof(int))
 
     bindings := DirectCallSingleDefinitionBindings(owner)
-    signedZeroTree := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeSigned", "0", ColumnarExpressionNodeKind.IntLiteralExpression(), true, 2)
+    signedZeroTree := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeSigned", "0", ColumnarExpressionNodeKind.IntLiteralExpression, true, 2)
 
     signedZeroPlan := DirectCallPlan(signedZeroTree, bindings)
     ConversionDirectCallAssertLiteralValue(signedZeroPlan, typeof(sbyte), 0)
@@ -550,31 +550,31 @@ test "parenthesized negative zero retains its sign and emits no runtime negation
     signedZeroTarget := ConversionDirectCallTargetMethodIndex(signedZeroPlan)
     assert signedZeroPlan.MethodParameterTypes[signedZeroTarget][0] == typeof(sbyte)
 
-    unsignedZeroTree := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeUnsigned", "0", ColumnarExpressionNodeKind.IntLiteralExpression(), true, 2)
+    unsignedZeroTree := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeUnsigned", "0", ColumnarExpressionNodeKind.IntLiteralExpression, true, 2)
 
     ConversionDirectCallAssertLiteralRejected(unsignedZeroTree, bindings)
 
-    signedBoundaryTree := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeSignedBoundary", "127", ColumnarExpressionNodeKind.IntLiteralExpression(), true, 1)
+    signedBoundaryTree := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeSignedBoundary", "127", ColumnarExpressionNodeKind.IntLiteralExpression, true, 1)
 
     signedBoundaryPlan := DirectCallPlan(signedBoundaryTree, bindings)
     ConversionDirectCallAssertLiteralValue(signedBoundaryPlan, typeof(sbyte), -127)
 
-    longBoundaryTree := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeLongBoundary", "2147483647", ColumnarExpressionNodeKind.IntLiteralExpression(), true, 1)
+    longBoundaryTree := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeLongBoundary", "2147483647", ColumnarExpressionNodeKind.IntLiteralExpression, true, 1)
 
     longBoundaryPlan := DirectCallPlan(longBoundaryTree, bindings)
     ConversionDirectCallAssertLiteralValue(longBoundaryPlan, typeof(long), -2147483647)
 
-    uintBoundaryTree := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeUIntBoundary", "2147483647", ColumnarExpressionNodeKind.IntLiteralExpression(), false, 0)
+    uintBoundaryTree := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeUIntBoundary", "2147483647", ColumnarExpressionNodeKind.IntLiteralExpression, false, 0)
 
     uintBoundaryPlan := DirectCallPlan(uintBoundaryTree, bindings)
     ConversionDirectCallAssertLiteralValue(uintBoundaryPlan, typeof(uint), 2147483647)
 
-    ulongBoundaryTree := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeULongBoundary", "2147483647", ColumnarExpressionNodeKind.IntLiteralExpression(), false, 0)
+    ulongBoundaryTree := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeULongBoundary", "2147483647", ColumnarExpressionNodeKind.IntLiteralExpression, false, 0)
 
     ulongBoundaryPlan := DirectCallPlan(ulongBoundaryTree, bindings)
     ConversionDirectCallAssertLiteralValue(ulongBoundaryPlan, typeof(ulong), 2147483647)
 
-    rejectedSignedBoundary := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeSignedBoundary", "128", ColumnarExpressionNodeKind.IntLiteralExpression(), true, 0)
+    rejectedSignedBoundary := ConversionDirectCallLiteralTree("DirectCallNegativeLiteralShape", "TakeSignedBoundary", "128", ColumnarExpressionNodeKind.IntLiteralExpression, true, 0)
 
     ConversionDirectCallAssertLiteralRejected(rejectedSignedBoundary, bindings)
 }
@@ -585,23 +585,23 @@ test "suffix hexadecimal underscore and character literals never gain adoption f
 
     bindings := DirectCallSingleDefinitionBindings(owner)
 
-    longSuffix := ConversionDirectCallLiteralTree("DirectCallLiteralSpellingExclusions", "Take", "7L", ColumnarExpressionNodeKind.IntLiteralExpression(), false, 0)
+    longSuffix := ConversionDirectCallLiteralTree("DirectCallLiteralSpellingExclusions", "Take", "7L", ColumnarExpressionNodeKind.IntLiteralExpression, false, 0)
 
     ConversionDirectCallAssertLiteralRejected(longSuffix, bindings)
 
-    unsignedLongSuffix := ConversionDirectCallLiteralTree("DirectCallLiteralSpellingExclusions", "Take", "7UL", ColumnarExpressionNodeKind.IntLiteralExpression(), false, 0)
+    unsignedLongSuffix := ConversionDirectCallLiteralTree("DirectCallLiteralSpellingExclusions", "Take", "7UL", ColumnarExpressionNodeKind.IntLiteralExpression, false, 0)
 
     ConversionDirectCallAssertLiteralRejected(unsignedLongSuffix, bindings)
 
-    hexadecimal := ConversionDirectCallLiteralTree("DirectCallLiteralSpellingExclusions", "Take", "0x7", ColumnarExpressionNodeKind.IntLiteralExpression(), false, 0)
+    hexadecimal := ConversionDirectCallLiteralTree("DirectCallLiteralSpellingExclusions", "Take", "0x7", ColumnarExpressionNodeKind.IntLiteralExpression, false, 0)
 
     ConversionDirectCallAssertLiteralRejected(hexadecimal, bindings)
 
-    underscored := ConversionDirectCallLiteralTree("DirectCallLiteralSpellingExclusions", "Take", "1_0", ColumnarExpressionNodeKind.IntLiteralExpression(), false, 0)
+    underscored := ConversionDirectCallLiteralTree("DirectCallLiteralSpellingExclusions", "Take", "1_0", ColumnarExpressionNodeKind.IntLiteralExpression, false, 0)
 
     ConversionDirectCallAssertLiteralRejected(underscored, bindings)
 
-    character := ConversionDirectCallLiteralTree("DirectCallLiteralSpellingExclusions", "Take", "'A'", ColumnarExpressionNodeKind.CharLiteralExpression(), false, 0)
+    character := ConversionDirectCallLiteralTree("DirectCallLiteralSpellingExclusions", "Take", "'A'", ColumnarExpressionNodeKind.CharLiteralExpression, false, 0)
 
     ConversionDirectCallAssertLiteralRejected(character, bindings)
 }
@@ -631,7 +631,7 @@ test "integer literal overload ranking is identity numeric boxing then adoption"
     SourceCallPublicStatic(owner, "AdoptionTie", sbyteParameters, typeof(int))
 
     bindings := DirectCallSingleDefinitionBindings(owner)
-    intTree := DirectCallQualifiedTree("DirectCallLiteralRanking", "PreferInt", DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    intTree := DirectCallQualifiedTree("DirectCallLiteralRanking", "PreferInt", DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
 
     intPlan := DirectCallPlan(intTree, bindings)
     intTarget := ConversionDirectCallTargetMethodIndex(intPlan)
@@ -640,7 +640,7 @@ test "integer literal overload ranking is identity numeric boxing then adoption"
     assert intPlan.OperationCount == 2
     assert !ConversionDirectCallHasOpcode(intPlan, ColumnarCodePlanContract.Box())
 
-    longTree := DirectCallQualifiedTree("DirectCallLiteralRanking", "PreferLong", DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    longTree := DirectCallQualifiedTree("DirectCallLiteralRanking", "PreferLong", DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
 
     longPlan := DirectCallPlan(longTree, bindings)
     longTarget := ConversionDirectCallTargetMethodIndex(longPlan)
@@ -648,7 +648,7 @@ test "integer literal overload ranking is identity numeric boxing then adoption"
     ConversionDirectCallAssertLiteralValue(longPlan, typeof(long), 7)
     assert longPlan.OperationCount == 2
 
-    boxTree := DirectCallQualifiedTree("DirectCallLiteralRanking", "PreferBox", DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    boxTree := DirectCallQualifiedTree("DirectCallLiteralRanking", "PreferBox", DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
 
     boxPlan := DirectCallPlan(boxTree, bindings)
     boxTarget := ConversionDirectCallTargetMethodIndex(boxPlan)
@@ -659,7 +659,7 @@ test "integer literal overload ranking is identity numeric boxing then adoption"
     assert boxPlan.OpCodeValues[1] == ColumnarCodePlanContract.Box()
     assert boxPlan.Types[boxPlan.OperandIndices[1]] == typeof(int)
 
-    adoptionTree := DirectCallQualifiedTree("DirectCallLiteralRanking", "Adopt", DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    adoptionTree := DirectCallQualifiedTree("DirectCallLiteralRanking", "Adopt", DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
 
     adoptionPlan := DirectCallPlan(adoptionTree, bindings)
     adoptionTarget := ConversionDirectCallTargetMethodIndex(adoptionPlan)
@@ -667,7 +667,7 @@ test "integer literal overload ranking is identity numeric boxing then adoption"
     ConversionDirectCallAssertLiteralValue(adoptionPlan, typeof(byte), 7)
     assert adoptionPlan.OperationCount == 2
 
-    tieTree := DirectCallQualifiedTree("DirectCallLiteralRanking", "AdoptionTie", DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    tieTree := DirectCallQualifiedTree("DirectCallLiteralRanking", "AdoptionTie", DirectCallOneText("7"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
 
     ConversionDirectCallAssertLiteralRejected(tieTree, bindings)
 }
@@ -683,7 +683,7 @@ test "direct-call conversion candidates roll back malformed declaration handles 
 
     bindings := DirectCallSingleDefinitionBindings(owner)
     ColumnarRangePlannerAddParameter(bindings, "value", 0, typeof(int))
-    tree := DirectCallQualifiedTree("DirectCallMalformedConversion", "Take", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    tree := DirectCallQualifiedTree("DirectCallMalformedConversion", "Take", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
 
     plan := new ColumnarCodePlan()
     ownership := ColumnarDirectCallOwnership.NotOwned

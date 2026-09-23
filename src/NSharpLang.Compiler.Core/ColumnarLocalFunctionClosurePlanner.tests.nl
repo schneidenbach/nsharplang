@@ -34,7 +34,7 @@ class LocalFunctionPlannerFixture {
         children := new int[](reads.Length)
         index := 0
         while index < reads.Length {
-            children[index] = Builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), reads[index])
+            children[index] = Builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, reads[index])
             index = index + 1
         }
 
@@ -55,13 +55,13 @@ class LocalFunctionPlannerFixture {
     // capture-name collection.
     func DeclareGenericCall(name: string, callee: string, typeArgument: string, parameter: string) {
         calleeStart := Builder.AddToken(callee)
-        calleeExpression := Builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), calleeStart, callee.Length, calleeStart, callee.Length, new int[](0))
+        calleeExpression := Builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression, calleeStart, callee.Length, calleeStart, callee.Length, new int[](0))
         typeNode := Builder.AddLeaf(0, typeArgument)
         calleeChildren: int[] = [calleeExpression, typeNode]
         genericCallee := Builder.AddNode(38, calleeStart, callee.Length, calleeStart, callee.Length, calleeChildren)
-        argument := Builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), parameter)
+        argument := Builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, parameter)
         callChildren: int[] = [genericCallee, argument]
-        call := Builder.AddNode(ColumnarExpressionNodeKind.CallExpression(), -1, 0, calleeStart, Builder.Source.Length - calleeStart, callChildren)
+        call := Builder.AddNode(ColumnarExpressionNodeKind.CallExpression, -1, 0, calleeStart, Builder.Source.Length - calleeStart, callChildren)
         blockChildren: int[] = [call]
         root := Builder.AddNode(25, -1, 0, calleeStart, Builder.Source.Length - calleeStart, blockChildren)
         nodes := Builder.Build(root)

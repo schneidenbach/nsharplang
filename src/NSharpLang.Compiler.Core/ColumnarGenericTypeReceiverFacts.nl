@@ -33,7 +33,7 @@ import System.Reflection.Emit
 // backend uses for builder-bound external members.
 class ColumnarGenericTypeReceiverFacts {
     static func IsReceiver(nodes: ColumnarNodeTable, node: int): bool {
-        return nodes != null && node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.GenericTypeReceiverExpression()
+        return nodes != null && node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.GenericTypeReceiverExpression
     }
 
     // `Vector<int>` / `Dictionary<string,List<int>>` — the canonical spelling the scoped catalog

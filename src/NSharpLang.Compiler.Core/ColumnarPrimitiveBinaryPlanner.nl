@@ -22,7 +22,7 @@ class ColumnarPrimitiveBinaryPlanner {
             return false
         }
         candidate := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, node)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.BinaryExpression() || nodes.ChildCount(candidate) != 2 {
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.BinaryExpression || nodes.ChildCount(candidate) != 2 {
             return false
         }
         return IsClaimedOperatorText(nodes, source, candidate)
@@ -105,7 +105,7 @@ class ColumnarPrimitiveBinaryPlanner {
 
         checkpoint := plan.CreateCheckpoint()
         try {
-            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.BinaryExpression(), candidate)
+            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.BinaryExpression, candidate)
             nestedOwnership := ColumnarDirectCallOwnership.NotOwned
             if !TryAppend(nodes, source, candidate, bindings, handles, plan, fragment, 0, out resultType, out nestedOwnership) {
                 plan.Rollback(checkpoint)
@@ -126,7 +126,7 @@ class ColumnarPrimitiveBinaryPlanner {
         }
 
         candidate := ColumnarPlannerSupport.UnwrapParenthesesInRange(nodes, node)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.BinaryExpression() || nodes.ChildCount(candidate) != 2 || !IsClaimedOperatorText(nodes, source, candidate) {
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.BinaryExpression || nodes.ChildCount(candidate) != 2 || !IsClaimedOperatorText(nodes, source, candidate) {
             return false
         }
 
@@ -373,11 +373,11 @@ class ColumnarPrimitiveBinaryPlanner {
 
         negative := false
         literalNode := node
-        if nodes.Kind(node) == ColumnarExpressionNodeKind.UnaryExpression() && nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "-" {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.UnaryExpression && nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "-" {
             negative = true
             literalNode = nodes.Child(node, 0)
         }
-        if literalNode < 0 || literalNode >= nodes.Kinds.Length || nodes.Kind(literalNode) != ColumnarExpressionNodeKind.IntLiteralExpression() || nodes.ChildCount(literalNode) != 0 {
+        if literalNode < 0 || literalNode >= nodes.Kinds.Length || nodes.Kind(literalNode) != ColumnarExpressionNodeKind.IntLiteralExpression || nodes.ChildCount(literalNode) != 0 {
             return false
         }
 
@@ -683,10 +683,10 @@ class ColumnarPrimitiveBinaryPlanner {
         if candidate < 0 {
             return false
         }
-        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.BinaryExpression() {
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.BinaryExpression {
             return IsAdmittedSyntax(nodes, source, candidate, depth)
         }
-        if nodes.Kind(candidate) == 53 {
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.AwaitExpression {
             return nodes.ChildCount(candidate) == 1 && IsAdmittedOperandSyntax(nodes, source, nodes.Child(candidate, 0), depth + 1)
         }
         if ColumnarConstructionPlanner.MayPlanRoot(nodes, candidate) {

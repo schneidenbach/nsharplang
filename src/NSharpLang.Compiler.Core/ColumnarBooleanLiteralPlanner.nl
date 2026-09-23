@@ -51,7 +51,7 @@ class ColumnarBooleanLiteralPlanner {
     // admits every other constant row; schema v1 keeps the single-instruction appender byte for byte.
     static func TryAppendLiteral(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan): bool {
         ValidateInputs(nodes, source, node, plan)
-        if nodes.Kind(node) != ColumnarExpressionNodeKind.BoolLiteralExpression() {
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.BoolLiteralExpression {
             return false
         }
 

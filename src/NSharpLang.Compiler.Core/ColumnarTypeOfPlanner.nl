@@ -23,7 +23,7 @@ class ColumnarTypeOfPlanner {
             return false
         }
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression()
+        return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression
     }
 
     // A parsed typeof root is terminal even when its type facts are corrupt or unavailable. The
@@ -46,7 +46,7 @@ class ColumnarTypeOfPlanner {
         ValidateInputs(nodes, source, node, bindings, plan)
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
         selected := ColumnarSelectedTypeReference.Missing(bindings.StructuralTypeReferences)
-        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression() && (!TryResolveTarget(nodes, source, candidate, bindings, out selected) || !IsSupportedTypeOfTarget(selected.RuntimeType)) {
+        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.TypeOfExpression && (!TryResolveTarget(nodes, source, candidate, bindings, out selected) || !IsSupportedTypeOfTarget(selected.RuntimeType)) {
             plan.PrepareV3()
             resultType = typeof(Type)
             return false
@@ -85,13 +85,13 @@ class ColumnarTypeOfPlanner {
         }
 
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.TypeOfExpression() {
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.TypeOfExpression {
             return false
         }
 
         checkpoint := plan.CreateCheckpoint()
         try {
-            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.TypeOfExpression(), candidate)
+            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.TypeOfExpression, candidate)
             if !TryAppendTypeOf(nodes, source, candidate, bindings, plan, out resultType) {
                 plan.Rollback(checkpoint)
                 return false
@@ -119,7 +119,7 @@ class ColumnarTypeOfPlanner {
 
     static func TryAppendTypeOf(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(Type)
-        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.TypeOfExpression() || nodes.ChildCount(node) != 1 {
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.TypeOfExpression || nodes.ChildCount(node) != 1 {
             return false
         }
         // 015-B6: a schema-v4 METHOD BODY is admitted alongside v3. This gate threw — a hard crash out
@@ -161,7 +161,7 @@ class ColumnarTypeOfPlanner {
 
     static func TryResolveTarget(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out selected: ColumnarSelectedTypeReference): bool {
         selected = null
-        if nodes == null || source == null || bindings == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.TypeOfExpression() || nodes.ChildCount(node) != 1 {
+        if nodes == null || source == null || bindings == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.TypeOfExpression || nodes.ChildCount(node) != 1 {
             return false
         }
         selected = ColumnarSelectedTypeReference.Missing(bindings.StructuralTypeReferences)
@@ -216,7 +216,7 @@ class ColumnarTypeOfPlanner {
         }
 
         kind := nodes.Kind(node)
-        if kind == 0 {
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression {
             if nodes.ChildCount(node) != 0 {
                 return false
             }
@@ -224,7 +224,7 @@ class ColumnarTypeOfPlanner {
             return canonical.Length > 0
         }
 
-        if kind == 1 {
+        if kind == ColumnarExpressionNodeKind.FloatLiteralExpression {
             childCount := nodes.ChildCount(node)
             name := nodes.Text(source, node)
             if childCount == 0 || name.Length == 0 {
@@ -250,7 +250,7 @@ class ColumnarTypeOfPlanner {
             return true
         }
 
-        if kind == 2 || kind == 3 {
+        if kind == ColumnarExpressionNodeKind.CharLiteralExpression || kind == ColumnarExpressionNodeKind.StringLiteralExpression {
             if nodes.ChildCount(node) != 1 {
                 return false
             }
@@ -258,11 +258,11 @@ class ColumnarTypeOfPlanner {
             if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), depth + 1, out element) {
                 return false
             }
-            canonical = element + (kind == 2 ? "[]" : "?")
+            canonical = element + (kind == ColumnarExpressionNodeKind.CharLiteralExpression ? "[]" : "?")
             return true
         }
 
-        if kind == 4 {
+        if kind == ColumnarExpressionNodeKind.BoolLiteralExpression {
             childCount := nodes.ChildCount(node)
             if childCount != 2 {
                 return false
@@ -284,7 +284,7 @@ class ColumnarTypeOfPlanner {
             return true
         }
 
-        if kind == 6 {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression {
             childCount := nodes.ChildCount(node)
             if childCount < 2 || childCount > 7 {
                 return false
@@ -309,7 +309,7 @@ class ColumnarTypeOfPlanner {
         }
 
         // A named tuple element is transparent to CLR type identity.
-        if kind == 7 && nodes.ChildCount(node) == 1 {
+        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression && nodes.ChildCount(node) == 1 {
             return TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), depth + 1, out canonical)
         }
         return false

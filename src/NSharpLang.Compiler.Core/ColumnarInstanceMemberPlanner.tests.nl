@@ -123,22 +123,22 @@ func ColumnarOrdinaryExternalValueFixtureCreate(name: string): ColumnarOrdinaryE
 
 func InstanceMemberTree(receiverName: string, memberName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, receiverName)
 
     builder.AddToken(".")
     memberStart := builder.AddToken(memberName)
-    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
 
     return builder.Build(root)
 }
 
 func InstanceStringLiteralMemberTree(literalText: string, memberName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), literalText)
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression, literalText)
 
     builder.AddToken(".")
     memberStart := builder.AddToken(memberName)
-    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
 
     return builder.Build(root)
 }
@@ -148,50 +148,50 @@ func InstanceTypeOfMemberTree(typeName: string, memberName: string): ColumnarRan
     builder.AddToken("typeof(")
     typeNode := builder.AddLeaf(0, typeName)
     builder.AddToken(")")
-    receiver := builder.AddNode(ColumnarExpressionNodeKind.TypeOfExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(typeNode))
+    receiver := builder.AddNode(ColumnarExpressionNodeKind.TypeOfExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(typeNode))
 
     builder.AddToken(".")
     memberStart := builder.AddToken(memberName)
-    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
 
     return builder.Build(root)
 }
 
 func InstanceNestedMemberTree(ownerName: string, receiverMember: string, memberName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), ownerName)
+    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, ownerName)
 
     builder.AddToken(".")
     receiverMemberStart := builder.AddToken(receiverMember)
-    receiver := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), receiverMemberStart, receiverMember.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(owner))
+    receiver := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, receiverMemberStart, receiverMember.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(owner))
 
     builder.AddToken(".")
     memberStart := builder.AddToken(memberName)
-    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
 
     return builder.Build(root)
 }
 
 func InstanceIndexerTree(receiverName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, receiverName)
     builder.AddToken("[")
-    index := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
+    index := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "0")
     builder.AddToken("]")
-    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, index))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, index))
     return builder.Build(root)
 }
 
 func InstanceIndexerMemberTree(receiverName: string, memberName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, receiverName)
     builder.AddToken("[")
-    index := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
+    index := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "0")
     builder.AddToken("]")
-    indexAccess := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, index))
+    indexAccess := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, index))
     builder.AddToken(".")
     memberStart := builder.AddToken(memberName)
-    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(indexAccess))
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(indexAccess))
     return builder.Build(root)
 }
 
@@ -211,27 +211,27 @@ func InstanceSourceListBindings(parameterName: string, element: ColumnarStructDe
 
 func InstanceCallReceiverTree(memberName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "factory")
+    callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "factory")
     builder.AddToken("(")
     builder.AddToken(")")
     // Parser expression kind 9 is CallExpression; this slice intentionally leaves calls unowned.
     receiver := builder.AddNode(9, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(callee))
     builder.AddToken(".")
     memberStart := builder.AddToken(memberName)
-    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
     return builder.Build(root)
 }
 
 func InstanceMemberFromEndTree(receiverName: string, memberName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, receiverName)
 
     builder.AddToken(".")
     memberStart := builder.AddToken(memberName)
-    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    member := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
 
     caretStart := builder.AddToken("^")
-    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caretStart, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(member))
+    root := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, caretStart, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(member))
 
     return builder.Build(root)
 }

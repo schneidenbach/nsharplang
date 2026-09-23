@@ -25,7 +25,7 @@ class ColumnarConstructionPlanner {
         }
 
         kind := nodes.Kind(candidate)
-        return kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression()
+        return kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression
     }
 
     // DirectCall's syntax preflight may use this without walking NewExpression's type child as a
@@ -42,7 +42,7 @@ class ColumnarConstructionPlanner {
 
         kind := nodes.Kind(candidate)
         childStart := 0
-        if kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() {
+        if kind == ColumnarExpressionNodeKind.ObjectInitializerExpression {
             childCount := nodes.ChildCount(candidate)
             if childCount < 1 || childCount % 2 != 1 {
                 return true
@@ -52,25 +52,25 @@ class ColumnarConstructionPlanner {
                 return true
             }
             typeKind := nodes.Kind(typeNode)
-            if typeKind == ColumnarExpressionNodeKind.NewExpression() {
+            if typeKind == ColumnarExpressionNodeKind.NewExpression {
                 if !IsAdmittedValueSyntax(nodes, source, typeNode, depth + 1) {
                     return false
                 }
-            } else if typeKind != 0 && typeKind != 1 {
+            } else if typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression {
                 return false
             }
             index := 1
             while index < childCount {
                 nameNode := nodes.Child(candidate, index)
                 valueNode := nodes.Child(candidate, index + 1)
-                if nameNode < 0 || nameNode >= nodes.Kinds.Length || nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression() || !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, source, valueNode, depth + 1) {
+                if nameNode < 0 || nameNode >= nodes.Kinds.Length || nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression || !ColumnarDirectCallPlanner.IsAdmittedValueSyntax(nodes, source, valueNode, depth + 1) {
                     return false
                 }
                 index += 2
             }
             return true
         }
-        if kind == ColumnarExpressionNodeKind.NewExpression() {
+        if kind == ColumnarExpressionNodeKind.NewExpression {
             if nodes.ChildCount(candidate) < 1 {
                 return true
             }
@@ -79,11 +79,11 @@ class ColumnarConstructionPlanner {
                 return true
             }
             typeKind := nodes.Kind(typeNode)
-            if typeKind != 0 && typeKind != 1 && typeKind != 2 {
+            if typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression && typeKind != ColumnarExpressionNodeKind.CharLiteralExpression {
                 return false
             }
             childStart = 1
-        } else if kind != ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+        } else if kind != ColumnarExpressionNodeKind.ArrayLiteralExpression {
             return false
         }
 
@@ -117,7 +117,7 @@ class ColumnarConstructionPlanner {
         }
         kind := nodes.Kind(candidate)
         childStart := 0
-        if kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() {
+        if kind == ColumnarExpressionNodeKind.ObjectInitializerExpression {
             childCount := nodes.ChildCount(candidate)
             if childCount < 1 || childCount % 2 != 1 {
                 return true
@@ -127,25 +127,25 @@ class ColumnarConstructionPlanner {
                 return true
             }
             typeKind := nodes.Kind(typeNode)
-            if typeKind == ColumnarExpressionNodeKind.NewExpression() {
+            if typeKind == ColumnarExpressionNodeKind.NewExpression {
                 if !IsAdmittedConstructionValueSyntax(nodes, source, typeNode, bindings, handles, depth + 1) {
                     return false
                 }
-            } else if typeKind != 0 && typeKind != 1 {
+            } else if typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression {
                 return false
             }
             index := 1
             while index < childCount {
                 nameNode := nodes.Child(candidate, index)
                 valueNode := nodes.Child(candidate, index + 1)
-                if nameNode < 0 || nameNode >= nodes.Kinds.Length || nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression() || !ValueSyntaxIsAdmitted(nodes, source, valueNode, bindings, handles, depth + 1) {
+                if nameNode < 0 || nameNode >= nodes.Kinds.Length || nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression || !ValueSyntaxIsAdmitted(nodes, source, valueNode, bindings, handles, depth + 1) {
                     return false
                 }
                 index += 2
             }
             return true
         }
-        if kind == ColumnarExpressionNodeKind.NewExpression() {
+        if kind == ColumnarExpressionNodeKind.NewExpression {
             if nodes.ChildCount(candidate) < 1 {
                 return true
             }
@@ -154,11 +154,11 @@ class ColumnarConstructionPlanner {
                 return true
             }
             typeKind := nodes.Kind(typeNode)
-            if typeKind != 0 && typeKind != 1 && typeKind != 2 {
+            if typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression && typeKind != ColumnarExpressionNodeKind.CharLiteralExpression {
                 return false
             }
             childStart = 1
-        } else if kind != ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+        } else if kind != ColumnarExpressionNodeKind.ArrayLiteralExpression {
             return false
         }
 
@@ -256,7 +256,7 @@ class ColumnarConstructionPlanner {
             return false
         }
         kind := nodes.Kind(candidate)
-        if kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() {
+        if kind == ColumnarExpressionNodeKind.ObjectInitializerExpression {
             ownership = ColumnarDirectCallOwnership.OwnedRejected
             if TryAppendObjectInitializer(nodes, source, candidate, bindings, handles, plan, fragment, depth, out ownership, out legacyWholeSubtreePlanning, out resultType) {
                 ownership = ColumnarDirectCallOwnership.Planned
@@ -264,7 +264,7 @@ class ColumnarConstructionPlanner {
             }
             return false
         }
-        if kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+        if kind == ColumnarExpressionNodeKind.ArrayLiteralExpression {
             ownership = ColumnarDirectCallOwnership.OwnedRejected
             if TryAppendInferredArray(nodes, source, candidate, bindings, handles, plan, fragment, depth, out ownership, out legacyWholeSubtreePlanning, out resultType) {
                 ownership = ColumnarDirectCallOwnership.Planned
@@ -272,7 +272,7 @@ class ColumnarConstructionPlanner {
             }
             return false
         }
-        if kind != ColumnarExpressionNodeKind.NewExpression() {
+        if kind != ColumnarExpressionNodeKind.NewExpression {
             return false
         }
 
@@ -286,19 +286,19 @@ class ColumnarConstructionPlanner {
         }
 
         typeKind := nodes.Kind(typeNode)
-        if typeKind == 2 {
+        if typeKind == ColumnarExpressionNodeKind.CharLiteralExpression {
             if TryAppendSizedArray(nodes, source, candidate, typeNode, bindings, handles, plan, fragment, depth, out ownership, out legacyWholeSubtreePlanning, out resultType) {
                 ownership = ColumnarDirectCallOwnership.Planned
                 return true
             }
             return false
         }
-        if typeKind != 0 && typeKind != 1 {
+        if typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression {
             ownership = ColumnarDirectCallOwnership.NotOwned
             legacyWholeSubtreePlanning = true
             return false
         }
-        if typeKind == 0 && nodes.ChildCount(typeNode) != 0 {
+        if typeKind == ColumnarExpressionNodeKind.IntLiteralExpression && nodes.ChildCount(typeNode) != 0 {
             return false
         }
 
@@ -443,7 +443,7 @@ class ColumnarConstructionPlanner {
             if candidate < 0 {
                 return false
             }
-            if nodes.Kind(candidate) == ColumnarExpressionNodeKind.NullLiteralExpression() {
+            if nodes.Kind(candidate) == ColumnarExpressionNodeKind.NullLiteralExpression {
                 ownership = ColumnarDirectCallOwnership.NotOwned
                 legacyWholeSubtreePlanning = true
                 return false
@@ -529,7 +529,7 @@ class ColumnarConstructionPlanner {
             return false
         }
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.ArrayLiteralExpression {
             return false
         }
         if targetType == null || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
@@ -567,7 +567,7 @@ class ColumnarConstructionPlanner {
             return false
         }
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.ArrayLiteralExpression() && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
+        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.ArrayLiteralExpression && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
             return TryAppendTargetTypedArray(nodes, source, candidate, bindings, handles, plan, fragment, depth, targetType)
         }
         // AN INTEGER CONSTANT ADOPTS THE POSITION'S TYPE (ECMA-334 §10.2.11), which at an ELEMENT
@@ -607,7 +607,7 @@ class ColumnarConstructionPlanner {
 
         typeRoot := nodes.Child(node, 0)
         rootKind := nodes.Kind(typeRoot)
-        if rootKind == ColumnarExpressionNodeKind.NewExpression() {
+        if rootKind == ColumnarExpressionNodeKind.NewExpression {
             nestedOwnership := ColumnarDirectCallOwnership.NotOwned
             nestedLegacy := false
             constructedType := typeof(int)
@@ -638,7 +638,7 @@ class ColumnarConstructionPlanner {
             resultType = constructedType
             return true
         }
-        if rootKind != 0 && rootKind != 1 {
+        if rootKind != ColumnarExpressionNodeKind.IntLiteralExpression && rootKind != ColumnarExpressionNodeKind.FloatLiteralExpression {
             return false
         }
 
@@ -762,7 +762,7 @@ class ColumnarConstructionPlanner {
         while index < nodes.ChildCount(node) {
             nameNode := nodes.Child(node, index)
             valueNode := nodes.Child(node, index + 1)
-            if nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression() {
+            if nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression {
                 return false
             }
             memberName := nodes.Text(source, nameNode)
@@ -916,7 +916,7 @@ class ColumnarConstructionPlanner {
         while index < nodes.ChildCount(node) {
             nameNode := nodes.Child(node, index)
             valueNode := nodes.Child(node, index + 1)
-            if nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression() {
+            if nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression {
                 return false
             }
             memberName := nodes.Text(source, nameNode)
@@ -1006,7 +1006,7 @@ class ColumnarConstructionPlanner {
         if candidate < 0 {
             return false
         }
-        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.NullLiteralExpression() {
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.NullLiteralExpression {
             return ColumnarNullableArgumentLowering.TryAppendNullArgument(plan, fragment, nodes.Kind(candidate), candidate, expectedType)
         }
         if TryAppendTargetTypedInitializerInteger(nodes, source, candidate, expectedType, plan, fragment) {
@@ -1035,11 +1035,11 @@ class ColumnarConstructionPlanner {
     static func TryAppendTargetTypedInitializerInteger(nodes: ColumnarNodeTable, source: string, node: int, expectedType: Type, plan: ColumnarCodePlan, fragment: int): bool {
         literalNode := node
         negative := false
-        if nodes.Kind(node) == ColumnarExpressionNodeKind.UnaryExpression() && nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "-" {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.UnaryExpression && nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "-" {
             literalNode = nodes.Child(node, 0)
             negative = true
         }
-        if nodes.Kind(literalNode) != ColumnarExpressionNodeKind.IntLiteralExpression() || nodes.ChildCount(literalNode) != 0 {
+        if nodes.Kind(literalNode) != ColumnarExpressionNodeKind.IntLiteralExpression || nodes.ChildCount(literalNode) != 0 {
             return false
         }
         magnitude := 0
@@ -1256,7 +1256,7 @@ class ColumnarConstructionPlanner {
         while index < nodes.ChildCount(node) {
             nameNode := nodes.Child(node, index)
             valueNode := nodes.Child(node, index + 1)
-            if nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression() {
+            if nodes.Kind(nameNode) != ColumnarExpressionNodeKind.IdentifierExpression {
                 return false
             }
             fieldName := nodes.Text(source, nameNode)
@@ -2993,7 +2993,7 @@ class ColumnarConstructionPlanner {
 
     static func ValueSyntaxIsAdmitted(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, depth: int): bool {
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.NullLiteralExpression() && nodes.ChildCount(candidate) == 0 {
+        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.NullLiteralExpression && nodes.ChildCount(candidate) == 0 {
             return true
         }
         syntaxAdmitted := false
@@ -3045,10 +3045,10 @@ class ColumnarConstructionPlanner {
         }
 
         kind := nodes.Kind(node)
-        if kind == 0 {
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression {
             return nodes.ChildCount(node) == 0 ? 1 : -1
         }
-        if kind == 2 {
+        if kind == ColumnarExpressionNodeKind.CharLiteralExpression {
             if nodes.ChildCount(node) != 1 {
                 return -1
             }
@@ -3063,14 +3063,14 @@ class ColumnarConstructionPlanner {
             return false
         }
         kind := nodes.Kind(node)
-        if kind == 0 {
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression {
             if nodes.ChildCount(node) != 0 {
                 return false
             }
             canonical = nodes.Text(source, node)
             return canonical.Length > 0
         }
-        if kind == 1 {
+        if kind == ColumnarExpressionNodeKind.FloatLiteralExpression {
             childCount := nodes.ChildCount(node)
             name := nodes.Text(source, node)
             if childCount == 0 || name.Length == 0 {
@@ -3095,7 +3095,7 @@ class ColumnarConstructionPlanner {
             canonical = builder.ToString()
             return true
         }
-        if kind == 2 || kind == 3 {
+        if kind == ColumnarExpressionNodeKind.CharLiteralExpression || kind == ColumnarExpressionNodeKind.StringLiteralExpression {
             if nodes.ChildCount(node) != 1 {
                 return false
             }
@@ -3103,10 +3103,10 @@ class ColumnarConstructionPlanner {
             if !TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), depth + 1, out element) {
                 return false
             }
-            canonical = element + (kind == 2 ? "[]" : "?")
+            canonical = element + (kind == ColumnarExpressionNodeKind.CharLiteralExpression ? "[]" : "?")
             return true
         }
-        if kind == 4 {
+        if kind == ColumnarExpressionNodeKind.BoolLiteralExpression {
             childCount := nodes.ChildCount(node)
             if childCount != 2 {
                 return false
@@ -3127,7 +3127,7 @@ class ColumnarConstructionPlanner {
             canonical = builder.ToString()
             return true
         }
-        if kind == 6 {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression {
             childCount := nodes.ChildCount(node)
             if childCount < 2 || childCount > 7 {
                 return false
@@ -3150,7 +3150,7 @@ class ColumnarConstructionPlanner {
             canonical = builder.ToString()
             return true
         }
-        if kind == 7 && nodes.ChildCount(node) == 1 {
+        if kind == ColumnarExpressionNodeKind.ParenthesizedExpression && nodes.ChildCount(node) == 1 {
             return TryBuildTypeCanonical(nodes, source, nodes.Child(node, 0), depth + 1, out canonical)
         }
         return false

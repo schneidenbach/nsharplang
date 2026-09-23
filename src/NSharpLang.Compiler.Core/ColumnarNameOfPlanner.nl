@@ -48,7 +48,7 @@ class ColumnarNameOfPlanner {
     // plan back to the caller's exact state.
     static func TryAppendRoot(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(string)
-        if nodes == null || source == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.NameOfExpression() {
+        if nodes == null || source == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.NameOfExpression {
             return false
         }
 
@@ -66,7 +66,7 @@ class ColumnarNameOfPlanner {
     static func TryAppendNameOf(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
         ValidateAppendInputs(nodes, source, node, plan)
         resultType = typeof(string)
-        if nodes.Kind(node) != ColumnarExpressionNodeKind.NameOfExpression() || nodes.ChildCount(node) != 1 {
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.NameOfExpression || nodes.ChildCount(node) != 1 {
             return false
         }
 
@@ -75,7 +75,7 @@ class ColumnarNameOfPlanner {
             return false
         }
         targetKind := nodes.Kind(target)
-        if targetKind != ColumnarExpressionNodeKind.IdentifierExpression() && targetKind != ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if targetKind != ColumnarExpressionNodeKind.IdentifierExpression && targetKind != ColumnarExpressionNodeKind.MemberAccessExpression {
             return false
         }
 

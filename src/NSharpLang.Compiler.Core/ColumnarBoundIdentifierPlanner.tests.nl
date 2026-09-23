@@ -47,7 +47,7 @@ struct ColumnarBoundIdentifierCurrentStructProbe {
 
 func BoundIdentifierTree(name: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    root := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
+    root := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, name)
     return builder.Build(root)
 }
 
@@ -55,27 +55,27 @@ func BoundExplicitThisTree(name: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     builder.AddToken("this.")
     valueStart := builder.AddToken(name)
-    root := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), valueStart, name.Length, 0, 5 + name.Length, new int[](0))
+    root := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression, valueStart, name.Length, 0, 5 + name.Length, new int[](0))
 
     return builder.Build(root)
 }
 
 func BoundRepeatedRangeTree(name: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    start := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
-    end := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
+    start := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, name)
+    end := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, name)
     dots := builder.AddToken("..")
-    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression(), dots, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(start, end))
+    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression, dots, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(start, end))
 
     return builder.Build(root)
 }
 
 func BoundMixedRangeTree(startName: string, endName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    start := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), startName)
-    end := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), endName)
+    start := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, startName)
+    end := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, endName)
     dots := builder.AddToken("..")
-    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression(), dots, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(start, end))
+    root := builder.AddNode(ColumnarExpressionNodeKind.RangeExpression, dots, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(start, end))
 
     return builder.Build(root)
 }

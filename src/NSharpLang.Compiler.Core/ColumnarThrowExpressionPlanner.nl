@@ -25,7 +25,7 @@ class ColumnarThrowExpressionPlanner {
 
     // Is this node a `throw <exception>` written in a value position? One child, no value span.
     static func IsThrowExpression(nodes: ColumnarNodeTable, node: int): bool {
-        return nodes != null && node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ThrowExpression() && nodes.ChildCount(node) == 1
+        return nodes != null && node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ThrowExpression && nodes.ChildCount(node) == 1
     }
 
     // Append the operand's rows and raise. The operand is planned by the ONE nested-value owner, so a

@@ -221,7 +221,7 @@ class ColumnarSourceStaticMemberPlanner {
         if nodes == null || source == null || bindings == null || node < 0 || node >= nodes.Kinds.Length {
             return false
         }
-        if nodes.Kind(node) != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(node) != 1 {
+        if nodes.Kind(node) != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(node) != 1 {
             return false
         }
 

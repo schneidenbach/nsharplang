@@ -71,7 +71,7 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        return candidate >= 0 && (nodes.Kind(candidate) == ColumnarExpressionNodeKind.IdentifierExpression() || nodes.Kind(candidate) == ColumnarExpressionNodeKind.BaseMemberExpression())
+        return candidate >= 0 && (nodes.Kind(candidate) == ColumnarExpressionNodeKind.IdentifierExpression || nodes.Kind(candidate) == ColumnarExpressionNodeKind.BaseMemberExpression)
     }
 
     static func ClaimsRoot(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings): bool {
@@ -87,11 +87,11 @@ class ColumnarBoundIdentifierPlanner {
         // A `base.Member` read names no lexical binding at all: the only thing it can be is a member
         // of the base, so this owner claims it outright and reports its own decline if the base has
         // no such member.
-        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.BaseMemberExpression() {
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.BaseMemberExpression {
             return true
         }
 
-        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() {
+        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression {
             return false
         }
 
@@ -156,7 +156,7 @@ class ColumnarBoundIdentifierPlanner {
         ValidateInputs(nodes, source, node, bindings, plan)
         plan.PrepareV3()
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        if candidate < 0 || (nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() && nodes.Kind(candidate) != ColumnarExpressionNodeKind.BaseMemberExpression()) {
+        if candidate < 0 || (nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression && nodes.Kind(candidate) != ColumnarExpressionNodeKind.BaseMemberExpression) {
             return plan.Status
         }
 
@@ -181,7 +181,7 @@ class ColumnarBoundIdentifierPlanner {
 
     static func TryAppend(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(int)
-        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || (nodes.Kind(node) != ColumnarExpressionNodeKind.IdentifierExpression() && nodes.Kind(node) != ColumnarExpressionNodeKind.BaseMemberExpression()) {
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || (nodes.Kind(node) != ColumnarExpressionNodeKind.IdentifierExpression && nodes.Kind(node) != ColumnarExpressionNodeKind.BaseMemberExpression) {
             return false
         }
 
@@ -402,7 +402,7 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         staticFieldType: Type? = null
-        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression {
             if ColumnarSourceStaticMemberPlanner.TryGetStaticFieldStorageType(nodes, source, candidate, bindings, out staticFieldType) && staticFieldType != null {
                 resultType = staticFieldType
                 return true
@@ -411,7 +411,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, candidate) {
+        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression || nodes.ChildCount(candidate) != 0 || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, candidate) {
             return false
         }
 
@@ -488,7 +488,7 @@ class ColumnarBoundIdentifierPlanner {
             return true
         }
 
-        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, candidate) {
+        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression || nodes.ChildCount(candidate) != 0 || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, candidate) {
             return false
         }
 
@@ -526,7 +526,7 @@ class ColumnarBoundIdentifierPlanner {
     static func TryGetAddressableTargetType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out resultType: Type): bool {
         resultType = typeof(int)
         candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, node)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 {
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression || nodes.ChildCount(candidate) != 0 {
             return false
         }
 
@@ -666,7 +666,7 @@ class ColumnarBoundIdentifierPlanner {
 
         // `Counter.Total` written out in full is the same storage as the bare `Total` below, and a
         // by-reference argument may name it from anywhere the type is visible.
-        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.MemberAccessExpression {
             staticMemberElement: Type = typeof(int)
             if ColumnarSourceStaticMemberPlanner.TryAppendStaticFieldAddress(nodes, source, candidate, bindings, plan, out staticMemberElement) {
                 RequireStorableValueType(staticMemberElement, "A by-reference static field must have a storable type.")
@@ -678,7 +678,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 {
+        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression || nodes.ChildCount(candidate) != 0 {
             return false
         }
 
@@ -780,8 +780,8 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        isBaseMember := nodes.Kind(node) == ColumnarExpressionNodeKind.BaseMemberExpression()
-        if !isBaseMember && nodes.Kind(node) != ColumnarExpressionNodeKind.IdentifierExpression() {
+        isBaseMember := nodes.Kind(node) == ColumnarExpressionNodeKind.BaseMemberExpression
+        if !isBaseMember && nodes.Kind(node) != ColumnarExpressionNodeKind.IdentifierExpression {
             return false
         }
 

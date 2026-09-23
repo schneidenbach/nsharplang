@@ -12,15 +12,15 @@ import System.Text
 // whose storage belongs to whoever owns the binding, and everything else is not a target at all.
 class StpNodes {
     static func Member(): int {
-        return ColumnarExpressionNodeKind.MemberAccessExpression()
+        return ColumnarExpressionNodeKind.MemberAccessExpression
     }
 
     static func Index(): int {
-        return ColumnarExpressionNodeKind.IndexAccessExpression()
+        return ColumnarExpressionNodeKind.IndexAccessExpression
     }
 
     static func Identifier(): int {
-        return ColumnarExpressionNodeKind.IdentifierExpression()
+        return ColumnarExpressionNodeKind.IdentifierExpression
     }
 
     // One node of `kind` with `childCount` children, in a table this owner can read.

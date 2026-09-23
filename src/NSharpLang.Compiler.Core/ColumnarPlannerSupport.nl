@@ -27,7 +27,7 @@ static class ColumnarPlannerSupport {
     // child is malformed; both answer -1, which every caller already reads as "not a node".
     static func UnwrapParentheses(nodes: ColumnarNodeTable, node: int): int {
         depth := 0
-        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression() {
+        while node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.ParenthesizedExpression {
             if depth > 200 || nodes.ChildCount(node) != 1 {
                 return -1
             }
@@ -101,7 +101,7 @@ static class ColumnarPlannerSupport {
         }
 
         kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression {
             if nodes.ChildCount(node) != 0 || (rejectExplicitThis && ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, node)) {
                 return false
             }
@@ -111,7 +111,7 @@ static class ColumnarPlannerSupport {
             return rootName.Length > 0
         }
 
-        if kind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(node) != 1 {
+        if kind != ColumnarExpressionNodeKind.MemberAccessExpression || nodes.ChildCount(node) != 1 {
             return false
         }
 

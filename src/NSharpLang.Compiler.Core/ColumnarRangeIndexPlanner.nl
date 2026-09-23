@@ -231,38 +231,38 @@ class ColumnarRangeIndexPlanner {
         }
 
         kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+        if kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression {
             return true
         }
-        if kind == ColumnarExpressionNodeKind.CallExpression() {
-            return true
-        }
-
-        if kind == ColumnarExpressionNodeKind.RangeExpression() {
+        if kind == ColumnarExpressionNodeKind.CallExpression {
             return true
         }
 
-        if kind == ColumnarExpressionNodeKind.UnaryExpression() {
+        if kind == ColumnarExpressionNodeKind.RangeExpression {
+            return true
+        }
+
+        if kind == ColumnarExpressionNodeKind.UnaryExpression {
             return nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "^"
         }
 
-        if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression {
             return true
         }
 
-        if kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+        if kind == ColumnarExpressionNodeKind.TypeOfExpression {
             return true
         }
 
-        if kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression || kind == ColumnarExpressionNodeKind.BaseMemberExpression {
             return true
         }
 
-        if kind == ColumnarExpressionNodeKind.BinaryExpression() {
+        if kind == ColumnarExpressionNodeKind.BinaryExpression {
             return ColumnarPrimitiveBinaryPlanner.MayPlanRoot(nodes, source, node)
         }
 
-        if kind != ColumnarExpressionNodeKind.IndexAccessExpression() || nodes.ChildCount(node) != 2 {
+        if kind != ColumnarExpressionNodeKind.IndexAccessExpression || nodes.ChildCount(node) != 2 {
             return false
         }
 
@@ -280,23 +280,23 @@ class ColumnarRangeIndexPlanner {
         }
 
         kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.RangeExpression() {
+        if kind == ColumnarExpressionNodeKind.RangeExpression {
             return true
         }
 
-        if kind == ColumnarExpressionNodeKind.UnaryExpression() {
+        if kind == ColumnarExpressionNodeKind.UnaryExpression {
             return nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "^"
         }
 
-        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression {
             return nodes.ChildCount(node) == 0
         }
 
-        if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression {
             return nodes.ChildCount(node) == 1
         }
 
-        if kind == ColumnarExpressionNodeKind.TernaryExpression() && nodes.ChildCount(node) == 3 {
+        if kind == ColumnarExpressionNodeKind.TernaryExpression && nodes.ChildCount(node) == 3 {
             return FacadeSelectorMayNeedFacts(nodes, source, nodes.Child(node, 1), depth + 1) && FacadeSelectorMayNeedFacts(nodes, source, nodes.Child(node, 2), depth + 1)
         }
 
@@ -310,15 +310,15 @@ class ColumnarRangeIndexPlanner {
         }
 
         kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.RangeExpression() {
+        if kind == ColumnarExpressionNodeKind.RangeExpression {
             return true
         }
 
-        if kind == ColumnarExpressionNodeKind.UnaryExpression() {
+        if kind == ColumnarExpressionNodeKind.UnaryExpression {
             return nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "^"
         }
 
-        if kind != ColumnarExpressionNodeKind.IndexAccessExpression() || nodes.ChildCount(node) != 2 {
+        if kind != ColumnarExpressionNodeKind.IndexAccessExpression || nodes.ChildCount(node) != 2 {
             return false
         }
 
@@ -336,20 +336,20 @@ class ColumnarRangeIndexPlanner {
         }
 
         kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.RangeExpression() {
+        if kind == ColumnarExpressionNodeKind.RangeExpression {
             return true
         }
 
-        if kind == ColumnarExpressionNodeKind.UnaryExpression() {
+        if kind == ColumnarExpressionNodeKind.UnaryExpression {
             return nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "^"
         }
 
-        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression {
             resultType := typeof(int)
             return ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, node, bindings, out resultType) && (resultType == typeof(Index) || resultType == typeof(Range))
         }
 
-        if kind == ColumnarExpressionNodeKind.MemberAccessExpression() && nodes.ChildCount(node) == 1 {
+        if kind == ColumnarExpressionNodeKind.MemberAccessExpression && nodes.ChildCount(node) == 1 {
             // 015-B8 — the FOURTH type-discovery scratch, which the B8 brief's census of three did not
             // name. It never prepares its own plan (`ColumnarInstanceMemberPlanner.Plan` does), so it too
             // arms the mirror at construction. Inert at this tip and armed for the same reason as the
@@ -360,7 +360,7 @@ class ColumnarRangeIndexPlanner {
             return ColumnarInstanceMemberPlanner.ClaimsRoot(nodes, source, node, bindings) && ColumnarInstanceMemberPlanner.TryGetType(nodes, source, node, bindings, memberPlan, out memberType) && (memberType == typeof(Index) || memberType == typeof(Range))
         }
 
-        if kind == ColumnarExpressionNodeKind.TernaryExpression() && nodes.ChildCount(node) == 3 {
+        if kind == ColumnarExpressionNodeKind.TernaryExpression && nodes.ChildCount(node) == 3 {
             return FacadeSelectorMayProduceIndexOrRange(nodes, source, nodes.Child(node, 1), bindings, depth + 1) && FacadeSelectorMayProduceIndexOrRange(nodes, source, nodes.Child(node, 2), bindings, depth + 1)
         }
 
@@ -369,24 +369,24 @@ class ColumnarRangeIndexPlanner {
 
     static func IsRootCandidate(nodes: ColumnarNodeTable, source: string, node: int): bool {
         kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.RangeExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
+        if kind == ColumnarExpressionNodeKind.RangeExpression || kind == ColumnarExpressionNodeKind.IndexAccessExpression {
             return true
         }
 
-        return kind == ColumnarExpressionNodeKind.UnaryExpression() && nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "^"
+        return kind == ColumnarExpressionNodeKind.UnaryExpression && nodes.ChildCount(node) == 1 && nodes.Text(source, node) == "^"
     }
 
     static func RootResultMatches(nodes: ColumnarNodeTable, source: string, node: int, resultType: Type): bool {
         kind := nodes.Kind(node)
-        if kind == ColumnarExpressionNodeKind.UnaryExpression() && nodes.Text(source, node) == "^" {
+        if kind == ColumnarExpressionNodeKind.UnaryExpression && nodes.Text(source, node) == "^" {
             return resultType == typeof(Index)
         }
 
-        if kind == ColumnarExpressionNodeKind.RangeExpression() {
+        if kind == ColumnarExpressionNodeKind.RangeExpression {
             return resultType == typeof(Range)
         }
 
-        return kind == ColumnarExpressionNodeKind.IndexAccessExpression()
+        return kind == ColumnarExpressionNodeKind.IndexAccessExpression
     }
 
     // THE INHERITED VALUE SURFACE (015-B10).
@@ -438,17 +438,17 @@ class ColumnarRangeIndexPlanner {
         fragment := plan.BeginFragment(parentFragment, kind, node)
         planned := false
 
-        if kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression() {
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression || kind == ColumnarExpressionNodeKind.FloatLiteralExpression || kind == ColumnarExpressionNodeKind.CharLiteralExpression || kind == ColumnarExpressionNodeKind.StringLiteralExpression {
             planned = ColumnarScalarLiteralPlanner.TryAppendLiteral(nodes, source, node, plan, out resultType)
-        } else if kind == ColumnarExpressionNodeKind.NameOfExpression() {
+        } else if kind == ColumnarExpressionNodeKind.NameOfExpression {
             planned = ColumnarNameOfPlanner.TryAppendNameOf(nodes, source, node, plan, out resultType)
-        } else if kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+        } else if kind == ColumnarExpressionNodeKind.TypeOfExpression {
             planned = ColumnarTypeOfPlanner.TryAppendTypeOf(nodes, source, node, bindings, plan, out resultType)
-        } else if kind == ColumnarExpressionNodeKind.BoolLiteralExpression() {
+        } else if kind == ColumnarExpressionNodeKind.BoolLiteralExpression {
             planned = TryPlanBooleanLiteral(nodes, source, node, plan, out resultType)
-        } else if kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+        } else if kind == ColumnarExpressionNodeKind.IdentifierExpression || kind == ColumnarExpressionNodeKind.BaseMemberExpression {
             planned = ColumnarBoundIdentifierPlanner.TryAppend(nodes, source, node, bindings, plan, out resultType)
-        } else if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        } else if kind == ColumnarExpressionNodeKind.MemberAccessExpression {
             planned = TryPlanEnumMember(nodes, source, node, bindings, plan, out resultType)
             if !planned {
                 planned = ColumnarExternalStaticMemberPlanner.TryAppendStaticMember(nodes, source, node, bindings, plan, out resultType)
@@ -465,7 +465,7 @@ class ColumnarRangeIndexPlanner {
             if !planned {
                 planned = ColumnarInstanceMemberPlanner.TryAppend(nodes, source, node, bindings, plan, fragment, allowPrimitiveBinary, out resultType)
             }
-        } else if kind == ColumnarExpressionNodeKind.CallExpression() {
+        } else if kind == ColumnarExpressionNodeKind.CallExpression {
             ownership := ColumnarDirectCallOwnership.NotOwned
             _legacyWholeSubtreePlanning := false
             planned = ColumnarDirectCallPlanner.TryAppendCall(nodes, source, node, bindings, handles, plan, fragment, depth, out ownership, out _legacyWholeSubtreePlanning, out resultType)
@@ -473,13 +473,13 @@ class ColumnarRangeIndexPlanner {
             if !planned && ownership == ColumnarDirectCallOwnership.OwnedRejected {
                 nestedOwnership = ColumnarDirectCallOwnership.OwnedRejected
             }
-        } else if kind == 53 && bindings.BlockingAwaitEnabled && nodes.ChildCount(node) == 1 {
+        } else if kind == ColumnarExpressionNodeKind.AwaitExpression && bindings.BlockingAwaitEnabled && nodes.ChildCount(node) == 1 {
             awaitableType := typeof(object)
             planned = TryAppendPlannableValueCore(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, allowPrimitiveBinary, out awaitableType, out nestedOwnership)
             if planned {
                 planned = AppendBlockingAwaitOfStackValue(plan, awaitableType, out resultType)
             }
-        } else if kind == ColumnarExpressionNodeKind.BinaryExpression() {
+        } else if kind == ColumnarExpressionNodeKind.BinaryExpression {
             // Short-circuit `&&`/`||` is a Boolean control-flow form owned by the conditional
             // planner in every value position; the remaining primitive binaries stay gated to the
             // construction-argument surface that admits them.
@@ -493,26 +493,26 @@ class ColumnarRangeIndexPlanner {
             } else if allowPrimitiveBinary {
                 planned = ColumnarPrimitiveBinaryPlanner.TryAppend(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
             }
-        } else if kind == ColumnarExpressionNodeKind.NewExpression() || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression() || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+        } else if kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.ObjectInitializerExpression || kind == ColumnarExpressionNodeKind.ArrayLiteralExpression {
             ownership := ColumnarDirectCallOwnership.NotOwned
             _legacyWholeSubtreePlanning := false
             planned = ColumnarConstructionPlanner.TryAppend(nodes, source, node, bindings, handles, plan, fragment, depth, out ownership, out _legacyWholeSubtreePlanning, out resultType)
             if !planned && ownership == ColumnarDirectCallOwnership.OwnedRejected {
                 nestedOwnership = ColumnarDirectCallOwnership.OwnedRejected
             }
-        } else if kind == ColumnarExpressionNodeKind.UnaryExpression() {
+        } else if kind == ColumnarExpressionNodeKind.UnaryExpression {
             planned = ColumnarUnaryLiteralPlanner.TryAppendUnaryLiteral(nodes, source, node, plan, fragment, out resultType)
 
             if !planned {
                 planned = TryPlanFromEnd(nodes, source, node, bindings, handles, plan, fragment, depth, allowPrimitiveBinary, out resultType, out nestedOwnership)
             }
-        } else if kind == ColumnarExpressionNodeKind.CastExpression() {
+        } else if kind == ColumnarExpressionNodeKind.CastExpression {
             planned = TryPlanNumericCast(nodes, source, node, bindings, handles, plan, fragment, depth, allowPrimitiveBinary, out resultType, out nestedOwnership)
-        } else if kind == ColumnarExpressionNodeKind.RangeExpression() {
+        } else if kind == ColumnarExpressionNodeKind.RangeExpression {
             planned = TryPlanRange(nodes, source, node, bindings, handles, plan, fragment, depth, allowPrimitiveBinary, out resultType, out nestedOwnership)
-        } else if kind == ColumnarExpressionNodeKind.TernaryExpression() {
+        } else if kind == ColumnarExpressionNodeKind.TernaryExpression {
             planned = ColumnarConditionalPlanner.TryPlanTernary(nodes, source, node, bindings, handles, plan, fragment, depth, out resultType, out nestedOwnership)
-        } else if kind == ColumnarExpressionNodeKind.IndexAccessExpression() {
+        } else if kind == ColumnarExpressionNodeKind.IndexAccessExpression {
             // ORDINARY `arr[0]` IS A NON-ROOT CLAIM, AND `parentFragment >= 0` IS HOW A REAL PLAN SAYS SO.
             // A type-discovery SCRATCH has no parent to point at even when the value it types is destined
             // for one, so it declares the frame instead — see `ColumnarCodePlan.EnableNestedValueFrame`.
@@ -648,7 +648,7 @@ class ColumnarRangeIndexPlanner {
         typeNode := nodes.Child(node, 0)
         // Type-reference nodes use the type-kernel encoding: 0 = SimpleTypeReference. Generic,
         // array, nullable, and every other type form stays with the legacy cast owner.
-        if typeNode < 0 || typeNode >= nodes.Kinds.Length || nodes.Kind(typeNode) != 0 {
+        if typeNode < 0 || typeNode >= nodes.Kinds.Length || nodes.Kind(typeNode) != ColumnarExpressionNodeKind.IntLiteralExpression {
             return false
         }
 
@@ -682,7 +682,7 @@ class ColumnarRangeIndexPlanner {
         // same literal no-op branch (the boundary refines the known Int32 value to ushort), and
         // every out-of-range magnitude stays with the legacy conv.u2 truncation owner.
         if targetType == typeof(ushort) && IsI4LiteralOperand(nodes, source, operandNode) {
-            if nodes.Kind(operandNode) == ColumnarExpressionNodeKind.IntLiteralExpression() {
+            if nodes.Kind(operandNode) == ColumnarExpressionNodeKind.IntLiteralExpression {
                 magnitude := 0UL
                 if !NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(nodes.Text(source, operandNode), out magnitude) || magnitude > 65535UL {
                     return false
@@ -816,10 +816,10 @@ class ColumnarRangeIndexPlanner {
         if nodes.ChildCount(node) != 0 {
             return false
         }
-        if kind == ColumnarExpressionNodeKind.CharLiteralExpression() {
+        if kind == ColumnarExpressionNodeKind.CharLiteralExpression {
             return true
         }
-        if kind != ColumnarExpressionNodeKind.IntLiteralExpression() {
+        if kind != ColumnarExpressionNodeKind.IntLiteralExpression {
             return false
         }
         text := nodes.Text(source, node)

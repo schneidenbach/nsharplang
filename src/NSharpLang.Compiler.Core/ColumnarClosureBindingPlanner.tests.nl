@@ -45,18 +45,18 @@ func ClosureBindingControlsEmptySiblings(): Dictionary<string, ColumnarSiblingMe
 
 func ClosureBindingControlsIdentifierTree(name: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    root := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
+    root := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, name)
     return builder.Build(root)
 }
 
 func ClosureBindingControlsMemberTree(receiverName: string, memberName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, receiverName)
     memberStart := builder.AddToken(memberName)
     children := new int[](1)
     children[0] = receiver
     root := builder.AddNode(
-        ColumnarExpressionNodeKind.MemberAccessExpression(),
+        ColumnarExpressionNodeKind.MemberAccessExpression,
         memberStart,
         memberName.Length,
         0,
@@ -76,7 +76,7 @@ func ClosureBindingControlsBinary(
     children[0] = left
     children[1] = right
     return builder.AddNode(
-        ColumnarExpressionNodeKind.BinaryExpression(),
+        ColumnarExpressionNodeKind.BinaryExpression,
         operatorStart,
         1,
         0,
@@ -87,13 +87,13 @@ func ClosureBindingControlsBinary(
 
 func ClosureBindingControlsBareCaptureWriteTree(name: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    lambdaRead := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
+    lambdaRead := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, name)
     lambdaChildren := new int[](1)
     lambdaChildren[0] = lambdaRead
     lambda := builder.AddNode(39, -1, 0, 0, builder.Source.Length, lambdaChildren)
 
-    target := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
-    value := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    target := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, name)
+    value := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
     assignmentChildren := new int[](2)
     assignmentChildren[0] = target
     assignmentChildren[1] = value
@@ -108,12 +108,12 @@ func ClosureBindingControlsBareCaptureWriteTree(name: string): ColumnarRangePlan
 
 func ClosureBindingControlsStructuralCaptureWriteTree(name: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    lambdaReceiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
+    lambdaReceiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, name)
     lambdaMemberStart := builder.AddToken("Value")
     lambdaMemberChildren := new int[](1)
     lambdaMemberChildren[0] = lambdaReceiver
     lambdaBody := builder.AddNode(
-        ColumnarExpressionNodeKind.MemberAccessExpression(),
+        ColumnarExpressionNodeKind.MemberAccessExpression,
         lambdaMemberStart,
         5,
         0,
@@ -124,19 +124,19 @@ func ClosureBindingControlsStructuralCaptureWriteTree(name: string): ColumnarRan
     lambdaChildren[0] = lambdaBody
     lambda := builder.AddNode(39, -1, 0, 0, builder.Source.Length, lambdaChildren)
 
-    writeReceiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
+    writeReceiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, name)
     writeMemberStart := builder.AddToken("Value")
     writeMemberChildren := new int[](1)
     writeMemberChildren[0] = writeReceiver
     writeTarget := builder.AddNode(
-        ColumnarExpressionNodeKind.MemberAccessExpression(),
+        ColumnarExpressionNodeKind.MemberAccessExpression,
         writeMemberStart,
         5,
         0,
         builder.Source.Length,
         writeMemberChildren
     )
-    value := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    value := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
     assignmentChildren := new int[](2)
     assignmentChildren[0] = writeTarget
     assignmentChildren[1] = value
@@ -144,8 +144,8 @@ func ClosureBindingControlsStructuralCaptureWriteTree(name: string): ColumnarRan
 
     // Retain a bare root assignment too: ComputeLiftedCandidates must first see a liftable
     // assignment and then reject it because this member-rooted write needs the box value address.
-    bareTarget := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
-    bareValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
+    bareTarget := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, name)
+    bareValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "2")
     bareAssignmentChildren := new int[](2)
     bareAssignmentChildren[0] = bareTarget
     bareAssignmentChildren[1] = bareValue
@@ -161,24 +161,24 @@ func ClosureBindingControlsStructuralCaptureWriteTree(name: string): ColumnarRan
 
 func ClosureBindingControlsShadowedCaptureTree(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    parameter := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "shadow")
-    lambdaShadow := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "shadow")
-    lambdaOuter := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "outer")
+    parameter := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "shadow")
+    lambdaShadow := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "shadow")
+    lambdaOuter := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "outer")
     lambdaBody := ClosureBindingControlsBinary(builder, lambdaShadow, lambdaOuter)
     lambdaChildren := new int[](2)
     lambdaChildren[0] = parameter
     lambdaChildren[1] = lambdaBody
     lambda := builder.AddNode(39, -1, 0, 0, builder.Source.Length, lambdaChildren)
 
-    shadowTarget := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "shadow")
-    shadowValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    shadowTarget := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "shadow")
+    shadowValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
     shadowAssignmentChildren := new int[](2)
     shadowAssignmentChildren[0] = shadowTarget
     shadowAssignmentChildren[1] = shadowValue
     shadowAssignment := builder.AddNode(14, -1, 0, 0, builder.Source.Length, shadowAssignmentChildren)
 
-    outerTarget := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "outer")
-    outerValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
+    outerTarget := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "outer")
+    outerValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "2")
     outerAssignmentChildren := new int[](2)
     outerAssignmentChildren[0] = outerTarget
     outerAssignmentChildren[1] = outerValue
@@ -276,24 +276,24 @@ test "closure binding collection retains every structural declaration name" {
     foreachStart := builder.AddToken("item")
     foreachDeclaration := builder.AddNode(29, foreachStart, 4, foreachStart, 4, new int[](0))
 
-    first := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "first")
-    second := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "second")
-    deconstructionValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    first := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "first")
+    second := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "second")
+    deconstructionValue := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
     deconstructionChildren := new int[](3)
     deconstructionChildren[0] = first
     deconstructionChildren[1] = second
     deconstructionChildren[2] = deconstructionValue
     deconstruction := builder.AddNode(30, -1, 0, 0, builder.Source.Length, deconstructionChildren)
 
-    typedName := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "typed")
-    typedType := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "int")
+    typedName := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "typed")
+    typedType := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "int")
     typedChildren := new int[](2)
     typedChildren[0] = typedName
     typedChildren[1] = typedType
     typed := builder.AddNode(40, -1, 0, 0, builder.Source.Length, typedChildren)
 
-    caughtName := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "caught")
-    catchBody := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
+    caughtName := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "caught")
+    catchBody := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "0")
     catchChildren := new int[](2)
     catchChildren[0] = caughtName
     catchChildren[1] = catchBody
@@ -322,10 +322,10 @@ test "closure binding collection retains every structural declaration name" {
 
 test "closure capture planning takes live tiers in sorted order and honors lambda shadows" {
     builder := new ColumnarRangePlannerNodeBuilder()
-    localName := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "local")
-    parameterName := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "parameter")
-    liftedName := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "lifted")
-    shadowName := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "shadow")
+    localName := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "local")
+    parameterName := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "parameter")
+    liftedName := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "lifted")
+    shadowName := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "shadow")
     left := ClosureBindingControlsBinary(builder, localName, parameterName)
     right := ClosureBindingControlsBinary(builder, liftedName, shadowName)
     body := ClosureBindingControlsBinary(builder, left, right)
@@ -417,7 +417,7 @@ test "closure lift candidates retain prior state, exclude structural writes, and
 
     opaqueBuilder := new ColumnarRangePlannerNodeBuilder()
     opaque := opaqueBuilder.AddNode(
-        ColumnarExpressionNodeKind.ObjectInitializerExpression(),
+        ColumnarExpressionNodeKind.ObjectInitializerExpression,
         -1,
         0,
         0,

@@ -49,7 +49,7 @@ class ColumnarFieldInitPlanner {
 
         nodes := body.BodyNodes
         bodyRoot := body.BodyRoot
-        if bodyRoot >= 0 && nodes.Kind(bodyRoot) == 25 {
+        if bodyRoot >= 0 && nodes.Kind(bodyRoot) == ColumnarStatementNodeKind.BlockStatement {
             childCount := nodes.ChildCount(bodyRoot)
             n := 0
             while n < childCount {
@@ -80,18 +80,18 @@ class ColumnarFieldInitPlanner {
     // one nullable field and one initialized field was enough). A synthesized store is always a simple
     // `=`, so an absent span reads as `=` and the field it assigns is named like any other.
     static func TopLevelFieldAssignmentTarget(nodes: ColumnarNodeTable, source: string, stmt: int): string? {
-        if nodes.Kind(stmt) != 23 || nodes.ChildCount(stmt) != 1 {
+        if nodes.Kind(stmt) != ColumnarStatementNodeKind.ExpressionStatement || nodes.ChildCount(stmt) != 1 {
             return null
         }
         expr := nodes.Child(stmt, 0)
-        if nodes.Kind(expr) != 14 || nodes.ChildCount(expr) != 2 {
+        if nodes.Kind(expr) != ColumnarExpressionNodeKind.AssignmentExpression || nodes.ChildCount(expr) != 2 {
             return null
         }
         if nodes.ValueStart(expr) >= 0 && nodes.Text(source, expr) != "=" {
             return null
         }
         target := nodes.Child(expr, 0)
-        if nodes.Kind(target) == 6 && nodes.ValueStart(target) >= 0 {
+        if nodes.Kind(target) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(target) >= 0 {
             return nodes.Text(source, target)
         }
         return null

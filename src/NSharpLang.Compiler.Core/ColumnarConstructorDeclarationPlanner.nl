@@ -427,18 +427,18 @@ class ColumnarConstructorDeclarationPlanner {
     }
 
     static func IsValidReferenceCtorBody(nodes: ColumnarNodeTable, source: string, currentStruct: ColumnarStructDef?, bodyRoot: int): bool {
-        if currentStruct == null || nodes.Kind(bodyRoot) != 25 || ColumnarMethodBodyPlanner.ContainsValueReturnStatement(nodes, bodyRoot) {
+        if currentStruct == null || nodes.Kind(bodyRoot) != ColumnarStatementNodeKind.BlockStatement || ColumnarMethodBodyPlanner.ContainsValueReturnStatement(nodes, bodyRoot) {
             return false
         }
         assigned := new HashSet<string>(currentStruct.InstanceInitializerFields, StringComparer.Ordinal)
         childIndex := 0
         while childIndex < nodes.ChildCount(bodyRoot) {
             statement := nodes.Child(bodyRoot, childIndex)
-            if nodes.Kind(statement) == 23 {
+            if nodes.Kind(statement) == ColumnarStatementNodeKind.ExpressionStatement {
                 expression := nodes.Child(statement, 0)
-                if nodes.Kind(expression) == 14 && ColumnarNodeTextFacts.Text(nodes, source, expression) == "=" {
+                if nodes.Kind(expression) == ColumnarExpressionNodeKind.AssignmentExpression && ColumnarNodeTextFacts.Text(nodes, source, expression) == "=" {
                     target := nodes.Child(expression, 0)
-                    if nodes.Kind(target) == 6 && currentStruct.Fields.ContainsKey(ColumnarNodeTextFacts.Text(nodes, source, target)) {
+                    if nodes.Kind(target) == ColumnarExpressionNodeKind.IdentifierExpression && currentStruct.Fields.ContainsKey(ColumnarNodeTextFacts.Text(nodes, source, target)) {
                         assigned.Add(ColumnarNodeTextFacts.Text(nodes, source, target))
                     }
                 }

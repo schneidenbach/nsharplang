@@ -507,167 +507,8 @@ class TypeReferenceTupleNameTable {
 // TripleQuoteStringLiteral 5, InterpolatedRawStringLiteral 6, True 44, False 45, Null 46, LeftParen 127,
 // RightParen 128, Dot 124, LeftBracket 131, RightBracket 132.
 
-// The one live expression-node-kind ledger. Parser producers and downstream N# owners consume
-// these named values instead of duplicating ordinals.
-class ColumnarExpressionNodeKind {
-    static func IntLiteralExpression(): int {
-        return 0
-    }
-
-    static func FloatLiteralExpression(): int {
-        return 1
-    }
-
-    static func CharLiteralExpression(): int {
-        return 2
-    }
-
-    static func StringLiteralExpression(): int {
-        return 3
-    }
-
-    static func BoolLiteralExpression(): int {
-        return 4
-    }
-
-    static func NullLiteralExpression(): int {
-        return 5
-    }
-
-    static func IdentifierExpression(): int {
-        return 6
-    }
-
-    static func ParenthesizedExpression(): int {
-        return 7
-    }
-
-    static func MemberAccessExpression(): int {
-        return 8
-    }
-
-    static func CallExpression(): int {
-        return 9
-    }
-
-    static func IndexAccessExpression(): int {
-        return 10
-    }
-
-    static func UnaryExpression(): int {
-        return 11
-    }
-
-    static func BinaryExpression(): int {
-        return 12
-    }
-
-    static func TernaryExpression(): int {
-        return 13
-    }
-
-    static func NewExpression(): int {
-        return 15
-    }
-
-    static func CastExpression(): int {
-        return 16
-    }
-
-    static func ObjectInitializerExpression(): int {
-        return 36
-    }
-
-    static func TypeOfExpression(): int {
-        return 55
-    }
-
-    static func GenericTypeReceiverExpression(): int {
-        return 70
-    }
-
-    static func BaseMemberExpression(): int {
-        return 71
-    }
-
-    // `checked(<expr>)` / `unchecked(<expr>)`. The KEYWORD lives in the value span and there is
-    // exactly ONE child. Unlike every other name on this ledger it has no N# planner behind it:
-    // `ColumnarIlEmitter.EmitExpressionCore`'s own `case 57` is the owner, and it lowers to nothing
-    // but a saved-and-restored overflow flag around the child's emission (015-B13).
-    static func CheckedContextExpression(): int {
-        return 57
-    }
-
-    static func ArrayLiteralExpression(): int {
-        return 58
-    }
-
-    static func NameOfExpression(): int {
-        return 62
-    }
-
-    static func RangeExpression(): int {
-        return 69
-    }
-
-    // `?.` — the RECEIVER half of a null-conditional access, wrapped around the receiver so the access
-    // itself stays an ordinary MemberAccess (kind 8) and an ordinary Call (kind 9) over it. ONE child
-    // (the receiver), no value span, and the receiver's own source span: everything about the access —
-    // its member name, its arguments — is the node above, unchanged.
-    static func NullGuardExpression(): int {
-        return 75
-    }
-
-    // `default` — the target-typed zero value. The keyword carries no type of its own (N# spells the
-    // typed form as an annotation, `x: T = default`), so the node has NO children and NO value span,
-    // and every consumer reads the target type from the position the expression sits in.
-    static func DefaultExpression(): int {
-        return 74
-    }
-
-    // `this` written on its own — the CURRENT INSTANCE as a value, not as the `this.Member` prefix the
-    // postfix parser collapses into a bare identifier. It has NO children and NO value span (the
-    // keyword IS the node, exactly as `null` and `default` are), and its type is the enclosing
-    // declaration's, which only the emitter knows. A `this.Member` / `this[i]` chain still takes the
-    // collapsing arm first, so this kind is reached only where the keyword really stands alone:
-    // `Raise(this)`, `me := this`, `return this`, `Changed?.Invoke(this, EventArgs.Empty)`.
-    static func ThisExpression(): int {
-        return 82
-    }
-
-    // `on <receiver>.<Event> <handler>` — the event SUBSCRIPTION, and the VALUE it produces: a
-    // `NSharpLang.Runtime.NSharpEventSubscription` handle that `off` (statement kind 80) detaches.
-    // Children are [target, handler]: the target is the member chain ENDING in the event name (a
-    // kind-8 MemberAccess, or a kind-71 `base.Event`), the handler any expression of the event's
-    // delegate type — a lambda (kind 39), a delegate-typed local, a field, a call result. The `on`
-    // keyword's own byte span is the value span.
-    static func OnSubscriptionExpression(): int {
-        return 79
-    }
-
-    // `throw <exception>` written where a VALUE is expected, rather than as a statement of its own
-    // (statement kind 48). ONE child (the exception expression), NO value span, and a span that runs
-    // from the `throw` keyword through the end of its operand.
-    //
-    // It produces no value at all — its type is the BOTTOM type, and the position it sits in decides
-    // what the surrounding expression is worth: `x ?? throw e` is worth `x` with its nullability
-    // removed, a conditional arm is worth the OTHER arm, and an expression body is worth the declared
-    // return type. That is why the grammar admits it in exactly three places — the right operand of
-    // `??`, either arm of a conditional, and an expression body (a `func`/property arrow body or a
-    // lambda's) — and nowhere else: everywhere else there is no other operand to take the type from,
-    // and the analyzer reports NL340 before emission is ever asked.
-    static func ThrowExpression(): int {
-        return 83
-    }
-
-    // `when <expr>` on a catch clause. A WRAPPER around the guard rather than a bare child of the
-    // kind-50 clause, because that clause's optional binding is itself a kind-6 identifier and a guard
-    // may be one too — wrapping is what lets every reader ask a child WHAT IT IS instead of counting
-    // how many there are.
-    static func CatchFilterClause(): int {
-        return 84
-    }
-}
+// The expression- and statement-node-kind ledgers moved to `ColumnarNodeKinds.nl`, where the
+// statement half finally has a name too.
 
 class ParserExpressionNodeTable {
     Kinds: int[]
@@ -4733,32 +4574,32 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
 
     if kind == 1 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IntLiteralExpression(), tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IntLiteralExpression, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
 
     if kind == 2 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.FloatLiteralExpression(), tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.FloatLiteralExpression, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
 
     if kind == 3 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.CharLiteralExpression(), tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.CharLiteralExpression, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
 
     if kind == 4 || kind == 5 || kind == 6 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.StringLiteralExpression(), tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.StringLiteralExpression, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
 
     if kind == 44 || kind == 45 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.BoolLiteralExpression(), tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.BoolLiteralExpression, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
 
     if kind == 46 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.NullLiteralExpression(), -1, 0, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.NullLiteralExpression, -1, 0, -1, 0, tokenStart, tokenLength)
     }
 
     // `default` (Default 34) — the null literal's twin: a keyword primary with no operand whose TYPE
@@ -4766,7 +4607,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     // `null` is, and its full source span is the keyword.
     if kind == 34 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.DefaultExpression(), -1, 0, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.DefaultExpression, -1, 0, -1, 0, tokenStart, tokenLength)
     }
 
     // A BARE `this` (This 42). The `this.Member` and `this[...]` prefixes never reach here — the postfix
@@ -4774,7 +4615,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     // own as a value, and it records the keyword's own span with no value text, like `null` and `default`.
     if kind == 42 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.ThisExpression(), -1, 0, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.ThisExpression, -1, 0, -1, 0, tokenStart, tokenLength)
     }
 
     if kind == 131 {
@@ -4788,7 +4629,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
 
     if kind == 0 {
         st.Pos = pos + 1
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression(), tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
 
     if kind == 49 {
@@ -5447,7 +5288,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         st.Pos = st.Pos + 1
         childRunStart := st.ChildCursor
         AppendExpressionChild(st, children, inner)
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, childRunStart, 1, parenStart, rightParenEnd - parenStart)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, childRunStart, 1, parenStart, rightParenEnd - parenStart)
     }
 
     return -1
@@ -5493,7 +5334,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         memberStart := tokens.Starts[st.Pos + 2]
         memberLength := tokens.ValueLengths[st.Pos + 2]
         memberEnd := memberStart + memberLength
-        expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression(), memberStart, memberLength, -1, 0, thisStart, memberEnd - thisStart)
+        expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression, memberStart, memberLength, -1, 0, thisStart, memberEnd - thisStart)
 
         st.Pos = st.Pos + 3
     } else if st.Pos + 2 < count && tokens.Kinds[st.Pos] == 43 && tokens.Kinds[st.Pos + 1] == 124 && tokens.Kinds[st.Pos + 2] == 0 {
@@ -5506,7 +5347,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         baseMemberStart := tokens.Starts[st.Pos + 2]
         baseMemberLength := tokens.ValueLengths[st.Pos + 2]
         baseMemberEnd := baseMemberStart + baseMemberLength
-        expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.BaseMemberExpression(), baseMemberStart, baseMemberLength, -1, 0, baseStart, baseMemberEnd - baseStart)
+        expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.BaseMemberExpression, baseMemberStart, baseMemberLength, -1, 0, baseStart, baseMemberEnd - baseStart)
 
         st.Pos = st.Pos + 3
     } else {
@@ -5535,7 +5376,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             memberEnd := memberStart + memberLength
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, expr)
-            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberLength, childRunStart, 1, objSpanStart, memberEnd - objSpanStart)
+            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberLength, childRunStart, 1, objSpanStart, memberEnd - objSpanStart)
 
             st.Pos = pos + 2
         } else if pos + 1 < count && tokens.Kinds[pos] == 118 && tokens.Kinds[pos + 1] == 0 {
@@ -5549,13 +5390,13 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             guardSpanLength := nodes.SpanLengths[expr]
             guardChildRun := st.ChildCursor
             AppendExpressionChild(st, children, expr)
-            guard := EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.NullGuardExpression(), -1, 0, guardChildRun, 1, objSpanStart, guardSpanLength)
+            guard := EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.NullGuardExpression, -1, 0, guardChildRun, 1, objSpanStart, guardSpanLength)
             memberStart := tokens.Starts[pos + 1]
             memberLength := tokens.ValueLengths[pos + 1]
             memberEnd := memberStart + memberLength
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, guard)
-            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberLength, childRunStart, 1, objSpanStart, memberEnd - objSpanStart)
+            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberLength, childRunStart, 1, objSpanStart, memberEnd - objSpanStart)
 
             st.Pos = pos + 2
         } else if pos < count && tokens.Kinds[pos] == 131 {
@@ -5575,7 +5416,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, expr)
             AppendExpressionChild(st, children, index)
-            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, childRunStart, 2, objSpanStart, rightBracketEnd - objSpanStart)
+            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, childRunStart, 2, objSpanStart, rightBracketEnd - objSpanStart)
         } else if pos < count && tokens.Kinds[pos] == 100 && (nodes.Kinds[expr] == 6 || nodes.Kinds[expr] == 8) && IsGenericTypeReceiverArgs(tokens, count, pos) {
 
             // `Name<Args>.` / `A.B.Name<Args>.` -- a CONSTRUCTED GENERIC TYPE RECEIVER (kind 70), the
@@ -5631,7 +5472,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             }
 
             st.ArgStackTop = receiverArgBase
-            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.GenericTypeReceiverExpression(), receiverNameStart, receiverNameLength, receiverChildRunStart, receiverChildCount, receiverSpanStart, receiverCloseEnd - receiverSpanStart)
+            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.GenericTypeReceiverExpression, receiverNameStart, receiverNameLength, receiverChildRunStart, receiverChildCount, receiverSpanStart, receiverCloseEnd - receiverSpanStart)
         } else if pos < count && tokens.Kinds[pos] == 100 && (nodes.Kinds[expr] == 6 || nodes.Kinds[expr] == 8) && IsGenericCallTypeArgs(tokens, count, pos) {
 
             // Explicit generic-call TYPE ARGUMENTS `callee<T1, T2>(args)` — committed when the callee is
@@ -5993,7 +5834,7 @@ func ParseUnaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
             operandSpanEnd := nodes.SpanStarts[operand] + nodes.SpanLengths[operand]
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, operand)
-            return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.UnaryExpression(), opStart, opLength, childRunStart, 1, opStart, operandSpanEnd - opStart)
+            return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.UnaryExpression, opStart, opLength, childRunStart, 1, opStart, operandSpanEnd - opStart)
         }
     }
 
@@ -6032,7 +5873,7 @@ func ParseRangeExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
             childCount = 1
         }
 
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.RangeExpression(), dotDotStart, dotDotLength, childRun, childCount, dotDotStart, rangeEnd - dotDotStart)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.RangeExpression, dotDotStart, dotDotLength, childRun, childCount, dotDotStart, rangeEnd - dotDotStart)
     }
 
     startNode := ParseUnaryExpressionNode(tokens, count, st, argStack, nodes, children, depth)
@@ -6065,7 +5906,7 @@ func ParseRangeExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
         }
 
         rangeStart := nodes.SpanStarts[startNode]
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.RangeExpression(), dotDotStart, dotDotLength, childRun, childCount, rangeStart, rangeEnd - rangeStart)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.RangeExpression, dotDotStart, dotDotLength, childRun, childCount, rangeStart, rangeEnd - rangeStart)
     }
 
     return startNode
@@ -6239,7 +6080,7 @@ func ParseThrowExpressionNode(tokens: ParserTokenTable, count: int, st: ParserSt
     operandEnd := nodes.SpanStarts[operand] + nodes.SpanLengths[operand]
     childRunStart := st.ChildCursor
     AppendExpressionChild(st, children, operand)
-    return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.ThrowExpression(), -1, 0, childRunStart, 1, throwStart, operandEnd - throwStart)
+    return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.ThrowExpression, -1, 0, childRunStart, 1, throwStart, operandEnd - throwStart)
 }
 
 // A value position that ADMITS a throw expression: `throw` (37) opens one, anything else is an
@@ -6296,7 +6137,7 @@ func ParseTernaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         AppendExpressionChild(st, children, condition)
         AppendExpressionChild(st, children, thenNode)
         AppendExpressionChild(st, children, elseNode)
-        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.TernaryExpression(), -1, 0, childRunStart, 3, conditionSpanStart, elseSpanEnd - conditionSpanStart)
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.TernaryExpression, -1, 0, childRunStart, 3, conditionSpanStart, elseSpanEnd - conditionSpanStart)
     }
 
     return condition
@@ -6371,13 +6212,13 @@ func ParseEventTargetNode(tokens: ParserTokenTable, count: int, st: ParserState,
         thisStart := tokens.Starts[st.Pos]
         thisMemberStart := tokens.Starts[st.Pos + 2]
         thisMemberLength := tokens.ValueLengths[st.Pos + 2]
-        target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression(), thisMemberStart, thisMemberLength, -1, 0, thisStart, thisMemberStart + thisMemberLength - thisStart)
+        target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression, thisMemberStart, thisMemberLength, -1, 0, thisStart, thisMemberStart + thisMemberLength - thisStart)
         st.Pos = st.Pos + 3
     } else if st.Pos + 2 < count && tokens.Kinds[st.Pos] == 43 && tokens.Kinds[st.Pos + 1] == 124 && tokens.Kinds[st.Pos + 2] == 0 {
         baseStart := tokens.Starts[st.Pos]
         baseMemberStart := tokens.Starts[st.Pos + 2]
         baseMemberLength := tokens.ValueLengths[st.Pos + 2]
-        target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.BaseMemberExpression(), baseMemberStart, baseMemberLength, -1, 0, baseStart, baseMemberStart + baseMemberLength - baseStart)
+        target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.BaseMemberExpression, baseMemberStart, baseMemberLength, -1, 0, baseStart, baseMemberStart + baseMemberLength - baseStart)
         st.Pos = st.Pos + 3
     } else {
         if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
@@ -6386,7 +6227,7 @@ func ParseEventTargetNode(tokens: ParserTokenTable, count: int, st: ParserState,
 
         rootStart := tokens.Starts[st.Pos]
         rootLength := tokens.ValueLengths[st.Pos]
-        target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression(), rootStart, rootLength, -1, 0, rootStart, rootLength)
+        target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression, rootStart, rootLength, -1, 0, rootStart, rootLength)
         st.Pos = st.Pos + 1
     }
 
@@ -6399,7 +6240,7 @@ func ParseEventTargetNode(tokens: ParserTokenTable, count: int, st: ParserState,
             memberLength := tokens.ValueLengths[pos + 1]
             memberChildRun := st.ChildCursor
             AppendExpressionChild(st, children, target)
-            target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberLength, memberChildRun, 1, targetSpanStart, memberStart + memberLength - targetSpanStart)
+            target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberLength, memberChildRun, 1, targetSpanStart, memberStart + memberLength - targetSpanStart)
             st.Pos = pos + 2
         } else if pos < count && tokens.Kinds[pos] == 131 {
             targetSpanStart := nodes.SpanStarts[target]
@@ -6414,7 +6255,7 @@ func ParseEventTargetNode(tokens: ParserTokenTable, count: int, st: ParserState,
             indexChildRun := st.ChildCursor
             AppendExpressionChild(st, children, target)
             AppendExpressionChild(st, children, indexRoot)
-            target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, indexChildRun, 2, targetSpanStart, closeEnd - targetSpanStart)
+            target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, indexChildRun, 2, targetSpanStart, closeEnd - targetSpanStart)
         } else {
             scanning = false
         }
@@ -6448,7 +6289,7 @@ func ParseOnSubscriptionNode(tokens: ParserTokenTable, count: int, st: ParserSta
     }
 
     targetKind := nodes.Kinds[target]
-    if targetKind != ColumnarExpressionNodeKind.MemberAccessExpression() && targetKind != ColumnarExpressionNodeKind.BaseMemberExpression() && targetKind != ColumnarExpressionNodeKind.IdentifierExpression() {
+    if targetKind != ColumnarExpressionNodeKind.MemberAccessExpression && targetKind != ColumnarExpressionNodeKind.BaseMemberExpression && targetKind != ColumnarExpressionNodeKind.IdentifierExpression {
         return -1
     }
 
@@ -6461,7 +6302,7 @@ func ParseOnSubscriptionNode(tokens: ParserTokenTable, count: int, st: ParserSta
     childRunStart := st.ChildCursor
     AppendExpressionChild(st, children, target)
     AppendExpressionChild(st, children, handler)
-    return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.OnSubscriptionExpression(), onStart, onLength, childRunStart, 2, onStart, handlerEnd - onStart)
+    return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.OnSubscriptionExpression, onStart, onLength, childRunStart, 2, onStart, handlerEnd - onStart)
 }
 
 // Return the comma/right-paren delimiter after one typed lambda parameter, or -1 when the tokens do
@@ -15309,7 +15150,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                     childCursor = expressionState.ChildCursor
                     scan = expressionState.Pos
                 } else if ColumnarPrimaryConstructorTypeIsNullable(source, typeResult.Values[0], typeResult.Values[1]) {
-                    valueKind = ColumnarExpressionNodeKind.NullLiteralExpression()
+                    valueKind = ColumnarExpressionNodeKind.NullLiteralExpression
                 } else {
                     matchedParam := PrimaryConstructorParameterIndexOf(source, primaryParameters, paramCount, fieldNameStart, fieldNameLength)
                     if matchedParam >= 0 {

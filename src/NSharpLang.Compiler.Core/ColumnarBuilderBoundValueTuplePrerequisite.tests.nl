@@ -142,8 +142,8 @@ test "construction planner emits exact builder-bound ValueTuple constructor sign
     pairKinds := new int[](2)
     pairTexts[0] = "first"
     pairTexts[1] = "types"
-    pairKinds[0] = ColumnarExpressionNodeKind.IdentifierExpression()
-    pairKinds[1] = ColumnarExpressionNodeKind.IdentifierExpression()
+    pairKinds[0] = ColumnarExpressionNodeKind.IdentifierExpression
+    pairKinds[1] = ColumnarExpressionNodeKind.IdentifierExpression
     pairTree := ConstructionNewTree("ValueTuple<BuilderTupleCtorFirst,Type[]>", pairTexts, pairKinds)
     ConstructionStampScope(pairTree, "import System\nclass BuilderTupleCtorFirst {}\nclass BuilderTupleCtorSecond {}\n")
     pairBindings := ConstructionBindings(definitions)
@@ -173,7 +173,7 @@ test "construction planner emits exact builder-bound ValueTuple constructor sign
     sixTexts[5] = "parameterTypes"
     index := 0
     while index < sixKinds.Length {
-        sixKinds[index] = ColumnarExpressionNodeKind.IdentifierExpression()
+        sixKinds[index] = ColumnarExpressionNodeKind.IdentifierExpression
         index += 1
     }
     sixTree := ConstructionNewTree("ValueTuple<BuilderTupleCtorFirst,BuilderTupleCtorSecond,MethodBuilder,Type,Dictionary<string,int>,Dictionary<string,Type>>", sixTexts, sixKinds)

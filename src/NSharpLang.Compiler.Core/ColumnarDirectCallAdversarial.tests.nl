@@ -36,14 +36,14 @@ test "direct-call planner preserves terminal ownership from recursive call child
     SourceCallPublicStatic(owner, "Outer", oneInt, typeof(int))
 
     builder := new ColumnarRangePlannerNodeBuilder()
-    innerOwner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "AdversarialNestedOwner")
+    innerOwner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "AdversarialNestedOwner")
 
     innerMember := DirectCallAppendMember(builder, innerOwner, "Inner")
-    badArgument := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), "\"bad\"")
+    badArgument := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression, "\"bad\"")
 
     innerCall := DirectCallAppendCall(builder, innerMember, DirectCallOneArgument(badArgument))
 
-    outerOwner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "AdversarialNestedOwner")
+    outerOwner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "AdversarialNestedOwner")
 
     outerMember := DirectCallAppendMember(builder, outerOwner, "Outer")
     root := DirectCallAppendCall(builder, outerMember, DirectCallOneArgument(innerCall))
@@ -65,21 +65,21 @@ test "direct-call planner preserves terminal ownership through range-index recur
     SourceCallPublicStatic(owner, "Outer", oneInt, typeof(int))
 
     builder := new ColumnarRangePlannerNodeBuilder()
-    innerOwner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "AdversarialRangeOwner")
+    innerOwner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "AdversarialRangeOwner")
 
     innerMember := DirectCallAppendMember(builder, innerOwner, "Inner")
-    badArgument := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), "\"bad\"")
+    badArgument := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression, "\"bad\"")
 
     innerCall := DirectCallAppendCall(builder, innerMember, DirectCallOneArgument(badArgument))
 
     caretStart := builder.AddToken("^")
-    fromEnd := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), caretStart, 1, caretStart, 1, ColumnarRangePlannerChildren1(innerCall))
+    fromEnd := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, caretStart, 1, caretStart, 1, ColumnarRangePlannerChildren1(innerCall))
 
-    values := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "values")
+    values := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "values")
 
-    indexed := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(values, fromEnd))
+    indexed := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(values, fromEnd))
 
-    outerOwner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "AdversarialRangeOwner")
+    outerOwner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "AdversarialRangeOwner")
 
     outerMember := DirectCallAppendMember(builder, outerOwner, "Outer")
     root := DirectCallAppendCall(builder, outerMember, DirectCallOneArgument(indexed))
@@ -165,12 +165,12 @@ test "direct-call planner compares repeated builder-bound generic types structur
     ColumnarRangePlannerAddParameter(bindings, "box", 0, closedBox)
 
     builder := new ColumnarRangePlannerNodeBuilder()
-    boxValue := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "box")
+    boxValue := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "box")
 
     itemsMember := DirectCallAppendMember(builder, boxValue, "Items")
     itemsCall := DirectCallAppendCall(builder, itemsMember, DirectCallNoArguments())
 
-    consumerOwner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "AdversarialGenericConsumer")
+    consumerOwner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "AdversarialGenericConsumer")
 
     consumeMember := DirectCallAppendMember(builder, consumerOwner, "Consume")
 
@@ -208,7 +208,7 @@ test "direct-call planner defers weaker source overloads when an excluded family
     ColumnarRangePlannerAddParameter(bindings, "receiver", 0, ownerType)
     ColumnarRangePlannerAddParameter(bindings, "value", 1, typeof(int))
 
-    numericTree := DirectCallInstanceTree("receiver", "NumericOrGeneric", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    numericTree := DirectCallInstanceTree("receiver", "NumericOrGeneric", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
     numericOwnership := ColumnarDirectCallOwnership.OwnedRejected
     numericLegacy := false
     DirectCallRejected(numericTree, bindings, out numericOwnership, out numericLegacy)
@@ -216,7 +216,7 @@ test "direct-call planner defers weaker source overloads when an excluded family
     assert numericOwnership == ColumnarDirectCallOwnership.NotOwned
     assert numericLegacy
 
-    boxingTree := DirectCallQualifiedTree("AdversarialMixedSourceOwner", "BoxingOrParams", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    boxingTree := DirectCallQualifiedTree("AdversarialMixedSourceOwner", "BoxingOrParams", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
     boxingOwnership := ColumnarDirectCallOwnership.OwnedRejected
     boxingLegacy := false
     DirectCallRejected(boxingTree, bindings, out boxingOwnership, out boxingLegacy)
@@ -224,7 +224,7 @@ test "direct-call planner defers weaker source overloads when an excluded family
     assert boxingOwnership == ColumnarDirectCallOwnership.NotOwned
     assert boxingLegacy
 
-    exactTree := DirectCallQualifiedTree("AdversarialMixedSourceOwner", "ExactOrExcluded", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    exactTree := DirectCallQualifiedTree("AdversarialMixedSourceOwner", "ExactOrExcluded", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
     exactPlan := DirectCallPlan(exactTree, bindings)
     exactMethodIndex := exactPlan.OperandIndices[exactPlan.OperationCount - 1]
 
@@ -271,7 +271,7 @@ test "direct-call planner fences excluded declarations by the invocation arity" 
 
     definitions := DirectCallSingleDefinitionBindings(owner)
 
-    wrongStaticTree := DirectCallQualifiedTree("AdversarialExcludedArityOwner", "WrongStatic", DirectCallOneText("1"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    wrongStaticTree := DirectCallQualifiedTree("AdversarialExcludedArityOwner", "WrongStatic", DirectCallOneText("1"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
     wrongStaticOwnership := ColumnarDirectCallOwnership.NotOwned
     wrongStaticLegacy := true
     DirectCallRejected(wrongStaticTree, definitions, out wrongStaticOwnership, out wrongStaticLegacy)
@@ -280,7 +280,7 @@ test "direct-call planner fences excluded declarations by the invocation arity" 
 
     instanceBindings := DirectCallSingleDefinitionBindings(owner)
     ColumnarRangePlannerAddParameter(instanceBindings, "receiver", 0, ownerType)
-    wrongInstanceTree := DirectCallInstanceTree("receiver", "WrongInstance", DirectCallOneText("1"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    wrongInstanceTree := DirectCallInstanceTree("receiver", "WrongInstance", DirectCallOneText("1"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
     wrongInstanceOwnership := ColumnarDirectCallOwnership.NotOwned
     wrongInstanceLegacy := true
     DirectCallRejected(wrongInstanceTree, instanceBindings, out wrongInstanceOwnership, out wrongInstanceLegacy)
@@ -290,28 +290,28 @@ test "direct-call planner fences excluded declarations by the invocation arity" 
     bareBindings := DirectCallSingleDefinitionBindings(owner)
     bareBindings.CurrentInstance = ColumnarCurrentInstanceFacts.FromSourceDefinition(owner)
     bareBindings.SetEnclosingTypeDefinition(owner)
-    bareTree := DirectCallBareTree("BarePick", DirectCallOneText("1"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    bareTree := DirectCallBareTree("BarePick", DirectCallOneText("1"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
     barePlan := DirectCallPlan(bareTree, bareBindings)
     bareMethodIndex := barePlan.OperandIndices[barePlan.OperationCount - 1]
     assert barePlan.Methods[bareMethodIndex].get_Name() == "BarePick"
     assert barePlan.MethodIsStatic[bareMethodIndex]
     assert barePlan.ResultType == typeof(string)
 
-    liveStaticTree := DirectCallQualifiedTree("AdversarialExcludedArityOwner", "LiveStatic", DirectCallOneText("1"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    liveStaticTree := DirectCallQualifiedTree("AdversarialExcludedArityOwner", "LiveStatic", DirectCallOneText("1"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
     liveStaticOwnership := ColumnarDirectCallOwnership.OwnedRejected
     liveStaticLegacy := false
     DirectCallRejected(liveStaticTree, definitions, out liveStaticOwnership, out liveStaticLegacy)
     assert liveStaticOwnership == ColumnarDirectCallOwnership.NotOwned
     assert liveStaticLegacy
 
-    liveInstanceTree := DirectCallInstanceTree("receiver", "LiveInstance", DirectCallOneText("1"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    liveInstanceTree := DirectCallInstanceTree("receiver", "LiveInstance", DirectCallOneText("1"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
     liveInstanceOwnership := ColumnarDirectCallOwnership.OwnedRejected
     liveInstanceLegacy := false
     DirectCallRejected(liveInstanceTree, instanceBindings, out liveInstanceOwnership, out liveInstanceLegacy)
     assert liveInstanceOwnership == ColumnarDirectCallOwnership.NotOwned
     assert liveInstanceLegacy
 
-    liveBareTree := DirectCallBareTree("BareLive", DirectCallOneText("1"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))
+    liveBareTree := DirectCallBareTree("BareLive", DirectCallOneText("1"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression))
     liveBareOwnership := ColumnarDirectCallOwnership.OwnedRejected
     liveBareLegacy := false
     DirectCallRejected(liveBareTree, bareBindings, out liveBareOwnership, out liveBareLegacy)
@@ -353,7 +353,7 @@ test "ordinary runtime direct-call classification defers excluded candidates onl
 }
 
 test "direct-call planner keeps additional-root static shadows terminal" {
-    tree := DirectCallQualifiedTree("Math", "Abs", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    tree := DirectCallQualifiedTree("Math", "Abs", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
     additionalNames := new string[](1)
     additionalNames[0] = "Math"
     ExternalStampScopeFull(tree, "import System", "", new string[](0), ExternalEmptyStructs(), additionalNames)
@@ -373,7 +373,7 @@ test "direct-call planner keeps additional-root source static shadows terminal" 
     oneInt := AdversarialDirectCallOneType(typeof(int))
     SourceCallPublicStatic(owner, "Run", oneInt, typeof(int))
 
-    tree := DirectCallQualifiedTree("AdversarialAdditionalRootOwner", "Run", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    tree := DirectCallQualifiedTree("AdversarialAdditionalRootOwner", "Run", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
     additionalNames := new string[](1)
     additionalNames[0] = "AdversarialAdditionalRootOwner"
     ExternalStampScopeFull(tree, tree.Source, "", new string[](0), ExternalEmptyStructs(), additionalNames)
@@ -393,7 +393,7 @@ test "direct-call planner keeps visible type-parameter source static shadows ter
     oneInt := AdversarialDirectCallOneType(typeof(int))
     SourceCallPublicStatic(owner, "Run", oneInt, typeof(int))
 
-    tree := DirectCallQualifiedTree("AdversarialVisibleTypeRoot", "Run", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    tree := DirectCallQualifiedTree("AdversarialVisibleTypeRoot", "Run", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
     visibleTypeParameters := new string[](1)
     visibleTypeParameters[0] = "AdversarialVisibleTypeRoot"
     ExternalStampScopeFull(tree, tree.Source, "", visibleTypeParameters, ExternalEmptyStructs(), null)
@@ -435,7 +435,7 @@ test "direct-call planner requests legacy children for missing and excluded sour
 
 test "direct-call planner owns ordinary runtime static and instance methods with exact dispatch" {
     mathType := TypeOfRequiredRuntimeType(typeof(MethodInfo), "System.Math")
-    mathTree := DirectCallQualifiedTree("Math", "Abs", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    mathTree := DirectCallQualifiedTree("Math", "Abs", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
     ExternalStampScope(mathTree, "import System")
     mathBindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(mathBindings, "value", 0, typeof(int))
@@ -464,7 +464,7 @@ test "direct-call planner owns ordinary runtime static and instance methods with
     assert !objectPlan.MethodIsStatic[objectMethodIndex]
 
     fileStreamType := TypeOfRequiredRuntimeType(typeof(MethodInfo), "System.IO.FileStream")
-    fileTree := DirectCallQualifiedTree("File", "OpenRead", DirectCallOneText("path"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    fileTree := DirectCallQualifiedTree("File", "OpenRead", DirectCallOneText("path"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
     ExternalStampScope(fileTree, "import System.IO")
     fileBindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(fileBindings, "path", 0, typeof(string))
@@ -504,9 +504,9 @@ test "direct-call planner owns ordinary runtime static and instance methods with
     readTexts[1] = "offset"
     readTexts[2] = "count"
     readKinds := new int[](3)
-    readKinds[0] = ColumnarExpressionNodeKind.IdentifierExpression()
-    readKinds[1] = ColumnarExpressionNodeKind.IdentifierExpression()
-    readKinds[2] = ColumnarExpressionNodeKind.IdentifierExpression()
+    readKinds[0] = ColumnarExpressionNodeKind.IdentifierExpression
+    readKinds[1] = ColumnarExpressionNodeKind.IdentifierExpression
+    readKinds[2] = ColumnarExpressionNodeKind.IdentifierExpression
     readTree := DirectCallInstanceTree("stream", "Read", readTexts, readKinds)
     readBindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(readBindings, "stream", 0, fileStreamType)
@@ -522,11 +522,11 @@ test "direct-call planner owns ordinary runtime static and instance methods with
     assert readPlan.ResultType == typeof(int)
 
     nestedBuilder := new ColumnarRangePlannerNodeBuilder()
-    nestedStream := nestedBuilder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "stream")
+    nestedStream := nestedBuilder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "stream")
     nestedRead := DirectCallAppendMember(nestedBuilder, nestedStream, "Read")
-    nestedBuffer := nestedBuilder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "buffer")
-    nestedOffset := nestedBuilder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
-    nestedLengthReceiver := nestedBuilder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "buffer")
+    nestedBuffer := nestedBuilder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "buffer")
+    nestedOffset := nestedBuilder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "0")
+    nestedLengthReceiver := nestedBuilder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "buffer")
     nestedLength := DirectCallAppendMember(nestedBuilder, nestedLengthReceiver, "Length")
     nestedArguments := new int[](3)
     nestedArguments[0] = nestedBuffer
@@ -544,7 +544,7 @@ test "direct-call planner owns ordinary runtime static and instance methods with
 
     directoryInfoType := TypeOfRequiredRuntimeType(typeof(MethodInfo), "System.IO.DirectoryInfo")
 
-    directoryTree := DirectCallQualifiedTree("Directory", "CreateDirectory", DirectCallOneText("path"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    directoryTree := DirectCallQualifiedTree("Directory", "CreateDirectory", DirectCallOneText("path"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression))
 
     ExternalStampScope(directoryTree, "import System.IO")
     directoryPlan := DirectCallPlan(directoryTree, fileBindings)

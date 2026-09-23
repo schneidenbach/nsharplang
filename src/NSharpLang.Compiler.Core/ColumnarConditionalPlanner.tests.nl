@@ -6,10 +6,10 @@ import System
 // operator token sits in the node's value span exactly where the parser records it.
 func ConditionalShortCircuitLiteralTree(operatorText: string, leftText: string, rightText: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression(), leftText)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression, leftText)
     operatorStart := builder.AddToken(operatorText)
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression(), rightText)
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, operatorText.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, right))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression, rightText)
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, operatorText.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, right))
     return builder.Build(binary)
 }
 
@@ -19,20 +19,20 @@ func ConditionalShortCircuitLiteralTree(operatorText: string, leftText: string, 
 // Boolean literals the short-circuit builder above uses.
 func ConditionalIntBinaryTree(operatorText: string, leftText: string, rightText: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), leftText)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, leftText)
     operatorStart := builder.AddToken(operatorText)
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), rightText)
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, operatorText.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, right))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, rightText)
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, operatorText.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, right))
     return builder.Build(binary)
 }
 
 // Builds a short-circuit binary whose right operand is an arbitrary leaf (for non-Boolean declines).
 func ConditionalShortCircuitRightLeafTree(operatorText: string, leftText: string, rightKind: int, rightText: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression(), leftText)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression, leftText)
     operatorStart := builder.AddToken(operatorText)
     right := builder.AddLeaf(rightKind, rightText)
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, operatorText.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, right))
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, operatorText.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, right))
     return builder.Build(binary)
 }
 
@@ -42,20 +42,20 @@ func ConditionalTernaryLeafTree(conditionKind: int, conditionText: string, thenK
     condition := builder.AddLeaf(conditionKind, conditionText)
     thenArm := builder.AddLeaf(thenKind, thenText)
     elseArm := builder.AddLeaf(elseKind, elseText)
-    ternary := builder.AddNode(ColumnarExpressionNodeKind.TernaryExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren3(condition, thenArm, elseArm))
+    ternary := builder.AddNode(ColumnarExpressionNodeKind.TernaryExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren3(condition, thenArm, elseArm))
     return builder.Build(ternary)
 }
 
 // `(true ? true : false) && <rightText>` — a ternary nested inside the left operand of `&&`.
 func ConditionalNestedTernaryInAndTree(rightText: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    condition := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true")
-    thenArm := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true")
-    elseArm := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression(), "false")
-    ternary := builder.AddNode(ColumnarExpressionNodeKind.TernaryExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren3(condition, thenArm, elseArm))
+    condition := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression, "true")
+    thenArm := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression, "true")
+    elseArm := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression, "false")
+    ternary := builder.AddNode(ColumnarExpressionNodeKind.TernaryExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren3(condition, thenArm, elseArm))
     operatorStart := builder.AddToken("&&")
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression(), rightText)
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(ternary, right))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.BoolLiteralExpression, rightText)
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(ternary, right))
     return builder.Build(binary)
 }
 
@@ -113,18 +113,18 @@ test "conditional planner emits the exact || short-circuit lowering and executes
 }
 
 test "conditional planner emits the ternary branch-merge and selects the matching int arm" {
-    plan := ConditionalPlanOwned(ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9"))
+    plan := ConditionalPlanOwned(ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.IntLiteralExpression, "9"))
     assert plan.ResultType == typeof(int)
     assert plan.LabelCount == 2
     assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Brfalse()
     assert ExecutorRunV3ScalarPlan(plan, typeof(int)) == "7"
 
-    elsePlan := ConditionalPlanOwned(ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "false", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9"))
+    elsePlan := ConditionalPlanOwned(ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "false", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.IntLiteralExpression, "9"))
     assert ExecutorRunV3ScalarPlan(elsePlan, typeof(int)) == "9"
 }
 
 test "conditional planner unifies reference-typed ternary arms" {
-    plan := ConditionalPlanOwned(ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.StringLiteralExpression(), "\"yes\"", ColumnarExpressionNodeKind.StringLiteralExpression(), "\"no\""))
+    plan := ConditionalPlanOwned(ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.StringLiteralExpression, "\"yes\"", ColumnarExpressionNodeKind.StringLiteralExpression, "\"no\""))
     assert plan.ResultType == typeof(string)
     assert ExecutorRunV3ScalarPlan(plan, typeof(string)) == "yes"
 }
@@ -139,20 +139,20 @@ test "conditional planner plans a nested ternary inside a short-circuit operand"
 }
 
 test "conditional planner declines mixed-type ternary arms and rolls back" {
-    ConditionalPlanDeclines(ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.StringLiteralExpression(), "\"no\""))
+    ConditionalPlanDeclines(ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.StringLiteralExpression, "\"no\""))
 }
 
 test "conditional planner declines a non-Boolean ternary condition and rolls back" {
-    ConditionalPlanDeclines(ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.IntLiteralExpression(), "5", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9"))
+    ConditionalPlanDeclines(ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.IntLiteralExpression, "5", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.IntLiteralExpression, "9"))
 }
 
 test "conditional planner declines a non-Boolean short-circuit operand and rolls back" {
-    ConditionalPlanDeclines(ConditionalShortCircuitRightLeafTree("&&", "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "5"))
-    ConditionalPlanDeclines(ConditionalShortCircuitRightLeafTree("||", "false", ColumnarExpressionNodeKind.IntLiteralExpression(), "5"))
+    ConditionalPlanDeclines(ConditionalShortCircuitRightLeafTree("&&", "true", ColumnarExpressionNodeKind.IntLiteralExpression, "5"))
+    ConditionalPlanDeclines(ConditionalShortCircuitRightLeafTree("||", "false", ColumnarExpressionNodeKind.IntLiteralExpression, "5"))
 }
 
 test "conditional planner root gate claims ternary and short-circuit only" {
-    ternary := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+    ternary := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.IntLiteralExpression, "9")
     assert ColumnarConditionalPlanner.MayPlanRoot(ternary.Nodes, ternary.Source, ternary.Root)
 
     andTree := ConditionalShortCircuitLiteralTree("&&", "true", "false")
@@ -167,13 +167,13 @@ test "conditional planner root gate claims ternary and short-circuit only" {
     assert !ColumnarConditionalPlanner.IsShortCircuitBinary(plusTree.Nodes, plusTree.Source, plusTree.Root)
 
     identifier := new ColumnarRangePlannerNodeBuilder()
-    identifierRoot := identifier.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), "flag")
+    identifierRoot := identifier.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, "flag")
     identifierTree := identifier.Build(identifierRoot)
     assert !ColumnarConditionalPlanner.MayPlanRoot(identifierTree.Nodes, identifierTree.Source, identifierTree.Root)
 }
 
 test "conditional planner type preflight agrees with emission ownership" {
-    ternary := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+    ternary := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.IntLiteralExpression, "9")
     ternaryPlan := new ColumnarCodePlan()
     ternaryBindings := ColumnarRangePlannerEmptyBindings()
     ternaryOwned := false
@@ -201,7 +201,7 @@ test "conditional planner type preflight agrees with emission ownership" {
 // standalone schema-v3 wrapper brackets it with `PrepareV3`/`CompleteV3`, and the method-body door
 // calls it on an already-open schema-v4 plan and brackets it with nothing.
 test "the conditional root-append sequence produces one row sequence for both of its wrappers" {
-    ternary := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+    ternary := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.IntLiteralExpression, "9")
 
     viaPlan := new ColumnarCodePlan()
     assert ColumnarConditionalPlanner.Plan(ternary.Nodes, ternary.Source, ternary.Root, ColumnarRangePlannerEmptyBindings(), ColumnarRangeIndexHandles.Resolve(), viaPlan) == ColumnarFragmentPlanStatus.Planned
@@ -228,7 +228,7 @@ test "the conditional root-append sequence produces one row sequence for both of
     // ASSERTS IT. `HasValidV2Fragments` checks only that a fragment kind is non-negative — it never
     // compares the recorded kind against the node `FragmentSourceNodeIndices` points at — so a
     // sequence that hard-coded one arm's kind for both would pass every other contract in the tree.
-    assert viaAppend.FragmentKinds[0] == ColumnarExpressionNodeKind.TernaryExpression()
+    assert viaAppend.FragmentKinds[0] == ColumnarExpressionNodeKind.TernaryExpression
     assert viaAppend.FragmentSourceNodeIndices[0] == ternary.Root
     assert viaPlan.FragmentKinds[0] == viaAppend.FragmentKinds[0]
 }
@@ -254,9 +254,9 @@ test "the conditional root-append sequence covers both short-circuit operators" 
     // Same row COUNT, different branch opcode — the two operators are one sequence with one flag.
     // The SHORT-CIRCUIT arm's root fragment carries kind 12, not 13 — the other half of the same
     // unenforced invariant, and the half a hard-coded ternary kind would have broken silently.
-    assert andPlan.FragmentKinds[0] == ColumnarExpressionNodeKind.BinaryExpression()
-    assert orPlan.FragmentKinds[0] == ColumnarExpressionNodeKind.BinaryExpression()
-    assert andPlan.FragmentKinds[0] != ColumnarExpressionNodeKind.TernaryExpression()
+    assert andPlan.FragmentKinds[0] == ColumnarExpressionNodeKind.BinaryExpression
+    assert orPlan.FragmentKinds[0] == ColumnarExpressionNodeKind.BinaryExpression
+    assert andPlan.FragmentKinds[0] != ColumnarExpressionNodeKind.TernaryExpression
 
     assert andPlan.OperationCount == orPlan.OperationCount
     differing := 0
@@ -332,10 +332,10 @@ test "the two kind-12 owners partition the operator texts by length" {
 // exactly where the parser records a binary operator.
 func ConditionalCoalesceLiteralTree(leftText: string, rightText: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), leftText)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression, leftText)
     operatorStart := builder.AddToken("??")
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), rightText)
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, right))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression, rightText)
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, right))
     return builder.Build(binary)
 }
 
@@ -343,11 +343,11 @@ func ConditionalCoalesceLiteralTree(leftText: string, rightText: string): Column
 // needs: the operand's own planning is the nested value owner's business.
 func ConditionalCoalesceThrowTree(leftText: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), leftText)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression, leftText)
     operatorStart := builder.AddToken("??")
-    operand := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), "\"boom\"")
-    throwNode := builder.AddNode(ColumnarExpressionNodeKind.ThrowExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(operand))
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, throwNode))
+    operand := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression, "\"boom\"")
+    throwNode := builder.AddNode(ColumnarExpressionNodeKind.ThrowExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(operand))
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, 2, 0, builder.Source.Length, ColumnarRangePlannerChildren2(left, throwNode))
     return builder.Build(binary)
 }
 
@@ -363,7 +363,7 @@ test "the null-coalesce gate claims ?? and nothing else on kind 12" {
     andAnd := ConditionalShortCircuitLiteralTree("&&", "true", "false")
     assert !ColumnarConditionalPlanner.IsNullCoalesceBinary(andAnd.Nodes, andAnd.Source, andAnd.Root)
 
-    ternary := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+    ternary := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.IntLiteralExpression, "9")
     assert !ColumnarConditionalPlanner.IsNullCoalesceBinary(ternary.Nodes, ternary.Source, ternary.Root)
 }
 
@@ -417,7 +417,7 @@ test "a throw expression declines an operand that is not an exception" {
 // schema-v3 `??` fragment), while every value position has owned all three forms since the
 // dispatcher grew its arms.
 test "the branch-merge value gate claims the ternary and all three merge binaries" {
-    ternary := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+    ternary := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.IntLiteralExpression, "9")
     assert ColumnarConditionalPlanner.IsBranchMergeValue(ternary.Nodes, ternary.Source, ternary.Root)
 
     andTree := ConditionalShortCircuitLiteralTree("&&", "true", "false")

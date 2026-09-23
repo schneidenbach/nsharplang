@@ -49,26 +49,26 @@ class ColumnarClosureBindingPlanner {
 
     static func CollectBindingNames(nodes: ColumnarNodeTable, source: string, node: int, names: HashSet<string>) {
         kind := nodes.Kind(node)
-        if kind == 24 || kind == 29 {
+        if kind == ColumnarStatementNodeKind.VariableDeclarationStatement || kind == ColumnarStatementNodeKind.ForeachStatement {
             if nodes.ValueStart(node) >= 0 {
                 names.Add(nodes.Text(source, node))
             }
-        } else if kind == 76 {
+        } else if kind == ColumnarStatementNodeKind.TypedForeachStatement {
             // A TYPED loop variable keeps its NAME in child 0 — the value slot is the annotation's
             // source span — so the binding is read from there rather than from the node itself.
             if nodes.ChildCount(node) > 0 && nodes.Kind(nodes.Child(node, 0)) == 6 && nodes.ValueStart(nodes.Child(node, 0)) >= 0 {
                 names.Add(nodes.Text(source, nodes.Child(node, 0)))
             }
-        } else if kind == 30 {
+        } else if kind == ColumnarStatementNodeKind.TupleDeconstructionStatement {
             ordinal := 0
             while ordinal < nodes.ChildCount(node) - 1 {
                 child := nodes.Child(node, ordinal)
-                if nodes.Kind(child) == 6 && nodes.ValueStart(child) >= 0 {
+                if nodes.Kind(child) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(child) >= 0 {
                     names.Add(nodes.Text(source, child))
                 }
                 ordinal = ordinal + 1
             }
-        } else if kind == 50 {
+        } else if kind == ColumnarStatementNodeKind.CatchClause {
             // A catch clause's binding is asked for rather than counted, because a clause with an
             // exception FILTER carries a third child and a filtered clause with no binding carries
             // the same TWO a bound one used to.
@@ -76,10 +76,10 @@ class ColumnarClosureBindingPlanner {
             if catchBinding >= 0 {
                 names.Add(nodes.Text(source, catchBinding))
             }
-        } else if kind == 40 {
+        } else if kind == ColumnarStatementNodeKind.TypedLocalDeclaration {
             if nodes.ChildCount(node) == 2 {
                 nameChild := nodes.Child(node, 0)
-                if nodes.Kind(nameChild) == 6 && nodes.ValueStart(nameChild) >= 0 {
+                if nodes.Kind(nameChild) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(nameChild) >= 0 {
                     names.Add(nodes.Text(source, nameChild))
                 }
             }
@@ -144,7 +144,7 @@ class ColumnarClosureBindingPlanner {
         siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
     ): bool {
         kind := nodes.Kind(node)
-        if kind == 42 || kind == 55 {
+        if kind == ColumnarExpressionNodeKind.BareNew || kind == ColumnarExpressionNodeKind.TypeOfExpression {
             return false
         }
         // A GENERIC CALLEE'S TYPE ARGUMENTS ARE TYPES, ITS CHILD 0 IS AN EXPRESSION. The whole node
@@ -152,13 +152,13 @@ class ColumnarClosureBindingPlanner {
         // expression the type arguments were written on, and it is walked exactly as a plain call's
         // callee is — so `Bump<int>(x)` on the lexical owner reaches the same instance-member test
         // the un-annotated `Bump(x)` one line away already reached.
-        if kind == 38 {
+        if kind == ColumnarExpressionNodeKind.GenericCallee {
             return BodyReferencesEnclosingChain(nodes, source, ColumnarGenericCalleeFacts.CalleeExpressionNode(nodes, node), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
         }
         // A BARE `this` IS THE ENCLOSING INSTANCE, SPELLED OUT. It needs the same captured receiver a
         // bare call on the lexical owner needs, and it needs it whether or not the body also names a
         // member — `() => Describe(this)` captures nothing else at all.
-        if kind == ColumnarExpressionNodeKind.ThisExpression() && currentDefinition != null {
+        if kind == ColumnarExpressionNodeKind.ThisExpression && currentDefinition != null {
             return true
         }
         if ColumnarLambdaNodeFacts.IsLambda(kind) {
@@ -166,7 +166,7 @@ class ColumnarClosureBindingPlanner {
             nestedBound.UnionWith(BoundParamsOf(nodes, source, node))
             return BodyReferencesEnclosingChain(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), nestedBound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
         }
-        if kind == 6 && nodes.ValueStart(node) >= 0 && currentDefinition != null {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(node) >= 0 && currentDefinition != null {
             name := nodes.Text(source, node)
             if !bound.Contains(name) && !locals.ContainsKey(name) && !liftedLocals.ContainsKey(name) && !parameterOrdinals.ContainsKey(name) && !siblings.ContainsKey(name) {
                 field: FieldBuilder? = null
@@ -187,10 +187,10 @@ class ColumnarClosureBindingPlanner {
                 }
             }
         }
-        if kind == 46 || kind == 47 {
+        if kind == ColumnarExpressionNodeKind.IsExpression || kind == ColumnarExpressionNodeKind.AsExpression {
             return BodyReferencesEnclosingChain(nodes, source, nodes.Child(node, 0), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
         }
-        first := kind == 15 || kind == 16 ? 1 : 0
+        first := kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.CastExpression ? 1 : 0
         childOrdinal := first
         while childOrdinal < nodes.ChildCount(node) {
             if BodyReferencesEnclosingChain(nodes, source, nodes.Child(node, childOrdinal), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings) {
@@ -223,14 +223,14 @@ class ColumnarClosureBindingPlanner {
         siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
     ): bool {
         kind := nodes.Kind(node)
-        if kind == 42 || kind == 55 {
+        if kind == ColumnarExpressionNodeKind.BareNew || kind == ColumnarExpressionNodeKind.TypeOfExpression {
             return false
         }
-        if kind == 38 {
+        if kind == ColumnarExpressionNodeKind.GenericCallee {
             return BodyReferencesEnclosingInstanceMemberChain(nodes, source, ColumnarGenericCalleeFacts.CalleeExpressionNode(nodes, node), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
         }
         // A BARE `this` NEEDS THE ENCLOSING INSTANCE, exactly as a bare call on the lexical owner does.
-        if kind == ColumnarExpressionNodeKind.ThisExpression() && currentDefinition != null {
+        if kind == ColumnarExpressionNodeKind.ThisExpression && currentDefinition != null {
             return true
         }
         if ColumnarLambdaNodeFacts.IsLambda(kind) {
@@ -238,7 +238,7 @@ class ColumnarClosureBindingPlanner {
             nestedBound.UnionWith(BoundParamsOf(nodes, source, node))
             return BodyReferencesEnclosingInstanceMemberChain(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), nestedBound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
         }
-        if kind == 6 && nodes.ValueStart(node) >= 0 && currentDefinition != null {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(node) >= 0 && currentDefinition != null {
             name := nodes.Text(source, node)
             if !bound.Contains(name) && !locals.ContainsKey(name) && !liftedLocals.ContainsKey(name) && !parameterOrdinals.ContainsKey(name) && !siblings.ContainsKey(name) {
                 field: FieldBuilder? = null
@@ -255,10 +255,10 @@ class ColumnarClosureBindingPlanner {
                 }
             }
         }
-        if kind == 46 || kind == 47 {
+        if kind == ColumnarExpressionNodeKind.IsExpression || kind == ColumnarExpressionNodeKind.AsExpression {
             return BodyReferencesEnclosingInstanceMemberChain(nodes, source, nodes.Child(node, 0), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
         }
-        first := kind == 15 || kind == 16 ? 1 : 0
+        first := kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.CastExpression ? 1 : 0
         childOrdinal := first
         while childOrdinal < nodes.ChildCount(node) {
             if BodyReferencesEnclosingInstanceMemberChain(nodes, source, nodes.Child(node, childOrdinal), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings) {
@@ -335,7 +335,7 @@ class ColumnarClosureBindingPlanner {
 
     static func ContainsCaptureOpaqueKind(nodes: ColumnarNodeTable, node: int): bool {
         kind := nodes.Kind(node)
-        if kind == 18 || kind == 19 || (kind >= 32 && kind <= 37) || kind == 52 || kind == 61 || (kind >= 65 && kind <= 68) {
+        if kind == ColumnarExpressionNodeKind.MatchExpression || kind == ColumnarExpressionNodeKind.GuardedPattern || (kind >= ColumnarExpressionNodeKind.RelationalPattern && kind <= ColumnarExpressionNodeKind.UnionCasePattern) || kind == ColumnarExpressionNodeKind.WithExpression || kind == ColumnarExpressionNodeKind.TypeBindingPattern || (kind >= ColumnarExpressionNodeKind.ListPattern && kind <= ColumnarExpressionNodeKind.PropertyPattern) {
             return true
         }
         childOrdinal := 0
@@ -350,27 +350,27 @@ class ColumnarClosureBindingPlanner {
 
     static func IsAnyNameWritten(nodes: ColumnarNodeTable, source: string, node: int, names: SortedSet<string>): bool {
         kind := nodes.Kind(node)
-        if kind == 14 || kind == 44 {
+        if kind == ColumnarExpressionNodeKind.AssignmentExpression || kind == ColumnarExpressionNodeKind.PostfixUnary {
             target := nodes.Child(node, 0)
-            while (nodes.Kind(target) == 8 || nodes.Kind(target) == 10) && nodes.ChildCount(target) > 0 {
+            while (nodes.Kind(target) == ColumnarExpressionNodeKind.MemberAccessExpression || nodes.Kind(target) == ColumnarExpressionNodeKind.IndexAccessExpression) && nodes.ChildCount(target) > 0 {
                 target = nodes.Child(target, 0)
             }
-            if nodes.Kind(target) == 6 && nodes.ValueStart(target) >= 0 && names.Contains(nodes.Text(source, target)) {
+            if nodes.Kind(target) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(target) >= 0 && names.Contains(nodes.Text(source, target)) {
                 return true
             }
-        } else if kind == 29 {
+        } else if kind == ColumnarStatementNodeKind.ForeachStatement {
             if names.Contains(nodes.Text(source, node)) {
                 return true
             }
-        } else if kind == 76 {
+        } else if kind == ColumnarStatementNodeKind.TypedForeachStatement {
             if nodes.ChildCount(node) > 0 && nodes.Kind(nodes.Child(node, 0)) == 6 && names.Contains(nodes.Text(source, nodes.Child(node, 0))) {
                 return true
             }
-        } else if kind == 30 {
+        } else if kind == ColumnarStatementNodeKind.TupleDeconstructionStatement {
             nameOrdinal := 0
             while nameOrdinal < nodes.ChildCount(node) - 1 {
                 child := nodes.Child(node, nameOrdinal)
-                if nodes.Kind(child) == 6 && names.Contains(nodes.Text(source, child)) {
+                if nodes.Kind(child) == ColumnarExpressionNodeKind.IdentifierExpression && names.Contains(nodes.Text(source, child)) {
                     return true
                 }
                 nameOrdinal = nameOrdinal + 1
@@ -389,10 +389,10 @@ class ColumnarClosureBindingPlanner {
 
     static func CollectNamesInsideLambdas(nodes: ColumnarNodeTable, source: string, node: int, names: SortedSet<string>) {
         kind := nodes.Kind(node)
-        if kind == 42 || kind == 55 {
+        if kind == ColumnarExpressionNodeKind.BareNew || kind == ColumnarExpressionNodeKind.TypeOfExpression {
             return
         }
-        if kind == 38 {
+        if kind == ColumnarExpressionNodeKind.GenericCallee {
             CollectNamesInsideLambdas(nodes, source, ColumnarGenericCalleeFacts.CalleeExpressionNode(nodes, node), names)
             return
         }
@@ -400,11 +400,11 @@ class ColumnarClosureBindingPlanner {
             CollectUnboundNames(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), BoundParamsOf(nodes, source, node), names)
             return
         }
-        if kind == 46 || kind == 47 {
+        if kind == ColumnarExpressionNodeKind.IsExpression || kind == ColumnarExpressionNodeKind.AsExpression {
             CollectNamesInsideLambdas(nodes, source, nodes.Child(node, 0), names)
             return
         }
-        first := kind == 15 || kind == 16 ? 1 : 0
+        first := kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.CastExpression ? 1 : 0
         childOrdinal := first
         while childOrdinal < nodes.ChildCount(node) {
             CollectNamesInsideLambdas(nodes, source, nodes.Child(node, childOrdinal), names)
@@ -417,7 +417,7 @@ class ColumnarClosureBindingPlanner {
         parameterOrdinal := 0
         while parameterOrdinal < nodes.ChildCount(lambdaNode) - 1 {
             parameterNode := nodes.Child(lambdaNode, parameterOrdinal)
-            if nodes.Kind(parameterNode) == 6 {
+            if nodes.Kind(parameterNode) == ColumnarExpressionNodeKind.IdentifierExpression {
                 bound.Add(nodes.Text(source, parameterNode))
             }
             parameterOrdinal = parameterOrdinal + 1
@@ -427,7 +427,7 @@ class ColumnarClosureBindingPlanner {
 
     static func CollectUnboundNames(nodes: ColumnarNodeTable, source: string, node: int, bound: HashSet<string>, names: SortedSet<string>) {
         kind := nodes.Kind(node)
-        if kind == 38 {
+        if kind == ColumnarExpressionNodeKind.GenericCallee {
             // GenericCallee stores the CALLEE in its own value span and its children are TYPE
             // arguments. A bare callee can therefore be a local-function sibling edge, while
             // walking the children would incorrectly capture `T`/`U` type names. Qualified
@@ -440,7 +440,7 @@ class ColumnarClosureBindingPlanner {
             }
             return
         }
-        if kind == 42 || kind == 55 {
+        if kind == ColumnarExpressionNodeKind.BareNew || kind == ColumnarExpressionNodeKind.TypeOfExpression {
             return
         }
         if ColumnarLambdaNodeFacts.IsLambda(kind) {
@@ -449,17 +449,17 @@ class ColumnarClosureBindingPlanner {
             CollectUnboundNames(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), nestedBound, names)
             return
         }
-        if kind == 6 && nodes.ValueStart(node) >= 0 {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(node) >= 0 {
             name := nodes.Text(source, node)
             if !bound.Contains(name) {
                 names.Add(name)
             }
         }
-        if kind == 46 || kind == 47 {
+        if kind == ColumnarExpressionNodeKind.IsExpression || kind == ColumnarExpressionNodeKind.AsExpression {
             CollectUnboundNames(nodes, source, nodes.Child(node, 0), bound, names)
             return
         }
-        first := kind == 15 || kind == 16 ? 1 : 0
+        first := kind == ColumnarExpressionNodeKind.NewExpression || kind == ColumnarExpressionNodeKind.CastExpression ? 1 : 0
         childOrdinal := first
         while childOrdinal < nodes.ChildCount(node) {
             CollectUnboundNames(nodes, source, nodes.Child(node, childOrdinal), bound, names)
@@ -475,9 +475,9 @@ class ColumnarClosureBindingPlanner {
             return remaining.Count > 0 && IsNameBareAssigned(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), remaining)
         }
         kind := nodes.Kind(node)
-        if kind == 14 || kind == 44 {
+        if kind == ColumnarExpressionNodeKind.AssignmentExpression || kind == ColumnarExpressionNodeKind.PostfixUnary {
             target := nodes.Child(node, 0)
-            if nodes.Kind(target) == 6 && nodes.ValueStart(target) >= 0 && names.Contains(nodes.Text(source, target)) {
+            if nodes.Kind(target) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(target) >= 0 && names.Contains(nodes.Text(source, target)) {
                 return true
             }
         }
@@ -493,29 +493,29 @@ class ColumnarClosureBindingPlanner {
 
     static func IsNameStructurallyWritten(nodes: ColumnarNodeTable, source: string, node: int, names: SortedSet<string>): bool {
         kind := nodes.Kind(node)
-        if kind == 14 || kind == 44 {
+        if kind == ColumnarExpressionNodeKind.AssignmentExpression || kind == ColumnarExpressionNodeKind.PostfixUnary {
             structuralTarget := nodes.Child(node, 0)
-            if nodes.Kind(structuralTarget) == 8 || nodes.Kind(structuralTarget) == 10 {
-                while (nodes.Kind(structuralTarget) == 8 || nodes.Kind(structuralTarget) == 10) && nodes.ChildCount(structuralTarget) > 0 {
+            if nodes.Kind(structuralTarget) == ColumnarExpressionNodeKind.MemberAccessExpression || nodes.Kind(structuralTarget) == ColumnarExpressionNodeKind.IndexAccessExpression {
+                while (nodes.Kind(structuralTarget) == ColumnarExpressionNodeKind.MemberAccessExpression || nodes.Kind(structuralTarget) == ColumnarExpressionNodeKind.IndexAccessExpression) && nodes.ChildCount(structuralTarget) > 0 {
                     structuralTarget = nodes.Child(structuralTarget, 0)
                 }
-                if nodes.Kind(structuralTarget) == 6 && nodes.ValueStart(structuralTarget) >= 0 && names.Contains(nodes.Text(source, structuralTarget)) {
+                if nodes.Kind(structuralTarget) == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(structuralTarget) >= 0 && names.Contains(nodes.Text(source, structuralTarget)) {
                     return true
                 }
             }
-        } else if kind == 29 {
+        } else if kind == ColumnarStatementNodeKind.ForeachStatement {
             if names.Contains(nodes.Text(source, node)) {
                 return true
             }
-        } else if kind == 76 {
+        } else if kind == ColumnarStatementNodeKind.TypedForeachStatement {
             if nodes.ChildCount(node) > 0 && nodes.Kind(nodes.Child(node, 0)) == 6 && names.Contains(nodes.Text(source, nodes.Child(node, 0))) {
                 return true
             }
-        } else if kind == 30 {
+        } else if kind == ColumnarStatementNodeKind.TupleDeconstructionStatement {
             nameOrdinal := 0
             while nameOrdinal < nodes.ChildCount(node) - 1 {
                 child := nodes.Child(node, nameOrdinal)
-                if nodes.Kind(child) == 6 && names.Contains(nodes.Text(source, child)) {
+                if nodes.Kind(child) == ColumnarExpressionNodeKind.IdentifierExpression && names.Contains(nodes.Text(source, child)) {
                     return true
                 }
                 nameOrdinal = nameOrdinal + 1

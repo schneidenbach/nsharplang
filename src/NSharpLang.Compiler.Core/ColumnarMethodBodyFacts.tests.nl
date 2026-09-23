@@ -262,7 +262,7 @@ func MethodBodyFactsPlanLiteralBody(literalKind: int, text: string, returnType: 
 
 // `{ return <name> }` planned against ONE parameter binding.
 func MethodBodyFactsPlanParameterBody(name: string, ordinal: int, parameterType: Type, returnType: Type, plan: ColumnarCodePlan): bool {
-    nodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression(), name)
+    nodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression, name)
     return MethodBodyFactsPlanBody(nodes, name, returnType, false, MethodBodyFactsOrdinals(name, ordinal), MethodBodyFactsTypes(name, parameterType), MethodBodyFactsLocals(), plan)
 }
 
@@ -617,7 +617,7 @@ test "the body driver declines every shape whose bytes it cannot promise" {
 // the row lands in a schema-v4 METHOD BODY, is followed by `ret`, and the body EXECUTES.
 test "the body driver claims a boolean return through the boolean owner" {
     truePlan := new ColumnarCodePlan()
-    assert MethodBodyFactsPlanLiteralBody(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", typeof(bool), truePlan)
+    assert MethodBodyFactsPlanLiteralBody(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", typeof(bool), truePlan)
     assert truePlan.OperationCount == 2
     assert truePlan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4_1()
     assert truePlan.OpCodeValues[1] == ColumnarCodePlanContract.Ret()
@@ -631,7 +631,7 @@ test "the body driver claims a boolean return through the boolean owner" {
     // `false` is the OTHER row, not the same row with a different value — the owner picks between two
     // distinct short-form constants, so both are asked.
     falsePlan := new ColumnarCodePlan()
-    assert MethodBodyFactsPlanLiteralBody(ColumnarExpressionNodeKind.BoolLiteralExpression(), "false", typeof(bool), falsePlan)
+    assert MethodBodyFactsPlanLiteralBody(ColumnarExpressionNodeKind.BoolLiteralExpression, "false", typeof(bool), falsePlan)
     assert falsePlan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI4_0()
     falseMethod := MethodBodyFactsDynamicMethod("NSharpB4BoolFalseBody", typeof(bool))
     ColumnarCodePlanExecutor.Execute(falsePlan, falseMethod.GetILGenerator())
@@ -639,14 +639,14 @@ test "the body driver claims a boolean return through the boolean owner" {
     assert !Convert.ToBoolean(falseMethod.Invoke(falseTarget, MethodBodyFactsNoArguments()))
 
     // The claim rule is still EQUALITY: a bool literal on an `int` function is the host's business.
-    assert !MethodBodyFactsPlanLiteralBody(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", typeof(int), new ColumnarCodePlan())
+    assert !MethodBodyFactsPlanLiteralBody(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", typeof(int), new ColumnarCodePlan())
 }
 
 // The boolean owner's wall was STRUCTURAL rather than a predicate: schema v1 admits exactly ONE
 // instruction and cannot carry a `ret` at all. So the widening is an additional append entry point,
 // and this block is what proves the v1 surface it was factored out of is unchanged.
 test "the boolean literal owner appends into both its schemas and keeps v1 single-instruction" {
-    literalNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true")
+    literalNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.BoolLiteralExpression, "true")
 
     // v4, flat stream, no fragment: accepted, and it can be followed by more rows.
     body := new ColumnarCodePlan()
@@ -671,7 +671,7 @@ test "the boolean literal owner appends into both its schemas and keeps v1 singl
     // below are the drift check, not a new pin — `ColumnarCodePlan.tests.nl:137` already holds the v1
     // answers, and they are re-asked HERE only to prove the refactor left ONE decision behind both
     // entry points rather than two that can diverge.
-    intNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    intNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
     untouched := new ColumnarCodePlan()
     untouched.PrepareMethodBody()
     assert !ColumnarBooleanLiteralPlanner.TryAppendLiteral(intNodes, "1", 2, untouched)
@@ -734,7 +734,7 @@ test "the body driver claims only the parameter selection and refuses every othe
     holder := MethodBodyFactsDynamicMethod("NSharpB4LocalHolder", typeof(int))
     localMap := MethodBodyFactsLocals()
     localMap["n"] = holder.GetILGenerator().DeclareLocal(typeof(int))
-    localNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression(), "n")
+    localNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression, "n")
     assert !MethodBodyFactsPlanBody(localNodes, "n", typeof(int), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), localMap, new ColumnarCodePlan())
 
     // A name with NO binding at all resolves to nothing and declines rather than guessing.
@@ -759,8 +759,8 @@ test "the body driver refuses every claim class when the return type is a lifted
     // …and the classes that were immune only by accident, because no literal's natural type is a
     // `Nullable<T>`. The guard covers them too, so a later widening of the claim rule cannot reopen
     // the hole from a direction nobody re-checked.
-    assert !MethodBodyFactsPlanLiteralBody(ColumnarExpressionNodeKind.IntLiteralExpression(), "42", nullableInt, new ColumnarCodePlan())
-    assert !MethodBodyFactsPlanLiteralBody(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", MethodBodyFactsNullableOf(typeof(bool)), new ColumnarCodePlan())
+    assert !MethodBodyFactsPlanLiteralBody(ColumnarExpressionNodeKind.IntLiteralExpression, "42", nullableInt, new ColumnarCodePlan())
+    assert !MethodBodyFactsPlanLiteralBody(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", MethodBodyFactsNullableOf(typeof(bool)), new ColumnarCodePlan())
 
     // The guard is about the RETURN TYPE, not about nullables in general: the same parameter type on
     // a non-nullable return is refused by ordinary type equality, and a plain `int` body still claims.
@@ -771,7 +771,7 @@ test "the body driver refuses every claim class when the return type is a lifted
 // The bound-identifier owner hit the SAME wall the scalar owner did in `015-B3`, and it is widened the
 // same way. Asked from both sides so the widening cannot quietly become "any schema".
 test "the bound identifier owner appends into a method body and still refuses the wrong schema" {
-    identifierNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression(), "p")
+    identifierNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression, "p")
     bindings := ColumnarFragmentBindings.FromRawFacts(
         MethodBodyFactsOrdinals("p", 2),
         MethodBodyFactsTypes("p", typeof(int)),
@@ -855,7 +855,7 @@ test "the body driver claims both void shapes and refuses everything that is not
     assert !MethodBodyFactsPlanBody(MethodBodyFactsLeaf(25, 2), " ", MethodBodyFactsVoidType(), true, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), new ColumnarCodePlan())
     // A VALUE-bearing return in a void body — the host declines it as a mismatched arity (NL103), so
     // the driver must not quietly emit a bare `ret` and discard the value.
-    assert !MethodBodyFactsPlanBody(MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IntLiteralExpression(), "1"), "1", MethodBodyFactsVoidType(), true, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), new ColumnarCodePlan())
+    assert !MethodBodyFactsPlanBody(MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IntLiteralExpression, "1"), "1", MethodBodyFactsVoidType(), true, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), new ColumnarCodePlan())
 }
 
 // ---- BLOCK 10 — THE SECOND STATEMENT-SHAPE PREDICATE (015-B4) ----
@@ -1013,7 +1013,7 @@ func MethodBodyFactsCurrentBindings(owner: Type, isReference: bool): ColumnarFra
 // One expression through the door, into a fresh method-body plan, terminated exactly as the driver
 // terminates it. This is the driver's own value path with the body shape held constant.
 func MethodBodyFactsDoorPlan(name: string, bindings: ColumnarFragmentBindings, returnType: Type, plan: ColumnarCodePlan): bool {
-    nodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression(), name)
+    nodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression, name)
     plan.PrepareMethodBody()
     valueType := typeof(int)
     if !ColumnarMethodBodyPlanner.TryAppendReturnValue(nodes, name, 2, bindings, plan, out valueType) {
@@ -1067,21 +1067,21 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     // SEVEN and this block found the EIGHTH, which is exactly the hole a census over source text
     // cannot see.
     assert claimed == 15
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IntLiteralExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.FloatLiteralExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CharLiteralExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.StringLiteralExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BoolLiteralExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IdentifierExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.UnaryExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.NameOfExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CallExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.TernaryExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CheckedContextExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.TypeOfExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IntLiteralExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.FloatLiteralExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CharLiteralExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.StringLiteralExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BoolLiteralExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.IdentifierExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.UnaryExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.NameOfExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CallExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.TernaryExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CheckedContextExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.TypeOfExpression)
 
     // The composites that remain declined are declined one by one. Their gates are open now; what
     // holds them back is the emitter's ELEVEN-ARM root cascade, which a claim must enter arm by arm.
@@ -1097,17 +1097,17 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     // too — claimed at the OUTER node. The door's kind-7 arm dispatches the CHILD through the same
     // dispatcher and reaches the same owner's `TryAppendRoot`, which unwraps as well, so the rows
     // agree by construction rather than by transcription.
-    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.NewExpression())
-    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.IndexAccessExpression())
-    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CastExpression())
-    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
-    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.TypeOfExpression())
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.NewExpression)
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.IndexAccessExpression)
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CastExpression)
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression)
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.TypeOfExpression)
 
     // And a DECLINED kind declines at the door without touching the plan, which is what lets the
     // driver reuse one plan object across a decline.
     untouched := new ColumnarCodePlan()
     untouched.PrepareMethodBody()
-    indexNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IndexAccessExpression(), "f")
+    indexNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IndexAccessExpression, "f")
     indexType := typeof(int)
     assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(indexNodes, "f", 2, MethodBodyFactsEmptyBindings(), untouched, out indexType)
     assert untouched.OperationCount == 0
@@ -1115,7 +1115,7 @@ test "the expression door partitions its whole kind ledger with no hole and no o
     // A CLAIMED kind whose owner refuses the particular node — a call with no callee child at all —
     // rolls back just as completely. This is the arm that replaced the member-access probe above when
     // kind 9 moved sides, and it asserts the same invariant about a different mechanism.
-    callNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.CallExpression(), "f")
+    callNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.CallExpression, "f")
     callType := typeof(int)
     assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(callNodes, "f", 2, MethodBodyFactsEmptyBindings(), untouched, out callType)
     assert untouched.OperationCount == 0
@@ -1281,7 +1281,7 @@ test "the identifier filter claims exactly five selection kinds and refuses the 
     holder := MethodBodyFactsDynamicMethod("NSharpB5LocalFilterHolder", typeof(int))
     localBindings := MethodBodyFactsEmptyBindings()
     localBindings.Locals["n"] = holder.GetILGenerator().DeclareLocal(typeof(int))
-    localNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression(), "n")
+    localNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression, "n")
     untouched := new ColumnarCodePlan()
     untouched.PrepareMethodBody()
     localType := typeof(int)
@@ -1317,14 +1317,14 @@ test "the identifier filter claims exactly five selection kinds and refuses the 
 func MethodBodyFactsOpenRootMethodBody(): ColumnarCodePlan {
     plan := new ColumnarCodePlan()
     plan.PrepareMethodBody()
-    plan.BeginFragment(-1, ColumnarExpressionNodeKind.BinaryExpression(), 0)
+    plan.BeginFragment(-1, ColumnarExpressionNodeKind.BinaryExpression, 0)
     return plan
 }
 
 func MethodBodyFactsOpenRootRecursive(): ColumnarCodePlan {
     plan := new ColumnarCodePlan()
     plan.PrepareV2()
-    plan.BeginFragment(-1, ColumnarExpressionNodeKind.BinaryExpression(), 0)
+    plan.BeginFragment(-1, ColumnarExpressionNodeKind.BinaryExpression, 0)
     return plan
 }
 
@@ -1335,7 +1335,7 @@ func MethodBodyFactsHandles(): ColumnarRangeIndexHandles {
 // `{ return <operator><literal> }` — a UNARY composite: the operator node owns a nested operand
 // fragment, and the operand is a scalar literal.
 func MethodBodyFactsUnaryBody(operatorText: string, literalKind: int, literalText: string): ColumnarNodeTable {
-    kinds := MethodBodyFactsInts4(25, 20, ColumnarExpressionNodeKind.UnaryExpression(), literalKind)
+    kinds := MethodBodyFactsInts4(25, 20, ColumnarExpressionNodeKind.UnaryExpression, literalKind)
     childCounts := MethodBodyFactsInts4(1, 1, 1, 0)
     children := MethodBodyFactsInts3(1, 2, 3)
     valueStarts := MethodBodyFactsInts4(0, 0, 0, operatorText.Length)
@@ -1347,7 +1347,7 @@ func MethodBodyFactsUnaryBody(operatorText: string, literalKind: int, literalTex
 // `ColumnarNodeTable.Text` would throw on it, which is why the host guards the span before reading it
 // and why 015-B11's narrowed predicate has to as well.
 func MethodBodyFactsUnarySpanlessOperand(operatorText: string): ColumnarNodeTable {
-    kinds := MethodBodyFactsInts4(25, 20, ColumnarExpressionNodeKind.UnaryExpression(), ColumnarExpressionNodeKind.IntLiteralExpression())
+    kinds := MethodBodyFactsInts4(25, 20, ColumnarExpressionNodeKind.UnaryExpression, ColumnarExpressionNodeKind.IntLiteralExpression)
     childCounts := MethodBodyFactsInts4(1, 1, 1, 0)
     children := MethodBodyFactsInts3(1, 2, 3)
     valueStarts := MethodBodyFactsInts4(0, 0, 0, -1)
@@ -1357,7 +1357,7 @@ func MethodBodyFactsUnarySpanlessOperand(operatorText: string): ColumnarNodeTabl
 
 // `{ return nameof(<name>) }` — the target is a bare identifier.
 func MethodBodyFactsNameOfBody(name: string, targetKind: int): ColumnarNodeTable {
-    kinds := MethodBodyFactsInts4(25, 20, ColumnarExpressionNodeKind.NameOfExpression(), targetKind)
+    kinds := MethodBodyFactsInts4(25, 20, ColumnarExpressionNodeKind.NameOfExpression, targetKind)
     childCounts := MethodBodyFactsInts4(1, 1, 1, 0)
     children := MethodBodyFactsInts3(1, 2, 3)
     valueStarts := MethodBodyFactsInts4(0, 0, 0, 0)
@@ -1367,7 +1367,7 @@ func MethodBodyFactsNameOfBody(name: string, targetKind: int): ColumnarNodeTable
 
 // `{ <name> := <literal>; return <name> }` — the smallest body that needs a binding the DRIVER made.
 func MethodBodyFactsDeclareThenReturnBody(name: string, literalKind: int, literalText: string): ColumnarNodeTable {
-    kinds := MethodBodyFactsInts5(25, 24, literalKind, 20, ColumnarExpressionNodeKind.IdentifierExpression())
+    kinds := MethodBodyFactsInts5(25, 24, literalKind, 20, ColumnarExpressionNodeKind.IdentifierExpression)
     childCounts := MethodBodyFactsInts5(2, 1, 0, 1, 0)
     children := MethodBodyFactsInts4(1, 3, 2, 4)
     valueStarts := MethodBodyFactsInts5(0, 0, name.Length, 0, 0)
@@ -1378,7 +1378,7 @@ func MethodBodyFactsDeclareThenReturnBody(name: string, literalKind: int, litera
 // `{ a := <literal>; b := a; return b }` — the shape that proves a LATER statement consumes what an
 // EARLIER one published, which is the whole point of the loop.
 func MethodBodyFactsDeclareChainBody(first: string, second: string, literalText: string): ColumnarNodeTable {
-    kinds := MethodBodyFactsInts7(25, 24, 0, 24, ColumnarExpressionNodeKind.IdentifierExpression(), 20, ColumnarExpressionNodeKind.IdentifierExpression())
+    kinds := MethodBodyFactsInts7(25, 24, 0, 24, ColumnarExpressionNodeKind.IdentifierExpression, 20, ColumnarExpressionNodeKind.IdentifierExpression)
     childCounts := MethodBodyFactsInts7(3, 1, 0, 1, 0, 1, 0)
     children := MethodBodyFactsInts6(1, 3, 5, 2, 4, 6)
     firstStart := 0
@@ -1394,7 +1394,7 @@ func MethodBodyFactsDeclareChainBody(first: string, second: string, literalText:
 // The two operators are separate parameters because the RETURN position cannot carry `-` over an
 // integer literal: the host's kind-20 arm adopts that shape itself.
 func MethodBodyFactsTwoCompositeBody(name: string, firstOperator: string, firstText: string, secondOperator: string, secondText: string): ColumnarNodeTable {
-    kinds := MethodBodyFactsInts7(25, 24, ColumnarExpressionNodeKind.UnaryExpression(), 0, 20, ColumnarExpressionNodeKind.UnaryExpression(), 0)
+    kinds := MethodBodyFactsInts7(25, 24, ColumnarExpressionNodeKind.UnaryExpression, 0, 20, ColumnarExpressionNodeKind.UnaryExpression, 0)
     childCounts := MethodBodyFactsInts7(2, 1, 1, 0, 1, 1, 0)
     children := MethodBodyFactsInts6(1, 4, 2, 3, 5, 6)
     firstOperatorAt := name.Length
@@ -1426,7 +1426,7 @@ func MethodBodyFactsInts7(a: int, b: int, c: int, d: int, e: int, f: int, g: int
 // the owner. Before this slice every one of these was `assert throws` on both sides.
 
 test "the construction owner's gate admits a method body and still refuses the recursive schema" {
-    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.NewExpression(), 0)
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.NewExpression, 0)
     ownership := ColumnarDirectCallOwnership.NotOwned
     legacy := false
     resultType := typeof(int)
@@ -1441,7 +1441,7 @@ test "the construction owner's gate admits a method body and still refuses the r
 }
 
 test "the direct-call owner's gate admits a method body and still refuses the recursive schema" {
-    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.CallExpression(), 1)
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.CallExpression, 1)
     ownership := ColumnarDirectCallOwnership.NotOwned
     legacy := false
     resultType := typeof(int)
@@ -1456,7 +1456,7 @@ test "the direct-call owner's gate admits a method body and still refuses the re
 }
 
 test "the external static-member owner's gate admits a method body and still refuses the recursive schema" {
-    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.MemberAccessExpression(), 1)
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.MemberAccessExpression, 1)
     resultType := typeof(int)
     body := MethodBodyFactsOpenRootMethodBody()
     assert !ColumnarExternalStaticMemberPlanner.TryAppendStaticMember(nodes, "m", 0, MethodBodyFactsEmptyBindings(), body, out resultType)
@@ -1469,7 +1469,7 @@ test "the external static-member owner's gate admits a method body and still ref
 }
 
 test "the instance-member owner's gate admits a method body and still refuses the recursive schema" {
-    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.MemberAccessExpression(), 1)
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.MemberAccessExpression, 1)
     resultType := typeof(int)
     body := MethodBodyFactsOpenRootMethodBody()
     assert !ColumnarInstanceMemberPlanner.TryAppend(nodes, "m", 0, MethodBodyFactsEmptyBindings(), body, 0, false, out resultType)
@@ -1482,7 +1482,7 @@ test "the instance-member owner's gate admits a method body and still refuses th
 }
 
 test "the nameof owner's gate admits a method body and still refuses the recursive schema" {
-    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.NameOfExpression(), 0)
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.NameOfExpression, 0)
     resultType := typeof(string)
     body := MethodBodyFactsOpenRootMethodBody()
     assert !ColumnarNameOfPlanner.TryAppendNameOf(nodes, "n", 0, body, out resultType)
@@ -1506,7 +1506,7 @@ test "the nullable-argument lowering's gate admits a method body and still refus
 }
 
 test "the unary-literal owner's gate admits a method body and still refuses the recursive schema" {
-    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.UnaryExpression(), 0)
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.UnaryExpression, 0)
     resultType := typeof(int)
     body := MethodBodyFactsOpenRootMethodBody()
     assert !ColumnarUnaryLiteralPlanner.TryAppendUnaryLiteral(nodes, "-", 0, body, 0, out resultType)
@@ -1519,7 +1519,7 @@ test "the unary-literal owner's gate admits a method body and still refuses the 
 }
 
 test "the primitive-binary owner's gate admits a method body and still refuses the recursive schema" {
-    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.BinaryExpression(), 0)
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.BinaryExpression, 0)
     resultType := typeof(int)
     nestedOwnership := ColumnarDirectCallOwnership.NotOwned
     body := MethodBodyFactsOpenRootMethodBody()
@@ -1533,7 +1533,7 @@ test "the primitive-binary owner's gate admits a method body and still refuses t
 }
 
 test "the typeof owner's gate admits a method body and still refuses the recursive schema" {
-    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.TypeOfExpression(), 1)
+    nodes := MethodBodyFactsLeaf(ColumnarExpressionNodeKind.TypeOfExpression, 1)
     resultType := typeof(Type)
     body := MethodBodyFactsOpenRootMethodBody()
     assert !ColumnarTypeOfPlanner.TryAppendTypeOf(nodes, "t", 0, MethodBodyFactsEmptyBindings(), body, out resultType)
@@ -1586,7 +1586,7 @@ test "the door claims a unary literal composite and nests its operand fragment o
     // back so the plan the driver hands on is untouched.
     declined := new ColumnarCodePlan()
     declined.PrepareMethodBody()
-    declinedNodes := MethodBodyFactsUnaryBody("~", ColumnarExpressionNodeKind.IdentifierExpression(), "n")
+    declinedNodes := MethodBodyFactsUnaryBody("~", ColumnarExpressionNodeKind.IdentifierExpression, "n")
     declinedType := typeof(int)
     assert !ColumnarMethodBodyPlanner.TryAppendReturnValue(declinedNodes, "~n", 2, MethodBodyFactsEmptyBindings(), declined, out declinedType)
     assert declined.OperationCount == 0
@@ -1736,7 +1736,7 @@ test "the door now claims the minimum-magnitude return the pre-pass declines" {
 // well as the right schema, and the door's root fragment is what supplies one.
 test "the door claims a nameof composite on a method body and refuses an unnamed target" {
     plan := new ColumnarCodePlan()
-    nodes := MethodBodyFactsNameOfBody("total", ColumnarExpressionNodeKind.IdentifierExpression())
+    nodes := MethodBodyFactsNameOfBody("total", ColumnarExpressionNodeKind.IdentifierExpression)
     assert MethodBodyFactsPlanBody(nodes, "total", typeof(string), false, MethodBodyFactsNoOrdinals(), MethodBodyFactsNoTypes(), MethodBodyFactsLocals(), plan)
 
     assert plan.OperationCount == 2
@@ -1770,12 +1770,12 @@ test "the door claims a nameof composite on a method body and refuses an unnamed
 test "a method-body plan admits many root fragments and the recursive schemas admit exactly one" {
     body := new ColumnarCodePlan()
     body.PrepareMethodBody()
-    first := body.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    first := body.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression, 0)
     assert first == 0
     body.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
     body.CompleteFragment(first, typeof(int))
 
-    second := body.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    second := body.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression, 0)
     assert second == 1
     assert body.FragmentParentIndices[1] == -1
     body.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
@@ -1786,29 +1786,29 @@ test "a method-body plan admits many root fragments and the recursive schemas ad
     // is between trees, never inside one.
     nested := new ColumnarCodePlan()
     nested.PrepareMethodBody()
-    nested.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    nested.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression, 0)
     assert throws InvalidOperationException {
-        nested.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+        nested.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression, 0)
     }
 
     // The scalar expression schema keeps the single-root rule exactly as it was.
     scalar := new ColumnarCodePlan()
     scalar.PrepareV3()
-    scalarRoot := scalar.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    scalarRoot := scalar.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression, 0)
     scalar.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
     scalar.CompleteFragment(scalarRoot, typeof(int))
     assert throws InvalidOperationException {
-        scalar.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+        scalar.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression, 0)
     }
 
     // And so does the recursive schema.
     recursive := new ColumnarCodePlan()
     recursive.PrepareV2()
-    recursiveRoot := recursive.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+    recursiveRoot := recursive.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression, 0)
     recursive.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
     recursive.CompleteFragment(recursiveRoot, typeof(int))
     assert throws InvalidOperationException {
-        recursive.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression(), 0)
+        recursive.BeginFragment(-1, ColumnarExpressionNodeKind.IntLiteralExpression, 0)
     }
 }
 
@@ -1953,7 +1953,7 @@ test "a plan-declared local resolves as its own selection tier and refuses every
     assert bindings.IsVisibleBindingName("v")
     assert bindings.IsValueBinding("v")
 
-    nodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression(), "v")
+    nodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression, "v")
     selection := ColumnarBoundIdentifierPlanner.EmptySelection()
     assert ColumnarBoundIdentifierPlanner.TryResolve(nodes, "v", 2, bindings, out selection)
     assert selection.Kind == ColumnarBoundIdentifierKind.PlanLocal
@@ -1973,7 +1973,7 @@ test "a plan-declared local resolves as its own selection tier and refuses every
     overlapping.PlanLocals["p"] = (Index: 0, ValueType: typeof(int))
     overlapping.ParameterOrdinals["p"] = 0
     overlapping.ParameterTypes["p"] = typeof(int)
-    overlapNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression(), "p")
+    overlapNodes := MethodBodyFactsLiteralBody(ColumnarExpressionNodeKind.IdentifierExpression, "p")
     overlapSelection := ColumnarBoundIdentifierPlanner.EmptySelection()
     assert throws InvalidOperationException {
         ColumnarBoundIdentifierPlanner.TryResolve(overlapNodes, "p", 2, overlapping, out overlapSelection)
@@ -2009,7 +2009,7 @@ func MethodBodyFactsSiblings2(firstName: string, firstFacts: ColumnarSiblingCall
 func MethodBodyFactsQualifiedCallBody(ownerName: string, memberName: string, argumentText: string, argumentKind: int, localName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     nameStart := builder.AddToken(localName)
-    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), ownerName)
+    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, ownerName)
     member := DirectCallAppendMember(builder, owner, memberName)
     argument := builder.AddLeaf(argumentKind, argumentText)
     call := DirectCallAppendCall(builder, member, DirectCallOneArgument(argument))
@@ -2020,8 +2020,8 @@ func MethodBodyFactsQualifiedCallBody(ownerName: string, memberName: string, arg
 // plan-local refusal is about, in the position where the crash was found.
 func MethodBodyFactsIdentifierCallBody(memberName: string, argumentName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), memberName)
-    argument := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), argumentName)
+    callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, memberName)
+    argument := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, argumentName)
     call := DirectCallAppendCall(builder, callee, DirectCallOneArgument(argument))
     return MethodBodyFactsWrapValueInBody(builder, call, 0, "")
 }
@@ -2032,11 +2032,11 @@ func MethodBodyFactsIdentifierCallBody(memberName: string, argumentName: string)
 func MethodBodyFactsDeclareThenCallReturnBody(initMember: string, returnMember: string, localName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     nameStart := builder.AddToken(localName)
-    initCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), initMember)
+    initCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, initMember)
     initCall := DirectCallAppendCall(builder, initCallee, DirectCallNoArguments())
     declaration := builder.AddNode(24, nameStart, localName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(initCall))
-    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), returnMember)
-    argument := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), nameStart, localName.Length, nameStart, localName.Length, new int[](0))
+    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, returnMember)
+    argument := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression, nameStart, localName.Length, nameStart, localName.Length, new int[](0))
     returnCall := DirectCallAppendCall(builder, returnCallee, DirectCallOneArgument(argument))
     statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(returnCall))
     return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
@@ -2049,14 +2049,14 @@ func MethodBodyFactsTwoDeclareThenCallReturnBody(initMember: string, returnMembe
     builder := new ColumnarRangePlannerNodeBuilder()
     firstStart := builder.AddToken(first)
     secondStart := builder.AddToken(second)
-    firstCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), initMember)
+    firstCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, initMember)
     firstCall := DirectCallAppendCall(builder, firstCallee, DirectCallNoArguments())
     firstDeclaration := builder.AddNode(24, firstStart, first.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(firstCall))
-    secondCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), initMember)
+    secondCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, initMember)
     secondCall := DirectCallAppendCall(builder, secondCallee, DirectCallNoArguments())
     secondDeclaration := builder.AddNode(24, secondStart, second.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(secondCall))
-    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), returnMember)
-    argument := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), secondStart, second.Length, secondStart, second.Length, new int[](0))
+    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, returnMember)
+    argument := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression, secondStart, second.Length, secondStart, second.Length, new int[](0))
     returnCall := DirectCallAppendCall(builder, returnCallee, DirectCallOneArgument(argument))
     statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(returnCall))
     return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts3(firstDeclaration, secondDeclaration, statement)))
@@ -2066,7 +2066,7 @@ func MethodBodyFactsTwoDeclareThenCallReturnBody(initMember: string, returnMembe
 func MethodBodyFactsQualifiedCallBodyNoArguments(ownerName: string, memberName: string, localName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     nameStart := builder.AddToken(localName)
-    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), ownerName)
+    owner := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, ownerName)
     member := DirectCallAppendMember(builder, owner, memberName)
     call := DirectCallAppendCall(builder, member, DirectCallNoArguments())
     return MethodBodyFactsWrapValueInBody(builder, call, nameStart, localName)
@@ -2077,7 +2077,7 @@ func MethodBodyFactsQualifiedCallBodyNoArguments(ownerName: string, memberName: 
 func MethodBodyFactsBareCallBody(memberName: string, localName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     nameStart := builder.AddToken(localName)
-    callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), memberName)
+    callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, memberName)
     call := DirectCallAppendCall(builder, callee, DirectCallNoArguments())
     return MethodBodyFactsWrapValueInBody(builder, call, nameStart, localName)
 }
@@ -2091,7 +2091,7 @@ func MethodBodyFactsWrapValueInBody(builder: ColumnarRangePlannerNodeBuilder, va
     }
 
     declaration := builder.AddNode(24, nameStart, localName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(value))
-    read := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), nameStart, localName.Length, nameStart, localName.Length, new int[](0))
+    read := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression, nameStart, localName.Length, nameStart, localName.Length, new int[](0))
     statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(read))
     return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
 }
@@ -2144,7 +2144,7 @@ func MethodBodyFactsNoSourceTypes(): ColumnarStructDef[] {
 // `ColumnarDirectCallPlanner`. So the door calling that owner's own `TryAppendRoot` is byte-identity
 // BY CONSTRUCTION, and the rows below are the owner's rows plus the driver's `ret`.
 test "the door claims a direct call as a return value and executes it" {
-    tree := MethodBodyFactsQualifiedCallBody("Type", "GetType", "\"System.String\"", ColumnarExpressionNodeKind.StringLiteralExpression(), "")
+    tree := MethodBodyFactsQualifiedCallBody("Type", "GetType", "\"System.String\"", ColumnarExpressionNodeKind.StringLiteralExpression, "")
     ExternalStampScope(tree, "import System")
 
     plan := new ColumnarCodePlan()
@@ -2174,7 +2174,7 @@ test "the door claims a direct call as a return value and executes it" {
 // two positions agree for a call — which is a fact worth ASSERTING at both ends rather than assuming,
 // since the unary class does not have it.
 test "the door claims a direct call as a declaration initializer and the return reads the plan local" {
-    tree := MethodBodyFactsQualifiedCallBody("Type", "GetType", "\"System.String\"", ColumnarExpressionNodeKind.StringLiteralExpression(), "resolved")
+    tree := MethodBodyFactsQualifiedCallBody("Type", "GetType", "\"System.String\"", ColumnarExpressionNodeKind.StringLiteralExpression, "resolved")
     ExternalStampScope(tree, "import System")
 
     plan := new ColumnarCodePlan()
@@ -2289,7 +2289,7 @@ test "a void direct call completes a method-body root and still completes a sche
 // the two would agree only as long as someone kept them agreeing. The same call planned both ways
 // produces the same rows, in the same order, resolving the SAME `MethodInfo`.
 test "the direct-call root sequence produces the same rows through Plan and through the door" {
-    tree := DirectCallQualifiedTree("Type", "GetType", DirectCallOneText("\"System.String\""), DirectCallOneKind(ColumnarExpressionNodeKind.StringLiteralExpression()))
+    tree := DirectCallQualifiedTree("Type", "GetType", DirectCallOneText("\"System.String\""), DirectCallOneKind(ColumnarExpressionNodeKind.StringLiteralExpression))
     ExternalStampScope(tree, "import System")
 
     viaPlan := DirectCallPlan(tree, ColumnarRangePlannerEmptyBindings())
@@ -2428,7 +2428,7 @@ func MethodBodyFactsBinaryBody(operatorText: string, leftKind: int, leftText: st
     left := builder.AddLeaf(leftKind, leftText)
     operatorStart := builder.AddToken(operatorText)
     right := builder.AddLeaf(rightKind, rightText)
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, operatorText.Length, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, operatorText.Length, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
     statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
     return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(statement)))
 }
@@ -2437,11 +2437,11 @@ func MethodBodyFactsBinaryBody(operatorText: string, leftKind: int, leftText: st
 // different decision from the one above and is the direct-call owner's rather than the door's.
 func MethodBodyFactsCallBinaryArgumentBody(memberName: string, operatorText: string, leftText: string, rightText: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), memberName)
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), leftText)
+    callee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, memberName)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, leftText)
     operatorStart := builder.AddToken(operatorText)
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), rightText)
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, operatorText.Length, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, rightText)
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, operatorText.Length, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
     call := DirectCallAppendCall(builder, callee, DirectCallOneArgument(binary))
     return MethodBodyFactsWrapValueInBody(builder, call, 0, "")
 }
@@ -2451,13 +2451,13 @@ func MethodBodyFactsCallBinaryArgumentBody(memberName: string, operatorText: str
 func MethodBodyFactsDeclareThenIndexArgumentBody(initMember: string, returnMember: string, localName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     nameStart := builder.AddToken(localName)
-    initCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), initMember)
+    initCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, initMember)
     initCall := DirectCallAppendCall(builder, initCallee, DirectCallNoArguments())
     declaration := builder.AddNode(24, nameStart, localName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(initCall))
-    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), returnMember)
-    receiver := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), nameStart, localName.Length, nameStart, localName.Length, new int[](0))
-    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
-    indexAccess := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, nameStart, localName.Length, MethodBodyFactsInts2(receiver, selector))
+    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, returnMember)
+    receiver := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression, nameStart, localName.Length, nameStart, localName.Length, new int[](0))
+    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "0")
+    indexAccess := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, nameStart, localName.Length, MethodBodyFactsInts2(receiver, selector))
     call := DirectCallAppendCall(builder, returnCallee, DirectCallOneArgument(indexAccess))
     statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(call))
     return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
@@ -2468,16 +2468,16 @@ func MethodBodyFactsDeclareThenIndexArgumentBody(initMember: string, returnMembe
 func MethodBodyFactsDeclareThenBinaryIndexArgumentBody(initMember: string, returnMember: string, localName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     nameStart := builder.AddToken(localName)
-    initCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), initMember)
+    initCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, initMember)
     initCall := DirectCallAppendCall(builder, initCallee, DirectCallNoArguments())
     declaration := builder.AddNode(24, nameStart, localName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(initCall))
-    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), returnMember)
-    receiver := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression(), nameStart, localName.Length, nameStart, localName.Length, new int[](0))
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    returnCallee := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, returnMember)
+    receiver := builder.AddNode(ColumnarExpressionNodeKind.IdentifierExpression, nameStart, localName.Length, nameStart, localName.Length, new int[](0))
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
     operatorStart := builder.AddToken("+")
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
-    selector := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, operatorStart, 1, MethodBodyFactsInts2(left, right))
-    indexAccess := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, nameStart, localName.Length, MethodBodyFactsInts2(receiver, selector))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
+    selector := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, 1, operatorStart, 1, MethodBodyFactsInts2(left, right))
+    indexAccess := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, nameStart, localName.Length, MethodBodyFactsInts2(receiver, selector))
     call := DirectCallAppendCall(builder, returnCallee, DirectCallOneArgument(indexAccess))
     statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(call))
     return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
@@ -2489,7 +2489,7 @@ func MethodBodyFactsDeclareThenBinaryIndexArgumentBody(initMember: string, retur
 // routed OVERFLOW flag is live rather than latent. The rows are the owner's rows plus the driver's
 // `ret`, and the body is EXECUTED so the claim is not merely a shape.
 test "the door claims a primitive binary as a return value and executes it" {
-    tree := MethodBodyFactsBinaryBody("+", ColumnarExpressionNodeKind.IntLiteralExpression(), "2", ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
+    tree := MethodBodyFactsBinaryBody("+", ColumnarExpressionNodeKind.IntLiteralExpression, "2", ColumnarExpressionNodeKind.IntLiteralExpression, "3")
 
     plan := new ColumnarCodePlan()
     assert MethodBodyFactsPlanCallBody(tree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
@@ -2509,14 +2509,14 @@ test "the door claims a primitive binary as a return value and executes it" {
     // A SECOND operator family through the same arm, so the claim is the owner's rather than one
     // operator's — and the result type is what the door then matches against the return type.
     productPlan := new ColumnarCodePlan()
-    product := MethodBodyFactsBinaryBody("*", ColumnarExpressionNodeKind.IntLiteralExpression(), "6", ColumnarExpressionNodeKind.IntLiteralExpression(), "7")
+    product := MethodBodyFactsBinaryBody("*", ColumnarExpressionNodeKind.IntLiteralExpression, "6", ColumnarExpressionNodeKind.IntLiteralExpression, "7")
     assert MethodBodyFactsPlanCallBody(product, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), productPlan)
     assert productPlan.OpCodeValues[2] == ColumnarCodePlanContract.Mul()
 
     // TYPE EQUALITY IS STILL THE RULE. The same rows on a `long` body are refused by the driver, not
     // by the owner, because an int result is not a long return type.
     longPlan := new ColumnarCodePlan()
-    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsBinaryBody("+", ColumnarExpressionNodeKind.IntLiteralExpression(), "2", ColumnarExpressionNodeKind.IntLiteralExpression(), "3"), typeof(long), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), longPlan)
+    assert !MethodBodyFactsPlanCallBody(MethodBodyFactsBinaryBody("+", ColumnarExpressionNodeKind.IntLiteralExpression, "2", ColumnarExpressionNodeKind.IntLiteralExpression, "3"), typeof(long), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), longPlan)
 }
 
 // ---- BLOCK 49 — THE BINARY ROOT SEQUENCE IS ONE SEQUENCE, NOT TWO ----
@@ -2526,7 +2526,7 @@ test "the door claims a primitive binary as a return value and executes it" {
 // `TryAppendRoot` now differ in exactly the wrapper — `PrepareV3`/`CompleteV3` versus an already-open
 // method body — and in nothing else.
 test "the binary root sequence produces the same rows through Plan and through the door" {
-    tree := MethodBodyFactsBinaryBody("-", ColumnarExpressionNodeKind.IntLiteralExpression(), "9", ColumnarExpressionNodeKind.IntLiteralExpression(), "4")
+    tree := MethodBodyFactsBinaryBody("-", ColumnarExpressionNodeKind.IntLiteralExpression, "9", ColumnarExpressionNodeKind.IntLiteralExpression, "4")
     statement := tree.Nodes.Child(tree.Root, 0)
     expression := tree.Nodes.Child(statement, 0)
 
@@ -2564,10 +2564,10 @@ test "the binary root sequence produces the same rows through Plan and through t
 // What it still proves, and what no other block proves, is that ONE node kind reaches TWO owners and
 // the door picks between them the way the emitter's cascade does.
 test "the door claims the binary kind and now claims the short-circuit family too" {
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
-    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression)
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.BinaryExpression)
 
-    shortCircuit := MethodBodyFactsBinaryBody("&&", ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.BoolLiteralExpression(), "false")
+    shortCircuit := MethodBodyFactsBinaryBody("&&", ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.BoolLiteralExpression, "false")
     plan := new ColumnarCodePlan()
     assert MethodBodyFactsPlanCallBody(shortCircuit, typeof(bool), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
     // The conditional owner is the only kind-12 owner that branches, so the labels are the signature
@@ -2575,7 +2575,7 @@ test "the door claims the binary kind and now claims the short-circuit family to
     assert plan.LabelCount == 2
 
     // The claimed family in the same position, and it takes the OTHER owner: no labels at all.
-    equality := MethodBodyFactsBinaryBody("==", ColumnarExpressionNodeKind.IntLiteralExpression(), "3", ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
+    equality := MethodBodyFactsBinaryBody("==", ColumnarExpressionNodeKind.IntLiteralExpression, "3", ColumnarExpressionNodeKind.IntLiteralExpression, "3")
     equalityPlan := new ColumnarCodePlan()
     assert MethodBodyFactsPlanCallBody(equality, typeof(bool), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), equalityPlan)
     assert equalityPlan.LabelCount == 0
@@ -2670,9 +2670,9 @@ test "an ordinary index still declines at a plan root and claims under a declare
 // `<name>[<selector>]` as a bare expression tree — the root position the facade leaves to the host.
 func MethodBodyFactsOrdinaryIndexTree(name: string, selectorText: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
-    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), selectorText)
-    return builder.Build(builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(receiver, selector)))
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, name)
+    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, selectorText)
+    return builder.Build(builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(receiver, selector)))
 }
 
 // ---- BLOCK 54 — A COMPOSITE INDEX SELECTOR, END TO END THROUGH THE DOOR (015-B10) ----
@@ -2738,7 +2738,7 @@ test "the expression door routes a kind-12 binary to the owner its operator sele
 // the door claims whose rows BRANCH. `DefineLabel`/`Brfalse`/`Br`/`MarkLabel` were only ever appended
 // to a schema-v3 plan before this slice, and a method body is schema v4.
 test "the expression door claims a ternary onto an open method-body plan, labels and all" {
-    tree := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+    tree := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.IntLiteralExpression, "9")
     plan := new ColumnarCodePlan()
     plan.PrepareMethodBody()
     resultType := typeof(int)
@@ -2763,7 +2763,7 @@ test "the expression door claims a ternary onto an open method-body plan, labels
 // share one dispatcher, so a widening reaches both — and a widening that reached only one would be a
 // silent asymmetry no other contract measures.
 test "the ternary claim reaches the initializer door as well as the return door" {
-    tree := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+    tree := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.IntLiteralExpression, "9")
 
     returnPlan := new ColumnarCodePlan()
     returnPlan.PrepareMethodBody()
@@ -2786,7 +2786,7 @@ test "the ternary claim reaches the initializer door as well as the return door"
 // the plan a driver hands in has to come back usable, because the driver goes on to let the host emit
 // the body it just declined.
 test "a mixed-arm ternary declines at the door and leaves the plan clean" {
-    tree := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.StringLiteralExpression(), "s")
+    tree := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.StringLiteralExpression, "s")
     plan := new ColumnarCodePlan()
     plan.PrepareMethodBody()
     resultType := typeof(int)
@@ -2803,11 +2803,11 @@ test "a mixed-arm ternary declines at the door and leaves the plan clean" {
 func MethodBodyFactsCheckedBinaryBody(keyword: string, operatorText: string, leftText: string, rightText: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     keywordStart := builder.AddToken(keyword)
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), leftText)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, leftText)
     operatorStart := builder.AddToken(operatorText)
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), rightText)
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, operatorText.Length, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
-    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), keywordStart, keyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, rightText)
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, operatorText.Length, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression, keywordStart, keyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
     return MethodBodyFactsWrapValueInBody(builder, context, 0, "")
 }
 
@@ -2816,11 +2816,11 @@ func MethodBodyFactsCheckedBinaryBody(keyword: string, operatorText: string, lef
 func MethodBodyFactsCheckedNamedBinaryBody(keyword: string, operatorText: string, leftName: string, rightName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     keywordStart := builder.AddToken(keyword)
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), leftName)
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, leftName)
     operatorStart := builder.AddToken(operatorText)
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), rightName)
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, operatorText.Length, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
-    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), keywordStart, keyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, rightName)
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, operatorText.Length, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression, keywordStart, keyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
     return MethodBodyFactsWrapValueInBody(builder, context, 0, "")
 }
 
@@ -2829,12 +2829,12 @@ func MethodBodyFactsNestedCheckedBody(outerKeyword: string, innerKeyword: string
     builder := new ColumnarRangePlannerNodeBuilder()
     outerStart := builder.AddToken(outerKeyword)
     innerStart := builder.AddToken(innerKeyword)
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "2")
     operatorStart := builder.AddToken("+")
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
-    inner := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), innerStart, innerKeyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
-    outer := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), outerStart, outerKeyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(inner))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "3")
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    inner := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression, innerStart, innerKeyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
+    outer := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression, outerStart, outerKeyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(inner))
     return MethodBodyFactsWrapValueInBody(builder, outer, 0, "")
 }
 
@@ -2844,16 +2844,16 @@ func MethodBodyFactsCheckedDeclarationThenBinaryBody(keyword: string, localName:
     builder := new ColumnarRangePlannerNodeBuilder()
     nameStart := builder.AddToken(localName)
     keywordStart := builder.AddToken(keyword)
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
     firstOperator := builder.AddToken("+")
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
-    initializerBinary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), firstOperator, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
-    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), keywordStart, keyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(initializerBinary))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "2")
+    initializerBinary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, firstOperator, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression, keywordStart, keyword.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(initializerBinary))
     declaration := builder.AddNode(24, nameStart, localName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(context))
-    tailLeft := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
+    tailLeft := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "3")
     secondOperator := builder.AddToken("+")
-    tailRight := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "4")
-    tailBinary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), secondOperator, 1, 0, builder.Source.Length, MethodBodyFactsInts2(tailLeft, tailRight))
+    tailRight := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "4")
+    tailBinary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, secondOperator, 1, 0, builder.Source.Length, MethodBodyFactsInts2(tailLeft, tailRight))
     statement := builder.AddNode(20, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(tailBinary))
     return builder.Build(builder.AddNode(25, -1, 0, 0, builder.Source.Length, MethodBodyFactsInts2(declaration, statement)))
 }
@@ -2862,11 +2862,11 @@ func MethodBodyFactsCheckedDeclarationThenBinaryBody(keyword: string, localName:
 // `add.ovf` its `checked` twin plans is the FLAG rather than a default (015-B16).
 func MethodBodyFactsParenthesisedBinaryBody(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "2")
     operatorStart := builder.AddToken("+")
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
-    parenthesis := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "3")
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    parenthesis := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
     return MethodBodyFactsWrapValueInBody(builder, parenthesis, 0, "")
 }
 
@@ -2875,12 +2875,12 @@ func MethodBodyFactsParenthesisedBinaryBody(): ColumnarRangePlannerTestTree {
 func MethodBodyFactsCheckedOverParenthesisBody(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     keywordStart := builder.AddToken("checked")
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "2")
     operatorStart := builder.AddToken("+")
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
-    parenthesis := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
-    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), keywordStart, 7, 0, builder.Source.Length, ColumnarRangePlannerChildren1(parenthesis))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "3")
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    parenthesis := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(binary))
+    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression, keywordStart, 7, 0, builder.Source.Length, ColumnarRangePlannerChildren1(parenthesis))
     return MethodBodyFactsWrapValueInBody(builder, context, 0, "")
 }
 
@@ -2890,9 +2890,9 @@ func MethodBodyFactsCheckedNegatedIdentifierBody(name: string): ColumnarRangePla
     builder := new ColumnarRangePlannerNodeBuilder()
     keywordStart := builder.AddToken("checked")
     operatorStart := builder.AddToken("-")
-    operand := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), name)
-    unary := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), operatorStart, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(operand))
-    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), keywordStart, 7, 0, builder.Source.Length, ColumnarRangePlannerChildren1(unary))
+    operand := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, name)
+    unary := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, operatorStart, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(operand))
+    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression, keywordStart, 7, 0, builder.Source.Length, ColumnarRangePlannerChildren1(unary))
     return MethodBodyFactsWrapValueInBody(builder, context, 0, "")
 }
 
@@ -2909,10 +2909,10 @@ func MethodBodyFactsCheckedNegatedIdentifierBody(name: string): ColumnarRangePla
 func MethodBodyFactsMalformedCheckedBody(spanned: bool, childCount: int): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     keywordStart := builder.AddToken("checked")
-    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "2")
+    left := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "2")
     operatorStart := builder.AddToken("+")
-    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "3")
-    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
+    right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "3")
+    binary := builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, 1, 0, builder.Source.Length, MethodBodyFactsInts2(left, right))
     children := new int[](0)
     if childCount == 1 {
         children = ColumnarRangePlannerChildren1(binary)
@@ -2925,7 +2925,7 @@ func MethodBodyFactsMalformedCheckedBody(spanned: bool, childCount: int): Column
         valueStart = -1
     }
 
-    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression(), valueStart, 7, 0, builder.Source.Length, children)
+    context := builder.AddNode(ColumnarExpressionNodeKind.CheckedContextExpression, valueStart, 7, 0, builder.Source.Length, children)
     return MethodBodyFactsWrapValueInBody(builder, context, 0, "")
 }
 
@@ -3003,8 +3003,8 @@ test "the door claims a checked binary and writes the overflow opcode" {
     assert plainUnsigned.OpCodeValues[2] == ColumnarCodePlanContract.Add()
 
     // And the kind is on the CLAIMED side of the partition now, which is what routes it here at all.
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CheckedContextExpression())
-    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CheckedContextExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.CheckedContextExpression)
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.CheckedContextExpression)
 }
 
 // ---- BLOCK 57 — `unchecked` IS THE SAME NODE AND THE OTHER DIRECTION ----
@@ -3021,7 +3021,7 @@ test "the unchecked keyword turns the same node back into the plain opcode" {
     // The DRIVER's own default is the same direction, which is why `unchecked` costs no rows: an
     // ordinary `return 2 + 3` and `return unchecked(2 + 3)` are the same four rows.
     bare := new ColumnarCodePlan()
-    assert MethodBodyFactsPlanCallBody(MethodBodyFactsBinaryBody("+", ColumnarExpressionNodeKind.IntLiteralExpression(), "2", ColumnarExpressionNodeKind.IntLiteralExpression(), "3"), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), bare)
+    assert MethodBodyFactsPlanCallBody(MethodBodyFactsBinaryBody("+", ColumnarExpressionNodeKind.IntLiteralExpression, "2", ColumnarExpressionNodeKind.IntLiteralExpression, "3"), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), bare)
     assert bare.OperationCount == plain.OperationCount
     assert bare.OpCodeValues[2] == plain.OpCodeValues[2]
 }
@@ -3073,8 +3073,8 @@ test "the checked context restores the flag it set, and the inner keyword wins" 
 test "the checked arm claims a parenthesised operand without losing the flag and refuses a unary over a non-literal" {
     parenthesised := new ColumnarCodePlan()
     assert MethodBodyFactsPlanCallBody(MethodBodyFactsCheckedOverParenthesisBody(), typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), parenthesised)
-    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression)
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression)
 
     // FOUR rows, not five: the parenthesis contributes NO row of its own, which is what "the host's
     // `case 7` is one recursive call" means in the IR.
@@ -3148,7 +3148,7 @@ test "the checked claim reaches the initializer door as well as the return door"
     tree := MethodBodyFactsCheckedBinaryBody("checked", "+", "2", "3")
     statement := tree.Nodes.Child(tree.Root, 0)
     context := tree.Nodes.Child(statement, 0)
-    assert tree.Nodes.Kind(context) == ColumnarExpressionNodeKind.CheckedContextExpression()
+    assert tree.Nodes.Kind(context) == ColumnarExpressionNodeKind.CheckedContextExpression
     assert !ColumnarMethodBodyPlanner.IsHostAdoptedReturnShape(tree.Nodes, tree.Source, context)
 
     returnPlan := new ColumnarCodePlan()
@@ -3186,13 +3186,13 @@ test "every fragment a door-claimed plan opens records the kind of its own sourc
     assert checkedPlan.FragmentCount > 0
     assert MethodBodyFactsFragmentKindsAgree(checkedTree, checkedPlan)
 
-    binaryTree := MethodBodyFactsBinaryBody("-", ColumnarExpressionNodeKind.IntLiteralExpression(), "9", ColumnarExpressionNodeKind.IntLiteralExpression(), "4")
+    binaryTree := MethodBodyFactsBinaryBody("-", ColumnarExpressionNodeKind.IntLiteralExpression, "9", ColumnarExpressionNodeKind.IntLiteralExpression, "4")
     binaryPlan := new ColumnarCodePlan()
     assert MethodBodyFactsPlanCallBody(binaryTree, typeof(int), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), binaryPlan)
     assert binaryPlan.FragmentCount > 0
     assert MethodBodyFactsFragmentKindsAgree(binaryTree, binaryPlan)
 
-    ternaryTree := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression(), "true", ColumnarExpressionNodeKind.IntLiteralExpression(), "7", ColumnarExpressionNodeKind.IntLiteralExpression(), "9")
+    ternaryTree := ConditionalTernaryLeafTree(ColumnarExpressionNodeKind.BoolLiteralExpression, "true", ColumnarExpressionNodeKind.IntLiteralExpression, "7", ColumnarExpressionNodeKind.IntLiteralExpression, "9")
     ternaryPlan := new ColumnarCodePlan()
     ternaryPlan.PrepareMethodBody()
     ternaryType := typeof(int)
@@ -3242,8 +3242,8 @@ test "every fragment a door-claimed plan opens records the kind of its own sourc
     // ⚠ NON-VACUITY. The walk must be able to FAIL, or a green line proves nothing about the property
     // it names. One fragment's recorded kind is overwritten in place with a kind its source node
     // demonstrably does not have, and the same walk answers false.
-    assert binaryPlan.FragmentKinds[0] == ColumnarExpressionNodeKind.BinaryExpression()
-    binaryPlan.FragmentKinds[0] = ColumnarExpressionNodeKind.TernaryExpression()
+    assert binaryPlan.FragmentKinds[0] == ColumnarExpressionNodeKind.BinaryExpression
+    binaryPlan.FragmentKinds[0] = ColumnarExpressionNodeKind.TernaryExpression
     assert !MethodBodyFactsFragmentKindsAgree(binaryTree, binaryPlan)
 }
 
@@ -3257,10 +3257,10 @@ func MethodBodyFactsMemberBody(receiverName: string, memberName: string, localNa
         nameStart = builder.AddToken(localName)
     }
 
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, receiverName)
     builder.AddToken(".")
     memberStart := builder.AddToken(memberName)
-    access := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    access := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
     return MethodBodyFactsWrapValueInBody(builder, access, nameStart, localName)
 }
 
@@ -3268,11 +3268,11 @@ func MethodBodyFactsMemberBody(receiverName: string, memberName: string, localNa
 // on the OUTER kind is testable rather than argued.
 func MethodBodyFactsParenthesisedMemberBody(receiverName: string, memberName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, receiverName)
     builder.AddToken(".")
     memberStart := builder.AddToken(memberName)
-    access := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
-    parenthesised := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(access))
+    access := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    parenthesised := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(access))
     return MethodBodyFactsWrapValueInBody(builder, parenthesised, 0, "")
 }
 
@@ -3281,17 +3281,17 @@ func MethodBodyFactsParenthesisedMemberBody(receiverName: string, memberName: st
 // from one that belongs to the member access.
 func MethodBodyFactsIndexedMemberBody(receiverName: string, memberName: string, binarySelector: bool): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
-    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "0")
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression, receiverName)
+    selector := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "0")
     if binarySelector {
         operatorStart := builder.AddToken("+")
-        right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
-        selector = builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression(), operatorStart, 1, operatorStart, 1, ColumnarRangePlannerChildren2(selector, right))
+        right := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
+        selector = builder.AddNode(ColumnarExpressionNodeKind.BinaryExpression, operatorStart, 1, operatorStart, 1, ColumnarRangePlannerChildren2(selector, right))
     }
 
-    access := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
+    access := builder.AddNode(ColumnarExpressionNodeKind.IndexAccessExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren2(receiver, selector))
     memberStart := builder.AddToken(memberName)
-    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(access))
+    root := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(access))
     return MethodBodyFactsWrapValueInBody(builder, root, 0, "")
 }
 
@@ -3300,10 +3300,10 @@ func MethodBodyFactsIndexedMemberBody(receiverName: string, memberName: string, 
 // for `S3`.
 func MethodBodyFactsLiteralReceiverMemberBody(literalText: string, memberName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression(), literalText)
+    receiver := builder.AddLeaf(ColumnarExpressionNodeKind.StringLiteralExpression, literalText)
     builder.AddToken(".")
     memberStart := builder.AddToken(memberName)
-    access := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
+    access := builder.AddNode(ColumnarExpressionNodeKind.MemberAccessExpression, memberStart, memberName.Length, 0, builder.Source.Length, ColumnarRangePlannerChildren1(receiver))
     return MethodBodyFactsWrapValueInBody(builder, access, 0, "")
 }
 
@@ -3365,8 +3365,8 @@ test "the door claims an SZ-array Length root and writes the owner's three rows"
     assert plan.OpCodeValues[3] == ColumnarCodePlanContract.Ret()
 
     // The kind moved sides, and the partition still holds for it.
-    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression())
-    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression())
+    assert ColumnarMethodBodyPlanner.IsClaimedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression)
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.MemberAccessExpression)
 }
 
 // The runtime-resolver receiver class, and the OTHER opcode: a reference receiver's property getter is
@@ -3424,7 +3424,7 @@ test "a parenthesised member-access root is claimed and costs no row of its own"
     tree := MethodBodyFactsParenthesisedMemberBody("values", "Length")
     plan := new ColumnarCodePlan()
     assert MethodBodyFactsPlanMemberBody(tree, typeof(int), "values", 0, typeof(byte[]), plan)
-    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression())
+    assert !ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.ParenthesizedExpression)
 
     // The unparenthesised twin's rows, exactly: `ldarg; ldlen; conv.i4; ret`.
     assert plan.OperationCount == 4
@@ -3494,7 +3494,7 @@ test "the door claims the member-access roots the cascade's external-static arm 
     ExternalStampScope(tree, "import System")
     statement := tree.Nodes.Child(tree.Root, 0)
     access := tree.Nodes.Child(statement, 0)
-    assert tree.Nodes.Kind(access) == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert tree.Nodes.Kind(access) == ColumnarExpressionNodeKind.MemberAccessExpression
 
     scratch := new ColumnarCodePlan()
     staticType := typeof(int)
@@ -3644,13 +3644,13 @@ test "a declined external static root leaves one open plan fit for the next owne
 // routes — `case 7`, and the cascade owner that claims the OUTER node because
 // `FacadeRootMayNeedFacts` and every `MayPlanRoot` unwrap first.
 func MethodBodyFactsParenthesise(builder: ColumnarRangePlannerNodeBuilder, inner: int): int {
-    return builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(inner))
+    return builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(inner))
 }
 
 // `{ return (<literal>) }` and `{ return ((<literal>)) }` — the nesting the recursion handles.
 func MethodBodyFactsParenthesisedLiteralBody(text: string, depth: int): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    node := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), text)
+    node := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, text)
     i := 0
     while i < depth {
         node = MethodBodyFactsParenthesise(builder, node)
@@ -3684,7 +3684,7 @@ test "the parenthesis root claims its child's rows and contributes none of its o
 // host does not write it.
 func MethodBodyFactsEmptyParenthesisBody(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    empty := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, new int[](0))
+    empty := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, 0, builder.Source.Length, new int[](0))
     return MethodBodyFactsWrapValueInBody(builder, empty, 0, "")
 }
 
@@ -3700,7 +3700,7 @@ test "a parenthesis with no child declines the body and leaves the plan untouche
 // `emit.expression.unhandled-kind`, node kind 5).
 func MethodBodyFactsParenthesisedNullBody(): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
-    literal := builder.AddLeaf(ColumnarExpressionNodeKind.NullLiteralExpression(), "null")
+    literal := builder.AddLeaf(ColumnarExpressionNodeKind.NullLiteralExpression, "null")
     return MethodBodyFactsWrapValueInBody(builder, MethodBodyFactsParenthesise(builder, literal), 0, "")
 }
 
@@ -3708,7 +3708,7 @@ test "a parenthesised declined kind is still declined through the parenthesis" {
     plan := new ColumnarCodePlan()
     assert !MethodBodyFactsPlanCallBody(MethodBodyFactsParenthesisedNullBody(), typeof(string), MethodBodyFactsNoSourceTypes(), MethodBodyFactsNoSiblings(), plan)
     assert plan.OperationCount == 0
-    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.NullLiteralExpression())
+    assert ColumnarMethodBodyPlanner.IsDeclinedExpressionKind(ColumnarExpressionNodeKind.NullLiteralExpression)
 }
 
 // THE CLAIM REACHES BOTH DOORS, as every claimed kind before it does. The RETURN door runs
@@ -3719,8 +3719,8 @@ test "a parenthesised declined kind is still declined through the parenthesis" {
 func MethodBodyFactsParenthesisedNegativeLiteralBody(text: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     operatorStart := builder.AddToken("-")
-    literal := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), text)
-    unary := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression(), operatorStart, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(literal))
+    literal := builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, text)
+    unary := builder.AddNode(ColumnarExpressionNodeKind.UnaryExpression, operatorStart, 1, 0, builder.Source.Length, ColumnarRangePlannerChildren1(literal))
     return MethodBodyFactsWrapValueInBody(builder, MethodBodyFactsParenthesise(builder, unary), 0, "")
 }
 
@@ -3762,7 +3762,7 @@ func MethodBodyFactsTypeOfBody(typeName: string): ColumnarRangePlannerTestTree {
     builder.AddToken("typeof(")
     name := builder.AddLeaf(0, typeName)
     builder.AddToken(")")
-    node := builder.AddNode(ColumnarExpressionNodeKind.TypeOfExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(name))
+    node := builder.AddNode(ColumnarExpressionNodeKind.TypeOfExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(name))
     return MethodBodyFactsWrapValueInBody(builder, node, 0, "")
 }
 
@@ -3838,8 +3838,8 @@ test "a parenthesised typeof root is claimed through both new arms" {
     builder.AddToken("typeof(")
     name := builder.AddLeaf(0, "int")
     builder.AddToken(")")
-    node := builder.AddNode(ColumnarExpressionNodeKind.TypeOfExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(name))
-    wrapped := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression(), -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(node))
+    node := builder.AddNode(ColumnarExpressionNodeKind.TypeOfExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(name))
+    wrapped := builder.AddNode(ColumnarExpressionNodeKind.ParenthesizedExpression, -1, 0, 0, builder.Source.Length, ColumnarRangePlannerChildren1(node))
     tree := MethodBodyFactsWrapValueInBody(builder, wrapped, 0, "")
 
     plan := new ColumnarCodePlan()

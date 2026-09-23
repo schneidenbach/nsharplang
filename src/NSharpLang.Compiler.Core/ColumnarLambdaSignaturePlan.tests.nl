@@ -20,7 +20,7 @@ func LambdaSignatureTree(paramNames: string[], paramKinds: int[], out lambdaNode
         index = index + 1
     }
 
-    childArray[paramNames.Length] = builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression(), "1")
+    childArray[paramNames.Length] = builder.AddLeaf(ColumnarExpressionNodeKind.IntLiteralExpression, "1")
     // Kind 39 is the parser's lambda node; the signature planner never reads the lambda node's own
     // text, so a -1 value span is fine, matching the emitter's contract.
     lambdaNode = builder.AddNode(39, -1, 0, 0, builder.Source.Length, childArray)
@@ -31,7 +31,7 @@ func LambdaSignatureIdentifierKinds(count: int): int[] {
     kinds := new int[](count)
     index := 0
     while index < count {
-        kinds[index] = ColumnarExpressionNodeKind.IdentifierExpression()
+        kinds[index] = ColumnarExpressionNodeKind.IdentifierExpression
         index = index + 1
     }
 
@@ -161,7 +161,7 @@ test "contextual-lambda signature declines a non-identifier parameter node" {
     names := new string[](1)
     names[0] = "1"
     kinds := new int[](1)
-    kinds[0] = ColumnarExpressionNodeKind.IntLiteralExpression()
+    kinds[0] = ColumnarExpressionNodeKind.IntLiteralExpression
     lambdaNode := 0
     tree := LambdaSignatureTree(names, kinds, out lambdaNode)
 
