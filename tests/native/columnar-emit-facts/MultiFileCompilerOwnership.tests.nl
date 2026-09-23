@@ -269,8 +269,12 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     // nine: which referenced assemblies named this project in an `InternalsVisibleTo`. It is carried
     // out of here so the read-only queries — completion, first — can ask the SAME
     // `InternalsVisibleToGrants` the analyzer asked instead of answering the public surface only.
-    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 10
-    propertyNames := new string[](10)
+    // THE ELEVENTH IS NOT A READING OF THE COMPILATION BUT AN INSTRUCTION TO IT:
+    // `EmitReferenceAssembly` asks the compiler to write the SURFACE of what it emits beside the
+    // implementation, which is what MSBuild's `ProduceReferenceAssembly` needs and what `nlc build`
+    // does not, so it is settable like `AotMode` and defaults off.
+    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 11
+    propertyNames := new string[](11)
     propertyNames[0] = "CompilationUnits"
     propertyNames[1] = "SemanticModels"
     propertyNames[2] = "AllErrors"
@@ -281,6 +285,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     propertyNames[7] = "SystemsReport"
     propertyNames[8] = "AotMode"
     propertyNames[9] = "FriendGrants"
+    propertyNames[10] = "EmitReferenceAssembly"
     propertyIndex := 0
     while propertyIndex < propertyNames.Length {
         property := MultiFileOwnerRequiredProperty(
@@ -288,7 +293,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
             propertyNames[propertyIndex]
         )
         assert property.get_CanRead(), propertyNames[propertyIndex]
-        if propertyNames[propertyIndex] == "AotMode" {
+        if propertyNames[propertyIndex] == "AotMode" || propertyNames[propertyIndex] == "EmitReferenceAssembly" {
             assert property.get_CanWrite()
         } else {
             assert !property.get_CanWrite(), propertyNames[propertyIndex]
@@ -328,6 +333,29 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
         declaredMethodIndex = declaredMethodIndex + 1
     }
     assert declaredMethodCount == 2
+
+    // The path the reference assembly is written to is the compiler's answer, not the build task's
+    // guess: one static reading of an output path, so the SDK task copies a file it did not choose
+    // the name of.
+    referencePathTypes := new Type[](1)
+    referencePathTypes[0] = typeof(string)
+    referencePath := MultiFileOwnerRequiredMethod(
+        owner.GetMethod("ReferenceAssemblyPathFor", referencePathTypes),
+        "ReferenceAssemblyPathFor"
+    )
+    assert referencePath.get_IsStatic()
+    assert referencePath.get_ReturnType() == typeof(string)
+
+    declaredStaticMethods := owner.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly)
+    declaredStaticCount := 0
+    declaredStaticIndex := 0
+    while declaredStaticIndex < declaredStaticMethods.Length {
+        if !declaredStaticMethods[declaredStaticIndex].get_IsSpecialName() {
+            declaredStaticCount = declaredStaticCount + 1
+        }
+        declaredStaticIndex = declaredStaticIndex + 1
+    }
+    assert declaredStaticCount == 1
 
     publicFields := owner.GetFields(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly)
     privateFields := owner.GetFields(BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)

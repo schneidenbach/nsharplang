@@ -133,23 +133,12 @@ test "the SDK emit task has one N# production owner and its exact MSBuild surfac
 test "all reference mutation and Cecil mechanics stay private to the N# task" {
     owner := EmitTaskOwnerType()
     privateMethods := owner.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
-    expected := new string[](16)
+    expected := new string[](5)
     expected[0] = "AddResolvedDllReferences"
     expected[1] = "IsOwnOutput"
     expected[2] = "SynchronizeReferenceAssembly"
-    expected[3] = "BuildReferenceTypeOwners"
-    expected[4] = "RecordDefinedTypes"
-    expected[5] = "GetOrAddAssemblyReference"
-    expected[6] = "RemoveUnusedCoreLibAssemblyReference"
-    expected[7] = "ScopeName"
-    expected[8] = "VersionText"
-    expected[9] = "LogCompilerDiagnostics"
-    expected[10] = "LogCompilerDiagnostic"
-    expected[11] = "MaterializeTypeReferences"
-    expected[12] = "ScanReferenceAssembly"
-    expected[13] = "RecordReferenceAssembly"
-    expected[14] = "RecordModuleDefinedTypes"
-    expected[15] = "RecordModuleForwarders"
+    expected[3] = "LogCompilerDiagnostics"
+    expected[4] = "LogCompilerDiagnostic"
     expectedIndex := 0
     while expectedIndex < expected.Length {
         matches := 0
@@ -174,4 +163,61 @@ test "all reference mutation and Cecil mechanics stay private to the N# task" {
         methodIndex = methodIndex + 1
     }
     assert privateOperationCount == expected.Length
+}
+
+// THE CECIL MECHANICS MOVED, AND THEY MOVED WHOLE. Every owner scan, rescope and assembly-reference
+// operation the task used to perform is now the reference-assembly WRITER's, in Compiler Core,
+// because a reference assembly is the compiler's output and not a build task's rewrite of one.
+test "the reference-assembly writer owns the surface pruning and the Cecil mechanics" {
+    writer := EmitTaskReferenceWriterType()
+    assert writer.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Core"
+    assert writer.get_IsPublic()
+
+    publicMethods := writer.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly)
+    publicOperationCount := 0
+    publicIndex := 0
+    while publicIndex < publicMethods.Length {
+        if !publicMethods[publicIndex].get_IsSpecialName() {
+            publicOperationCount = publicOperationCount + 1
+        }
+        publicIndex = publicIndex + 1
+    }
+    assert publicOperationCount == 1
+    tryWrite := EmitTaskRequiredWriterMethod("TryWrite", 4)
+    assert tryWrite.get_IsStatic()
+    assert tryWrite.get_ReturnType() == typeof(bool)
+
+    privateMethods := writer.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+    expected := new string[](10)
+    expected[0] = "BuildReferenceTypeOwners"
+    expected[1] = "ScanReferenceAssembly"
+    expected[2] = "RecordReferenceAssembly"
+    expected[3] = "RecordDefinedTypes"
+    expected[4] = "GetOrAddAssemblyReference"
+    expected[5] = "RemoveUnusedCoreLibAssemblyReference"
+    expected[6] = "PruneToSurface"
+    expected[7] = "ReplaceBodyWithThrowNull"
+    expected[8] = "ApplyReferenceAssemblyAttribute"
+    expected[9] = "RescopeTypeReferences"
+    expectedIndex := 0
+    while expectedIndex < expected.Length {
+        matches := 0
+        methodIndex := 0
+        while methodIndex < privateMethods.Length {
+            if privateMethods[methodIndex].get_Name() == expected[expectedIndex] {
+                matches = matches + 1
+            }
+            methodIndex = methodIndex + 1
+        }
+        assert matches == 1, expected[expectedIndex]
+        expectedIndex = expectedIndex + 1
+    }
+
+    methodIndex := 0
+    while methodIndex < privateMethods.Length {
+        if !privateMethods[methodIndex].get_IsSpecialName() {
+            assert privateMethods[methodIndex].get_IsPrivate(), privateMethods[methodIndex].get_Name()
+        }
+        methodIndex = methodIndex + 1
+    }
 }

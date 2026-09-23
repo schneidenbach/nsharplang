@@ -44,7 +44,7 @@ test "resolved DLL references retain input order while whitespace duplicates and
     }
 }
 
-test "the real Cecil scan keeps definitions over earlier forwarders and records nested owners while skipping malformed rows" {
+test "the writer Cecil scan keeps definitions over earlier forwarders and records nested owners while skipping malformed rows" {
     scratch := EmitTaskScratch("owner-scan")
     try {
         referencePack := EmitTaskReferencePackDirectory()
@@ -95,9 +95,6 @@ test "the real Cecil scan keeps definitions over earlier forwarders and records 
         File.WriteAllText(malformedPath, "this is deliberately not an assembly")
         File.Copy(definitionPath, ownOutputPath)
 
-        task := EmitTaskNewTask()
-        EmitTaskSetObjectProperty(task, "TargetAssemblyPath", ownOutputPath)
-        EmitTaskSetObjectProperty(task, "TargetReferenceAssemblyPath", Path.Combine(scratch, "refint.dll"))
         paths := new string[](9)
         paths[0] = "   "
         paths[1] = malformedPath
@@ -108,12 +105,14 @@ test "the real Cecil scan keeps definitions over earlier forwarders and records 
         paths[6] = Path.Combine(scratch, "missing.dll")
         paths[7] = ownOutputPath
         paths[8] = forwarderCaseVariantPath
-        EmitTaskSetReferences(task, paths)
 
-        arguments := new object?[](1)
-        EmitTaskPut(arguments, 0, null)
-        owners := EmitTaskInvokePrivate(task, "BuildReferenceTypeOwners", 1, arguments)
-        if owners == null || arguments[0] == null {
+        arguments := new object?[](4)
+        EmitTaskPut(arguments, 0, EmitTaskStringList(paths))
+        EmitTaskPut(arguments, 1, ownOutputPath)
+        EmitTaskPut(arguments, 2, Path.Combine(scratch, "refint.dll"))
+        EmitTaskPut(arguments, 3, null)
+        owners := EmitTaskInvokeWriter("BuildReferenceTypeOwners", 4, arguments)
+        if owners == null || arguments[3] == null {
             throw new InvalidOperationException("BuildReferenceTypeOwners returned incomplete state.")
         }
         definitionOwner := EmitTaskReferenceOwnersResolve(owners, "System.String")
@@ -124,7 +123,7 @@ test "the real Cecil scan keeps definitions over earlier forwarders and records 
         assert exactNestedOwner.StartsWith("CollectionOwner, Version=3.0.0.0"), exactNestedOwner
         assert EmitTaskReferenceOwnersResolve(owners, "System.Never.Exists") == null
 
-        ownerNames := EmitTaskRequiredObject(arguments[0], "owner-name map")
+        ownerNames := EmitTaskRequiredObject(arguments[3], "owner-name map")
         assert EmitTaskCollectionCount(ownerNames) == 3
         definitionIdentity := EmitTaskDictionaryValue(ownerNames, exactDefinitionOwner)
         if definitionIdentity == null {
@@ -133,18 +132,17 @@ test "the real Cecil scan keeps definitions over earlier forwarders and records 
         assert Convert.ToString(EmitTaskObjectProperty(definitionIdentity, "Culture")) == "fr-FR", Convert.ToString(EmitTaskObjectProperty(definitionIdentity, "Culture"))
         assert EmitTaskObjectByteArraysEqual(EmitTaskObjectProperty(definitionIdentity, "PublicKeyToken"), actualDefinitionToken), exactDefinitionOwner
 
-        forwarderOnly := EmitTaskNewTask()
-        EmitTaskSetObjectProperty(forwarderOnly, "TargetAssemblyPath", definitionPath)
-        EmitTaskSetObjectProperty(forwarderOnly, "TargetReferenceAssemblyPath", Path.Combine(scratch, "other-refint.dll"))
         forwarderPaths := new string[](4)
         forwarderPaths[0] = " "
         forwarderPaths[1] = forwarderPath
         forwarderPaths[2] = definitionPath
         forwarderPaths[3] = forwarderPath
-        EmitTaskSetReferences(forwarderOnly, forwarderPaths)
-        forwarderArguments := new object?[](1)
-        EmitTaskPut(forwarderArguments, 0, null)
-        forwarderOwners := EmitTaskInvokePrivate(forwarderOnly, "BuildReferenceTypeOwners", 1, forwarderArguments)
+        forwarderArguments := new object?[](4)
+        EmitTaskPut(forwarderArguments, 0, EmitTaskStringList(forwarderPaths))
+        EmitTaskPut(forwarderArguments, 1, definitionPath)
+        EmitTaskPut(forwarderArguments, 2, Path.Combine(scratch, "other-refint.dll"))
+        EmitTaskPut(forwarderArguments, 3, null)
+        forwarderOwners := EmitTaskInvokeWriter("BuildReferenceTypeOwners", 4, forwarderArguments)
         if forwarderOwners == null {
             throw new InvalidOperationException("Forwarder-only scan returned null.")
         }

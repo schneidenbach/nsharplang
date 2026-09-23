@@ -19,7 +19,7 @@ test "assembly identity lookup reuses the first exact row and copies culture and
         exactArguments := new object?[](2)
         EmitTaskPut(exactArguments, 0, module)
         EmitTaskPut(exactArguments, 1, exactOwner)
-        exact := EmitTaskInvokePrivate(null, "GetOrAddAssemblyReference", 2, exactArguments)
+        exact := EmitTaskInvokeWriter("GetOrAddAssemblyReference", 2, exactArguments)
         assert Object.ReferenceEquals(exact, first)
         assert EmitTaskCollectionCount(references) == 2
         assert Convert.ToString(EmitTaskObjectProperty(exact, "Culture")) == "en-US"
@@ -29,7 +29,7 @@ test "assembly identity lookup reuses the first exact row and copies culture and
         newArguments := new object?[](2)
         EmitTaskPut(newArguments, 0, module)
         EmitTaskPut(newArguments, 1, newOwner)
-        added := EmitTaskInvokePrivate(null, "GetOrAddAssemblyReference", 2, newArguments)
+        added := EmitTaskInvokeWriter("GetOrAddAssemblyReference", 2, newArguments)
         if added == null {
             throw new InvalidOperationException("GetOrAddAssemblyReference returned null for a new identity.")
         }
@@ -57,7 +57,7 @@ test "corelib cleanup removes every unused row in snapshot order and retains oth
         EmitTaskCollectionAdd(references, secondCore)
         arguments := new object?[](1)
         EmitTaskPut(arguments, 0, module)
-        ignored := EmitTaskInvokePrivate(null, "RemoveUnusedCoreLibAssemblyReference", 1, arguments)
+        ignored := EmitTaskInvokeWriter("RemoveUnusedCoreLibAssemblyReference", 1, arguments)
         _ = ignored
         assert EmitTaskCollectionCount(references) == 1
         assert Object.ReferenceEquals(EmitTaskCollectionItem(references, 0), retained)
@@ -82,7 +82,7 @@ test "corelib cleanup retains a real corelib row while a real TypeRef still uses
 
         arguments := new object?[](1)
         EmitTaskPut(arguments, 0, module)
-        ignored := EmitTaskInvokePrivate(null, "RemoveUnusedCoreLibAssemblyReference", 1, arguments)
+        ignored := EmitTaskInvokeWriter("RemoveUnusedCoreLibAssemblyReference", 1, arguments)
         _ = ignored
 
         assert Object.ReferenceEquals(EmitTaskFindAssemblyReference(module, "System.Private.CoreLib"), coreLibrary)
@@ -91,8 +91,11 @@ test "corelib cleanup retains a real corelib row while a real TypeRef still uses
     }
 }
 
-test "an empty owner scan copies implementation bytes and observes missing target before an invalid reference path" {
-    scratch := EmitTaskScratch("empty-owner-copy")
+// THE TASK NO LONGER REWRITES ANYTHING; IT COPIES. The compiler writes its surface beside the
+// implementation and the task places that file where MSBuild asked for it, falling back to the
+// implementation only when the compiler wrote no surface at all.
+test "the task copies the compiler's reference assembly and falls back to the implementation when none was written" {
+    scratch := EmitTaskScratch("reference-copy")
     try {
         sourceAssembly := typeof(SdkBoundaryRun).get_Assembly().get_Location()
         implementation := Path.Combine(scratch, "Implementation.dll")
@@ -100,34 +103,38 @@ test "an empty owner scan copies implementation bytes and observes missing targe
         File.Copy(sourceAssembly, implementation)
         originalBytes := File.ReadAllBytes(implementation)
 
-        task := EmitTaskNewTask()
-        EmitTaskSetObjectProperty(task, "TargetAssemblyPath", implementation)
-        EmitTaskSetObjectProperty(task, "TargetReferenceAssemblyPath", referenceOutput)
-        EmitTaskSetReferences(task, new string[](0))
+        fallbackTask := EmitTaskNewTask()
+        EmitTaskSetObjectProperty(fallbackTask, "TargetAssemblyPath", implementation)
+        EmitTaskSetObjectProperty(fallbackTask, "TargetReferenceAssemblyPath", referenceOutput)
+        EmitTaskSetReferences(fallbackTask, new string[](0))
         arguments := new object?[](0)
-        ignored := EmitTaskInvokePrivate(task, "SynchronizeReferenceAssembly", 0, arguments)
+        ignored := EmitTaskInvokePrivate(fallbackTask, "SynchronizeReferenceAssembly", 0, arguments)
         _ = ignored
         assert File.Exists(referenceOutput)
         assert EmitTaskBytesEqual(originalBytes, File.ReadAllBytes(referenceOutput))
+
+        emittedSurface := Path.Combine(Path.Combine(scratch, "nsharpref"), "Implementation.dll")
+        Directory.CreateDirectory(Path.GetDirectoryName(emittedSurface) ?? scratch)
+        surfaceBytes := EmitTaskByteArray([1, 2, 3, 4, 5])
+        File.WriteAllBytes(emittedSurface, surfaceBytes)
+        ignored = EmitTaskInvokePrivate(fallbackTask, "SynchronizeReferenceAssembly", 0, arguments)
+        _ = ignored
+        assert EmitTaskBytesEqual(surfaceBytes, File.ReadAllBytes(referenceOutput))
 
         missingTask := EmitTaskNewTask()
         EmitTaskSetObjectProperty(missingTask, "TargetAssemblyPath", Path.Combine(scratch, "missing.dll"))
         EmitTaskSetObjectProperty(missingTask, "TargetReferenceAssemblyPath", "\u0000invalid")
         ignored = EmitTaskInvokePrivate(missingTask, "SynchronizeReferenceAssembly", 0, arguments)
         _ = ignored
-
-        ioTask := EmitTaskNewTask()
-        EmitTaskSetObjectProperty(ioTask, "TargetAssemblyPath", implementation)
-        EmitTaskSetObjectProperty(ioTask, "TargetReferenceAssemblyPath", scratch)
-        captured := EmitTaskCapturePrivateFailure(ioTask, "SynchronizeReferenceAssembly", 0, arguments)
-        assert captured != null
-        assert captured is UnauthorizedAccessException
     } finally {
         Directory.Delete(scratch, true)
     }
 }
 
-test "reference synchronization rewrites a real corelib TypeRef to the defining reference identity" {
+// The rescope is the writer's, and it still happens: `PersistedAssemblyBuilder` scopes its type
+// references to the implementation core library, and a surface scoped there compiles against
+// nothing.
+test "the reference-assembly writer rewrites a real corelib TypeRef to the defining reference identity" {
     scratch := EmitTaskScratch("scope-rewrite")
     try {
         referencePack := EmitTaskReferencePackDirectory()
@@ -146,19 +153,32 @@ test "reference synchronization rewrites a real corelib TypeRef to the defining 
         referenceOutput := Path.Combine(Path.Combine(scratch, "refint"), "Implementation.dll")
         File.Copy(typeof(SdkBoundaryRun).get_Assembly().get_Location(), implementation)
 
-        task := EmitTaskNewTask()
-        EmitTaskSetObjectProperty(task, "TargetAssemblyPath", implementation)
-        EmitTaskSetObjectProperty(task, "TargetReferenceAssemblyPath", referenceOutput)
         ownerPaths := new string[](1)
         ownerPaths[0] = ownerPath
-        EmitTaskSetReferences(task, ownerPaths)
-        arguments := new object?[](0)
-        ignored := EmitTaskInvokePrivate(task, "SynchronizeReferenceAssembly", 0, arguments)
-        _ = ignored
+        arguments := new object?[](4)
+        EmitTaskPut(arguments, 0, implementation)
+        EmitTaskPut(arguments, 1, referenceOutput)
+        EmitTaskPut(arguments, 2, EmitTaskStringList(ownerPaths))
+        EmitTaskPut(arguments, 3, false)
+        written := EmitTaskInvokeWriter("TryWrite", 4, arguments)
+        assert Convert.ToBoolean(written)
         assert File.Exists(referenceOutput)
         assert !EmitTaskBytesEqual(File.ReadAllBytes(implementation), File.ReadAllBytes(referenceOutput))
+        assert File.ReadAllBytes(referenceOutput).Length < File.ReadAllBytes(implementation).Length
 
         EmitTaskAssertRewriteOutput(referenceOutput, actualOwnerToken)
+
+        // The same input written twice is the same file: the module version id and the timestamp
+        // are derived from the content, not from the clock.
+        secondOutput := Path.Combine(Path.Combine(scratch, "refint2"), "Implementation.dll")
+        repeatArguments := new object?[](4)
+        EmitTaskPut(repeatArguments, 0, implementation)
+        EmitTaskPut(repeatArguments, 1, secondOutput)
+        EmitTaskPut(repeatArguments, 2, EmitTaskStringList(ownerPaths))
+        EmitTaskPut(repeatArguments, 3, false)
+        repeated := EmitTaskInvokeWriter("TryWrite", 4, repeatArguments)
+        assert Convert.ToBoolean(repeated)
+        assert EmitTaskBytesEqual(File.ReadAllBytes(referenceOutput), File.ReadAllBytes(secondOutput))
     } finally {
         Directory.Delete(scratch, true)
     }

@@ -115,6 +115,46 @@ func EmitTaskRequiredPrivateMethod(name: string, parameterCount: int): MethodInf
     return selected
 }
 
+// The reference-assembly writer is the Compiler Core owner the Cecil mechanics moved to; its rows
+// reach it exactly the way the task's rows reach the task.
+func EmitTaskReferenceWriterType(): Type {
+    return SdkTaskOwnerType("NSharpLang.Compiler.ColumnarReferenceAssemblyWriter")
+}
+
+func EmitTaskRequiredWriterMethod(name: string, parameterCount: int): MethodInfo {
+    methods := EmitTaskReferenceWriterType().GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+    selected: MethodInfo? = null
+    matches := 0
+    index := 0
+    while index < methods.Length {
+        method := methods[index]
+        if method.get_Name() == name && method.GetParameters().Length == parameterCount {
+            selected = method
+            matches = matches + 1
+        }
+        index = index + 1
+    }
+    if selected == null || matches != 1 {
+        throw new InvalidOperationException("Expected one writer " + name + "/" + parameterCount.ToString() + " method.")
+    }
+    return selected
+}
+
+func EmitTaskInvokeWriter(name: string, parameterCount: int, arguments: object?[]): object? {
+    return EmitTaskInvoke(null, EmitTaskRequiredWriterMethod(name, parameterCount), arguments)
+}
+
+// `IReadOnlyList<string>` is what the writer takes where the task took `ITaskItem[]`.
+func EmitTaskStringList(values: string[]): object {
+    list := new System.Collections.Generic.List<string>()
+    index := 0
+    while index < values.Length {
+        list.Add(values[index])
+        index = index + 1
+    }
+    return list
+}
+
 func EmitTaskRequiredProperty(owner: Type, name: string): PropertyInfo {
     property := owner.GetProperty(name)
     if property == null {
@@ -699,12 +739,16 @@ func EmitTaskCapturePrivateFailure(receiver: object?, name: string, parameterCou
     return null
 }
 
+// `System.Type` rather than `System.String`: a surface encodes `string` with the primitive
+// `ELEMENT_TYPE_STRING` and needs no TypeRef for it once the method bodies that called
+// `String::Concat` are gone, while a non-primitive corelib type in a signature is still a TypeRef
+// and is what the rescope has to move.
 func EmitTaskAssertRewriteOutput(path: string, ownerToken: object?) {
     output := EmitTaskReadAssembly(path)
     try {
-        stringReference := EmitTaskFindTypeReference(output, "System.String")
+        stringReference := EmitTaskFindTypeReference(output, "System.Type")
         if stringReference == null {
-            throw new InvalidOperationException("The emitted fixture contained no System.String TypeRef.")
+            throw new InvalidOperationException("The emitted fixture contained no System.Type TypeRef.")
         }
         assert EmitTaskTypeReferenceScopeName(stringReference) == "ReferenceOwner"
         module := EmitTaskObjectProperty(output, "MainModule")

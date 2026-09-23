@@ -47,6 +47,7 @@ class MultiFileCompiler {
     private readonly _performanceFacts: PerformanceFactStore
     private _systemsReport: SystemsReport
     private _aotMode: bool
+    private _emitReferenceAssembly: bool
 
     CompilationUnits: IReadOnlyDictionary<string, CompilationUnit> => _compilationUnits
     SemanticModels: IReadOnlyDictionary<string, SemanticModel> => _semanticModels
@@ -72,6 +73,26 @@ class MultiFileCompiler {
         set {
             _aotMode = value
         }
+    }
+
+    // THE REFERENCE ASSEMBLY IS THE COMPILER'S OUTPUT, NOT THE BUILD TASK'S REWRITE. A caller that
+    // needs one — the MSBuild SDK, which is the only consumer MSBuild's `ProduceReferenceAssembly`
+    // serves — asks for it here and reads it back from `ReferenceAssemblyPathFor`. `nlc build` asks
+    // for nothing, so the CLI path pays nothing.
+    EmitReferenceAssembly: bool {
+        get {
+            return _emitReferenceAssembly
+        }
+        set {
+            _emitReferenceAssembly = value
+        }
+    }
+
+    // Beside the implementation, in a directory only the compiler writes, so that the build task's
+    // copy into `obj/…/refint/` is a copy of a finished file and never a second rewrite of one.
+    static func ReferenceAssemblyPathFor(outputPath: string): string {
+        directory := Path.GetDirectoryName(Path.GetFullPath(outputPath)) ?? ""
+        return Path.Combine(directory, "nsharpref", Path.GetFileName(outputPath))
     }
 
     constructor(projectRoot: string, config: ProjectConfig? = null): this(projectRoot, config, null) {
@@ -106,7 +127,7 @@ class MultiFileCompiler {
         _performanceFacts = new PerformanceFactStore()
         _systemsReport = MultiFileCompilerSystemsReport.Empty(null)
         _aotMode = false
-
+        _emitReferenceAssembly = false
         _projectRoot = projectRoot
         _config = config ?? ProjectFileParser.CreateDefault(null)
         _preprocessorSymbols = inputs.PreprocessorSymbols
@@ -600,6 +621,40 @@ class MultiFileCompiler {
             return false
         }
         File.WriteAllBytes(outputPath, assembly)
+        return TryEmitReferenceAssembly(outputPath, referenceAssemblyPaths)
+    }
+
+    // The surface of what was just emitted, written only when a caller asked for one.
+    private func TryEmitReferenceAssembly(outputPath: string, referenceAssemblyPaths: IReadOnlyList<string>): bool {
+        if !_emitReferenceAssembly {
+            return true
+        }
+
+        keepInternals := false
+        grantsConfig := _config
+        if grantsConfig != null {
+            declaredGrants := grantsConfig.InternalsVisibleTo
+            if declaredGrants != null && declaredGrants.Count > 0 {
+                keepInternals = true
+            }
+        }
+
+        if !ColumnarReferenceAssemblyWriter.TryWrite(
+            outputPath,
+            MultiFileCompiler.ReferenceAssemblyPathFor(outputPath),
+            referenceAssemblyPaths,
+            keepInternals
+        ) {
+            ColumnarDeclineTrace.Record(
+                "emit.reference-assembly",
+                "the reference assembly for '" + Path.GetFileName(outputPath) + "' could not be written",
+                -1,
+                0,
+                ""
+            )
+            return false
+        }
+
         return true
     }
 
