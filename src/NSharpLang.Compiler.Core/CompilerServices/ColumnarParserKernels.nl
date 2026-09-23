@@ -10462,6 +10462,39 @@ func ParserDeclarationSourceSpansEqual(source: string, leftStart: int, leftLengt
     return true
 }
 
+// THE SAME SCAN, ONCE. Eight functions -- `ColumnarStructFieldNamesDistinct`,
+// `ColumnarStructBaseNamesDistinct`, `ColumnarStructTypeParameterNamesDistinct`,
+// `ColumnarUnionCaseNamesDistinct`, `ColumnarUnionTypeParameterNamesDistinct`,
+// `ColumnarEnumMemberNamesDistinct`, `FunctionSignatureTypeParameterNamesDistinctCore` and
+// `FunctionSignatureParameterNamesDistinctCore` -- were the same twenty-five lines over a different
+// pair of span columns on a different scratch table. The columns are `int[]`, so they are ordinary
+// arguments; the table each pair lives on is the caller's business, not this scan's.
+func ParserDeclarationNameSpansDistinct(source: string, starts: int[], lengths: int[], count: int): int {
+    if count < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < count {
+        if starts[i] < 0 || lengths[i] <= 0 {
+            return 0
+        }
+
+        j := i + 1
+        while j < count {
+            if ParserDeclarationSourceSpansEqual(source, starts[i], lengths[i], starts[j], lengths[j]) {
+                return 0
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
 func ParserDeclarationDottedNameSpanAfter(tokens: ParserDeclarationTokenTable, count: int, nameStartIndex: int, result: ParserDeclarationResultTable): int {
     if result.Values.Length < 2 {
         return -1
@@ -12906,12 +12939,12 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
     }
 
     declaredTypeParamNames := new FunctionSignatureNameSpanTable(typeParams.Starts, typeParams.Lengths)
-    if FunctionSignatureTypeParameterNamesDistinctCore(source, declaredTypeParamNames, typeParamCount) == 0 {
+    if ParserDeclarationNameSpansDistinct(source, declaredTypeParamNames.Starts, declaredTypeParamNames.Lengths, typeParamCount) == 0 {
         return -1
     }
 
     declaredParamNames := new FunctionSignatureNameSpanTable(parameters.NameStarts, parameters.NameLengths)
-    if FunctionSignatureParameterNamesDistinctCore(source, declaredParamNames, paramCount) == 0 {
+    if ParserDeclarationNameSpansDistinct(source, declaredParamNames.Starts, declaredParamNames.Lengths, paramCount) == 0 {
         return -1
     }
 
@@ -13319,7 +13352,7 @@ func FunctionSignatureWhereOwnerIndicesCore(source: string, typeParams: Function
 func FunctionSignatureTypeParameterIndexOfCore(source: string, typeParams: FunctionSignatureNameSpanTable, typeParamCount: int, nameStart: int, nameLength: int): int {
     i := 0
     while i < typeParamCount {
-        if FunctionSignatureSourceSpansEqual(source, typeParams.Starts[i], typeParams.Lengths[i], nameStart, nameLength) {
+        if ParserDeclarationSourceSpansEqual(source, typeParams.Starts[i], typeParams.Lengths[i], nameStart, nameLength) {
             return i
         }
 
@@ -13327,58 +13360,6 @@ func FunctionSignatureTypeParameterIndexOfCore(source: string, typeParams: Funct
     }
 
     return -1
-}
-
-func FunctionSignatureTypeParameterNamesDistinctCore(source: string, typeParams: FunctionSignatureNameSpanTable, typeParamCount: int): int {
-    if typeParamCount < 0 {
-        return 0
-    }
-
-    i := 0
-    while i < typeParamCount {
-        if typeParams.Starts[i] < 0 || typeParams.Lengths[i] <= 0 {
-            return 0
-        }
-
-        j := i + 1
-        while j < typeParamCount {
-            if FunctionSignatureSourceSpansEqual(source, typeParams.Starts[i], typeParams.Lengths[i], typeParams.Starts[j], typeParams.Lengths[j]) {
-                return 0
-            }
-
-            j = j + 1
-        }
-
-        i = i + 1
-    }
-
-    return 1
-}
-
-func FunctionSignatureParameterNamesDistinctCore(source: string, parameters: FunctionSignatureNameSpanTable, paramCount: int): int {
-    if paramCount < 0 {
-        return 0
-    }
-
-    i := 0
-    while i < paramCount {
-        if parameters.Starts[i] < 0 || parameters.Lengths[i] <= 0 {
-            return 0
-        }
-
-        j := i + 1
-        while j < paramCount {
-            if FunctionSignatureSourceSpansEqual(source, parameters.Starts[i], parameters.Lengths[i], parameters.Starts[j], parameters.Lengths[j]) {
-                return 0
-            }
-
-            j = j + 1
-        }
-
-        i = i + 1
-    }
-
-    return 1
 }
 
 func FunctionSignatureSpanText(source: string, start: int, length: int): string {
@@ -13579,27 +13560,6 @@ func FunctionSignatureOperatorClrName(kind: int, paramCount: int): string {
     }
 
     return ""
-}
-
-func FunctionSignatureSourceSpansEqual(source: string, leftStart: int, leftLength: int, rightStart: int, rightLength: int): bool {
-    if leftStart < 0 || rightStart < 0 || leftLength != rightLength {
-        return false
-    }
-
-    if leftStart + leftLength > source.Length || rightStart + rightLength > source.Length {
-        return false
-    }
-
-    i := 0
-    while i < leftLength {
-        if source[leftStart + i] != source[rightStart + i] {
-            return false
-        }
-
-        i = i + 1
-    }
-
-    return true
 }
 
 // THE `where` CLAUSE SCAN, WRITTEN ONCE FOR EVERY DECLARATION THAT CAN CARRY ONE.
@@ -14266,7 +14226,7 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
     }
 
     declaredInterfaceTypeParamNames := new FunctionSignatureNameSpanTable(declaration.TypeParamStarts, declaration.TypeParamLengths)
-    if FunctionSignatureTypeParameterNamesDistinctCore(source, declaredInterfaceTypeParamNames, typeParamCount) == 0 {
+    if ParserDeclarationNameSpansDistinct(source, declaredInterfaceTypeParamNames.Starts, declaredInterfaceTypeParamNames.Lengths, typeParamCount) == 0 {
         return -1
     }
 
@@ -14672,7 +14632,7 @@ func ColumnarFunctionLocalFunctionNamesDistinct(source: string, tokens: Columnar
                 return 0
             }
 
-            if ColumnarFunctionSourceSpansEqual(source, tokens.Starts[nameToken], tokens.ValueLengths[nameToken], tokens.Starts[otherNameToken], tokens.ValueLengths[otherNameToken]) {
+            if ParserDeclarationSourceSpansEqual(source, tokens.Starts[nameToken], tokens.ValueLengths[nameToken], tokens.Starts[otherNameToken], tokens.ValueLengths[otherNameToken]) {
                 return 0
             }
 
@@ -14683,27 +14643,6 @@ func ColumnarFunctionLocalFunctionNamesDistinct(source: string, tokens: Columnar
     }
 
     return 1
-}
-
-func ColumnarFunctionSourceSpansEqual(source: string, leftStart: int, leftLength: int, rightStart: int, rightLength: int): bool {
-    if leftStart < 0 || rightStart < 0 || leftLength != rightLength {
-        return false
-    }
-
-    if leftStart + leftLength > source.Length || rightStart + rightLength > source.Length {
-        return false
-    }
-
-    i := 0
-    while i < leftLength {
-        if source[leftStart + i] != source[rightStart + i] {
-            return false
-        }
-
-        i = i + 1
-    }
-
-    return true
 }
 
 func ParseColumnarConstructorInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outParamNameTexts: string[], outParamTypeTexts: string[], outParamLabeledTypeTexts: string[], outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outArgTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
@@ -15270,15 +15209,15 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
         return -1
     }
 
-    if ColumnarStructTypeParameterNamesDistinct(source, scratch, typeParamCount) == 0 {
+    if ParserDeclarationNameSpansDistinct(source, scratch.TypeParamStarts, scratch.TypeParamLengths, typeParamCount) == 0 {
         return -1
     }
 
-    if ColumnarStructFieldNamesDistinct(source, scratch, fieldCount) == 0 {
+    if ParserDeclarationNameSpansDistinct(source, scratch.FieldNameStarts, scratch.FieldNameLengths, fieldCount) == 0 {
         return -1
     }
 
-    if ColumnarStructBaseNamesDistinct(source, scratch, baseNameCount) == 0 {
+    if ParserDeclarationNameSpansDistinct(source, scratch.BaseNameStarts, scratch.BaseNameLengths, baseNameCount) == 0 {
         return -1
     }
 
@@ -15904,58 +15843,6 @@ func ColumnarStructNameMatchesTypeParamText(source: string, scratch: ColumnarStr
     return false
 }
 
-func ColumnarStructFieldNamesDistinct(source: string, scratch: ColumnarStructScratchTable, fieldCount: int): int {
-    if fieldCount < 0 {
-        return 0
-    }
-
-    i := 0
-    while i < fieldCount {
-        if scratch.FieldNameStarts[i] < 0 || scratch.FieldNameLengths[i] <= 0 {
-            return 0
-        }
-
-        j := i + 1
-        while j < fieldCount {
-            if ParserDeclarationSourceSpansEqual(source, scratch.FieldNameStarts[i], scratch.FieldNameLengths[i], scratch.FieldNameStarts[j], scratch.FieldNameLengths[j]) {
-                return 0
-            }
-
-            j = j + 1
-        }
-
-        i = i + 1
-    }
-
-    return 1
-}
-
-func ColumnarStructBaseNamesDistinct(source: string, scratch: ColumnarStructScratchTable, baseNameCount: int): int {
-    if baseNameCount < 0 {
-        return 0
-    }
-
-    i := 0
-    while i < baseNameCount {
-        if scratch.BaseNameStarts[i] < 0 || scratch.BaseNameLengths[i] <= 0 {
-            return 0
-        }
-
-        j := i + 1
-        while j < baseNameCount {
-            if ParserDeclarationSourceSpansEqual(source, scratch.BaseNameStarts[i], scratch.BaseNameLengths[i], scratch.BaseNameStarts[j], scratch.BaseNameLengths[j]) {
-                return 0
-            }
-
-            j = j + 1
-        }
-
-        i = i + 1
-    }
-
-    return 1
-}
-
 func ColumnarStructOperatorMemberName(kind: int): string {
     if kind == 44 {
         return "operator true"
@@ -16268,32 +16155,6 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: ColumnarS
     return 1
 }
 
-func ColumnarStructTypeParameterNamesDistinct(source: string, scratch: ColumnarStructScratchTable, typeParamCount: int): int {
-    if typeParamCount < 0 {
-        return 0
-    }
-
-    i := 0
-    while i < typeParamCount {
-        if scratch.TypeParamStarts[i] < 0 || scratch.TypeParamLengths[i] <= 0 {
-            return 0
-        }
-
-        j := i + 1
-        while j < typeParamCount {
-            if ParserDeclarationSourceSpansEqual(source, scratch.TypeParamStarts[i], scratch.TypeParamLengths[i], scratch.TypeParamStarts[j], scratch.TypeParamLengths[j]) {
-                return 0
-            }
-
-            j = j + 1
-        }
-
-        i = i + 1
-    }
-
-    return 1
-}
-
 func ParseColumnarUnionInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameTexts: string[], outCaseFieldCounts: int[], outFieldNameTexts: string[], outFieldTypeTexts: string[], outTypeParamTexts: string[], outUnionNameTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[]): int {
     tokens := new ColumnarUnionTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
     scratch := new ColumnarUnionScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
@@ -16324,11 +16185,11 @@ func ParseColumnarUnionInfoCore(source: string, tokens: ColumnarUnionTokenTable,
         return -1
     }
 
-    if ColumnarUnionTypeParameterNamesDistinct(source, scratch, typeParamCount) == 0 {
+    if ParserDeclarationNameSpansDistinct(source, scratch.TypeParamStarts, scratch.TypeParamLengths, typeParamCount) == 0 {
         return -1
     }
 
-    if ColumnarUnionCaseNamesDistinct(source, scratch, caseCount) == 0 {
+    if ParserDeclarationNameSpansDistinct(source, scratch.CaseNameStarts, scratch.CaseNameLengths, caseCount) == 0 {
         return -1
     }
 
@@ -16416,32 +16277,6 @@ func ParseColumnarUnionInfoCore(source: string, tokens: ColumnarUnionTokenTable,
     return caseCount
 }
 
-func ColumnarUnionCaseNamesDistinct(source: string, scratch: ColumnarUnionScratchTable, caseCount: int): int {
-    if caseCount < 0 {
-        return 0
-    }
-
-    i := 0
-    while i < caseCount {
-        if scratch.CaseNameStarts[i] < 0 || scratch.CaseNameLengths[i] <= 0 {
-            return 0
-        }
-
-        j := i + 1
-        while j < caseCount {
-            if ParserDeclarationSourceSpansEqual(source, scratch.CaseNameStarts[i], scratch.CaseNameLengths[i], scratch.CaseNameStarts[j], scratch.CaseNameLengths[j]) {
-                return 0
-            }
-
-            j = j + 1
-        }
-
-        i = i + 1
-    }
-
-    return 1
-}
-
 func ColumnarUnionCaseFieldNamesDistinct(source: string, scratch: ColumnarUnionScratchTable, outputs: ColumnarUnionTextOutputTable, caseCount: int): int {
     if caseCount < 0 {
         return 0
@@ -16511,32 +16346,6 @@ func ColumnarUnionIsValueStructEmittable(caseFieldCounts: int[], caseCount: int,
     return 1
 }
 
-func ColumnarUnionTypeParameterNamesDistinct(source: string, scratch: ColumnarUnionScratchTable, typeParamCount: int): int {
-    if typeParamCount < 0 {
-        return 0
-    }
-
-    i := 0
-    while i < typeParamCount {
-        if scratch.TypeParamStarts[i] < 0 || scratch.TypeParamLengths[i] <= 0 {
-            return 0
-        }
-
-        j := i + 1
-        while j < typeParamCount {
-            if ParserDeclarationSourceSpansEqual(source, scratch.TypeParamStarts[i], scratch.TypeParamLengths[i], scratch.TypeParamStarts[j], scratch.TypeParamLengths[j]) {
-                return 0
-            }
-
-            j = j + 1
-        }
-
-        i = i + 1
-    }
-
-    return 1
-}
-
 func ParseColumnarEnumInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameTexts: string[], outMemberValues: int[], outMemberStringValues: string[], outEnumNameTexts: string[], outResult: int[], outMemberDeclTokens: int[]): int {
     tokens := new ColumnarEnumTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
     scratch := new ColumnarEnumMemberScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), outMemberDeclTokens)
@@ -16554,7 +16363,7 @@ func ParseColumnarEnumInfoCore(source: string, tokens: ColumnarEnumTokenTable, e
         return -1
     }
 
-    if ColumnarEnumMemberNamesDistinct(source, scratch, memberCount) == 0 {
+    if ParserDeclarationNameSpansDistinct(source, scratch.NameStarts, scratch.NameLengths, memberCount) == 0 {
         return -1
     }
 
@@ -16698,32 +16507,6 @@ func ColumnarEnumStringMemberValues(source: string, scratch: ColumnarEnumMemberS
     }
 
     return true
-}
-
-func ColumnarEnumMemberNamesDistinct(source: string, scratch: ColumnarEnumMemberScratchTable, memberCount: int): int {
-    if memberCount < 0 {
-        return 0
-    }
-
-    i := 0
-    while i < memberCount {
-        if scratch.NameStarts[i] < 0 || scratch.NameLengths[i] <= 0 {
-            return 0
-        }
-
-        j := i + 1
-        while j < memberCount {
-            if ParserDeclarationSourceSpansEqual(source, scratch.NameStarts[i], scratch.NameLengths[i], scratch.NameStarts[j], scratch.NameLengths[j]) {
-                return 0
-            }
-
-            j = j + 1
-        }
-
-        i = i + 1
-    }
-
-    return 1
 }
 
 func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outMethodParamModifierKinds: int[], outTypeParamTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[], outEventNameTexts: string[], outEventTypeTexts: string[], outPropertyNameTexts: string[], outPropertyTypeTexts: string[]): int {

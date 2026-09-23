@@ -2091,13 +2091,13 @@ class ColumnarCodePlan {
     func EnsureOperationCapacity(minimum: int) {
         if OperationKinds == null || OperationKinds.Length < minimum || OpCodeValues == null || OpCodeValues.Length < minimum || OperandKinds == null || OperandKinds.Length < minimum || OperandIndices == null || OperandIndices.Length < minimum || OperationOwnerFragmentIndices == null || OperationOwnerFragmentIndices.Length < minimum {
             capacity := NextCapacity(OperationKinds == null ? 0 : OperationKinds.Length, minimum)
-            OperationKinds = GrowIntArray(OperationKinds, capacity)
-            OpCodeValues = GrowShortArray(OpCodeValues, capacity)
-            OperandKinds = GrowIntArray(OperandKinds, capacity)
+            OperationKinds = GrowArray(OperationKinds, capacity)
+            OpCodeValues = GrowArray(OpCodeValues, capacity)
+            OperandKinds = GrowArray(OperandKinds, capacity)
             oldLength := OperandIndices == null ? 0 : OperandIndices.Length
-            OperandIndices = GrowIntArray(OperandIndices, capacity)
+            OperandIndices = GrowArray(OperandIndices, capacity)
             ownerOldLength := OperationOwnerFragmentIndices == null ? 0 : OperationOwnerFragmentIndices.Length
-            OperationOwnerFragmentIndices = GrowIntArray(OperationOwnerFragmentIndices, capacity)
+            OperationOwnerFragmentIndices = GrowArray(OperationOwnerFragmentIndices, capacity)
             i := oldLength
             while i < capacity {
                 OperandIndices[i] = -1
@@ -2121,130 +2121,149 @@ class ColumnarCodePlan {
                 current = TypeUsesStructuralReference.Length
             }
             capacity := NextCapacity(current, minimum)
-            Types = GrowTypeArray(Types, capacity)
-            TypeStructuralReferences = GrowStructuralTypeReferenceArray(TypeStructuralReferences, capacity)
-            TypeUsesStructuralReference = GrowBoolArray(TypeUsesStructuralReference, capacity)
+            Types = GrowArray(Types, capacity)
+            TypeStructuralReferences = GrowArray(TypeStructuralReferences, capacity)
+            TypeUsesStructuralReference = GrowArray(TypeUsesStructuralReference, capacity)
         }
     }
 
     func EnsureInt32Capacity(minimum: int) {
         if Int32Values == null || Int32Values.Length < minimum {
-            Int32Values = GrowIntArray(Int32Values, NextCapacity(Int32Values == null ? 0 : Int32Values.Length, minimum))
+            Int32Values = GrowArray(Int32Values, NextCapacity(Int32Values == null ? 0 : Int32Values.Length, minimum))
         }
     }
 
     func EnsureInt64Capacity(minimum: int) {
         if Int64Values == null || Int64Values.Length < minimum {
-            Int64Values = GrowLongArray(Int64Values, NextCapacity(Int64Values == null ? 0 : Int64Values.Length, minimum))
+            Int64Values = GrowArray(Int64Values, NextCapacity(Int64Values == null ? 0 : Int64Values.Length, minimum))
         }
     }
 
     func EnsureSingleCapacity(minimum: int) {
         if SingleValues == null || SingleValues.Length < minimum {
-            SingleValues = GrowFloatArray(SingleValues, NextCapacity(SingleValues == null ? 0 : SingleValues.Length, minimum))
+            SingleValues = GrowArray(SingleValues, NextCapacity(SingleValues == null ? 0 : SingleValues.Length, minimum))
         }
     }
 
     func EnsureDoubleCapacity(minimum: int) {
         if DoubleValues == null || DoubleValues.Length < minimum {
-            DoubleValues = GrowDoubleArray(DoubleValues, NextCapacity(DoubleValues == null ? 0 : DoubleValues.Length, minimum))
+            DoubleValues = GrowArray(DoubleValues, NextCapacity(DoubleValues == null ? 0 : DoubleValues.Length, minimum))
         }
     }
 
     func EnsureStringCapacity(minimum: int) {
         if StringValues == null || StringValues.Length < minimum {
-            StringValues = GrowStringArray(StringValues, NextCapacity(StringValues == null ? 0 : StringValues.Length, minimum))
+            StringValues = GrowArray(StringValues, NextCapacity(StringValues == null ? 0 : StringValues.Length, minimum))
         }
     }
 
     func EnsureArgumentCapacity(minimum: int) {
         if ArgumentOrdinals == null || ArgumentOrdinals.Length < minimum || ArgumentTypeIndices == null || ArgumentTypeIndices.Length < minimum || ArgumentIsAddress == null || ArgumentIsAddress.Length < minimum {
             capacity := NextCapacity(ArgumentOrdinals == null ? 0 : ArgumentOrdinals.Length, minimum)
-            ArgumentOrdinals = GrowIntArray(ArgumentOrdinals, capacity)
-            ArgumentTypeIndices = GrowIntArray(ArgumentTypeIndices, capacity)
-            ArgumentIsAddress = GrowBoolArray(ArgumentIsAddress, capacity)
+            ArgumentOrdinals = GrowArray(ArgumentOrdinals, capacity)
+            ArgumentTypeIndices = GrowArray(ArgumentTypeIndices, capacity)
+            ArgumentIsAddress = GrowArray(ArgumentIsAddress, capacity)
         }
     }
 
     func EnsureAmbientLocalCapacity(minimum: int) {
         if AmbientLocals == null || AmbientLocals.Length < minimum {
-            AmbientLocals = GrowLocalArray(AmbientLocals, NextCapacity(AmbientLocals == null ? 0 : AmbientLocals.Length, minimum))
+            AmbientLocals = GrowArray(AmbientLocals, NextCapacity(AmbientLocals == null ? 0 : AmbientLocals.Length, minimum))
         }
     }
 
     func EnsureMethodCapacity(minimum: int) {
         if Methods == null || Methods.Length < minimum || MethodUsesDeclaredSignature == null || MethodUsesDeclaredSignature.Length < minimum || MethodDeclaringTypes == null || MethodDeclaringTypes.Length < minimum || MethodReturnTypes == null || MethodReturnTypes.Length < minimum || MethodParameterTypes == null || MethodParameterTypes.Length < minimum || MethodModifiedSignatureSources == null || MethodModifiedSignatureSources.Length < minimum || MethodIsStatic == null || MethodIsStatic.Length < minimum || MethodIsAbstract == null || MethodIsAbstract.Length < minimum {
             capacity := NextCapacity(Methods == null ? 0 : Methods.Length, minimum)
-            Methods = GrowMethodArray(Methods, capacity)
-            MethodUsesDeclaredSignature = GrowBoolArray(MethodUsesDeclaredSignature, capacity)
-            MethodDeclaringTypes = GrowTypeArray(MethodDeclaringTypes, capacity)
-            MethodReturnTypes = GrowTypeArray(MethodReturnTypes, capacity)
-            MethodParameterTypes = GrowTypeArrayArray(MethodParameterTypes, capacity)
-            MethodModifiedSignatureSources = GrowNullableMethodArray(MethodModifiedSignatureSources, capacity)
-            MethodIsStatic = GrowBoolArray(MethodIsStatic, capacity)
-            MethodIsAbstract = GrowBoolArray(MethodIsAbstract, capacity)
+            Methods = GrowArray(Methods, capacity)
+            MethodUsesDeclaredSignature = GrowArray(MethodUsesDeclaredSignature, capacity)
+            MethodDeclaringTypes = GrowArray(MethodDeclaringTypes, capacity)
+            MethodReturnTypes = GrowArray(MethodReturnTypes, capacity)
+            MethodParameterTypes = GrowArray(MethodParameterTypes, capacity)
+            MethodModifiedSignatureSources = GrowArray(MethodModifiedSignatureSources, capacity)
+            MethodIsStatic = GrowArray(MethodIsStatic, capacity)
+            MethodIsAbstract = GrowArray(MethodIsAbstract, capacity)
         }
     }
 
     func EnsureConstructorCapacity(minimum: int) {
         if Constructors == null || Constructors.Length < minimum || ConstructorUsesDeclaredSignature == null || ConstructorUsesDeclaredSignature.Length < minimum || ConstructorDeclaringTypes == null || ConstructorDeclaringTypes.Length < minimum || ConstructorParameterTypes == null || ConstructorParameterTypes.Length < minimum || ConstructorParameterOutFlags == null || ConstructorParameterOutFlags.Length < minimum {
             capacity := NextCapacity(Constructors == null ? 0 : Constructors.Length, minimum)
-            Constructors = GrowConstructorArray(Constructors, capacity)
-            ConstructorUsesDeclaredSignature = GrowBoolArray(ConstructorUsesDeclaredSignature, capacity)
-            ConstructorDeclaringTypes = GrowTypeArray(ConstructorDeclaringTypes, capacity)
-            ConstructorParameterTypes = GrowTypeArrayArray(ConstructorParameterTypes, capacity)
-            ConstructorParameterOutFlags = GrowBoolArrayArray(ConstructorParameterOutFlags, capacity)
+            Constructors = GrowArray(Constructors, capacity)
+            ConstructorUsesDeclaredSignature = GrowArray(ConstructorUsesDeclaredSignature, capacity)
+            ConstructorDeclaringTypes = GrowArray(ConstructorDeclaringTypes, capacity)
+            ConstructorParameterTypes = GrowArray(ConstructorParameterTypes, capacity)
+            ConstructorParameterOutFlags = GrowArray(ConstructorParameterOutFlags, capacity)
         }
     }
 
     func EnsureFieldCapacity(minimum: int) {
         if Fields == null || Fields.Length < minimum || FieldUsesDeclaredSignature == null || FieldUsesDeclaredSignature.Length < minimum || FieldDeclaringTypes == null || FieldDeclaringTypes.Length < minimum || FieldValueTypes == null || FieldValueTypes.Length < minimum || FieldIsStatic == null || FieldIsStatic.Length < minimum {
             capacity := NextCapacity(Fields == null ? 0 : Fields.Length, minimum)
-            Fields = GrowFieldArray(Fields, capacity)
-            FieldUsesDeclaredSignature = GrowBoolArray(FieldUsesDeclaredSignature, capacity)
-            FieldDeclaringTypes = GrowTypeArray(FieldDeclaringTypes, capacity)
-            FieldValueTypes = GrowTypeArray(FieldValueTypes, capacity)
-            FieldIsStatic = GrowBoolArray(FieldIsStatic, capacity)
+            Fields = GrowArray(Fields, capacity)
+            FieldUsesDeclaredSignature = GrowArray(FieldUsesDeclaredSignature, capacity)
+            FieldDeclaringTypes = GrowArray(FieldDeclaringTypes, capacity)
+            FieldValueTypes = GrowArray(FieldValueTypes, capacity)
+            FieldIsStatic = GrowArray(FieldIsStatic, capacity)
         }
     }
 
     func EnsurePlanLocalCapacity(minimum: int) {
         if PlanLocalTypeIndices == null || PlanLocalTypeIndices.Length < minimum || PlanLocalIsMirror == null || PlanLocalIsMirror.Length < minimum {
             capacity := NextCapacity(PlanLocalTypeIndices == null ? 0 : PlanLocalTypeIndices.Length, minimum)
-            PlanLocalTypeIndices = GrowIntArray(PlanLocalTypeIndices, capacity)
-            PlanLocalIsMirror = GrowBoolArray(PlanLocalIsMirror, capacity)
+            PlanLocalTypeIndices = GrowArray(PlanLocalTypeIndices, capacity)
+            PlanLocalIsMirror = GrowArray(PlanLocalIsMirror, capacity)
         }
     }
 
     func EnsureFragmentCapacity(minimum: int) {
         if FragmentOperationStarts == null || FragmentOperationStarts.Length < minimum || FragmentOperationCounts == null || FragmentOperationCounts.Length < minimum || FragmentParentIndices == null || FragmentParentIndices.Length < minimum || FragmentKinds == null || FragmentKinds.Length < minimum || FragmentSourceNodeIndices == null || FragmentSourceNodeIndices.Length < minimum || FragmentResultTypes == null || FragmentResultTypes.Length < minimum || FragmentCompleted == null || FragmentCompleted.Length < minimum {
             capacity := NextCapacity(FragmentOperationStarts == null ? 0 : FragmentOperationStarts.Length, minimum)
-            FragmentOperationStarts = GrowIntArray(FragmentOperationStarts, capacity)
-            FragmentOperationCounts = GrowIntArray(FragmentOperationCounts, capacity)
-            FragmentParentIndices = GrowIntArray(FragmentParentIndices, capacity)
-            FragmentKinds = GrowIntArray(FragmentKinds, capacity)
-            FragmentSourceNodeIndices = GrowIntArray(FragmentSourceNodeIndices, capacity)
-            FragmentResultTypes = GrowTypeArray(FragmentResultTypes, capacity)
-            FragmentCompleted = GrowBoolArray(FragmentCompleted, capacity)
+            FragmentOperationStarts = GrowArray(FragmentOperationStarts, capacity)
+            FragmentOperationCounts = GrowArray(FragmentOperationCounts, capacity)
+            FragmentParentIndices = GrowArray(FragmentParentIndices, capacity)
+            FragmentKinds = GrowArray(FragmentKinds, capacity)
+            FragmentSourceNodeIndices = GrowArray(FragmentSourceNodeIndices, capacity)
+            FragmentResultTypes = GrowArray(FragmentResultTypes, capacity)
+            FragmentCompleted = GrowArray(FragmentCompleted, capacity)
         }
     }
 
     func EnsureOpenFragmentCapacity(minimum: int) {
         if OpenFragmentIndices == null || OpenFragmentIndices.Length < minimum {
-            OpenFragmentIndices = GrowIntArray(OpenFragmentIndices, NextCapacity(OpenFragmentIndices == null ? 0 : OpenFragmentIndices.Length, minimum))
+            OpenFragmentIndices = GrowArray(OpenFragmentIndices, NextCapacity(OpenFragmentIndices == null ? 0 : OpenFragmentIndices.Length, minimum))
         }
     }
 
     func EnsureBranchCapacity(minimum: int) {
         if BranchParentIndices == null || BranchParentIndices.Length < minimum {
             oldLength := BranchParentIndices == null ? 0 : BranchParentIndices.Length
-            BranchParentIndices = GrowIntArray(BranchParentIndices, NextCapacity(oldLength, minimum))
+            BranchParentIndices = GrowArray(BranchParentIndices, NextCapacity(oldLength, minimum))
             i := oldLength
             while i < BranchParentIndices.Length {
                 BranchParentIndices[i] = -1
                 i += 1
             }
         }
+    }
+
+    // ONE WALK FOR EVERY COLUMN. This was sixteen functions -- `GrowIntArray`, `GrowShortArray`,
+    // `GrowLongArray`, `GrowFloatArray`, `GrowDoubleArray`, `GrowStringArray`, `GrowBoolArray`,
+    // `GrowTypeArray`, `GrowStructuralTypeReferenceArray`, `GrowTypeArrayArray`,
+    // `GrowBoolArrayArray`, `GrowLocalArray`, `GrowMethodArray`, `GrowNullableMethodArray`,
+    // `GrowConstructorArray`, `GrowFieldArray` -- whose thirteen-line bodies differed in nothing
+    // but the element type they named three times. The element type is what a type parameter is for.
+    static func GrowArray<T>(values: T[], capacity: int): T[] {
+        result := new T[](capacity)
+        if values != null {
+            count := values.Length < capacity ? values.Length : capacity
+            i := 0
+            while i < count {
+                result[i] = values[i]
+                i += 1
+            }
+        }
+        return result
     }
 
     static func NextCapacity(current: int, minimum: int): int {
@@ -2259,213 +2278,5 @@ class ColumnarCodePlan {
             capacity *= 2
         }
         return capacity
-    }
-
-    static func GrowIntArray(values: int[], capacity: int): int[] {
-        result := new int[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowShortArray(values: short[], capacity: int): short[] {
-        result := new short[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowLongArray(values: long[], capacity: int): long[] {
-        result := new long[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowFloatArray(values: float[], capacity: int): float[] {
-        result := new float[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowDoubleArray(values: double[], capacity: int): double[] {
-        result := new double[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowStringArray(values: string[], capacity: int): string[] {
-        result := new string[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowBoolArray(values: bool[], capacity: int): bool[] {
-        result := new bool[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowTypeArray(values: Type[], capacity: int): Type[] {
-        result := new Type[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowStructuralTypeReferenceArray(values: ColumnarStructuralTypePoolEntry?[], capacity: int): ColumnarStructuralTypePoolEntry?[] {
-        result := new ColumnarStructuralTypePoolEntry?[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowTypeArrayArray(values: Type[][], capacity: int): Type[][] {
-        result := new Type[][](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowBoolArrayArray(values: bool[][], capacity: int): bool[][] {
-        result := new bool[][](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowLocalArray(values: LocalBuilder[], capacity: int): LocalBuilder[] {
-        result := new LocalBuilder[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowMethodArray(values: MethodInfo[], capacity: int): MethodInfo[] {
-        result := new MethodInfo[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowNullableMethodArray(values: MethodInfo?[], capacity: int): MethodInfo?[] {
-        result := new MethodInfo?[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowConstructorArray(values: ConstructorInfo[], capacity: int): ConstructorInfo[] {
-        result := new ConstructorInfo[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
-    }
-
-    static func GrowFieldArray(values: FieldInfo[], capacity: int): FieldInfo[] {
-        result := new FieldInfo[](capacity)
-        if values != null {
-            count := values.Length < capacity ? values.Length : capacity
-            i := 0
-            while i < count {
-                result[i] = values[i]
-                i += 1
-            }
-        }
-        return result
     }
 }

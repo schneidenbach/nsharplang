@@ -595,14 +595,14 @@ class ColumnarProgramInput {
         tests := new List<ColumnarTestInput>()
 
         for program in programs {
-            AddFunctions(functions, program.Functions)
-            AddEnums(enums, program.Enums)
-            AddStructs(structs, program.Structs)
-            AddUnions(unions, program.Unions)
-            AddInterfaces(interfaces, program.Interfaces)
+            AddAll(functions, program.Functions)
+            AddAll(enums, program.Enums)
+            AddAll(structs, program.Structs)
+            AddAll(unions, program.Unions)
+            AddAll(interfaces, program.Interfaces)
             programTests := program.Tests
             if programTests != null {
-                AddTests(tests, programTests)
+                AddAll(tests, programTests)
             }
         }
 
@@ -928,47 +928,19 @@ class ColumnarProgramInput {
         }
     }
 
+    // ONE APPEND. `AddFunctions`, `AddTests`, `AddEnums`, `AddStructs`, `AddUnions` and
+    // `AddInterfaces` were the same three-line loop over a different element type.
+    static func AddAll<T>(target: List<T>, source: IReadOnlyList<T>) {
+        for sourceItem in source {
+            target.Add(sourceItem)
+        }
+    }
+
     static func GetFirstSource(sourceFiles: ColumnarSourceFile[]): string {
         if sourceFiles.Length == 0 {
             return ""
         }
 
         return sourceFiles[0].Source
-    }
-
-    static func AddFunctions(target: List<ColumnarFunctionInput>, source: IReadOnlyList<ColumnarFunctionInput>) {
-        for sourceItem in source {
-            target.Add(sourceItem)
-        }
-    }
-
-    static func AddTests(target: List<ColumnarTestInput>, source: IReadOnlyList<ColumnarTestInput>) {
-        for sourceItem in source {
-            target.Add(sourceItem)
-        }
-    }
-
-    static func AddEnums(target: List<ColumnarEnumInput>, source: IReadOnlyList<ColumnarEnumInput>) {
-        for sourceItem in source {
-            target.Add(sourceItem)
-        }
-    }
-
-    static func AddStructs(target: List<ColumnarStructInput>, source: IReadOnlyList<ColumnarStructInput>) {
-        for sourceItem in source {
-            target.Add(sourceItem)
-        }
-    }
-
-    static func AddUnions(target: List<ColumnarUnionInput>, source: IReadOnlyList<ColumnarUnionInput>) {
-        for sourceItem in source {
-            target.Add(sourceItem)
-        }
-    }
-
-    static func AddInterfaces(target: List<ColumnarInterfaceInput>, source: IReadOnlyList<ColumnarInterfaceInput>) {
-        for sourceItem in source {
-            target.Add(sourceItem)
-        }
     }
 }
