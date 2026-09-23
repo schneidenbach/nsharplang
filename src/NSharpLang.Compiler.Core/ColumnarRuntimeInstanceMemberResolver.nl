@@ -47,7 +47,7 @@ class ColumnarRuntimeInstanceMemberSelection {
 // below. Selection completes before a code plan emits the receiver, so every false result is atomic.
 class ColumnarRuntimeInstanceMemberResolver {
     static func CanOwnReceiver(receiverType: Type): bool {
-        if receiverType == null || IsSourceBuilderShape(receiverType) || receiverType.get_IsByRef() || receiverType.get_IsGenericTypeDefinition() || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) {
+        if receiverType == null || IsSourceBuilderShape(receiverType) || receiverType.IsByRef || receiverType.IsGenericTypeDefinition || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) {
             return false
         }
 
@@ -140,7 +140,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return false
         }
 
-        if !receiverType.get_IsValueType() || receiverType.get_HasElementType() || receiverType.get_IsPointer() || receiverType.get_IsEnum() {
+        if !receiverType.IsValueType || receiverType.HasElementType || receiverType.IsPointer || receiverType.IsEnum {
             return false
         }
 
@@ -159,7 +159,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     // value-type rows above each carry that decision. Arrays are excluded because their members are
     // the array arm's, and anything builder-bound is excluded because it is source, not external.
     static func IsOrdinaryExternalReferenceReceiver(receiverType: Type): bool {
-        if receiverType == null || receiverType.get_IsValueType() || receiverType.get_HasElementType() || receiverType.get_IsPointer() {
+        if receiverType == null || receiverType.IsValueType || receiverType.HasElementType || receiverType.IsPointer {
             return false
         }
 
@@ -179,17 +179,17 @@ class ColumnarRuntimeInstanceMemberResolver {
         // any reflection question directly, which is why nothing below this point reads a property of
         // it that is not routed through that rebind.
         if RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) {
-            if !receiverType.get_IsGenericType() || receiverType.get_IsGenericTypeDefinition() {
+            if !receiverType.IsGenericType || receiverType.IsGenericTypeDefinition {
                 return false
             }
 
             // The DEFINITION answers what kind of type this is, because a constructed generic the CLR
             // has no handle for cannot be asked directly.
             builderBoundDefinition := receiverType.GetGenericTypeDefinition()
-            return builderBoundDefinition.get_IsClass() || builderBoundDefinition.get_IsInterface()
+            return builderBoundDefinition.IsClass || builderBoundDefinition.IsInterface
         }
 
-        return receiverType.get_IsClass() || receiverType.get_IsInterface()
+        return receiverType.IsClass || receiverType.IsInterface
     }
 
     // THE LINQ-TO-XML RECEIVERS THE DOC WALK HOLDS. Matched by exact metadata name, for the same
@@ -207,7 +207,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     // the receiver's own assembly is stronger than a load-context lookup: it cannot answer with a
     // same-named type from somewhere else.
     static func RequiredXmlLinqType(receiverType: Type, fullName: string): Type {
-        return RequiredAssemblyType(receiverType.get_Assembly(), fullName)
+        return RequiredAssemblyType(receiverType.Assembly, fullName)
     }
 
     static func TrySelect(receiverType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
@@ -327,7 +327,7 @@ class ColumnarRuntimeInstanceMemberResolver {
         }
 
         if receiverType == typeof(IList) && member == "Count" {
-            collectionType := RequiredAssemblyType(typeof(object).get_Assembly(), "System.Collections.ICollection")
+            collectionType := RequiredAssemblyType(typeof(object).Assembly, "System.Collections.ICollection")
 
             return TrySelectExpectedProperty(receiverType, collectionType, member, typeof(int), out selection)
         }
@@ -469,10 +469,10 @@ class ColumnarRuntimeInstanceMemberResolver {
             field = receiverType.GetField(member, OrdinaryMemberFlags(allowInheritedProtected, receiverType))
         }
         if field != null {
-            declaringType := field.get_DeclaringType()
-            fieldType := field.get_FieldType()
-            if IsReachableInheritedLevel(MemberAccessibility.LevelOfField(field), allowInheritedProtected, declaringType) && !field.get_IsStatic() && !field.get_IsLiteral() && declaringType != null && ReceiverMatchesDeclaringType(receiverType, declaringType) && IsOrdinaryReadableResultType(fieldType) {
-                selectedField := new ColumnarRuntimeInstanceMemberSelection(true, declaringType, fieldType, field, null, !receiverType.get_IsValueType())
+            declaringType := field.DeclaringType
+            fieldType := field.FieldType
+            if IsReachableInheritedLevel(MemberAccessibility.LevelOfField(field), allowInheritedProtected, declaringType) && !field.IsStatic && !field.IsLiteral && declaringType != null && ReceiverMatchesDeclaringType(receiverType, declaringType) && IsOrdinaryReadableResultType(fieldType) {
+                selectedField := new ColumnarRuntimeInstanceMemberSelection(true, declaringType, fieldType, field, null, !receiverType.IsValueType)
                 selectedField.PreserveDirectValueStorage = true
                 selection = selectedField
                 return true
@@ -486,7 +486,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return false
         }
 
-        selectedProperty := new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, !receiverType.get_IsValueType())
+        selectedProperty := new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, !receiverType.IsValueType)
         selectedProperty.PreserveDirectValueStorage = true
         selection = selectedProperty
         return true
@@ -512,22 +512,22 @@ class ColumnarRuntimeInstanceMemberResolver {
         if RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) {
             definition := receiverType.GetGenericTypeDefinition()
             openField := definition.GetField(member)
-            if openField == null || !openField.get_IsPublic() || openField.get_IsStatic() || openField.get_IsLiteral() {
+            if openField == null || !openField.IsPublic || openField.IsStatic || openField.IsLiteral {
                 return false
             }
             field = TypeBuilder.GetField(receiverType, openField)
-            resultType = SubstituteClosedTypeArguments(openField.get_FieldType(), receiverType.GetGenericArguments())
+            resultType = SubstituteClosedTypeArguments(openField.FieldType, receiverType.GetGenericArguments())
         } else {
             field = receiverType.GetField(member)
             if field != null {
-                resultType = field.get_FieldType()
+                resultType = field.FieldType
             }
         }
-        if field == null || !field.get_IsPublic() || field.get_IsStatic() || field.get_IsLiteral() {
+        if field == null || !field.IsPublic || field.IsStatic || field.IsLiteral {
             return false
         }
 
-        declaringType := field.get_DeclaringType()
+        declaringType := field.DeclaringType
         if declaringType == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatches(declaringType, receiverType) || !IsSelectableResultType(resultType) {
             return false
         }
@@ -546,7 +546,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return false
         }
 
-        receiverIsReference := !receiverType.get_IsValueType()
+        receiverIsReference := !receiverType.IsValueType
         selection = new ColumnarRuntimeInstanceMemberSelection(false, declaringType, expectedResultType, null, getter, receiverIsReference)
 
         return true
@@ -572,7 +572,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return false
         }
 
-        receiverIsReference := !receiverType.get_IsValueType()
+        receiverIsReference := !receiverType.IsValueType
         selection = new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, receiverIsReference)
 
         return true
@@ -592,7 +592,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if !lookupType.get_IsInterface() {
+        if !lookupType.IsInterface {
             return false
         }
 
@@ -631,7 +631,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return lookupType.GetInterfaces()
         }
 
-        if !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() {
+        if !lookupType.IsGenericType || lookupType.IsGenericTypeDefinition {
             return new Type[](0)
         }
 
@@ -647,7 +647,7 @@ class ColumnarRuntimeInstanceMemberResolver {
         while index < openInterfaces.Length {
             closed := SubstituteClosedTypeArguments(openInterfaces[index], arguments)
             index = index + 1
-            if closed == null || closed.get_IsGenericTypeDefinition() {
+            if closed == null || closed.IsGenericTypeDefinition {
                 continue
             }
             closedInterfaces.Add(closed)
@@ -699,7 +699,7 @@ class ColumnarRuntimeInstanceMemberResolver {
 
         signatureGetter: MethodInfo? = null
         if RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) {
-            if !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() {
+            if !lookupType.IsGenericType || lookupType.IsGenericTypeDefinition {
                 return false
             }
 
@@ -724,7 +724,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             }
 
             getter = (MethodInfo)rebound
-            resultType = SubstituteClosedTypeArguments(property.get_PropertyType(), lookupType.GetGenericArguments())
+            resultType = SubstituteClosedTypeArguments(property.PropertyType, lookupType.GetGenericArguments())
         } else {
             property := lookupType.GetProperty(member, OrdinaryMemberFlags(allowInheritedProtected, lookupType))
             if property == null {
@@ -737,16 +737,16 @@ class ColumnarRuntimeInstanceMemberResolver {
             }
 
             getter = signatureGetter
-            resultType = property.get_PropertyType()
+            resultType = property.PropertyType
         }
 
         exactGetter := getter
-        if exactGetter == null || !IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(exactGetter), allowInheritedProtected, exactGetter.get_DeclaringType()) || exactGetter.get_IsStatic() {
+        if exactGetter == null || !IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(exactGetter), allowInheritedProtected, exactGetter.DeclaringType) || exactGetter.IsStatic {
             getter = null
             return false
         }
 
-        exactDeclaringType := exactGetter.get_DeclaringType()
+        exactDeclaringType := exactGetter.DeclaringType
         if exactDeclaringType == null {
             getter = null
             return false
@@ -754,8 +754,8 @@ class ColumnarRuntimeInstanceMemberResolver {
 
         declaringType = exactDeclaringType
 
-        actualReturn := exactGetter.get_ReturnType()
-        if lookupType.get_IsGenericType() && !lookupType.get_IsGenericTypeDefinition() {
+        actualReturn := exactGetter.ReturnType
+        if lookupType.IsGenericType && !lookupType.IsGenericTypeDefinition {
             actualReturn = SubstituteClosedTypeArguments(actualReturn, lookupType.GetGenericArguments())
         }
 
@@ -772,7 +772,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func ValidatePublicGetterSignature(getter: MethodInfo, allowInheritedProtected: bool): bool {
-        if getter == null || !IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(getter), allowInheritedProtected, getter.get_DeclaringType()) || getter.get_IsStatic() || getter.get_IsGenericMethodDefinition() || getter.get_ReturnType().get_IsByRef() {
+        if getter == null || !IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(getter), allowInheritedProtected, getter.DeclaringType) || getter.IsStatic || getter.IsGenericMethodDefinition || getter.ReturnType.IsByRef {
             return false
         }
 
@@ -785,7 +785,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if receiverType.get_IsValueType() || declaringType.get_IsValueType() {
+        if receiverType.IsValueType || declaringType.IsValueType {
             return false
         }
 
@@ -812,7 +812,7 @@ class ColumnarRuntimeInstanceMemberResolver {
 
     static func TryGetInheritedCountOwner(receiverType: Type, out countOwner: Type): bool {
         countOwner = typeof(object)
-        if !receiverType.get_IsGenericType() || receiverType.get_IsGenericTypeDefinition() {
+        if !receiverType.IsGenericType || receiverType.IsGenericTypeDefinition {
             return false
         }
 
@@ -840,7 +840,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsSelectableResultType(valueType: Type): bool {
-        return valueType != null && valueType.FullName != "System.Void" && !valueType.get_IsByRef() && !valueType.get_IsGenericTypeDefinition()
+        return valueType != null && valueType.FullName != "System.Void" && !valueType.IsByRef && !valueType.IsGenericTypeDefinition
     }
 
     static func IsSourceBuilderShape(valueType: Type): bool {
@@ -848,7 +848,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
             return false
         }
 
@@ -857,9 +857,9 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func SubstituteClosedTypeArguments(signatureType: Type, closedArguments: Type[]): Type {
-        if signatureType.get_IsGenericParameter() {
-            if signatureType.get_DeclaringMethod() == null {
-                position := signatureType.get_GenericParameterPosition()
+        if signatureType.IsGenericParameter {
+            if signatureType.DeclaringMethod == null {
+                position := signatureType.GenericParameterPosition
                 if position >= 0 && position < closedArguments.Length {
                     return closedArguments[position]
                 }
@@ -871,7 +871,7 @@ class ColumnarRuntimeInstanceMemberResolver {
         // A `ref`/`out` slot in an open signature is `T&`, and substituting through it is the whole
         // point: without this arm the method returned the UNSUBSTITUTED `T&` and the caller compared a
         // closed argument against an open parameter.
-        if signatureType.get_IsByRef() {
+        if signatureType.IsByRef {
             byRefElement := signatureType.GetElementType()
             if byRefElement == null {
                 return signatureType
@@ -896,8 +896,8 @@ class ColumnarRuntimeInstanceMemberResolver {
         // names no storage. Its arguments ARE the owner's type parameters, so the ordinary
         // by-position substitution below closes it; a definition whose parameters this
         // instantiation does not cover substitutes to itself and is rejected downstream as before.
-        if signatureType.get_IsGenericType() {
-            definition := signatureType.get_IsGenericTypeDefinition() ? signatureType : signatureType.GetGenericTypeDefinition()
+        if signatureType.IsGenericType {
+            definition := signatureType.IsGenericTypeDefinition ? signatureType : signatureType.GetGenericTypeDefinition()
             arguments := signatureType.GetGenericArguments()
             substituted := new Type[](arguments.Length)
             index := 0
@@ -914,7 +914,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsSupportedTaskReceiver(valueType: Type): bool {
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
             return false
         }
 
@@ -924,13 +924,13 @@ class ColumnarRuntimeInstanceMemberResolver {
     // The BARE `Task` a unit async function answers with. Read by name because the pinned
     // toolset's `typeof` surface does not carry the non-generic task types.
     static func IsSupportedUnitTaskReceiver(valueType: Type): bool {
-        return valueType == RequiredAssemblyType(typeof(object).get_Assembly(), "System.Threading.Tasks.Task")
+        return valueType == RequiredAssemblyType(typeof(object).Assembly, "System.Threading.Tasks.Task")
     }
 
     static func IsSupportedNullableReceiver(valueType: Type): bool {
-        nullableDefinition := RequiredAssemblyType(typeof(object).get_Assembly(), "System.Nullable`1")
+        nullableDefinition := RequiredAssemblyType(typeof(object).Assembly, "System.Nullable`1")
 
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || valueType.GetGenericTypeDefinition() != nullableDefinition {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition || valueType.GetGenericTypeDefinition() != nullableDefinition {
             return false
         }
 
@@ -945,7 +945,7 @@ class ColumnarRuntimeInstanceMemberResolver {
 
     static func IsSupportedResultReceiver(valueType: Type): bool {
         resultDefinition := Type.GetType("NSharpLang.Runtime.Result`2, NSharpLang.Runtime")
-        if resultDefinition == null || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || valueType.GetGenericTypeDefinition() != resultDefinition {
+        if resultDefinition == null || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || valueType.GetGenericTypeDefinition() != resultDefinition {
             return false
         }
 
@@ -954,19 +954,19 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsSupportedMemoryOwnerReceiver(valueType: Type): bool {
-        definition := RequiredAssemblyType(typeof(object).get_Assembly(), "System.Buffers.IMemoryOwner`1")
+        definition := RequiredAssemblyType(typeof(object).Assembly, "System.Buffers.IMemoryOwner`1")
 
         return IsClosedGenericWithSingleByteArgument(valueType, definition)
     }
 
     static func IsSupportedMemoryReceiver(valueType: Type): bool {
-        definition := RequiredAssemblyType(typeof(object).get_Assembly(), "System.Memory`1")
+        definition := RequiredAssemblyType(typeof(object).Assembly, "System.Memory`1")
 
         return IsClosedGenericWithSingleByteArgument(valueType, definition)
     }
 
     static func IsClosedGenericWithSingleByteArgument(valueType: Type, definition: Type): bool {
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || valueType.GetGenericTypeDefinition() != definition {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition || valueType.GetGenericTypeDefinition() != definition {
             return false
         }
 
@@ -983,7 +983,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsSupportedCollectionType(valueType: Type): bool {
-        if valueType is TypeBuilder || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if valueType is TypeBuilder || !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
             return false
         }
 
@@ -992,28 +992,28 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsSupportedDictionaryKeyCollectionOwner(valueType: Type): bool {
-        return valueType != null && !(valueType is TypeBuilder) && valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && valueType.GetGenericTypeDefinition() == typeof(Dictionary<int, int>).GetGenericTypeDefinition()
+        return valueType != null && !(valueType is TypeBuilder) && valueType.IsGenericType && !valueType.IsGenericTypeDefinition && valueType.GetGenericTypeDefinition() == typeof(Dictionary<int, int>).GetGenericTypeDefinition()
     }
 
     static func IsSupportedKeyValuePairReceiver(valueType: Type): bool {
-        if valueType is TypeBuilder || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if valueType is TypeBuilder || !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
             return false
         }
 
-        definition := RequiredAssemblyType(typeof(object).get_Assembly(), "System.Collections.Generic.KeyValuePair`2")
+        definition := RequiredAssemblyType(typeof(object).Assembly, "System.Collections.Generic.KeyValuePair`2")
 
         return valueType.GetGenericTypeDefinition() == definition
     }
 
     static func IsSupportedSpanLikeReceiver(valueType: Type): bool {
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
             return false
         }
 
         definition := valueType.GetGenericTypeDefinition()
-        spanDefinition := RequiredAssemblyType(typeof(object).get_Assembly(), "System.Span`1")
+        spanDefinition := RequiredAssemblyType(typeof(object).Assembly, "System.Span`1")
 
-        readOnlySpanDefinition := RequiredAssemblyType(typeof(object).get_Assembly(), "System.ReadOnlySpan`1")
+        readOnlySpanDefinition := RequiredAssemblyType(typeof(object).Assembly, "System.ReadOnlySpan`1")
 
         if definition != spanDefinition && definition != readOnlySpanDefinition {
             return false
@@ -1027,7 +1027,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsSupportedValueTupleReceiver(valueType: Type): bool {
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
             return false
         }
 
@@ -1072,15 +1072,15 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsSupportedExternalReferenceShape(valueType: Type): bool {
-        return !valueType.get_IsValueType() && !valueType.get_HasElementType() && !ContainsOpenGenericParameters(valueType)
+        return !valueType.IsValueType && !valueType.HasElementType && !ContainsOpenGenericParameters(valueType)
     }
 
     static func ContainsOpenGenericParameters(valueType: Type): bool {
-        if valueType.get_IsGenericParameter() || valueType.get_IsGenericTypeDefinition() {
+        if valueType.IsGenericParameter || valueType.IsGenericTypeDefinition {
             return true
         }
 
-        if !valueType.get_IsGenericType() {
+        if !valueType.IsGenericType {
             return false
         }
 
@@ -1114,7 +1114,7 @@ class ColumnarRuntimeInstanceMemberResolver {
         if valueType == typeof(StringComparer) {
             return true
         }
-        textWriterType := RequiredAssemblyType(typeof(object).get_Assembly(), "System.IO.TextWriter")
+        textWriterType := RequiredAssemblyType(typeof(object).Assembly, "System.IO.TextWriter")
         if valueType == textWriterType {
             return true
         }
@@ -1158,7 +1158,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if RuntimeTypeShapeFacts.IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || IsSourceBuilderShape(valueType) || IsSupportedValueTupleReceiver(valueType) {
+        if RuntimeTypeShapeFacts.IsEnumType(valueType) || valueType is TypeBuilder || valueType.IsGenericParameter || IsSourceBuilderShape(valueType) || IsSupportedValueTupleReceiver(valueType) {
             return true
         }
 
@@ -1179,7 +1179,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
             return false
         }
 
@@ -1205,8 +1205,8 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        valueAssemblyName := valueType.get_Assembly().GetName().get_FullName()
-        yamlAssemblyName := typeof(IYamlTypeConverter).get_Assembly().GetName().get_FullName()
+        valueAssemblyName := valueType.Assembly.GetName().FullName
+        yamlAssemblyName := typeof(IYamlTypeConverter).Assembly.GetName().FullName
         if String.Equals(valueAssemblyName, yamlAssemblyName, StringComparison.Ordinal) {
             return true
         }
@@ -1237,7 +1237,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return false
         }
 
-        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
+        if valueType.IsGenericType && !valueType.IsGenericTypeDefinition {
             definition := valueType.GetGenericTypeDefinition()
             if !RuntimeTypeShapeFacts.HasExactRuntimeTypeIdentity(definition, typeof(Mono.Collections.Generic.Collection<int>).GetGenericTypeDefinition()) {
                 return false
@@ -1254,7 +1254,7 @@ class ColumnarRuntimeInstanceMemberResolver {
         }
 
         fullName := receiverType.FullName ?? ""
-        if receiverType.get_IsGenericType() && !receiverType.get_IsGenericTypeDefinition() {
+        if receiverType.IsGenericType && !receiverType.IsGenericTypeDefinition {
             fullName = receiverType.GetGenericTypeDefinition().FullName ?? ""
         }
         if fullName == "Mono.Cecil.AssemblyDefinition" {
@@ -1295,7 +1295,7 @@ class ColumnarRuntimeInstanceMemberResolver {
 
     static func IsSupportedAnonymousUnionType(valueType: Type): bool {
         unionDefinition := Type.GetType("NSharpLang.Runtime.Union`2, NSharpLang.Runtime")
-        if unionDefinition == null || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || valueType.GetGenericTypeDefinition() != unionDefinition {
+        if unionDefinition == null || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || valueType.GetGenericTypeDefinition() != unionDefinition {
             return false
         }
 
@@ -1314,7 +1314,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if valueType is TypeBuilder || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) {
+        if valueType is TypeBuilder || !valueType.IsGenericType || valueType.IsGenericTypeDefinition || RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) {
             return false
         }
 
@@ -1334,7 +1334,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsSupportedElementType(valueType: Type): bool {
-        if valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(string) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(object) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) || RuntimeTypeShapeFacts.IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedNullableReceiver(valueType) {
+        if valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(string) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(object) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) || RuntimeTypeShapeFacts.IsEnumType(valueType) || valueType is TypeBuilder || valueType.IsGenericParameter || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedNullableReceiver(valueType) {
             return true
         }
 
@@ -1347,7 +1347,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func RequiredJsonType(fullName: string): Type {
-        return RequiredAssemblyType(typeof(JsonElement).get_Assembly(), fullName)
+        return RequiredAssemblyType(typeof(JsonElement).Assembly, fullName)
     }
 
     // `EnumBuilder` is ABSTRACT on this runtime: a live instance is `EnumBuilderImpl` (persisted emit)
@@ -1355,7 +1355,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     // predicate silently reported every EnumBuilder as baked — which routed `List<SomeEnumBuilder>` into
     // the plain-reflection member path, where `GetMethod` throws NotSupportedException.
     static func RequiredYamlType(fullName: string): Type {
-        return RequiredAssemblyType(typeof(IYamlTypeConverter).get_Assembly(), fullName)
+        return RequiredAssemblyType(typeof(IYamlTypeConverter).Assembly, fullName)
     }
 
     static func RequiredAssemblyType(assembly: Assembly, fullName: string): Type {

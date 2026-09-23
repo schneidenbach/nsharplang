@@ -144,7 +144,7 @@ class ColumnarBaseTypePlanner {
         }
         isGeneric := false
         try {
-            isGeneric = resolvedType.get_IsGenericType()
+            isGeneric = resolvedType.IsGenericType
         } catch {
             isGeneric = false
         }
@@ -179,7 +179,7 @@ class ColumnarBaseTypePlanner {
     // read" into the confident answer "not an interface".
     static func IsRuntimeInterfaceType(valueType: Type): bool {
         try {
-            return valueType.get_IsInterface()
+            return valueType.IsInterface
         } catch ex: NotSupportedException {
             return false
         } catch ex: NotImplementedException {
@@ -206,7 +206,7 @@ class ColumnarBaseTypePlanner {
         if a is TypeBuilder || b is TypeBuilder {
             return false
         }
-        if !a.get_IsGenericType() || !b.get_IsGenericType() || a.get_IsGenericTypeDefinition() || b.get_IsGenericTypeDefinition() {
+        if !a.IsGenericType || !b.IsGenericType || a.IsGenericTypeDefinition || b.IsGenericTypeDefinition {
             return false
         }
         if !SameInterfaceType(a.GetGenericTypeDefinition(), b.GetGenericTypeDefinition()) {
@@ -233,19 +233,19 @@ class ColumnarBaseTypePlanner {
     // (ValueType/Enum/Delegate/Array) are excluded — a source class inheriting them directly is
     // never valid IL.
     static func IsInheritableExternalClass(valueType: Type): bool {
-        if valueType is TypeBuilder || valueType.get_IsGenericParameter() {
+        if valueType is TypeBuilder || valueType.IsGenericParameter {
             return false
         }
         classShape := false
         try {
-            classShape = valueType.get_IsClass() && !valueType.get_IsInterface() && !valueType.get_IsValueType() && !valueType.get_IsSealed() && !valueType.get_IsPointer() && !valueType.get_IsByRef() && !valueType.get_IsArray() && valueType.get_IsVisible()
+            classShape = valueType.IsClass && !valueType.IsInterface && !valueType.IsValueType && !valueType.IsSealed && !valueType.IsPointer && !valueType.IsByRef && !valueType.IsArray && valueType.IsVisible
         } catch {
             return false
         }
         if !classShape {
             return false
         }
-        fullName := valueType.get_FullName()
+        fullName := valueType.FullName
         if fullName == "System.ValueType" || fullName == "System.Enum" || fullName == "System.Delegate" || fullName == "System.MulticastDelegate" || fullName == "System.Array" {
             return false
         }

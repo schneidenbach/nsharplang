@@ -252,7 +252,7 @@ class ColumnarCanonicalTypeResolver {
                 unionRegistry,
                 out element
             ) {
-                if !element.RuntimeType.get_IsValueType() {
+                if !element.RuntimeType.IsValueType {
                     selected = element
                     return true
                 }
@@ -423,7 +423,7 @@ class ColumnarCanonicalTypeResolver {
 
         unionDefinition: ColumnarUnionDef = null
         if unionRegistry.TryGetValue(canonical, out unionDefinition) && unionDefinition != null {
-            if unionDefinition.Base.get_IsGenericTypeDefinition() {
+            if unionDefinition.Base.IsGenericTypeDefinition {
                 selected = ColumnarSelectedTypeReference.Missing(table)
                 return false
             }
@@ -853,7 +853,7 @@ class ColumnarCanonicalTypeResolver {
         ) {
             return false
         }
-        if definition == null || !definition.get_IsGenericTypeDefinition() || definition is TypeBuilder || definition.GetGenericArguments().Length != argumentCanonicals.Count {
+        if definition == null || !definition.IsGenericTypeDefinition || definition is TypeBuilder || definition.GetGenericArguments().Length != argumentCanonicals.Count {
             return false
         }
 
@@ -918,7 +918,7 @@ class ColumnarCanonicalTypeResolver {
         // `T` must win over the resolver view that still contains the enclosing method's `T`. A
         // concrete map entry retains the ordinary exact-declaration precedence below.
         parameterType := typeof(object)
-        if typeParams.TryGetValue(canonical, out parameterType) && parameterType.get_IsGenericParameter() {
+        if typeParams.TryGetValue(canonical, out parameterType) && parameterType.IsGenericParameter {
             selected = table.SelectRuntimeType(parameterType)
             return true
         }
@@ -1164,7 +1164,7 @@ class ColumnarCanonicalTypeResolver {
         }
         family := isFunc ? "System.Func`" : "System.Action`"
         definition := Type.GetType(family + arity.ToString())
-        if definition == null || !definition.get_IsGenericTypeDefinition() {
+        if definition == null || !definition.IsGenericTypeDefinition {
             return null
         }
         return definition
@@ -1285,12 +1285,12 @@ class ColumnarCanonicalTypeResolver {
         exactSourceName := ""
 
         structDefinition: ColumnarStructDef = null
-        if structRegistry.TryGetValue(lookupHeadName, out structDefinition) && structDefinition != null && structDefinition.Builder.get_IsGenericTypeDefinition() {
+        if structRegistry.TryGetValue(lookupHeadName, out structDefinition) && structDefinition != null && structDefinition.Builder.IsGenericTypeDefinition {
             openDefinition = structDefinition.Builder
             exactSourceName = structDefinition.DeclaredTypeName
         } else {
             unionDefinition: ColumnarUnionDef = null
-            if unionRegistry.TryGetValue(lookupHeadName, out unionDefinition) && unionDefinition != null && unionDefinition.Base.get_IsGenericTypeDefinition() {
+            if unionRegistry.TryGetValue(lookupHeadName, out unionDefinition) && unionDefinition != null && unionDefinition.Base.IsGenericTypeDefinition {
                 openDefinition = unionDefinition.Base
                 exactSourceName = unionDefinition.DeclaredTypeName
             }
@@ -1712,7 +1712,7 @@ class ColumnarCanonicalTypeResolver {
             return false
         }
 
-        if resolved.RuntimeType.get_IsGenericParameter() {
+        if resolved.RuntimeType.IsGenericParameter {
             selected = resolved
             return true
         }
@@ -2027,7 +2027,7 @@ class ColumnarCanonicalTypeResolver {
         runtimeType: Type,
         unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>
     ): bool {
-        if !runtimeType.get_IsGenericTypeDefinition() {
+        if !runtimeType.IsGenericTypeDefinition {
             return false
         }
         for definition in unionRegistry.Values {
@@ -2065,7 +2065,7 @@ class ColumnarCanonicalTypeResolver {
     }
 
     static func IsSupportedByRefElementType(runtimeType: Type): bool {
-        return !runtimeType.get_IsByRef() && ColumnarTypeOfPlanner.IsSupportedType(runtimeType)
+        return !runtimeType.IsByRef && ColumnarTypeOfPlanner.IsSupportedType(runtimeType)
     }
 
     static func IsCollectionHeadShadowedByUserType(
@@ -2141,7 +2141,7 @@ class ColumnarCanonicalTypeResolver {
         index := new Dictionary<string, Type>(StringComparer.Ordinal)
         ambiguous := new List<string>()
         exceptionBase := typeof(Exception)
-        for candidate in exceptionBase.get_Assembly().GetExportedTypes() {
+        for candidate in exceptionBase.Assembly.GetExportedTypes() {
             if !IsCatchableExceptionType(candidate, exceptionBase) {
                 continue
             }
@@ -2159,7 +2159,7 @@ class ColumnarCanonicalTypeResolver {
     }
 
     static func IsCatchableExceptionType(candidate: Type?, exceptionBase: Type): bool {
-        if candidate == null || candidate.get_IsGenericTypeDefinition() || candidate.get_IsGenericParameter() || candidate.get_IsByRef() || candidate.get_IsPointer() {
+        if candidate == null || candidate.IsGenericTypeDefinition || candidate.IsGenericParameter || candidate.IsByRef || candidate.IsPointer {
             return false
         }
         return exceptionBase.IsAssignableFrom(candidate)

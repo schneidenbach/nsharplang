@@ -170,7 +170,7 @@ class ColumnarCompilerReferenceResolver {
     static func TryLoadTypeFromReferencePath(referencePath: string, fullTypeName: string, out result: Type): bool {
         result = null
         try {
-            identity := AssemblyName.GetAssemblyName(referencePath).get_FullName()
+            identity := AssemblyName.GetAssemblyName(referencePath).FullName
             loadedAssembly := ExternalAssemblyScan.TryLoadExactIdentityAssembly(referencePath, identity)
             if loadedAssembly == null {
                 return false

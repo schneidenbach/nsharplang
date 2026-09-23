@@ -161,7 +161,7 @@ class AnalyzerExtensionMethodResolution {
         if externalExtensions.Count == 1 {
             winner := externalExtensions[0]
             CreditExtensionNamespace(winner)
-            return new ReflectionMethodInfo(winner, winner.get_Name() + "(...)")
+            return new ReflectionMethodInfo(winner, winner.Name + "(...)")
         }
 
         if externalExtensions.Count > 1 {
@@ -170,7 +170,7 @@ class AnalyzerExtensionMethodResolution {
                 CreditExtensionNamespace(externalExtension)
             }
 
-            return new ReflectionMethodGroupInfo(externalExtensions.ToArray(), first.get_Name() + "(...)")
+            return new ReflectionMethodGroupInfo(externalExtensions.ToArray(), first.Name + "(...)")
         }
 
         return BuiltInTypes.Unknown
@@ -179,7 +179,7 @@ class AnalyzerExtensionMethodResolution {
     func CreditExtensionNamespace(method: MethodInfo) {
         credit := importUsageCredit
         if credit != null {
-            credit.CreditDeclaringNamespace(method.get_DeclaringType())
+            credit.CreditDeclaringNamespace(method.DeclaringType)
         }
     }
 
@@ -243,7 +243,7 @@ class AnalyzerExtensionMethodResolution {
 
     func IsNameableHost(hostType: Type): bool {
         if friendGrants == null {
-            return hostType.get_IsVisible()
+            return hostType.IsVisible
         }
 
         return friendGrants.IsNameableType(hostType)
@@ -267,7 +267,7 @@ class AnalyzerExtensionMethodResolution {
     static func CollectExtensionMethods(hostType: Type, memberFlags: BindingFlags, methodName: string, targetClrType: Type, methods: List<MethodInfo>, grants: InternalsVisibleToGrants?) {
         hostMethods := AnalyzerReflectionMemberProbe.MethodsOrEmpty(hostType, memberFlags)
         for method in hostMethods {
-            if method.get_Name() == methodName && AnalyzerMemberResolution.IsReachableReflectedMethod(method, false, grants) && AnalyzerOverloadFacts.HasExtensionAttribute(method) {
+            if method.Name == methodName && AnalyzerMemberResolution.IsReachableReflectedMethod(method, false, grants) && AnalyzerOverloadFacts.HasExtensionAttribute(method) {
                 // The RECEIVER parameter's type is the read that reaches the missing assembly. A
                 // candidate whose receiver cannot be materialised is not a candidate.
                 parameters := AnalyzerReflectionMemberProbe.ParametersOrNull(method)

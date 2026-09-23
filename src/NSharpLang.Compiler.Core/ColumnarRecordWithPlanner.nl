@@ -94,7 +94,7 @@ class ColumnarRecordWithPlanner {
             if !receiverDef.Fields.TryGetValue(name, out field) || field == null {
                 return null
             }
-            if field.get_IsInitOnly() {
+            if field.IsInitOnly {
                 return null
             }
             fields[index] = field

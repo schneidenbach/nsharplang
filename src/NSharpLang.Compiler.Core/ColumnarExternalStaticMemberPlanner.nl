@@ -155,15 +155,15 @@ class ColumnarExternalStaticMemberPlanner {
                 field := declaringType.GetField(selection.MemberName)
                 fieldType := typeof(object)
                 if field != null {
-                    fieldType = field.get_FieldType()
+                    fieldType = field.FieldType
                 }
 
-                if field == null || !field.get_IsStatic() || field.get_DeclaringType() != declaringType || !ExternalAssemblyScan.HasExactTypeIdentity(fieldType, selection.ValueTypeName) {
+                if field == null || !field.IsStatic || field.DeclaringType != declaringType || !ExternalAssemblyScan.HasExactTypeIdentity(fieldType, selection.ValueTypeName) {
                     plan.Rollback(checkpoint)
                     return false
                 }
 
-                if field.get_IsLiteral() {
+                if field.IsLiteral {
                     if !TryAppendLiteralField(plan, field, fieldType, selection.MemberName) {
                         plan.Rollback(checkpoint)
                         return false
@@ -182,7 +182,7 @@ class ColumnarExternalStaticMemberPlanner {
                 property := declaringType.GetProperty(selection.MemberName)
                 propertyType := typeof(object)
                 if property != null {
-                    propertyType = property.get_PropertyType()
+                    propertyType = property.PropertyType
                 }
 
                 if property == null || !ExternalAssemblyScan.HasExactTypeIdentity(propertyType, selection.ValueTypeName) {
@@ -191,7 +191,7 @@ class ColumnarExternalStaticMemberPlanner {
                 }
 
                 getter := property.GetGetMethod()
-                if getter == null || !getter.get_IsStatic() || getter.get_DeclaringType() != declaringType || getter.get_ReturnType() != propertyType || getter.GetParameters().Length != 0 {
+                if getter == null || !getter.IsStatic || getter.DeclaringType != declaringType || getter.ReturnType != propertyType || getter.GetParameters().Length != 0 {
                     plan.Rollback(checkpoint)
                     return false
                 }
@@ -235,7 +235,7 @@ class ColumnarExternalStaticMemberPlanner {
             field: FieldInfo? = null
             fieldType := typeof(object)
             if ColumnarGenericTypeReceiverFacts.TryResolveStaticField(receiverType, memberName, out field, out fieldType) && field != null {
-                if field.get_IsLiteral() {
+                if field.IsLiteral {
                     if !TryAppendLiteralField(plan, field, fieldType, memberName) {
                         plan.Rollback(checkpoint)
                         return false
@@ -353,7 +353,7 @@ class ColumnarExternalStaticMemberPlanner {
             return false
         }
 
-        if !ownerType.get_IsEnum() || !IsInt32RepresentableEnum(ownerType) {
+        if !ownerType.IsEnum || !IsInt32RepresentableEnum(ownerType) {
             return false
         }
 
@@ -362,12 +362,12 @@ class ColumnarExternalStaticMemberPlanner {
             return false
         }
 
-        if !field.get_IsStatic() || !field.get_IsLiteral() || !field.get_IsPublic() {
+        if !field.IsStatic || !field.IsLiteral || !field.IsPublic {
             return false
         }
 
-        fieldType := field.get_FieldType()
-        if field.get_DeclaringType() != ownerType || fieldType != ownerType {
+        fieldType := field.FieldType
+        if field.DeclaringType != ownerType || fieldType != ownerType {
             return false
         }
 
@@ -410,7 +410,7 @@ class ColumnarExternalStaticMemberPlanner {
         }
 
         // An enum owner has already had its say one arm up, with its own int32-representability fence.
-        if ownerType.get_IsEnum() {
+        if ownerType.IsEnum {
             return false
         }
 
@@ -427,9 +427,9 @@ class ColumnarExternalStaticMemberPlanner {
         checkpoint := plan.CreateCheckpoint()
         try {
             field := ownerType.GetField(memberName, memberFlags)
-            if field != null && InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.LevelOfField(field), field.get_DeclaringType()) && field.get_IsStatic() && field.get_DeclaringType() == ownerType {
-                fieldType := field.get_FieldType()
-                if field.get_IsLiteral() {
+            if field != null && InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.LevelOfField(field), field.DeclaringType) && field.IsStatic && field.DeclaringType == ownerType {
+                fieldType := field.FieldType
+                if field.IsLiteral {
                     if !TryAppendExternalConstantField(plan, field, fieldType) {
                         plan.Rollback(checkpoint)
                         return false
@@ -448,10 +448,10 @@ class ColumnarExternalStaticMemberPlanner {
             property := ownerType.GetProperty(memberName, memberFlags)
             if property != null {
                 getter := property.GetGetMethod(nonPublicIsReachable)
-                if getter != null && InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.LevelOfMethod(getter), getter.get_DeclaringType()) && getter.get_IsStatic() && getter.get_DeclaringType() == ownerType && getter.GetParameters().Length == 0 {
+                if getter != null && InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.LevelOfMethod(getter), getter.DeclaringType) && getter.IsStatic && getter.DeclaringType == ownerType && getter.GetParameters().Length == 0 {
                     methodIndex := plan.AddMethod(getter)
                     plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
-                    resultType = getter.get_ReturnType()
+                    resultType = getter.ReturnType
                     return true
                 }
             }
@@ -478,7 +478,7 @@ class ColumnarExternalStaticMemberPlanner {
         }
 
         constantType := fieldType
-        if constantType.get_IsEnum() {
+        if constantType.IsEnum {
             if !IsInt32RepresentableEnum(constantType) {
                 return false
             }
@@ -539,7 +539,7 @@ class ColumnarExternalStaticMemberPlanner {
     }
 
     // THE LITERAL IS READ FROM METADATA, NOT FROM A LIVE FIELD. The caller has already established
-    // `field.get_IsLiteral()`, and a literal's value lives in the Constant table, so
+    // `field.IsLiteral`, and a literal's value lives in the Constant table, so
     // `GetRawConstantValue()` answers it -- while `GetValue(null)` needs the declaring type loaded for
     // execution and throws over a `MetadataLoadContext`. The two agree on every shape reached here: for
     // an enum literal both hand back the boxed UNDERLYING integer, which is what `Convert.ToInt32` reads,
@@ -550,7 +550,7 @@ class ColumnarExternalStaticMemberPlanner {
             return false
         }
 
-        if fieldType.get_IsEnum() {
+        if fieldType.IsEnum {
             intValue := Convert.ToInt32(value)
             valueIndex := plan.AddInt32(intValue)
             plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)

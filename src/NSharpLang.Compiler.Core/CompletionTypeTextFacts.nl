@@ -103,7 +103,7 @@ class CompletionTypeTextFacts {
     // completion aliases by FULL NAME over exactly these eight, and everything else keeps its CLR
     // name — so `Byte` stays `Byte` here. Two rules, one subject, deliberately not folded.
     static func FormatClrTypeText(clrType: Type): string {
-        fullName := clrType.get_FullName()
+        fullName := clrType.FullName
         if fullName == "System.Void" {
             return "void"
         }
@@ -129,7 +129,7 @@ class CompletionTypeTextFacts {
             return "object"
         }
 
-        if clrType.get_IsGenericType() {
+        if clrType.IsGenericType {
             builder := new StringBuilder()
             builder.Append(NullabilityMetadataCore.StripClrGenericArity(clrType.Name))
             builder.Append("<")

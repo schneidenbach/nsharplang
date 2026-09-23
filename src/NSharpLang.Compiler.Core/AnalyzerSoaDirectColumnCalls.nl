@@ -64,11 +64,11 @@ class AnalyzerSoaDirectColumnCalls {
         dedicatedStaticArrayDiagnosticsValue = NameSet(["Resize", "Sort", "Reverse"])
 
         // `System.Array` is read out of the core library rather than written `typeof(Array)`,
-        // the established `typeof(object).get_Assembly()` idiom: it yields the identical RUNTIME
+        // the established `typeof(object).Assembly` idiom: it yields the identical RUNTIME
         // Type instance, so the runtime-versus-MetadataLoadContext asymmetry the C# original
         // depended on is preserved exactly — an `Array` loaded into a MetadataLoadContext is not
         // reference-equal to this and, like the `== typeof(Array)` it replaces, answers false.
-        systemArrayTypeValue = typeof(object).get_Assembly().GetType("System.Array")
+        systemArrayTypeValue = typeof(object).Assembly.GetType("System.Array")
     }
 
     static func NameSet(names: string[]): HashSet<string> {
@@ -425,7 +425,7 @@ class AnalyzerSoaDirectColumnCalls {
     // columnar catalog as `get_IsStatic()` and declines as `.IsStatic` — the same accessor-spelling
     // hazard the declaration-context and resource owners already route around.
     static func IsRuntimeArrayInstanceMethod(method: MethodInfo): bool {
-        return !method.get_IsStatic()
+        return !method.IsStatic
     }
 
     // ------------------------------------------------------------------------------------------

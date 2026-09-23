@@ -972,7 +972,7 @@ class AnalyzerDeclarationContext {
                 if invoke == null {
                     throw new InvalidOperationException("AnalyzerDeclarationContext takes the canonical void type from System.Action.Invoke's return type, and the compiler's own core library declares no such method.")
                 }
-                voidType := invoke.get_ReturnType()
+                voidType := invoke.ReturnType
                 pointerType := voidType.MakePointerType()
                 memberType = new ReflectionTypeInfo(pointerType)
                 return true
@@ -1039,7 +1039,7 @@ class AnalyzerDeclarationContext {
     // Assemble the effective method surface explicitly so metadata and runtime
     // reflection types behave the same way.
     func TryResolveRuntimeInterfaceMethodMember(interfaceType: Type, name: string, includeStaticMembers: bool, out memberType: TypeInfo): bool {
-        if !interfaceType.get_IsInterface() {
+        if !interfaceType.IsInterface {
             memberType = BuiltInTypes.Unknown
             return false
         }
@@ -1052,7 +1052,7 @@ class AnalyzerDeclarationContext {
             AddRuntimeInterfaceMethods(inheritedInterface.GetMethods(), name, false, seenMethods, methods)
         }
         if methods.Count > 0 {
-            memberType = new ReflectionMethodGroupInfo(methods.ToArray(), methods[0].get_Name() + "(...)")
+            memberType = new ReflectionMethodGroupInfo(methods.ToArray(), methods[0].Name + "(...)")
             return true
         }
 
@@ -1076,7 +1076,7 @@ class AnalyzerDeclarationContext {
         if DeclaresRuntimeInstanceMethod(receiverType, name) {
             return true
         }
-        if !receiverType.get_IsInterface() {
+        if !receiverType.IsInterface {
             return false
         }
 
@@ -1093,7 +1093,7 @@ class AnalyzerDeclarationContext {
     static func DeclaresRuntimeInstanceMethod(receiverType: Type, name: string): bool {
         candidates := receiverType.GetMethods()
         for candidate in candidates {
-            if candidate.get_Name() == name && !candidate.get_IsStatic() {
+            if candidate.Name == name && !candidate.IsStatic {
                 return true
             }
         }
@@ -1103,10 +1103,10 @@ class AnalyzerDeclarationContext {
 
     static func AddRuntimeInterfaceMethods(candidates: MethodInfo[], name: string, includeStaticMembers: bool, seenMethods: HashSet<MethodInfo>, methods: List<MethodInfo>) {
         for candidate in candidates {
-            if candidate.get_Name() == name {
+            if candidate.Name == name {
                 admitted := includeStaticMembers
                 if !admitted {
-                    admitted = !candidate.get_IsStatic()
+                    admitted = !candidate.IsStatic
                 }
                 if admitted {
                     if seenMethods.Add(candidate) {
@@ -1139,16 +1139,16 @@ class AnalyzerDeclarationContext {
             return false
         }
         definition := reflection.Type
-        if !definition.get_IsGenericType() {
+        if !definition.IsGenericType {
             return false
         }
-        if !definition.get_IsGenericTypeDefinition() {
+        if !definition.IsGenericTypeDefinition {
             definition = definition.GetGenericTypeDefinition()
         }
-        if definition.get_FullName() != fullName || definition.GetGenericArguments().Length != arity {
+        if definition.FullName != fullName || definition.GetGenericArguments().Length != arity {
             return false
         }
-        return definition.get_Assembly().GetName().get_Name() == assemblyName
+        return definition.Assembly.GetName().Name == assemblyName
     }
 
     func ResolveTypeReferenceCore(typeReference: TypeReference, facts: AnalyzerDeclarationFileFacts, activeAliases: HashSet<string>, substitution: Dictionary<string, TypeInfo>?, lexicalOwner: TypeInfo?): TypeInfo {
@@ -2512,7 +2512,7 @@ class AnalyzerDeclarationContext {
         }
         reflection := typeInfo as ReflectionTypeInfo
         if reflection != null {
-            if reflection.Type.get_IsGenericTypeDefinition() {
+            if reflection.Type.IsGenericTypeDefinition {
                 return reflection.Type.GetGenericArguments().Length
             }
             return 0

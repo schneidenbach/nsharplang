@@ -263,11 +263,11 @@ class CompletionReflectionFacts {
         }
 
         candidate := definition.Type
-        if candidate == null || !candidate.get_IsGenericTypeDefinition() {
+        if candidate == null || !candidate.IsGenericTypeDefinition {
             return null
         }
 
-        qualifiedName := candidate.get_AssemblyQualifiedName()
+        qualifiedName := candidate.AssemblyQualifiedName
         if qualifiedName != null {
             rehomed: Type? = null
             try {
@@ -276,12 +276,12 @@ class CompletionReflectionFacts {
                 rehomed = null
             }
 
-            if rehomed != null && rehomed.get_IsGenericTypeDefinition() {
+            if rehomed != null && rehomed.IsGenericTypeDefinition {
                 return rehomed
             }
         }
 
-        fullName := candidate.get_FullName()
+        fullName := candidate.FullName
         if fullName != null {
             named: Type? = null
             try {
@@ -290,7 +290,7 @@ class CompletionReflectionFacts {
                 named = null
             }
 
-            if named != null && named.get_IsGenericTypeDefinition() {
+            if named != null && named.IsGenericTypeDefinition {
                 return named
             }
         }
@@ -515,7 +515,7 @@ class CompletionReflectionFacts {
 
         seen.Add(clrType)
         AppendNewReflectionMemberItems(items, BuildDeclaredReflectionMemberItems(clrType, flags, inheritedProtected, friendAdmits))
-        if !clrType.get_IsInterface() {
+        if !clrType.IsInterface {
             return
         }
 
@@ -647,7 +647,7 @@ class CompletionReflectionFacts {
         methods := clrType.GetMethods(flags)
         for method in methods {
             if IsOfferableMethod(method) && IsReachableInheritedMember(MemberAccessibility.LevelOfMethod(method), inheritedProtected, friendAdmits) {
-                methodName := method.get_Name()
+                methodName := method.Name
                 existingIndex := 0
                 if indexByName.TryGetValue(methodName, out existingIndex) {
                     overloads[existingIndex] = overloads[existingIndex] + 1
@@ -655,8 +655,8 @@ class CompletionReflectionFacts {
                     indexByName.Add(methodName, names.Count)
                     names.Add(methodName)
                     kinds.Add("method")
-                    typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(method.get_ReturnType()))
-                    isStaticValues.Add(method.get_IsStatic())
+                    typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(method.ReturnType))
+                    isStaticValues.Add(method.IsStatic)
                     overloads.Add(1)
                 }
             }
@@ -664,10 +664,10 @@ class CompletionReflectionFacts {
 
         properties := clrType.GetProperties(flags)
         for property in properties {
-            if !DeclaredBySystemObject(property.get_DeclaringType()) && IsReachableInheritedMember(PropertyAccessibilityLevel(property), inheritedProtected, friendAdmits) {
-                names.Add(property.get_Name())
+            if !DeclaredBySystemObject(property.DeclaringType) && IsReachableInheritedMember(PropertyAccessibilityLevel(property), inheritedProtected, friendAdmits) {
+                names.Add(property.Name)
                 kinds.Add("property")
-                typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(property.get_PropertyType()))
+                typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(property.PropertyType))
                 isStaticValues.Add(PropertyIsStatic(property))
                 overloads.Add(1)
             }
@@ -675,11 +675,11 @@ class CompletionReflectionFacts {
 
         fields := clrType.GetFields(flags)
         for field in fields {
-            if !DeclaredBySystemObject(field.get_DeclaringType()) && IsReachableInheritedMember(MemberAccessibility.LevelOfField(field), inheritedProtected, friendAdmits) {
-                names.Add(field.get_Name())
+            if !DeclaredBySystemObject(field.DeclaringType) && IsReachableInheritedMember(MemberAccessibility.LevelOfField(field), inheritedProtected, friendAdmits) {
+                names.Add(field.Name)
                 kinds.Add("field")
-                typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(field.get_FieldType()))
-                isStaticValues.Add(field.get_IsStatic())
+                typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(field.FieldType))
+                isStaticValues.Add(field.IsStatic)
                 overloads.Add(1)
             }
         }
@@ -699,7 +699,7 @@ class CompletionReflectionFacts {
     // The property or field itself is unaffected: it is read from `GetProperties`/`GetFields` below
     // and keeps its own name, so this removes the duplicate spelling and never the member.
     static func IsOfferableMethod(method: MethodInfo): bool {
-        return !method.get_IsSpecialName()
+        return !method.IsSpecialName
     }
 
     // A FULL-NAME compare and not a `Type` identity one, so it holds for a type read through a
@@ -709,17 +709,17 @@ class CompletionReflectionFacts {
             return false
         }
 
-        return declaringType.get_FullName() == "System.Object"
+        return declaringType.FullName == "System.Object"
     }
 
     // A property with no getter is not static — it is unreadable, and the original chose `false`
     // rather than consulting the setter. Preserved.
     static func PropertyIsStatic(property: PropertyInfo): bool {
-        getter := property.get_GetMethod()
+        getter := property.GetMethod
         if getter == null {
             return false
         }
 
-        return getter.get_IsStatic()
+        return getter.IsStatic
     }
 }

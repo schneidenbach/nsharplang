@@ -245,14 +245,14 @@ class AnalyzerOverloadFacts {
     // candidate.
     static func TryMatchReflectionParameter(parameterType: Type, argumentType: Type, bindings: Dictionary<Type, Type>, allowsLift: bool): bool {
         effectiveParameterType := parameterType
-        if effectiveParameterType.get_IsByRef() {
+        if effectiveParameterType.IsByRef {
             byRefElement := effectiveParameterType.GetElementType()
             if byRefElement != null {
                 effectiveParameterType = byRefElement
             }
         }
 
-        if effectiveParameterType.get_IsGenericParameter() {
+        if effectiveParameterType.IsGenericParameter {
             existingBinding: Type = typeof(object)
             if bindings.TryGetValue(effectiveParameterType, out existingBinding) {
                 if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(existingBinding, argumentType) {
@@ -284,7 +284,7 @@ class AnalyzerOverloadFacts {
             return true
         }
 
-        if !effectiveParameterType.get_ContainsGenericParameters() {
+        if !effectiveParameterType.ContainsGenericParameters {
             if AnalyzerConversionFacts.IsReflectionAssignableFrom(effectiveParameterType, argumentType) {
                 return true
             }
@@ -292,8 +292,8 @@ class AnalyzerOverloadFacts {
             return AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(argumentType, effectiveParameterType)
         }
 
-        if effectiveParameterType.get_IsArray() {
-            if !argumentType.get_IsArray() {
+        if effectiveParameterType.IsArray {
+            if !argumentType.IsArray {
                 return false
             }
 
@@ -306,7 +306,7 @@ class AnalyzerOverloadFacts {
             return TryMatchReflectionParameter(parameterElement, argumentElement, bindings, allowsLift)
         }
 
-        if !effectiveParameterType.get_IsGenericType() {
+        if !effectiveParameterType.IsGenericType {
             return true
         }
 
@@ -317,7 +317,7 @@ class AnalyzerOverloadFacts {
                 comparisonType = compatibleType
             }
         } else {
-            if !argumentType.get_IsGenericType() {
+            if !argumentType.IsGenericType {
                 return false
             }
 
@@ -352,33 +352,33 @@ class AnalyzerOverloadFacts {
     static func TryFindCompatibleGenericType(parameterType: Type, actualType: Type, out compatibleType: Type?): bool {
         compatibleType = null
 
-        if !parameterType.get_IsGenericType() {
+        if !parameterType.IsGenericType {
             return false
         }
 
         genericDefinition := parameterType.GetGenericTypeDefinition()
 
-        if actualType.get_IsGenericType() && actualType.GetGenericTypeDefinition() == genericDefinition {
+        if actualType.IsGenericType && actualType.GetGenericTypeDefinition() == genericDefinition {
             compatibleType = actualType
             return true
         }
 
         interfaces := actualType.GetInterfaces()
         for candidateInterface in interfaces {
-            if candidateInterface.get_IsGenericType() && candidateInterface.GetGenericTypeDefinition() == genericDefinition {
+            if candidateInterface.IsGenericType && candidateInterface.GetGenericTypeDefinition() == genericDefinition {
                 compatibleType = candidateInterface
                 return true
             }
         }
 
-        currentBase := actualType.get_BaseType()
+        currentBase := actualType.BaseType
         while currentBase != null {
-            if currentBase.get_IsGenericType() && currentBase.GetGenericTypeDefinition() == genericDefinition {
+            if currentBase.IsGenericType && currentBase.GetGenericTypeDefinition() == genericDefinition {
                 compatibleType = currentBase
                 return true
             }
 
-            currentBase = currentBase.get_BaseType()
+            currentBase = currentBase.BaseType
         }
 
         return false
@@ -388,7 +388,7 @@ class AnalyzerOverloadFacts {
     // receiver is plain CLR assignability; an open one only has to be re-expressible over the
     // receiver, because the type arguments are inferred later by the argument walk.
     static func IsExtensionParameterCompatible(parameterType: Type, targetClrType: Type): bool {
-        if !parameterType.get_ContainsGenericParameters() {
+        if !parameterType.ContainsGenericParameters {
             return parameterType.IsAssignableFrom(targetClrType)
         }
 
@@ -419,7 +419,7 @@ class AnalyzerOverloadFacts {
         index := 0
         while index < count {
             attribute := attributes.get_Item(index)
-            attributeType := attribute.get_AttributeType()
+            attributeType := attribute.AttributeType
             if attributeType.FullName == fullName {
                 return true
             }
@@ -452,7 +452,7 @@ class AnalyzerOverloadFacts {
         index := firstIndex
         while index < parameters.Length {
             parameter := parameters[index]
-            if !parameter.get_IsOptional() && !IsParamsParameter(parameter) {
+            if !parameter.IsOptional && !IsParamsParameter(parameter) {
                 requiredParameters = requiredParameters + 1
             }
 
@@ -472,7 +472,7 @@ class AnalyzerOverloadFacts {
 
     // A by-ref parameter's underlying type; everything else is itself.
     static func GetByRefElementType(clrType: Type): Type {
-        if !clrType.get_IsByRef() {
+        if !clrType.IsByRef {
             return clrType
         }
 
@@ -491,7 +491,7 @@ class AnalyzerOverloadFacts {
     static func TryGetReflectionParamsElementType(paramsParameterType: Type, out elementType: Type): bool {
         elementType = typeof(object)
 
-        if paramsParameterType.get_IsArray() {
+        if paramsParameterType.IsArray {
             arrayElement := paramsParameterType.GetElementType()
             if arrayElement != null {
                 elementType = arrayElement
@@ -499,8 +499,8 @@ class AnalyzerOverloadFacts {
             }
         }
 
-        if paramsParameterType.get_IsGenericType() {
-            genericDefinitionName := paramsParameterType.GetGenericTypeDefinition().get_FullName()
+        if paramsParameterType.IsGenericType {
+            genericDefinitionName := paramsParameterType.GetGenericTypeDefinition().FullName
             if genericDefinitionName == "System.ReadOnlySpan`1" || genericDefinitionName == "System.Span`1" || genericDefinitionName == "System.Collections.Generic.IEnumerable`1" || genericDefinitionName == "System.Collections.Generic.IReadOnlyList`1" || genericDefinitionName == "System.Collections.Generic.IReadOnlyCollection`1" {
                 elementType = paramsParameterType.GetGenericArguments()[0]
                 return true
@@ -549,7 +549,7 @@ class AnalyzerOverloadFacts {
             return false
         }
 
-        return IsExtensionParameterCompatible(parameters[0].get_ParameterType(), receiverClrType)
+        return IsExtensionParameterCompatible(parameters[0].ParameterType, receiverClrType)
     }
 
     // Whether a bound argument landed in an EXPANDED params tail. The bound argument records the OPEN
@@ -562,7 +562,7 @@ class AnalyzerOverloadFacts {
             return false
         }
 
-        return !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(bound.OpenParameterType, GetByRefElementType(parameter.get_ParameterType()))
+        return !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(bound.OpenParameterType, GetByRefElementType(parameter.ParameterType))
     }
 
     // Whether a user-defined operator's CLR parameter accepts this operand.
@@ -584,7 +584,7 @@ class AnalyzerOverloadFacts {
             return true
         }
 
-        if !parameterType.get_IsByRef() {
+        if !parameterType.IsByRef {
             return false
         }
 
@@ -760,7 +760,7 @@ class AnalyzerOverloadFacts {
         }
 
         builder := new StringBuilder()
-        builder.Append(method.get_Name())
+        builder.Append(method.Name)
         builder.Append("(")
         index := startIndex
         while index < parameters.Length {
@@ -1056,7 +1056,7 @@ class AnalyzerOverloadScoring {
             return true
         }
 
-        fullName := effectiveType.get_FullName()
+        fullName := effectiveType.FullName
         if fullName == "System.Delegate" {
             return true
         }

@@ -33,7 +33,7 @@ class ColumnarInitRequiredMemberEmitter {
     // runtime type (System.Runtime), not a synthesized one: an emitted assembly that spelled its own
     // copy would make a promise no other compiler would read.
     static func ExternalInitMarkerType(): Type {
-        marker := typeof(object).get_Assembly().GetType("System.Runtime.CompilerServices.IsExternalInit")
+        marker := typeof(object).Assembly.GetType("System.Runtime.CompilerServices.IsExternalInit")
         if marker == null {
             throw new InvalidOperationException("The IsExternalInit runtime type was not found.")
         }
@@ -66,7 +66,7 @@ class ColumnarInitRequiredMemberEmitter {
     }
 
     static func NoArgumentAttributeConstructor(fullName: string): ConstructorInfo {
-        attributeType := typeof(object).get_Assembly().GetType(fullName)
+        attributeType := typeof(object).Assembly.GetType(fullName)
         if attributeType == null {
             throw new InvalidOperationException("The runtime type '" + fullName + "' was not found.")
         }
@@ -83,7 +83,7 @@ class ColumnarInitRequiredMemberEmitter {
     // string is the one the runtime defines for this feature; a different spelling would be a
     // different feature and would not guard anything.
     static func CompilerFeatureRequiredAttributeConstructor(): ConstructorInfo {
-        attributeType := typeof(object).get_Assembly().GetType("System.Runtime.CompilerServices.CompilerFeatureRequiredAttribute")
+        attributeType := typeof(object).Assembly.GetType("System.Runtime.CompilerServices.CompilerFeatureRequiredAttribute")
         if attributeType == null {
             throw new InvalidOperationException("The CompilerFeatureRequiredAttribute runtime type was not found.")
         }

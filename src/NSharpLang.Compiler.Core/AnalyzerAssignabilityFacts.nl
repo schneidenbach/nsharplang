@@ -250,7 +250,7 @@ class AnalyzerAssignabilityFacts {
             // `IsGenericType && !IsGenericTypeDefinition` IS `IsConstructedGenericType`, and that
             // distinction is load-bearing: an OPEN definition such as `List<>` names no element
             // type, so it must answer nothing rather than answer with a type parameter.
-            if IsCollectionReflectionName(reflected.get_Name()) && reflected.get_IsGenericType() && !reflected.get_IsGenericTypeDefinition() {
+            if IsCollectionReflectionName(reflected.Name) && reflected.IsGenericType && !reflected.IsGenericTypeDefinition {
                 arguments := reflected.GetGenericArguments()
                 if arguments.Length > 0 {
                     firstArgument := arguments[0]
@@ -394,7 +394,7 @@ class AnalyzerAssignabilityFacts {
             return false
         }
 
-        fullName := candidate.get_FullName()
+        fullName := candidate.FullName
         return fullName != "System.Delegate" && fullName != "System.MulticastDelegate"
     }
 

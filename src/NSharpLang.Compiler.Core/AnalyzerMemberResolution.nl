@@ -325,14 +325,14 @@ class AnalyzerMemberResolution {
             reflectedMethods := AnalyzerReflectionMemberProbe.MethodsOrEmpty(clrType, memberFlags)
             matchingMethods := new List<MethodInfo>()
             for reflectedMethod in reflectedMethods {
-                if reflectedMethod.get_Name() == memberName && IsReachableReflectedMethod(reflectedMethod, inheritedProtectedAccess, friendGrants) {
+                if reflectedMethod.Name == memberName && IsReachableReflectedMethod(reflectedMethod, inheritedProtectedAccess, friendGrants) {
                     matchingMethods.Add(reflectedMethod)
                 }
             }
 
             if matchingMethods.Count > 0 {
                 firstMatchingMethod := matchingMethods[0]
-                return new ReflectionMethodGroupInfo(matchingMethods.ToArray(), firstMatchingMethod.get_Name() + "(...)")
+                return new ReflectionMethodGroupInfo(matchingMethods.ToArray(), firstMatchingMethod.Name + "(...)")
             }
 
             // Nothing on the metadata surface; the extension surface still sees the SOURCE receiver.
@@ -531,7 +531,7 @@ class AnalyzerMemberResolution {
     // disagree about it cannot be substituted at all.
     static func TryResolveConstructedGenericPropertyOrField(bindingClrType: Type, genericType: GenericTypeInfo, memberName: string, includeStaticMembers: bool, out memberType: TypeInfo): bool {
         memberType = BuiltInTypes.Unknown
-        if !bindingClrType.get_IsGenericType() || bindingClrType.get_IsGenericTypeDefinition() {
+        if !bindingClrType.IsGenericType || bindingClrType.IsGenericTypeDefinition {
             return false
         }
 
@@ -587,7 +587,7 @@ class AnalyzerMemberResolution {
         methods := clrType.GetMethods(GetReflectionMemberFlags(includeStaticMembers, inheritedProtectedAccess, FriendAdmits(grants, clrType)))
         matching := new List<MethodInfo>()
         for method in methods {
-            if method.get_Name() == memberName && IsReachableReflectedMethod(method, inheritedProtectedAccess, grants) {
+            if method.Name == memberName && IsReachableReflectedMethod(method, inheritedProtectedAccess, grants) {
                 matching.Add(method)
             }
         }
@@ -596,7 +596,7 @@ class AnalyzerMemberResolution {
             return false
         }
 
-        memberType = new ReflectionMethodGroupInfo(matching.ToArray(), matching[0].get_Name() + "(...)", surrogateBinding)
+        memberType = new ReflectionMethodGroupInfo(matching.ToArray(), matching[0].Name + "(...)", surrogateBinding)
         return true
     }
 
@@ -611,7 +611,7 @@ class AnalyzerMemberResolution {
     // arm, which is where they were answered before.
     static func TryResolveSpelledTypeParameterMember(closedClrType: Type, genericType: GenericTypeInfo, memberName: string, includeStaticMembers: bool, out memberType: TypeInfo): bool {
         memberType = BuiltInTypes.Unknown
-        if !closedClrType.get_IsGenericType() || closedClrType.get_IsGenericTypeDefinition() {
+        if !closedClrType.IsGenericType || closedClrType.IsGenericTypeDefinition {
             return false
         }
 
@@ -622,13 +622,13 @@ class AnalyzerMemberResolution {
 
         memberFlags := GetReflectionMemberFlags(includeStaticMembers)
         property := definition.GetProperty(memberName, memberFlags)
-        if property != null && property.get_DeclaringType() == definition && NullabilityGenericSubstitution.IsTypeParameterPosition(property.get_PropertyType()) {
+        if property != null && property.DeclaringType == definition && NullabilityGenericSubstitution.IsTypeParameterPosition(property.PropertyType) {
             memberType = NullabilityMetadataReflection.ConvertPropertyWithOverride(property, AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericType))
             return true
         }
 
         field := definition.GetField(memberName, memberFlags)
-        if field != null && field.get_DeclaringType() == definition && NullabilityGenericSubstitution.IsTypeParameterPosition(field.get_FieldType()) {
+        if field != null && field.DeclaringType == definition && NullabilityGenericSubstitution.IsTypeParameterPosition(field.FieldType) {
             memberType = NullabilityMetadataReflection.ConvertFieldWithOverride(field, AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericType))
             return true
         }
@@ -690,7 +690,7 @@ class AnalyzerMemberResolution {
     // THE FRIEND HALF IS ASKED OF THE MEMBER'S OWN DECLARING TYPE, not of the receiver: a member
     // inherited from a base in a THIRD assembly is reachable only if THAT assembly granted this one.
     static func IsReachableReflectedMethod(method: MethodInfo, inheritedProtectedAccess: bool, grants: InternalsVisibleToGrants?): bool {
-        return IsReachableReflectedLevel(MemberAccessibility.LevelOfMethod(method), inheritedProtectedAccess, FriendAdmits(grants, method.get_DeclaringType()))
+        return IsReachableReflectedLevel(MemberAccessibility.LevelOfMethod(method), inheritedProtectedAccess, FriendAdmits(grants, method.DeclaringType))
     }
 
     // WAS THE FRIEND RULE THE ONLY REASON THIS NAME DID NOT RESOLVE?
@@ -732,7 +732,7 @@ class AnalyzerMemberResolution {
 
         methods := AnalyzerReflectionMemberProbe.MethodsOrEmpty(clrType, probeFlags)
         for probedMethod in methods {
-            if probedMethod.get_Name() == memberName && !probedMethod.get_IsSpecialName() && IsFriendBarredLevel(MemberAccessibility.LevelOfMethod(probedMethod)) {
+            if probedMethod.Name == memberName && !probedMethod.IsSpecialName && IsFriendBarredLevel(MemberAccessibility.LevelOfMethod(probedMethod)) {
                 level = MemberAccessibility.LevelOfMethod(probedMethod)
                 return true
             }
@@ -785,7 +785,7 @@ class AnalyzerMemberResolution {
             return true
         }
 
-        if !reflectedType.get_IsInterface() {
+        if !reflectedType.IsInterface {
             return false
         }
 
@@ -814,14 +814,14 @@ class AnalyzerMemberResolution {
         }
 
         field := reflectedType.GetField(memberName, memberFlags)
-        if field != null && IsReachableReflectedLevel(MemberAccessibility.LevelOfField(field), inheritedProtectedAccess, FriendAdmits(grants, field.get_DeclaringType())) {
+        if field != null && IsReachableReflectedLevel(MemberAccessibility.LevelOfField(field), inheritedProtectedAccess, FriendAdmits(grants, field.DeclaringType)) {
             memberType = NullabilityMetadataReflection.ConvertField(field)
             return true
         }
 
         eventMember := reflectedType.GetEvent(memberName, memberFlags)
         if eventMember != null {
-            resolvedEvent := new ReflectionEventInfo(eventMember.get_Name(), eventMember.GetAddMethod(true), eventMember.GetRemoveMethod(true), eventMember.get_EventHandlerType(), eventMember.get_DeclaringType(), "event " + eventMember.get_Name())
+            resolvedEvent := new ReflectionEventInfo(eventMember.Name, eventMember.GetAddMethod(true), eventMember.GetRemoveMethod(true), eventMember.EventHandlerType, eventMember.DeclaringType, "event " + eventMember.Name)
             resolvedEvent.AnnotatedHandlerType = NullabilityMetadataReflection.ConvertEventHandlerType(eventMember)
             memberType = resolvedEvent
             return true
@@ -902,44 +902,44 @@ class AnalyzerMemberResolution {
     // methods instead: the first matching declaration either introduces an unrelated new slot or
     // continues the override chain toward object.Finalize.
     static func IsRuntimeFinalizerMethod(method: MethodInfo): bool {
-        if method.get_Name() != "Finalize" || method.get_IsStatic() || !method.get_IsVirtual() {
+        if method.Name != "Finalize" || method.IsStatic || !method.IsVirtual {
             return false
         }
 
         // The return type is compared BY NAME: a type read through a `MetadataLoadContext` is never
         // reference-equal to the running `typeof(void)`.
-        returnType := method.get_ReturnType()
-        if method.GetParameters().Length != 0 || returnType == null || returnType.get_FullName() != "System.Void" {
+        returnType := method.ReturnType
+        if method.GetParameters().Length != 0 || returnType == null || returnType.FullName != "System.Void" {
             return false
         }
 
-        declaringType := method.get_DeclaringType()
-        if declaringType != null && declaringType.get_FullName() == "System.Object" {
+        declaringType := method.DeclaringType
+        if declaringType != null && declaringType.FullName == "System.Object" {
             return true
         }
 
         newSlotFlag := 0x0100
-        if ((int)method.get_Attributes() & newSlotFlag) != 0 {
+        if ((int)method.Attributes & newSlotFlag) != 0 {
             return false
         }
 
         baseType: Type? = null
         if declaringType != null {
-            baseType = declaringType.get_BaseType()
+            baseType = declaringType.BaseType
         }
         while baseType != null {
             methods := baseType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
             for candidate in methods {
-                candidateReturn := candidate.get_ReturnType()
-                if candidate.get_Name() == "Finalize" && !candidate.get_IsStatic() && candidate.get_IsVirtual() && candidate.GetParameters().Length == 0 && candidateReturn != null && candidateReturn.get_FullName() == "System.Void" {
-                    owner := candidate.get_DeclaringType()
-                    if owner != null && owner.get_FullName() == "System.Object" {
+                candidateReturn := candidate.ReturnType
+                if candidate.Name == "Finalize" && !candidate.IsStatic && candidate.IsVirtual && candidate.GetParameters().Length == 0 && candidateReturn != null && candidateReturn.FullName == "System.Void" {
+                    owner := candidate.DeclaringType
+                    if owner != null && owner.FullName == "System.Object" {
                         return true
                     }
-                    return ((int)candidate.get_Attributes() & newSlotFlag) == 0 && IsRuntimeFinalizerMethod(candidate)
+                    return ((int)candidate.Attributes & newSlotFlag) == 0 && IsRuntimeFinalizerMethod(candidate)
                 }
             }
-            baseType = baseType.get_BaseType()
+            baseType = baseType.BaseType
         }
 
         return false
@@ -987,20 +987,20 @@ class AnalyzerMemberResolution {
         methods := objectType.GetMethods(methodFlags)
         matching := new List<MethodInfo>()
         for method in methods {
-            if method.get_Name() == memberName && !method.get_IsSpecialName() && IsReachableReflectedMethod(method, inheritedProtectedAccess) {
+            if method.Name == memberName && !method.IsSpecialName && IsReachableReflectedMethod(method, inheritedProtectedAccess) {
                 matching.Add(method)
             }
         }
 
         if matching.Count == 1 {
             single := matching[0]
-            memberType = new ReflectionMethodInfo(single, single.get_Name() + "(...)")
+            memberType = new ReflectionMethodInfo(single, single.Name + "(...)")
             return true
         }
 
         if matching.Count > 1 {
             first := matching[0]
-            memberType = new ReflectionMethodGroupInfo(matching.ToArray(), first.get_Name() + "(...)")
+            memberType = new ReflectionMethodGroupInfo(matching.ToArray(), first.Name + "(...)")
             return true
         }
 

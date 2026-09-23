@@ -15,16 +15,16 @@ class ColumnarGenericCallBindingPlanner {
         if Object.ReferenceEquals(left, right) || left == right {
             return true
         }
-        if !left.get_IsGenericParameter() || !right.get_IsGenericParameter() || left.get_IsGenericMethodParameter() != right.get_IsGenericMethodParameter() || left.get_IsGenericTypeParameter() != right.get_IsGenericTypeParameter() || left.get_GenericParameterPosition() != right.get_GenericParameterPosition() {
+        if !left.IsGenericParameter || !right.IsGenericParameter || left.IsGenericMethodParameter != right.IsGenericMethodParameter || left.IsGenericTypeParameter != right.IsGenericTypeParameter || left.GenericParameterPosition != right.GenericParameterPosition {
             return false
         }
-        if left.get_IsGenericMethodParameter() {
-            leftMethod := left.get_DeclaringMethod()
-            rightMethod := right.get_DeclaringMethod()
+        if left.IsGenericMethodParameter {
+            leftMethod := left.DeclaringMethod
+            rightMethod := right.DeclaringMethod
             return leftMethod != null && rightMethod != null && Object.ReferenceEquals(leftMethod, rightMethod)
         }
-        leftType := left.get_DeclaringType()
-        rightType := right.get_DeclaringType()
+        leftType := left.DeclaringType
+        rightType := right.DeclaringType
         return leftType != null && rightType != null && (Object.ReferenceEquals(leftType, rightType) || leftType == rightType)
     }
 
@@ -47,10 +47,10 @@ class ColumnarGenericCallBindingPlanner {
             return false
         }
 
-        if !actual.get_IsGenericParameter() && RuntimeTypeShapeFacts.ContainsBuilderBoundType(actual) && !(actual is TypeBuilder) && !(actual is EnumBuilder) {
+        if !actual.IsGenericParameter && RuntimeTypeShapeFacts.ContainsBuilderBoundType(actual) && !(actual is TypeBuilder) && !(actual is EnumBuilder) {
             return false
         }
-        if !actual.get_IsGenericParameter() && !ColumnarTypeOfPlanner.IsSupportedType(actual) {
+        if !actual.IsGenericParameter && !ColumnarTypeOfPlanner.IsSupportedType(actual) {
             return false
         }
         if binding[position] == null {
@@ -66,10 +66,10 @@ class ColumnarGenericCallBindingPlanner {
         declared: Type,
         actual: Type
     ): bool {
-        if declared.get_IsGenericParameter() {
+        if declared.IsGenericParameter {
             return TryUnifyTypeParam(typeParams, binding, declared, actual)
         }
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declared) && declared.GetElementType().get_IsGenericParameter() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declared) && declared.GetElementType().IsGenericParameter {
             return ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(actual) && TryUnifyTypeParam(
                 typeParams,
                 binding,
@@ -77,7 +77,7 @@ class ColumnarGenericCallBindingPlanner {
                 actual.GetElementType()
             )
         }
-        if declared.get_IsGenericType() && !declared.get_IsGenericTypeDefinition() {
+        if declared.IsGenericType && !declared.IsGenericTypeDefinition {
             return TryUnifyGenericContainer(typeParams, binding, declared, actual)
         }
         return ColumnarTypeEquivalenceFacts.TypesEquivalent(declared, actual)
@@ -89,7 +89,7 @@ class ColumnarGenericCallBindingPlanner {
         declared: Type,
         actual: Type
     ): bool {
-        if !actual.get_IsGenericType() || actual.get_IsGenericTypeDefinition() {
+        if !actual.IsGenericType || actual.IsGenericTypeDefinition {
             return false
         }
 
@@ -108,7 +108,7 @@ class ColumnarGenericCallBindingPlanner {
         argumentIndex := 0
         while argumentIndex < declaredArguments.Length {
             declaredArgument := declaredArguments[argumentIndex]
-            if declaredArgument.get_IsGenericParameter() {
+            if declaredArgument.IsGenericParameter {
                 if !TryUnifyTypeParam(
                     typeParams,
                     binding,
@@ -117,7 +117,7 @@ class ColumnarGenericCallBindingPlanner {
                 ) {
                     return false
                 }
-            } else if declaredArgument.get_IsGenericType() && !declaredArgument.get_IsGenericTypeDefinition() {
+            } else if declaredArgument.IsGenericType && !declaredArgument.IsGenericTypeDefinition {
                 if !TryUnifyGenericContainer(
                     typeParams,
                     binding,
@@ -144,7 +144,7 @@ class ColumnarGenericCallBindingPlanner {
         out substituted: Type
     ): bool {
         substituted = null
-        if declaredReturn.get_IsGenericParameter() {
+        if declaredReturn.IsGenericParameter {
             parameterIndex := 0
             while parameterIndex < typeParams.Length {
                 if SameTypeParameterIdentity(typeParams[parameterIndex], declaredReturn) {
@@ -156,7 +156,7 @@ class ColumnarGenericCallBindingPlanner {
             return false
         }
 
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declaredReturn) && declaredReturn.GetElementType().get_IsGenericParameter() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(declaredReturn) && declaredReturn.GetElementType().IsGenericParameter {
             element := declaredReturn.GetElementType()
             parameterIndex := 0
             while parameterIndex < typeParams.Length {
@@ -190,7 +190,7 @@ class ColumnarGenericCallBindingPlanner {
             return true
         }
 
-        if declaredReturn.get_IsGenericType() && !declaredReturn.get_IsGenericTypeDefinition() && RuntimeTypeShapeFacts.ContainsBuilderBoundType(declaredReturn) {
+        if declaredReturn.IsGenericType && !declaredReturn.IsGenericTypeDefinition && RuntimeTypeShapeFacts.ContainsBuilderBoundType(declaredReturn) {
             returnDefinition := declaredReturn.GetGenericTypeDefinition()
             // The DEFINITION has to be a complete EXTERNAL identity. A source-headed one was already
             // answered by the closed-source-generic arm above, and a definition that is itself
@@ -242,7 +242,7 @@ class ColumnarGenericCallBindingPlanner {
             return true
         }
 
-        stillOpen := declaredReturn.get_ContainsGenericParameters()
+        stillOpen := declaredReturn.ContainsGenericParameters
         if stillOpen && !(declaredReturn is TypeBuilder) && !(declaredReturn is EnumBuilder) {
             return false
         }

@@ -194,7 +194,7 @@ class ColumnarSourceAttributeBinder {
     static func ObjectParameterCount(parameterTypes: Type[]): int {
         count := 0
         for parameterType in parameterTypes {
-            if parameterType.get_FullName() == "System.Object" {
+            if parameterType.FullName == "System.Object" {
                 count = count + 1
             }
         }
@@ -242,11 +242,11 @@ class ColumnarSourceAttributeBinder {
         current: Type = candidate
         depth := 0
         while current != null && depth < 64 {
-            if current.get_FullName() == baseFullName {
+            if current.FullName == baseFullName {
                 return true
             }
 
-            current = current.get_BaseType()
+            current = current.BaseType
             depth = depth + 1
         }
 
@@ -303,8 +303,8 @@ class ColumnarSourceAttributeBinder {
             defaultValues := new ColumnarAttributeArgumentNode?[](parameters.Length)
             index := 0
             while index < parameters.Length {
-                parameterTypes[index] = parameters[index].get_ParameterType()
-                parameterNames[index] = parameters[index].get_Name() ?? ""
+                parameterTypes[index] = parameters[index].ParameterType
+                parameterNames[index] = parameters[index].Name ?? ""
                 metadataDefault: ColumnarAttributeArgumentNode = null
                 if TryReadMetadataDefault(parameters[index], out metadataDefault) {
                     defaultValues[index] = metadataDefault
@@ -396,11 +396,11 @@ class ColumnarSourceAttributeBinder {
     // gave.
     static func TryReadMetadataDefault(parameter: ParameterInfo, out node: ColumnarAttributeArgumentNode): bool {
         node = null
-        if !parameter.get_IsOptional() || !parameter.get_HasDefaultValue() {
+        if !parameter.IsOptional || !parameter.HasDefaultValue {
             return false
         }
 
-        return TryNodeFromConstant(parameter.get_DefaultValue(), out node)
+        return TryNodeFromConstant(parameter.DefaultValue, out node)
     }
 
     static func TryNodeFromConstant(constantValue: object?, out node: ColumnarAttributeArgumentNode): bool {
@@ -466,8 +466,8 @@ class ColumnarSourceAttributeBinder {
             }
 
             field: FieldBuilder = null
-            if definition.Fields.TryGetValue(memberName, out field) && field != null && field.get_IsPublic() && !field.get_IsInitOnly() && !field.get_IsLiteral() {
-                memberType = field.get_FieldType()
+            if definition.Fields.TryGetValue(memberName, out field) && field != null && field.IsPublic && !field.IsInitOnly && !field.IsLiteral {
+                memberType = field.FieldType
                 isField = true
                 return true
             }
@@ -503,16 +503,16 @@ class ColumnarSourceAttributeBinder {
         instanceFlags := BindingFlags.Public | BindingFlags.Instance
         property := attributeType.GetProperty(memberName, instanceFlags)
         if property != null {
-            setter := property.get_SetMethod()
-            if setter != null && setter.get_IsPublic() && property.GetIndexParameters().Length == 0 {
-                memberType = property.get_PropertyType()
+            setter := property.SetMethod
+            if setter != null && setter.IsPublic && property.GetIndexParameters().Length == 0 {
+                memberType = property.PropertyType
                 return true
             }
         }
 
         field := attributeType.GetField(memberName, instanceFlags)
-        if field != null && !field.get_IsInitOnly() && !field.get_IsLiteral() {
-            memberType = field.get_FieldType()
+        if field != null && !field.IsInitOnly && !field.IsLiteral {
+            memberType = field.FieldType
             isField = true
             return true
         }

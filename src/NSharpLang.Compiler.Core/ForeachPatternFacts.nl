@@ -28,12 +28,12 @@ class ForeachEnumeratorPattern {
     // WHAT THE LOOP VARIABLE IS BOUND TO. `Span<T>.Enumerator.Current` is a `ref T`, and the element
     // is `T`: the loop variable is a COPY of the current element, and the by-ref spelling is the
     // enumerator's way of avoiding a second copy on the way out, not part of the element type.
-    ElementType: Type => CurrentGetter.get_ReturnType().get_IsByRef() ? RequiredElementType() : CurrentGetter.get_ReturnType()
+    ElementType: Type => CurrentGetter.ReturnType.IsByRef ? RequiredElementType() : CurrentGetter.ReturnType
 
-    CurrentReturnsByRef: bool => CurrentGetter.get_ReturnType().get_IsByRef()
+    CurrentReturnsByRef: bool => CurrentGetter.ReturnType.IsByRef
 
     func RequiredElementType(): Type {
-        element := CurrentGetter.get_ReturnType().GetElementType()
+        element := CurrentGetter.ReturnType.GetElementType()
         if element == null {
             throw new InvalidOperationException("A by-ref 'Current' must name the element type it refers to.")
         }
@@ -108,13 +108,13 @@ class ForeachPatternFacts {
             return null
         }
 
-        enumeratorType := getEnumerator.get_ReturnType()
-        if enumeratorType == null || IsVoid(enumeratorType) || enumeratorType.get_IsByRef() {
+        enumeratorType := getEnumerator.ReturnType
+        if enumeratorType == null || IsVoid(enumeratorType) || enumeratorType.IsByRef {
             return null
         }
 
         moveNext := FindParameterlessInstanceMethod(enumeratorType, "MoveNext")
-        if moveNext == null || !IsBoolean(moveNext.get_ReturnType()) {
+        if moveNext == null || !IsBoolean(moveNext.ReturnType) {
             return null
         }
 
@@ -164,7 +164,7 @@ class ForeachPatternFacts {
     // the answer by position afterwards, so refusing a definition here would answer "not a sequence"
     // for the one shape that always is.
     static func MatchesConstructedDefinition(candidate: Type, definitionName: string): bool {
-        if candidate == null || !candidate.get_IsGenericType() {
+        if candidate == null || !candidate.IsGenericType {
             return false
         }
 
@@ -207,8 +207,8 @@ class ForeachPatternFacts {
             return false
         }
 
-        leftName := left.get_AssemblyQualifiedName()
-        rightName := right.get_AssemblyQualifiedName()
+        leftName := left.AssemblyQualifiedName
+        rightName := right.AssemblyQualifiedName
         if leftName == null || rightName == null {
             return left.FullName != null && left.FullName == right.FullName
         }
@@ -248,7 +248,7 @@ class ForeachPatternFacts {
     // and it is why this lookup exists beside the interface test rather than instead of it.
     static func FindPatternDispose(clrType: Type): MethodInfo? {
         dispose := FindParameterlessInstanceMethod(clrType, "Dispose")
-        if dispose == null || !IsVoid(dispose.get_ReturnType()) {
+        if dispose == null || !IsVoid(dispose.ReturnType) {
             return null
         }
 
@@ -285,7 +285,7 @@ class ForeachPatternFacts {
             current = SafeBaseType(current)
         }
 
-        if !owner.get_IsInterface() {
+        if !owner.IsInterface {
             return null
         }
 
@@ -304,7 +304,7 @@ class ForeachPatternFacts {
         flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly
         methods := SafeGetMethods(owner, flags)
         for candidate in methods {
-            if candidate.Name == name && !candidate.get_IsGenericMethodDefinition() && candidate.GetParameters().Length == 0 {
+            if candidate.Name == name && !candidate.IsGenericMethodDefinition && candidate.GetParameters().Length == 0 {
                 return candidate
             }
         }
@@ -329,7 +329,7 @@ class ForeachPatternFacts {
             current = SafeBaseType(current)
         }
 
-        if !owner.get_IsInterface() {
+        if !owner.IsInterface {
             return null
         }
 
@@ -349,7 +349,7 @@ class ForeachPatternFacts {
         properties := SafeGetProperties(owner, flags)
         for candidate in properties {
             if candidate.Name == "Current" && candidate.GetIndexParameters().Length == 0 {
-                getter := candidate.get_GetMethod()
+                getter := candidate.GetMethod
                 if getter != null {
                     return getter
                 }
@@ -407,7 +407,7 @@ class ForeachPatternFacts {
 
     static func SafeBaseType(clrType: Type): Type? {
         try {
-            return clrType.get_BaseType()
+            return clrType.BaseType
         } catch {
             return null
         }

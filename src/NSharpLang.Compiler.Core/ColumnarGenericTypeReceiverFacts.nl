@@ -198,7 +198,7 @@ class ColumnarGenericTypeReceiverFacts {
         if !RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) {
             return false
         }
-        if !receiverType.get_IsGenericType() || receiverType.get_IsGenericTypeDefinition() {
+        if !receiverType.IsGenericType || receiverType.IsGenericTypeDefinition {
             return false
         }
         return !(receiverType.GetGenericTypeDefinition() is TypeBuilder)
@@ -222,15 +222,15 @@ class ColumnarGenericTypeReceiverFacts {
         if IsBuilderBoundConstruction(receiverType) {
             definition := receiverType.GetGenericTypeDefinition()
             openField := definition.GetField(memberName, BindingFlags.Public | BindingFlags.Static)
-            if openField == null || !openField.get_IsStatic() {
+            if openField == null || !openField.IsStatic {
                 return false
             }
 
             // A literal has no storage to rebind: its value is the same for every instantiation and
             // the caller encodes it inline, so the definition's own handle is the exact answer.
-            if openField.get_IsLiteral() {
+            if openField.IsLiteral {
                 field = openField
-                fieldType = openField.get_FieldType()
+                fieldType = openField.FieldType
                 return true
             }
 
@@ -240,17 +240,17 @@ class ColumnarGenericTypeReceiverFacts {
             }
 
             field = rebound
-            fieldType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.get_FieldType(), receiverType.GetGenericArguments())
+            fieldType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.FieldType, receiverType.GetGenericArguments())
             return true
         }
 
         resolvedField := receiverType.GetField(memberName, BindingFlags.Public | BindingFlags.Static)
-        if resolvedField == null || !resolvedField.get_IsStatic() {
+        if resolvedField == null || !resolvedField.IsStatic {
             return false
         }
 
         field = resolvedField
-        fieldType = resolvedField.get_FieldType()
+        fieldType = resolvedField.FieldType
         return true
     }
 
@@ -269,7 +269,7 @@ class ColumnarGenericTypeReceiverFacts {
             }
 
             openGetter := openProperty.GetGetMethod()
-            if openGetter == null || !openGetter.get_IsStatic() || openGetter.GetParameters().Length != 0 {
+            if openGetter == null || !openGetter.IsStatic || openGetter.GetParameters().Length != 0 {
                 return false
             }
 
@@ -280,7 +280,7 @@ class ColumnarGenericTypeReceiverFacts {
 
             reboundObject: object? = rebound
             getter = (MethodInfo)reboundObject
-            resultType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openProperty.get_PropertyType(), receiverType.GetGenericArguments())
+            resultType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openProperty.PropertyType, receiverType.GetGenericArguments())
             return true
         }
 
@@ -290,12 +290,12 @@ class ColumnarGenericTypeReceiverFacts {
         }
 
         resolvedGetter := property.GetGetMethod()
-        if resolvedGetter == null || !resolvedGetter.get_IsStatic() || resolvedGetter.GetParameters().Length != 0 {
+        if resolvedGetter == null || !resolvedGetter.IsStatic || resolvedGetter.GetParameters().Length != 0 {
             return false
         }
 
         getter = resolvedGetter
-        resultType = resolvedGetter.get_ReturnType()
+        resultType = resolvedGetter.ReturnType
         return true
     }
 }

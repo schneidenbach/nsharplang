@@ -43,7 +43,7 @@ class ColumnarRecordValueMemberPlanner {
                     while fieldIndex < fieldNames.Length {
                         fieldName := fieldNames[fieldIndex]
                         field := def.Fields[fieldName]
-                        fieldType := field.get_FieldType()
+                        fieldType := field.FieldType
                         if RuntimeTypeShapeFacts.ContainsBuilderBoundType(fieldType) {
                             fieldsBaked = false
                             break
@@ -126,7 +126,7 @@ class ColumnarRecordValueMemberPlanner {
 
         for fieldName in fieldNames {
             field := def.Fields[fieldName]
-            fieldType := field.get_FieldType()
+            fieldType := field.FieldType
             comparerType := ComparerTypeFor(fieldType)
             fieldPool := plan.AddField(field)
             plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(ComparerDefaultGetter(comparerType)))
@@ -168,7 +168,7 @@ class ColumnarRecordValueMemberPlanner {
 
         for fieldName in fieldNames {
             field := def.Fields[fieldName]
-            fieldType := field.get_FieldType()
+            fieldType := field.FieldType
             comparerType := ComparerTypeFor(fieldType)
             plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), accumulator)
             plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(23))
@@ -271,7 +271,7 @@ class ColumnarRecordValueMemberPlanner {
     static func MemberwiseCloneMethod(): MethodInfo {
         candidates := typeof(object).GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
         for candidate in candidates {
-            if candidate.get_Name() == "MemberwiseClone" {
+            if candidate.Name == "MemberwiseClone" {
                 parameters := candidate.GetParameters()
                 if parameters.Length == 0 {
                     return candidate

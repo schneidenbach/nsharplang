@@ -76,7 +76,7 @@ class InternalsVisibleToGrants {
             return false
         }
 
-        key := assembly.get_FullName() ?? ""
+        key := assembly.FullName ?? ""
         cached := false
         if grantsByAssembly.TryGetValue(key, out cached) {
             return cached
@@ -92,9 +92,9 @@ class InternalsVisibleToGrants {
             return false
         }
 
-        declaring := member.get_DeclaringType()
+        declaring := member.DeclaringType
         if declaring != null {
-            return GrantsAccess(declaring.get_Assembly())
+            return GrantsAccess(declaring.Assembly)
         }
 
         return false
@@ -105,7 +105,7 @@ class InternalsVisibleToGrants {
             return false
         }
 
-        return GrantsAccess(candidate.get_Assembly())
+        return GrantsAccess(candidate.Assembly)
     }
 
     // CAN THIS COMPILATION SPELL THIS METADATA TYPE? `Type.IsVisible` already answers for the
@@ -122,25 +122,25 @@ class InternalsVisibleToGrants {
             return false
         }
 
-        if candidate.get_IsVisible() {
+        if candidate.IsVisible {
             return true
         }
 
-        if !GrantsAccess(candidate.get_Assembly()) {
+        if !GrantsAccess(candidate.Assembly) {
             return false
         }
 
         current: Type? = candidate
         while current != null {
-            if !current.get_IsNested() {
-                return current.get_IsPublic() || current.get_IsNotPublic()
+            if !current.IsNested {
+                return current.IsPublic || current.IsNotPublic
             }
 
-            if !(current.get_IsNestedPublic() || current.get_IsNestedAssembly() || current.get_IsNestedFamORAssem()) {
+            if !(current.IsNestedPublic || current.IsNestedAssembly || current.IsNestedFamORAssem) {
                 return false
             }
 
-            current = current.get_DeclaringType()
+            current = current.DeclaringType
         }
 
         return false
@@ -154,7 +154,7 @@ class InternalsVisibleToGrants {
             return false
         }
 
-        return GrantsAccess(declaringType.get_Assembly())
+        return GrantsAccess(declaringType.Assembly)
     }
 
     // THE ASSEMBLY BEING EMITTED IS NOT A REFERENCE, AND IT CANNOT BE ASKED. A back-end filter reads
@@ -179,9 +179,9 @@ class InternalsVisibleToGrants {
         index := 0
         while index < count {
             attribute := attributes.get_Item(index)
-            attributeType := attribute.get_AttributeType()
+            attributeType := attribute.AttributeType
             if string.Equals(attributeType.FullName ?? "", InternalsVisibleToAttributeFullName, StringComparison.Ordinal) {
-                arguments := attribute.get_ConstructorArguments()
+                arguments := attribute.ConstructorArguments
                 if NullabilityMetadataReflection.SequenceCount(arguments) >= 1 {
                     declared := arguments.get_Item(0).get_Value() as string
                     if declared != null && NamesCompilation(declared, compilingAssemblyName) {

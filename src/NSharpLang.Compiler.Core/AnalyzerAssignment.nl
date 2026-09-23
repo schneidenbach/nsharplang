@@ -745,7 +745,7 @@ class AnalyzerAssignment {
         }
 
         reflected := candidate as ReflectionTypeInfo
-        return reflected != null && reflected.Type.get_IsValueType()
+        return reflected != null && reflected.Type.IsValueType
     }
 
     // ------------------------------------------------------------------------------------------

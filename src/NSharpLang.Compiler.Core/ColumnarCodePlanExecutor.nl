@@ -1007,8 +1007,8 @@ class ColumnarCodePlanExecutor {
         } else {
             method := plan.Methods[methodIndex]
             argCount = method.GetParameters().Length
-            isStatic = method.get_IsStatic()
-            returnsVoid = IsVoidType(method.get_ReturnType())
+            isStatic = method.IsStatic
+            returnsVoid = IsVoidType(method.ReturnType)
         }
         instanceCount := isStatic ? 0 : 1
         returnCount := returnsVoid ? 0 : 1
@@ -1207,7 +1207,7 @@ class ColumnarCodePlanExecutor {
 
         i = 0
         while i < plan.AmbientLocalCount {
-            localType := plan.AmbientLocals[i].get_LocalType()
+            localType := plan.AmbientLocals[i].LocalType
             ValidateStorableType(localType, "ambient local", schemaName)
             i += 1
         }
@@ -1255,19 +1255,19 @@ class ColumnarCodePlanExecutor {
 
     static func ValidateMethod(plan: ColumnarCodePlan, methodIndex: int, schemaName: string, allowVoidReturn: bool) {
         method := plan.Methods[methodIndex]
-        if method.get_IsGenericMethodDefinition() {
+        if method.IsGenericMethodDefinition {
             throw new InvalidOperationException(schemaName + " method handles cannot be generic method definitions.")
         }
-        if (((int)method.get_CallingConvention()) & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0 {
+        if (((int)method.CallingConvention) & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0 {
             throw new InvalidOperationException(schemaName + " method handles cannot use the VarArgs calling convention.")
         }
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         if declaringType == null {
             throw new InvalidOperationException(schemaName + " methods must have an exact declaring type.")
         }
         if plan.MethodUsesDeclaredSignature[methodIndex] {
             declaredType := plan.MethodDeclaringTypes[methodIndex]
-            if declaringType != declaredType || method.get_IsStatic() != plan.MethodIsStatic[methodIndex] || method.get_IsAbstract() != plan.MethodIsAbstract[methodIndex] {
+            if declaringType != declaredType || method.IsStatic != plan.MethodIsStatic[methodIndex] || method.IsAbstract != plan.MethodIsAbstract[methodIndex] {
                 throw new InvalidOperationException(schemaName + " declared method identity does not match its handle.")
             }
             ValidateStorableType(declaredType, "method receiver", schemaName)
@@ -1284,22 +1284,22 @@ class ColumnarCodePlanExecutor {
         declaringArguments := DeclaringTypeArguments(declaringType)
         methodParameterDefinitions := signatureMethod.GetGenericArguments()
         genericArguments := method.GetGenericArguments()
-        returnType := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
+        returnType := ResolveMemberSignatureType(signatureMethod.ReturnType, declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
         ValidateMethodReturnType(returnType, schemaName, allowVoidReturn)
         parameters := signatureMethod.GetParameters()
         for parameter in parameters {
-            parameterType := ResolveMemberSignatureType(parameter.get_ParameterType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
+            parameterType := ResolveMemberSignatureType(parameter.ParameterType, declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
             ValidateParameterType(parameterType, "method argument", schemaName)
         }
     }
 
     static func ValidateConstructor(plan: ColumnarCodePlan, constructorIndex: int, schemaName: string) {
         constructorInfo := plan.Constructors[constructorIndex]
-        declaringType := constructorInfo.get_DeclaringType()
-        if declaringType == null || constructorInfo.get_IsStatic() || declaringType.get_IsAbstract() {
+        declaringType := constructorInfo.DeclaringType
+        if declaringType == null || constructorInfo.IsStatic || declaringType.IsAbstract {
             throw new InvalidOperationException(schemaName + " constructors must be instance constructors with an exact declaring type.")
         }
-        if (((int)constructorInfo.get_CallingConvention()) & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0 {
+        if (((int)constructorInfo.CallingConvention) & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0 {
             throw new InvalidOperationException(schemaName + " constructors cannot use the VarArgs calling convention.")
         }
 
@@ -1314,7 +1314,7 @@ class ColumnarCodePlanExecutor {
             parameterIndex := 0
             while parameterIndex < declaredParameters.Length {
                 ValidateParameterType(declaredParameters[parameterIndex], "constructor argument", schemaName)
-                if declaredOutFlags[parameterIndex] && !declaredParameters[parameterIndex].get_IsByRef() {
+                if declaredOutFlags[parameterIndex] && !declaredParameters[parameterIndex].IsByRef {
                     throw new InvalidOperationException(schemaName + " declared constructor out fact requires a byref parameter.")
                 }
                 parameterIndex += 1
@@ -1326,7 +1326,7 @@ class ColumnarCodePlanExecutor {
         ValidateStorableType(declaringType, "constructor result", schemaName)
         parameters := constructorInfo.GetParameters()
         for parameterItem in parameters {
-            ValidateParameterType(parameterItem.get_ParameterType(), "constructor argument", schemaName)
+            ValidateParameterType(parameterItem.ParameterType, "constructor argument", schemaName)
         }
     }
 
@@ -1340,11 +1340,11 @@ class ColumnarCodePlanExecutor {
             noMethodArguments := new Type[](0)
             i := 0
             while i < actualParameters.Length {
-                actualParameter := ResolveMemberSignatureType(actualParameters[i].get_ParameterType(), declaringArguments, noMethodArguments, noMethodArguments, schemaName)
+                actualParameter := ResolveMemberSignatureType(actualParameters[i].ParameterType, declaringArguments, noMethodArguments, noMethodArguments, schemaName)
                 if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualParameter, declaredParameters[i]) {
                     throw new InvalidOperationException(schemaName + " declared constructor parameter does not match its inspectable handle.")
                 }
-                if actualParameters[i].get_IsOut() != declaredOutFlags[i] {
+                if actualParameters[i].IsOut != declaredOutFlags[i] {
                     throw new InvalidOperationException(schemaName + " declared constructor out fact does not match its inspectable handle.")
                 }
                 i += 1
@@ -1363,14 +1363,14 @@ class ColumnarCodePlanExecutor {
         // TypeBuilder.GetMethod wrapper. Validate it before GetParameters reaches the
         // documented unbaked reflection boundary, so that boundary can never hide a lie.
         signatureMethod := GetMethodSignatureDefinition(method, schemaName)
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         if declaringType == null {
             throw new InvalidOperationException(schemaName + " declared method has no declaring type.")
         }
         declaringArguments := DeclaringTypeArguments(declaringType)
         methodParameterDefinitions := signatureMethod.GetGenericArguments()
         genericArguments := method.GetGenericArguments()
-        actualReturn := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
+        actualReturn := ResolveMemberSignatureType(signatureMethod.ReturnType, declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
         if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualReturn, plan.MethodReturnTypes[methodIndex]) {
             throw new InvalidOperationException(schemaName + " declared method return does not match its inspectable handle.")
         }
@@ -1382,7 +1382,7 @@ class ColumnarCodePlanExecutor {
             }
             i := 0
             while i < actualParameters.Length {
-                actualParameter := ResolveMemberSignatureType(actualParameters[i].get_ParameterType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
+                actualParameter := ResolveMemberSignatureType(actualParameters[i].ParameterType, declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
                 if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualParameter, declaredParameters[i]) {
                     throw new InvalidOperationException(schemaName + " declared method parameter does not match its inspectable handle.")
                 }
@@ -1400,30 +1400,30 @@ class ColumnarCodePlanExecutor {
 
     static func ValidateField(plan: ColumnarCodePlan, fieldIndex: int, schemaName: string) {
         field := plan.Fields[fieldIndex]
-        if field.get_IsLiteral() {
+        if field.IsLiteral {
             throw new InvalidOperationException(schemaName + " field handles cannot name literal fields without storage.")
         }
-        declaringType := field.get_DeclaringType()
+        declaringType := field.DeclaringType
         if declaringType == null {
             throw new InvalidOperationException(schemaName + " field handles must have an exact declaring type.")
         }
         if plan.FieldUsesDeclaredSignature[fieldIndex] {
             declaredType := plan.FieldDeclaringTypes[fieldIndex]
             declaredValueType := plan.FieldValueTypes[fieldIndex]
-            if declaringType != declaredType || field.get_IsStatic() != plan.FieldIsStatic[fieldIndex] {
+            if declaringType != declaredType || field.IsStatic != plan.FieldIsStatic[fieldIndex] {
                 throw new InvalidOperationException(schemaName + " declared field identity does not match its handle.")
             }
             ValidateStorableType(declaredType, "field receiver", schemaName)
             ValidateStorableType(declaredValueType, "field result", schemaName)
             noMethodArguments := new Type[](0)
-            actualValueType := ResolveMemberSignatureType(field.get_FieldType(), DeclaringTypeArguments(declaredType), noMethodArguments, noMethodArguments, schemaName)
+            actualValueType := ResolveMemberSignatureType(field.FieldType, DeclaringTypeArguments(declaredType), noMethodArguments, noMethodArguments, schemaName)
             if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(actualValueType, declaredValueType) {
                 throw new InvalidOperationException(schemaName + " declared field result does not match its inspectable handle.")
             }
             return
         }
         ValidateStorableType(declaringType, "field receiver", schemaName)
-        ValidateStorableType(field.get_FieldType(), "field result", schemaName)
+        ValidateStorableType(field.FieldType, "field result", schemaName)
     }
 
     // A PARAMETER may be `ref`/`out` — it names the caller's storage rather than a value — and what it
@@ -1433,13 +1433,13 @@ class ColumnarCodePlanExecutor {
             throw new InvalidOperationException(schemaName + " " + role + " types cannot be null.")
         }
 
-        if !parameterType.get_IsByRef() {
+        if !parameterType.IsByRef {
             ValidateStorableType(parameterType, role, schemaName)
             return
         }
 
         elementType := parameterType.GetElementType()
-        if elementType == null || elementType.get_IsByRef() {
+        if elementType == null || elementType.IsByRef {
             throw new InvalidOperationException(schemaName + " by-reference " + role + "s must reference a storable type.")
         }
 
@@ -1449,19 +1449,19 @@ class ColumnarCodePlanExecutor {
     // A spill local may hold a managed pointer while preserving written argument evaluation order.
     // Its element obeys the ordinary storage rules; nested managed pointers remain invalid.
     static func ValidatePlanLocalType(localType: Type, schemaName: string) {
-        if !localType.get_IsByRef() {
+        if !localType.IsByRef {
             ValidateStorableType(localType, "plan local", schemaName)
             return
         }
         elementType := localType.GetElementType()
-        if elementType == null || elementType.get_IsByRef() {
+        if elementType == null || elementType.IsByRef {
             throw new InvalidOperationException(schemaName + " managed-pointer plan locals must reference a storable type.")
         }
         ValidateStorableType(elementType, "managed-pointer plan local element", schemaName)
     }
 
     static func IsManagedPointerPlanLocalTypeRow(plan: ColumnarCodePlan, typeIndex: int): bool {
-        if !plan.ValidatedTypeAt(typeIndex).get_IsByRef() {
+        if !plan.ValidatedTypeAt(typeIndex).IsByRef {
             return false
         }
         isLocal := false
@@ -1530,10 +1530,10 @@ class ColumnarCodePlanExecutor {
     }
 
     static func ValidateMetadataReferenceType(valueType: Type, role: string, schemaName: string) {
-        if valueType.get_IsByRef() {
+        if valueType.IsByRef {
             throw new InvalidOperationException(schemaName + " " + role + " types cannot be null, void, or by-reference.")
         }
-        if valueType.get_IsGenericTypeDefinition() && !(valueType is TypeBuilder) {
+        if valueType.IsGenericTypeDefinition && !(valueType is TypeBuilder) {
             throw new InvalidOperationException(schemaName + " " + role + " types cannot be generic type definitions.")
         }
     }
@@ -1542,7 +1542,7 @@ class ColumnarCodePlanExecutor {
         if valueType.FullName == "System.Void" {
             throw new InvalidOperationException(schemaName + " " + role + " types cannot be void.")
         }
-        if valueType.get_IsByRef() {
+        if valueType.IsByRef {
             throw new InvalidOperationException(schemaName + " " + role + " types cannot be null, void, or by-reference.")
         }
         // A BAKED generic type definition — `typeof(ValueTuple<,>)` — names no value and no storage, so
@@ -1552,7 +1552,7 @@ class ColumnarCodePlanExecutor {
         // members from its own code (the token it writes is a def, which the CLR reads as the
         // enclosing instantiation). Refusing that shape refused every bare call inside a generic
         // type's own body.
-        if valueType.get_IsGenericTypeDefinition() && !(valueType is TypeBuilder) {
+        if valueType.IsGenericTypeDefinition && !(valueType is TypeBuilder) {
             throw new InvalidOperationException(schemaName + " " + role + " types cannot be generic type definitions.")
         }
     }
@@ -1821,10 +1821,10 @@ class ColumnarCodePlanExecutor {
             return new ColumnarCodePlanStackNode(left.ValueType, true, ColumnarCodePlanStackValueKind.Exact(), false, 0, null)
         }
 
-        if left.ValueKind == ColumnarCodePlanStackValueKind.NullReference() && right.ValueKind == ColumnarCodePlanStackValueKind.Exact() && !right.ValueType.get_IsValueType() && !right.ValueType.get_IsGenericParameter() {
+        if left.ValueKind == ColumnarCodePlanStackValueKind.NullReference() && right.ValueKind == ColumnarCodePlanStackValueKind.Exact() && !right.ValueType.IsValueType && !right.ValueType.IsGenericParameter {
             return new ColumnarCodePlanStackNode(right.ValueType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0, null)
         }
-        if right.ValueKind == ColumnarCodePlanStackValueKind.NullReference() && left.ValueKind == ColumnarCodePlanStackValueKind.Exact() && !left.ValueType.get_IsValueType() && !left.ValueType.get_IsGenericParameter() {
+        if right.ValueKind == ColumnarCodePlanStackValueKind.NullReference() && left.ValueKind == ColumnarCodePlanStackValueKind.Exact() && !left.ValueType.IsValueType && !left.ValueType.IsGenericParameter {
             return new ColumnarCodePlanStackNode(left.ValueType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0, null)
         }
 
@@ -1840,10 +1840,10 @@ class ColumnarCodePlanExecutor {
             return new ColumnarCodePlanStackNode(left.ValueType, false, left.ValueKind, literalKnown, literalValue, null)
         }
 
-        if left.ValueKind == ColumnarCodePlanStackValueKind.BoxedExact() && right.ValueKind == ColumnarCodePlanStackValueKind.Exact() && !right.ValueType.get_IsValueType() && IsStackCompatible(right.ValueType, left.ValueType, left.ValueKind, false, 0) {
+        if left.ValueKind == ColumnarCodePlanStackValueKind.BoxedExact() && right.ValueKind == ColumnarCodePlanStackValueKind.Exact() && !right.ValueType.IsValueType && IsStackCompatible(right.ValueType, left.ValueType, left.ValueKind, false, 0) {
             return new ColumnarCodePlanStackNode(right.ValueType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0, null)
         }
-        if right.ValueKind == ColumnarCodePlanStackValueKind.BoxedExact() && left.ValueKind == ColumnarCodePlanStackValueKind.Exact() && !left.ValueType.get_IsValueType() && IsStackCompatible(left.ValueType, right.ValueType, right.ValueKind, false, 0) {
+        if right.ValueKind == ColumnarCodePlanStackValueKind.BoxedExact() && left.ValueKind == ColumnarCodePlanStackValueKind.Exact() && !left.ValueType.IsValueType && IsStackCompatible(left.ValueType, right.ValueType, right.ValueKind, false, 0) {
             return new ColumnarCodePlanStackNode(left.ValueType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0, null)
         }
 
@@ -1867,7 +1867,7 @@ class ColumnarCodePlanExecutor {
         if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(left, right) {
             return left
         }
-        if !left.get_IsValueType() && !right.get_IsValueType() {
+        if !left.IsValueType && !right.IsValueType {
             if ReferenceAssignableFrom(left, right) {
                 return left
             }
@@ -1944,22 +1944,22 @@ class ColumnarCodePlanExecutor {
         } else if opCodeValue == ColumnarCodePlanContract.Box() {
             targetType := plan.Types[operandIndex]
             value := state.Pop()
-            if (!targetType.get_IsValueType() && !targetType.get_IsGenericParameter()) || value.IsAddress || !IsStackCompatible(targetType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
+            if (!targetType.IsValueType && !targetType.IsGenericParameter) || value.IsAddress || !IsStackCompatible(targetType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
                 throw new InvalidOperationException(schemaName + " box requires a compatible value and an exact value-type operand.")
             }
             state.Push(targetType, false, ColumnarCodePlanStackValueKind.BoxedExact(), false, 0)
         } else if opCodeValue == ColumnarCodePlanContract.Castclass() {
             targetType := plan.Types[operandIndex]
             value := state.Pop()
-            isReferenceValue := value.ValueKind == ColumnarCodePlanStackValueKind.Exact() && !value.ValueType.get_IsValueType() && !value.ValueType.get_IsGenericParameter() && !value.ValueType.get_IsPointer() && !value.ValueType.get_IsFunctionPointer() || value.ValueKind == ColumnarCodePlanStackValueKind.BoxedExact() || value.ValueKind == ColumnarCodePlanStackValueKind.NullReference()
-            if targetType.get_IsValueType() || targetType.get_IsGenericParameter() || targetType.get_IsByRef() || targetType.get_IsPointer() || targetType.get_IsFunctionPointer() || targetType.get_IsGenericTypeDefinition() || value.IsAddress || !isReferenceValue {
+            isReferenceValue := value.ValueKind == ColumnarCodePlanStackValueKind.Exact() && !value.ValueType.IsValueType && !value.ValueType.IsGenericParameter && !value.ValueType.IsPointer && !value.ValueType.IsFunctionPointer || value.ValueKind == ColumnarCodePlanStackValueKind.BoxedExact() || value.ValueKind == ColumnarCodePlanStackValueKind.NullReference()
+            if targetType.IsValueType || targetType.IsGenericParameter || targetType.IsByRef || targetType.IsPointer || targetType.IsFunctionPointer || targetType.IsGenericTypeDefinition || value.IsAddress || !isReferenceValue {
                 throw new InvalidOperationException(schemaName + " castclass requires exact reference source and target types.")
             }
             state.Push(targetType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
         } else if opCodeValue == ColumnarCodePlanContract.Initobj() {
             targetType := plan.Types[operandIndex]
             address := state.Pop()
-            if !targetType.get_IsValueType() || targetType.get_IsGenericTypeDefinition() || !address.IsAddress || (address.ValueKind != ColumnarCodePlanStackValueKind.Exact() && address.ValueKind != ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress()) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(targetType, address.ValueType) {
+            if !targetType.IsValueType || targetType.IsGenericTypeDefinition || !address.IsAddress || (address.ValueKind != ColumnarCodePlanStackValueKind.Exact() && address.ValueKind != ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress()) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(targetType, address.ValueType) {
                 throw new InvalidOperationException(schemaName + " initobj requires an exact managed address to its value type.")
             }
             localIndex := address.PlanLocalAddressIndex
@@ -2121,7 +2121,7 @@ class ColumnarCodePlanExecutor {
             state.Push(typeof(bool), false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
         } else if opCodeValue == ColumnarCodePlanContract.LdindRef() {
             value := state.Pop()
-            if !value.IsAddress || value.ValueKind != ColumnarCodePlanStackValueKind.Exact() || value.ValueType.get_IsValueType() || value.ValueType.get_IsGenericParameter() {
+            if !value.IsAddress || value.ValueKind != ColumnarCodePlanStackValueKind.Exact() || value.ValueType.IsValueType || value.ValueType.IsGenericParameter {
                 throw new InvalidOperationException(schemaName + " ldind.ref requires an exact managed address to a reference slot.")
             }
             state.Push(value.ValueType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
@@ -2202,7 +2202,7 @@ class ColumnarCodePlanExecutor {
     static func LocalType(plan: ColumnarCodePlan, operationIndex: int): Type {
         operandIndex := plan.OperandIndices[operationIndex]
         if plan.OperandKinds[operationIndex] == ColumnarCodePlanContract.AmbientLocalOperand() {
-            return plan.AmbientLocals[operandIndex].get_LocalType()
+            return plan.AmbientLocals[operandIndex].LocalType
         }
         return plan.Types[plan.PlanLocalTypeIndices[operandIndex]]
     }
@@ -2214,7 +2214,7 @@ class ColumnarCodePlanExecutor {
             if isPlanLocal && !state.IsPlanLocalAssigned(localIndex) {
                 throw new InvalidOperationException(schemaName + " plan locals must be assigned before ldloc.")
             }
-            if localType.get_IsByRef() {
+            if localType.IsByRef {
                 elementType := localType.GetElementType()
                 if elementType == null {
                     throw new InvalidOperationException(schemaName + " managed-pointer plan local has no element type.")
@@ -2236,7 +2236,7 @@ class ColumnarCodePlanExecutor {
                 state.Push(localType, false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
             }
         } else if opCodeValue == ColumnarCodePlanContract.Ldloca() {
-            if localType.get_IsByRef() {
+            if localType.IsByRef {
                 throw new InvalidOperationException(schemaName + " cannot take the address of a managed-pointer local.")
             }
             if isPlanLocal && !state.IsPlanLocalAssigned(localIndex) {
@@ -2250,7 +2250,7 @@ class ColumnarCodePlanExecutor {
             }
         } else {
             value := state.Pop()
-            storesManagedPointer := localType.get_IsByRef() && value.IsAddress && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(localType.GetElementType(), value.ValueType)
+            storesManagedPointer := localType.IsByRef && value.IsAddress && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(localType.GetElementType(), value.ValueType)
             if !storesManagedPointer && (value.IsAddress || !IsStackCompatible(localType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue)) {
                 throw new InvalidOperationException(schemaName + " stloc value does not match its local type.")
             }
@@ -2266,15 +2266,15 @@ class ColumnarCodePlanExecutor {
     static func ApplyMethodCall(plan: ColumnarCodePlan, operationIndex: int, methodIndex: int, opCodeValue: short, state: ColumnarCodePlanStackState, schemaName: string) {
         method := plan.Methods[methodIndex]
         usesDeclaredSignature := plan.MethodUsesDeclaredSignature[methodIndex]
-        isStatic := usesDeclaredSignature ? plan.MethodIsStatic[methodIndex] : method.get_IsStatic()
-        declaringType := usesDeclaredSignature ? plan.MethodDeclaringTypes[methodIndex] : method.get_DeclaringType()
+        isStatic := usesDeclaredSignature ? plan.MethodIsStatic[methodIndex] : method.IsStatic
+        declaringType := usesDeclaredSignature ? plan.MethodDeclaringTypes[methodIndex] : method.DeclaringType
         if declaringType == null {
             throw new InvalidOperationException(schemaName + " call method has no declaring type.")
         }
-        if opCodeValue == ColumnarCodePlanContract.Callvirt() && (isStatic || declaringType.get_IsValueType()) {
+        if opCodeValue == ColumnarCodePlanContract.Callvirt() && (isStatic || declaringType.IsValueType) {
             throw new InvalidOperationException(schemaName + " callvirt requires a reference-type instance method.")
         }
-        isAbstract := usesDeclaredSignature ? plan.MethodIsAbstract[methodIndex] : method.get_IsAbstract()
+        isAbstract := usesDeclaredSignature ? plan.MethodIsAbstract[methodIndex] : method.IsAbstract
         if opCodeValue == ColumnarCodePlanContract.Call() && isAbstract {
             throw new InvalidOperationException(schemaName + " call cannot target an abstract method.")
         }
@@ -2286,17 +2286,17 @@ class ColumnarCodePlanExecutor {
             while parameterIndex >= 0 {
                 value := state.Pop()
                 parameterType := parameters[parameterIndex]
-                ValidateCallArgument(parameterType, value, parameterIndex, method.get_Name(), IsOutParameter(method, parameterIndex), state, schemaName)
+                ValidateCallArgument(parameterType, value, parameterIndex, method.Name, IsOutParameter(method, parameterIndex), state, schemaName)
                 parameterIndex -= 1
             }
 
             if !isStatic {
                 selectedReceiver := state.Pop()
                 receiver = selectedReceiver
-                ValidateReceiver(declaringType, selectedReceiver.ValueType, selectedReceiver.IsAddress, selectedReceiver.ValueKind, method.get_Name(), schemaName)
+                ValidateReceiver(declaringType, selectedReceiver.ValueType, selectedReceiver.IsAddress, selectedReceiver.ValueKind, method.Name, schemaName)
             }
             declaredReturnType := plan.MethodReturnTypes[methodIndex]
-            ApplyMethodReturn(plan, operationIndex, declaredReturnType, isStatic, method.get_Name(), parameters.Length, method.get_IsSpecialName(), receiver, state, schemaName)
+            ApplyMethodReturn(plan, operationIndex, declaredReturnType, isStatic, method.Name, parameters.Length, method.IsSpecialName, receiver, state, schemaName)
             return
         }
 
@@ -2308,18 +2308,18 @@ class ColumnarCodePlanExecutor {
         parameterIndex := parameters.Length - 1
         while parameterIndex >= 0 {
             value := state.Pop()
-            parameterType := ResolveMemberSignatureType(parameters[parameterIndex].get_ParameterType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
-            ValidateCallArgument(parameterType, value, parameterIndex, method.get_Name(), parameters[parameterIndex].get_IsOut(), state, schemaName)
+            parameterType := ResolveMemberSignatureType(parameters[parameterIndex].ParameterType, declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
+            ValidateCallArgument(parameterType, value, parameterIndex, method.Name, parameters[parameterIndex].IsOut, state, schemaName)
             parameterIndex -= 1
         }
 
         if !isStatic {
             selectedReceiver := state.Pop()
             receiver = selectedReceiver
-            ValidateReceiver(declaringType, selectedReceiver.ValueType, selectedReceiver.IsAddress, selectedReceiver.ValueKind, method.get_Name(), schemaName)
+            ValidateReceiver(declaringType, selectedReceiver.ValueType, selectedReceiver.IsAddress, selectedReceiver.ValueKind, method.Name, schemaName)
         }
-        returnType := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
-        ApplyMethodReturn(plan, operationIndex, returnType, isStatic, method.get_Name(), parameters.Length, method.get_IsSpecialName(), receiver, state, schemaName)
+        returnType := ResolveMemberSignatureType(signatureMethod.ReturnType, declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
+        ApplyMethodReturn(plan, operationIndex, returnType, isStatic, method.Name, parameters.Length, method.IsSpecialName, receiver, state, schemaName)
     }
 
     // ONE ARGUMENT AGAINST ONE PARAMETER, and the by-ref case is the reason this is its own owner.
@@ -2333,7 +2333,7 @@ class ColumnarCodePlanExecutor {
     // makes the local definitely assigned afterwards, which is recorded here. A `ref` argument has no
     // such licence and still requires storage the plan has already established.
     static func ValidateCallArgument(parameterType: Type, value: ColumnarCodePlanStackNode, parameterIndex: int, methodName: string, isOut: bool, state: ColumnarCodePlanStackState, schemaName: string) {
-        if parameterType.get_IsByRef() {
+        if parameterType.IsByRef {
             elementType := parameterType.GetElementType()
             if elementType == null {
                 throw new InvalidOperationException(schemaName + " by-reference parameter " + parameterIndex.ToString() + " for '" + methodName + "' has no element type.")
@@ -2385,20 +2385,20 @@ class ColumnarCodePlanExecutor {
     }
 
     static func GetMethodSignatureDefinition(method: MethodInfo, schemaName: string): MethodInfo {
-        if !method.get_IsGenericMethod() {
+        if !method.IsGenericMethod {
             return method
         }
         definition := method.GetGenericMethodDefinition()
         definitionArguments := definition.GetGenericArguments()
         constructedArguments := method.GetGenericArguments()
-        if !definition.get_IsGenericMethodDefinition() || definitionArguments.Length != constructedArguments.Length {
+        if !definition.IsGenericMethodDefinition || definitionArguments.Length != constructedArguments.Length {
             throw new InvalidOperationException(schemaName + " constructed generic method identity is invalid.")
         }
         return definition
     }
 
     static func DeclaringTypeArguments(declaringType: Type): Type[] {
-        if !declaringType.get_IsGenericType() {
+        if !declaringType.IsGenericType {
             return new Type[](0)
         }
         return declaringType.GetGenericArguments()
@@ -2417,12 +2417,12 @@ class ColumnarCodePlanExecutor {
         }
         arguments := signatureType.GetGenericArguments()
         for argument in arguments {
-            if !argument.get_IsGenericParameter() {
+            if !argument.IsGenericParameter {
                 return false
             }
-            isMethodParameter := GenericParameterIdentityIndex(methodParameterDefinitions, argument) >= 0 || argument.get_DeclaringMethod() != null
+            isMethodParameter := GenericParameterIdentityIndex(methodParameterDefinitions, argument) >= 0 || argument.DeclaringMethod != null
             available := isMethodParameter ? methodArguments : declaringArguments
-            position := argument.get_GenericParameterPosition()
+            position := argument.GenericParameterPosition
             if position < 0 || position >= available.Length {
                 return false
             }
@@ -2442,12 +2442,12 @@ class ColumnarCodePlanExecutor {
     }
 
     static func ResolveMemberSignatureType(signatureType: Type, declaringArguments: Type[], methodParameterDefinitions: Type[], methodArguments: Type[], schemaName: string): Type {
-        if signatureType.get_IsGenericParameter() {
-            position := signatureType.get_GenericParameterPosition()
+        if signatureType.IsGenericParameter {
+            position := signatureType.GenericParameterPosition
             methodIdentityPosition := GenericParameterIdentityIndex(methodParameterDefinitions, signatureType)
             // GenericParameterBuilder can report no DeclaringMethod before its owner is baked, so
             // its exact definition identity is the authoritative MVAR/VAR distinction.
-            if methodIdentityPosition >= 0 || signatureType.get_DeclaringMethod() != null {
+            if methodIdentityPosition >= 0 || signatureType.DeclaringMethod != null {
                 if methodIdentityPosition >= 0 {
                     position = methodIdentityPosition
                 }
@@ -2463,7 +2463,7 @@ class ColumnarCodePlanExecutor {
         }
         // A GENERIC managed reference can answer the defensive SZ-array probe while its owner is
         // still unbaked. Preserve its actual element shape before asking the array question.
-        if signatureType.get_IsByRef() {
+        if signatureType.IsByRef {
 
             // `ref T` / `out T`. Substituting THROUGH the reference is the whole point — a generic
             // method closed over `T` has `T&` in its raw signature, and the closed shape is a reference
@@ -2488,8 +2488,8 @@ class ColumnarCodePlanExecutor {
         // as the definition itself, and the selected signature for a closed instantiation is
         // `EqualityComparer<int>`. Skipping definitions compared a closed declaration against an
         // open handle and reported a mismatch.
-        if signatureType.get_IsGenericType() && (!signatureType.get_IsGenericTypeDefinition() || IsSubstitutableOpenDefinition(signatureType, declaringArguments, methodParameterDefinitions, methodArguments)) {
-            definition := signatureType.get_IsGenericTypeDefinition() ? signatureType : signatureType.GetGenericTypeDefinition()
+        if signatureType.IsGenericType && (!signatureType.IsGenericTypeDefinition || IsSubstitutableOpenDefinition(signatureType, declaringArguments, methodParameterDefinitions, methodArguments)) {
+            definition := signatureType.IsGenericTypeDefinition ? signatureType : signatureType.GetGenericTypeDefinition()
             signatureArguments := signatureType.GetGenericArguments()
             resolvedArguments := new Type[](signatureArguments.Length)
             i := 0
@@ -2499,13 +2499,13 @@ class ColumnarCodePlanExecutor {
             }
             return definition.MakeGenericType(resolvedArguments)
         }
-        if signatureType.get_HasElementType() {
+        if signatureType.HasElementType {
             compoundElement := signatureType.GetElementType()
             if compoundElement == null {
                 throw new InvalidOperationException(schemaName + " compound method signature has no element type.")
             }
             resolvedElement := ResolveMemberSignatureType(compoundElement, declaringArguments, methodParameterDefinitions, methodArguments, schemaName)
-            if signatureType.get_IsByRef() {
+            if signatureType.IsByRef {
                 return resolvedElement.MakeByRefType()
             }
             if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(compoundElement, resolvedElement) {
@@ -2527,7 +2527,7 @@ class ColumnarCodePlanExecutor {
             ValidateCallArgument(parameterType, value, parameterIndex, ".ctor", isOut, state, schemaName)
             parameterIndex -= 1
         }
-        declaringType := usesDeclaredSignature ? plan.ConstructorDeclaringTypes[constructorIndex] : constructorInfo.get_DeclaringType()
+        declaringType := usesDeclaredSignature ? plan.ConstructorDeclaringTypes[constructorIndex] : constructorInfo.DeclaringType
         if declaringType == null {
             throw new InvalidOperationException(schemaName + " constructor has no declaring type.")
         }
@@ -2537,7 +2537,7 @@ class ColumnarCodePlanExecutor {
     static func ConstructorParameterIsOut(constructorInfo: ConstructorInfo, parameterIndex: int): bool {
         try {
             parameters := constructorInfo.GetParameters()
-            return parameterIndex >= 0 && parameterIndex < parameters.Length && parameters[parameterIndex].get_IsOut()
+            return parameterIndex >= 0 && parameterIndex < parameters.Length && parameters[parameterIndex].IsOut
         } catch ex: NotSupportedException {
             return false
         } catch ex: NotImplementedException {
@@ -2550,7 +2550,7 @@ class ColumnarCodePlanExecutor {
         result := new Type[](parameters.Length)
         i := 0
         while i < parameters.Length {
-            result[i] = parameters[i].get_ParameterType()
+            result[i] = parameters[i].ParameterType
             i += 1
         }
         return result
@@ -2559,17 +2559,17 @@ class ColumnarCodePlanExecutor {
     static func ApplyField(plan: ColumnarCodePlan, fieldIndex: int, loadAddress: bool, state: ColumnarCodePlanStackState, schemaName: string) {
         field := plan.Fields[fieldIndex]
         usesDeclaredSignature := plan.FieldUsesDeclaredSignature[fieldIndex]
-        isStatic := usesDeclaredSignature ? plan.FieldIsStatic[fieldIndex] : field.get_IsStatic()
+        isStatic := usesDeclaredSignature ? plan.FieldIsStatic[fieldIndex] : field.IsStatic
         if isStatic {
             throw new InvalidOperationException(schemaName + " ldfld handles must name instance fields.")
         }
         receiver := state.Pop()
-        declaringType := usesDeclaredSignature ? plan.FieldDeclaringTypes[fieldIndex] : field.get_DeclaringType()
+        declaringType := usesDeclaredSignature ? plan.FieldDeclaringTypes[fieldIndex] : field.DeclaringType
         if declaringType == null {
             throw new InvalidOperationException(schemaName + " field has no declaring type.")
         }
         ValidateReceiver(declaringType, receiver.ValueType, receiver.IsAddress, receiver.ValueKind, "field", schemaName)
-        state.Push(usesDeclaredSignature ? plan.FieldValueTypes[fieldIndex] : field.get_FieldType(), loadAddress, ColumnarCodePlanStackValueKind.Exact(), false, 0)
+        state.Push(usesDeclaredSignature ? plan.FieldValueTypes[fieldIndex] : field.FieldType, loadAddress, ColumnarCodePlanStackValueKind.Exact(), false, 0)
     }
 
     // `loadAddress` is the `ldsflda` half. An init-only static has storage a constructor writes, so
@@ -2579,40 +2579,40 @@ class ColumnarCodePlanExecutor {
     static func ApplyStaticField(plan: ColumnarCodePlan, fieldIndex: int, loadAddress: bool, state: ColumnarCodePlanStackState, schemaName: string) {
         field := plan.Fields[fieldIndex]
         usesDeclaredSignature := plan.FieldUsesDeclaredSignature[fieldIndex]
-        isStatic := usesDeclaredSignature ? plan.FieldIsStatic[fieldIndex] : field.get_IsStatic()
-        if !isStatic || field.get_IsLiteral() {
+        isStatic := usesDeclaredSignature ? plan.FieldIsStatic[fieldIndex] : field.IsStatic
+        if !isStatic || field.IsLiteral {
             throw new InvalidOperationException(schemaName + " ldsfld handles must name non-literal static fields.")
         }
-        if loadAddress && field.get_IsInitOnly() {
+        if loadAddress && field.IsInitOnly {
             throw new InvalidOperationException(schemaName + " ldsflda handles cannot name init-only fields.")
         }
-        state.Push(usesDeclaredSignature ? plan.FieldValueTypes[fieldIndex] : field.get_FieldType(), loadAddress, ColumnarCodePlanStackValueKind.Exact(), false, 0)
+        state.Push(usesDeclaredSignature ? plan.FieldValueTypes[fieldIndex] : field.FieldType, loadAddress, ColumnarCodePlanStackValueKind.Exact(), false, 0)
     }
 
     static func ApplyFieldStore(plan: ColumnarCodePlan, fieldIndex: int, state: ColumnarCodePlanStackState, schemaName: string) {
         field := plan.Fields[fieldIndex]
-        if field.get_IsInitOnly() {
+        if field.IsInitOnly {
             throw new InvalidOperationException(schemaName + " stfld handles cannot name init-only fields.")
         }
         usesDeclaredSignature := plan.FieldUsesDeclaredSignature[fieldIndex]
-        isStatic := usesDeclaredSignature ? plan.FieldIsStatic[fieldIndex] : field.get_IsStatic()
+        isStatic := usesDeclaredSignature ? plan.FieldIsStatic[fieldIndex] : field.IsStatic
         if isStatic {
             throw new InvalidOperationException(schemaName + " stfld handles must name instance fields.")
         }
 
-        expectedValueType := usesDeclaredSignature ? plan.FieldValueTypes[fieldIndex] : field.get_FieldType()
+        expectedValueType := usesDeclaredSignature ? plan.FieldValueTypes[fieldIndex] : field.FieldType
         value := state.Pop()
         if value.IsAddress || !IsStackCompatible(expectedValueType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
             throw new InvalidOperationException(schemaName + " stfld value does not match its exact field type.")
         }
 
-        declaringType := usesDeclaredSignature ? plan.FieldDeclaringTypes[fieldIndex] : field.get_DeclaringType()
+        declaringType := usesDeclaredSignature ? plan.FieldDeclaringTypes[fieldIndex] : field.DeclaringType
         if declaringType == null {
             throw new InvalidOperationException(schemaName + " stfld field has no declaring type.")
         }
         receiver := state.Pop()
         ValidateReceiver(declaringType, receiver.ValueType, receiver.IsAddress, receiver.ValueKind, "field", schemaName)
-        if declaringType.get_IsValueType() {
+        if declaringType.IsValueType {
             if receiver.PlanLocalAddressIndex < 0 || receiver.PlanLocalAddressIndex >= plan.PlanLocalCount {
                 throw new InvalidOperationException(schemaName + " value-type stfld receivers must originate from an exact plan-local address.")
             }
@@ -2629,7 +2629,7 @@ class ColumnarCodePlanExecutor {
         if actualKind != ColumnarCodePlanStackValueKind.Exact() && actualKind != ColumnarCodePlanStackValueKind.BoxedExact() {
             throw new InvalidOperationException(schemaName + " receiver for '" + memberName + "' must have an exact semantic type.")
         }
-        if expectedType.get_IsValueType() {
+        if expectedType.IsValueType {
             if actualKind != ColumnarCodePlanStackValueKind.Exact() || !isAddress || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(expectedType, actualType) {
                 throw new InvalidOperationException(schemaName + " value-type receiver for '" + memberName + "' requires an exact managed address.")
             }
@@ -2720,7 +2720,7 @@ class ColumnarCodePlanExecutor {
             return elementType == typeof(double)
         }
         if opCodeValue == ColumnarCodePlanContract.LdelemRef() {
-            return !elementType.get_IsValueType() && !elementType.get_IsGenericParameter()
+            return !elementType.IsValueType && !elementType.IsGenericParameter
         }
         return false
     }
@@ -2796,7 +2796,7 @@ class ColumnarCodePlanExecutor {
             return elementType == typeof(double)
         }
         if opCodeValue == ColumnarCodePlanContract.StelemRef() {
-            return !elementType.get_IsValueType() && !elementType.get_IsGenericParameter()
+            return !elementType.IsValueType && !elementType.IsGenericParameter
         }
         return false
     }
@@ -2812,10 +2812,10 @@ class ColumnarCodePlanExecutor {
             return IsI8Destination(expectedType)
         }
         if actualKind == ColumnarCodePlanStackValueKind.NullReference() {
-            return !expectedType.get_IsValueType() && !expectedType.get_IsGenericParameter()
+            return !expectedType.IsValueType && !expectedType.IsGenericParameter
         }
         if actualKind == ColumnarCodePlanStackValueKind.BoxedExact() {
-            if expectedType.get_IsValueType() || expectedType.get_IsGenericParameter() {
+            if expectedType.IsValueType || expectedType.IsGenericParameter {
                 return false
             }
             if expectedType == typeof(object) {
@@ -2829,13 +2829,13 @@ class ColumnarCodePlanExecutor {
         if RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(expectedType, actualType) {
             return true
         }
-        return !expectedType.get_IsValueType() && !actualType.get_IsValueType() && ReferenceAssignableFrom(expectedType, actualType)
+        return !expectedType.IsValueType && !actualType.IsValueType && ReferenceAssignableFrom(expectedType, actualType)
     }
 
     static func IsOutParameter(method: MethodInfo, parameterIndex: int): bool {
         try {
             parameters := method.GetParameters()
-            return parameters != null && parameterIndex >= 0 && parameterIndex < parameters.Length && parameters[parameterIndex].get_IsOut()
+            return parameters != null && parameterIndex >= 0 && parameterIndex < parameters.Length && parameters[parameterIndex].IsOut
         } catch ex: NotSupportedException {
             return false
         } catch ex: NotImplementedException {
@@ -3068,7 +3068,7 @@ class ColumnarCodePlanExecutor {
         if valueKind == ColumnarCodePlanStackValueKind.NullReference() || valueKind == ColumnarCodePlanStackValueKind.BoxedExact() {
             return true
         }
-        return valueKind == ColumnarCodePlanStackValueKind.Exact() && !valueType.get_IsValueType() && !valueType.get_IsGenericParameter() && !valueType.get_IsPointer() && !valueType.get_IsFunctionPointer() && !valueType.get_IsByRef()
+        return valueKind == ColumnarCodePlanStackValueKind.Exact() && !valueType.IsValueType && !valueType.IsGenericParameter && !valueType.IsPointer && !valueType.IsFunctionPointer && !valueType.IsByRef
     }
 
     // Pop one castable scalar and push the exact narrowing/reinterpreting target of a conv opcode.
@@ -3083,7 +3083,7 @@ class ColumnarCodePlanExecutor {
     // conv.i4 consumes any numeric scalar on the CIL stack. The range/index owner only ever feeds
     // the i4-slot set; the explicit-cast owner also narrows Int64/UInt64/Single/Double down to Int32.
     static func CanConvertToI4(valueType: Type, valueKind: int, literalKnown: bool): bool {
-        return (valueKind == ColumnarCodePlanStackValueKind.LiteralI4() && literalKnown) || valueKind == ColumnarCodePlanStackValueKind.NativeUnsigned() || (valueKind == ColumnarCodePlanStackValueKind.Exact() && (IsCastableScalarStackType(valueType) || (valueType.get_IsEnum() && valueType.GetEnumUnderlyingType() == typeof(int))))
+        return (valueKind == ColumnarCodePlanStackValueKind.LiteralI4() && literalKnown) || valueKind == ColumnarCodePlanStackValueKind.NativeUnsigned() || (valueKind == ColumnarCodePlanStackValueKind.Exact() && (IsCastableScalarStackType(valueType) || (valueType.IsEnum && valueType.GetEnumUnderlyingType() == typeof(int))))
     }
 
     static func CanWidenToI8(valueType: Type, valueKind: int): bool {
@@ -3107,14 +3107,14 @@ class ColumnarCodePlanExecutor {
     // A conv arm accepts a literal I4, a native length, or an exact numeric scalar (or an
     // i4-underlying enum, whose stack value is its Int32). decimal is excluded by design.
     static func CanConvertCastScalar(valueType: Type, valueKind: int, literalKnown: bool): bool {
-        return (valueKind == ColumnarCodePlanStackValueKind.LiteralI4() && literalKnown) || valueKind == ColumnarCodePlanStackValueKind.NativeUnsigned() || (valueKind == ColumnarCodePlanStackValueKind.Exact() && (IsCastableScalarStackType(valueType) || (valueType.get_IsEnum() && valueType.GetEnumUnderlyingType() == typeof(int))))
+        return (valueKind == ColumnarCodePlanStackValueKind.LiteralI4() && literalKnown) || valueKind == ColumnarCodePlanStackValueKind.NativeUnsigned() || (valueKind == ColumnarCodePlanStackValueKind.Exact() && (IsCastableScalarStackType(valueType) || (valueType.IsEnum && valueType.GetEnumUnderlyingType() == typeof(int))))
     }
 
     static func IsLiteralI4Destination(valueType: Type, literalKnown: bool, literalValue: int): bool {
         if valueType == typeof(int) || valueType == typeof(uint) {
             return true
         }
-        if valueType.get_IsEnum() {
+        if valueType.IsEnum {
             return IsLiteralI4Destination(valueType.GetEnumUnderlyingType(), literalKnown, literalValue)
         }
         if !literalKnown {

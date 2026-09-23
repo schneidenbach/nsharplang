@@ -124,7 +124,7 @@ class ColumnarSourceGenericStaticMemberFacts {
         }
 
         field = RebindField(declaringType, declared)
-        fieldType = Substitute(declared.get_FieldType(), declaringType)
+        fieldType = Substitute(declared.FieldType, declaringType)
         return true
     }
 

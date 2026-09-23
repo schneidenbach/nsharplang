@@ -88,12 +88,12 @@ class ColumnarTupleElementNameEmitter {
     // the top-level tuple's own names, so the trim is a prefix rather than a search. Null when the
     // return is not a tuple, or carries no attribute, or names nothing.
     static func TopLevelReturnNames(method: MethodInfo): string[]? {
-        arity := ValueTupleArity(method.get_ReturnType())
+        arity := ValueTupleArity(method.ReturnType)
         if arity <= 0 {
             return null
         }
 
-        flattened := AnalyzerTupleElementNames.Read(method.get_ReturnParameter().GetCustomAttributesData())
+        flattened := AnalyzerTupleElementNames.Read(method.ReturnParameter.GetCustomAttributesData())
         if flattened == null {
             return null
         }
@@ -125,7 +125,7 @@ class ColumnarTupleElementNameEmitter {
     // The number of elements a `ValueTuple` carries, following the REST nesting a tuple of more than
     // seven elements uses. Zero for anything that is not a tuple.
     static func ValueTupleArity(clrType: Type?): int {
-        if clrType == null || !clrType.get_IsGenericType() {
+        if clrType == null || !clrType.IsGenericType {
             return 0
         }
 

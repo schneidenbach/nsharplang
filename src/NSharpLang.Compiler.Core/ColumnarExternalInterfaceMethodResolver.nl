@@ -62,9 +62,9 @@ class ColumnarExternalInterfaceMethodMatch {
     constructor(target: MethodInfo, name: string, returnType: Type, parameterTypes: Type[], implementationTypeParameters: Type[]) {
         effectiveReturn := typeof(object)
         parameters := new List<object>()
-        matched := target.get_Name() == name && OpenMethodTypeParameterCount(target) == implementationTypeParameters.Length
+        matched := target.Name == name && OpenMethodTypeParameterCount(target) == implementationTypeParameters.Length
         if matched {
-            effectiveReturn = target.get_ReturnType()
+            effectiveReturn = target.ReturnType
             comparedReturn := SubstituteSlotType(effectiveReturn, implementationTypeParameters)
             matched = comparedReturn != null && ColumnarTypeEquivalenceFacts.TypesEquivalent(comparedReturn, returnType)
             if matched {
@@ -74,7 +74,7 @@ class ColumnarExternalInterfaceMethodMatch {
                     index := 0
                     while index < reflectedParameters.Length {
                         reflectedParameter := reflectedParameters[index]
-                        effectiveParameter := reflectedParameter.get_ParameterType()
+                        effectiveParameter := reflectedParameter.ParameterType
                         comparedParameter := SubstituteSlotType(effectiveParameter, implementationTypeParameters)
                         if comparedParameter == null || !ColumnarTypeEquivalenceFacts.TypesEquivalent(comparedParameter, parameterTypes[index]) {
                             matched = false
@@ -108,7 +108,7 @@ class ColumnarExternalInterfaceMethodMatch {
     // implementation has to declare. A generic method DEFINITION leaves its own list open; a
     // CONSTRUCTED handle leaves none, because every one of them has already been substituted away.
     static func OpenMethodTypeParameterCount(target: MethodInfo): int {
-        if !target.get_IsGenericMethodDefinition() {
+        if !target.IsGenericMethodDefinition {
             return 0
         }
         return target.GetGenericArguments().Length
@@ -338,23 +338,23 @@ class ColumnarExternalMethodDescriptor {
             throw new InvalidOperationException("An external method descriptor requires its successful reflected lookup.")
         }
         target := matchedSignature.Target
-        if target.get_IsGenericMethod() && !target.get_IsGenericMethodDefinition() {
+        if target.IsGenericMethod && !target.IsGenericMethodDefinition {
             throw new InvalidOperationException("A constructed generic MethodInfo is not produced by external interface GetMethods lookup.")
         }
-        reflectedContext := RequiredType(target.get_ReflectedType(), "reflected lookup context")
+        reflectedContext := RequiredType(target.ReflectedType, "reflected lookup context")
         if !ColumnarTypeEquivalenceFacts.TypesEquivalent(reflectedContext, lookupContext) {
             throw new InvalidOperationException("An external method target does not belong to its enumerated lookup context.")
         }
-        declaringContext := RequiredType(target.get_DeclaringType(), "declaring context")
+        declaringContext := RequiredType(target.DeclaringType, "declaring context")
         openDeclaringType := declaringContext
-        if declaringContext.get_IsGenericType() && !declaringContext.get_IsGenericTypeDefinition() {
+        if declaringContext.IsGenericType && !declaringContext.IsGenericTypeDefinition {
             openDeclaringType = declaringContext.GetGenericTypeDefinition()
         }
         openMethod := RecoverOpenMethod(target, openDeclaringType)
 
         targetGenericArguments := target.GetGenericArguments()
         openGenericArguments := openMethod.GetGenericArguments()
-        if targetGenericArguments.Length != openGenericArguments.Length || target.get_IsGenericMethod() != openMethod.get_IsGenericMethod() || target.get_IsGenericMethodDefinition() != openMethod.get_IsGenericMethodDefinition() || target.get_Name() != openMethod.get_Name() || target.get_IsStatic() != openMethod.get_IsStatic() || Convert.ToInt32(target.get_CallingConvention()) != Convert.ToInt32(openMethod.get_CallingConvention()) {
+        if targetGenericArguments.Length != openGenericArguments.Length || target.IsGenericMethod != openMethod.IsGenericMethod || target.IsGenericMethodDefinition != openMethod.IsGenericMethodDefinition || target.Name != openMethod.Name || target.IsStatic != openMethod.IsStatic || Convert.ToInt32(target.CallingConvention) != Convert.ToInt32(openMethod.CallingConvention) {
             throw new InvalidOperationException("An external method's open and effective metadata identity disagree.")
         }
 
@@ -362,11 +362,11 @@ class ColumnarExternalMethodDescriptor {
         if openParameters.Length != matchedSignature.ParameterCount {
             throw new InvalidOperationException("An external method's open and effective parameter counts disagree.")
         }
-        openReturnParameter := openMethod.get_ReturnParameter()
-        effectiveReturnParameter := target.get_ReturnParameter()
+        openReturnParameter := openMethod.ReturnParameter
+        effectiveReturnParameter := target.ReturnParameter
         openReturn := new ColumnarExternalMethodSignatureTypeDescriptor(
             table,
-            openMethod.get_ReturnType(),
+            openMethod.ReturnType,
             openReturnParameter.GetRequiredCustomModifiers(),
             openReturnParameter.GetOptionalCustomModifiers(),
             true
@@ -388,7 +388,7 @@ class ColumnarExternalMethodDescriptor {
             parameters.Add(new ColumnarExternalMethodParameterDescriptor(
                 new ColumnarExternalMethodSignatureTypeDescriptor(
                     table,
-                    openParameter.get_ParameterType(),
+                    openParameter.ParameterType,
                     openParameter.GetRequiredCustomModifiers(),
                     openParameter.GetOptionalCustomModifiers(),
                     true
@@ -430,11 +430,11 @@ class ColumnarExternalMethodDescriptor {
         openDeclaringRuntimeTypeValue = openDeclaringType
         openMethodValue = openMethod
         moduleVersionIdValue = ReadModuleVersionId(openMethod)
-        methodMetadataTokenValue = openMethod.get_MetadataToken()
-        methodNameValue = openMethod.get_Name()
+        methodMetadataTokenValue = openMethod.MetadataToken
+        methodNameValue = openMethod.Name
         methodGenericArityValue = openGenericArguments.Length
-        methodCallingConventionValue = Convert.ToInt32(openMethod.get_CallingConvention())
-        methodIsStaticValue = openMethod.get_IsStatic()
+        methodCallingConventionValue = Convert.ToInt32(openMethod.CallingConvention)
+        methodIsStaticValue = openMethod.IsStatic
         openReturnValue = openReturn
         effectiveReturnValue = effectiveReturn
         parametersValue = parameters.AsReadOnly()
@@ -459,20 +459,20 @@ class ColumnarExternalMethodDescriptor {
         if !Object.ReferenceEquals(matchedSignature.Target, target) {
             throw new InvalidOperationException("A base method's target and observed signature disagree.")
         }
-        reflectedContext := RequiredType(target.get_ReflectedType(), "reflected lookup context")
+        reflectedContext := RequiredType(target.ReflectedType, "reflected lookup context")
         if !ColumnarBaseMethodMatch.SameTypeIdentity(reflectedContext, lookupContext) {
             throw new InvalidOperationException("A base method target does not belong to its winning lookup context.")
         }
-        declaringContext := RequiredType(target.get_DeclaringType(), "declaring context")
+        declaringContext := RequiredType(target.DeclaringType, "declaring context")
         openDeclaringType := declaringContext
-        if declaringContext.get_IsGenericType() && !declaringContext.get_IsGenericTypeDefinition() {
+        if declaringContext.IsGenericType && !declaringContext.IsGenericTypeDefinition {
             openDeclaringType = declaringContext.GetGenericTypeDefinition()
         }
         openMethod := RecoverOpenMethod(target, openDeclaringType)
 
         targetGenericArguments := target.GetGenericArguments()
         openGenericArguments := openMethod.GetGenericArguments()
-        if targetGenericArguments.Length != 0 || openGenericArguments.Length != 0 || target.get_IsGenericMethod() || target.get_IsGenericMethodDefinition() || openMethod.get_IsGenericMethod() || openMethod.get_IsGenericMethodDefinition() || target.get_Name() != openMethod.get_Name() || target.get_IsStatic() != openMethod.get_IsStatic() || Convert.ToInt32(target.get_CallingConvention()) != Convert.ToInt32(openMethod.get_CallingConvention()) {
+        if targetGenericArguments.Length != 0 || openGenericArguments.Length != 0 || target.IsGenericMethod || target.IsGenericMethodDefinition || openMethod.IsGenericMethod || openMethod.IsGenericMethodDefinition || target.Name != openMethod.Name || target.IsStatic != openMethod.IsStatic || Convert.ToInt32(target.CallingConvention) != Convert.ToInt32(openMethod.CallingConvention) {
             throw new InvalidOperationException("A base method's open and effective metadata identity disagree.")
         }
 
@@ -490,11 +490,11 @@ class ColumnarExternalMethodDescriptor {
         if openParameters.Length != matchedSignature.ParameterCount {
             throw new InvalidOperationException("A base method's open and effective parameter counts disagree.")
         }
-        openReturnParameter := openMethod.get_ReturnParameter()
-        effectiveReturnParameter := target.get_ReturnParameter()
+        openReturnParameter := openMethod.ReturnParameter
+        effectiveReturnParameter := target.ReturnParameter
         openReturnRuntimeType := matchedSignature.EffectiveReturnRuntimeType
         if !sameOpenTarget {
-            openReturnRuntimeType = openMethod.get_ReturnType()
+            openReturnRuntimeType = openMethod.ReturnType
         }
         openReturn := new ColumnarExternalMethodSignatureTypeDescriptor(
             table,
@@ -519,7 +519,7 @@ class ColumnarExternalMethodDescriptor {
             effectiveParameter := effectiveMatchParameter.Parameter
             openParameterRuntimeType := effectiveMatchParameter.RuntimeType
             if !sameOpenTarget {
-                openParameterRuntimeType = openParameter.get_ParameterType()
+                openParameterRuntimeType = openParameter.ParameterType
             }
             parameters.Add(new ColumnarExternalMethodParameterDescriptor(
                 new ColumnarExternalMethodSignatureTypeDescriptor(
@@ -552,11 +552,11 @@ class ColumnarExternalMethodDescriptor {
         openDeclaringRuntimeTypeValue = openDeclaringType
         openMethodValue = openMethod
         moduleVersionIdValue = ReadModuleVersionId(openMethod)
-        methodMetadataTokenValue = openMethod.get_MetadataToken()
-        methodNameValue = openMethod.get_Name()
+        methodMetadataTokenValue = openMethod.MetadataToken
+        methodNameValue = openMethod.Name
         methodGenericArityValue = 0
-        methodCallingConventionValue = Convert.ToInt32(openMethod.get_CallingConvention())
-        methodIsStaticValue = openMethod.get_IsStatic()
+        methodCallingConventionValue = Convert.ToInt32(openMethod.CallingConvention)
+        methodIsStaticValue = openMethod.IsStatic
         openReturnValue = openReturn
         effectiveReturnValue = effectiveReturn
         parametersValue = parameters.AsReadOnly()
@@ -636,10 +636,10 @@ class ColumnarExternalMethodDescriptor {
     // form above is this one plus the demand, so the match rule has a single spelling.
     static func TryRecoverOpenMethod(target: MethodInfo, openDeclaringType: Type, out recovered: MethodInfo?): bool {
         recovered = null
-        targetToken := target.get_MetadataToken()
+        targetToken := target.MetadataToken
         targetModuleVersionId := ReadModuleVersionId(target)
         for candidate in openDeclaringType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static) {
-            if candidate.get_MetadataToken() == targetToken && ReadModuleVersionId(candidate) == targetModuleVersionId {
+            if candidate.MetadataToken == targetToken && ReadModuleVersionId(candidate) == targetModuleVersionId {
                 recovered = candidate
                 return true
             }
@@ -648,8 +648,8 @@ class ColumnarExternalMethodDescriptor {
     }
 
     static func ReadModuleVersionId(method: MethodInfo): string {
-        module := method.get_Module()
-        return module.get_ModuleVersionId().ToString()
+        module := method.Module
+        return module.ModuleVersionId.ToString()
     }
 
     static func RequiredType(value: Type?, role: string): Type {
@@ -777,10 +777,10 @@ class ColumnarExternalInterfaceMethodResolver {
         // no method type arguments, so a GENERIC slot on one is not a shape this arm can bind. It is
         // refused by arity rather than by failing to compare its own type parameters against the
         // implementer's — a comparison that answered `matched` for the empty signature `void Ping<T>()`.
-        if openMethod.get_Name() != memberName || openMethod.GetGenericArguments().Length != 0 {
+        if openMethod.Name != memberName || openMethod.GetGenericArguments().Length != 0 {
             return false
         }
-        effectiveReturn := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openMethod.get_ReturnType(), closedArguments)
+        effectiveReturn := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openMethod.ReturnType, closedArguments)
         if !ColumnarTypeEquivalenceFacts.TypesEquivalent(effectiveReturn, returnType) {
             return false
         }
@@ -790,7 +790,7 @@ class ColumnarExternalInterfaceMethodResolver {
         }
         index := 0
         while index < openParameters.Length {
-            effectiveParameter := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openParameters[index].get_ParameterType(), closedArguments)
+            effectiveParameter := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openParameters[index].ParameterType, closedArguments)
             if !ColumnarTypeEquivalenceFacts.TypesEquivalent(effectiveParameter, parameterTypes[index]) {
                 return false
             }
@@ -803,7 +803,7 @@ class ColumnarExternalInterfaceMethodResolver {
     // declares over the same delegate. The accessor's own single parameter IS the handler type, so the
     // two are compared without reading the `EventInfo` twice.
     static func EventAccessorSatisfied(implementer: ColumnarStructDef, interfaceType: Type, externalMethod: MethodInfo, externalName: string): bool {
-        if !externalMethod.get_IsSpecialName() {
+        if !externalMethod.IsSpecialName {
             return false
         }
 
@@ -826,7 +826,7 @@ class ColumnarExternalInterfaceMethodResolver {
             return false
         }
 
-        return interfaceEvent.get_EventHandlerType() == declaredEvent.HandlerType
+        return interfaceEvent.EventHandlerType == declaredEvent.HandlerType
     }
 
     // A PROPERTY SLOT IS NOT A METHOD THE IMPLEMENTER DECLARED, AND IT NEVER WILL BE.
@@ -850,7 +850,7 @@ class ColumnarExternalInterfaceMethodResolver {
         builderBound: bool,
         closedArguments: Type[]
     ): bool {
-        if !externalMethod.get_IsSpecialName() {
+        if !externalMethod.IsSpecialName {
             return false
         }
         isGetter := externalName.StartsWith("get_", StringComparison.Ordinal)
@@ -886,7 +886,7 @@ class ColumnarExternalInterfaceMethodResolver {
         if !implementer.Fields.TryGetValue(memberName, out backingField) {
             return false
         }
-        return SignatureFills(externalMethod, externalName, builderBound, closedArguments, backingField.get_FieldType(), new Type[](0))
+        return SignatureFills(externalMethod, externalName, builderBound, closedArguments, backingField.FieldType, new Type[](0))
     }
 
     static func SignatureFills(
@@ -949,7 +949,7 @@ class ColumnarExternalInterfaceMethodResolver {
                 closedArguments := builderBound ? externalInterface.GetGenericArguments() : new Type[](0)
                 for externalMethod in lookupType.GetMethods() {
                     implementation: ColumnarInstanceMethodDef = null
-                    externalName := externalMethod.get_Name()
+                    externalName := externalMethod.Name
                     if !implementer.Methods.TryGetValue(externalName, out implementation) {
                         // AN EVENT'S ACCESSORS ARE NOT IN THE METHOD TABLE, and they are exactly what an
                         // interface event's `add_X`/`remove_X` ask for. The implementer supplies them by
@@ -988,7 +988,7 @@ class ColumnarExternalInterfaceMethodResolver {
                     }
                     matchedSignature := new ColumnarExternalInterfaceMethodMatch(
                         externalMethod,
-                        externalMethod.get_Name(),
+                        externalMethod.Name,
                         actualImplementation.ReturnType,
                         actualImplementation.ParamTypes,
                         implementationTypeParameters
@@ -1054,7 +1054,7 @@ class ColumnarExternalInterfaceMethodResolver {
                     continue
                 }
                 for externalMethod in externalInterface.GetMethods() {
-                    if externalMethod.get_Name() == memberName && ColumnarExternalInterfaceMethodMatch.OpenMethodTypeParameterCount(externalMethod) == typeParameterCount && externalMethod.GetParameters().Length == parameterCount {
+                    if externalMethod.Name == memberName && ColumnarExternalInterfaceMethodMatch.OpenMethodTypeParameterCount(externalMethod) == typeParameterCount && externalMethod.GetParameters().Length == parameterCount {
                         return true
                     }
                 }

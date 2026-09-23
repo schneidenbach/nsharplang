@@ -16,7 +16,7 @@ class ColumnarFieldMetadataEmitter {
             field.SetConstant(literalValue)
         }
         if isThreadStatic {
-            attributeType := typeof(object).get_Assembly().GetType("System.ThreadStaticAttribute")
+            attributeType := typeof(object).Assembly.GetType("System.ThreadStaticAttribute")
             if attributeType == null {
                 throw new InvalidOperationException("The ThreadStaticAttribute runtime type was not found.")
             }

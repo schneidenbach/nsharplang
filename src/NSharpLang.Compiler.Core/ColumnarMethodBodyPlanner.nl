@@ -572,15 +572,15 @@ class ColumnarMethodBodyPlanner {
     // BY-REF and can throw outright on a bare generic parameter under persisted emit, so the generic
     // arm answers first and the pointer/by-ref pair is refused before the array question is asked.
     static func IsClaimedLocalType(valueType: Type): bool {
-        if valueType == null || valueType.FullName == "System.Void" || valueType.get_IsByRef() || valueType.get_IsPointer() || valueType.get_IsGenericTypeDefinition() {
+        if valueType == null || valueType.FullName == "System.Void" || valueType.IsByRef || valueType.IsPointer || valueType.IsGenericTypeDefinition {
             return false
         }
-        if valueType.get_IsGenericParameter() {
+        if valueType.IsGenericParameter {
             return true
         }
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             element := valueType.GetElementType()
-            if element != null && element.get_IsGenericParameter() {
+            if element != null && element.IsGenericParameter {
                 return true
             }
         }

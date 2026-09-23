@@ -45,7 +45,7 @@ class ColumnarThrowExpressionPlanner {
         if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(node, 0), bindings, handles, plan, fragment, depth + 1, out exceptionType, out nestedOwnership) {
             return false
         }
-        if exceptionType == null || exceptionType.get_IsValueType() || !typeof(Exception).IsAssignableFrom(exceptionType) {
+        if exceptionType == null || exceptionType.IsValueType || !typeof(Exception).IsAssignableFrom(exceptionType) {
             return false
         }
 

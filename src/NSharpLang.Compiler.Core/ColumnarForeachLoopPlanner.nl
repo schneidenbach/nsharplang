@@ -109,7 +109,7 @@ class ColumnarForeachLoopPlanner {
             return PlanSourceCollection(sourceDefinition, collectionType, definitions)
         }
 
-        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(collectionType) && !collectionType.get_IsGenericType() {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(collectionType) && !collectionType.IsGenericType {
             return null
         }
 
@@ -224,7 +224,7 @@ class ColumnarForeachLoopPlanner {
 
         return BuildEnumeratorPlan(
             RebindMember(getEnumerator, closedInterface),
-            Substitute(getEnumerator.get_ReturnType(), closedInterface),
+            Substitute(getEnumerator.ReturnType, closedInterface),
             definitions
         )
     }
@@ -242,7 +242,7 @@ class ColumnarForeachLoopPlanner {
             return BuildSourceEnumeratorPlan(getEnumerator, enumeratorType, sourceEnumerator)
         }
 
-        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(enumeratorType) && !enumeratorType.get_IsGenericType() {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(enumeratorType) && !enumeratorType.IsGenericType {
             return null
         }
 
@@ -251,7 +251,7 @@ class ColumnarForeachLoopPlanner {
             openEnumerator = OpenDefinitionOf(enumeratorType)
         }
         moveNext := ForeachPatternFacts.FindParameterlessInstanceMethod(openEnumerator, "MoveNext")
-        if moveNext == null || !ForeachPatternFacts.IsBoolean(moveNext.get_ReturnType()) {
+        if moveNext == null || !ForeachPatternFacts.IsBoolean(moveNext.ReturnType) {
             return null
         }
 
@@ -260,9 +260,9 @@ class ColumnarForeachLoopPlanner {
             return null
         }
 
-        currentType := Substitute(currentGetter.get_ReturnType(), enumeratorType)
+        currentType := Substitute(currentGetter.ReturnType, enumeratorType)
         elementType := currentType
-        currentIsByRef := currentType.get_IsByRef()
+        currentIsByRef := currentType.IsByRef
         if currentIsByRef {
             elementType = currentType.GetElementType()
             if elementType == null {
@@ -334,7 +334,7 @@ class ColumnarForeachLoopPlanner {
     }
 
     static func ApplyExternalDisposal(plan: ColumnarForeachPlan, openEnumerator: Type, enumeratorType: Type) {
-        if openEnumerator.get_IsByRefLike() {
+        if openEnumerator.IsByRefLike {
             patternDispose := ForeachPatternFacts.FindPatternDispose(openEnumerator)
             if patternDispose != null {
                 plan.DisposeKind = 4
@@ -346,7 +346,7 @@ class ColumnarForeachLoopPlanner {
 
         if ForeachPatternFacts.ImplementsDisposable(openEnumerator) {
             plan.DisposeMethod = RequiredDisposeMethod()
-            if openEnumerator.get_IsValueType() {
+            if openEnumerator.IsValueType {
                 plan.DisposeKind = 1
                 return
             }
@@ -355,7 +355,7 @@ class ColumnarForeachLoopPlanner {
             return
         }
 
-        if openEnumerator.get_IsValueType() || openEnumerator.get_IsSealed() {
+        if openEnumerator.IsValueType || openEnumerator.IsSealed {
             return
         }
 
@@ -375,7 +375,7 @@ class ColumnarForeachLoopPlanner {
 
     static func HasRequiredModifiers(method: MethodInfo): bool {
         try {
-            returnParameter := method.get_ReturnParameter()
+            returnParameter := method.ReturnParameter
             if returnParameter != null && returnParameter.GetRequiredCustomModifiers().Length != 0 {
                 return true
             }
@@ -403,8 +403,8 @@ class ColumnarForeachLoopPlanner {
             return null
         }
 
-        lengthGetter := lengthProperty.get_GetMethod()
-        if lengthGetter == null || lengthGetter.get_ReturnType() != typeof(int) {
+        lengthGetter := lengthProperty.GetMethod
+        if lengthGetter == null || lengthGetter.ReturnType != typeof(int) {
             return null
         }
 
@@ -417,7 +417,7 @@ class ColumnarForeachLoopPlanner {
     // ---- the closed-generic mechanics ---------------------------------------------------------
 
     static func OpenDefinitionOf(candidate: Type): Type {
-        if !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
+        if !candidate.IsGenericType || candidate.IsGenericTypeDefinition {
             return candidate
         }
 
@@ -501,12 +501,12 @@ class ColumnarReadOnlySpanElementRead {
     static func FindMarshalMethod(name: string, openSpanParameter: bool): MethodInfo? {
         candidates := typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static)
         for candidate in candidates {
-            if candidate.get_Name() == name && candidate.get_IsGenericMethodDefinition() {
+            if candidate.Name == name && candidate.IsGenericMethodDefinition {
                 parameters := candidate.GetParameters()
                 if parameters.Length == 1 {
-                    parameterType := parameters[0].get_ParameterType()
+                    parameterType := parameters[0].ParameterType
                     if openSpanParameter {
-                        if parameterType.get_IsGenericType() && parameterType.GetGenericTypeDefinition() == typeof(ReadOnlySpan<int>).GetGenericTypeDefinition() {
+                        if parameterType.IsGenericType && parameterType.GetGenericTypeDefinition() == typeof(ReadOnlySpan<int>).GetGenericTypeDefinition() {
                             return candidate
                         }
                     } else {

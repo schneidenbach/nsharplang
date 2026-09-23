@@ -191,19 +191,19 @@ class ColumnarSourceOperatorResolver {
 
     static func IsExactCallableOperator(definition: ColumnarStaticMethodDef, ownerType: Type, closed: bool, operandTypes: Type[]): bool {
         method: MethodInfo = definition.Builder
-        if !method.get_IsPublic() {
+        if !method.IsPublic {
             return false
         }
-        if !method.get_IsStatic() {
+        if !method.IsStatic {
             return false
         }
-        if !method.get_IsSpecialName() {
+        if !method.IsSpecialName {
             return false
         }
-        if method.get_IsAbstract() {
+        if method.IsAbstract {
             return false
         }
-        if method.get_IsGenericMethod() {
+        if method.IsGenericMethod {
             return false
         }
         if IsVarArgs(method) {
@@ -215,7 +215,7 @@ class ColumnarSourceOperatorResolver {
         if definition.ParamModifierKinds.Length != operandTypes.Length {
             return false
         }
-        if definition.ReturnType.get_IsByRef() {
+        if definition.ReturnType.IsByRef {
             return false
         }
         if definition.ReturnType.FullName == "System.Void" {
@@ -228,7 +228,7 @@ class ColumnarSourceOperatorResolver {
             if definition.ParamModifierKinds[index] != 0 {
                 return false
             }
-            if parameterTypes[index].get_IsByRef() {
+            if parameterTypes[index].IsByRef {
                 return false
             }
             if !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(parameterTypes[index], operandTypes[index]) {
@@ -257,7 +257,7 @@ class ColumnarSourceOperatorResolver {
 
         method: MethodInfo = definition.Builder
         ownerType: Type = owner.Builder
-        if !method.get_IsStatic() || method.get_Name() != methodName || !ColumnarConstructionPlanner.SameObject(method.get_DeclaringType(), ownerType) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.get_ReturnType(), definition.ReturnType) {
+        if !method.IsStatic || method.Name != methodName || !ColumnarConstructionPlanner.SameObject(method.DeclaringType, ownerType) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.ReturnType, definition.ReturnType) {
             throw new InvalidOperationException("Source operator facts do not identify an exact static declaration.")
         }
     }
@@ -364,7 +364,7 @@ class ColumnarSourceOperatorResolver {
     }
 
     static func IsVarArgs(method: MethodInfo): bool {
-        callingConvention := (int)method.get_CallingConvention()
+        callingConvention := (int)method.CallingConvention
         return (callingConvention & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0
     }
 

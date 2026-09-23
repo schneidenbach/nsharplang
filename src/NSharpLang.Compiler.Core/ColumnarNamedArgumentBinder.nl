@@ -305,7 +305,7 @@ class ColumnarNamedArgumentBinder {
         names := new string[](parameters.Length)
         index := 0
         while index < parameters.Length {
-            names[index] = parameters[index].get_Name() ?? ""
+            names[index] = parameters[index].Name ?? ""
             index = index + 1
         }
 
@@ -342,7 +342,7 @@ class ColumnarNamedArgumentBinder {
         types := new Type[](parameters.Length - 1)
         index := 1
         while index < parameters.Length {
-            types[index - 1] = parameters[index].get_ParameterType()
+            types[index - 1] = parameters[index].ParameterType
             index += 1
         }
         return types
@@ -428,14 +428,14 @@ class ColumnarNamedArgumentBinder {
         reflectableOwner := must ownerType
         for method in reflectableOwner.GetMethods() {
             parameters := method.GetParameters()
-            if method.get_Name() != memberName || method.get_IsStatic() != requireStatic || parameters.Length != arity || method.get_ContainsGenericParameters() {
+            if method.Name != memberName || method.IsStatic != requireStatic || parameters.Length != arity || method.ContainsGenericParameters {
                 continue
             }
 
             types := new Type[](parameters.Length)
             index := 0
             while index < parameters.Length {
-                types[index] = parameters[index].get_ParameterType()
+                types[index] = parameters[index].ParameterType
                 index += 1
             }
             AddTypedCandidate(candidates, ReflectedParameterNames(method), types, arity)
@@ -596,7 +596,7 @@ class ColumnarNamedArgumentBinder {
     // names are carried on its own definitions instead, which is what the collectors above read, so
     // the reflected collectors simply have nothing to say about one.
     static func IsReflectable(candidate: Type?): bool {
-        return candidate != null && !(candidate is System.Reflection.Emit.TypeBuilder) && !candidate.get_IsGenericParameter()
+        return candidate != null && !(candidate is System.Reflection.Emit.TypeBuilder) && !candidate.IsGenericParameter
     }
 
     // The reflected members of `ownerType` named `memberName` at `arity`, including those it
@@ -609,7 +609,7 @@ class ColumnarNamedArgumentBinder {
 
         reflectableOwner := must ownerType
         for method in reflectableOwner.GetMethods() {
-            if method.get_Name() != memberName || method.get_IsStatic() != requireStatic || method.GetParameters().Length != arity {
+            if method.Name != memberName || method.IsStatic != requireStatic || method.GetParameters().Length != arity {
                 continue
             }
 

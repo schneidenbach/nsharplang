@@ -432,7 +432,7 @@ class AnalyzerIndexAccess {
         reflectionType := receiverType as ReflectionTypeInfo
         if reflectionType != null {
             reflected := reflectionType.Type
-            if reflected.get_IsArray() {
+            if reflected.IsArray {
                 if isRangeAccess {
                     return AnalyzerReflectionTypeConversion.ConvertReflectionType(reflected)
                 }
@@ -447,7 +447,7 @@ class AnalyzerIndexAccess {
 
             indexer := FindReflectedIndexerProperty(reflected)
             if indexer != null {
-                return AnalyzerReflectionTypeConversion.ConvertReflectionType(indexer.get_PropertyType())
+                return AnalyzerReflectionTypeConversion.ConvertReflectionType(indexer.PropertyType)
             }
         }
 
@@ -473,7 +473,7 @@ class AnalyzerIndexAccess {
 
     func IsReflectedArrayType(candidate: TypeInfo): bool {
         reflectionType := candidate as ReflectionTypeInfo
-        return reflectionType != null && reflectionType.Type.get_IsArray()
+        return reflectionType != null && reflectionType.Type.IsArray
     }
 
     // `System.Range` AND `System.Index`, BY EITHER NAME. A reflected one carries its full name; a
@@ -481,7 +481,7 @@ class AnalyzerIndexAccess {
     static func IsRangeLikeType(candidate: TypeInfo): bool {
         reflectionType := candidate as ReflectionTypeInfo
         if reflectionType != null {
-            return reflectionType.Type.get_FullName() == "System.Range"
+            return reflectionType.Type.FullName == "System.Range"
         }
 
         simpleType := candidate as SimpleTypeInfo
@@ -491,7 +491,7 @@ class AnalyzerIndexAccess {
     static func IsIndexLikeType(candidate: TypeInfo): bool {
         reflectionType := candidate as ReflectionTypeInfo
         if reflectionType != null {
-            return reflectionType.Type.get_FullName() == "System.Index"
+            return reflectionType.Type.FullName == "System.Index"
         }
 
         simpleType := candidate as SimpleTypeInfo

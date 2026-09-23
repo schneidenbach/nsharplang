@@ -109,7 +109,7 @@ class AnalyzerPatternShapes {
     // its inherited interfaces, because the two members are declared on different interfaces of the
     // same family.
     static func FindReflectionListPatternElementType(clrType: Type): TypeInfo? {
-        if clrType.get_IsArray() {
+        if clrType.IsArray {
             arrayElementType := clrType.GetElementType()
             if arrayElementType == null {
                 return null
@@ -131,7 +131,7 @@ class AnalyzerPatternShapes {
             return null
         }
 
-        elementType: TypeInfo = new ReflectionTypeInfo(indexerProperty.get_PropertyType())
+        elementType: TypeInfo = new ReflectionTypeInfo(indexerProperty.PropertyType)
         return elementType
     }
 
@@ -144,7 +144,7 @@ class AnalyzerPatternShapes {
                 lengthProperty = shapeType.GetProperty("Length", bindingFlags)
             }
 
-            if lengthProperty != null && lengthProperty.get_GetMethod() != null && lengthProperty.get_PropertyType() == typeof(int) {
+            if lengthProperty != null && lengthProperty.GetMethod != null && lengthProperty.PropertyType == typeof(int) {
                 return true
             }
         }
@@ -160,11 +160,11 @@ class AnalyzerPatternShapes {
             propertyIndex := 0
             while propertyIndex < properties.Length {
                 property := properties[propertyIndex]
-                if property.get_GetMethod() != null {
+                if property.GetMethod != null {
                     parameters := property.GetIndexParameters()
                     if parameters.Length == 1 {
                         indexParameter := parameters[0]
-                        if indexParameter.get_ParameterType() == typeof(int) {
+                        if indexParameter.ParameterType == typeof(int) {
                             return property
                         }
                     }
@@ -183,7 +183,7 @@ class AnalyzerPatternShapes {
         shapeTypes := new List<Type>()
         shapeTypes.Add(clrType)
 
-        if !clrType.get_IsInterface() {
+        if !clrType.IsInterface {
             return shapeTypes
         }
 

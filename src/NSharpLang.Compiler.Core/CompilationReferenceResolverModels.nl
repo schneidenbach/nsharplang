@@ -163,19 +163,19 @@ class ReferenceResolutionResult {
     }
 
     static func IsHigherVersion(candidate: Version, existing: Version): bool {
-        if candidate.get_Major() != existing.get_Major() {
-            return candidate.get_Major() > existing.get_Major()
+        if candidate.Major != existing.Major {
+            return candidate.Major > existing.Major
         }
 
-        if candidate.get_Minor() != existing.get_Minor() {
-            return candidate.get_Minor() > existing.get_Minor()
+        if candidate.Minor != existing.Minor {
+            return candidate.Minor > existing.Minor
         }
 
-        if candidate.get_Build() != existing.get_Build() {
-            return candidate.get_Build() > existing.get_Build()
+        if candidate.Build != existing.Build {
+            return candidate.Build > existing.Build
         }
 
-        return candidate.get_Revision() > existing.get_Revision()
+        return candidate.Revision > existing.Revision
     }
 
     func BuildRuntimeAssets(): string[] {

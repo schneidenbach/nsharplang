@@ -45,7 +45,7 @@ class ColumnarSourceStaticMemberPlanner {
         fieldOwner: ColumnarStructDef? = null
         field: FieldBuilder? = null
         if ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(owner, memberName, out fieldOwner, out field) && field != null {
-            fieldType := field.get_FieldType()
+            fieldType := field.FieldType
             literalValue := 0
             if fieldOwner != null && fieldOwner.StaticIntConstants.TryGetValue(memberName, out literalValue) {
                 if !TryAppendIntConstant(plan, fieldType, literalValue) {
@@ -63,7 +63,7 @@ class ColumnarSourceStaticMemberPlanner {
         property: ColumnarPropertyDef? = null
         if ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(owner, memberName, out property) && property != null {
             getter := ColumnarSourceSelfInstantiation.Bind(property.Getter)
-            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(getter, getter.get_DeclaringType(), Type.EmptyTypes, property.PropertyType, true, false))
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(getter, getter.DeclaringType, Type.EmptyTypes, property.PropertyType, true, false))
             resultType = property.PropertyType
             return true
         }
@@ -84,7 +84,7 @@ class ColumnarSourceStaticMemberPlanner {
             return false
         }
         if field != null {
-            storageType = field.get_FieldType()
+            storageType = field.FieldType
             return true
         }
 
@@ -108,7 +108,7 @@ class ColumnarSourceStaticMemberPlanner {
         bound := ColumnarSourceSelfInstantiation.Bind(property.Setter)
         parameterTypes := new Type[](1)
         parameterTypes[0] = property.PropertyType
-        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(bound, bound.get_DeclaringType(), parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), true, false))
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(bound, bound.DeclaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), true, false))
         return true
     }
 
@@ -158,7 +158,7 @@ class ColumnarSourceStaticMemberPlanner {
         }
 
         plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), AddStaticField(plan, fieldOwner, field))
-        elementType = field.get_FieldType()
+        elementType = field.FieldType
         return true
     }
 
@@ -172,7 +172,7 @@ class ColumnarSourceStaticMemberPlanner {
             return false
         }
 
-        storageType = field.get_FieldType()
+        storageType = field.FieldType
         return true
     }
 
@@ -205,12 +205,12 @@ class ColumnarSourceStaticMemberPlanner {
     // what the pool needs: reading them back through reflection off an unbaked type is exactly the
     // question `AddFieldWithSignature` exists to avoid asking.
     static func AddStaticField(plan: ColumnarCodePlan, fieldOwner: ColumnarStructDef?, field: FieldBuilder): int {
-        declaringType := field.get_DeclaringType()
+        declaringType := field.DeclaringType
         if fieldOwner != null {
             declaringType = fieldOwner.Builder
         }
 
-        return plan.AddFieldWithSignature(field, declaringType, field.get_FieldType(), true)
+        return plan.AddFieldWithSignature(field, declaringType, field.FieldType, true)
     }
 
     // Does this member access name a static of a source type? The receiver is a bare identifier or a

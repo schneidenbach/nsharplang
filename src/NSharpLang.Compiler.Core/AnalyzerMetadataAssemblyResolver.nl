@@ -55,7 +55,7 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
         if AnalyzerMetadataLoadPolicy.ShouldRecordLoadFailure(failures.ContainsKey(path)) {
             boxed := error as object
             errorType := boxed.GetType()
-            failures[path] = AnalyzerReferenceLoadReport.ExceptionDetail(errorType.get_Name(), error.Message)
+            failures[path] = AnalyzerReferenceLoadReport.ExceptionDetail(errorType.Name, error.Message)
         }
     }
 
@@ -122,7 +122,7 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
     }
 
     override func Resolve(context: MetadataLoadContext, assemblyName: AssemblyName): Assembly? {
-        simpleName := assemblyName.get_Name()
+        simpleName := assemblyName.Name
         if simpleName == null {
             return null
         }
@@ -130,7 +130,7 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
         // Stage 1 — an identity the context already holds.
         for loaded in context.GetAssemblies() {
             loadedName := loaded.GetName()
-            if AnalyzerMetadataLoadPolicy.IsSameSimpleName(loadedName.get_Name(), simpleName) {
+            if AnalyzerMetadataLoadPolicy.IsSameSimpleName(loadedName.Name, simpleName) {
                 return loaded
             }
         }

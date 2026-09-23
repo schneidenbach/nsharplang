@@ -110,7 +110,7 @@ class ColumnarAttributeBlobWriter {
             return TryWriteBoxedValue(bytes, node)
         }
 
-        if targetType.get_IsArray() {
+        if targetType.IsArray {
             return TryWriteArrayValue(bytes, node, targetType)
         }
 
@@ -248,7 +248,7 @@ class ColumnarAttributeBlobWriter {
     }
 
     func TryWritePrimitiveValue(bytes: List<byte>, node: ColumnarAttributeArgumentNode, targetType: Type): bool {
-        fullName := targetType.get_FullName()
+        fullName := targetType.FullName
         if fullName == null {
             return false
         }
@@ -335,7 +335,7 @@ class ColumnarAttributeBlobWriter {
     // argument writes in front of its value. An enum carries its TYPE NAME, which is why this cannot
     // be a lookup table over primitives alone.
     func TryWriteMemberTypeCode(bytes: List<byte>, memberType: Type): bool {
-        if memberType.get_IsArray() {
+        if memberType.IsArray {
             elementCandidate := memberType.GetElementType()
             if elementCandidate == null {
                 return false
@@ -367,7 +367,7 @@ class ColumnarAttributeBlobWriter {
             return true
         }
 
-        code := PrimitiveTypeCode(memberType.get_FullName())
+        code := PrimitiveTypeCode(memberType.FullName)
         if code == 0 {
             return false
         }
@@ -755,7 +755,7 @@ class ColumnarAttributeBlobWriter {
         }
 
         field := containerType.GetField(memberName, BindingFlags.Public | BindingFlags.Static)
-        if field == null || !field.get_IsLiteral() {
+        if field == null || !field.IsLiteral {
             return false
         }
 
@@ -805,11 +805,11 @@ class ColumnarAttributeBlobWriter {
         }
 
         field := containerType.GetField(memberName, BindingFlags.Public | BindingFlags.Static)
-        if field == null || !field.get_IsLiteral() {
+        if field == null || !field.IsLiteral {
             return false
         }
 
-        memberType = field.get_FieldType()
+        memberType = field.FieldType
         return true
     }
 
@@ -829,7 +829,7 @@ class ColumnarAttributeBlobWriter {
     // the assembly-qualified name a reader outside that assembly needs.
     static func TryGetMetadataTypeName(clrType: Type, out typeName: string): bool {
         typeName = ""
-        fullName := clrType.get_FullName()
+        fullName := clrType.FullName
         if fullName == null {
             return false
         }
@@ -839,7 +839,7 @@ class ColumnarAttributeBlobWriter {
             return true
         }
 
-        qualified := clrType.get_AssemblyQualifiedName()
+        qualified := clrType.AssemblyQualifiedName
         if qualified == null {
             typeName = fullName
             return true
@@ -855,20 +855,20 @@ class ColumnarAttributeBlobWriter {
     // ------------------------------------------------------------------------------------------
 
     static func IsObjectType(clrType: Type): bool {
-        return clrType.get_FullName() == "System.Object"
+        return clrType.FullName == "System.Object"
     }
 
     static func IsStringType(clrType: Type): bool {
-        return clrType.get_FullName() == "System.String"
+        return clrType.FullName == "System.String"
     }
 
     static func IsTypeHandleType(clrType: Type): bool {
-        return clrType.get_FullName() == "System.Type"
+        return clrType.FullName == "System.Type"
     }
 
     static func IsEnumType(clrType: Type): bool {
-        baseType := clrType.get_BaseType()
-        if baseType != null && baseType.get_FullName() == "System.Enum" {
+        baseType := clrType.BaseType
+        if baseType != null && baseType.FullName == "System.Enum" {
             return true
         }
 
@@ -876,7 +876,7 @@ class ColumnarAttributeBlobWriter {
             return false
         }
 
-        return clrType.get_IsEnum()
+        return clrType.IsEnum
     }
 
     // AN ENUM'S UNDERLYING TYPE IS THE TYPE OF ITS `value__` FIELD — for every enum that came from
@@ -902,7 +902,7 @@ class ColumnarAttributeBlobWriter {
             return false
         }
 
-        underlyingType = field.get_FieldType()
+        underlyingType = field.FieldType
         return true
     }
 

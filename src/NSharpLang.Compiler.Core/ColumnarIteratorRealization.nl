@@ -47,7 +47,7 @@ class ColumnarIteratorRealization {
         bodyFacts: ColumnarIteratorBodyFacts? = null
     ): ColumnarIteratorRealizationResult {
         enclosingBuilder: Type = structDef.Builder
-        enclosingBuilderName := enclosingBuilder.get_Name()
+        enclosingBuilderName := enclosingBuilder.Name
         memberName := method.Name
         memberLabel := enclosingBuilderName + "." + memberName
         if method.IsAsync {
@@ -809,7 +809,7 @@ class ColumnarIteratorRealization {
                 typeResolution.Structs,
                 typeResolution.Unions,
                 out resolvedType
-            ) && (resolvedType.get_IsGenericParameter() || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(resolvedType) && ((Type)resolvedType.GetElementType()).get_IsGenericParameter()) || ColumnarTypeOfPlanner.IsSupportedType(resolvedType)) && !ContainsMethodVarReference(resolvedType, smTypeParamMap)
+            ) && (resolvedType.IsGenericParameter || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(resolvedType) && ((Type)resolvedType.GetElementType()).IsGenericParameter) || ColumnarTypeOfPlanner.IsSupportedType(resolvedType)) && !ContainsMethodVarReference(resolvedType, smTypeParamMap)
         }
         return ColumnarCanonicalTypeResolver.TryResolveType(
             canonical,
@@ -826,7 +826,7 @@ class ColumnarIteratorRealization {
     // say so, and widening it is a question about the whole value surface rather than about the one
     // field a generator hoists for a local the author wrote a delegate type on.
     static func IsOrdinaryDelegateFieldType(candidate: Type): bool {
-        if candidate == null || candidate is TypeBuilder || candidate.get_IsGenericTypeDefinition() || candidate.get_IsByRef() || candidate.get_IsPointer() || RuntimeTypeShapeFacts.ContainsBuilderBoundType(candidate) {
+        if candidate == null || candidate is TypeBuilder || candidate.IsGenericTypeDefinition || candidate.IsByRef || candidate.IsPointer || RuntimeTypeShapeFacts.ContainsBuilderBoundType(candidate) {
             return false
         }
         return typeof(Delegate).IsAssignableFrom(candidate)
@@ -835,13 +835,13 @@ class ColumnarIteratorRealization {
     // Only the machine's own generic parameters are legal in its field signatures. Preserve the
     // legacy recursive order and Dictionary.ContainsValue Type equality exactly.
     static func ContainsMethodVarReference(valueType: Type, smTypeParamMap: Dictionary<string, Type>): bool {
-        if valueType.get_IsGenericParameter() {
+        if valueType.IsGenericParameter {
             return !smTypeParamMap.ContainsValue(valueType)
         }
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             return ContainsMethodVarReference(valueType.GetElementType(), smTypeParamMap)
         }
-        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
+        if valueType.IsGenericType && !valueType.IsGenericTypeDefinition {
             arguments := valueType.GetGenericArguments()
             for argument in arguments {
                 if ContainsMethodVarReference(argument, smTypeParamMap) {

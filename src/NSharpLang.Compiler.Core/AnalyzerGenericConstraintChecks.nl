@@ -95,7 +95,7 @@ class AnalyzerGenericConstraintChecks {
         reflectionType := candidate as ReflectionTypeInfo
         if reflectionType != null {
             clrType := reflectionType.Type
-            if clrType.get_IsValueType() {
+            if clrType.IsValueType {
                 return true
             }
 

@@ -1236,11 +1236,11 @@ class AnalyzerFunctionBodies {
     // a sequence a generator may declare — and so is a non-generic type, because every sequence in
     // the set has exactly one type argument.
     static func IsGeneratorSequenceReflectionType(clrType: Type, isAsyncGenerator: bool): bool {
-        if clrType.get_IsArray() {
+        if clrType.IsArray {
             return false
         }
 
-        if !clrType.get_IsGenericType() {
+        if !clrType.IsGenericType {
             return false
         }
 

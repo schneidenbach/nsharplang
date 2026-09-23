@@ -171,7 +171,7 @@ class AnalyzerMetadataLoadSurface {
             throw new InvalidOperationException("AnalyzerMetadataLoadSurface.CreateWellKnownTypes requires a metadata load context, and Open was never called on this surface.")
         }
 
-        core := loadContext.get_CoreAssembly()
+        core := loadContext.CoreAssembly
         if core == null {
             throw new InvalidOperationException("AnalyzerMetadataLoadSurface requires the metadata load context to have bound a core assembly, and it bound none from the compiler's own framework directories.")
         }
@@ -210,7 +210,7 @@ class AnalyzerMetadataLoadSurface {
     func RecordExceptionFailure(identity: string, error: Exception) {
         boxed := error as object
         errorType := boxed.GetType()
-        RecordFailure(identity, AnalyzerReferenceLoadReport.ExceptionDetail(errorType.get_Name(), error.Message))
+        RecordFailure(identity, AnalyzerReferenceLoadReport.ExceptionDetail(errorType.Name, error.Message))
     }
 
     // Idempotent by IDENTITY, not by reference: the same assembly can arrive from the registry probe
@@ -238,7 +238,7 @@ class AnalyzerMetadataLoadSurface {
     func IsSimpleNameLoaded(simpleName: string): bool {
         for assembly in assemblies {
             loadedName := assembly.GetName()
-            if AnalyzerMetadataLoadPolicy.IsSameSimpleName(loadedName.get_Name(), simpleName) {
+            if AnalyzerMetadataLoadPolicy.IsSameSimpleName(loadedName.Name, simpleName) {
                 return true
             }
         }
@@ -249,7 +249,7 @@ class AnalyzerMetadataLoadSurface {
     func IsPathLoaded(assemblyPath: string): bool {
         normalizedPath := Path.GetFullPath(assemblyPath)
         for assembly in assemblies {
-            location := assembly.get_Location()
+            location := assembly.Location
             if AnalyzerMetadataLoadPolicy.IsSameAssemblyPath(Path.GetFullPath(location), normalizedPath) {
                 return true
             }

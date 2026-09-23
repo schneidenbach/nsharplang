@@ -294,7 +294,7 @@ class ColumnarInstanceMemberPlanner {
     // narrower than ordinary member reads: properties and non-addressable receiver expressions
     // cannot preserve mutation semantics and remain with later receiver owners.
     static func TryAppendAddressableValueReceiver(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, parentFragment: int, expectedType: Type): bool {
-        if nodes == null || source == null || bindings == null || plan == null || expectedType == null || !expectedType.get_IsValueType() || expectedType.get_IsGenericTypeDefinition() {
+        if nodes == null || source == null || bindings == null || plan == null || expectedType == null || !expectedType.IsValueType || expectedType.IsGenericTypeDefinition {
             return false
         }
 
@@ -542,7 +542,7 @@ class ColumnarInstanceMemberPlanner {
             }
 
             candidateClosed := false
-            if !matches && receiverType.get_IsGenericType() && !receiverType.get_IsGenericTypeDefinition() && receiverType.GetGenericTypeDefinition() == candidateType {
+            if !matches && receiverType.IsGenericType && !receiverType.IsGenericTypeDefinition && receiverType.GetGenericTypeDefinition() == candidateType {
                 matches = true
                 candidateClosed = true
             }
@@ -558,7 +558,7 @@ class ColumnarInstanceMemberPlanner {
         }
 
         if selected != null {
-            if receiverType.get_IsValueType() == selected.IsReference {
+            if receiverType.IsValueType == selected.IsReference {
                 throw new InvalidOperationException("Source instance-member reference facts do not match the receiver type.")
             }
 
@@ -572,7 +572,7 @@ class ColumnarInstanceMemberPlanner {
             return false
         }
 
-        if receiverType.get_IsValueType() == selectedFacts.IsReference {
+        if receiverType.IsValueType == selectedFacts.IsReference {
             throw new InvalidOperationException("Exact instance-member facts do not match their receiver type.")
         }
 
@@ -592,7 +592,7 @@ class ColumnarInstanceMemberPlanner {
             candidateType: Type = candidate.Builder
             if candidateType == receiverType {
                 source = candidate
-            } else if receiverType.get_IsGenericType() && !receiverType.get_IsGenericTypeDefinition() && receiverType.GetGenericTypeDefinition() == candidateType {
+            } else if receiverType.IsGenericType && !receiverType.IsGenericTypeDefinition && receiverType.GetGenericTypeDefinition() == candidateType {
                 source = candidate
             }
         }
@@ -686,13 +686,13 @@ class ColumnarInstanceMemberPlanner {
             if exactBaseTemplate == null {
                 throw new InvalidOperationException("Source instance-member base facts have no exact type template.")
             }
-            emittedBaseTemplate := current.Builder.get_BaseType()
+            emittedBaseTemplate := current.Builder.BaseType
             if emittedBaseTemplate == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(exactBaseTemplate, emittedBaseTemplate) {
                 throw new InvalidOperationException("Source instance-member exact base template does not match emitted inheritance.")
             }
 
             currentWasClosed := !ContainsOpenTypeParameters(currentExactType)
-            currentArguments := currentExactType.get_IsGenericType() ? currentExactType.GetGenericArguments() : new Type[](0)
+            currentArguments := currentExactType.IsGenericType ? currentExactType.GetGenericArguments() : new Type[](0)
             currentExactType = currentArguments.Length == 0 ? exactBaseTemplate : SubstituteTypeArguments(exactBaseTemplate, currentArguments)
             if !ExactTypeOwnsDefinition(currentExactType, baseDefinition) {
                 throw new InvalidOperationException("Source instance-member exact base type does not match its definition.")
@@ -744,7 +744,7 @@ class ColumnarInstanceMemberPlanner {
 
         if foundField != null {
             field := foundField
-            if field.get_IsStatic() || field.get_IsLiteral() || field.get_DeclaringType() != foundDeclaring {
+            if field.IsStatic || field.IsLiteral || field.DeclaringType != foundDeclaring {
                 throw new InvalidOperationException("Source instance field facts do not identify exact storage.")
             }
 
@@ -752,10 +752,10 @@ class ColumnarInstanceMemberPlanner {
                 return false
             }
 
-            resultType := field.get_FieldType()
+            resultType := field.FieldType
             declaringType := foundDeclaring
             selectedField := field
-            foundArguments := foundExactDeclaring.get_IsGenericType() ? foundExactDeclaring.GetGenericArguments() : new Type[](0)
+            foundArguments := foundExactDeclaring.IsGenericType ? foundExactDeclaring.GetGenericArguments() : new Type[](0)
             if foundArguments.Length > 0 {
                 resultType = SubstituteTypeArguments(resultType, foundArguments)
             }
@@ -779,7 +779,7 @@ class ColumnarInstanceMemberPlanner {
         }
 
         getter: MethodInfo = property.Getter
-        if getter.get_IsStatic() || getter.get_DeclaringType() != foundDeclaring || getter.get_ReturnType() != property.PropertyType || property.GetterParameterCount != 0 {
+        if getter.IsStatic || getter.DeclaringType != foundDeclaring || getter.ReturnType != property.PropertyType || property.GetterParameterCount != 0 {
             throw new InvalidOperationException("Source instance property facts do not identify an exact zero-arity getter.")
         }
 
@@ -790,7 +790,7 @@ class ColumnarInstanceMemberPlanner {
         propertyType := property.PropertyType
         declaringPropertyType := foundDeclaring
         selectedGetter := getter
-        foundPropertyArguments := foundExactDeclaring.get_IsGenericType() ? foundExactDeclaring.GetGenericArguments() : new Type[](0)
+        foundPropertyArguments := foundExactDeclaring.IsGenericType ? foundExactDeclaring.GetGenericArguments() : new Type[](0)
         if foundPropertyArguments.Length > 0 {
             propertyType = SubstituteTypeArguments(propertyType, foundPropertyArguments)
         }
@@ -892,15 +892,15 @@ class ColumnarInstanceMemberPlanner {
 
         if foundField != null {
             field := foundField
-            if field.get_IsStatic() || field.get_IsLiteral() || field.get_DeclaringType() != foundDeclaring {
+            if field.IsStatic || field.IsLiteral || field.DeclaringType != foundDeclaring {
                 throw new InvalidOperationException("Exact instance field facts do not identify exact storage.")
             }
 
-            if !IsEmittableSourceMember(MemberAccessibility.LevelOfField(field), foundDeclaring, bindings) || !IsStorableResult(field.get_FieldType()) {
+            if !IsEmittableSourceMember(MemberAccessibility.LevelOfField(field), foundDeclaring, bindings) || !IsStorableResult(field.FieldType) {
                 return false
             }
 
-            selection = new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.Field, classification.ReceiverIsReference, classification.PreserveDirectValueStorage, foundDeclaring, field.get_FieldType(), field, null)
+            selection = new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.Field, classification.ReceiverIsReference, classification.PreserveDirectValueStorage, foundDeclaring, field.FieldType, field, null)
 
             return true
         }
@@ -911,7 +911,7 @@ class ColumnarInstanceMemberPlanner {
         }
 
         getter := property.Getter
-        if getter.get_IsStatic() || getter.get_DeclaringType() != foundDeclaring || getter.get_ReturnType() != property.PropertyType || property.GetterParameterCount != 0 || getter.GetParameters().Length != 0 {
+        if getter.IsStatic || getter.DeclaringType != foundDeclaring || getter.ReturnType != property.PropertyType || property.GetterParameterCount != 0 || getter.GetParameters().Length != 0 {
             throw new InvalidOperationException("Exact instance property facts do not identify an exact zero-arity getter.")
         }
 
@@ -946,17 +946,17 @@ class ColumnarInstanceMemberPlanner {
 
     static func ExactTypeOwnsDefinition(exactType: Type, definition: ColumnarStructDef): bool {
         if ColumnarConstructionPlanner.SameObject(exactType, definition.Builder) {
-            return !definition.Builder.get_IsGenericTypeDefinition()
+            return !definition.Builder.IsGenericTypeDefinition
         }
 
-        return exactType.get_IsGenericType() && !exactType.get_IsGenericTypeDefinition() && ColumnarConstructionPlanner.SameObject(exactType.GetGenericTypeDefinition(), definition.Builder)
+        return exactType.IsGenericType && !exactType.IsGenericTypeDefinition && ColumnarConstructionPlanner.SameObject(exactType.GetGenericTypeDefinition(), definition.Builder)
     }
 
     static func ContainsOpenTypeParameters(valueType: Type): bool {
-        if valueType.get_IsGenericParameter() || valueType.get_IsGenericTypeDefinition() {
+        if valueType.IsGenericParameter || valueType.IsGenericTypeDefinition {
             return true
         }
-        if !valueType.get_IsGenericType() {
+        if !valueType.IsGenericType {
             return false
         }
 
@@ -1016,7 +1016,7 @@ class ColumnarInstanceMemberPlanner {
         }
 
         getter := selection.Getter
-        methodIndex := plan.AddMethodWithSignature(getter, selection.DeclaringType, new Type[](0), selection.ResultType, false, getter.get_IsAbstract())
+        methodIndex := plan.AddMethodWithSignature(getter, selection.DeclaringType, new Type[](0), selection.ResultType, false, getter.IsAbstract)
 
         plan.AppendMethodInstruction(selection.ReceiverIsReference ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
     }
@@ -1231,7 +1231,7 @@ class ColumnarInstanceMemberPlanner {
             return true
         }
 
-        if !receiverType.get_IsGenericType() {
+        if !receiverType.IsGenericType {
             return false
         }
 
@@ -1259,12 +1259,12 @@ class ColumnarInstanceMemberPlanner {
                 continue
             }
 
-            resultType := property.get_PropertyType()
-            if !resultType.get_IsGenericParameter() || resultType.get_DeclaringMethod() != null {
+            resultType := property.PropertyType
+            if !resultType.IsGenericParameter || resultType.DeclaringMethod != null {
                 continue
             }
 
-            position := resultType.get_GenericParameterPosition()
+            position := resultType.GenericParameterPosition
             if position >= 0 && position < parameters.Length {
                 return position
             }
@@ -1274,8 +1274,8 @@ class ColumnarInstanceMemberPlanner {
     }
 
     static func SubstituteTypeArguments(signatureType: Type, arguments: Type[]): Type {
-        if signatureType.get_IsGenericParameter() && signatureType.get_DeclaringMethod() == null {
-            position := signatureType.get_GenericParameterPosition()
+        if signatureType.IsGenericParameter && signatureType.DeclaringMethod == null {
+            position := signatureType.GenericParameterPosition
             if position < 0 || position >= arguments.Length {
                 throw new InvalidOperationException("Source member generic parameter position is invalid.")
             }
@@ -1292,7 +1292,7 @@ class ColumnarInstanceMemberPlanner {
             return SubstituteTypeArguments(element, arguments).MakeArrayType()
         }
 
-        if signatureType.get_IsGenericType() && !signatureType.get_IsGenericTypeDefinition() {
+        if signatureType.IsGenericType && !signatureType.IsGenericTypeDefinition {
             definition := signatureType.GetGenericTypeDefinition()
             rawArguments := signatureType.GetGenericArguments()
             resolved := new Type[](rawArguments.Length)
@@ -1305,7 +1305,7 @@ class ColumnarInstanceMemberPlanner {
             return definition.MakeGenericType(resolved)
         }
 
-        if signatureType.get_HasElementType() {
+        if signatureType.HasElementType {
             element := signatureType.GetElementType()
             if element == null {
                 throw new InvalidOperationException("Source member compound signature has no element type.")
@@ -1338,7 +1338,7 @@ class ColumnarInstanceMemberPlanner {
     }
 
     static func IsStorableResult(resultType: Type): bool {
-        return resultType != null && resultType.FullName != "System.Void" && !resultType.get_IsByRef() && !resultType.get_IsGenericTypeDefinition()
+        return resultType != null && resultType.FullName != "System.Void" && !resultType.IsByRef && !resultType.IsGenericTypeDefinition
     }
 
     static func EmptySelection(): ColumnarInstanceMemberSelection {

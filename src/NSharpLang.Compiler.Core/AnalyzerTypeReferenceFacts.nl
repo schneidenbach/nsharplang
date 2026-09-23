@@ -233,7 +233,7 @@ class AnalyzerTypeReferenceFacts {
         reflectionInfo := resolvedName as ReflectionTypeInfo
         if reflectionInfo != null {
             reflectionType := reflectionInfo.Type
-            if !reflectionType.get_IsGenericTypeDefinition() {
+            if !reflectionType.IsGenericTypeDefinition {
                 return 0
             }
             return reflectionType.GetGenericArguments().Length

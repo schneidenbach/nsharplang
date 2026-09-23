@@ -446,7 +446,7 @@ class ColumnarConstructorDeclarationPlanner {
             childIndex += 1
         }
 
-        fieldEnumerator := currentStruct.Fields.get_Keys().GetEnumerator()
+        fieldEnumerator := currentStruct.Fields.Keys.GetEnumerator()
         try {
             while fieldEnumerator.MoveNext() {
                 fieldName := fieldEnumerator.get_Current()
@@ -480,12 +480,12 @@ class ColumnarConstructorDeclarationPlanner {
             return true
         }
 
-        fieldType: Type = field.get_FieldType()
-        if fieldType.get_IsGenericParameter() {
+        fieldType: Type = field.FieldType
+        if fieldType.IsGenericParameter {
             return false
         }
 
-        return !fieldType.get_IsValueType()
+        return !fieldType.IsValueType
     }
 
     static func ConstructorInputEnumerator(constructors: IEnumerable<ColumnarConstructorInput>): IEnumerator<ColumnarConstructorInput> {
@@ -494,7 +494,7 @@ class ColumnarConstructorDeclarationPlanner {
 
     static func BuilderName(definition: ColumnarStructDef): string {
         builder: Type = definition.Builder
-        return builder.get_Name()
+        return builder.Name
     }
 
     static func Declined(

@@ -93,7 +93,7 @@ class AnalyzerReflectionMemberProbe {
     // missing assembly.
     static func ParameterTypeOrNull(parameter: ParameterInfo): Type? {
         try {
-            return parameter.get_ParameterType()
+            return parameter.ParameterType
         } catch {
             return null
         }
@@ -101,7 +101,7 @@ class AnalyzerReflectionMemberProbe {
 
     static func ReturnTypeOrNull(method: MethodInfo): Type? {
         try {
-            return method.get_ReturnType()
+            return method.ReturnType
         } catch {
             return null
         }
@@ -146,7 +146,7 @@ class AnalyzerReflectionMemberProbe {
 
     static func BaseTypeOrNull(candidate: Type): Type? {
         try {
-            return candidate.get_BaseType()
+            return candidate.BaseType
         } catch {
             return null
         }
@@ -154,7 +154,7 @@ class AnalyzerReflectionMemberProbe {
 
     static func NamespaceOrNull(candidate: Type): string? {
         try {
-            return candidate.get_Namespace()
+            return candidate.Namespace
         } catch {
             return null
         }
@@ -164,7 +164,7 @@ class AnalyzerReflectionMemberProbe {
     // be read is not one.
     static func IsStaticHostType(candidate: Type): bool {
         try {
-            return candidate.get_IsSealed() && candidate.get_IsAbstract()
+            return candidate.IsSealed && candidate.IsAbstract
         } catch {
             return false
         }

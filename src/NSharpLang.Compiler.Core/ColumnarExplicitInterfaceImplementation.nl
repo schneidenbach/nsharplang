@@ -44,7 +44,7 @@ class ColumnarExplicitInterfaceImplementation {
             return false
         }
 
-        if candidate == null || !candidate.get_IsInterface() {
+        if candidate == null || !candidate.IsInterface {
             return false
         }
 
@@ -124,7 +124,7 @@ class ColumnarExplicitInterfaceImplementation {
         sourceInterfaceDefinition: ColumnarStructDef? = null
         if TryFindSourceInterface(owner, namedInterface, out sourceInterfaceDefinition) && sourceInterfaceDefinition != null {
             namedInterfaceForArity := namedInterface
-            if namedInterfaceForArity.get_IsGenericType() && !namedInterfaceForArity.get_IsGenericTypeDefinition() {
+            if namedInterfaceForArity.IsGenericType && !namedInterfaceForArity.IsGenericTypeDefinition {
                 declaration.TryAddClosedSourceInterfaceTarget(
                     namedInterface,
                     sourceInterfaceDefinition,
@@ -194,7 +194,7 @@ class ColumnarExplicitInterfaceImplementation {
             }
 
             namedInterfaceForGenericCheck := namedInterface
-            if namedInterfaceForGenericCheck.get_IsGenericType() && !namedInterfaceForGenericCheck.get_IsGenericTypeDefinition() {
+            if namedInterfaceForGenericCheck.IsGenericType && !namedInterfaceForGenericCheck.IsGenericTypeDefinition {
                 rebound := TypeBuilder.GetMethod(namedInterface, candidate)
                 if rebound == null {
                     return false
@@ -238,7 +238,7 @@ class ColumnarExplicitInterfaceImplementation {
         }
 
         namedInterfaceForGenericCheck := namedInterface
-        if !namedInterfaceForGenericCheck.get_IsGenericType() || namedInterfaceForGenericCheck.get_IsGenericTypeDefinition() {
+        if !namedInterfaceForGenericCheck.IsGenericType || namedInterfaceForGenericCheck.IsGenericTypeDefinition {
             return false
         }
 

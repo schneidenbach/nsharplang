@@ -540,11 +540,11 @@ class ColumnarRangeIndexPlanner {
     // remains the recursive value planner's order.
     static func AppendBlockingAwaitOfStackValue(plan: ColumnarCodePlan, awaitableType: Type, out resultType: Type): bool {
         resultType = typeof(object)
-        if awaitableType == null || awaitableType.get_IsGenericParameter() {
+        if awaitableType == null || awaitableType.IsGenericParameter {
             return false
         }
 
-        if awaitableType == typeof(System.Threading.Tasks.ValueTask) || (awaitableType.get_IsGenericType() && !awaitableType.get_IsGenericTypeDefinition() && awaitableType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition()) {
+        if awaitableType == typeof(System.Threading.Tasks.ValueTask) || (awaitableType.IsGenericType && !awaitableType.IsGenericTypeDefinition && awaitableType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition()) {
             valueTaskLocal := plan.DeclarePlanLocal(plan.AddType(awaitableType))
             plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), valueTaskLocal)
             plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), valueTaskLocal)
@@ -553,29 +553,29 @@ class ColumnarRangeIndexPlanner {
                 return false
             }
             plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(asTask))
-            return AppendBlockingAwaitOfStackValue(plan, asTask.get_ReturnType(), out resultType)
+            return AppendBlockingAwaitOfStackValue(plan, asTask.ReturnType, out resultType)
         }
 
         getAwaiter := awaitableType.GetMethod("GetAwaiter", BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
         if getAwaiter == null {
             return false
         }
-        awaiterType := getAwaiter.get_ReturnType()
+        awaiterType := getAwaiter.ReturnType
         getResult := awaiterType.GetMethod("GetResult", BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
         if getResult == null {
             return false
         }
-        if awaitableType.get_IsValueType() {
+        if awaitableType.IsValueType {
             awaitableLocal := plan.DeclarePlanLocal(plan.AddType(awaitableType))
             plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), awaitableLocal)
             plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), awaitableLocal)
         }
-        plan.AppendMethodInstruction((short)(awaitableType.get_IsValueType() ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()), plan.AddMethod(getAwaiter))
+        plan.AppendMethodInstruction((short)(awaitableType.IsValueType ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()), plan.AddMethod(getAwaiter))
         awaiterLocal := plan.DeclarePlanLocal(plan.AddType(awaiterType))
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), awaiterLocal)
-        plan.AppendPlanLocalInstruction((short)(awaiterType.get_IsValueType() ? ColumnarCodePlanContract.Ldloca() : ColumnarCodePlanContract.Ldloc()), awaiterLocal)
-        plan.AppendMethodInstruction((short)(awaiterType.get_IsValueType() ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()), plan.AddMethod(getResult))
-        resultType = getResult.get_ReturnType()
+        plan.AppendPlanLocalInstruction((short)(awaiterType.IsValueType ? ColumnarCodePlanContract.Ldloca() : ColumnarCodePlanContract.Ldloc()), awaiterLocal)
+        plan.AppendMethodInstruction((short)(awaiterType.IsValueType ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()), plan.AddMethod(getResult))
+        resultType = getResult.ReturnType
         return true
     }
 
@@ -715,7 +715,7 @@ class ColumnarRangeIndexPlanner {
         // exact int/uint and i4-underlying enum stack sources, so no executor change is required. An
         // identity target (`(int)intValue`) still declines here: it needs no reinterpretation and
         // rides no branch, and its empty fragment stays with the legacy owner.
-        if (targetType == typeof(int) || targetType == typeof(uint)) && operandType != targetType && (operandType == typeof(int) || operandType == typeof(uint) || (operandType.get_IsEnum() && operandType.GetEnumUnderlyingType() == typeof(int))) {
+        if (targetType == typeof(int) || targetType == typeof(uint)) && operandType != targetType && (operandType == typeof(int) || operandType == typeof(uint) || (operandType.IsEnum && operandType.GetEnumUnderlyingType() == typeof(int))) {
             if targetType == typeof(uint) {
                 plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvU4())
             } else {
@@ -900,7 +900,7 @@ class ColumnarRangeIndexPlanner {
             return true
         }
 
-        if !ColumnarNumericFacts.IsIntPromotable(operandType) && (!operandType.get_IsEnum() || operandType.GetEnumUnderlyingType() != typeof(int)) {
+        if !ColumnarNumericFacts.IsIntPromotable(operandType) && (!operandType.IsEnum || operandType.GetEnumUnderlyingType() != typeof(int)) {
             return false
         }
 
@@ -994,7 +994,7 @@ class ColumnarRangeIndexPlanner {
     // `new KeyValuePair<string, int>(key, index[key])` decline while `v := index[key]` emits.
     static func TryGetOrdinaryIndexerParameterType(candidate: Type, out parameterType: Type): bool {
         parameterType = typeof(int)
-        if candidate == null || candidate is TypeBuilder || !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() || !ColumnarTypeOfPlanner.IsSupportedCollectionType(candidate) {
+        if candidate == null || candidate is TypeBuilder || !candidate.IsGenericType || candidate.IsGenericTypeDefinition || !ColumnarTypeOfPlanner.IsSupportedCollectionType(candidate) {
             return false
         }
 
@@ -1153,7 +1153,7 @@ class ColumnarRangeIndexPlanner {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemR4())
         } else if elementType == typeof(double) {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemR8())
-        } else if !elementType.get_IsValueType() && !elementType.get_IsGenericParameter() {
+        } else if !elementType.IsValueType && !elementType.IsGenericParameter {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemRef())
         } else {
             typeIndex := plan.AddType(elementType)

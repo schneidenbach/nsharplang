@@ -174,11 +174,11 @@ class ColumnarUnaryLiteralPlanner {
 
     static func RequiredDecimalNegation(parameterTypes: Type[]): MethodInfo {
         method := typeof(decimal).GetMethod("op_UnaryNegation", parameterTypes)
-        if method == null || method.get_DeclaringType() != typeof(decimal) || !method.get_IsStatic() || method.get_IsGenericMethod() || method.get_ReturnType() != typeof(decimal) {
+        if method == null || method.DeclaringType != typeof(decimal) || !method.IsStatic || method.IsGenericMethod || method.ReturnType != typeof(decimal) {
             throw new InvalidOperationException("Required CLR method Decimal.op_UnaryNegation(Decimal) was not found exactly.")
         }
         parameters := method.GetParameters()
-        if parameters.Length != 1 || parameters[0].get_ParameterType() != typeof(decimal) {
+        if parameters.Length != 1 || parameters[0].ParameterType != typeof(decimal) {
             throw new InvalidOperationException("Decimal.op_UnaryNegation(Decimal) has an unexpected runtime signature.")
         }
         return method

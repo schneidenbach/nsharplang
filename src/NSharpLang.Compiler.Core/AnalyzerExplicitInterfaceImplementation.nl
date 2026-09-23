@@ -279,7 +279,7 @@ class AnalyzerExplicitInterfaceImplementation {
             return
         }
 
-        if !reflectionType.Type.get_IsInterface() {
+        if !reflectionType.Type.IsInterface {
             return
         }
 
@@ -301,7 +301,7 @@ class AnalyzerExplicitInterfaceImplementation {
     }
 
     static func SimpleReflectedName(reflectedType: Type): string {
-        name := reflectedType.get_Name()
+        name := reflectedType.Name
         tick := name.IndexOf('`')
         if tick >= 0 {
             return name.Substring(0, tick)
@@ -400,19 +400,19 @@ class AnalyzerExplicitInterfaceImplementation {
 
         reflectedType := reflectionType.Type
         for method in reflectedType.GetMethods() {
-            if method.get_Name() == simpleName {
+            if method.Name == simpleName {
                 return true
             }
         }
 
         for property in reflectedType.GetProperties() {
-            if property.get_Name() == simpleName {
+            if property.Name == simpleName {
                 return true
             }
         }
 
         for declaredEvent in reflectedType.GetEvents() {
-            if declaredEvent.get_Name() == simpleName {
+            if declaredEvent.Name == simpleName {
                 return true
             }
         }

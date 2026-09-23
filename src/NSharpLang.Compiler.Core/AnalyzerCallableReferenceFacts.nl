@@ -64,12 +64,12 @@ class AnalyzerCallableReferenceFacts {
     // The roots are read out of the core library rather than written `typeof(Delegate)` because the
     // columnar front end's `typeof` surface does not carry them, and extending that surface is a
     // compiler-capability change that would need a two-stage bootstrap. This is the established
-    // `typeof(object).get_Assembly()` idiom, and it yields the identical runtime Type instances — so
+    // `typeof(object).Assembly` idiom, and it yields the identical runtime Type instances — so
     // the RUNTIME-versus-MetadataLoadContext asymmetry is preserved exactly: a delegate type loaded
     // into a MetadataLoadContext is NOT reference-equal to the runtime roots and, like the C# this
     // replaces, answers false.
     static func IsRuntimeDelegateType(candidate: Type): bool {
-        coreLibrary := typeof(object).get_Assembly()
+        coreLibrary := typeof(object).Assembly
         delegateRoot := coreLibrary.GetType("System.Delegate")
         if delegateRoot == null {
             return false
@@ -93,7 +93,7 @@ class AnalyzerCallableReferenceFacts {
         // The two abstract roots are excluded for the same reason `IsRuntimeDelegateType` excludes
         // them: neither names a callable signature, and `MulticastDelegate` would otherwise answer
         // true off its own base.
-        candidateName := candidate.get_FullName()
+        candidateName := candidate.FullName
         if candidateName == "System.Delegate" || candidateName == "System.MulticastDelegate" {
             return false
         }
@@ -101,7 +101,7 @@ class AnalyzerCallableReferenceFacts {
         current: Type? = AnalyzerReflectionMemberProbe.BaseTypeOrNull(candidate)
         depth := 0
         while current != null && depth < 32 {
-            fullName := current.get_FullName()
+            fullName := current.FullName
             if fullName == "System.MulticastDelegate" || fullName == "System.Delegate" {
                 return true
             }
@@ -177,12 +177,12 @@ class AnalyzerCallableReferenceFacts {
 
         reflectionMethod := candidate as ReflectionMethodInfo
         if reflectionMethod != null {
-            return reflectionMethod.Method.get_Name()
+            return reflectionMethod.Method.Name
         }
 
         reflectionGroup := candidate as ReflectionMethodGroupInfo
         if reflectionGroup != null && reflectionGroup.Methods.Length > 0 {
-            return reflectionGroup.Methods[0].get_Name()
+            return reflectionGroup.Methods[0].Name
         }
 
         sourceGroup := candidate as NSharpMethodGroupInfo
@@ -325,7 +325,7 @@ class AnalyzerCallableReferenceFacts {
         }
         names := new List<string>()
         for parameter in parameters {
-            names.Add(parameter.get_Name() ?? "")
+            names.Add(parameter.Name ?? "")
         }
         return names
     }

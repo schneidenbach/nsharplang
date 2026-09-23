@@ -36,12 +36,12 @@ class ColumnarTypeEquivalenceFacts {
     // are converted to false. This intentionally differs from IsSzArrayType below, whose identity
     // work uses a name-and-element fallback when reflection cannot answer.
     static func IsSafeSzArrayType(candidate: Type): bool {
-        if candidate.get_IsGenericParameter() {
+        if candidate.IsGenericParameter {
             return false
         }
 
         try {
-            return candidate.get_IsSZArray()
+            return candidate.IsSZArray
         } catch ex: NotSupportedException {
             return false
         } catch ex: NotImplementedException {
@@ -91,7 +91,7 @@ class ColumnarTypeEquivalenceFacts {
         // `MakeGenericType` over a builder yields a referentially DISTINCT `TypeBuilderInstantiation`
         // (probe-proven), so definitions must match and arguments recurse. Fully baked instantiations are
         // cached by the runtime and were already matched by the reference test above.
-        if !a.get_IsGenericType() || !b.get_IsGenericType() || a.get_IsGenericTypeDefinition() || b.get_IsGenericTypeDefinition() {
+        if !a.IsGenericType || !b.IsGenericType || a.IsGenericTypeDefinition || b.IsGenericTypeDefinition {
             return false
         }
 
@@ -134,7 +134,7 @@ class ColumnarTypeEquivalenceFacts {
 
         arguments: Type[]? = null
         try {
-            if !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() || candidate.GetGenericTypeDefinition() != ColumnarNullableArgumentLowering.RequiredNullableDefinition() {
+            if !candidate.IsGenericType || candidate.IsGenericTypeDefinition || candidate.GetGenericTypeDefinition() != ColumnarNullableArgumentLowering.RequiredNullableDefinition() {
                 return false
             }
 
@@ -152,7 +152,7 @@ class ColumnarTypeEquivalenceFacts {
 
     static func IsByRefType(candidate: Type): bool {
         try {
-            return candidate.get_IsByRef()
+            return candidate.IsByRef
         } catch ex: NotImplementedException {
             return false
         } catch ex: NotSupportedException {
@@ -185,12 +185,12 @@ class ColumnarTypeEquivalenceFacts {
             return false
         }
 
-        name := candidate.get_Name()
+        name := candidate.Name
         if name != null && name.EndsWith("[]", StringComparison.Ordinal) {
             return true
         }
 
-        fullName := candidate.get_FullName()
+        fullName := candidate.FullName
         return fullName != null && fullName.EndsWith("[]", StringComparison.Ordinal)
     }
 
@@ -221,7 +221,7 @@ class ColumnarTypeEquivalenceFacts {
 
         handlesMatch := false
         try {
-            handlesMatch = a.get_TypeHandle().Equals(b.get_TypeHandle())
+            handlesMatch = a.TypeHandle.Equals(b.TypeHandle)
         } catch {
             handlesMatch = false
         }
@@ -247,10 +247,10 @@ class ColumnarTypeEquivalenceFacts {
     // `get_Module` BINDABLE. Those are two independent admissions and the first alone was not enough,
     // which is why the boundary took two slices and a republish between them.
     static func SameDeclaredIdentity(a: Type, b: Type): bool {
-        if !string.Equals(a.get_FullName(), b.get_FullName(), StringComparison.Ordinal) {
+        if !string.Equals(a.FullName, b.FullName, StringComparison.Ordinal) {
             return false
         }
 
-        return Object.ReferenceEquals(a.get_Module(), b.get_Module())
+        return Object.ReferenceEquals(a.Module, b.Module)
     }
 }

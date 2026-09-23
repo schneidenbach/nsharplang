@@ -87,7 +87,7 @@ class ColumnarEntryPointRealization {
                 entryPointMethod = wrapper
             }
         } else {
-            enumerator := structRegistry.get_Values().GetEnumerator()
+            enumerator := structRegistry.Values.GetEnumerator()
             try {
                 while enumerator.MoveNext() {
                     def := enumerator.get_Current()

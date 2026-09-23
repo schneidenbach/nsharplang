@@ -272,7 +272,7 @@ class AnalyzerExternalTypeProbe {
                 reflection := arityQualified as ReflectionTypeInfo
                 if reflection != null {
                     reflectionType := reflection.Type
-                    if reflectionType.get_IsGenericTypeDefinition() {
+                    if reflectionType.IsGenericTypeDefinition {
                         arities.Add(arity)
                     }
                 }

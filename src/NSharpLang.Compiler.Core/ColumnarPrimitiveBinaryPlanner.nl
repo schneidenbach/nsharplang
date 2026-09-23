@@ -724,11 +724,11 @@ class ColumnarPrimitiveBinaryPlanner {
         parameterTypes[0] = typeof(string)
         parameterTypes[1] = typeof(string)
         method := typeof(string).GetMethod("Concat", parameterTypes)
-        if method == null || method.get_DeclaringType() != typeof(string) || !method.get_IsStatic() || method.get_ReturnType() != typeof(string) {
+        if method == null || method.DeclaringType != typeof(string) || !method.IsStatic || method.ReturnType != typeof(string) {
             throw new InvalidOperationException("Required CLR method String.Concat(String,String) was not found exactly.")
         }
         parameters := method.GetParameters()
-        if parameters.Length != 2 || parameters[0].get_ParameterType() != typeof(string) || parameters[1].get_ParameterType() != typeof(string) {
+        if parameters.Length != 2 || parameters[0].ParameterType != typeof(string) || parameters[1].ParameterType != typeof(string) {
             throw new InvalidOperationException("String.Concat(String,String) has an unexpected runtime signature.")
         }
         return method
@@ -739,11 +739,11 @@ class ColumnarPrimitiveBinaryPlanner {
         parameterTypes[0] = typeof(string)
         parameterTypes[1] = typeof(string)
         method := typeof(string).GetMethod("op_Equality", parameterTypes)
-        if method == null || method.get_DeclaringType() != typeof(string) || !method.get_IsStatic() || method.get_ReturnType() != typeof(bool) {
+        if method == null || method.DeclaringType != typeof(string) || !method.IsStatic || method.ReturnType != typeof(bool) {
             throw new InvalidOperationException("Required CLR method String.op_Equality(String,String) was not found exactly.")
         }
         parameters := method.GetParameters()
-        if parameters.Length != 2 || parameters[0].get_ParameterType() != typeof(string) || parameters[1].get_ParameterType() != typeof(string) {
+        if parameters.Length != 2 || parameters[0].ParameterType != typeof(string) || parameters[1].ParameterType != typeof(string) {
             throw new InvalidOperationException("String.op_Equality(String,String) has an unexpected runtime signature.")
         }
         return method
@@ -751,11 +751,11 @@ class ColumnarPrimitiveBinaryPlanner {
 
     static func RequiredDecimalOperator(name: string, expectedReturn: Type, parameterTypes: Type[]): MethodInfo {
         method := typeof(decimal).GetMethod(name, parameterTypes)
-        if method == null || method.get_DeclaringType() != typeof(decimal) || !method.get_IsStatic() || method.get_IsGenericMethod() || method.get_ReturnType() != expectedReturn {
+        if method == null || method.DeclaringType != typeof(decimal) || !method.IsStatic || method.IsGenericMethod || method.ReturnType != expectedReturn {
             throw new InvalidOperationException("Required CLR decimal operator " + name + " was not found exactly.")
         }
         parameters := method.GetParameters()
-        if parameters.Length != 2 || parameters[0].get_ParameterType() != typeof(decimal) || parameters[1].get_ParameterType() != typeof(decimal) {
+        if parameters.Length != 2 || parameters[0].ParameterType != typeof(decimal) || parameters[1].ParameterType != typeof(decimal) {
             throw new InvalidOperationException("Decimal operator " + name + " has an unexpected runtime signature.")
         }
         return method

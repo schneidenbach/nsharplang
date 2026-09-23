@@ -56,7 +56,7 @@ class ColumnarMethodImplAttributes {
     static func IsMethodImplAttribute(attribute: ColumnarSourceAttributeInput, resolution: ColumnarSemanticTypeResolution): bool {
         for candidate in AnalyzerAttributeValidator.GetClrAttributeNameCandidates(attribute.Name) {
             resolved: Type = null
-            if ColumnarCanonicalTypeResolver.TryResolveType(candidate, resolution.Enums, resolution.Structs, resolution.Unions, out resolved) && resolved != null && string.Equals(resolved.get_FullName(), AttributeFullName(), StringComparison.Ordinal) {
+            if ColumnarCanonicalTypeResolver.TryResolveType(candidate, resolution.Enums, resolution.Structs, resolution.Unions, out resolved) && resolved != null && string.Equals(resolved.FullName, AttributeFullName(), StringComparison.Ordinal) {
                 return true
             }
         }
@@ -224,7 +224,7 @@ class ColumnarMethodImplAttributes {
         }
 
         member := enumType.GetField(memberName, BindingFlags.Public | BindingFlags.Static)
-        if member == null || !member.get_IsLiteral() {
+        if member == null || !member.IsLiteral {
             return false
         }
 
@@ -242,7 +242,7 @@ class ColumnarMethodImplAttributes {
             return false
         }
 
-        if !string.Equals(resolved.get_FullName(), enumFullName, StringComparison.Ordinal) {
+        if !string.Equals(resolved.FullName, enumFullName, StringComparison.Ordinal) {
             return false
         }
 

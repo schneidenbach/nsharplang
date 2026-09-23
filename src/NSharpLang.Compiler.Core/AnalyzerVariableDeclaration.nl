@@ -758,16 +758,16 @@ class AnalyzerVariableDeclaration {
             valueTupleType = underlying
         }
 
-        if !valueTupleType.get_IsValueType() {
+        if !valueTupleType.IsValueType {
             return null
         }
 
-        if !valueTupleType.get_IsGenericType() {
+        if !valueTupleType.IsGenericType {
             return null
         }
 
         definition := valueTupleType.GetGenericTypeDefinition()
-        definitionName := definition.get_FullName()
+        definitionName := definition.FullName
         if definitionName == null {
             return null
         }
@@ -782,7 +782,7 @@ class AnalyzerVariableDeclaration {
         while searching {
             field := valueTupleType.GetField("Item" + index.ToString())
             if field != null {
-                elements.Add(AnalyzerReflectionTypeConversion.ConvertReflectionType(field.get_FieldType()))
+                elements.Add(AnalyzerReflectionTypeConversion.ConvertReflectionType(field.FieldType))
                 index = index + 1
             } else {
                 searching = false
@@ -854,7 +854,7 @@ class AnalyzerVariableDeclaration {
         selected: MethodInfo? = null
         candidates := definitionType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
         for candidate in candidates {
-            if candidate.get_Name() == "Deconstruct" && DeconstructOutParameterCount(candidate) == targetCount {
+            if candidate.Name == "Deconstruct" && DeconstructOutParameterCount(candidate) == targetCount {
                 if selected != null {
                     return null
                 }
@@ -870,13 +870,13 @@ class AnalyzerVariableDeclaration {
         parameters := selected.GetParameters()
         elements := new List<TypeInfo>()
         for parameter in parameters {
-            elementType := parameter.get_ParameterType().GetElementType()
+            elementType := parameter.ParameterType.GetElementType()
             if elementType == null {
                 return null
             }
 
-            if elementType.get_IsGenericParameter() {
-                position := elementType.get_GenericParameterPosition()
+            if elementType.IsGenericParameter {
+                position := elementType.GenericParameterPosition
                 if arguments == null || position < 0 || position >= arguments.Count {
                     return null
                 }
@@ -954,7 +954,7 @@ class AnalyzerVariableDeclaration {
     // The out-parameter count of a `Deconstruct` candidate, or -1 when it is not one: the method must
     // return void and EVERY parameter must be `out`.
     static func DeconstructOutParameterCount(candidate: MethodInfo): int {
-        if candidate.get_IsStatic() || !ColumnarVoidReturnName(candidate) {
+        if candidate.IsStatic || !ColumnarVoidReturnName(candidate) {
             return -1
         }
 
@@ -964,7 +964,7 @@ class AnalyzerVariableDeclaration {
         }
 
         for parameter in parameters {
-            if !parameter.get_IsOut() || !parameter.get_ParameterType().get_IsByRef() {
+            if !parameter.IsOut || !parameter.ParameterType.IsByRef {
                 return -1
             }
         }
@@ -975,7 +975,7 @@ class AnalyzerVariableDeclaration {
     // `void` by NAME, because the reflected `System.Void` a MetadataLoadContext answers with is not
     // reference-equal to the runtime one this compiler runs on.
     static func ColumnarVoidReturnName(candidate: MethodInfo): bool {
-        returnType := candidate.get_ReturnType()
+        returnType := candidate.ReturnType
         if returnType == null {
             return false
         }

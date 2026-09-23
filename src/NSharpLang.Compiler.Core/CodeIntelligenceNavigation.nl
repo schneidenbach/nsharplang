@@ -560,7 +560,7 @@ class CodeIntelligenceNavigation {
         single := recordedType as ReflectionMethodInfo
         if single != null {
             method := single.Method
-            return new ReflectedMemberHandle(null, null, method, method.get_Name(), CodeIntelligenceTypeResolution.DeclaringTypeText(method.get_DeclaringType()), null, 1)
+            return new ReflectedMemberHandle(null, null, method, method.Name, CodeIntelligenceTypeResolution.DeclaringTypeText(method.DeclaringType), null, 1)
         }
 
         group := recordedType as ReflectionMethodGroupInfo
@@ -568,7 +568,7 @@ class CodeIntelligenceNavigation {
             methods := group.Methods
             if methods.Length > 0 {
                 chosen := CodeIntelligenceTypeResolution.ChooseReflectedOverload(methods, argumentTypes)
-                return new ReflectedMemberHandle(null, null, chosen, chosen.get_Name(), CodeIntelligenceTypeResolution.DeclaringTypeText(chosen.get_DeclaringType()), null, CodeIntelligenceTypeResolution.VisibleOverloadCount(chosen, methods.Length, argumentTypes))
+                return new ReflectedMemberHandle(null, null, chosen, chosen.Name, CodeIntelligenceTypeResolution.DeclaringTypeText(chosen.DeclaringType), null, CodeIntelligenceTypeResolution.VisibleOverloadCount(chosen, methods.Length, argumentTypes))
             }
         }
 

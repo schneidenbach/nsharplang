@@ -85,7 +85,7 @@ class ForeachElementConversionFacts {
 
         reflection := candidate as ReflectionTypeInfo
         if reflection != null {
-            if reflection.Type.get_IsEnum() {
+            if reflection.Type.IsEnum {
                 return true
             }
 
@@ -108,7 +108,7 @@ class ForeachElementConversionFacts {
 
         reflection := candidate as ReflectionTypeInfo
         if reflection != null {
-            return reflection.Type.get_IsInterface()
+            return reflection.Type.IsInterface
         }
 
         generic := candidate as GenericTypeInfo

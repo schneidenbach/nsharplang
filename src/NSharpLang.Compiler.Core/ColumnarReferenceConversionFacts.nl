@@ -22,7 +22,7 @@ class ColumnarReferenceConversionFacts {
     // assignment inside a generic body. The safe predicate answers the same question (a type parameter
     // is not an array) without the throw.
     static func TryEmitReferenceConversion(sourceType: Type, targetType: Type): bool {
-        if sourceType == ColumnarTypeOfPlanner.RequiredVoidType() || sourceType.get_IsValueType() || targetType.get_IsValueType() {
+        if sourceType == ColumnarTypeOfPlanner.RequiredVoidType() || sourceType.IsValueType || targetType.IsValueType {
             return false
         }
         try {
@@ -48,14 +48,14 @@ class ColumnarReferenceConversionFacts {
             return true
         }
 
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) && targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) && targetType.IsGenericType && !targetType.IsGenericTypeDefinition {
             targetDefinition := targetType.GetGenericTypeDefinition()
             if (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()) && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceType.GetElementType(), targetType.GetGenericArguments()[0]) {
                 return true
             }
         }
 
-        if sourceType.get_IsGenericType() && !sourceType.get_IsGenericTypeDefinition() && targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() {
+        if sourceType.IsGenericType && !sourceType.IsGenericTypeDefinition && targetType.IsGenericType && !targetType.IsGenericTypeDefinition {
             sourceDefinition := sourceType.GetGenericTypeDefinition()
             targetDefinition := targetType.GetGenericTypeDefinition()
             sourceArguments := sourceType.GetGenericArguments()
@@ -148,7 +148,7 @@ class ColumnarReferenceConversionFacts {
         // declaration's own `IEquatable<Outcome<TOk, TErr>>` into `IEquatable<Outcome<int, string>>`.
         closedArguments := System.Array.Empty<Type>()
         if sourceBuilder == null {
-            if !sourceType.get_IsGenericType() || sourceType.get_IsGenericTypeDefinition() {
+            if !sourceType.IsGenericType || sourceType.IsGenericTypeDefinition {
                 return false
             }
             sourceBuilder = sourceType.GetGenericTypeDefinition() as TypeBuilder
@@ -183,7 +183,7 @@ class ColumnarReferenceConversionFacts {
         if sourceDefinition == null {
             return false
         }
-        if sourceDefinition.Builder.get_IsValueType() == sourceDefinition.IsReference {
+        if sourceDefinition.Builder.IsValueType == sourceDefinition.IsReference {
             throw new InvalidOperationException("Source interface conversion shape facts do not match their builders.")
         }
 
@@ -195,12 +195,12 @@ class ColumnarReferenceConversionFacts {
             if targetDefinition == null || !targetDefinition.IsInterface {
                 return false
             }
-            if targetDefinition.Builder.get_IsInterface() != targetDefinition.IsInterface {
+            if targetDefinition.Builder.IsInterface != targetDefinition.IsInterface {
                 throw new InvalidOperationException("Source interface conversion shape facts do not match their builders.")
             }
             matched = SourceDefinitionImplementsInterface(sourceDefinition, targetDefinition, new HashSet<object>())
         } else {
-            if targetType.get_IsByRef() || targetType.get_IsPointer() || targetType.get_IsGenericParameter() || !targetType.get_IsInterface() || IsDynamicDeclarationType(targetType) {
+            if targetType.IsByRef || targetType.IsPointer || targetType.IsGenericParameter || !targetType.IsInterface || IsDynamicDeclarationType(targetType) {
                 return false
             }
             if closedArguments.Length > 0 {
@@ -232,12 +232,12 @@ class ColumnarReferenceConversionFacts {
         if source == null || target == null || closedArguments == null || source.ExternalInterfaces == null {
             throw new InvalidOperationException("Constructed source external-interface facts cannot be null.")
         }
-        if !target.get_IsInterface() {
+        if !target.IsInterface {
             throw new InvalidOperationException("A source external-interface conversion target must be an interface.")
         }
 
         for externalInterface in source.ExternalInterfaces {
-            if externalInterface == null || !externalInterface.get_IsInterface() {
+            if externalInterface == null || !externalInterface.IsInterface {
                 throw new InvalidOperationException("Source external-interface facts must identify exact interfaces.")
             }
             substituted := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(
@@ -316,7 +316,7 @@ class ColumnarReferenceConversionFacts {
         if source == null || target == null || active == null || source.Builder == null || source.InterfaceBases == null || source.ImplementedInterfaces == null || source.ExternalInterfaces == null {
             throw new InvalidOperationException("Source external-interface facts cannot be null.")
         }
-        if !target.get_IsInterface() {
+        if !target.IsInterface {
             throw new InvalidOperationException("A source external-interface conversion target must be an interface.")
         }
         if !active.Add(source) {
@@ -324,7 +324,7 @@ class ColumnarReferenceConversionFacts {
         }
 
         for externalInterface in source.ExternalInterfaces {
-            if externalInterface == null || !externalInterface.get_IsInterface() {
+            if externalInterface == null || !externalInterface.IsInterface {
                 throw new InvalidOperationException("Source external-interface facts must identify exact interfaces.")
             }
             if RuntimeInterfaceEqualsOrExtends(externalInterface, target) {
@@ -436,7 +436,7 @@ class ColumnarReferenceConversionFacts {
             return true
         }
 
-        if targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
+        if targetType.IsGenericType && !targetType.IsGenericTypeDefinition && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
             sourceElement := sourceType.GetElementType()
             targetArguments := targetType.GetGenericArguments()
             if sourceElement == null || targetArguments.Length != 1 || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(sourceElement, targetArguments[0]) {
@@ -447,7 +447,7 @@ class ColumnarReferenceConversionFacts {
             return targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()
         }
 
-        if !sourceType.get_IsGenericType() || sourceType.get_IsGenericTypeDefinition() || !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() {
+        if !sourceType.IsGenericType || sourceType.IsGenericTypeDefinition || !targetType.IsGenericType || targetType.IsGenericTypeDefinition {
             return false
         }
 
@@ -518,7 +518,7 @@ class ColumnarReferenceConversionFacts {
     }
 
     static func IsReadOnlyDictionaryEnumerableShell(sourceDefinition: Type, targetDefinition: Type, targetElement: Type): bool {
-        return sourceDefinition == ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition() && targetElement.get_IsGenericType() && !targetElement.get_IsGenericTypeDefinition() && targetElement.GetGenericTypeDefinition() == typeof(KeyValuePair<int, int>).GetGenericTypeDefinition()
+        return sourceDefinition == ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition() && targetElement.IsGenericType && !targetElement.IsGenericTypeDefinition && targetElement.GetGenericTypeDefinition() == typeof(KeyValuePair<int, int>).GetGenericTypeDefinition()
     }
 
     // ReferenceEqualityComparer implements IEqualityComparer<object>. The interface is contravariant,
@@ -538,21 +538,21 @@ class ColumnarReferenceConversionFacts {
     // those substituted before it could be compared, which this deliberately does not do: it declines
     // rather than guess.
     static func IsConstructedSourceBaseUpcast(sourceType: Type, targetType: Type): bool {
-        if !sourceType.get_IsGenericType() || sourceType.get_IsGenericTypeDefinition() || targetType.get_ContainsGenericParameters() {
+        if !sourceType.IsGenericType || sourceType.IsGenericTypeDefinition || targetType.ContainsGenericParameters {
             return false
         }
 
         try {
-            current := sourceType.GetGenericTypeDefinition().get_BaseType()
+            current := sourceType.GetGenericTypeDefinition().BaseType
             depth := 0
             while current != null && depth < 32 {
-                if current.get_ContainsGenericParameters() {
+                if current.ContainsGenericParameters {
                     return false
                 }
                 if ColumnarTypeEquivalenceFacts.TypesEquivalent(current, targetType) {
                     return true
                 }
-                current = current.get_BaseType()
+                current = current.BaseType
                 depth = depth + 1
             }
         } catch ex: NotSupportedException {
@@ -562,7 +562,7 @@ class ColumnarReferenceConversionFacts {
     }
 
     static func IsExactReferenceEqualityComparerUpcast(sourceType: Type, targetType: Type): bool {
-        if !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() || targetType.GetGenericTypeDefinition() != typeof(IEqualityComparer<int>).GetGenericTypeDefinition() {
+        if !targetType.IsGenericType || targetType.IsGenericTypeDefinition || targetType.GetGenericTypeDefinition() != typeof(IEqualityComparer<int>).GetGenericTypeDefinition() {
             return false
         }
         arguments := targetType.GetGenericArguments()
@@ -570,7 +570,7 @@ class ColumnarReferenceConversionFacts {
             return false
         }
         argument := arguments[0]
-        if !(argument is TypeBuilder) || argument.get_IsGenericTypeDefinition() || argument.get_IsValueType() || argument.get_IsInterface() {
+        if !(argument is TypeBuilder) || argument.IsGenericTypeDefinition || argument.IsValueType || argument.IsInterface {
             return false
         }
 
@@ -578,7 +578,7 @@ class ColumnarReferenceConversionFacts {
         if runtimeComparer == null {
             throw new InvalidOperationException("System.Collections.Generic.ReferenceEqualityComparer was not found.")
         }
-        comparerIdentity := runtimeComparer.get_AssemblyQualifiedName()
+        comparerIdentity := runtimeComparer.AssemblyQualifiedName
         return comparerIdentity != null && ExternalAssemblyScan.HasExactTypeIdentity(sourceType, comparerIdentity)
     }
 
@@ -587,7 +587,7 @@ class ColumnarReferenceConversionFacts {
     // so follow only that exact dynamic declaration chain. Ordinary CLR types remain with the
     // runtime assignability fallback, and every generic shell/argument must match exactly.
     static func IsExactDynamicBaseUpcast(sourceType: Type, targetType: Type): bool {
-        if !IsDynamicDeclarationType(sourceType) || sourceType.get_IsValueType() || targetType.get_IsValueType() || sourceType.get_IsGenericParameter() || targetType.get_IsGenericParameter() {
+        if !IsDynamicDeclarationType(sourceType) || sourceType.IsValueType || targetType.IsValueType || sourceType.IsGenericParameter || targetType.IsGenericParameter {
             return false
         }
 
@@ -597,7 +597,7 @@ class ColumnarReferenceConversionFacts {
             candidate := current
             baseType: Type? = null
             try {
-                baseType = candidate.get_BaseType()
+                baseType = candidate.BaseType
             } catch ex: NotSupportedException {
                 return false
             } catch ex: NotImplementedException {
@@ -632,7 +632,7 @@ class ColumnarReferenceConversionFacts {
     // `exact` selects the identity predicate the caller owns: emission accepts the builder-aware
     // equivalence, and the sealed-plan validator insists on structural identity.
     static func IsExternalConstructionUpcast(sourceType: Type, targetType: Type, exact: bool): bool {
-        if sourceType == null || targetType == null || !sourceType.get_IsGenericType() || sourceType.get_IsGenericTypeDefinition() {
+        if sourceType == null || targetType == null || !sourceType.IsGenericType || sourceType.IsGenericTypeDefinition {
             return false
         }
 
@@ -646,12 +646,12 @@ class ColumnarReferenceConversionFacts {
             return false
         }
 
-        baseCandidate := definition.get_BaseType()
+        baseCandidate := definition.BaseType
         while baseCandidate != null {
             if UpcastReaches(baseCandidate, arguments, targetType, exact) {
                 return true
             }
-            baseCandidate = baseCandidate.get_BaseType()
+            baseCandidate = baseCandidate.BaseType
         }
 
         for implemented in definition.GetInterfaces() {
@@ -697,7 +697,7 @@ class ColumnarReferenceConversionFacts {
             return false
         }
 
-        if !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() {
+        if !targetType.IsGenericType || targetType.IsGenericTypeDefinition {
             return false
         }
 
@@ -706,7 +706,7 @@ class ColumnarReferenceConversionFacts {
             return false
         }
 
-        variance := parameters[position].get_GenericParameterAttributes() & GenericParameterAttributes.VarianceMask
+        variance := parameters[position].GenericParameterAttributes & GenericParameterAttributes.VarianceMask
         if variance != GenericParameterAttributes.Covariant {
             return false
         }
@@ -718,15 +718,15 @@ class ColumnarReferenceConversionFacts {
     // constructed type a different type with no conversion at all, and a bare type parameter is not
     // a known reference type, so both are refused.
     static func IsVarianceCompatibleReferenceArgument(sourceArgument: Type, targetArgument: Type): bool {
-        if sourceArgument.get_IsValueType() || targetArgument.get_IsValueType() {
+        if sourceArgument.IsValueType || targetArgument.IsValueType {
             return false
         }
 
-        if sourceArgument.get_IsGenericParameter() || targetArgument.get_IsGenericParameter() {
+        if sourceArgument.IsGenericParameter || targetArgument.IsGenericParameter {
             return false
         }
 
-        if sourceArgument.get_IsPointer() || targetArgument.get_IsPointer() || sourceArgument.get_IsByRef() || targetArgument.get_IsByRef() {
+        if sourceArgument.IsPointer || targetArgument.IsPointer || sourceArgument.IsByRef || targetArgument.IsByRef {
             return false
         }
 
@@ -753,6 +753,6 @@ class ColumnarReferenceConversionFacts {
         if valueType is TypeBuilder {
             return true
         }
-        return valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && valueType.GetGenericTypeDefinition() is TypeBuilder
+        return valueType.IsGenericType && !valueType.IsGenericTypeDefinition && valueType.GetGenericTypeDefinition() is TypeBuilder
     }
 }

@@ -41,7 +41,7 @@ class ColumnarBaseMethodSignatureMatch {
         matched := false
         reflectedParameters := target.GetParameters()
         if reflectedParameters != null && reflectedParameters.Length == parameterTypes.Length {
-            effectiveReturn = target.get_ReturnType()
+            effectiveReturn = target.ReturnType
             matched = ColumnarBaseMethodMatch.SameTypeIdentity(effectiveReturn, returnType)
             if matched {
                 index := 0
@@ -51,7 +51,7 @@ class ColumnarBaseMethodSignatureMatch {
                         matched = false
                         break
                     }
-                    effectiveParameter := parameter.get_ParameterType()
+                    effectiveParameter := parameter.ParameterType
                     if !ColumnarBaseMethodMatch.SameTypeIdentity(effectiveParameter, parameterTypes[index]) {
                         matched = false
                         break
@@ -174,7 +174,7 @@ class ColumnarBaseMethodMatch {
 
     static func BaseTypeOrNull(owner: Type): Type? {
         try {
-            return owner.get_BaseType()
+            return owner.BaseType
         } catch {
             return null
         }
@@ -190,13 +190,13 @@ class ColumnarBaseMethodMatch {
     // `protected` and `protected internal` yes, the three assembly-bound levels no, because the base
     // is in a REFERENCED assembly and N# models no `InternalsVisibleTo`.
     static func IsOverridableTarget(candidate: MethodInfo, name: string): bool {
-        if candidate == null || candidate.get_Name() != name {
+        if candidate == null || candidate.Name != name {
             return false
         }
-        if candidate.get_IsStatic() || !candidate.get_IsVirtual() || candidate.get_IsFinal() {
+        if candidate.IsStatic || !candidate.IsVirtual || candidate.IsFinal {
             return false
         }
-        if candidate.get_IsGenericMethod() || candidate.get_IsGenericMethodDefinition() {
+        if candidate.IsGenericMethod || candidate.IsGenericMethodDefinition {
             return false
         }
         return MemberAccessibility.IsAccessible(MemberAccessibility.LevelOfMethod(candidate), false, true, true, false)
@@ -209,7 +209,7 @@ class ColumnarBaseMethodMatch {
             return -1
         }
 
-        return (int)target.get_Attributes() & 7
+        return (int)target.Attributes & 7
     }
 
     static func SameTypeIdentity(left: Type, right: Type): bool {
@@ -219,8 +219,8 @@ class ColumnarBaseMethodMatch {
         if Object.ReferenceEquals(left, right) {
             return true
         }
-        leftName := left.get_AssemblyQualifiedName()
-        rightName := right.get_AssemblyQualifiedName()
+        leftName := left.AssemblyQualifiedName
+        rightName := right.AssemblyQualifiedName
         return leftName != null && rightName != null && leftName == rightName
     }
 }
@@ -305,10 +305,10 @@ class ColumnarSourceBaseMethodMatch {
             return false
         }
         builder := candidate.Builder
-        if builder.get_IsStatic() || !builder.get_IsVirtual() || builder.get_IsFinal() {
+        if builder.IsStatic || !builder.IsVirtual || builder.IsFinal {
             return false
         }
-        return !builder.get_IsGenericMethod() && !builder.get_IsGenericMethodDefinition()
+        return !builder.IsGenericMethod && !builder.IsGenericMethodDefinition
     }
 
     static func SameSignature(candidate: ColumnarInstanceMethodDef, returnType: Type, parameterTypes: Type[]): bool {
@@ -343,14 +343,14 @@ class ColumnarSourceBaseMethodMatch {
     }
 
     static func IsBuilderBound(candidate: Type): bool {
-        if candidate is TypeBuilder || candidate.get_IsGenericParameter() {
+        if candidate is TypeBuilder || candidate.IsGenericParameter {
             return true
         }
-        if candidate.get_HasElementType() {
+        if candidate.HasElementType {
             element := candidate.GetElementType()
             return element != null && IsBuilderBound(element)
         }
-        if !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
+        if !candidate.IsGenericType || candidate.IsGenericTypeDefinition {
             return false
         }
         arguments := candidate.GetGenericArguments()

@@ -122,7 +122,7 @@ class DocQuery {
         seeds := new Assembly[](identities.Length)
         index := 0
         while index < identities.Length {
-            seeds[index] = RequiredSeedType(identities[index]).get_Assembly()
+            seeds[index] = RequiredSeedType(identities[index]).Assembly
             index = index + 1
         }
 
@@ -210,7 +210,7 @@ class DocQuery {
         members := GetTypeMembers(reflectionType)
         baseTypes := DocQueryReflectionFacts.GetBaseTypes(reflectionType)
 
-        return DocQueryKernels.CreateTypeDocResult(DocQueryKernels.StripGenericArity(reflectionType.get_Name()), DocQueryReflectionFacts.FormatQualifiedType(reflectionType), DocQueryReflectionFacts.GetTypeKind(reflectionType), summary, reflectionType.get_Namespace(), members, baseTypes)
+        return DocQueryKernels.CreateTypeDocResult(DocQueryKernels.StripGenericArity(reflectionType.Name), DocQueryReflectionFacts.FormatQualifiedType(reflectionType), DocQueryReflectionFacts.GetTypeKind(reflectionType), summary, reflectionType.Namespace, members, baseTypes)
     }
 
     // THE MEMBER KINDS IN THE ORDER A READER MEANS THEM. A nested TYPE wins over everything, then
@@ -236,17 +236,17 @@ class DocQuery {
         instanceFlags := BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.IgnoreCase
         property := reflectionType.GetProperty(memberName, instanceFlags)
         if property != null {
-            return DocQueryKernels.CreateValueDocResult(property.get_Name(), DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(reflectionType), property.get_Name()), "property", GetPropertySummary(property), reflectionType.get_Namespace(), DocQueryReflectionFacts.FormatType(property.get_PropertyType()))
+            return DocQueryKernels.CreateValueDocResult(property.Name, DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(reflectionType), property.Name), "property", GetPropertySummary(property), reflectionType.Namespace, DocQueryReflectionFacts.FormatType(property.PropertyType))
         }
 
         field := reflectionType.GetField(memberName, instanceFlags)
         if field != null {
-            return DocQueryKernels.CreateValueDocResult(field.get_Name(), DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(reflectionType), field.get_Name()), "field", GetFieldSummary(field), reflectionType.get_Namespace(), DocQueryReflectionFacts.FormatType(field.get_FieldType()))
+            return DocQueryKernels.CreateValueDocResult(field.Name, DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(reflectionType), field.Name), "field", GetFieldSummary(field), reflectionType.Namespace, DocQueryReflectionFacts.FormatType(field.FieldType))
         }
 
         eventMember := reflectionType.GetEvent(memberName, instanceFlags)
         if eventMember != null {
-            return DocQueryKernels.CreateValueDocResult(eventMember.get_Name(), DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(reflectionType), eventMember.get_Name()), "event", GetEventSummary(eventMember), reflectionType.get_Namespace(), EventHandlerTypeName(eventMember))
+            return DocQueryKernels.CreateValueDocResult(eventMember.Name, DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(reflectionType), eventMember.Name), "event", GetEventSummary(eventMember), reflectionType.Namespace, EventHandlerTypeName(eventMember))
         }
 
         return null
@@ -255,7 +255,7 @@ class DocQuery {
     // An event with no handler type has no type to print. The C# spelled this as a conditional in
     // the argument list; naming it keeps the two event sites reading the same way.
     static func EventHandlerTypeName(eventMember: EventInfo): string? {
-        handlerType := eventMember.get_EventHandlerType()
+        handlerType := eventMember.EventHandlerType
         if handlerType != null {
             return DocQueryReflectionFacts.FormatType(handlerType)
         }
@@ -265,7 +265,7 @@ class DocQuery {
 
     static func FindNestedType(reflectionType: Type, memberName: string): Type? {
         for candidate in reflectionType.GetNestedTypes(BindingFlags.Public) {
-            if DocQueryKernels.IsDocMemberNameMatch(candidate.get_Name(), memberName) {
+            if DocQueryKernels.IsDocMemberNameMatch(candidate.Name, memberName) {
                 return candidate
             }
         }
@@ -280,7 +280,7 @@ class DocQuery {
     static func FindConstructors(reflectionType: Type, memberName: string): ConstructorInfo[] {
         flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
         candidates := reflectionType.GetConstructors(flags)
-        if !DocQueryKernels.IsConstructorMemberMatch(memberName, reflectionType.get_Name()) {
+        if !DocQueryKernels.IsConstructorMemberMatch(memberName, reflectionType.Name) {
             return new ConstructorInfo[](0)
         }
 
@@ -291,7 +291,7 @@ class DocQuery {
         flags := BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance
         matches := new List<MethodInfo>()
         for candidate in reflectionType.GetMethods(flags) {
-            if DocQueryKernels.IsMethodMemberMatch(candidate.get_Name(), memberName, candidate.get_IsSpecialName()) {
+            if DocQueryKernels.IsMethodMemberMatch(candidate.Name, memberName, candidate.IsSpecialName) {
                 matches.Add(candidate)
             }
         }
@@ -318,7 +318,7 @@ class DocQuery {
         }
 
         first := constructors[0]
-        return DocQueryKernels.CreateCallableDocResult(DocQueryKernels.StripGenericArity(reflectionType.get_Name()), DocQueryReflectionFacts.FormatQualifiedType(reflectionType), DocQueryKernels.GetOverloadKindText("constructor", constructors.Length), GetMethodSummary(first), reflectionType.get_Namespace(), overloads, DescribeParameters(first), null, null)
+        return DocQueryKernels.CreateCallableDocResult(DocQueryKernels.StripGenericArity(reflectionType.Name), DocQueryReflectionFacts.FormatQualifiedType(reflectionType), DocQueryKernels.GetOverloadKindText("constructor", constructors.Length), GetMethodSummary(first), reflectionType.Namespace, overloads, DescribeParameters(first), null, null)
     }
 
     func DescribeMethods(reflectionType: Type, memberName: string, methods: MethodInfo[]): DocResult {
@@ -326,12 +326,12 @@ class DocQuery {
         index := 0
         while index < methods.Length {
             method := methods[index]
-            overloads[index] = DocQueryKernels.CreateDocMemberResult(DocQueryReflectionFacts.FormatMethodSignature(method), "method", DocQueryReflectionFacts.FormatType(method.get_ReturnType()), GetMethodSummary(method), DocQueryReflectionFacts.FormatParameters(method))
+            overloads[index] = DocQueryKernels.CreateDocMemberResult(DocQueryReflectionFacts.FormatMethodSignature(method), "method", DocQueryReflectionFacts.FormatType(method.ReturnType), GetMethodSummary(method), DocQueryReflectionFacts.FormatParameters(method))
             index = index + 1
         }
 
         first := methods[0]
-        return DocQueryKernels.CreateCallableDocResult(memberName, DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(reflectionType), memberName), DocQueryKernels.GetOverloadKindText("method", methods.Length), GetMethodSummary(first), reflectionType.get_Namespace(), overloads, DescribeParameters(first), DocQueryReflectionFacts.FormatType(first.get_ReturnType()), GetReturnsSummary(first))
+        return DocQueryKernels.CreateCallableDocResult(memberName, DocQueryKernels.FormatMemberFullName(DocQueryReflectionFacts.FormatQualifiedType(reflectionType), memberName), DocQueryKernels.GetOverloadKindText("method", methods.Length), GetMethodSummary(first), reflectionType.Namespace, overloads, DescribeParameters(first), DocQueryReflectionFacts.FormatType(first.ReturnType), GetReturnsSummary(first))
     }
 
     // THE HEADLINE OVERLOAD'S PARAMETERS, each with its own `<param>` text. Shared by the
@@ -342,7 +342,7 @@ class DocQuery {
         index := 0
         while index < parameters.Length {
             parameter := parameters[index]
-            results[index] = DocQueryKernels.CreateDocParameterResult(parameter.get_Name(), DocQueryReflectionFacts.FormatType(parameter.get_ParameterType()), GetParameterSummary(method, parameter.get_Name()))
+            results[index] = DocQueryKernels.CreateDocParameterResult(parameter.Name, DocQueryReflectionFacts.FormatType(parameter.ParameterType), GetParameterSummary(method, parameter.Name))
             index = index + 1
         }
 
@@ -357,7 +357,7 @@ class DocQuery {
         declaredFlags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly
 
         for nestedType in reflectionType.GetNestedTypes(BindingFlags.Public) {
-            results.Add(DocQueryKernels.CreateDocMemberResult(DocQueryKernels.StripGenericArity(nestedType.get_Name()), "nested type", DocQueryReflectionFacts.FormatQualifiedType(nestedType), GetTypeSummary(nestedType), null))
+            results.Add(DocQueryKernels.CreateDocMemberResult(DocQueryKernels.StripGenericArity(nestedType.Name), "nested type", DocQueryReflectionFacts.FormatQualifiedType(nestedType), GetTypeSummary(nestedType), null))
         }
 
         for constructor in reflectionType.GetConstructors(declaredFlags) {
@@ -365,22 +365,22 @@ class DocQuery {
         }
 
         for property in reflectionType.GetProperties(declaredFlags) {
-            results.Add(DocQueryKernels.CreateDocMemberResult(property.get_Name(), "property", DocQueryReflectionFacts.FormatType(property.get_PropertyType()), GetPropertySummary(property), null))
+            results.Add(DocQueryKernels.CreateDocMemberResult(property.Name, "property", DocQueryReflectionFacts.FormatType(property.PropertyType), GetPropertySummary(property), null))
         }
 
         // `get_`/`set_`/`add_`/`remove_` accessors are members of the metadata and not of the API.
         for method in reflectionType.GetMethods(declaredFlags) {
-            if !method.get_IsSpecialName() {
-                results.Add(DocQueryKernels.CreateDocMemberResult(method.get_Name(), "method", DocQueryReflectionFacts.FormatType(method.get_ReturnType()), GetMethodSummary(method), DocQueryReflectionFacts.FormatParameters(method)))
+            if !method.IsSpecialName {
+                results.Add(DocQueryKernels.CreateDocMemberResult(method.Name, "method", DocQueryReflectionFacts.FormatType(method.ReturnType), GetMethodSummary(method), DocQueryReflectionFacts.FormatParameters(method)))
             }
         }
 
         for field in reflectionType.GetFields(declaredFlags) {
-            results.Add(DocQueryKernels.CreateDocMemberResult(field.get_Name(), "field", DocQueryReflectionFacts.FormatType(field.get_FieldType()), GetFieldSummary(field), null))
+            results.Add(DocQueryKernels.CreateDocMemberResult(field.Name, "field", DocQueryReflectionFacts.FormatType(field.FieldType), GetFieldSummary(field), null))
         }
 
         for eventMember in reflectionType.GetEvents(declaredFlags) {
-            results.Add(DocQueryKernels.CreateDocMemberResult(eventMember.get_Name(), "event", EventHandlerTypeName(eventMember), GetEventSummary(eventMember), null))
+            results.Add(DocQueryKernels.CreateDocMemberResult(eventMember.Name, "event", EventHandlerTypeName(eventMember), GetEventSummary(eventMember), null))
         }
 
         return DocQueryKernels.OrderDocMembers(results)
@@ -392,31 +392,31 @@ class DocQuery {
     // ECMA-334 id grammar, and a member is looked up in the documentation of the assembly that
     // DECLARES it — not the one the caller asked through, which for an inherited member differs.
     func GetTypeSummary(reflectionType: Type): string? {
-        return GetDocSummary(reflectionType.get_Assembly(), DocQueryKernels.GetReflectionTypeDocId(reflectionType))
+        return GetDocSummary(reflectionType.Assembly, DocQueryKernels.GetReflectionTypeDocId(reflectionType))
     }
 
     func GetMethodSummary(method: MethodBase): string? {
-        return GetDocSummary(DeclaringAssembly(method.get_DeclaringType()), DocQueryReflectionFacts.GetMethodDocId(method))
+        return GetDocSummary(DeclaringAssembly(method.DeclaringType), DocQueryReflectionFacts.GetMethodDocId(method))
     }
 
     func GetPropertySummary(property: PropertyInfo): string? {
-        declaringType := property.get_DeclaringType()
-        return GetDocSummary(DeclaringAssembly(declaringType), DocQueryKernels.GetDocMemberDocId("P:", DeclaringFullName(declaringType), property.get_Name()))
+        declaringType := property.DeclaringType
+        return GetDocSummary(DeclaringAssembly(declaringType), DocQueryKernels.GetDocMemberDocId("P:", DeclaringFullName(declaringType), property.Name))
     }
 
     func GetFieldSummary(field: FieldInfo): string? {
-        declaringType := field.get_DeclaringType()
-        return GetDocSummary(DeclaringAssembly(declaringType), DocQueryKernels.GetDocMemberDocId("F:", DeclaringFullName(declaringType), field.get_Name()))
+        declaringType := field.DeclaringType
+        return GetDocSummary(DeclaringAssembly(declaringType), DocQueryKernels.GetDocMemberDocId("F:", DeclaringFullName(declaringType), field.Name))
     }
 
     func GetEventSummary(eventMember: EventInfo): string? {
-        declaringType := eventMember.get_DeclaringType()
-        return GetDocSummary(DeclaringAssembly(declaringType), DocQueryKernels.GetDocMemberDocId("E:", DeclaringFullName(declaringType), eventMember.get_Name()))
+        declaringType := eventMember.DeclaringType
+        return GetDocSummary(DeclaringAssembly(declaringType), DocQueryKernels.GetDocMemberDocId("E:", DeclaringFullName(declaringType), eventMember.Name))
     }
 
     static func DeclaringAssembly(declaringType: Type?): Assembly? {
         if declaringType != null {
-            return declaringType.get_Assembly()
+            return declaringType.Assembly
         }
 
         return null
@@ -424,7 +424,7 @@ class DocQuery {
 
     static func DeclaringFullName(declaringType: Type?): string? {
         if declaringType != null {
-            return declaringType.get_FullName()
+            return declaringType.FullName
         }
 
         return null
@@ -434,7 +434,7 @@ class DocQuery {
     // need not match the signature order, and for several BCL members it does not.
     func GetParameterSummary(method: MethodBase, parameterName: string?): string? {
         if parameterName != null {
-            element := GetDocElement(DeclaringAssembly(method.get_DeclaringType()), DocQueryReflectionFacts.GetMethodDocId(method))
+            element := GetDocElement(DeclaringAssembly(method.DeclaringType), DocQueryReflectionFacts.GetMethodDocId(method))
             if element != null {
                 for parameterElement in element.Elements(XName.Get("param")) {
                     nameAttribute := parameterElement.Attribute(XName.Get("name"))
@@ -452,7 +452,7 @@ class DocQuery {
     }
 
     func GetReturnsSummary(method: MethodInfo): string? {
-        element := GetDocElement(DeclaringAssembly(method.get_DeclaringType()), DocQueryReflectionFacts.GetMethodDocId(method))
+        element := GetDocElement(DeclaringAssembly(method.DeclaringType), DocQueryReflectionFacts.GetMethodDocId(method))
         if element != null {
             return FormatDocText(element.Element(XName.Get("returns")))
         }
@@ -502,7 +502,7 @@ class DocQuery {
     // documentation outranks a reference pack's for the same id.
     func GetDocElement(assembly: Assembly?, docId: string): XElement? {
         if assembly != null {
-            assemblyName := assembly.GetName().get_Name()
+            assemblyName := assembly.GetName().Name
             if assemblyName != null {
                 if !docIndexes.ContainsKey(assemblyName) {
                     LoadXmlDoc(assembly)
@@ -532,7 +532,7 @@ class DocQuery {
     // THE EMPTY INDEX IS INSERTED BEFORE THE FILE IS SOUGHT. That is what turns "this assembly has
     // no documentation" into a question asked once instead of on every member of every answer.
     func LoadXmlDoc(assembly: Assembly) {
-        assemblyName := assembly.GetName().get_Name()
+        assemblyName := assembly.GetName().Name
         if assemblyName != null {
             if !docIndexes.ContainsKey(assemblyName) {
                 index := new Dictionary<string, XElement>()

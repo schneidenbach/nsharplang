@@ -614,7 +614,7 @@ class AnalyzerLambdaAnalysis {
     static func AsyncTaskFamilyDefinition(signatureReturn: TypeInfo): Type? {
         reflection := signatureReturn as ReflectionTypeInfo
         if reflection != null {
-            if !reflection.Type.get_IsGenericType() {
+            if !reflection.Type.IsGenericType {
                 return null
             }
 
@@ -631,7 +631,7 @@ class AnalyzerLambdaAnalysis {
             return null
         }
 
-        if !definition.Type.get_IsGenericTypeDefinition() {
+        if !definition.Type.IsGenericTypeDefinition {
             return null
         }
 
@@ -674,7 +674,7 @@ class AnalyzerLambdaAnalysis {
     // bare `TResult` inside it before this is asked.
     static func DecidedReturnTarget(candidate: TypeInfo?): TypeInfo? {
         reflection := candidate as ReflectionTypeInfo
-        if reflection != null && reflection.Type.get_IsGenericParameter() {
+        if reflection != null && reflection.Type.IsGenericParameter {
             return BuiltInTypes.Unknown
         }
 
@@ -1015,7 +1015,7 @@ class AnalyzerLambdaAnalysis {
             return EmitHandler(state, null, false)
         }
 
-        if !addMethod.get_IsStatic() && HasValueTypeDeclaringType(eventInfo) {
+        if !addMethod.IsStatic && HasValueTypeDeclaringType(eventInfo) {
             span := spans.GetExpressionDiagnosticSpan(target)
             diagnostics.Report(ErrorCode.InvalidEventSubscription, "subscribing to '" + eventInfo.Name + "' isn't supported — it's an instance event on a value type (struct)", span.Line, span.Column, "Events on struct receivers can't be bound safely. Subscribe through a reference-type instance instead.", span.Length)
         }
@@ -1040,7 +1040,7 @@ class AnalyzerLambdaAnalysis {
     // exists to catch a receiver that cannot be bound safely, and a type nothing names is not one.
     static func HasValueTypeDeclaringType(eventInfo: ReflectionEventInfo): bool {
         declaringType := eventInfo.DeclaringType
-        return declaringType != null && declaringType.get_IsValueType()
+        return declaringType != null && declaringType.IsValueType
     }
 
     // THE HANDLER WAS A DELEGATE VALUE AND IT DID NOT FIT. Reported at the HANDLER's own position with

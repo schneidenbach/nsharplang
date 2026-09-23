@@ -47,7 +47,7 @@ static class RuntimeTypeShapeFacts {
                 return true
             }
 
-            candidate = candidate.get_BaseType()
+            candidate = candidate.BaseType
         }
 
         return false
@@ -62,7 +62,7 @@ static class RuntimeTypeShapeFacts {
 
         if valueType is TypeBuilder {
             try {
-                baseType := valueType.get_BaseType()
+                baseType := valueType.BaseType
                 return baseType != null && baseType.FullName == "System.Enum"
             } catch unsupportedBuilderBaseType: NotSupportedException {
                 return false
@@ -72,7 +72,7 @@ static class RuntimeTypeShapeFacts {
         }
 
         try {
-            return valueType.get_IsEnum()
+            return valueType.IsEnum
         } catch unsupportedEnumQuestion: NotSupportedException {
             return false
         } catch unimplementedEnumQuestion: NotImplementedException {
@@ -82,7 +82,7 @@ static class RuntimeTypeShapeFacts {
 
     static func IsByRefLike(valueType: Type): bool {
         try {
-            return valueType.get_IsByRefLike()
+            return valueType.IsByRefLike
         } catch unsupportedByRefLikeQuestion: NotSupportedException {
             return false
         } catch unimplementedByRefLikeQuestion: NotImplementedException {
@@ -97,14 +97,14 @@ static class RuntimeTypeShapeFacts {
             return false
         }
 
-        identity := runtimeType.get_AssemblyQualifiedName()
+        identity := runtimeType.AssemblyQualifiedName
         return identity != null && ExternalAssemblyScan.HasExactTypeIdentity(candidate, identity)
     }
 
     // Does this type reach a type the compilation is still WRITING — directly, through an SZ array's
     // element, through an open generic parameter, or through a generic argument or head?
     static func ContainsBuilderBoundType(valueType: Type): bool {
-        if valueType is TypeBuilder || IsEnumBuilder(valueType) || valueType.get_IsGenericParameter() {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || valueType.IsGenericParameter {
             return true
         }
 
@@ -113,7 +113,7 @@ static class RuntimeTypeShapeFacts {
             return elementType != null && ContainsBuilderBoundType(elementType)
         }
 
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
             return false
         }
 
@@ -134,16 +134,16 @@ static class RuntimeTypeShapeFacts {
     // The same question asked WITHOUT the enum-builder rule and through ANY element type — which is
     // what construction planning and constructed-conversion selection ask, verbatim, today.
     static func ContainsBuilderBoundTypeThroughElements(valueType: Type): bool {
-        if valueType is TypeBuilder || valueType.get_IsGenericParameter() {
+        if valueType is TypeBuilder || valueType.IsGenericParameter {
             return true
         }
 
-        if valueType.get_HasElementType() {
+        if valueType.HasElementType {
             element := valueType.GetElementType()
             return element != null && ContainsBuilderBoundTypeThroughElements(element)
         }
 
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
             return false
         }
 
@@ -179,8 +179,8 @@ static class RuntimeTypeShapeFacts {
             return true
         }
 
-        if matchGenericParameterIdentity && (left.get_IsGenericParameter() || right.get_IsGenericParameter()) {
-            return left.get_IsGenericParameter() && right.get_IsGenericParameter() && ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(left, right)
+        if matchGenericParameterIdentity && (left.IsGenericParameter || right.IsGenericParameter) {
+            return left.IsGenericParameter && right.IsGenericParameter && ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(left, right)
         }
 
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
@@ -193,7 +193,7 @@ static class RuntimeTypeShapeFacts {
             return leftElement != null && rightElement != null && ShapeMatches(leftElement, rightElement, matchGenericParameterIdentity)
         }
 
-        if !left.get_IsGenericType() || !right.get_IsGenericType() || left.get_IsGenericTypeDefinition() || right.get_IsGenericTypeDefinition() || left.GetGenericTypeDefinition() != right.GetGenericTypeDefinition() {
+        if !left.IsGenericType || !right.IsGenericType || left.IsGenericTypeDefinition || right.IsGenericTypeDefinition || left.GetGenericTypeDefinition() != right.GetGenericTypeDefinition() {
             return false
         }
 

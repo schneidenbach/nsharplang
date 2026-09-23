@@ -139,7 +139,7 @@ sealed class CompilationReferenceResolver {
 
     private static func AddImplicitNSharpRuntimeAsset(result: ReferenceResolutionResult): void {
         compilerDirectory := CompilationReferenceResolverKernels.GetCompilerAssemblyDirectory(
-            typeof(ProjectConfig).get_Assembly().get_Location()
+            typeof(ProjectConfig).Assembly.Location
         )
         candidates := CompilationReferenceResolverKernels.GetImplicitNSharpRuntimeAssetCandidates(
             AppContext.BaseDirectory,

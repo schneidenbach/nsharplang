@@ -11,7 +11,7 @@ class ColumnarNullableArgumentLowering {
     static func CanAdoptNull(targetType: Type): bool {
         ValidateType(targetType, "targetType")
         element := typeof(int)
-        return (!targetType.get_IsValueType() && !targetType.get_IsGenericParameter()) || TryGetSupportedNullableElement(targetType, out element)
+        return (!targetType.IsValueType && !targetType.IsGenericParameter) || TryGetSupportedNullableElement(targetType, out element)
     }
 
     static func CanLiftValue(actualType: Type, targetType: Type): bool {
@@ -34,7 +34,7 @@ class ColumnarNullableArgumentLowering {
         ValidateType(targetType, "targetType")
         elementType = typeof(int)
         nullableDefinition := RequiredNullableDefinition()
-        if !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() || targetType.GetGenericTypeDefinition() != nullableDefinition {
+        if !targetType.IsGenericType || targetType.IsGenericTypeDefinition || targetType.GetGenericTypeDefinition() != nullableDefinition {
             return false
         }
 
@@ -193,7 +193,7 @@ class ColumnarNullableArgumentLowering {
         parameters := new Type[](1)
         parameters[0] = conversionSource
         candidate := typeof(decimal).GetMethod("op_Implicit", parameters)
-        if candidate == null || !candidate.get_IsStatic() || candidate.get_IsGenericMethod() || candidate.get_ReturnType() != typeof(decimal) {
+        if candidate == null || !candidate.IsStatic || candidate.IsGenericMethod || candidate.ReturnType != typeof(decimal) {
             return false
         }
 

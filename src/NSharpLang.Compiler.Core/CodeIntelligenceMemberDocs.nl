@@ -48,12 +48,12 @@ class CodeIntelligenceMemberDocs {
     static func DocIdForReflectedMember(handle: ReflectedMemberHandle): string? {
         property := handle.Property
         if property != null {
-            return DocQueryKernels.GetDocMemberDocId("P:", DocQuery.DeclaringFullName(property.get_DeclaringType()), property.get_Name())
+            return DocQueryKernels.GetDocMemberDocId("P:", DocQuery.DeclaringFullName(property.DeclaringType), property.Name)
         }
 
         field := handle.Field
         if field != null {
-            return DocQueryKernels.GetDocMemberDocId("F:", DocQuery.DeclaringFullName(field.get_DeclaringType()), field.get_Name())
+            return DocQueryKernels.GetDocMemberDocId("F:", DocQuery.DeclaringFullName(field.DeclaringType), field.Name)
         }
 
         method := handle.Method
@@ -74,7 +74,7 @@ class CodeIntelligenceMemberDocs {
     //
     // THE RUNTIME DIRECTORY IS THE ANSWER AND THE MEMBER'S OWN LOCATION IS THE FALLBACK, which is
     // the ordering task 022 slice 2d arrived at for the metadata path and for the same measured
-    // reason: under a single-file or NativeAOT host `Assembly.get_Location()` is the EMPTY STRING,
+    // reason: under a single-file or NativeAOT host `Assembly.Location` is the EMPTY STRING,
     // and an empty seed silently produces no directories at all. `RuntimeEnvironment` is where the
     // host actually is. The member's assembly is still asked second, because a member that came
     // from somewhere else entirely — a package reference outside the shared framework — knows a
@@ -87,8 +87,8 @@ class CodeIntelligenceMemberDocs {
 
         declaringType := DeclaringTypeOfReflectedMember(handle)
         if declaringType != null {
-            assembly := declaringType.get_Assembly()
-            return assembly.get_Location()
+            assembly := declaringType.Assembly
+            return assembly.Location
         }
 
         return null
@@ -97,17 +97,17 @@ class CodeIntelligenceMemberDocs {
     static func DeclaringTypeOfReflectedMember(handle: ReflectedMemberHandle): Type? {
         property := handle.Property
         if property != null {
-            return property.get_DeclaringType()
+            return property.DeclaringType
         }
 
         field := handle.Field
         if field != null {
-            return field.get_DeclaringType()
+            return field.DeclaringType
         }
 
         method := handle.Method
         if method != null {
-            return method.get_DeclaringType()
+            return method.DeclaringType
         }
 
         return null

@@ -210,7 +210,7 @@ class AnalyzerClrTypeConversion {
 
         // A void return picks the Action family; everything else picks Func, whose type arguments
         // are the parameters followed by the return type.
-        if clrReturnType.get_FullName() == "System.Void" {
+        if clrReturnType.FullName == "System.Void" {
             return ActionDelegateType(facts, clrParameterTypes)
         }
 
@@ -629,11 +629,11 @@ class AnalyzerClrTypeConversion {
             return null
         }
 
-        if candidate.get_IsGenericType() && !candidate.get_IsGenericTypeDefinition() {
+        if candidate.IsGenericType && !candidate.IsGenericTypeDefinition {
             return candidate.GetGenericTypeDefinition()
         }
 
-        if !candidate.get_IsGenericTypeDefinition() {
+        if !candidate.IsGenericTypeDefinition {
             return null
         }
 
@@ -641,7 +641,7 @@ class AnalyzerClrTypeConversion {
     }
 
     static func WrapInNullable(nullableOpen: Type, clrInnerType: Type): Type {
-        if !clrInnerType.get_IsValueType() {
+        if !clrInnerType.IsValueType {
             return clrInnerType
         }
 

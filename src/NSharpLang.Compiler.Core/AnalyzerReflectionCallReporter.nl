@@ -117,7 +117,7 @@ class AnalyzerReflectionCallReporter {
             candidate := candidateMethods[index]
             index = index + 1
             candidateArity := 0
-            if candidate.get_IsGenericMethodDefinition() {
+            if candidate.IsGenericMethodDefinition {
                 candidateArity = candidate.GetGenericArguments().Length
             }
             if candidateArity == writtenTypeArguments.Count {
@@ -254,7 +254,7 @@ class AnalyzerReflectionCallReporter {
             return targetName
         }
 
-        return candidateMethods[0].get_Name()
+        return candidateMethods[0].Name
     }
 
     // IS ONE OF THE WRITTEN ARGUMENTS AN N#-DECLARED METHOD GROUP? Only a bare identifier can be

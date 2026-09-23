@@ -186,12 +186,12 @@ class TypeInfoIdentityFacts {
             return false
         }
 
-        if left.get_IsGenericParameter() || right.get_IsGenericParameter() {
+        if left.IsGenericParameter || right.IsGenericParameter {
             return HaveSameGenericParameterIdentity(left, right)
         }
 
-        if left.get_IsByRef() || right.get_IsByRef() {
-            if !left.get_IsByRef() || !right.get_IsByRef() {
+        if left.IsByRef || right.IsByRef {
+            if !left.IsByRef || !right.IsByRef {
                 return false
             }
             leftElement := left.GetElementType()
@@ -199,8 +199,8 @@ class TypeInfoIdentityFacts {
             return leftElement != null && rightElement != null && HaveSameReflectionTypeIdentity(leftElement, rightElement)
         }
 
-        if left.get_IsArray() || right.get_IsArray() {
-            if !left.get_IsArray() || !right.get_IsArray() || left.GetArrayRank() != right.GetArrayRank() || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) != ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
+        if left.IsArray || right.IsArray {
+            if !left.IsArray || !right.IsArray || left.GetArrayRank() != right.GetArrayRank() || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) != ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
                 return false
             }
             leftElement := left.GetElementType()
@@ -208,25 +208,25 @@ class TypeInfoIdentityFacts {
             return leftElement != null && rightElement != null && HaveSameReflectionTypeIdentity(leftElement, rightElement)
         }
 
-        if left.get_IsGenericType() || right.get_IsGenericType() {
-            if !left.get_IsGenericType() || !right.get_IsGenericType() {
+        if left.IsGenericType || right.IsGenericType {
+            if !left.IsGenericType || !right.IsGenericType {
                 return false
             }
 
             leftDefinition := left
-            if !left.get_IsGenericTypeDefinition() {
+            if !left.IsGenericTypeDefinition {
                 leftDefinition = left.GetGenericTypeDefinition()
             }
             rightDefinition := right
-            if !right.get_IsGenericTypeDefinition() {
+            if !right.IsGenericTypeDefinition {
                 rightDefinition = right.GetGenericTypeDefinition()
             }
             if !HaveSameNonConstructedReflectionTypeIdentity(leftDefinition, rightDefinition) {
                 return false
             }
 
-            if left.get_IsGenericTypeDefinition() || right.get_IsGenericTypeDefinition() {
-                return left.get_IsGenericTypeDefinition() && right.get_IsGenericTypeDefinition()
+            if left.IsGenericTypeDefinition || right.IsGenericTypeDefinition {
+                return left.IsGenericTypeDefinition && right.IsGenericTypeDefinition
             }
 
             leftArguments := left.GetGenericArguments()
@@ -319,17 +319,17 @@ class TypeInfoIdentityFacts {
         }
 
         definition := reflection.Type
-        if !definition.get_IsGenericType() {
+        if !definition.IsGenericType {
             return false
         }
-        if !definition.get_IsGenericTypeDefinition() {
+        if !definition.IsGenericTypeDefinition {
             definition = definition.GetGenericTypeDefinition()
         }
         if definition.GetGenericArguments().Length != typeInfo.TypeArguments.Count {
             return false
         }
 
-        baseType := definition.get_BaseType()
+        baseType := definition.BaseType
         multicastDelegate := Type.GetType("System.MulticastDelegate, System.Private.CoreLib")
         return baseType != null && multicastDelegate != null && HaveSameReflectionTypeIdentity(baseType, multicastDelegate)
     }
@@ -356,9 +356,9 @@ class TypeInfoIdentityFacts {
     }
 
     static func IsInt32BackedRuntimeEnum(valueType: Type): bool {
-        isRuntimeEnum := valueType.get_IsEnum()
+        isRuntimeEnum := valueType.IsEnum
         if !isRuntimeEnum {
-            baseType := valueType.get_BaseType()
+            baseType := valueType.BaseType
             isRuntimeEnum = baseType != null && baseType.FullName == "System.Enum"
         }
         return isRuntimeEnum && Enum.GetUnderlyingType(valueType).FullName == "System.Int32"
@@ -407,16 +407,16 @@ class TypeInfoIdentityFacts {
     }
 
     static func HaveSameGenericParameterIdentity(left: Type, right: Type): bool {
-        if !left.get_IsGenericParameter() || !right.get_IsGenericParameter() || left.get_GenericParameterPosition() != right.get_GenericParameterPosition() {
+        if !left.IsGenericParameter || !right.IsGenericParameter || left.GenericParameterPosition != right.GenericParameterPosition {
             return false
         }
-        leftMethod := left.get_DeclaringMethod()
-        rightMethod := right.get_DeclaringMethod()
+        leftMethod := left.DeclaringMethod
+        rightMethod := right.DeclaringMethod
         if leftMethod != null || rightMethod != null {
             return leftMethod != null && rightMethod != null && leftMethod.Equals(rightMethod)
         }
-        leftOwner := left.get_DeclaringType()
-        rightOwner := right.get_DeclaringType()
+        leftOwner := left.DeclaringType
+        rightOwner := right.DeclaringType
         return leftOwner != null && rightOwner != null && HaveSameReflectionTypeIdentity(leftOwner, rightOwner)
     }
 
@@ -437,10 +437,10 @@ class TypeInfoIdentityFacts {
         if IsBuilderBound(left) || IsBuilderBound(right) {
             return false
         }
-        return string.Equals(left.FullName, right.FullName, StringComparison.Ordinal) && string.Equals(left.get_Assembly().GetName().get_FullName(), right.get_Assembly().GetName().get_FullName(), StringComparison.Ordinal)
+        return string.Equals(left.FullName, right.FullName, StringComparison.Ordinal) && string.Equals(left.Assembly.GetName().FullName, right.Assembly.GetName().FullName, StringComparison.Ordinal)
     }
 
     static func IsBuilderBound(valueType: Type): bool {
-        return valueType is TypeBuilder || valueType is GenericTypeParameterBuilder || valueType.get_Assembly().IsDynamic || valueType.GetType().FullName == "System.Reflection.Emit.EnumBuilder"
+        return valueType is TypeBuilder || valueType is GenericTypeParameterBuilder || valueType.Assembly.IsDynamic || valueType.GetType().FullName == "System.Reflection.Emit.EnumBuilder"
     }
 }

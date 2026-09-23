@@ -139,7 +139,7 @@ class CodeIntelligenceDisplayText {
 
         reflectionType := typeInfo as ReflectionTypeInfo
         if reflectionType != null {
-            return reflectionType.Type.get_Name()
+            return reflectionType.Type.Name
         }
 
         return fallback
@@ -204,11 +204,11 @@ class CodeIntelligenceDisplayText {
 
         reflectionType := typeInfo as ReflectionTypeInfo
         if reflectionType != null {
-            if reflectionType.Type.get_IsEnum() {
+            if reflectionType.Type.IsEnum {
                 return "enum"
             }
 
-            if reflectionType.Type.get_IsValueType() {
+            if reflectionType.Type.IsValueType {
                 return "struct"
             }
 

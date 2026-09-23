@@ -587,7 +587,7 @@ class ColumnarExternalBindingPlans {
     }
 
     static func HasRuntimeFullName(candidate: string, expectedType: Type): bool {
-        expectedName := expectedType.get_FullName()
+        expectedName := expectedType.FullName
         return expectedName != null && candidate == expectedName
     }
 
@@ -1139,8 +1139,8 @@ class ColumnarExternalBindingPlans {
     }
 
     static func StaticMemberFromTypes(kind: ColumnarExternalStaticMemberKind, declaringType: Type, memberName: string, valueType: Type): ColumnarExternalStaticMemberPlan {
-        declaringIdentity := declaringType.get_AssemblyQualifiedName() ?? ""
-        valueIdentity := valueType.get_AssemblyQualifiedName() ?? ""
+        declaringIdentity := declaringType.AssemblyQualifiedName ?? ""
+        valueIdentity := valueType.AssemblyQualifiedName ?? ""
         if declaringIdentity.Length == 0 || valueIdentity.Length == 0 {
             return NoStaticMember()
         }
@@ -1249,7 +1249,7 @@ class ColumnarExternalBindingPlans {
             if runtimeType == null {
                 throw new InvalidOperationException("Required runtime generic type was unavailable.")
             }
-            identity := runtimeType.get_AssemblyQualifiedName()
+            identity := runtimeType.AssemblyQualifiedName
             if identity == null || identity.Length == 0 {
                 throw new InvalidOperationException("Required runtime generic type identity was unavailable.")
             }
@@ -1286,14 +1286,14 @@ class ColumnarExternalBindingPlans {
             return fullName + ", Microsoft.Build.Framework"
         }
         if fullName == "Microsoft.Build.Framework.ITaskItem" {
-            identity := typeof(Microsoft.Build.Framework.ITaskItem).get_AssemblyQualifiedName()
+            identity := typeof(Microsoft.Build.Framework.ITaskItem).AssemblyQualifiedName
             if identity == null || identity.Length == 0 {
                 throw new InvalidOperationException("Required MSBuild task-item identity was unavailable.")
             }
             return identity
         }
         if fullName == "Microsoft.Build.Framework.ITaskItem[]" {
-            identity := typeof(Microsoft.Build.Framework.ITaskItem).MakeArrayType().get_AssemblyQualifiedName()
+            identity := typeof(Microsoft.Build.Framework.ITaskItem).MakeArrayType().AssemblyQualifiedName
             if identity == null || identity.Length == 0 {
                 throw new InvalidOperationException("Required MSBuild task-item array identity was unavailable.")
             }

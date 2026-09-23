@@ -120,12 +120,12 @@ class ColumnarRuntimeOptionalCallSelection {
     }
 
     static func Selected(lookupType: Type, method: MethodInfo, parameterTypes: Type[], returnType: Type, explicitArgumentCount: int, expectedStatic: bool): ColumnarRuntimeOptionalCallSelection {
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         if declaringType == null {
             throw new InvalidOperationException("A selected trailing-optional runtime call requires a declaring type.")
         }
 
-        receiverIsReference := !expectedStatic && !lookupType.get_IsValueType()
+        receiverIsReference := !expectedStatic && !lookupType.IsValueType
         return new ColumnarRuntimeOptionalCallSelection(true, method, lookupType, declaringType, parameterTypes, returnType, explicitArgumentCount, expectedStatic, receiverIsReference)
     }
 }
@@ -295,7 +295,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
     static func CandidateMethods(lookupType: Type, allowInheritedProtected: bool): MethodInfo[] {
         declared := lookupType.GetMethods(CandidateMethodFlags(allowInheritedProtected, lookupType))
-        if declared == null || !lookupType.get_IsInterface() {
+        if declared == null || !lookupType.IsInterface {
             return declared
         }
 
@@ -353,13 +353,13 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func SameCallSignature(left: MethodInfo, leftParameters: ParameterInfo[], right: MethodInfo, rightParameters: ParameterInfo[]): bool {
-        if left.get_Name() != right.get_Name() || left.get_IsStatic() != right.get_IsStatic() || leftParameters.Length != rightParameters.Length {
+        if left.Name != right.Name || left.IsStatic != right.IsStatic || leftParameters.Length != rightParameters.Length {
             return false
         }
 
         index := 0
         while index < leftParameters.Length {
-            if !RuntimeTypeShapeFacts.ExactTypeShapeMatches(leftParameters[index].get_ParameterType(), rightParameters[index].get_ParameterType()) {
+            if !RuntimeTypeShapeFacts.ExactTypeShapeMatches(leftParameters[index].ParameterType, rightParameters[index].ParameterType) {
                 return false
             }
 
@@ -371,8 +371,8 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
     // Whether `candidate`'s declaring interface is strictly more derived than `existing`'s.
     static func HidesDeclaration(candidate: MethodInfo, existing: MethodInfo): bool {
-        candidateOwner := candidate.get_DeclaringType()
-        existingOwner := existing.get_DeclaringType()
+        candidateOwner := candidate.DeclaringType
+        existingOwner := existing.DeclaringType
         if candidateOwner == null || existingOwner == null || RuntimeTypeShapeFacts.ExactTypeShapeMatches(candidateOwner, existingOwner) {
             return false
         }
@@ -608,7 +608,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         builderBound := closedArguments.Length > 0
 
         for candidate in candidates {
-            if candidate != null && !candidate.get_IsGenericMethod() && !candidate.get_IsGenericMethodDefinition() && !IsVarArgs(candidate) && IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, expectedStatic, allowInheritedProtected) {
+            if candidate != null && !candidate.IsGenericMethod && !candidate.IsGenericMethodDefinition && !IsVarArgs(candidate) && IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, expectedStatic, allowInheritedProtected) {
                 parameters := candidate.GetParameters()
                 if parameters == null {
                     throw new InvalidOperationException("Runtime method parameters cannot be null.")
@@ -662,7 +662,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         selectedReturnType := typeof(object)
 
         for candidate in candidates {
-            if candidate != null && !candidate.get_IsGenericMethod() && !candidate.get_IsGenericMethodDefinition() && !IsVarArgs(candidate) && IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, expectedStatic, allowInheritedProtected) {
+            if candidate != null && !candidate.IsGenericMethod && !candidate.IsGenericMethodDefinition && !IsVarArgs(candidate) && IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, expectedStatic, allowInheritedProtected) {
                 parameters := candidate.GetParameters()
                 if parameters == null {
                     throw new InvalidOperationException("Runtime method parameters cannot be null.")
@@ -699,14 +699,14 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func SelectedExpanded(lookupType: Type, method: MethodInfo, expandedParameterTypes: Type[], declaredParameterTypes: Type[], returnType: Type, elementType: Type, fixedArgumentCount: int, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         if declaringType == null {
             throw new InvalidOperationException("A selected runtime method requires a declaring type.")
         }
 
-        receiverIsReference := !expectedStatic && !lookupType.get_IsValueType()
+        receiverIsReference := !expectedStatic && !lookupType.IsValueType
         kind := receiverIsReference ? ColumnarExternalCallKind.CallVirtual : ColumnarExternalCallKind.Call
-        return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, method, lookupType, declaringType, expandedParameterTypes, returnType, kind, expectedStatic, receiverIsReference, method.get_IsAbstract(), elementType, declaredParameterTypes, fixedArgumentCount)
+        return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, method, lookupType, declaringType, expandedParameterTypes, returnType, kind, expectedStatic, receiverIsReference, method.IsAbstract, elementType, declaredParameterTypes, fixedArgumentCount)
     }
 
     // THE UNIQUE DECLARATION OF THIS NAME AT THIS ARITY, for a call site whose arguments cannot all be
@@ -724,7 +724,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             throw new InvalidOperationException("Ordinary runtime direct-call inputs cannot be null.")
         }
 
-        if lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
+        if lookupType.IsGenericTypeDefinition || lookupType.IsGenericParameter {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
         }
 
@@ -797,7 +797,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return empty
         }
 
-        if lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
+        if lookupType.IsGenericTypeDefinition || lookupType.IsGenericParameter {
             return empty
         }
 
@@ -912,7 +912,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     static func ValidateBuilderBoundCandidates(candidates: MethodInfo[]) {
         for candidate in candidates {
             if candidate != null {
-                declaringType := candidate.get_DeclaringType()
+                declaringType := candidate.DeclaringType
                 if declaringType != null && DeclaringTypeIsBuilderBoundInstantiation(declaringType) {
                     throw new InvalidOperationException("Builder-bound runtime candidates must come from the open generic definition.")
                 }
@@ -927,7 +927,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     // constructed over the definition's own `T` and tripped the guard. A parameter is not a source
     // type; an argument that is one is, and that is the case this rejects.
     static func DeclaringTypeIsBuilderBoundInstantiation(declaringType: Type): bool {
-        if declaringType.get_IsGenericParameter() {
+        if declaringType.IsGenericParameter {
             return false
         }
 
@@ -940,7 +940,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return elementType != null && DeclaringTypeIsBuilderBoundInstantiation(elementType)
         }
 
-        if !declaringType.get_IsGenericType() || declaringType.get_IsGenericTypeDefinition() {
+        if !declaringType.IsGenericType || declaringType.IsGenericTypeDefinition {
             return false
         }
 
@@ -959,11 +959,11 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func IsPublicCandidateForLookup(method: MethodInfo, lookupType: Type, memberName: string, expectedStatic: bool, allowInheritedProtected: bool): bool {
-        if !ColumnarRuntimeInstanceMemberResolver.IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(method), allowInheritedProtected, method.get_DeclaringType()) || method.get_Name() != memberName || method.get_IsStatic() != expectedStatic {
+        if !ColumnarRuntimeInstanceMemberResolver.IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(method), allowInheritedProtected, method.DeclaringType) || method.Name != memberName || method.IsStatic != expectedStatic {
             return false
         }
 
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         if declaringType == null {
             return false
         }
@@ -972,7 +972,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return true
         }
 
-        if declaringType.get_IsValueType() || lookupType.get_IsValueType() {
+        if declaringType.IsValueType || lookupType.IsValueType {
             return false
         }
 
@@ -988,7 +988,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     static func TryGetBuilderBoundRuntimeDefinition(lookupType: Type, out definition: Type, out closedArguments: Type[]): bool {
         definition = typeof(object)
         closedArguments = new Type[](0)
-        if !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() || !RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) {
+        if !lookupType.IsGenericType || lookupType.IsGenericTypeDefinition || !RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) {
             return false
         }
 
@@ -1011,7 +1011,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
     static func ResolveParameterTypes(method: MethodInfo, candidateLookupType: Type, parameters: ParameterInfo[], closedArguments: Type[]): Type[] {
         parameterTypes := new Type[](parameters.Length)
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         substitute := SubstitutesClosedArguments(declaringType, candidateLookupType, closedArguments)
         index := 0
         while index < parameters.Length {
@@ -1020,7 +1020,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 throw new InvalidOperationException("Runtime method parameters cannot be null.")
             }
 
-            parameterType := parameter.get_ParameterType()
+            parameterType := parameter.ParameterType
             if parameterType == null {
                 throw new InvalidOperationException("Runtime method parameter types cannot be null.")
             }
@@ -1034,12 +1034,12 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func ResolveReturnType(method: MethodInfo, candidateLookupType: Type, closedArguments: Type[]): Type {
-        returnType := method.get_ReturnType()
+        returnType := method.ReturnType
         if returnType == null {
             throw new InvalidOperationException("Runtime method return types cannot be null.")
         }
 
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         if SubstitutesClosedArguments(declaringType, candidateLookupType, closedArguments) {
             return ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(returnType, closedArguments)
         }
@@ -1059,11 +1059,11 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return false
         }
 
-        return declaringType == candidateLookupType || declaringType.get_ContainsGenericParameters()
+        return declaringType == candidateLookupType || declaringType.ContainsGenericParameters
     }
 
     static func IsIntrinsicExcludedShape(method: MethodInfo, parameters: ParameterInfo[]): bool {
-        if method.get_IsGenericMethod() || method.get_IsGenericMethodDefinition() || IsVarArgs(method) {
+        if method.IsGenericMethod || method.IsGenericMethodDefinition || IsVarArgs(method) {
             return true
         }
 
@@ -1109,12 +1109,12 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     // `int.TryParse`, every `TryGet`. What a by-ref parameter still may not be is a by-ref of something
     // unsupported, so the element is asked the ordinary question.
     static func IsUnsupportedParameterType(parameterType: Type, closedArguments: Type[]): bool {
-        if !parameterType.get_IsByRef() {
+        if !parameterType.IsByRef {
             return IsUnsupportedResolvedSignatureType(parameterType, closedArguments)
         }
 
         elementType := parameterType.GetElementType()
-        return elementType == null || elementType.get_IsByRef() || elementType.get_IsPointer() || IsUnsupportedResolvedSignatureType(elementType, closedArguments)
+        return elementType == null || elementType.IsByRef || elementType.IsPointer || IsUnsupportedResolvedSignatureType(elementType, closedArguments)
     }
 
     // A generic parameter left in a RESOLVED signature normally means the substitution did not
@@ -1125,11 +1125,11 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     // any other one is still open. Identity is asked as REFERENCE equality, because `==` on `Type`
     // is not guaranteed to be reference identity for the builder-bound instantiations this walks.
     static func IsUnsupportedResolvedSignatureType(signatureType: Type, closedArguments: Type[]): bool {
-        if signatureType.get_IsByRef() || signatureType.get_IsGenericTypeDefinition() {
+        if signatureType.IsByRef || signatureType.IsGenericTypeDefinition {
             return true
         }
 
-        if !signatureType.get_IsGenericParameter() {
+        if !signatureType.IsGenericParameter {
             return false
         }
 
@@ -1176,7 +1176,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         index := argumentCount
         while index < parameters.Length {
             parameter := parameters[index]
-            if parameter == null || !parameter.get_IsOptional() {
+            if parameter == null || !parameter.IsOptional {
                 return false
             }
 
@@ -1188,31 +1188,31 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
     static func CanDispatch(method: MethodInfo, lookupType: Type, expectedStatic: bool): bool {
         if expectedStatic {
-            return !method.get_IsAbstract()
+            return !method.IsAbstract
         }
 
-        return !lookupType.get_IsValueType() || !method.get_IsAbstract()
+        return !lookupType.IsValueType || !method.IsAbstract
     }
 
     static func IsVarArgs(method: MethodInfo): bool {
-        convention := (int)method.get_CallingConvention()
+        convention := (int)method.CallingConvention
         return (convention & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0
     }
 
     static func Selected(lookupType: Type, method: MethodInfo, parameterTypes: Type[], expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
-        declaringType := method.get_DeclaringType()
-        returnType := method.get_ReturnType()
+        declaringType := method.DeclaringType
+        returnType := method.ReturnType
         if declaringType == null || returnType == null {
             throw new InvalidOperationException("A selected runtime method requires declaring and return types.")
         }
 
-        receiverIsReference := !expectedStatic && !lookupType.get_IsValueType()
+        receiverIsReference := !expectedStatic && !lookupType.IsValueType
         kind := receiverIsReference ? ColumnarExternalCallKind.CallVirtual : ColumnarExternalCallKind.Call
-        return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, method, lookupType, declaringType, parameterTypes, returnType, kind, expectedStatic, receiverIsReference, method.get_IsAbstract(), null, parameterTypes, -1)
+        return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, method, lookupType, declaringType, parameterTypes, returnType, kind, expectedStatic, receiverIsReference, method.IsAbstract, null, parameterTypes, -1)
     }
 
     static func SelectedBuilderBound(lookupType: Type, genericDefinition: Type, method: MethodInfo, parameterTypes: Type[], returnType: Type, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         if declaringType == null {
             throw new InvalidOperationException("A selected builder-bound runtime method requires an exact declaring type.")
         }
@@ -1226,13 +1226,13 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             }
 
             exactMethod = (MethodInfo)rebound
-            reboundDeclaringType := exactMethod.get_DeclaringType()
+            reboundDeclaringType := exactMethod.DeclaringType
             if reboundDeclaringType == null || !RuntimeTypeShapeFacts.ExactTypeShapeMatches(reboundDeclaringType, lookupType) {
                 throw new InvalidOperationException("The rebound builder-bound runtime method has the wrong declaring type.")
             }
 
             exactDeclaringType = reboundDeclaringType
-        } else if declaringType.get_ContainsGenericParameters() {
+        } else if declaringType.ContainsGenericParameters {
             // AN INHERITED DECLARATION IS REBOUND ONTO ITS OWN CLOSED OWNER, not onto the receiver's
             // instantiation: `TypeBuilder.GetMethod` binds a member to the instantiation of the type
             // that DECLARES it, so `ICollection<T>::Add` reached through `IList<Row>` becomes
@@ -1240,8 +1240,8 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             // derived interface dispatches through anyway, which is the same answer the non-
             // builder-bound walk gives for `IList<string>`.
             inheritedRebound := ColumnarClosedGenericMemberResolver.RebindOntoClosedOwner(method, lookupType)
-            inheritedDeclaringType := inheritedRebound.get_DeclaringType()
-            if Object.ReferenceEquals(inheritedRebound, method) || inheritedDeclaringType == null || inheritedDeclaringType.get_ContainsGenericParameters() {
+            inheritedDeclaringType := inheritedRebound.DeclaringType
+            if Object.ReferenceEquals(inheritedRebound, method) || inheritedDeclaringType == null || inheritedDeclaringType.ContainsGenericParameters {
                 throw new InvalidOperationException("An inherited builder-bound runtime method could not be rebound onto a closed owner.")
             }
 
@@ -1249,9 +1249,9 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             exactDeclaringType = inheritedDeclaringType
         }
 
-        receiverIsReference := !expectedStatic && !lookupType.get_IsValueType()
+        receiverIsReference := !expectedStatic && !lookupType.IsValueType
         kind := receiverIsReference ? ColumnarExternalCallKind.CallVirtual : ColumnarExternalCallKind.Call
-        return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, exactMethod, lookupType, exactDeclaringType, parameterTypes, returnType, kind, expectedStatic, receiverIsReference, exactMethod.get_IsAbstract(), null, parameterTypes, -1)
+        return new ColumnarOrdinaryRuntimeDirectCallSelection(ColumnarOrdinaryRuntimeDirectCallStatus.Selected, exactMethod, lookupType, exactDeclaringType, parameterTypes, returnType, kind, expectedStatic, receiverIsReference, exactMethod.IsAbstract, null, parameterTypes, -1)
     }
 
     static func Empty(status: ColumnarOrdinaryRuntimeDirectCallStatus, lookupType: Type, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {

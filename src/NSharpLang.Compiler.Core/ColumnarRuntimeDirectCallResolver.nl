@@ -72,14 +72,14 @@ class ColumnarRuntimeDirectCallResolver {
         selected := ColumnarRuntimeDirectCallSelection.Empty()
         selectedCount := 0
         for definition in methods {
-            if definition != null && definition.get_Name() == "Empty" && definition.get_IsPublic() && definition.get_IsStatic() && definition.get_IsGenericMethodDefinition() && definition.get_DeclaringType() == lookupType {
+            if definition != null && definition.Name == "Empty" && definition.IsPublic && definition.IsStatic && definition.IsGenericMethodDefinition && definition.DeclaringType == lookupType {
                 definitionTypeArguments := definition.GetGenericArguments()
                 definitionParameters := definition.GetParameters()
                 if definitionTypeArguments.Length == 1 && definitionParameters.Length == 0 {
                     returnBindings := new Type[](1)
                     returnBindings[0] = elementType
                     closedReturnType := typeof(object)
-                    returnMatches := ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(definitionTypeArguments, returnBindings, definition.get_ReturnType(), out closedReturnType) && ColumnarTypeEquivalenceFacts.TypesEquivalent(closedReturnType, expectedReturnType)
+                    returnMatches := ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(definitionTypeArguments, returnBindings, definition.ReturnType, out closedReturnType) && ColumnarTypeEquivalenceFacts.TypesEquivalent(closedReturnType, expectedReturnType)
                     typeArguments := new Type[](1)
                     typeArguments[0] = elementType
                     closed: MethodInfo? = null
@@ -91,8 +91,8 @@ class ColumnarRuntimeDirectCallResolver {
                         }
                     }
 
-                    if closed != null && !closed.get_IsGenericMethodDefinition() && closed.get_IsGenericMethod() && closed.GetGenericArguments().Length == 1 && closed.GetGenericArguments()[0] == elementType && closed.GetParameters().Length == 0 {
-                        declaringType := closed.get_DeclaringType()
+                    if closed != null && !closed.IsGenericMethodDefinition && closed.IsGenericMethod && closed.GetGenericArguments().Length == 1 && closed.GetGenericArguments()[0] == elementType && closed.GetParameters().Length == 0 {
+                        declaringType := closed.DeclaringType
                         if declaringType == lookupType {
                             selected = new ColumnarRuntimeDirectCallSelection(closed, lookupType, declaringType, new Type[](0), closedReturnType, ColumnarExternalCallKind.Call, true, false)
                             selectedCount = selectedCount + 1
@@ -174,7 +174,7 @@ class ColumnarRuntimeDirectCallResolver {
         closed := ColumnarRuntimeDirectCallSelection.Empty()
         closedCount := 0
         for definition in methods {
-            if definition != null && definition.get_Name() == plan.MemberName && definition.get_IsGenericMethodDefinition() && definition.GetGenericArguments().Length == typeArguments.Length {
+            if definition != null && definition.Name == plan.MemberName && definition.IsGenericMethodDefinition && definition.GetGenericArguments().Length == typeArguments.Length {
                 candidate: MethodInfo? = null
                 try {
                     candidate = definition.MakeGenericMethod(typeArguments)
@@ -310,7 +310,7 @@ class ColumnarRuntimeDirectCallResolver {
 
         // Ordinary explicit reference receivers require callvirt for virtual dispatch and the
         // standard null check. Value receivers instead require their direct managed-address call.
-        return lookupType.get_IsValueType() ? plan.Kind == ColumnarExternalCallKind.Call : plan.Kind == ColumnarExternalCallKind.CallVirtual
+        return lookupType.IsValueType ? plan.Kind == ColumnarExternalCallKind.Call : plan.Kind == ColumnarExternalCallKind.CallVirtual
     }
 
     static func TryDescribeExactCandidate(plan: ColumnarExternalCallPlan, lookupType: Type, expectedStatic: bool, plannedParameterTypes: Type[], plannedReturnType: Type, method: MethodInfo, out selection: ColumnarRuntimeDirectCallSelection): bool {
@@ -319,25 +319,25 @@ class ColumnarRuntimeDirectCallResolver {
             return false
         }
 
-        if method.get_Name() != plan.MemberName {
+        if method.Name != plan.MemberName {
             return false
         }
 
-        if !method.get_IsPublic() {
+        if !method.IsPublic {
             return false
         }
 
-        if method.get_IsStatic() != expectedStatic {
+        if method.IsStatic != expectedStatic {
             return false
         }
 
-        if method.get_IsGenericMethodDefinition() {
+        if method.IsGenericMethodDefinition {
             return false
         }
 
         // A closed generic handle is admitted ONLY when the plan pins its exact type-argument
         // identities; every pinned identity must match the handle's own arguments in order.
-        if method.get_IsGenericMethod() {
+        if method.IsGenericMethod {
             if plan.TypeArgumentNames.Length == 0 {
                 return false
             }
@@ -359,22 +359,22 @@ class ColumnarRuntimeDirectCallResolver {
             return false
         }
 
-        callingConvention := (int)method.get_CallingConvention()
+        callingConvention := (int)method.CallingConvention
         if (callingConvention & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0 {
             return false
         }
 
-        if plan.Kind == ColumnarExternalCallKind.Call && method.get_IsAbstract() {
+        if plan.Kind == ColumnarExternalCallKind.Call && method.IsAbstract {
             return false
         }
 
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         if declaringType == null || !DeclaringTypeCanOwnLookup(declaringType, lookupType) {
             return false
         }
 
-        returnType := method.get_ReturnType()
-        if returnType == null || returnType != plannedReturnType || returnType.get_IsByRef() || !ExternalAssemblyScan.HasExactTypeIdentity(returnType, plan.ReturnTypeName) {
+        returnType := method.ReturnType
+        if returnType == null || returnType != plannedReturnType || returnType.IsByRef || !ExternalAssemblyScan.HasExactTypeIdentity(returnType, plan.ReturnTypeName) {
             return false
         }
 
@@ -386,8 +386,8 @@ class ColumnarRuntimeDirectCallResolver {
         parameterTypes := new Type[](parameters.Length)
         index := 0
         while index < parameters.Length {
-            parameterType := parameters[index].get_ParameterType()
-            if parameterType == null || parameterType != plannedParameterTypes[index] || parameterType.get_IsByRef() || !ExternalAssemblyScan.HasExactTypeIdentity(parameterType, plan.ParameterTypeNames[index]) {
+            parameterType := parameters[index].ParameterType
+            if parameterType == null || parameterType != plannedParameterTypes[index] || parameterType.IsByRef || !ExternalAssemblyScan.HasExactTypeIdentity(parameterType, plan.ParameterTypeNames[index]) {
                 return false
             }
 
@@ -395,7 +395,7 @@ class ColumnarRuntimeDirectCallResolver {
             index = index + 1
         }
 
-        selection = new ColumnarRuntimeDirectCallSelection(method, lookupType, declaringType, parameterTypes, returnType, plan.Kind, expectedStatic, !expectedStatic && !lookupType.get_IsValueType())
+        selection = new ColumnarRuntimeDirectCallSelection(method, lookupType, declaringType, parameterTypes, returnType, plan.Kind, expectedStatic, !expectedStatic && !lookupType.IsValueType)
 
         return true
     }
@@ -445,7 +445,7 @@ class ColumnarRuntimeDirectCallResolver {
             return true
         }
 
-        if declaringType.get_IsValueType() || lookupType.get_IsValueType() {
+        if declaringType.IsValueType || lookupType.IsValueType {
             return false
         }
 

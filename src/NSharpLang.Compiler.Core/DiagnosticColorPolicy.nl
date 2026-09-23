@@ -55,7 +55,7 @@ class DiagnosticColorPolicy {
             FindColorOption(Environment.GetCommandLineArgs()),
             Environment.GetEnvironmentVariable("NO_COLOR"),
             Environment.GetEnvironmentVariable("FORCE_COLOR"),
-            Console.get_IsErrorRedirected()
+            Console.IsErrorRedirected
         )
     }
 

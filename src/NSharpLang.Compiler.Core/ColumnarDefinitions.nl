@@ -480,7 +480,7 @@ class ColumnarConstructorDefaultBinder {
 
             runtimeEnum := typeof(object)
             runtimeClaimed := false
-            if !enumRegistry.Resolver.TryResolve(ownerName, out runtimeEnum, out runtimeClaimed) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(runtimeEnum, parameterTypes[index]) || runtimeEnum is TypeBuilder || runtimeEnum is EnumBuilder || !runtimeEnum.get_IsEnum() || Enum.GetUnderlyingType(runtimeEnum).FullName != "System.Int32" || !Enum.IsDefined(runtimeEnum, memberName) {
+            if !enumRegistry.Resolver.TryResolve(ownerName, out runtimeEnum, out runtimeClaimed) || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(runtimeEnum, parameterTypes[index]) || runtimeEnum is TypeBuilder || runtimeEnum is EnumBuilder || !runtimeEnum.IsEnum || Enum.GetUnderlyingType(runtimeEnum).FullName != "System.Int32" || !Enum.IsDefined(runtimeEnum, memberName) {
                 return false
             }
             fullName := runtimeEnum.FullName

@@ -139,11 +139,11 @@ class ConstantConversionFacts {
     // An OPEN type is refused outright: a constant conversion takes no part in method type inference, so
     // a parameter still mentioning a type parameter must be bound by the standard rules or not at all.
     static func AcceptsIntegerConstant(target: Type?, literalText: string?, negative: bool): bool {
-        if target == null || target.get_ContainsGenericParameters() || target.get_IsByRef() {
+        if target == null || target.ContainsGenericParameters || target.IsByRef {
             return false
         }
 
-        if target.get_IsEnum() {
+        if target.IsEnum {
             return IsLiteralZero(literalText, negative)
         }
 

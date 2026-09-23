@@ -122,7 +122,7 @@ class ReachabilityFlowAttributeReflection {
         count := NullabilityMetadataReflection.SequenceCount(attributes)
         index := 0
         while index < count {
-            if ReachabilityFlowFacts.IsDoesNotReturnName(attributes.get_Item(index).get_AttributeType().FullName ?? "") {
+            if ReachabilityFlowFacts.IsDoesNotReturnName(attributes.get_Item(index).AttributeType.FullName ?? "") {
                 return ReachabilityFlowFacts.DoesNotReturn()
             }
 
@@ -145,11 +145,11 @@ class ReachabilityFlowAttributeReflection {
         while index < count {
             attribute := attributes.get_Item(index)
             index = index + 1
-            if !ReachabilityFlowFacts.IsDoesNotReturnIfName(attribute.get_AttributeType().FullName ?? "") {
+            if !ReachabilityFlowFacts.IsDoesNotReturnIfName(attribute.AttributeType.FullName ?? "") {
                 continue
             }
 
-            constructorArguments := attribute.get_ConstructorArguments()
+            constructorArguments := attribute.ConstructorArguments
             if NullabilityMetadataReflection.SequenceCount(constructorArguments) != 1 {
                 continue
             }

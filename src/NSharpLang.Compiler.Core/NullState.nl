@@ -36,7 +36,7 @@ class NullStateFacts {
 
         reflectionType := resolved as ReflectionTypeInfo
         if reflectionType != null {
-            if reflectionType.Type.get_IsValueType() && System.Nullable.GetUnderlyingType(reflectionType.Type) == null {
+            if reflectionType.Type.IsValueType && System.Nullable.GetUnderlyingType(reflectionType.Type) == null {
                 return NullState.NotNull
             }
 

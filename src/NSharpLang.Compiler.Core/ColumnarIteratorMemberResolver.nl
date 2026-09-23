@@ -216,10 +216,10 @@ class ColumnarIteratorMemberBinding {
         if openParameters.Length != exactParameterTypes.Length {
             throw new InvalidOperationException("Iterator open and effective parameter counts disagree.")
         }
-        openReturnParameter := openMethod.get_ReturnParameter()
+        openReturnParameter := openMethod.ReturnParameter
         openReturn := new ColumnarExternalMethodSignatureTypeDescriptor(
             context.StructuralTypeReferences,
-            openMethod.get_ReturnType(),
+            openMethod.ReturnType,
             openReturnParameter.GetRequiredCustomModifiers(),
             openReturnParameter.GetOptionalCustomModifiers(),
             true
@@ -241,7 +241,7 @@ class ColumnarIteratorMemberBinding {
             parameters.Add(new ColumnarExternalMethodParameterDescriptor(
                 new ColumnarExternalMethodSignatureTypeDescriptor(
                     context.StructuralTypeReferences,
-                    openParameter.get_ParameterType(),
+                    openParameter.ParameterType,
                     requiredModifiers,
                     optionalModifiers,
                     true
@@ -265,11 +265,11 @@ class ColumnarIteratorMemberBinding {
         declaringContextRuntimeTypeValue = exactDeclaringContext
         declaringContextValue = tableValue.SelectRuntimeType(exactDeclaringContext)
         moduleVersionIdValue = ReadModuleVersionId(openMethod)
-        methodMetadataTokenValue = openMethod.get_MetadataToken()
-        methodNameValue = openMethod.get_Name()
+        methodMetadataTokenValue = openMethod.MetadataToken
+        methodNameValue = openMethod.Name
         methodGenericArityValue = openMethod.GetGenericArguments().Length
-        methodCallingConventionValue = Convert.ToInt32(openMethod.get_CallingConvention())
-        methodIsStaticValue = openMethod.get_IsStatic()
+        methodCallingConventionValue = Convert.ToInt32(openMethod.CallingConvention)
+        methodIsStaticValue = openMethod.IsStatic
         openReturnValue = openReturn
         effectiveReturnValue = effectiveReturn
         parametersValue = parameters.AsReadOnly()
@@ -302,7 +302,7 @@ class ColumnarIteratorMemberBinding {
             }
             index += 1
         }
-        return moduleVersionIdValue == ReadModuleVersionId(openMethodValue) && methodMetadataTokenValue == openMethodValue.get_MetadataToken() && methodNameValue == openMethodValue.get_Name() && methodGenericArityValue == openMethodValue.GetGenericArguments().Length && methodCallingConventionValue == Convert.ToInt32(openMethodValue.get_CallingConvention()) && methodIsStaticValue == openMethodValue.get_IsStatic()
+        return moduleVersionIdValue == ReadModuleVersionId(openMethodValue) && methodMetadataTokenValue == openMethodValue.MetadataToken && methodNameValue == openMethodValue.Name && methodGenericArityValue == openMethodValue.GetGenericArguments().Length && methodCallingConventionValue == Convert.ToInt32(openMethodValue.CallingConvention) && methodIsStaticValue == openMethodValue.IsStatic
     }
 
     func ValidatedTarget(expectedTable: ColumnarStructuralTypeReferenceTable): MethodInfo {
@@ -331,7 +331,7 @@ class ColumnarIteratorMemberBinding {
     }
 
     static func ReadModuleVersionId(method: MethodInfo): string {
-        module := method.get_Module()
-        return module.get_ModuleVersionId().ToString()
+        module := method.Module
+        return module.ModuleVersionId.ToString()
     }
 }

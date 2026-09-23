@@ -660,7 +660,7 @@ class MultiFileCompiler {
 
     private func RequiresColumnarSoaEmission(): bool {
         soaFeatureEnabled := SoaFeature.IsEnabled
-        compilationUnits := _compilationUnits.get_Values()
+        compilationUnits := _compilationUnits.Values
         if !soaFeatureEnabled {
             return false
         }

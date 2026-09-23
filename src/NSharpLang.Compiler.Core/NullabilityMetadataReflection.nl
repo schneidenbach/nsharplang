@@ -42,7 +42,7 @@ class NullabilityMetadataReflection {
     static func ConvertPropertyWithOverride(property: PropertyInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         attributes := property.GetCustomAttributesData()
         openType := NullabilityGenericSubstitution.OpenPropertyType(property)
-        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(property.get_PropertyType(), CreateNullabilityInfoForProperty(property), typeOverride, openType, attributes, property), attributes)
+        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(property.PropertyType, CreateNullabilityInfoForProperty(property), typeOverride, openType, attributes, property), attributes)
         return ApplyFlowAttributes(converted, attributes)
     }
 
@@ -53,7 +53,7 @@ class NullabilityMetadataReflection {
     static func ConvertFieldWithOverride(field: FieldInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         attributes := field.GetCustomAttributesData()
         openType := NullabilityGenericSubstitution.OpenFieldType(field)
-        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(field.get_FieldType(), CreateNullabilityInfoForField(field), typeOverride, openType, attributes, field), attributes)
+        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(field.FieldType, CreateNullabilityInfoForField(field), typeOverride, openType, attributes, field), attributes)
         return ApplyFlowAttributes(converted, attributes)
     }
 
@@ -64,7 +64,7 @@ class NullabilityMetadataReflection {
     static func ConvertParameterWithOverride(parameter: ParameterInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         attributes := parameter.GetCustomAttributesData()
         openType := NullabilityGenericSubstitution.OpenParameterType(parameter)
-        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(parameter.get_ParameterType(), CreateNullabilityInfoForParameter(parameter), typeOverride, openType, attributes, parameter.get_Member()), attributes)
+        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(parameter.ParameterType, CreateNullabilityInfoForParameter(parameter), typeOverride, openType, attributes, parameter.Member), attributes)
         return ApplyFlowAttributes(converted, attributes)
     }
 
@@ -85,7 +85,7 @@ class NullabilityMetadataReflection {
     // The lambda door makes the same reading for the same reason (`FunctionSignature` looks through a
     // `NullableTypeInfo` target), so answering the delegate directly keeps one rule in one place.
     static func ConvertEventHandlerType(eventMember: EventInfo): TypeInfo? {
-        handlerType := eventMember.get_EventHandlerType()
+        handlerType := eventMember.EventHandlerType
         if handlerType == null {
             return null
         }
@@ -106,10 +106,10 @@ class NullabilityMetadataReflection {
     }
 
     static func ConvertReturnWithOverride(method: MethodInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
-        returnParameter := method.get_ReturnParameter()
+        returnParameter := method.ReturnParameter
         attributes := returnParameter.GetCustomAttributesData()
         openType := NullabilityGenericSubstitution.OpenParameterType(returnParameter)
-        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(method.get_ReturnType(), CreateNullabilityInfoForParameter(returnParameter), typeOverride, openType, attributes, method), attributes)
+        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(method.ReturnType, CreateNullabilityInfoForParameter(returnParameter), typeOverride, openType, attributes, method), attributes)
         return ApplyFlowAttributes(converted, attributes)
     }
 
@@ -124,8 +124,8 @@ class NullabilityMetadataReflection {
     static func FormatParameterWithOverride(parameter: ParameterInfo, typeOverride: AnalyzerReflectionTypeOverride?): string {
         attributePrefix := FormatFlowAttributes(parameter.GetCustomAttributesData())
         typeName := FormatTypeInfo(ConvertParameterWithOverride(parameter, typeOverride))
-        parameterType := parameter.get_ParameterType()
-        return NullabilityMetadataCore.FormatParameter(parameter.get_IsOut(), parameterType.get_IsByRef(), parameterType.get_IsByRef() && parameter.get_IsIn(), IsParamsParameter(parameter), attributePrefix, typeName, parameter.get_Name())
+        parameterType := parameter.ParameterType
+        return NullabilityMetadataCore.FormatParameter(parameter.IsOut, parameterType.IsByRef, parameterType.IsByRef && parameter.IsIn, IsParamsParameter(parameter), attributePrefix, typeName, parameter.Name)
     }
 
     static func FormatReturnType(method: MethodInfo): string {
@@ -168,7 +168,7 @@ class NullabilityMetadataReflection {
 
     static func ConvertReflectedType(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         effectiveType := DereferenceByRef(clrType)
-        if effectiveType.get_IsGenericParameter() && typeOverride != null {
+        if effectiveType.IsGenericParameter && typeOverride != null {
             return typeOverride.Answer(effectiveType)
         }
 
@@ -186,7 +186,7 @@ class NullabilityMetadataReflection {
     // returns `TSource?`, and the override alone answers the ARGUMENT verbatim, which loses the `?`.
     static func ConvertSubstitutedParameterType(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?, isNullableReadState: bool): TypeInfo {
         effectiveType := DereferenceByRef(clrType)
-        if effectiveType.get_IsGenericParameter() && typeOverride != null {
+        if effectiveType.IsGenericParameter && typeOverride != null {
             answered := typeOverride.Answer(effectiveType)
             if !isNullableReadState {
                 return answered
@@ -200,7 +200,7 @@ class NullabilityMetadataReflection {
     }
 
     static func DereferenceByRef(clrType: Type): Type {
-        if !clrType.get_IsByRef() {
+        if !clrType.IsByRef {
             return clrType
         }
 
@@ -213,7 +213,7 @@ class NullabilityMetadataReflection {
     }
 
     static func ConvertReflectedTypeCore(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
-        if clrType.get_IsByRef() {
+        if clrType.IsByRef {
             byRefElement := clrType.GetElementType()
             if byRefElement != null {
                 return ConvertReflectedType(byRefElement, nullabilityInfo, typeOverride)
@@ -228,7 +228,7 @@ class NullabilityMetadataReflection {
             }
         }
 
-        if clrType.get_IsArray() {
+        if clrType.IsArray {
             elementType := clrType.GetElementType()
             if elementType != null {
                 array: TypeInfo = new ArrayTypeInfo(ConvertReflectedType(elementType, GetElementNullability(nullabilityInfo), typeOverride))
@@ -236,7 +236,7 @@ class NullabilityMetadataReflection {
             }
         }
 
-        if clrType.get_IsGenericParameter() {
+        if clrType.IsGenericParameter {
             if typeOverride != null {
                 return typeOverride.Answer(clrType)
             }
@@ -245,7 +245,7 @@ class NullabilityMetadataReflection {
             return genericParameter
         }
 
-        if clrType.get_IsGenericType() {
+        if clrType.IsGenericType {
             name := NullabilityMetadataCore.StripClrGenericArity(clrType.Name)
             typeArguments := clrType.GetGenericArguments()
             nullabilityArguments := GetGenericNullabilityArguments(nullabilityInfo)
@@ -313,7 +313,7 @@ class NullabilityMetadataReflection {
             return null
         }
 
-        return info.get_ElementType()
+        return info.ElementType
     }
 
     static func GetGenericNullabilityArguments(info: NullabilityInfo?): NullabilityInfo[] {
@@ -321,7 +321,7 @@ class NullabilityMetadataReflection {
             return new NullabilityInfo[](0)
         }
 
-        arguments := info.get_GenericTypeArguments()
+        arguments := info.GenericTypeArguments
         if arguments == null {
             return new NullabilityInfo[](0)
         }
@@ -343,11 +343,11 @@ class NullabilityMetadataReflection {
             return NullabilityState.Unknown
         }
 
-        return nullabilityInfo.get_ReadState()
+        return nullabilityInfo.ReadState
     }
 
     static func CanReflectedTypeCarryReferenceNullability(clrType: Type, converted: TypeInfo): bool {
-        return NullabilityMetadataCore.CanReflectedTypeCarryReferenceNullability(clrType.get_IsGenericParameter(), clrType.get_IsValueType(), CanConvertedTypeCarryReferenceNullability(converted))
+        return NullabilityMetadataCore.CanReflectedTypeCarryReferenceNullability(clrType.IsGenericParameter, clrType.IsValueType, CanConvertedTypeCarryReferenceNullability(converted))
     }
 
     // A CONSTRUCTED GENERIC IS WHATEVER ITS DEFINITION IS. `KeyValuePair<string, DateTime>` is a
@@ -365,7 +365,7 @@ class NullabilityMetadataReflection {
         reflection := typeInfo as ReflectionTypeInfo
         if reflection != null {
             reflectedType := reflection.Type
-            return !reflectedType.get_IsValueType()
+            return !reflectedType.IsValueType
         }
 
         generic := typeInfo as GenericTypeInfo
@@ -405,7 +405,7 @@ class NullabilityMetadataReflection {
         index := 0
         while index < count {
             attribute := attributes.get_Item(index)
-            attributeType := attribute.get_AttributeType()
+            attributeType := attribute.AttributeType
             if NullabilityMetadataCore.GetFlowAttributeKind(attributeType.FullName) == attributeKind {
                 return true
             }
@@ -432,11 +432,11 @@ class NullabilityMetadataReflection {
         index := 0
         while index < count {
             attribute := attributes.get_Item(index)
-            attributeType := attribute.get_AttributeType()
+            attributeType := attribute.AttributeType
             attributeKind := NullabilityMetadataCore.GetFlowAttributeKind(attributeType.FullName)
             handled := false
             if attributeKind == NullabilityMetadataCore.GetNotNullWhenAttributeKind() {
-                constructorArguments := attribute.get_ConstructorArguments()
+                constructorArguments := attribute.ConstructorArguments
                 if SequenceCount(constructorArguments) == 1 {
                     argument := constructorArguments.get_Item(0)
                     argumentValue := argument.get_Value()
@@ -470,25 +470,25 @@ class NullabilityMetadataReflection {
     }
 
     static func FormatClrTypeName(clrType: Type): string {
-        if clrType.get_IsGenericParameter() {
+        if clrType.IsGenericParameter {
             return clrType.Name
         }
 
-        if clrType.get_IsByRef() {
+        if clrType.IsByRef {
             byRefElement := clrType.GetElementType()
             if byRefElement != null {
                 return FormatClrTypeName(byRefElement)
             }
         }
 
-        if clrType.get_IsArray() {
+        if clrType.IsArray {
             elementType := clrType.GetElementType()
             if elementType != null {
                 return NullabilityMetadataCore.FormatArrayClrTypeName(FormatClrTypeName(elementType))
             }
         }
 
-        if clrType.get_IsGenericType() {
+        if clrType.IsGenericType {
             name := NullabilityMetadataCore.StripClrGenericArity(clrType.Name)
             typeArguments := clrType.GetGenericArguments()
             formattedArguments := new string[](typeArguments.Length)

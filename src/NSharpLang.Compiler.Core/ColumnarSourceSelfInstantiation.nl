@@ -30,7 +30,7 @@ class ColumnarSourceSelfInstantiation {
         if ownerType == null {
             throw new InvalidOperationException("Source self-instantiation owner type cannot be null.")
         }
-        if !(ownerType is TypeBuilder) || !ownerType.get_IsGenericTypeDefinition() {
+        if !(ownerType is TypeBuilder) || !ownerType.IsGenericTypeDefinition {
             return ownerType
         }
         return ownerType.MakeGenericType(ownerType.GetGenericArguments())
@@ -41,7 +41,7 @@ class ColumnarSourceSelfInstantiation {
             throw new InvalidOperationException("Source self-instantiation method handle cannot be null.")
         }
 
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         if declaringType == null {
             return method
         }

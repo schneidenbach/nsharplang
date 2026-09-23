@@ -93,7 +93,7 @@ sealed class SystemsAnalyzer {
         HotSummaries = HotSummaryCatalog.Load(ProjectRoot, Config)
         BuildVisibleDeclarationFiles(compilationUnits)
 
-        compilationUnitKeys := compilationUnits.get_Keys()
+        compilationUnitKeys := compilationUnits.Keys
         orderedFileInputs := compilationUnitKeys.ToArray()
         orderedFiles := SystemsReportOrder.OrderedFiles(orderedFileInputs)
         for filePath in orderedFiles {
@@ -749,7 +749,7 @@ sealed class SystemsAnalyzer {
     }
 
     private func BuildVisibleDeclarationFiles(compilationUnits: IReadOnlyDictionary<string, CompilationUnit>) {
-        sourceFileKeys := compilationUnits.get_Keys()
+        sourceFileKeys := compilationUnits.Keys
         keySelector: Func<string, string> = path => Path.GetFullPath(path)
         valueSelector: Func<string, string> = path => path
         sourceFileByFullPath := Enumerable.ToDictionary<string, string, string>(sourceFileKeys, keySelector, valueSelector, StringComparer.OrdinalIgnoreCase)

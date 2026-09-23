@@ -921,7 +921,7 @@ class AnalyzerExpressionStatements {
             // estate's spelling for a `MemberInfo` name on the columnar surface.
             reflected := method.Method
             if HasMustUseAttribute(reflected) {
-                return "'" + reflected.get_Name() + "' is marked [MustUse]"
+                return "'" + reflected.Name + "' is marked [MustUse]"
             }
 
             return null
@@ -969,7 +969,7 @@ class AnalyzerExpressionStatements {
         }
 
         first := methods[0]
-        return "'" + first.get_Name() + "' is marked [MustUse]"
+        return "'" + first.Name + "' is marked [MustUse]"
     }
 
     // The CLR side of the same question, read off the reflected method's own attribute data. Both
@@ -980,7 +980,7 @@ class AnalyzerExpressionStatements {
         count := SequenceCount(attributes)
         index := 0
         while index < count {
-            attributeType := attributes.get_Item(index).get_AttributeType()
+            attributeType := attributes.get_Item(index).AttributeType
             if NominalTypeInfoFactory.IsMustUseAttributeName(attributeType.Name) {
                 return true
             }

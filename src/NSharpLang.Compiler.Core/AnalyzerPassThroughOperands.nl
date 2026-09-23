@@ -795,13 +795,13 @@ class AnalyzerPassThroughOperands {
             return false
         }
 
-        awaiterType := getAwaiterMethod.get_ReturnType()
+        awaiterType := getAwaiterMethod.ReturnType
         getResultMethod := awaiterType.GetMethod("GetResult", flags, null, noParameters, null)
         if getResultMethod == null {
             return false
         }
 
-        returnType := getResultMethod.get_ReturnType()
+        returnType := getResultMethod.ReturnType
         if returnType == AnalyzerReflectionArgumentBinder.LiveVoidType() {
             resultType = BuiltInTypes.Void
             return true

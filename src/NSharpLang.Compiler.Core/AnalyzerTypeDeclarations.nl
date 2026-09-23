@@ -1423,7 +1423,7 @@ class AnalyzerTypeDeclarations {
         events := clrType.GetEvents(flags)
         found := false
         for candidate in events {
-            if candidate.get_Name() == name {
+            if candidate.Name == name {
                 found = true
                 if IsOverridablePropertyAccessor(candidate.GetAddMethod(true)) {
                     return 1
@@ -1692,7 +1692,7 @@ class AnalyzerTypeDeclarations {
             index := 0
             while index < properties.Length {
                 property := properties[index]
-                if property.get_Name() == name {
+                if property.Name == name {
                     getter := property.GetGetMethod(true)
                     if getter != null {
                         return InheritedMethodAccessibilityLevel(getter, IsFriendOfDeclaringAssembly(grants, getter))
@@ -1716,7 +1716,7 @@ class AnalyzerTypeDeclarations {
         index := 0
         while index < methods.Length {
             method := methods[index]
-            if method.get_Name() == name && !method.get_IsSpecialName() && method.get_IsVirtual() && !method.get_IsFinal() {
+            if method.Name == name && !method.IsSpecialName && method.IsVirtual && !method.IsFinal {
                 return InheritedMethodAccessibilityLevel(method, IsFriendOfDeclaringAssembly(grants, method))
             }
 
@@ -1787,23 +1787,23 @@ class AnalyzerTypeDeclarations {
     // ECMA-335's `MemberAccess` ordering, which is the order the loader itself compares in: 1 private,
     // 2 private protected, 3 internal, 4 protected, 5 protected internal, 6 public.
     static func MethodAccessibilityLevel(method: MethodInfo): int {
-        if method.get_IsPublic() {
+        if method.IsPublic {
             return 6
         }
 
-        if method.get_IsFamilyOrAssembly() {
+        if method.IsFamilyOrAssembly {
             return 5
         }
 
-        if method.get_IsFamily() {
+        if method.IsFamily {
             return 4
         }
 
-        if method.get_IsAssembly() {
+        if method.IsAssembly {
             return 3
         }
 
-        if method.get_IsFamilyAndAssembly() {
+        if method.IsFamilyAndAssembly {
             return 2
         }
 
@@ -2042,7 +2042,7 @@ class AnalyzerTypeDeclarations {
         }
 
         clrType := reflectionType.Type
-        return clrType.get_IsClass() && !clrType.get_IsInterface() && !clrType.get_IsValueType()
+        return clrType.IsClass && !clrType.IsInterface && !clrType.IsValueType
     }
 
     // `class Derived : Base` WHERE `Base` IS `sealed` WAS ACCEPTED IN SILENCE AND THE WHOLE PROJECT
@@ -2121,11 +2121,11 @@ class AnalyzerTypeDeclarations {
         // A struct, an enum or a delegate in the base slot is a different fault with a different
         // sentence; every one of them is sealed in metadata, and calling them "a sealed class" would
         // name the wrong thing. Only reference types answer here.
-        if clrType.get_IsInterface() || clrType.get_IsValueType() || !clrType.get_IsSealed() {
+        if clrType.IsInterface || clrType.IsValueType || !clrType.IsSealed {
             return ""
         }
 
-        if clrType.get_IsAbstract() {
+        if clrType.IsAbstract {
             return "static class"
         }
 
@@ -2275,9 +2275,9 @@ class AnalyzerTypeDeclarations {
         methods := clrType.GetMethods(flags)
         found := false
         for method in methods {
-            if method.get_Name() == name && !method.get_IsSpecialName() {
+            if method.Name == name && !method.IsSpecialName {
                 found = true
-                if method.get_IsVirtual() && !method.get_IsFinal() {
+                if method.IsVirtual && !method.IsFinal {
                     return 1
                 }
             }
@@ -2434,7 +2434,7 @@ class AnalyzerTypeDeclarations {
 
         reflectionType := opened as ReflectionTypeInfo
         if reflectionType != null {
-            return reflectionType.Type.get_IsInterface()
+            return reflectionType.Type.IsInterface
         }
 
         return false
@@ -2586,15 +2586,15 @@ class AnalyzerTypeDeclarations {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         methods := clrType.GetMethods(flags)
         for method in methods {
-            if !method.get_IsSpecialName() && !method.get_IsAbstract() {
-                suppliedFunctions.Add(method.get_Name())
+            if !method.IsSpecialName && !method.IsAbstract {
+                suppliedFunctions.Add(method.Name)
             }
         }
 
         properties := clrType.GetProperties(flags)
         for property in properties {
             if !IsAbstractPropertyAccessor(property.GetGetMethod(true)) && !IsAbstractPropertyAccessor(property.GetSetMethod(true)) {
-                suppliedValues.Add(property.get_Name())
+                suppliedValues.Add(property.Name)
             }
         }
 
@@ -2602,7 +2602,7 @@ class AnalyzerTypeDeclarations {
         events := clrType.GetEvents(flags)
         for eventMember in events {
             if !IsAbstractPropertyAccessor(eventMember.GetAddMethod(true)) && !IsAbstractPropertyAccessor(eventMember.GetRemoveMethod(true)) {
-                suppliedValues.Add(eventMember.get_Name())
+                suppliedValues.Add(eventMember.Name)
             }
         }
     }
@@ -2721,9 +2721,9 @@ class AnalyzerTypeDeclarations {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         methods := clrType.GetMethods(flags)
         for method in methods {
-            if !method.get_IsSpecialName() && method.get_IsAbstract() {
-                if suppliedFunctions.Add(method.get_Name()) {
-                    missing.Add(method.get_Name())
+            if !method.IsSpecialName && method.IsAbstract {
+                if suppliedFunctions.Add(method.Name) {
+                    missing.Add(method.Name)
                 }
             }
         }
@@ -2731,8 +2731,8 @@ class AnalyzerTypeDeclarations {
         properties := clrType.GetProperties(flags)
         for property in properties {
             if IsAbstractPropertyAccessor(property.GetGetMethod(true)) || IsAbstractPropertyAccessor(property.GetSetMethod(true)) {
-                if suppliedValues.Add(property.get_Name()) {
-                    missing.Add(property.get_Name())
+                if suppliedValues.Add(property.Name) {
+                    missing.Add(property.Name)
                 }
             }
         }
@@ -2743,8 +2743,8 @@ class AnalyzerTypeDeclarations {
         events := clrType.GetEvents(flags)
         for eventMember in events {
             if IsAbstractPropertyAccessor(eventMember.GetAddMethod(true)) || IsAbstractPropertyAccessor(eventMember.GetRemoveMethod(true)) {
-                if suppliedValues.Add(eventMember.get_Name()) {
-                    missing.Add(eventMember.get_Name())
+                if suppliedValues.Add(eventMember.Name) {
+                    missing.Add(eventMember.Name)
                 }
             }
         }
@@ -2969,9 +2969,9 @@ class AnalyzerTypeDeclarations {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         methods := clrType.GetMethods(flags)
         for method in methods {
-            if !method.get_IsSpecialName() && method.get_IsAbstract() {
-                if seenFunctions.Add(method.get_Name()) {
-                    missing.Add(method.get_Name())
+            if !method.IsSpecialName && method.IsAbstract {
+                if seenFunctions.Add(method.Name) {
+                    missing.Add(method.Name)
                 }
             }
         }
@@ -2979,8 +2979,8 @@ class AnalyzerTypeDeclarations {
         properties := clrType.GetProperties(flags)
         for property in properties {
             if IsAbstractPropertyAccessor(property.GetGetMethod(true)) || IsAbstractPropertyAccessor(property.GetSetMethod(true)) {
-                if seenProperties.Add(property.get_Name()) {
-                    missing.Add(property.get_Name())
+                if seenProperties.Add(property.Name) {
+                    missing.Add(property.Name)
                 }
             }
         }
@@ -2992,8 +2992,8 @@ class AnalyzerTypeDeclarations {
         events := clrType.GetEvents(flags)
         for eventMember in events {
             if IsAbstractPropertyAccessor(eventMember.GetAddMethod(true)) || IsAbstractPropertyAccessor(eventMember.GetRemoveMethod(true)) {
-                if seenEvents.Add(eventMember.get_Name()) {
-                    missing.Add(eventMember.get_Name())
+                if seenEvents.Add(eventMember.Name) {
+                    missing.Add(eventMember.Name)
                 }
             }
         }
@@ -3004,7 +3004,7 @@ class AnalyzerTypeDeclarations {
             return false
         }
 
-        return accessor.get_IsAbstract()
+        return accessor.IsAbstract
     }
 
     // THE SENTENCE COUNTS, because "does not implement 3 inherited abstract members" followed by the
@@ -3111,7 +3111,7 @@ class AnalyzerTypeDeclarations {
         properties := clrType.GetProperties(flags)
         found := false
         for property in properties {
-            if property.get_Name() == name {
+            if property.Name == name {
                 found = true
                 if IsOverridablePropertyAccessor(property.GetGetMethod(true)) {
                     return 1
@@ -3137,7 +3137,7 @@ class AnalyzerTypeDeclarations {
             return false
         }
 
-        return accessor.get_IsVirtual() && !accessor.get_IsFinal()
+        return accessor.IsVirtual && !accessor.IsFinal
     }
 
     // THE IMPLICIT ROOT, FOR PROPERTIES. `object` declares no properties at all, so a source chain that

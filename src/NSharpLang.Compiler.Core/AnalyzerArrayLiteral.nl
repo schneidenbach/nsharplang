@@ -306,7 +306,7 @@ class AnalyzerArrayLiteral {
         }
 
         reflectionType := resolvedExpectedType as ReflectionTypeInfo
-        if reflectionType != null && reflectionType.Type.get_IsArray() {
+        if reflectionType != null && reflectionType.Type.IsArray {
             reflectedElement := reflectionType.Type.GetElementType()
             if reflectedElement != null {
                 elementType = AnalyzerReflectionTypeConversion.ConvertReflectionType(reflectedElement)
@@ -377,7 +377,7 @@ class AnalyzerArrayLiteral {
             return false
         }
 
-        if targetType.get_IsArray() {
+        if targetType.IsArray {
             return true
         }
 
@@ -386,7 +386,7 @@ class AnalyzerArrayLiteral {
             return false
         }
 
-        if !targetType.get_IsInterface() && !targetType.get_IsAbstract() {
+        if !targetType.IsInterface && !targetType.IsAbstract {
             return HasSingleEnumerableConstructor(targetType, elementType) || (HasParameterlessConstructor(targetType) && HasCollectionExpressionMutator(targetType, elementType))
         }
 
@@ -403,7 +403,7 @@ class AnalyzerArrayLiteral {
     // `int[]` answer `int` rather than whichever `IEnumerable<T>` it happens to implement first.
     static func TryGetReflectionCollectionExpressionElementType(candidate: Type, out elementType: Type): bool {
         elementType = typeof(object)
-        if candidate.get_IsArray() {
+        if candidate.IsArray {
             arrayElement := candidate.GetElementType()
             if arrayElement != null {
                 elementType = arrayElement
@@ -432,7 +432,7 @@ class AnalyzerArrayLiteral {
     // moves on.
     static func TryReadSequenceElementType(candidate: Type, out elementType: Type): bool {
         elementType = typeof(object)
-        if !candidate.get_IsGenericType() {
+        if !candidate.IsGenericType {
             return false
         }
 
@@ -468,7 +468,7 @@ class AnalyzerArrayLiteral {
             parameters := constructor.GetParameters()
             if parameters.Length == 1 {
                 parameter := parameters[0]
-                parameterType := parameter.get_ParameterType()
+                parameterType := parameter.ParameterType
                 if IsGenericDefinition(parameterType, "System.Collections.Generic.IEnumerable`1") && AnalyzerConversionFacts.IsReflectionAssignableFrom(parameterType, ConstructEnumerableOf(elementType)) {
                     return true
                 }
@@ -486,13 +486,13 @@ class AnalyzerArrayLiteral {
         flags := BindingFlags.Public | BindingFlags.Instance
         methods := targetType.GetMethods(flags)
         for method in methods {
-            name := method.get_Name()
+            name := method.Name
             if name == "Add" || name == "Enqueue" {
                 parameters := method.GetParameters()
                 if parameters.Length == 1 {
                     parameter := parameters[0]
-                    parameterType := parameter.get_ParameterType()
-                    if elementType.get_IsValueType() {
+                    parameterType := parameter.ParameterType
+                    if elementType.IsValueType {
                         if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(parameterType, elementType) {
                             return true
                         }
@@ -507,7 +507,7 @@ class AnalyzerArrayLiteral {
     }
 
     static func IsSupportedCollectionExpressionInterfaceTarget(targetType: Type): bool {
-        if !targetType.get_IsInterface() {
+        if !targetType.IsInterface {
             return false
         }
 
@@ -528,11 +528,11 @@ class AnalyzerArrayLiteral {
     }
 
     static func GetGenericDefinitionFullName(candidate: Type): string? {
-        if !candidate.get_IsGenericType() {
+        if !candidate.IsGenericType {
             return null
         }
 
-        return candidate.GetGenericTypeDefinition().get_FullName()
+        return candidate.GetGenericTypeDefinition().FullName
     }
 
     static func IsAssignableFromConstructed(targetType: Type, definition: Type, elementType: Type): bool {

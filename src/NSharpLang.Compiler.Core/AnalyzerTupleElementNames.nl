@@ -42,9 +42,9 @@ class AnalyzerTupleElementNames {
         index := 0
         while index < count {
             attribute := attributes.get_Item(index)
-            attributeType := attribute.get_AttributeType()
+            attributeType := attribute.AttributeType
             if attributeType.FullName == "System.Runtime.CompilerServices.TupleElementNamesAttribute" {
-                constructorArguments := attribute.get_ConstructorArguments()
+                constructorArguments := attribute.ConstructorArguments
                 if NullabilityMetadataReflection.SequenceCount(constructorArguments) == 1 {
                     return ReadStringArrayArgument(constructorArguments.get_Item(0))
                 }

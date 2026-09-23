@@ -69,21 +69,21 @@ class AnalyzerOpenTypeSpecificity {
             return AnalyzerOverloadSpecificity.NeitherIsBetter
         }
 
-        leftIsTypeParameter := left.get_IsGenericParameter()
-        rightIsTypeParameter := right.get_IsGenericParameter()
+        leftIsTypeParameter := left.IsGenericParameter
+        rightIsTypeParameter := right.IsGenericParameter
         if leftIsTypeParameter || rightIsTypeParameter {
             return CompareTypeParameterSpecificity(leftIsTypeParameter, rightIsTypeParameter)
         }
 
-        if left.get_IsArray() || right.get_IsArray() {
-            if !left.get_IsArray() || !right.get_IsArray() || left.GetArrayRank() != right.GetArrayRank() {
+        if left.IsArray || right.IsArray {
+            if !left.IsArray || !right.IsArray || left.GetArrayRank() != right.GetArrayRank() {
                 return AnalyzerOverloadSpecificity.NeitherIsBetter
             }
 
             return CompareReflectionTypes(left.GetElementType(), right.GetElementType())
         }
 
-        if !left.get_IsGenericType() || !right.get_IsGenericType() {
+        if !left.IsGenericType || !right.IsGenericType {
             return AnalyzerOverloadSpecificity.NeitherIsBetter
         }
 

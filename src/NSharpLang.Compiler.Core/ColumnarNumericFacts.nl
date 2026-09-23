@@ -33,7 +33,7 @@ class ColumnarNumericFacts {
 
         isEnum := false
         try {
-            isEnum = t.get_IsEnum()
+            isEnum = t.IsEnum
         } catch ex: NotSupportedException {
             return false
         } catch ex: NotImplementedException {

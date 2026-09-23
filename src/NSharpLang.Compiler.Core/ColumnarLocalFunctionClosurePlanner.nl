@@ -209,9 +209,9 @@ class ColumnarLocalFunctionClosurePlanner {
             walkFields := walk.Fields
             walkProperties := walk.Properties
             walkMethods := walk.Methods
-            names.UnionWith(walkFields.get_Keys())
-            names.UnionWith(walkProperties.get_Keys())
-            names.UnionWith(walkMethods.get_Keys())
+            names.UnionWith(walkFields.Keys)
+            names.UnionWith(walkProperties.Keys)
+            names.UnionWith(walkMethods.Keys)
             walk = walk.BaseDef
         }
         return names

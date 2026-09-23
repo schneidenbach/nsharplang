@@ -325,7 +325,7 @@ class AnalyzerWriteTargets {
         }
 
         reflectionType := candidate as ReflectionTypeInfo
-        return reflectionType != null && reflectionType.Type.get_IsArray()
+        return reflectionType != null && reflectionType.Type.IsArray
     }
 
     func ReportUnsupportedArraySliceMutation(indexAccess: IndexAccessExpression, action: string) {
@@ -548,7 +548,7 @@ class AnalyzerWriteTargets {
         }
 
         reflectedType := reflected.Type
-        if IsTypeBuilder(reflectedType) || reflectedType.get_IsGenericTypeDefinition() {
+        if IsTypeBuilder(reflectedType) || reflectedType.IsGenericTypeDefinition {
             return false
         }
 
@@ -570,33 +570,33 @@ class AnalyzerWriteTargets {
             declaredType := current
             fields := declaredType.GetFields(flags)
             for field in fields {
-                if field.get_Name() == memberName {
+                if field.Name == memberName {
                     return false
                 }
             }
 
             properties := declaredType.GetProperties(flags)
             for property in properties {
-                if property.get_Name() == memberName {
+                if property.Name == memberName {
                     return property.GetSetMethod(false) == null
                 }
             }
 
             methods := declaredType.GetMethods(flags)
             for method in methods {
-                if !method.get_IsSpecialName() && method.get_Name() == memberName {
+                if !method.IsSpecialName && method.Name == memberName {
                     return false
                 }
             }
 
             events := declaredType.GetEvents(flags)
             for declaredEvent in events {
-                if declaredEvent.get_Name() == memberName {
+                if declaredEvent.Name == memberName {
                     return false
                 }
             }
 
-            current = declaredType.get_BaseType()
+            current = declaredType.BaseType
         }
 
         return false
@@ -771,7 +771,7 @@ class AnalyzerWriteTargets {
         }
 
         reflectedType := reflected.Type
-        if reflectedType.get_IsGenericTypeDefinition() || IsTypeBuilder(reflectedType) {
+        if reflectedType.IsGenericTypeDefinition || IsTypeBuilder(reflectedType) {
             return false
         }
 
@@ -789,12 +789,12 @@ class AnalyzerWriteTargets {
             declaredType := current
             properties := declaredType.GetProperties(flags)
             for property in properties {
-                if property.get_Name() == memberName {
+                if property.Name == memberName {
                     if !PropertySetterIsInitOnly(property) {
                         return false
                     }
 
-                    resolvedMemberName = property.get_Name()
+                    resolvedMemberName = property.Name
                     return true
                 }
             }
@@ -803,7 +803,7 @@ class AnalyzerWriteTargets {
                 return false
             }
 
-            current = declaredType.get_BaseType()
+            current = declaredType.BaseType
         }
 
         return false
@@ -815,7 +815,7 @@ class AnalyzerWriteTargets {
             return false
         }
 
-        modifiers := setter.get_ReturnParameter().GetRequiredCustomModifiers()
+        modifiers := setter.ReturnParameter.GetRequiredCustomModifiers()
         for modifier in modifiers {
             if modifier.FullName == "System.Runtime.CompilerServices.IsExternalInit" {
                 return true
@@ -858,20 +858,20 @@ class AnalyzerWriteTargets {
             if TypeCarriesRequiredMemberAttribute(declaredType) {
                 properties := declaredType.GetProperties(flags)
                 for property in properties {
-                    if MemberCarriesRequiredMemberAttribute(property.GetCustomAttributesData()) && !names.Contains(property.get_Name()) {
-                        names.Add(property.get_Name())
+                    if MemberCarriesRequiredMemberAttribute(property.GetCustomAttributesData()) && !names.Contains(property.Name) {
+                        names.Add(property.Name)
                     }
                 }
 
                 fields := declaredType.GetFields(flags)
                 for field in fields {
-                    if MemberCarriesRequiredMemberAttribute(field.GetCustomAttributesData()) && !names.Contains(field.get_Name()) {
-                        names.Add(field.get_Name())
+                    if MemberCarriesRequiredMemberAttribute(field.GetCustomAttributesData()) && !names.Contains(field.Name) {
+                        names.Add(field.Name)
                     }
                 }
             }
 
-            current = declaredType.get_BaseType()
+            current = declaredType.BaseType
         }
 
         return names
@@ -883,7 +883,7 @@ class AnalyzerWriteTargets {
 
     static func MemberCarriesRequiredMemberAttribute(attributes: IList<CustomAttributeData>): bool {
         for attribute in attributes {
-            attributeType := attribute.get_AttributeType()
+            attributeType := attribute.AttributeType
             if attributeType.FullName == "System.Runtime.CompilerServices.RequiredMemberAttribute" {
                 return true
             }
@@ -894,7 +894,7 @@ class AnalyzerWriteTargets {
 
     static func ConstructorCarriesSetsRequiredMembers(attributes: IList<CustomAttributeData>): bool {
         for attribute in attributes {
-            attributeType := attribute.get_AttributeType()
+            attributeType := attribute.AttributeType
             if attributeType.FullName == "System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute" {
                 return true
             }
@@ -1338,7 +1338,7 @@ class AnalyzerWriteTargets {
         }
 
         reflectedType := reflected.Type
-        if reflectedType.get_IsGenericTypeDefinition() || IsTypeBuilder(reflectedType) {
+        if reflectedType.IsGenericTypeDefinition || IsTypeBuilder(reflectedType) {
             return false
         }
 
@@ -1371,7 +1371,7 @@ class AnalyzerWriteTargets {
         }
 
         reflectedType := reflected.Type
-        if reflectedType.get_IsGenericTypeDefinition() || IsTypeBuilder(reflectedType) {
+        if reflectedType.IsGenericTypeDefinition || IsTypeBuilder(reflectedType) {
             return false
         }
 
@@ -1387,12 +1387,12 @@ class AnalyzerWriteTargets {
             declaredType := current
             fields := declaredType.GetFields(flags)
             for field in fields {
-                if field.get_Name() == fieldName {
-                    if !field.get_IsInitOnly() {
+                if field.Name == fieldName {
+                    if !field.IsInitOnly {
                         return false
                     }
 
-                    resolvedFieldName = field.get_Name()
+                    resolvedFieldName = field.Name
                     return true
                 }
             }
@@ -1401,7 +1401,7 @@ class AnalyzerWriteTargets {
                 return false
             }
 
-            current = declaredType.get_BaseType()
+            current = declaredType.BaseType
         }
 
         return false
@@ -1418,13 +1418,13 @@ class AnalyzerWriteTargets {
             declaredType := current
             fields := declaredType.GetFields(flags)
             for field in fields {
-                if field.get_Name() == fieldName {
-                    if !field.get_IsInitOnly() && !field.get_IsLiteral() {
+                if field.Name == fieldName {
+                    if !field.IsInitOnly && !field.IsLiteral {
                         return false
                     }
 
-                    resolvedFieldName = field.get_Name()
-                    isConst = field.get_IsLiteral()
+                    resolvedFieldName = field.Name
+                    isConst = field.IsLiteral
                     return true
                 }
             }
@@ -1433,7 +1433,7 @@ class AnalyzerWriteTargets {
                 return false
             }
 
-            current = declaredType.get_BaseType()
+            current = declaredType.BaseType
         }
 
         return false
@@ -1444,21 +1444,21 @@ class AnalyzerWriteTargets {
     static func ReflectionMemberNameIsClaimed(declaredType: Type, memberName: string, flags: BindingFlags): bool {
         properties := declaredType.GetProperties(flags)
         for property in properties {
-            if property.get_Name() == memberName {
+            if property.Name == memberName {
                 return true
             }
         }
 
         methods := declaredType.GetMethods(flags)
         for method in methods {
-            if !method.get_IsSpecialName() && method.get_Name() == memberName {
+            if !method.IsSpecialName && method.Name == memberName {
                 return true
             }
         }
 
         events := declaredType.GetEvents(flags)
         for declaredEvent in events {
-            if declaredEvent.get_Name() == memberName {
+            if declaredEvent.Name == memberName {
                 return true
             }
         }
@@ -1519,7 +1519,7 @@ class AnalyzerWriteTargets {
         }
 
         reflectedType := reflected.Type
-        if IsTypeBuilder(reflectedType) || reflectedType.get_IsGenericTypeDefinition() {
+        if IsTypeBuilder(reflectedType) || reflectedType.IsGenericTypeDefinition {
             return false
         }
 
@@ -1537,7 +1537,7 @@ class AnalyzerWriteTargets {
             declaredType := current
             fields := declaredType.GetFields(flags)
             for field in fields {
-                if field.get_Name() == memberName {
+                if field.Name == memberName {
                     return true
                 }
             }
@@ -1546,7 +1546,7 @@ class AnalyzerWriteTargets {
                 return false
             }
 
-            current = declaredType.get_BaseType()
+            current = declaredType.BaseType
         }
 
         return false
@@ -1667,7 +1667,7 @@ class AnalyzerWriteTargets {
 
         resolvedReceiverType := declarationContextValue.ResolveDeclaredAlias(NonNullableType(receiverType))
         reflectedReceiver := resolvedReceiverType as ReflectionTypeInfo
-        isArrayReceiver := resolvedReceiverType as ArrayTypeInfo != null || (reflectedReceiver != null && reflectedReceiver.Type.get_IsArray())
+        isArrayReceiver := resolvedReceiverType as ArrayTypeInfo != null || (reflectedReceiver != null && reflectedReceiver.Type.IsArray)
         if !isArrayReceiver {
             return false
         }
@@ -1724,7 +1724,7 @@ class AnalyzerWriteTargets {
         }
 
         reflectedType := reflected.Type
-        if IsTypeBuilder(reflectedType) || reflectedType.get_IsGenericTypeDefinition() {
+        if IsTypeBuilder(reflectedType) || reflectedType.IsGenericTypeDefinition {
             return false
         }
 
@@ -1742,7 +1742,7 @@ class AnalyzerWriteTargets {
             declaredType := current
             fields := declaredType.GetFields(flags)
             for field in fields {
-                if field.get_Name() == memberName {
+                if field.Name == memberName {
                     return true
                 }
             }
@@ -1751,7 +1751,7 @@ class AnalyzerWriteTargets {
                 return false
             }
 
-            current = declaredType.get_BaseType()
+            current = declaredType.BaseType
         }
 
         return false
@@ -1795,17 +1795,17 @@ class AnalyzerWriteTargets {
     // AN EMITTED TYPE HAS NO MEMBERS TO READ YET. `TypeBuilder` is identified by name rather than by a
     // type test, because a `TypeBuilder` receiver is exactly the shape whose members are not built.
     static func IsTypeBuilder(candidate: Type): bool {
-        return candidate.get_FullName() == "System.Reflection.Emit.TypeBuilder" || IsTypeBuilderSubclass(candidate)
+        return candidate.FullName == "System.Reflection.Emit.TypeBuilder" || IsTypeBuilderSubclass(candidate)
     }
 
     static func IsTypeBuilderSubclass(candidate: Type): bool {
-        current := candidate.get_BaseType()
+        current := candidate.BaseType
         while current != null {
-            if current.get_FullName() == "System.Reflection.Emit.TypeBuilder" {
+            if current.FullName == "System.Reflection.Emit.TypeBuilder" {
                 return true
             }
 
-            current = current.get_BaseType()
+            current = current.BaseType
         }
 
         return false

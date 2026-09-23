@@ -82,7 +82,7 @@ class ExternalConversionSelection {
             return ""
         }
 
-        owner := method.get_DeclaringType()
+        owner := method.DeclaringType
         ownerText := "?"
         if owner != null {
             ownerText = ExternalUserDefinedConversions.TypeText(owner)
@@ -91,13 +91,13 @@ class ExternalConversionSelection {
         parameters := method.GetParameters()
         parameterText := "?"
         if parameters.Length == 1 {
-            parameterType := parameters[0].get_ParameterType()
+            parameterType := parameters[0].ParameterType
             if parameterType != null {
                 parameterText = ExternalUserDefinedConversions.TypeText(parameterType)
             }
         }
 
-        return ownerText + "." + method.get_Name() + "(" + parameterText + ")"
+        return ownerText + "." + method.Name + "(" + parameterText + ")"
     }
 
     SelectedText: string => OperatorText(Method)
@@ -122,7 +122,7 @@ class ExternalUserDefinedConversions {
     // arguments written out. Metadata only — no N# keyword table is consulted, because this text is
     // for a diagnostic rather than for resolution.
     static func TypeText(candidate: Type): string {
-        if candidate.get_IsArray() {
+        if candidate.IsArray {
             elementType := candidate.GetElementType()
             if elementType != null {
                 return TypeText(elementType) + "[]"
@@ -132,7 +132,7 @@ class ExternalUserDefinedConversions {
         // A primitive is spelled the way the PROGRAM spells it — `float`, not `Single` — so the two
         // halves of the diagnostic read as one sentence. The table is the analyzer's own, keyed on
         // metadata name, so it is exact under a MetadataLoadContext too.
-        builtIn := AnalyzerReflectionTypeConversion.ConvertBuiltInReflectionType(candidate.get_FullName())
+        builtIn := AnalyzerReflectionTypeConversion.ConvertBuiltInReflectionType(candidate.FullName)
         if builtIn != null {
             boxed := builtIn as object
             rendered := boxed.ToString()
@@ -141,7 +141,7 @@ class ExternalUserDefinedConversions {
             }
         }
 
-        name := candidate.get_Name()
+        name := candidate.Name
         tick := name.IndexOf('`')
         if tick < 0 {
             return name
@@ -184,7 +184,7 @@ class ExternalUserDefinedConversions {
             return ExternalConversionSelection.NoConversion()
         }
 
-        if sourceType.get_IsByRef() || targetType.get_IsByRef() || sourceType.get_IsPointer() || targetType.get_IsPointer() {
+        if sourceType.IsByRef || targetType.IsByRef || sourceType.IsPointer || targetType.IsPointer {
             return ExternalConversionSelection.NoConversion()
         }
 
@@ -230,7 +230,7 @@ class ExternalUserDefinedConversions {
         index = 0
         while index < applicable.Count {
             candidate := applicable[index]
-            if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(ParameterTypeOf(candidate), mostSpecificSource) && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(candidate.get_ReturnType(), mostSpecificTarget) {
+            if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(ParameterTypeOf(candidate), mostSpecificSource) && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(candidate.ReturnType, mostSpecificTarget) {
                 spanning.Add(candidate)
             }
 
@@ -258,7 +258,7 @@ class ExternalUserDefinedConversions {
             methods := DeclaredPublicStaticMethodsOrNull(owner)
             if methods != null {
                 for method in methods {
-                    name := method.get_Name()
+                    name := method.Name
                     if name == "op_Implicit" || name == "op_Explicit" {
                         return true
                     }
@@ -307,7 +307,7 @@ class ExternalUserDefinedConversions {
             return null
         }
 
-        if owner.get_IsGenericParameter() || owner.get_ContainsGenericParameters() {
+        if owner.IsGenericParameter || owner.ContainsGenericParameters {
             return null
         }
 
@@ -324,25 +324,25 @@ class ExternalUserDefinedConversions {
 
     static func BaseTypeOrNull(owner: Type): Type? {
         try {
-            return owner.get_BaseType()
+            return owner.BaseType
         } catch {
             return null
         }
     }
 
     static func IsConversionOperator(method: MethodInfo, allowExplicit: bool): bool {
-        if !method.get_IsStatic() || !method.get_IsPublic() || !method.get_IsSpecialName() {
+        if !method.IsStatic || !method.IsPublic || !method.IsSpecialName {
             return false
         }
 
-        name := method.get_Name()
+        name := method.Name
         if name != "op_Implicit" {
             if !allowExplicit || name != "op_Explicit" {
                 return false
             }
         }
 
-        if method.get_IsGenericMethodDefinition() || method.get_IsGenericMethod() {
+        if method.IsGenericMethodDefinition || method.IsGenericMethod {
             return false
         }
 
@@ -351,13 +351,13 @@ class ExternalUserDefinedConversions {
             return false
         }
 
-        parameterType := parameters[0].get_ParameterType()
-        if parameterType == null || parameterType.get_IsByRef() || parameterType.get_IsPointer() {
+        parameterType := parameters[0].ParameterType
+        if parameterType == null || parameterType.IsByRef || parameterType.IsPointer {
             return false
         }
 
-        returnType := method.get_ReturnType()
-        if returnType == null || returnType.get_IsByRef() || returnType.get_IsPointer() || returnType.get_FullName() == "System.Void" {
+        returnType := method.ReturnType
+        if returnType == null || returnType.IsByRef || returnType.IsPointer || returnType.FullName == "System.Void" {
             return false
         }
 
@@ -369,7 +369,7 @@ class ExternalUserDefinedConversions {
     // the signature the operator IS rather than on the handle it arrived in.
     static func AlreadyPresent(candidates: List<MethodInfo>, method: MethodInfo): bool {
         for existing in candidates {
-            if existing.get_Name() == method.get_Name() && SameDeclaration(existing, method) {
+            if existing.Name == method.Name && SameDeclaration(existing, method) {
                 return true
             }
         }
@@ -378,8 +378,8 @@ class ExternalUserDefinedConversions {
     }
 
     static func SameDeclaration(left: MethodInfo, right: MethodInfo): bool {
-        leftOwner := left.get_DeclaringType()
-        rightOwner := right.get_DeclaringType()
+        leftOwner := left.DeclaringType
+        rightOwner := right.DeclaringType
         if leftOwner == null || rightOwner == null {
             return false
         }
@@ -388,7 +388,7 @@ class ExternalUserDefinedConversions {
             return false
         }
 
-        return TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(ParameterTypeOf(left), ParameterTypeOf(right)) && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(left.get_ReturnType(), right.get_ReturnType())
+        return TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(ParameterTypeOf(left), ParameterTypeOf(right)) && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(left.ReturnType, right.ReturnType)
     }
 
     static func ParameterTypeOf(method: MethodInfo): Type {
@@ -397,7 +397,7 @@ class ExternalUserDefinedConversions {
             throw new InvalidOperationException("A conversion operator candidate has exactly one parameter.")
         }
 
-        parameterType := parameters[0].get_ParameterType()
+        parameterType := parameters[0].ParameterType
         if parameterType == null {
             throw new InvalidOperationException("A conversion operator parameter cannot be untyped.")
         }
@@ -410,7 +410,7 @@ class ExternalUserDefinedConversions {
     // what lets a cast narrow on the way in and on the way out.
     static func IsApplicable(candidate: MethodInfo, sourceType: Type, targetType: Type, allowExplicit: bool): bool {
         parameterType := ParameterTypeOf(candidate)
-        returnType := candidate.get_ReturnType()
+        returnType := candidate.ReturnType
 
         if !StandardConversionExists(sourceType, parameterType) {
             if !allowExplicit || !StandardConversionExists(parameterType, sourceType) {
@@ -475,7 +475,7 @@ class ExternalUserDefinedConversions {
         returnTypes := new List<Type>()
         index := 0
         while index < applicable.Count {
-            returnType := applicable[index].get_ReturnType()
+            returnType := applicable[index].ReturnType
             if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(returnType, targetType) {
                 mostSpecific = targetType
                 return true
@@ -594,8 +594,8 @@ class ExternalUserDefinedConversions {
     }
 
     static func IsImplicitNumericConversion(fromType: Type, toType: Type): bool {
-        fromCode := AnalyzerConversionFacts.ClrNumericCode(fromType.get_FullName())
-        toCode := AnalyzerConversionFacts.ClrNumericCode(toType.get_FullName())
+        fromCode := AnalyzerConversionFacts.ClrNumericCode(fromType.FullName)
+        toCode := AnalyzerConversionFacts.ClrNumericCode(toType.FullName)
         return AnalyzerConversionFacts.IsNumericWidening(fromCode, toCode)
     }
 
@@ -603,7 +603,7 @@ class ExternalUserDefinedConversions {
     // come from a MetadataLoadContext where the projected `System.Nullable´1` is not the runtime's,
     // and `Nullable.GetUnderlyingType` would answer null for every one of them.
     static func NullableUnderlyingTypeOrNull(candidate: Type): Type? {
-        if !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
+        if !candidate.IsGenericType || candidate.IsGenericTypeDefinition {
             return null
         }
 
@@ -614,7 +614,7 @@ class ExternalUserDefinedConversions {
             return null
         }
 
-        if definition == null || definition.get_FullName() != NullableDefinitionFullName() {
+        if definition == null || definition.FullName != NullableDefinitionFullName() {
             return null
         }
 

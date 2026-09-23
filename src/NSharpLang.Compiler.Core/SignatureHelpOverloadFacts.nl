@@ -272,7 +272,7 @@ class SignatureHelpOverloadFacts {
 
         methods := clrType.GetMethods(CompletionReflectionFacts.GetReflectionBindingFlags(filter))
         for method in methods {
-            if CompletionReflectionFacts.IsOfferableMethod(method) && method.get_Name() == methodName {
+            if CompletionReflectionFacts.IsOfferableMethod(method) && method.Name == methodName {
                 overloads.Add(ClrMethodOverload(method))
             }
         }
@@ -282,7 +282,7 @@ class SignatureHelpOverloadFacts {
 
     static func ClrMethodOverload(method: MethodInfo): SignatureHelpOverload {
         parameterLabels := ClrParameterLabels(method.GetParameters())
-        return new SignatureHelpOverload(FormatLabel(method.get_Name(), parameterLabels, CompletionTypeTextFacts.FormatClrTypeText(method.get_ReturnType())), null, parameterLabels)
+        return new SignatureHelpOverload(FormatLabel(method.Name, parameterLabels, CompletionTypeTextFacts.FormatClrTypeText(method.ReturnType)), null, parameterLabels)
     }
 
     static func ClrConstructorOverload(clrType: Type, constructor: ConstructorInfo): SignatureHelpOverload {
@@ -293,8 +293,8 @@ class SignatureHelpOverloadFacts {
     static func ClrParameterLabels(parameters: ParameterInfo[]): List<string> {
         labels := new List<string>()
         for parameter in parameters {
-            name := parameter.get_Name() ?? "arg"
-            labels.Add(name + ": " + CompletionTypeTextFacts.FormatClrTypeText(parameter.get_ParameterType()))
+            name := parameter.Name ?? "arg"
+            labels.Add(name + ": " + CompletionTypeTextFacts.FormatClrTypeText(parameter.ParameterType))
         }
 
         return labels
@@ -303,7 +303,7 @@ class SignatureHelpOverloadFacts {
     // A CONSTRUCTED TYPE'S REFLECTED NAME CARRIES ITS ARITY (`List\`1`), which no caller wrote and
     // no reader wants to read back. The backtick and everything after it goes.
     static func ClrTypeSimpleName(clrType: Type): string {
-        name := clrType.get_Name()
+        name := clrType.Name
         tick := name.IndexOf('`')
         if tick < 0 {
             return name

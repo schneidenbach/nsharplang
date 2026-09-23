@@ -91,7 +91,7 @@ class ColumnarStoreTargetPlanner {
         field := selection.Field
         setter: MethodInfo? = null
         if selection.Kind == ColumnarInstanceMemberKind.Field {
-            if field == null || field.get_IsInitOnly() || field.get_IsLiteral() {
+            if field == null || field.IsInitOnly || field.IsLiteral {
                 declineReason = "'" + memberName + "' is read-only and cannot be assigned"
                 return false
             }
@@ -122,7 +122,7 @@ class ColumnarStoreTargetPlanner {
 
         setterParameters := new Type[](1)
         setterParameters[0] = selection.ResultType
-        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethodWithSignature(setter, selection.DeclaringType, setterParameters, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.get_IsAbstract()))
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethodWithSignature(setter, selection.DeclaringType, setterParameters, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.IsAbstract))
         return true
     }
 
@@ -216,7 +216,7 @@ class ColumnarStoreTargetPlanner {
         if receiverType == null {
             return false
         }
-        return !receiverType.get_IsValueType() && !receiverType.get_IsByRef() && !receiverType.get_IsPointer() && !receiverType.get_IsGenericParameter() && !receiverType.get_IsArray()
+        return !receiverType.IsValueType && !receiverType.IsByRef && !receiverType.IsPointer && !receiverType.IsGenericParameter && !receiverType.IsArray
     }
 
     // The `set_X` paired with the `get_X` the read owner selected, taken from the SAME declaring type

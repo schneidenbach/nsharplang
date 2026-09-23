@@ -59,7 +59,7 @@ class DocQueryTypeIndex {
     // lookup name (the full name with nesting flattened to dots and the arity stripped), and its
     // raw full name where that differs. A type is reachable by any of them and by nothing else.
     func AddAssembly(assembly: Assembly) {
-        assemblyName := assembly.GetName().get_Name() ?? assembly.get_FullName()
+        assemblyName := assembly.GetName().Name ?? assembly.FullName
         if assemblyName == null {
             return
         }
@@ -75,10 +75,10 @@ class DocQueryTypeIndex {
         assemblies.Add(assembly)
 
         for candidateType in GetPublicTypes(assembly) {
-            AddTypeIndex(typesBySimpleName, DocQueryKernels.StripGenericArity(candidateType.get_Name()), candidateType)
+            AddTypeIndex(typesBySimpleName, DocQueryKernels.StripGenericArity(candidateType.Name), candidateType)
             AddTypeIndex(typesByQualifiedName, DocQueryKernels.GetReflectionLookupTypeName(candidateType), candidateType)
 
-            qualifiedName := DocQueryKernels.GetQualifiedTypeIndexName(candidateType.get_FullName())
+            qualifiedName := DocQueryKernels.GetQualifiedTypeIndexName(candidateType.FullName)
             if qualifiedName != null {
                 AddTypeIndex(typesByQualifiedName, qualifiedName, candidateType)
             }
@@ -90,7 +90,7 @@ class DocQueryTypeIndex {
     static func GetPublicTypes(assembly: Assembly): List<Type> {
         results := new List<Type>()
         for candidateType in assembly.GetTypes() {
-            if DocQueryKernels.ShouldIncludePublicType(candidateType.get_IsPublic(), candidateType.get_IsNestedPublic()) {
+            if DocQueryKernels.ShouldIncludePublicType(candidateType.IsPublic, candidateType.IsNestedPublic) {
                 results.Add(candidateType)
             }
         }
@@ -193,7 +193,7 @@ class DocQueryTypeIndex {
             nestedIndex := 0
             while nestedIndex < nestedTypes.Length && next == null {
                 nestedType := nestedTypes[nestedIndex]
-                if DocQueryKernels.IsDocMemberNameMatch(nestedType.get_Name(), part) {
+                if DocQueryKernels.IsDocMemberNameMatch(nestedType.Name, part) {
                     next = nestedType
                 }
 
@@ -233,7 +233,7 @@ class DocQueryTypeIndex {
         assemblyIndex := 0
         while assemblyIndex < assemblies.Count {
             indexedAssembly := assemblies[assemblyIndex]
-            locations[assemblyIndex + 1] = indexedAssembly.get_Location()
+            locations[assemblyIndex + 1] = indexedAssembly.Location
             assemblyIndex = assemblyIndex + 1
         }
 
@@ -291,6 +291,6 @@ class DocQueryTypeIndex {
     // reference pack. The assembly's METADATA name is passed as well as its path, because a
     // single-file or in-memory assembly has no path to derive it from.
     func GetXmlDocPath(assembly: Assembly): string {
-        return DocQueryKernels.GetXmlDocPath(assembly.get_Location(), assembly.GetName().get_Name(), GetReferencePackDirectories())
+        return DocQueryKernels.GetXmlDocPath(assembly.Location, assembly.GetName().Name, GetReferencePackDirectories())
     }
 }

@@ -249,11 +249,11 @@ class ExplicitInterfaceMemberFacts {
     // shows. A nested type is joined with `.` rather than reflection's `+`, because that is the name a
     // C# consumer writes and the name Roslyn emits.
     static func RuntimeInterfaceDisplayName(interfaceType: Type): string {
-        if interfaceType.get_IsGenericParameter() {
-            return interfaceType.get_Name()
+        if interfaceType.IsGenericParameter {
+            return interfaceType.Name
         }
 
-        if !interfaceType.get_IsGenericType() {
+        if !interfaceType.IsGenericType {
             return NonGenericDisplayName(interfaceType)
         }
 
@@ -276,14 +276,14 @@ class ExplicitInterfaceMemberFacts {
     }
 
     static func NonGenericDisplayName(interfaceType: Type): string {
-        fullName := interfaceType.get_FullName()
+        fullName := interfaceType.FullName
         if fullName == null || fullName.Length == 0 {
-            namespaceName := interfaceType.get_Namespace()
+            namespaceName := interfaceType.Namespace
             if namespaceName == null || namespaceName.Length == 0 {
-                return interfaceType.get_Name()
+                return interfaceType.Name
             }
 
-            return namespaceName + "." + interfaceType.get_Name()
+            return namespaceName + "." + interfaceType.Name
         }
 
         return fullName.Replace('+', '.')
@@ -291,18 +291,18 @@ class ExplicitInterfaceMemberFacts {
 
     // The open name with reflection's arity suffix removed: `IEnumerable`1` is written `IEnumerable`.
     static func GenericOpenDisplayName(interfaceType: Type): string {
-        name := interfaceType.get_Name()
+        name := interfaceType.Name
         tick := name.IndexOf('`')
         if tick >= 0 {
             name = name.Substring(0, tick)
         }
 
-        declaring := interfaceType.get_DeclaringType()
+        declaring := interfaceType.DeclaringType
         if declaring != null {
             return RuntimeInterfaceDisplayName(declaring) + "." + name
         }
 
-        namespaceName := interfaceType.get_Namespace()
+        namespaceName := interfaceType.Namespace
         if namespaceName == null || namespaceName.Length == 0 {
             return name
         }

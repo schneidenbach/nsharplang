@@ -76,7 +76,7 @@ class AnalyzerReflectionTypeOverride {
     // The answer for one position. Never null: an override that has nothing to say still answers the
     // plain conversion, which is exactly what the C# lambdas this replaces did.
     func Answer(clrType: Type): TypeInfo {
-        if boundValue && !hasTypeInfoOverridesValue && !clrType.get_ContainsGenericParameters() {
+        if boundValue && !hasTypeInfoOverridesValue && !clrType.ContainsGenericParameters {
             bindings := clrBindingsValue
             if bindings == null {
                 return AnalyzerReflectionTypeConversion.ConvertReflectionType(clrType)
@@ -94,19 +94,19 @@ class AnalyzerReflectionTypeConversion {
 
     // The plain conversion. Total: every `Type` answers, with `ReflectionTypeInfo` as the catch-all.
     static func ConvertReflectionType(clrType: Type): TypeInfo {
-        builtIn := ConvertBuiltInReflectionType(clrType.get_FullName())
+        builtIn := ConvertBuiltInReflectionType(clrType.FullName)
         if builtIn != null {
             return builtIn
         }
 
-        if clrType.get_IsByRef() {
+        if clrType.IsByRef {
             byRefElement := clrType.GetElementType()
             if byRefElement != null {
                 return ConvertReflectionType(byRefElement)
             }
         }
 
-        if clrType.get_IsArray() {
+        if clrType.IsArray {
             arrayElement := clrType.GetElementType()
             if arrayElement != null {
                 array: TypeInfo = new ArrayTypeInfo(ConvertReflectionType(arrayElement))
@@ -114,7 +114,7 @@ class AnalyzerReflectionTypeConversion {
             }
         }
 
-        if clrType.get_IsGenericType() {
+        if clrType.IsGenericType {
             arguments := clrType.GetGenericArguments()
             if IsReflectedNullable(clrType, arguments.Length) {
                 lifted: TypeInfo = new NullableTypeInfo(ConvertReflectionType(arguments[0]))
@@ -149,7 +149,7 @@ class AnalyzerReflectionTypeConversion {
             return ConvertReflectionType(clrType)
         }
 
-        if clrType.get_IsGenericParameter() {
+        if clrType.IsGenericParameter {
             overridden: TypeInfo? = null
             if typeInfoOverrides.TryGetValue(clrType, out overridden) {
                 if overridden != null {
@@ -167,14 +167,14 @@ class AnalyzerReflectionTypeConversion {
             }
         }
 
-        if clrType.get_IsByRef() {
+        if clrType.IsByRef {
             byRefElement := clrType.GetElementType()
             if byRefElement != null {
                 return ConvertReflectionTypeWithOverrides(byRefElement, typeInfoOverrides, clrBindings)
             }
         }
 
-        if clrType.get_IsArray() {
+        if clrType.IsArray {
             arrayElement := clrType.GetElementType()
             if arrayElement != null {
                 array: TypeInfo = new ArrayTypeInfo(ConvertReflectionTypeWithOverrides(arrayElement, typeInfoOverrides, clrBindings))
@@ -182,7 +182,7 @@ class AnalyzerReflectionTypeConversion {
             }
         }
 
-        if clrType.get_IsGenericType() {
+        if clrType.IsGenericType {
             arguments := clrType.GetGenericArguments()
             if IsReflectedNullable(clrType, arguments.Length) {
                 lifted: TypeInfo = new NullableTypeInfo(ConvertReflectionTypeWithOverrides(arguments[0], typeInfoOverrides, clrBindings))
@@ -221,7 +221,7 @@ class AnalyzerReflectionTypeConversion {
     // than a TypeInfo. An unchanged composition answers the ORIGINAL instance rather than a
     // reconstructed equal one, which keeps reference identity where nothing was substituted.
     static func ApplyReflectionBindings(clrType: Type, bindings: Dictionary<Type, Type>): Type {
-        if clrType.get_IsGenericParameter() {
+        if clrType.IsGenericParameter {
             bound: Type? = null
             if bindings.TryGetValue(clrType, out bound) {
                 if bound != null {
@@ -230,7 +230,7 @@ class AnalyzerReflectionTypeConversion {
             }
         }
 
-        if clrType.get_IsByRef() {
+        if clrType.IsByRef {
             byRefElement := clrType.GetElementType()
             if byRefElement != null {
                 appliedElement := ApplyReflectionBindings(byRefElement, bindings)
@@ -238,7 +238,7 @@ class AnalyzerReflectionTypeConversion {
             }
         }
 
-        if clrType.get_IsArray() {
+        if clrType.IsArray {
             arrayElement := clrType.GetElementType()
             if arrayElement != null {
                 appliedElement := ApplyReflectionBindings(arrayElement, bindings)
@@ -250,7 +250,7 @@ class AnalyzerReflectionTypeConversion {
             }
         }
 
-        if !clrType.get_IsGenericType() {
+        if !clrType.IsGenericType {
             return clrType
         }
 

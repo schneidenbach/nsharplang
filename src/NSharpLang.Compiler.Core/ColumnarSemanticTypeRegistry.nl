@@ -29,14 +29,14 @@ class ColumnarSemanticTypeRegistryBridge {
     // parameter is owned by such an owner, which is the same answer a non-generic `Program` holder
     // gave when one was materialized just to ask this question.
     static func IsValidSynthesizedMethodSignatureType(valueType: Type, declaringType: TypeBuilder?): bool {
-        if valueType.get_IsGenericParameter() {
+        if valueType.IsGenericParameter {
             return IsTypeParameterOwnedByType(valueType, declaringType)
         }
-        if valueType.get_HasElementType() {
+        if valueType.HasElementType {
             elementType := valueType.GetElementType()
             return elementType != null && IsValidSynthesizedMethodSignatureType(elementType, declaringType)
         }
-        if !valueType.get_IsGenericType() {
+        if !valueType.IsGenericType {
             return true
         }
         for argument in valueType.GetGenericArguments() {
@@ -54,10 +54,10 @@ class ColumnarSemanticTypeRegistryBridge {
         if declaringType == null {
             return false
         }
-        if !valueType.get_IsGenericParameter() || valueType.get_DeclaringMethod() != null {
+        if !valueType.IsGenericParameter || valueType.DeclaringMethod != null {
             return false
         }
-        position := valueType.get_GenericParameterPosition()
+        position := valueType.GenericParameterPosition
         declared := declaringType.GetGenericArguments()
         return position >= 0 && position < declared.Length && declared[position].Name == valueType.Name
     }
@@ -197,7 +197,7 @@ class ColumnarExactTypeResolver {
                         // the original spelling; a competing file-level short name must not
                         // replace a lexically selected nested declaration.
                         sourceType := typeof(object)
-                        if exactSourceTypes.TryGetValue(exactSourceName, out sourceType) && !sourceType.get_IsGenericTypeDefinition() {
+                        if exactSourceTypes.TryGetValue(exactSourceName, out sourceType) && !sourceType.IsGenericTypeDefinition {
                             selected = structuralTypeReferences.SelectSourceDefinition(exactSourceName, sourceType)
                             resolved = true
                         } else {
@@ -234,7 +234,7 @@ class ColumnarExactTypeResolver {
         if ContainsSourceDefinitionIdentity(valueType) {
             return true
         }
-        return valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && ContainsSourceDefinitionIdentity(valueType.GetGenericTypeDefinition())
+        return valueType.IsGenericType && !valueType.IsGenericTypeDefinition && ContainsSourceDefinitionIdentity(valueType.GetGenericTypeDefinition())
     }
 
     func ContainsSourceDefinitionIdentity(valueType: Type): bool {
@@ -405,10 +405,10 @@ class ColumnarExactTypeResolver {
     // to the retained support predicate; every other value is a canonical routed back through
     // the retained resolver's existing family-specific admissibility predicates.
     func RuntimeGenericValidationCanonical(valueType: Type): string? {
-        if !valueType.get_IsGenericType() || IsSourceDefinition(valueType) {
+        if !valueType.IsGenericType || IsSourceDefinition(valueType) {
             return null
         }
-        if valueType.get_IsGenericTypeDefinition() {
+        if valueType.IsGenericTypeDefinition {
             return ""
         }
         definition := valueType.GetGenericTypeDefinition()
@@ -442,8 +442,8 @@ class ColumnarExactTypeResolver {
             canonical = primitiveCanonical
             return true
         }
-        if valueType.get_IsGenericParameter() {
-            canonical = valueType.get_Name()
+        if valueType.IsGenericParameter {
+            canonical = valueType.Name
             return true
         }
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
@@ -460,7 +460,7 @@ class ColumnarExactTypeResolver {
         }
         sourceType := valueType
         sourceArguments := new Type[](0)
-        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && IsSourceDefinition(valueType) {
+        if valueType.IsGenericType && !valueType.IsGenericTypeDefinition && IsSourceDefinition(valueType) {
             sourceType = valueType.GetGenericTypeDefinition()
             sourceArguments = valueType.GetGenericArguments()
         }
@@ -492,7 +492,7 @@ class ColumnarExactTypeResolver {
             canonical = nested
             return canonical.Length > 0
         }
-        fullName := valueType.get_FullName()
+        fullName := valueType.FullName
         if fullName == null || fullName.Length == 0 {
             return false
         }
@@ -551,10 +551,10 @@ class ColumnarExactTypeResolver {
 
     func TryBuildExactRuntimeGenericCanonical(valueType: Type, out canonical: string): bool {
         canonical = ""
-        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+        if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
             return false
         }
-        definitionName := valueType.GetGenericTypeDefinition().get_FullName()
+        definitionName := valueType.GetGenericTypeDefinition().FullName
         if definitionName == null || definitionName.Length == 0 {
             return false
         }
@@ -645,12 +645,12 @@ class ColumnarExactTypeResolver {
     }
 
     static func RuntimeDefinitionMatches(definition: Type, fullName: string, assemblyName: string): bool {
-        if definition.get_FullName() != fullName {
+        if definition.FullName != fullName {
             return false
         }
-        assembly := definition.get_Assembly()
+        assembly := definition.Assembly
         identity := assembly.GetName()
-        return identity.get_Name() == assemblyName
+        return identity.Name == assemblyName
     }
 
     static func IsModeledRuntimeGenericHeadName(name: string): bool {
@@ -1054,7 +1054,7 @@ class ColumnarSemanticDefinitionIndex<TDefinition> {
 
     func TryGetUniqueRuntime(valueType: Type, out definition: TDefinition): bool {
         lookupType := valueType
-        if lookupType.get_IsGenericType() && !lookupType.get_IsGenericTypeDefinition() {
+        if lookupType.IsGenericType && !lookupType.IsGenericTypeDefinition {
             lookupType = lookupType.GetGenericTypeDefinition()
         }
         found := uniqueRuntimeDefinitions.TryGetValue(lookupType, out definition)
@@ -1063,7 +1063,7 @@ class ColumnarSemanticDefinitionIndex<TDefinition> {
 
     func ContainsUniqueRuntime(valueType: Type): bool {
         lookupType := valueType
-        if lookupType.get_IsGenericType() && !lookupType.get_IsGenericTypeDefinition() {
+        if lookupType.IsGenericType && !lookupType.IsGenericTypeDefinition {
             lookupType = lookupType.GetGenericTypeDefinition()
         }
         return !ambiguousRuntimeTypes.Contains(lookupType) && uniqueRuntimeDefinitions.ContainsKey(lookupType)

@@ -116,7 +116,7 @@ class ColumnarBoundIdentifierPlanner {
 
         if hasOrdinal {
             parameterType := bindings.ParameterTypes[name]
-            if parameterType == null || !parameterType.get_IsByRef() {
+            if parameterType == null || !parameterType.IsByRef {
                 return true
             }
             // A byref parameter claims exactly when its element rides the typed-ldind deref
@@ -216,7 +216,7 @@ class ColumnarBoundIdentifierPlanner {
             plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), firstFieldIndex)
             valueFieldIndex := plan.AddFieldWithSignature(
                 RequiredField(selection.ValueField, "Boxed-capture selection has no value field."),
-                boxField.get_FieldType(),
+                boxField.FieldType,
                 selection.ResultType,
                 false
             )
@@ -242,7 +242,7 @@ class ColumnarBoundIdentifierPlanner {
 
             capturedDeclaringType := RequiredType(selection.DeclaringType, "Captured-instance-property selection has no exact declaring type.")
 
-            capturedMethodIndex := plan.AddMethodWithSignature(capturedGetter, capturedDeclaringType, new Type[](0), selection.ResultType, false, capturedGetter.get_IsAbstract())
+            capturedMethodIndex := plan.AddMethodWithSignature(capturedGetter, capturedDeclaringType, new Type[](0), selection.ResultType, false, capturedGetter.IsAbstract)
 
             plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), capturedMethodIndex)
         } else if selection.Kind == ColumnarBoundIdentifierKind.LiftedLocal {
@@ -252,7 +252,7 @@ class ColumnarBoundIdentifierPlanner {
             boxLocal := RequiredLocal(selection.Local, "Lifted selection has no box local.")
             valueFieldIndex := plan.AddFieldWithSignature(
                 RequiredField(selection.ValueField, "Lifted selection has no value field."),
-                boxLocal.get_LocalType(),
+                boxLocal.LocalType,
                 selection.ResultType,
                 false
             )
@@ -306,7 +306,7 @@ class ColumnarBoundIdentifierPlanner {
 
             declaringType := RequiredType(selection.DeclaringType, "Current-property selection has no exact declaring type.")
 
-            methodIndex := plan.AddMethodWithSignature(getter, declaringType, new Type[](0), selection.ResultType, false, getter.get_IsAbstract())
+            methodIndex := plan.AddMethodWithSignature(getter, declaringType, new Type[](0), selection.ResultType, false, getter.IsAbstract)
 
             if selection.CurrentInstanceIsAddress {
                 plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
@@ -434,7 +434,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        fieldType = field.get_FieldType()
+        fieldType = field.FieldType
         return true
     }
 
@@ -503,7 +503,7 @@ class ColumnarBoundIdentifierPlanner {
             throw new InvalidOperationException("Member-receiver parameter facts are invalid.")
         }
 
-        if !parameterType.get_IsByRef() {
+        if !parameterType.IsByRef {
             return false
         }
 
@@ -540,7 +540,7 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         resultType = selection.ResultType
-        return resultType != null && resultType.FullName != "System.Void" && !resultType.get_IsByRef() && !resultType.get_IsGenericTypeDefinition()
+        return resultType != null && resultType.FullName != "System.Void" && !resultType.IsByRef && !resultType.IsGenericTypeDefinition
     }
 
     // Append a simple receiver. When preserveValueStorage is true, an ordinary source-struct
@@ -560,7 +560,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        if preserveValueStorage && resultType.get_IsValueType() {
+        if preserveValueStorage && resultType.IsValueType {
             if !directStorage {
                 return false
             }
@@ -607,7 +607,7 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         if byRefParameter {
-            if resultType.get_IsValueType() {
+            if resultType.IsValueType {
                 return false
             }
 
@@ -691,11 +691,11 @@ class ColumnarBoundIdentifierPlanner {
         if !explicitThis {
             if bindings.Locals.ContainsKey(name) {
                 local := bindings.Locals[name]
-                if local == null || local.get_LocalType() == null {
+                if local == null || local.LocalType == null {
                     return false
                 }
 
-                localType := local.get_LocalType()
+                localType := local.LocalType
                 RequireStorableValueType(localType, "A by-reference local must have a storable type.")
 
                 localIndex := plan.AddAmbientLocal(local)
@@ -707,7 +707,7 @@ class ColumnarBoundIdentifierPlanner {
 
             if bindings.ParameterOrdinals.ContainsKey(name) && bindings.ParameterTypes.ContainsKey(name) {
                 parameterType := bindings.ParameterTypes[name]
-                if parameterType.get_IsByRef() {
+                if parameterType.IsByRef {
                     byRefElement := parameterType.GetElementType()
                     if byRefElement == null {
                         return false
@@ -743,7 +743,7 @@ class ColumnarBoundIdentifierPlanner {
             staticFieldOwner: ColumnarStructDef? = null
             staticField: FieldBuilder? = null
             if TryFindEnclosingStaticField(bindings, name, out staticFieldOwner, out staticField) && staticField != null {
-                staticFieldType := staticField.get_FieldType()
+                staticFieldType := staticField.FieldType
                 RequireStorableValueType(staticFieldType, "A by-reference static field must have a storable type.")
 
                 plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), ColumnarSourceStaticMemberPlanner.AddStaticField(plan, staticFieldOwner, staticField))
@@ -847,12 +847,12 @@ class ColumnarBoundIdentifierPlanner {
                 throw new InvalidOperationException("Captured-instance-field facts cannot be null.")
             }
 
-            displayType := receiverField.get_DeclaringType()
-            if displayType == null || displayType.get_IsValueType() || receiverField.get_IsStatic() || memberField.get_IsStatic() {
+            displayType := receiverField.DeclaringType
+            if displayType == null || displayType.IsValueType || receiverField.IsStatic || memberField.IsStatic {
                 throw new InvalidOperationException("Captured-instance-field facts do not identify an exact instance receiver and member.")
             }
 
-            memberType := memberField.get_FieldType()
+            memberType := memberField.FieldType
             RequireStorableValueType(memberType, "Captured-instance-field facts must identify a readable member value.")
 
             capturedReceiverChain := new FieldInfo[](1)
@@ -874,12 +874,12 @@ class ColumnarBoundIdentifierPlanner {
                 throw new InvalidOperationException("Boxed-capture facts cannot be null.")
             }
 
-            currentInstanceType := boxField.get_DeclaringType()
-            if currentInstanceType == null || currentInstanceType.get_IsValueType() || boxField.get_IsStatic() {
+            currentInstanceType := boxField.DeclaringType
+            if currentInstanceType == null || currentInstanceType.IsValueType || boxField.IsStatic {
                 throw new InvalidOperationException("Boxed-capture facts do not identify an exact current-instance field.")
             }
 
-            valueField := ResolveStrongBoxValueField(boxField.get_FieldType(), valueType)
+            valueField := ResolveStrongBoxValueField(boxField.FieldType, valueType)
             selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BoxedCapture, valueType, -1, -1, null, boxField, valueField, null, null, currentInstanceType, false)
 
             return true
@@ -901,7 +901,7 @@ class ColumnarBoundIdentifierPlanner {
                 throw new InvalidOperationException("A lifted parameter must preserve its declared value type.")
             }
 
-            valueField := ResolveStrongBoxValueField(boxLocal.get_LocalType(), valueType)
+            valueField := ResolveStrongBoxValueField(boxLocal.LocalType, valueType)
             selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.LiftedLocal, valueType, -1, -1, boxLocal, null, valueField, null, null, null, false)
 
             return true
@@ -913,11 +913,11 @@ class ColumnarBoundIdentifierPlanner {
             }
 
             local := bindings.Locals[name]
-            if local == null || local.get_LocalType() == null {
+            if local == null || local.LocalType == null {
                 throw new InvalidOperationException("Ordinary-local facts must identify a storable local.")
             }
 
-            localType := local.get_LocalType()
+            localType := local.LocalType
             RequireStorableValueType(localType, "Ordinary-local facts must identify a storable local.")
 
             selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.Local, localType, -1, -1, local, null, null, null, null, null, false)
@@ -936,7 +936,7 @@ class ColumnarBoundIdentifierPlanner {
             // the selection carries the ELEMENT type as its result and the argument slot stays an
             // address-of-T fact. Elements outside the table (structs, enums, nullables, generic
             // parameters) decline so the legacy Ldobj deref arm serves them whole-subtree.
-            if parameterType.get_IsByRef() {
+            if parameterType.IsByRef {
                 elementType := parameterType.GetElementType()
                 if elementType == null {
                     throw new InvalidOperationException("A by-reference parameter has no element type.")
@@ -1023,7 +1023,7 @@ class ColumnarBoundIdentifierPlanner {
             field: FieldInfo? = null
             declaringType := typeof(object)
             if ColumnarCurrentInstanceFacts.TryFindField(baseFacts, name, out field, out declaringType) {
-                if field == null || field.get_IsStatic() {
+                if field == null || field.IsStatic {
                     throw new InvalidOperationException("Base-instance field facts do not identify exact instance storage.")
                 }
 
@@ -1034,7 +1034,7 @@ class ColumnarBoundIdentifierPlanner {
                     selectedDeclaringType = baseType
                 }
 
-                fieldType := selectedField.get_FieldType()
+                fieldType := selectedField.FieldType
                 RequireStorableValueType(fieldType, "Base-instance field facts must identify a storable value type.")
 
                 selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BaseField, fieldType, 0, -1, null, selectedField, null, null, selectedDeclaringType, receiverType, false)
@@ -1045,11 +1045,11 @@ class ColumnarBoundIdentifierPlanner {
             getter: MethodInfo? = null
             propertyType := typeof(object)
             if ColumnarCurrentInstanceFacts.TryFindProperty(baseFacts, name, out getter, out propertyType, out declaringType) {
-                if getter == null || propertyType == null || getter.get_IsStatic() {
+                if getter == null || propertyType == null || getter.IsStatic {
                     throw new InvalidOperationException("Base-instance property facts do not identify an exact getter.")
                 }
 
-                if getter.get_IsAbstract() {
+                if getter.IsAbstract {
                     return false
                 }
 
@@ -1104,7 +1104,7 @@ class ColumnarBoundIdentifierPlanner {
 
         if runtimeSelection.IsField {
             runtimeField := runtimeSelection.Field
-            if runtimeField == null || runtimeField.get_IsStatic() {
+            if runtimeField == null || runtimeField.IsStatic {
                 return false
             }
 
@@ -1114,7 +1114,7 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         runtimeGetter := runtimeSelection.Getter
-        if runtimeGetter == null || runtimeGetter.get_IsAbstract() {
+        if runtimeGetter == null || runtimeGetter.IsAbstract {
             return false
         }
 
@@ -1171,7 +1171,7 @@ class ColumnarBoundIdentifierPlanner {
                 throw new InvalidOperationException("A display that names an enclosing scope must hold that scope's captured receiver.")
             }
 
-            receiverType := capturedReceiverField.get_FieldType()
+            receiverType := capturedReceiverField.FieldType
             enclosingScopeType: Type = enclosingDefinition.Builder
             if receiverType == null || receiverType != enclosingScopeType {
                 throw new InvalidOperationException("A display's captured receiver must be typed by the scope it was captured from.")
@@ -1222,11 +1222,11 @@ class ColumnarBoundIdentifierPlanner {
         field: FieldInfo? = null
         declaringType := typeof(object)
         if ColumnarCurrentInstanceFacts.TryFindField(levelFacts, name, out field, out declaringType) {
-            if field == null || field.get_IsStatic() || field.get_DeclaringType() != declaringType {
+            if field == null || field.IsStatic || field.DeclaringType != declaringType {
                 throw new InvalidOperationException("Captured enclosing-instance field facts do not identify exact instance storage.")
             }
 
-            fieldType := field.get_FieldType()
+            fieldType := field.FieldType
             RequireStorableValueType(fieldType, "Captured enclosing-instance field facts must identify a storable value type.")
 
             selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, fieldType, -1, -1, null, receiverChain[0], field, null, declaringType, displayType, false, receiverChain)
@@ -1237,7 +1237,7 @@ class ColumnarBoundIdentifierPlanner {
         getter: MethodInfo? = null
         propertyType := typeof(object)
         if ColumnarCurrentInstanceFacts.TryFindProperty(levelFacts, name, out getter, out propertyType, out declaringType) {
-            if getter == null || propertyType == null || getter.get_IsStatic() || getter.get_DeclaringType() != declaringType || getter.get_ReturnType() != propertyType {
+            if getter == null || propertyType == null || getter.IsStatic || getter.DeclaringType != declaringType || getter.ReturnType != propertyType {
                 throw new InvalidOperationException("Captured enclosing-instance property facts do not identify an exact getter.")
             }
 
@@ -1284,14 +1284,14 @@ class ColumnarBoundIdentifierPlanner {
 
         rootType := root.ExactType
         receiverType := OpenCurrentInstanceType(rootType)
-        if rootType.get_IsValueType() == root.IsReference {
+        if rootType.IsValueType == root.IsReference {
             throw new InvalidOperationException("Current-instance facts do not match their exact source type.")
         }
 
         field: FieldInfo? = null
         declaringType := typeof(object)
         if ColumnarCurrentInstanceFacts.TryFindField(root, name, out field, out declaringType) {
-            if field == null || field.get_IsStatic() || field.get_DeclaringType() != declaringType {
+            if field == null || field.IsStatic || field.DeclaringType != declaringType {
                 throw new InvalidOperationException("Current-instance field facts do not identify exact instance storage.")
             }
 
@@ -1302,7 +1302,7 @@ class ColumnarBoundIdentifierPlanner {
                 selectedDeclaringType = receiverType
             }
 
-            fieldType := selectedField.get_FieldType()
+            fieldType := selectedField.FieldType
             RequireStorableValueType(fieldType, "Current-instance field facts must identify a storable value type.")
 
             selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CurrentField, fieldType, 0, -1, null, selectedField, null, null, selectedDeclaringType, receiverType, !root.IsReference)
@@ -1313,7 +1313,7 @@ class ColumnarBoundIdentifierPlanner {
         getter: MethodInfo? = null
         propertyType := typeof(object)
         if ColumnarCurrentInstanceFacts.TryFindProperty(root, name, out getter, out propertyType, out declaringType) {
-            if getter == null || propertyType == null || getter.get_IsStatic() || getter.get_DeclaringType() != declaringType || getter.get_ReturnType() != propertyType {
+            if getter == null || propertyType == null || getter.IsStatic || getter.DeclaringType != declaringType || getter.ReturnType != propertyType {
                 throw new InvalidOperationException("Current-instance property facts do not identify an exact getter.")
             }
 
@@ -1350,7 +1350,7 @@ class ColumnarBoundIdentifierPlanner {
     }
 
     static func ResolveStrongBoxValueField(boxType: Type, valueType: Type): FieldInfo {
-        if boxType == null || valueType == null || valueType.FullName == "System.Void" || valueType.get_IsByRef() || valueType.get_IsGenericTypeDefinition() || !boxType.get_IsGenericType() || boxType.get_IsGenericTypeDefinition() {
+        if boxType == null || valueType == null || valueType.FullName == "System.Void" || valueType.IsByRef || valueType.IsGenericTypeDefinition || !boxType.IsGenericType || boxType.IsGenericTypeDefinition {
             throw new InvalidOperationException("Lifted binding facts must identify a closed StrongBox value type.")
         }
 
@@ -1372,7 +1372,7 @@ class ColumnarBoundIdentifierPlanner {
             return rebound
         }
         valueField := boxType.GetField("Value")
-        if valueField == null || valueField.get_IsStatic() || valueField.get_DeclaringType() != boxType || valueField.get_FieldType() != valueType {
+        if valueField == null || valueField.IsStatic || valueField.DeclaringType != boxType || valueField.FieldType != valueType {
             throw new InvalidOperationException("Lifted binding storage has no exact StrongBox<T>.Value field.")
         }
 
@@ -1380,7 +1380,7 @@ class ColumnarBoundIdentifierPlanner {
     }
 
     static func RequireStorableValueType(valueType: Type, message: string) {
-        if valueType == null || valueType.FullName == "System.Void" || valueType.get_IsByRef() || valueType.get_IsGenericTypeDefinition() {
+        if valueType == null || valueType.FullName == "System.Void" || valueType.IsByRef || valueType.IsGenericTypeDefinition {
             throw new InvalidOperationException(message)
         }
     }
@@ -1413,7 +1413,7 @@ class ColumnarBoundIdentifierPlanner {
             opcodeValue = ColumnarCodePlanContract.LdindR4()
         } else if elementType == typeof(double) {
             opcodeValue = ColumnarCodePlanContract.LdindR8()
-        } else if !elementType.get_IsValueType() && !elementType.get_IsGenericParameter() && !elementType.get_IsByRef() && !elementType.get_IsGenericTypeDefinition() && elementType.FullName != "System.Void" {
+        } else if !elementType.IsValueType && !elementType.IsGenericParameter && !elementType.IsByRef && !elementType.IsGenericTypeDefinition && elementType.FullName != "System.Void" {
             opcodeValue = ColumnarCodePlanContract.LdindRef()
         } else {
             return false
@@ -1465,7 +1465,7 @@ class ColumnarBoundIdentifierPlanner {
     }
 
     static func OpenCurrentInstanceType(rootType: Type): Type {
-        if !rootType.get_IsGenericTypeDefinition() {
+        if !rootType.IsGenericTypeDefinition {
             return rootType
         }
 

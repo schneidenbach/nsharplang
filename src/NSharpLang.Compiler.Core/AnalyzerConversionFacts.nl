@@ -123,7 +123,7 @@ class AnalyzerConversionFacts {
 
         reflectionType := candidate as ReflectionTypeInfo
         if reflectionType != null {
-            return !reflectionType.Type.get_IsValueType()
+            return !reflectionType.Type.IsValueType
         }
 
         return false
@@ -176,11 +176,11 @@ class AnalyzerConversionFacts {
         reflectionType := candidate as ReflectionTypeInfo
         if reflectionType != null {
             clrType := reflectionType.Type
-            if clrType.get_IsGenericParameter() || clrType.get_IsGenericType() {
+            if clrType.IsGenericParameter || clrType.IsGenericType {
                 return false
             }
 
-            return clrType.get_IsValueType()
+            return clrType.IsValueType
         }
 
         return false
@@ -240,11 +240,11 @@ class AnalyzerConversionFacts {
         reflectionType := candidate as ReflectionTypeInfo
         if reflectionType != null {
             clrType := reflectionType.Type
-            if clrType.get_IsGenericParameter() {
+            if clrType.IsGenericParameter {
                 return false
             }
 
-            return !clrType.get_IsValueType()
+            return !clrType.IsValueType
         }
 
         return false
@@ -311,13 +311,13 @@ class AnalyzerConversionFacts {
             }
         }
 
-        baseType := sourceType.get_BaseType()
+        baseType := sourceType.BaseType
         while baseType != null {
             if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(targetType, baseType) {
                 return true
             }
 
-            baseType = baseType.get_BaseType()
+            baseType = baseType.BaseType
         }
 
         return false

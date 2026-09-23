@@ -622,7 +622,7 @@ class AnalyzerMemberAccess {
     func IsLiftedValueReceiver(innerType: TypeInfo): bool {
         clrInnerType := clrTypeConversionValue.TryConvertTypeInfoToClrType(innerType)
         if clrInnerType != null {
-            return clrInnerType.get_IsValueType()
+            return clrInnerType.IsValueType
         }
 
         // A TYPE PARAMETER IS A VALUE WHEN ITS OWN `where` CLAUSE SAYS SO, and it has no CLR handle to
@@ -671,13 +671,13 @@ class AnalyzerMemberAccess {
         declaredFlags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly
         properties := definition.GetProperties(declaredFlags)
         for property in properties {
-            names.Add(property.get_Name())
+            names.Add(property.Name)
         }
 
         methods := definition.GetMethods(declaredFlags)
         for method in methods {
-            if includeAccessors || !method.get_IsSpecialName() {
-                names.Add(method.get_Name())
+            if includeAccessors || !method.IsSpecialName {
+                names.Add(method.Name)
             }
         }
 
@@ -726,7 +726,7 @@ class AnalyzerMemberAccess {
         methods := definition.GetMethods(memberFlags)
         functions := new List<FunctionTypeInfo>()
         for method in methods {
-            if method.get_Name() == memberName {
+            if method.Name == memberName {
                 functions.Add(CreateSubstitutedNullableSignature(method, answering))
             }
         }
@@ -747,7 +747,7 @@ class AnalyzerMemberAccess {
         definition = typeof(object)
         probe: TypeInfo = new NullableTypeInfo(BuiltInTypes.Int)
         closed := clrTypeConversionValue.TryConvertTypeInfoToClrType(probe)
-        if closed == null || !closed.get_IsGenericType() || closed.get_IsGenericTypeDefinition() {
+        if closed == null || !closed.IsGenericType || closed.IsGenericTypeDefinition {
             return false
         }
 
@@ -759,12 +759,12 @@ class AnalyzerMemberAccess {
     // position converted under the element substitution.
     static func CreateSubstitutedNullableSignature(method: MethodInfo, answering: AnalyzerReflectionTypeOverride): FunctionTypeInfo {
         signature := new FunctionTypeInfo()
-        signature.SyntheticName = method.get_Name()
+        signature.SyntheticName = method.Name
         parameterNames := new List<string>()
         parameterTypes := new List<TypeInfo>()
         parameters := method.GetParameters()
         for parameter in parameters {
-            parameterNames.Add(parameter.get_Name() ?? "")
+            parameterNames.Add(parameter.Name ?? "")
             parameterTypes.Add(NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, answering))
         }
 
@@ -1511,15 +1511,15 @@ class AnalyzerMemberAccess {
         // compiler's own established spelling — `ColumnarExternalBindingPlans` resolves
         // `System.Console` by exactly this qualified name — and it yields the IDENTICAL runtime
         // `Assembly` instances, so the identity test above is preserved rather than approximated.
-        assembly: object = reflected.get_Assembly()
-        coreAssembly: object = typeof(object).get_Assembly()
+        assembly: object = reflected.Assembly
+        coreAssembly: object = typeof(object).Assembly
         if Object.ReferenceEquals(assembly, coreAssembly) {
             return true
         }
 
         consoleType := Type.GetType("System.Console, System.Console")
         if consoleType != null {
-            consoleAssembly: object = consoleType.get_Assembly()
+            consoleAssembly: object = consoleType.Assembly
             if Object.ReferenceEquals(assembly, consoleAssembly) {
                 return true
             }
@@ -1527,14 +1527,14 @@ class AnalyzerMemberAccess {
 
         linqType := Type.GetType("System.Linq.Enumerable, System.Linq")
         if linqType != null {
-            linqAssembly: object = linqType.get_Assembly()
+            linqAssembly: object = linqType.Assembly
             if Object.ReferenceEquals(assembly, linqAssembly) {
                 return true
             }
         }
 
-        reflectedNamespace := reflected.get_Namespace()
-        return reflectedNamespace != null && reflectedNamespace.StartsWith("System.", StringComparison.Ordinal) && !reflected.get_IsInterface()
+        reflectedNamespace := reflected.Namespace
+        return reflectedNamespace != null && reflectedNamespace.StartsWith("System.", StringComparison.Ordinal) && !reflected.IsInterface
     }
 
     static func IsSystemObjectType(reflected: Type): bool {
@@ -1711,18 +1711,18 @@ class AnalyzerMemberAccess {
         seen := new HashSet<string>(StringComparer.Ordinal)
         properties := reflected.GetProperties(flags)
         for property in properties {
-            AddDistinctName(names, seen, property.get_Name())
+            AddDistinctName(names, seen, property.Name)
         }
 
         fields := reflected.GetFields(flags)
         for field in fields {
-            AddDistinctName(names, seen, field.get_Name())
+            AddDistinctName(names, seen, field.Name)
         }
 
         methods := reflected.GetMethods(flags)
         for method in methods {
-            if !method.get_IsSpecialName() {
-                AddDistinctName(names, seen, method.get_Name())
+            if !method.IsSpecialName {
+                AddDistinctName(names, seen, method.Name)
             }
         }
 

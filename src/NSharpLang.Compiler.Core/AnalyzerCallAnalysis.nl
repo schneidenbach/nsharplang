@@ -610,7 +610,7 @@ class AnalyzerCallAnalysis {
 
         methods := state.CandidateMethods
         for method in methods {
-            declaringType := method.get_DeclaringType()
+            declaringType := method.DeclaringType
             if declaringType != null && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(declaringType, originClrType) {
                 return origin
             }
@@ -935,7 +935,7 @@ class AnalyzerCallAnalysis {
         if AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver(candidate.SignatureMethod, state.Call, state.ReflectionReceiverClrType) {
             receiverParameters := candidate.SignatureMethod.GetParameters()
             if receiverParameters.Length > 0 && positionCount > 0 {
-                parameterTypes[0] = AnalyzerReflectionTypeConversion.ApplyReflectionBindings(receiverParameters[0].get_ParameterType(), candidate.Bindings)
+                parameterTypes[0] = AnalyzerReflectionTypeConversion.ApplyReflectionBindings(receiverParameters[0].ParameterType, candidate.Bindings)
             }
         }
 
@@ -982,7 +982,7 @@ class AnalyzerCallAnalysis {
         if AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver(candidate.SignatureMethod, state.Call, state.ReflectionReceiverClrType) {
             receiverParameters := candidate.SignatureMethod.GetParameters()
             if receiverParameters.Length > 0 && positionCount > 0 {
-                parameterTypes[0] = receiverParameters[0].get_ParameterType()
+                parameterTypes[0] = receiverParameters[0].ParameterType
             }
         }
 
@@ -1069,7 +1069,7 @@ class AnalyzerCallAnalysis {
                 continue
             }
 
-            if leftParameterType == null || rightParameterType == null || leftParameterType.get_ContainsGenericParameters() || rightParameterType.get_ContainsGenericParameters() {
+            if leftParameterType == null || rightParameterType == null || leftParameterType.ContainsGenericParameters || rightParameterType.ContainsGenericParameters {
                 parameterTypesIdentical = false
                 continue
             }
@@ -1139,8 +1139,8 @@ class AnalyzerCallAnalysis {
 
         return AnalyzerOverloadSpecificity.CompareTieBreaks(
             parameterTypesIdentical,
-            left.SignatureMethod.get_IsGenericMethodDefinition(),
-            right.SignatureMethod.get_IsGenericMethodDefinition(),
+            left.SignatureMethod.IsGenericMethodDefinition,
+            right.SignatureMethod.IsGenericMethodDefinition,
             left.UsesParams,
             right.UsesParams,
             left.DefaultsUsed,
@@ -1156,8 +1156,8 @@ class AnalyzerCallAnalysis {
     // The RUNTIME method's declaring type is the one that matters: it is the type the call dispatches
     // on, not the definition its open signature was read from.
     func CompareReflectionDeclaringDepth(left: ReflectionPreBoundCandidate, right: ReflectionPreBoundCandidate): int {
-        leftDeclaringType := left.RuntimeMethod.get_DeclaringType()
-        rightDeclaringType := right.RuntimeMethod.get_DeclaringType()
+        leftDeclaringType := left.RuntimeMethod.DeclaringType
+        rightDeclaringType := right.RuntimeMethod.DeclaringType
         if leftDeclaringType == null || rightDeclaringType == null {
             return AnalyzerOverloadSpecificity.NeitherIsBetter
         }

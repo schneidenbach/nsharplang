@@ -655,7 +655,7 @@ class ColumnarSourceDirectCallResolver {
             returnType = SubstituteTypeArguments(definition.ReturnType, receiverType.GetGenericArguments())
         }
 
-        return new ColumnarSourceDirectCallSelection(ColumnarSourceDirectCallStatus.Selected, root.IsReference ? ColumnarSourceDirectCallDispatch.CallVirtual : ColumnarSourceDirectCallDispatch.Call, owner, receiverType, declaringType, method, parameterTypes, returnType, root.IsReference, false, method.get_IsAbstract())
+        return new ColumnarSourceDirectCallSelection(ColumnarSourceDirectCallStatus.Selected, root.IsReference ? ColumnarSourceDirectCallDispatch.CallVirtual : ColumnarSourceDirectCallDispatch.Call, owner, receiverType, declaringType, method, parameterTypes, returnType, root.IsReference, false, method.IsAbstract)
     }
 
     static func SelectedStatic(root: ColumnarStructDef, owner: ColumnarStructDef, ownerType: Type, closed: bool, definition: ColumnarStaticMethodDef, parameterTypes: Type[]): ColumnarSourceDirectCallSelection {
@@ -681,8 +681,8 @@ class ColumnarSourceDirectCallResolver {
 
     static func IsCallableInstanceMethod(receiverDefinition: ColumnarStructDef, declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, definition: ColumnarInstanceMethodDef, receiverIsAccessingInstance: bool): bool {
         method: MethodInfo = definition.Builder
-        accessAttributes := (int)method.get_Attributes() & 7
-        if !CanAccessSourceInstanceMethod(receiverDefinition, declaringDefinition, accessingDefinition, sameAssembly, accessAttributes, receiverIsAccessingInstance) || method.get_IsGenericMethod() || IsVarArgs(method) || method.get_IsAbstract() && !receiverDefinition.IsReference || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType) {
+        accessAttributes := (int)method.Attributes & 7
+        if !CanAccessSourceInstanceMethod(receiverDefinition, declaringDefinition, accessingDefinition, sameAssembly, accessAttributes, receiverIsAccessingInstance) || method.IsGenericMethod || IsVarArgs(method) || method.IsAbstract && !receiverDefinition.IsReference || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType) {
             return false
         }
 
@@ -721,8 +721,8 @@ class ColumnarSourceDirectCallResolver {
 
     static func IsCallableStaticMethod(declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, definition: ColumnarStaticMethodDef): bool {
         method: MethodInfo = definition.Builder
-        accessAttributes := (int)method.get_Attributes() & 7
-        if !CanAccessSourceMethod(declaringDefinition, accessingDefinition, sameAssembly, accessAttributes) || method.get_IsAbstract() || method.get_IsGenericMethod() || IsVarArgs(method) || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType) {
+        accessAttributes := (int)method.Attributes & 7
+        if !CanAccessSourceMethod(declaringDefinition, accessingDefinition, sameAssembly, accessAttributes) || method.IsAbstract || method.IsGenericMethod || IsVarArgs(method) || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType) {
             return false
         }
 
@@ -778,12 +778,12 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func HasSupportedSignature(parameterTypes: Type[], returnType: Type): bool {
-        if returnType.get_IsByRef() || returnType.get_IsGenericTypeDefinition() {
+        if returnType.IsByRef || returnType.IsGenericTypeDefinition {
             return false
         }
 
         for parameterType in parameterTypes {
-            if parameterType.get_IsByRef() || parameterType.get_IsGenericTypeDefinition() {
+            if parameterType.IsByRef || parameterType.IsGenericTypeDefinition {
                 return false
             }
         }
@@ -792,7 +792,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func IsVarArgs(method: MethodInfo): bool {
-        callingConvention := (int)method.get_CallingConvention()
+        callingConvention := (int)method.CallingConvention
         return (callingConvention & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0
     }
 
@@ -938,12 +938,12 @@ class ColumnarSourceDirectCallResolver {
 
     static func IsExcludedInstanceMethod(definition: ColumnarInstanceMethodDef): bool {
         method: MethodInfo = definition.Builder
-        return method.get_IsGenericMethod() || IsVarArgs(method) || HasUnsupportedModifiers(definition.ParamModifierKinds) || HasByRefSignature(definition.ParamTypes, definition.ReturnType)
+        return method.IsGenericMethod || IsVarArgs(method) || HasUnsupportedModifiers(definition.ParamModifierKinds) || HasByRefSignature(definition.ParamTypes, definition.ReturnType)
     }
 
     static func IsExcludedStaticMethod(definition: ColumnarStaticMethodDef): bool {
         method: MethodInfo = definition.Builder
-        return method.get_IsGenericMethod() || IsVarArgs(method) || HasUnsupportedModifiers(definition.ParamModifierKinds) || HasByRefSignature(definition.ParamTypes, definition.ReturnType)
+        return method.IsGenericMethod || IsVarArgs(method) || HasUnsupportedModifiers(definition.ParamModifierKinds) || HasByRefSignature(definition.ParamTypes, definition.ReturnType)
     }
 
     // Excluded declarations compete only when the legacy call owner could bind the current
@@ -972,12 +972,12 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func HasByRefSignature(parameterTypes: Type[], returnType: Type): bool {
-        if returnType.get_IsByRef() {
+        if returnType.IsByRef {
             return true
         }
 
         for parameterType in parameterTypes {
-            if parameterType.get_IsByRef() {
+            if parameterType.IsByRef {
                 return true
             }
         }
@@ -1071,8 +1071,8 @@ class ColumnarSourceDirectCallResolver {
             // type has to BE the storage's type. A `ref`/`out`/`in` ARGUMENT never binds a by-value
             // parameter — `f(ref x)` may not bind an ordinary one — and the three directions' own
             // call-site rules are read immediately below, because they are not the same rule.
-            if expected[index].get_IsByRef() || argumentFacts.IsByRefArgument[index] {
-                if !expected[index].get_IsByRef() {
+            if expected[index].IsByRef || argumentFacts.IsByRefArgument[index] {
+                if !expected[index].IsByRef {
                     return -1
                 }
 
@@ -1149,7 +1149,7 @@ class ColumnarSourceDirectCallResolver {
     // two that both fit also fits. A multidimensional or by-ref array is not an adoption target — the
     // literal emits as a vector — and a parameter that is not an array at all answers false.
     static func CanAdoptIntegerConstantArrayLiteral(targetType: Type, minimumValue: long, maximumValue: long): bool {
-        if targetType == null || targetType.get_IsByRef() || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
+        if targetType == null || targetType.IsByRef || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
             return false
         }
 
@@ -1390,7 +1390,7 @@ class ColumnarSourceDirectCallResolver {
             return 8
         }
 
-        if expectedType.get_IsByRef() || actualType.get_IsByRef() {
+        if expectedType.IsByRef || actualType.IsByRef {
             return -1
         }
 
@@ -1451,7 +1451,7 @@ class ColumnarSourceDirectCallResolver {
         flow = ColumnarDirectCallArgumentFlow.None
 
         if expectedType == typeof(object) && actualType.FullName != "System.Void" {
-            flow = actualType.get_IsValueType() || actualType.get_IsGenericParameter() ? ColumnarDirectCallArgumentFlow.Boxing : ColumnarDirectCallArgumentFlow.Reference
+            flow = actualType.IsValueType || actualType.IsGenericParameter ? ColumnarDirectCallArgumentFlow.Boxing : ColumnarDirectCallArgumentFlow.Reference
             return true
         }
 
@@ -1465,19 +1465,19 @@ class ColumnarSourceDirectCallResolver {
         // Every TypeBuilder-backed interface edge must come from the exact declaration registry;
         // otherwise a partially populated or same-spelled builder can become assignable at a
         // different phase and make selection disagree with persisted-plan emission.
-        if ColumnarReferenceConversionFacts.IsDynamicDeclarationType(actualType) && expectedType.get_IsInterface() {
+        if ColumnarReferenceConversionFacts.IsDynamicDeclarationType(actualType) && expectedType.IsInterface {
             return false
         }
 
-        if actualType.get_IsValueType() || actualType.get_IsGenericParameter() {
-            if !expectedType.get_IsValueType() && RuntimeAssignableFrom(expectedType, actualType) {
+        if actualType.IsValueType || actualType.IsGenericParameter {
+            if !expectedType.IsValueType && RuntimeAssignableFrom(expectedType, actualType) {
                 flow = ColumnarDirectCallArgumentFlow.Boxing
                 return true
             }
             return false
         }
 
-        if expectedType.get_IsValueType() {
+        if expectedType.IsValueType {
             return false
         }
 
@@ -1526,8 +1526,8 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func SubstituteTypeArguments(signatureType: Type, arguments: Type[]): Type {
-        if signatureType.get_IsGenericParameter() && signatureType.get_DeclaringMethod() == null {
-            position := signatureType.get_GenericParameterPosition()
+        if signatureType.IsGenericParameter && signatureType.DeclaringMethod == null {
+            position := signatureType.GenericParameterPosition
             if position < 0 || position >= arguments.Length {
                 throw new InvalidOperationException("Source direct-call generic parameter position is invalid.")
             }
@@ -1544,7 +1544,7 @@ class ColumnarSourceDirectCallResolver {
             return SubstituteTypeArguments(element, arguments).MakeArrayType()
         }
 
-        if signatureType.get_IsGenericType() && !signatureType.get_IsGenericTypeDefinition() {
+        if signatureType.IsGenericType && !signatureType.IsGenericTypeDefinition {
             definition := signatureType.GetGenericTypeDefinition()
             rawArguments := signatureType.GetGenericArguments()
             resolved := new Type[](rawArguments.Length)
@@ -1558,7 +1558,7 @@ class ColumnarSourceDirectCallResolver {
             return definition.MakeGenericType(resolved)
         }
 
-        if signatureType.get_HasElementType() {
+        if signatureType.HasElementType {
             element := signatureType.GetElementType()
             if element == null {
                 throw new InvalidOperationException("Source direct-call compound signature has no element type.")
@@ -1581,11 +1581,11 @@ class ColumnarSourceDirectCallResolver {
 
         method: MethodInfo = definition.Builder
         ownerType: Type = owner.Builder
-        if method.get_IsAbstract() && !ownerType.get_IsAbstract() {
+        if method.IsAbstract && !ownerType.IsAbstract {
             throw new InvalidOperationException("An abstract source instance method requires an abstract declaring type.")
         }
 
-        if method.get_IsStatic() || method.get_Name() != memberName || method.get_DeclaringType() != ownerType || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.get_ReturnType(), definition.ReturnType) {
+        if method.IsStatic || method.Name != memberName || method.DeclaringType != ownerType || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.ReturnType, definition.ReturnType) {
             throw new InvalidOperationException("Source instance-method facts do not identify an exact instance declaration.")
         }
     }
@@ -1599,11 +1599,11 @@ class ColumnarSourceDirectCallResolver {
 
         method: MethodInfo = definition.Builder
         ownerType: Type = owner.Builder
-        if method.get_IsAbstract() && !ownerType.get_IsAbstract() {
+        if method.IsAbstract && !ownerType.IsAbstract {
             throw new InvalidOperationException("An abstract source static method requires an abstract declaring type.")
         }
 
-        if !method.get_IsStatic() || method.get_Name() != memberName || method.get_DeclaringType() != ownerType || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.get_ReturnType(), definition.ReturnType) {
+        if !method.IsStatic || method.Name != memberName || method.DeclaringType != ownerType || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.ReturnType, definition.ReturnType) {
             throw new InvalidOperationException("Source static-method facts do not identify an exact static declaration.")
         }
     }
@@ -1626,7 +1626,7 @@ class ColumnarSourceDirectCallResolver {
                     throw new InvalidOperationException("Source direct-call parameter modifier fact is invalid.")
                 }
 
-                if modifier == 5 && !parameterTypes[index].get_IsByRef() {
+                if modifier == 5 && !parameterTypes[index].IsByRef {
                     throw new InvalidOperationException("An in source-call fact must describe a by-reference parameter.")
                 }
 
@@ -1668,11 +1668,11 @@ class ColumnarSourceDirectCallResolver {
 
     static func ExactSourceTypeMatch(definition: ColumnarStructDef, receiverType: Type): bool {
         definitionType: Type = definition.Builder
-        if definitionType.get_IsInterface() != definition.IsInterface {
+        if definitionType.IsInterface != definition.IsInterface {
             throw new InvalidOperationException("Source direct-call interface facts do not match the source type.")
         }
 
-        return receiverType.get_IsGenericType() && !receiverType.get_IsGenericTypeDefinition() && receiverType.GetGenericTypeDefinition() == definitionType
+        return receiverType.IsGenericType && !receiverType.IsGenericTypeDefinition && receiverType.GetGenericTypeDefinition() == definitionType
     }
 
     static func ValidateDefinitionGraph(root: ColumnarStructDef) {
@@ -1698,7 +1698,7 @@ class ColumnarSourceDirectCallResolver {
         }
 
         definitionType: Type = definition.Builder
-        if definitionType.get_IsValueType() == definition.IsReference || definition.IsInterface && !definition.IsReference {
+        if definitionType.IsValueType == definition.IsReference || definition.IsInterface && !definition.IsReference {
             throw new InvalidOperationException("Source direct-call reference facts do not match the source type.")
         }
 
@@ -1725,7 +1725,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ValidateReceiverShape(definition: ColumnarStructDef, receiverType: Type) {
-        if receiverType.get_IsValueType() == definition.IsReference {
+        if receiverType.IsValueType == definition.IsReference {
             throw new InvalidOperationException("Source direct-call receiver shape does not match its source definition.")
         }
     }

@@ -92,17 +92,17 @@ class ColumnarRangeIndexHandles {
     }
 
     static func ValidateGetSubArrayDefinition(definition: MethodInfo) {
-        if definition.get_DeclaringType() != typeof(RuntimeHelpers) {
+        if definition.DeclaringType != typeof(RuntimeHelpers) {
             throw new InvalidOperationException("GetSubArray definition must be declared by RuntimeHelpers.")
         }
-        if !definition.get_IsStatic() {
+        if !definition.IsStatic {
             throw new InvalidOperationException("GetSubArray definition must be static.")
         }
-        if !definition.get_IsGenericMethodDefinition() {
+        if !definition.IsGenericMethodDefinition {
             throw new InvalidOperationException("GetSubArray handle must be a generic method definition.")
         }
 
-        returnType := definition.get_ReturnType()
+        returnType := definition.ReturnType
         parameters := definition.GetParameters()
         if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(returnType) {
             throw new InvalidOperationException("GetSubArray definition must return an SZ array.")
@@ -110,19 +110,19 @@ class ColumnarRangeIndexHandles {
         if parameters.Length != 2 {
             throw new InvalidOperationException("GetSubArray definition must have exactly two parameters.")
         }
-        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameters[0].get_ParameterType()) {
+        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameters[0].ParameterType) {
             throw new InvalidOperationException("GetSubArray first parameter must be an SZ array.")
         }
-        if parameters[1].get_ParameterType() != typeof(Range) {
+        if parameters[1].ParameterType != typeof(Range) {
             throw new InvalidOperationException("GetSubArray second parameter must be System.Range.")
         }
 
         returnElement := returnType.GetElementType()
-        parameterElement := parameters[0].get_ParameterType().GetElementType()
+        parameterElement := parameters[0].ParameterType.GetElementType()
         if returnElement == null || parameterElement == null {
             throw new InvalidOperationException("GetSubArray array element metadata is missing.")
         }
-        if !returnElement.get_IsGenericParameter() {
+        if !returnElement.IsGenericParameter {
             throw new InvalidOperationException("GetSubArray return element must be a generic parameter.")
         }
         if parameterElement != returnElement {
@@ -131,31 +131,31 @@ class ColumnarRangeIndexHandles {
     }
 
     static func ValidateClosedGetSubArray(method: MethodInfo, elementType: Type) {
-        returnType := method.get_ReturnType()
+        returnType := method.ReturnType
         parameters := method.GetParameters()
         genericArguments := method.GetGenericArguments()
-        if method.get_DeclaringType() != typeof(RuntimeHelpers) {
+        if method.DeclaringType != typeof(RuntimeHelpers) {
             throw new InvalidOperationException("Constructed GetSubArray owner changed.")
         }
-        if !method.get_IsStatic() || method.get_IsGenericMethodDefinition() {
+        if !method.IsStatic || method.IsGenericMethodDefinition {
             throw new InvalidOperationException("Constructed GetSubArray method state is invalid.")
         }
         if genericArguments.Length != 1 || genericArguments[0] != elementType {
             throw new InvalidOperationException("Constructed GetSubArray generic argument is invalid.")
         }
         returnElement := returnType.GetElementType()
-        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(returnType) || returnElement == null || (elementType.get_IsGenericParameter() ? !returnElement.get_IsGenericParameter() : returnElement != elementType) {
+        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(returnType) || returnElement == null || (elementType.IsGenericParameter ? !returnElement.IsGenericParameter : returnElement != elementType) {
             throw new InvalidOperationException("Constructed GetSubArray return type is invalid.")
         }
         if parameters.Length != 2 {
             throw new InvalidOperationException("Constructed GetSubArray parameter count is invalid.")
         }
-        arrayParameterType := parameters[0].get_ParameterType()
+        arrayParameterType := parameters[0].ParameterType
         parameterElement := arrayParameterType.GetElementType()
-        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayParameterType) || parameterElement == null || (elementType.get_IsGenericParameter() ? !parameterElement.get_IsGenericParameter() : parameterElement != elementType) {
+        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayParameterType) || parameterElement == null || (elementType.IsGenericParameter ? !parameterElement.IsGenericParameter : parameterElement != elementType) {
             throw new InvalidOperationException("Constructed GetSubArray array parameter is invalid.")
         }
-        if parameters[1].get_ParameterType() != typeof(Range) {
+        if parameters[1].ParameterType != typeof(Range) {
             throw new InvalidOperationException("Constructed GetSubArray range parameter is invalid.")
         }
     }

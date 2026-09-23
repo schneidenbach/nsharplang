@@ -261,7 +261,7 @@ class CodeIntelligenceSignatureKernels {
         builder := new StringBuilder()
         builder.Append(NullabilityMetadataReflection.FormatReturnTypeWithOverride(method, typeOverride))
         builder.Append(" ")
-        builder.Append(method.get_Name())
+        builder.Append(method.Name)
         builder.Append("(")
 
         parameters := method.GetParameters()
@@ -283,11 +283,11 @@ class CodeIntelligenceSignatureKernels {
     // thing, so all three combinations are spelled rather than assuming `get`.
     static func GetReflectedPropertyText(property: PropertyInfo, typeOverride: AnalyzerReflectionTypeOverride?): string {
         accessors := ""
-        if property.get_CanRead() && property.get_CanWrite() {
+        if property.CanRead && property.CanWrite {
             accessors = " { get; set; }"
-        } else if property.get_CanRead() {
+        } else if property.CanRead {
             accessors = " { get; }"
-        } else if property.get_CanWrite() {
+        } else if property.CanWrite {
             accessors = " { set; }"
         }
 
@@ -296,11 +296,11 @@ class CodeIntelligenceSignatureKernels {
 
     static func GetReflectedFieldText(field: FieldInfo, typeOverride: AnalyzerReflectionTypeOverride?): string {
         modifiers := ""
-        if field.get_IsStatic() {
+        if field.IsStatic {
             modifiers = "static "
         }
 
-        if field.get_IsInitOnly() {
+        if field.IsInitOnly {
             modifiers = modifiers + "readonly "
         }
 

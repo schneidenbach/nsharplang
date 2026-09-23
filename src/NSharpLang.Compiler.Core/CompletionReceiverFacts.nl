@@ -369,9 +369,9 @@ class CompletionReceiverFacts {
             reflectionMembers := CompletionReflectionFacts.BuildReflectionMemberItems(clrType, flags, false, friendAdmits, friendGrants)
             if reflectionMembers.Count > 0 {
                 CompletionEngineKernels.AddGroupedCompletionItemsByKind(reflectionMembers, completions)
-                clrTypeName := clrType.get_FullName()
+                clrTypeName := clrType.FullName
                 if clrTypeName == null {
-                    clrTypeName = clrType.get_Name()
+                    clrTypeName = clrType.Name
                 }
 
                 return new CompletionResult(CompletionContext.MemberAccess, receiver, clrTypeName, completions)

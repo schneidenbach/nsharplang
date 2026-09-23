@@ -295,7 +295,7 @@ class ColumnarClosureBindingPlanner {
     }
 
     static func IsLiftableValueType(valueType: Type): bool {
-        return ColumnarTypeOfPlanner.IsSupportedType(valueType) && !(valueType.get_Assembly() is AssemblyBuilder) && !valueType.get_IsGenericParameter() && !valueType.get_ContainsGenericParameters() && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType)
+        return ColumnarTypeOfPlanner.IsSupportedType(valueType) && !(valueType.Assembly is AssemblyBuilder) && !valueType.IsGenericParameter && !valueType.ContainsGenericParameters && !RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType)
     }
 
     static func StrongBoxValueField(valueType: Type): FieldInfo? {

@@ -323,10 +323,10 @@ class ColumnarConditionalPlanner {
         if ColumnarTypeOfPlanner.IsSupportedNullable(leftType) {
             return TryPlanNullableCoalesce(nodes, source, fallback, bindings, handles, plan, fragment, depth, leftType, out resultType, out nestedOwnership)
         }
-        if leftType.get_IsGenericParameter() {
+        if leftType.IsGenericParameter {
             return TryPlanTypeParameterCoalesce(nodes, source, fallback, bindings, handles, plan, fragment, depth, leftType, out resultType, out nestedOwnership)
         }
-        if leftType.get_IsValueType() {
+        if leftType.IsValueType {
             return false
         }
         return TryPlanReferenceCoalesce(nodes, source, fallback, bindings, handles, plan, fragment, depth, leftType, out resultType, out nestedOwnership)
@@ -468,7 +468,7 @@ class ColumnarConditionalPlanner {
             return ColumnarThrowExpressionPlanner.TryAppendThrow(nodes, source, fallback, bindings, handles, plan, fragment, depth)
         }
         if nodes.Kind(fallback) == ColumnarExpressionNodeKind.NullLiteralExpression {
-            if mergeType.get_IsValueType() || mergeType.get_IsGenericParameter() {
+            if mergeType.IsValueType || mergeType.IsGenericParameter {
                 return false
             }
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())

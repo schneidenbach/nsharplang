@@ -513,7 +513,7 @@ class AnalyzerConstruction {
 
     static func ReflectionConstructorTypeOverrides(constructedType: TypeInfo, reflectedOwner: Type): Dictionary<Type, TypeInfo>? {
         constructedGeneric := constructedType as GenericTypeInfo
-        if constructedGeneric == null || !reflectedOwner.get_IsGenericTypeDefinition() {
+        if constructedGeneric == null || !reflectedOwner.IsGenericTypeDefinition {
             return null
         }
 
@@ -788,8 +788,8 @@ class AnalyzerConstruction {
     // one delegate position that every arity-compatible constructor spells the same way, or nothing.
     func ExternalGenericDelegateConstructorParameterType(definitionType: Type, generic: GenericTypeInfo, argumentCount: int, index: int): TypeInfo? {
         definition := definitionType
-        if !definition.get_IsGenericTypeDefinition() {
-            if !definition.get_IsGenericType() {
+        if !definition.IsGenericTypeDefinition {
+            if !definition.IsGenericType {
                 return null
             }
 
@@ -1042,15 +1042,15 @@ class AnalyzerConstruction {
         }
 
         clrType := reflectionType.Type
-        if clrType.get_IsInterface() {
+        if clrType.IsInterface {
             return "interface"
         }
 
-        if !clrType.get_IsAbstract() {
+        if !clrType.IsAbstract {
             return ""
         }
 
-        if clrType.get_IsSealed() {
+        if clrType.IsSealed {
             return "static class"
         }
 

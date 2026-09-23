@@ -126,7 +126,7 @@ class EditorTypeCatalogFacts {
             return null
         }
 
-        return resolved.get_FullName()
+        return resolved.FullName
     }
 
     static func KnownDefinitionFullName(nsharpSpelling: string): string? {
@@ -135,7 +135,7 @@ class EditorTypeCatalogFacts {
             return null
         }
 
-        return resolved.get_FullName()
+        return resolved.FullName
     }
 
     // THE FORCE-INCLUDE LIST, DEFINED FROM THE TWO ABOVE rather than written a third time. An

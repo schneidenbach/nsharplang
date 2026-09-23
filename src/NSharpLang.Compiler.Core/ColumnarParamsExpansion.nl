@@ -44,7 +44,7 @@ class ColumnarParamsExpansion {
         }
 
         elementType := arrayType.GetElementType()
-        if elementType == null || elementType.get_IsByRef() || elementType.get_IsPointer() || elementType.get_ContainsGenericParameters() {
+        if elementType == null || elementType.IsByRef || elementType.IsPointer || elementType.ContainsGenericParameters {
             return null
         }
 

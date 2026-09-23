@@ -69,7 +69,7 @@ class ColumnarInheritedExternalBase {
     }
 
     static func ArgumentsOf(candidate: Type?): Type[] {
-        if candidate == null || !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
+        if candidate == null || !candidate.IsGenericType || candidate.IsGenericTypeDefinition {
             return Type.EmptyTypes
         }
 

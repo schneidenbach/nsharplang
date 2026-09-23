@@ -381,7 +381,7 @@ class CodeIntelligenceTypeResolution {
 
         method := handle.Method
         if method != null {
-            return new ReflectionMethodInfo(method, method.get_Name() + "(...)")
+            return new ReflectionMethodInfo(method, method.Name + "(...)")
         }
 
         return null
@@ -463,18 +463,18 @@ class CodeIntelligenceTypeResolution {
         try {
             property := clrType.GetProperty(memberName, flags)
             if property != null {
-                return new ReflectedMemberHandle(property, null, null, property.get_Name(), DeclaringTypeText(property.get_DeclaringType()), typeOverride, 1)
+                return new ReflectedMemberHandle(property, null, null, property.Name, DeclaringTypeText(property.DeclaringType), typeOverride, 1)
             }
 
             field := clrType.GetField(memberName, flags)
             if field != null {
-                return new ReflectedMemberHandle(null, field, null, field.get_Name(), DeclaringTypeText(field.get_DeclaringType()), typeOverride, 1)
+                return new ReflectedMemberHandle(null, field, null, field.Name, DeclaringTypeText(field.DeclaringType), typeOverride, 1)
             }
 
             matching := new List<MethodInfo>()
             methods := clrType.GetMethods(flags)
             for method in methods {
-                if method.get_Name() == memberName && !method.get_IsSpecialName() {
+                if method.Name == memberName && !method.IsSpecialName {
                     matching.Add(method)
                 }
             }
@@ -482,7 +482,7 @@ class CodeIntelligenceTypeResolution {
             if matching.Count > 0 {
                 candidates := matching.ToArray()
                 chosen := ChooseReflectedOverload(candidates, argumentTypes)
-                return new ReflectedMemberHandle(null, null, chosen, chosen.get_Name(), DeclaringTypeText(chosen.get_DeclaringType()), typeOverride, VisibleOverloadCount(chosen, candidates.Length, argumentTypes))
+                return new ReflectedMemberHandle(null, null, chosen, chosen.Name, DeclaringTypeText(chosen.DeclaringType), typeOverride, VisibleOverloadCount(chosen, candidates.Length, argumentTypes))
             }
         } catch {
             return null
@@ -556,8 +556,8 @@ class CodeIntelligenceTypeResolution {
     }
 
     static func ReflectedParameterTypeName(parameter: ParameterInfo): string? {
-        parameterType := parameter.get_ParameterType()
-        return parameterType.get_FullName()
+        parameterType := parameter.ParameterType
+        return parameterType.FullName
     }
 
     static func ReflectedArgumentTypeName(argumentType: TypeInfo): string? {
@@ -566,7 +566,7 @@ class CodeIntelligenceTypeResolution {
             return null
         }
 
-        return clrType.get_FullName()
+        return clrType.FullName
     }
 
     // WHAT THE COUNT MEANS ONCE A CALL SITE HAS SPOKEN. `(+N overloads)` tells the reader there are
@@ -595,9 +595,9 @@ class CodeIntelligenceTypeResolution {
             return null
         }
 
-        fullName := declaringType.get_FullName()
+        fullName := declaringType.FullName
         if fullName == null {
-            return declaringType.get_Name()
+            return declaringType.Name
         }
 
         return FormatDeclaringTypeName(declaringType, fullName ?? "")
@@ -609,7 +609,7 @@ class CodeIntelligenceTypeResolution {
     // `StripClrGenericArity` and the parameter names are put back, so the answer stays a real,
     // searchable type name.
     static func FormatDeclaringTypeName(declaringType: Type, fullName: string): string {
-        if !declaringType.get_IsGenericType() {
+        if !declaringType.IsGenericType {
             return fullName
         }
 
@@ -624,7 +624,7 @@ class CodeIntelligenceTypeResolution {
                 builder.Append(", ")
             }
 
-            builder.Append(arguments[index].get_Name())
+            builder.Append(arguments[index].Name)
             index = index + 1
         }
 
@@ -1067,7 +1067,7 @@ class CodeIntelligenceTypeResolution {
         reflectionType := typeInfo as ReflectionTypeInfo
         if reflectionType != null {
             clrType := reflectionType.Type
-            if clrType.get_IsValueType() && Nullable.GetUnderlyingType(clrType) == null {
+            if clrType.IsValueType && Nullable.GetUnderlyingType(clrType) == null {
                 return NullState.NotNull
             }
 

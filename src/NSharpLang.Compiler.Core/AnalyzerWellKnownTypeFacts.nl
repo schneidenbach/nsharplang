@@ -278,7 +278,7 @@ class AnalyzerWellKnownTypeFacts {
         nullableType := candidate as NullableTypeInfo
         if nullableType != null {
             innerType := BuiltInRuntimeClrType(nullableType.InnerType)
-            if innerType == null || !innerType.get_IsValueType() {
+            if innerType == null || !innerType.IsValueType {
                 return null
             }
 
@@ -355,9 +355,9 @@ class AnalyzerWellKnownTypeFacts {
     // `typeof(void)` and `typeof(Nullable<>)` are not part of the columnar front end's `typeof`
     // surface, and extending that surface is a compiler-capability change requiring a two-stage
     // bootstrap. The core library is read directly instead — the established
-    // `typeof(object).get_Assembly()` idiom — which yields the identical runtime Type instances.
+    // `typeof(object).Assembly` idiom — which yields the identical runtime Type instances.
     static func RuntimeCoreType(fullName: string): Type? {
-        coreLibrary := typeof(object).get_Assembly()
+        coreLibrary := typeof(object).Assembly
         return coreLibrary.GetType(fullName)
     }
 }

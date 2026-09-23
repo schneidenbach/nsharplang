@@ -47,9 +47,9 @@ class AnalyzerFunctionTypeFactory {
             effectiveType = unwrapped
         }
 
-        if effectiveType.get_IsGenericType() {
+        if effectiveType.IsGenericType {
             definition := effectiveType.GetGenericTypeDefinition()
-            definitionName := definition.get_FullName()
+            definitionName := definition.FullName
             arguments := effectiveType.GetGenericArguments()
             typeArguments := new List<TypeInfo>()
             for argument in arguments {
@@ -112,14 +112,14 @@ class AnalyzerFunctionTypeFactory {
         invokeIndex := 0
         while invokeIndex < invokeParameters.Length {
             parameter := invokeParameters[invokeIndex]
-            if openInvokeParameters != null && openInvokeParameters[invokeIndex].get_ParameterType().get_IsGenericParameter() {
-                parameterTypeList.Add(AnalyzerReflectionTypeConversion.ConvertReflectionType(parameter.get_ParameterType()))
+            if openInvokeParameters != null && openInvokeParameters[invokeIndex].ParameterType.IsGenericParameter {
+                parameterTypeList.Add(AnalyzerReflectionTypeConversion.ConvertReflectionType(parameter.ParameterType))
             } else {
                 parameterTypeList.Add(NullabilityMetadataReflection.ConvertParameter(parameter))
             }
 
             parameterModifierList.Add(GetReflectionParameterModifier(parameter))
-            parameterNameList.Add(parameter.get_Name() ?? "")
+            parameterNameList.Add(parameter.Name ?? "")
             invokeIndex = invokeIndex + 1
         }
 
@@ -127,8 +127,8 @@ class AnalyzerFunctionTypeFactory {
         signature.ParameterTypes = parameterTypeList
         signature.ParameterModifiers = parameterModifierList
         signature.ParameterNames = parameterNameList
-        if openInvokeReturnType != null && openInvokeReturnType.get_IsGenericParameter() {
-            signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReflectionType(invokeMethod.get_ReturnType())
+        if openInvokeReturnType != null && openInvokeReturnType.IsGenericParameter {
+            signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReflectionType(invokeMethod.ReturnType)
         } else {
             signature.ReturnType = NullabilityMetadataReflection.ConvertReturn(invokeMethod)
         }
@@ -150,8 +150,8 @@ class AnalyzerFunctionTypeFactory {
     // and the arity tables already state their shape exactly.
     static func CreateFromDelegateDefinition(definitionType: Type, typeArguments: List<TypeInfo>): FunctionTypeInfo? {
         definition := definitionType
-        if !definition.get_IsGenericTypeDefinition() {
-            if !definition.get_IsGenericType() {
+        if !definition.IsGenericTypeDefinition {
+            if !definition.IsGenericType {
                 return null
             }
 
@@ -176,7 +176,7 @@ class AnalyzerFunctionTypeFactory {
         parameterTypeList := new List<TypeInfo>()
         parameterModifierList := new List<Ast.ParameterModifier>()
         for parameter in invokeParameters {
-            substituted := SubstituteDelegateDefinitionType(parameter.get_ParameterType(), genericParameters, typeArguments)
+            substituted := SubstituteDelegateDefinitionType(parameter.ParameterType, genericParameters, typeArguments)
             if substituted == null {
                 return null
             }
@@ -211,8 +211,8 @@ class AnalyzerFunctionTypeFactory {
     // becomes the type argument at its own position, and anything else must be a type that does not
     // mention a parameter at all.
     static func SubstituteDelegateDefinitionType(declaredType: Type, genericParameters: Type[], typeArguments: List<TypeInfo>): TypeInfo? {
-        if declaredType.get_IsGenericParameter() {
-            position := declaredType.get_GenericParameterPosition()
+        if declaredType.IsGenericParameter {
+            position := declaredType.GenericParameterPosition
             if position < 0 || position >= typeArguments.Count {
                 return null
             }
@@ -228,7 +228,7 @@ class AnalyzerFunctionTypeFactory {
     }
 
     static func MentionsGenericParameter(candidate: Type, genericParameters: Type[]): bool {
-        if candidate.get_IsGenericParameter() {
+        if candidate.IsGenericParameter {
             return true
         }
 
@@ -237,7 +237,7 @@ class AnalyzerFunctionTypeFactory {
             return true
         }
 
-        if !candidate.get_IsGenericType() {
+        if !candidate.IsGenericType {
             return false
         }
 
@@ -252,7 +252,7 @@ class AnalyzerFunctionTypeFactory {
     }
 
     static func IsVoidReflectionType(candidate: Type): bool {
-        return candidate.get_FullName() == "System.Void"
+        return candidate.FullName == "System.Void"
     }
 
     // The DEFINITION's own `Invoke` parameters for a constructed generic delegate, positionally
@@ -284,7 +284,7 @@ class AnalyzerFunctionTypeFactory {
     }
 
     static func OpenDelegateInvoke(delegateType: Type): MethodInfo? {
-        if !delegateType.get_IsGenericType() || delegateType.get_IsGenericTypeDefinition() {
+        if !delegateType.IsGenericType || delegateType.IsGenericTypeDefinition {
             return null
         }
 
@@ -550,7 +550,7 @@ class AnalyzerFunctionTypeFactory {
         }
 
         reflected := reflection.Type
-        if !reflected.get_IsGenericType() {
+        if !reflected.IsGenericType {
             return false
         }
 
@@ -578,7 +578,7 @@ class AnalyzerFunctionTypeFactory {
     // here, so both decline rather than produce a signature nothing could take the address of. The
     // positions are read through the nullability tables, so a `string?` parameter is a `string?`.
     static func CreateFromReflectionMethodGroup(method: MethodInfo): FunctionTypeInfo? {
-        if method.get_IsGenericMethodDefinition() {
+        if method.IsGenericMethodDefinition {
             return null
         }
 
@@ -623,8 +623,8 @@ class AnalyzerFunctionTypeFactory {
         }
 
         signature := new FunctionTypeInfo()
-        signature.SyntheticName = method.get_Name()
-        signature.SourceName = method.get_Name()
+        signature.SyntheticName = method.Name
+        signature.SourceName = method.Name
         signature.ParameterTypes = parameterTypes
         signature.ParameterModifiers = parameterModifiers
         signature.ReturnType = returnType
@@ -655,7 +655,7 @@ class AnalyzerFunctionTypeFactory {
         index := 0
         while index < parameters.Length {
             parameter := parameters[index]
-            name := parameter.get_Name()
+            name := parameter.Name
             names.Add(name ?? "arg" + index.ToString())
             try {
                 if typeInfoOverrides == null {
@@ -674,7 +674,7 @@ class AnalyzerFunctionTypeFactory {
             }
 
             modifiers.Add(modifier)
-            if !parameter.get_IsOptional() && modifier != Ast.ParameterModifier.Params {
+            if !parameter.IsOptional && modifier != Ast.ParameterModifier.Params {
                 requiredCount = requiredCount + 1
             }
 
@@ -702,16 +702,16 @@ class AnalyzerFunctionTypeFactory {
     // demands the word at the call site, which is why an external `in` method could not be called at
     // all rather than merely being called awkwardly.
     static func GetReflectionParameterModifier(parameter: ParameterInfo): Ast.ParameterModifier {
-        parameterType := parameter.get_ParameterType()
-        if !parameterType.get_IsByRef() {
+        parameterType := parameter.ParameterType
+        if !parameterType.IsByRef {
             return Ast.ParameterModifier.None
         }
 
-        if parameter.get_IsOut() {
+        if parameter.IsOut {
             return Ast.ParameterModifier.Out
         }
 
-        if parameter.get_IsIn() {
+        if parameter.IsIn {
             return Ast.ParameterModifier.In
         }
 
@@ -723,19 +723,19 @@ class AnalyzerFunctionTypeFactory {
     static func TryGetExpressionTreeDelegateType(clrType: Type, out delegateType: Type): bool {
         delegateType = typeof(object)
         effectiveType := clrType
-        if effectiveType.get_IsByRef() {
+        if effectiveType.IsByRef {
             element := effectiveType.GetElementType()
             if element != null {
                 effectiveType = element
             }
         }
 
-        if !effectiveType.get_IsGenericType() {
+        if !effectiveType.IsGenericType {
             return false
         }
 
         definition := effectiveType.GetGenericTypeDefinition()
-        definitionName := definition.get_FullName()
+        definitionName := definition.FullName
         if definitionName != "System.Linq.Expressions.Expression`1" {
             return false
         }
@@ -747,7 +747,7 @@ class AnalyzerFunctionTypeFactory {
         // The ROOT test, not the concrete-delegate test: `System.Delegate` and
         // `System.MulticastDelegate` themselves answer true here, which is why this cannot route
         // through `AnalyzerCallableReferenceFacts.IsRuntimeDelegateType` — that one excludes them.
-        coreLibrary := typeof(object).get_Assembly()
+        coreLibrary := typeof(object).Assembly
         delegateRoot := coreLibrary.GetType("System.Delegate")
         if delegateRoot != null {
             if delegateRoot.IsAssignableFrom(candidate) {
@@ -755,12 +755,12 @@ class AnalyzerFunctionTypeFactory {
             }
         }
 
-        baseType := candidate.get_BaseType()
+        baseType := candidate.BaseType
         if baseType == null {
             return false
         }
 
-        return baseType.get_FullName() == "System.MulticastDelegate"
+        return baseType.FullName == "System.MulticastDelegate"
     }
 
     // Does a lambda written against this expected type compile to an expression TREE rather than to
@@ -981,13 +981,13 @@ class AnalyzerFunctionTypeFactory {
     }
 
     static func IsCoreTaskFamilyType(candidate: Type, fullName: string): bool {
-        if candidate.get_FullName() != fullName {
+        if candidate.FullName != fullName {
             return false
         }
 
-        assembly := candidate.get_Assembly()
+        assembly := candidate.Assembly
         identity := assembly.GetName()
-        assemblyName := identity.get_Name()
+        assemblyName := identity.Name
         return assemblyName == "System.Private.CoreLib" || assemblyName == "System.Runtime" || assemblyName == "netstandard" || assemblyName == "mscorlib"
     }
 
@@ -995,7 +995,7 @@ class AnalyzerFunctionTypeFactory {
     // `typeof` because the columnar `typeof` surface does not carry them; the instances are the
     // identical runtime types.
     static func RequiredCoreType(fullName: string): Type {
-        coreLibrary := typeof(object).get_Assembly()
+        coreLibrary := typeof(object).Assembly
         resolved := coreLibrary.GetType(fullName)
         if resolved == null {
             throw new InvalidOperationException("AnalyzerFunctionTypeFactory requires '" + fullName + "' in the compiler's own core library, and Assembly.GetType returned null for it.")

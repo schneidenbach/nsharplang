@@ -64,7 +64,7 @@ class ColumnarSourceDefinitionResolver {
         if !(sourceType is TypeBuilder) {
             return null
         }
-        values := definitions.get_Values()
+        values := definitions.Values
         return FindByBuilderIdentity(values, sourceType)
     }
 
@@ -83,7 +83,7 @@ class ColumnarSourceDefinitionResolver {
 
         isGenericType := false
         try {
-            isGenericType = sourceType.get_IsGenericType()
+            isGenericType = sourceType.IsGenericType
         } catch ex: NotSupportedException {
             isGenericType = false
         } catch ex: NotImplementedException {
@@ -150,7 +150,7 @@ class ColumnarSourceDefinitionResolver {
         // IsClosedSourceGeneric already read the generic definition as part of its guard. Preserve
         // the original second read before acquiring the live registry enumerator.
         openType := receiverType.GetGenericTypeDefinition()
-        values := definitions.get_Values()
+        values := definitions.Values
         enumerator := values.GetEnumerator()
         movement := enumerator as IEnumerator
         try {

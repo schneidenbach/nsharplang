@@ -29,6 +29,6 @@ class InternalErrorBoundary {
             headline = filePath + ": " + headline
         }
 
-        return headline + "\nThis is a bug in N#, not in your code.\n" + error.Message + "\nException: " + exceptionType.get_FullName() + "\nReport this failure: " + DiagnosticDocs.UrlFor("NL924")
+        return headline + "\nThis is a bug in N#, not in your code.\n" + error.Message + "\nException: " + exceptionType.FullName + "\nReport this failure: " + DiagnosticDocs.UrlFor("NL924")
     }
 }

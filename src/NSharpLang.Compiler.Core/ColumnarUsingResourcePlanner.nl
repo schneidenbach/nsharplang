@@ -110,7 +110,7 @@ class ColumnarUsingResourcePlanner {
 
         try {
             candidate := clrType.GetMethod(MemberNameFor(isAsync), BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null)
-            if candidate == null || candidate.get_IsStatic() {
+            if candidate == null || candidate.IsStatic {
                 return null
             }
 
@@ -164,7 +164,7 @@ class ColumnarUsingResourcePlanner {
         }
 
         try {
-            return candidate.get_IsValueType()
+            return candidate.IsValueType
         } catch {
             return false
         }
@@ -176,7 +176,7 @@ class ColumnarUsingResourcePlanner {
         }
 
         try {
-            return candidate.get_IsByRefLike()
+            return candidate.IsByRefLike
         } catch {
             return false
         }

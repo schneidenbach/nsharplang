@@ -100,7 +100,7 @@ class ExternalQualifiedTypeResolver {
 
     static func IsNameable(candidate: Type, grants: InternalsVisibleToGrants?): bool {
         if grants == null {
-            return candidate.get_IsVisible()
+            return candidate.IsVisible
         }
 
         return grants.IsNameableType(candidate)

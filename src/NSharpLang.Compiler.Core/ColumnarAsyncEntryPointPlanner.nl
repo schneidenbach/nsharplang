@@ -51,7 +51,7 @@ class ColumnarAsyncEntryPointPlanner {
             throw new InvalidOperationException("An async entry-point wrapper plan needs its entry point and both return types.")
         }
         getAwaiter := RequiredParameterlessMethod(wrappedReturnType, "GetAwaiter")
-        awaiterType := getAwaiter.get_ReturnType()
+        awaiterType := getAwaiter.ReturnType
         getResult := RequiredParameterlessMethod(awaiterType, "GetResult")
         wrapperReturnType := WrapperReturnType(innerReturnType)
 
@@ -79,7 +79,7 @@ class ColumnarAsyncEntryPointPlanner {
     }
 
     static func AwaiterCallOpCode(getAwaiter: MethodInfo): short {
-        if getAwaiter.get_IsVirtual() {
+        if getAwaiter.IsVirtual {
             return ColumnarCodePlanContract.Callvirt()
         }
         return ColumnarCodePlanContract.Call()
@@ -89,7 +89,7 @@ class ColumnarAsyncEntryPointPlanner {
         noParameters := new Type[](0)
         method := owner.GetMethod(name, noParameters)
         if method == null {
-            throw new InvalidOperationException("The awaited entry-point type '" + owner.get_FullName() + "' exposes no parameterless " + name + "().")
+            throw new InvalidOperationException("The awaited entry-point type '" + owner.FullName + "' exposes no parameterless " + name + "().")
         }
         return method
     }

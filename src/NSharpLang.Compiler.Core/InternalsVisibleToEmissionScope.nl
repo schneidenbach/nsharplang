@@ -80,7 +80,7 @@ class InternalsVisibleToEmissionScope {
             return false
         }
 
-        return GrantsAccessToDeclarer(member.get_DeclaringType())
+        return GrantsAccessToDeclarer(member.DeclaringType)
     }
 
     static func GrantsAccess(assembly: Assembly?): bool {
@@ -107,7 +107,7 @@ class InternalsVisibleToEmissionScope {
             return false
         }
 
-        if candidate.get_IsVisible() {
+        if candidate.IsVisible {
             return true
         }
 

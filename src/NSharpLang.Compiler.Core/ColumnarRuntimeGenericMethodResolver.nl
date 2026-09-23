@@ -44,7 +44,7 @@ class ColumnarRuntimeGenericMethodResolver {
         // A builder-bound owner's members are only reachable through its open definition, where a
         // generic method's own parameters and the TYPE's parameters would both need closing at once.
         // That pairing has no call site yet and is left to the tier that grows one.
-        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) || lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) || lookupType.IsGenericTypeDefinition || lookupType.IsGenericParameter {
             return Unselected(lookupType, expectedStatic)
         }
 
@@ -62,12 +62,12 @@ class ColumnarRuntimeGenericMethodResolver {
         }
 
         selected := candidates[selectedIndex]
-        declaringType := selected.get_DeclaringType()
+        declaringType := selected.DeclaringType
         if declaringType == null {
             return Unselected(lookupType, expectedStatic)
         }
 
-        receiverIsReference := !expectedStatic && !lookupType.get_IsValueType()
+        receiverIsReference := !expectedStatic && !lookupType.IsValueType
         kind := expectedStatic ? ColumnarExternalCallKind.Call : (receiverIsReference ? ColumnarExternalCallKind.CallVirtual : ColumnarExternalCallKind.Call)
         return new ColumnarOrdinaryRuntimeDirectCallSelection(
             ColumnarOrdinaryRuntimeDirectCallStatus.Selected,
@@ -79,7 +79,7 @@ class ColumnarRuntimeGenericMethodResolver {
             kind,
             expectedStatic,
             receiverIsReference,
-            selected.get_IsAbstract(),
+            selected.IsAbstract,
             null,
             candidateParameters[selectedIndex],
             -1
@@ -95,7 +95,7 @@ class ColumnarRuntimeGenericMethodResolver {
                     closed := CloseOrNull(candidate, inferred)
                     if closed != null {
                         closedParameters := ClosedParameterTypesOrNull(candidate, inferred)
-                        closedReturn := SubstituteMethodTypeArguments(candidate.get_ReturnType(), inferred)
+                        closedReturn := SubstituteMethodTypeArguments(candidate.ReturnType, inferred)
                         if closedParameters != null && closedReturn != null {
 
                             // The RETURN comes from the same substitution the parameters do, not from
@@ -136,7 +136,7 @@ class ColumnarRuntimeGenericMethodResolver {
             return false
         }
         for parameter in parameters {
-            if parameter == null || parameter.get_ParameterType() == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
+            if parameter == null || parameter.ParameterType == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
                 return false
             }
         }
@@ -148,21 +148,21 @@ class ColumnarRuntimeGenericMethodResolver {
     // or by something the lookup type derives from. The explicit-type-argument tier asks the same
     // question, so the two tiers cannot disagree about which declarations are reachable.
     static func IsInferableCandidateShape(candidate: MethodInfo?, lookupType: Type, memberName: string, expectedStatic: bool): bool {
-        if candidate == null || !candidate.get_IsPublic() || candidate.get_Name() != memberName || candidate.get_IsStatic() != expectedStatic {
+        if candidate == null || !candidate.IsPublic || candidate.Name != memberName || candidate.IsStatic != expectedStatic {
             return false
         }
-        if !candidate.get_IsGenericMethodDefinition() {
+        if !candidate.IsGenericMethodDefinition {
             return false
         }
         if ColumnarSourceOperatorResolver.IsVarArgs(candidate) {
             return false
         }
-        declaringType := candidate.get_DeclaringType()
+        declaringType := candidate.DeclaringType
         if declaringType == null {
             return false
         }
         if !ColumnarConstructionPlanner.SameObject(declaringType, lookupType) {
-            if declaringType.get_IsValueType() || lookupType.get_IsValueType() || !RuntimeAssignableFrom(declaringType, lookupType) {
+            if declaringType.IsValueType || lookupType.IsValueType || !RuntimeAssignableFrom(declaringType, lookupType) {
                 return false
             }
         }
@@ -199,7 +199,7 @@ class ColumnarRuntimeGenericMethodResolver {
                 continue
             }
 
-            if !Unify(parameters[index].get_ParameterType(), argumentTypes[index], bindings) {
+            if !Unify(parameters[index].ParameterType, argumentTypes[index], bindings) {
                 return null
             }
             index = index + 1
@@ -239,7 +239,7 @@ class ColumnarRuntimeGenericMethodResolver {
         if parameterType == null || argumentType == null {
             return false
         }
-        if parameterType.get_IsByRef() {
+        if parameterType.IsByRef {
             element := parameterType.GetElementType()
             if element == null {
                 return false
@@ -247,16 +247,16 @@ class ColumnarRuntimeGenericMethodResolver {
             return Unify(element, StripByRef(argumentType), bindings)
         }
 
-        if parameterType.get_IsGenericParameter() {
+        if parameterType.IsGenericParameter {
             // A type parameter of the DECLARING type is already fixed by the owner; only a METHOD type
             // parameter is inferred here.
-            if parameterType.get_DeclaringMethod() == null {
+            if parameterType.DeclaringMethod == null {
                 return true
             }
             if IsUnbindableInferredType(argumentType) {
                 return false
             }
-            position := parameterType.get_GenericParameterPosition()
+            position := parameterType.GenericParameterPosition
             existing := typeof(object)
             if bindings.TryGetValue(position, out existing) {
                 if existing == null {
@@ -283,8 +283,8 @@ class ColumnarRuntimeGenericMethodResolver {
             return true
         }
 
-        if parameterType.get_IsArray() {
-            if !argumentType.get_IsArray() {
+        if parameterType.IsArray {
+            if !argumentType.IsArray {
                 return true
             }
             parameterElement := parameterType.GetElementType()
@@ -295,7 +295,7 @@ class ColumnarRuntimeGenericMethodResolver {
             return Unify(parameterElement, argumentElement, bindings)
         }
 
-        if !parameterType.get_IsGenericType() || !parameterType.get_ContainsGenericParameters() {
+        if !parameterType.IsGenericType || !parameterType.ContainsGenericParameters {
             return true
         }
 
@@ -342,7 +342,7 @@ class ColumnarRuntimeGenericMethodResolver {
     }
 
     static func IsInstantiationOf(definition: Type, candidate: Type): bool {
-        if !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
+        if !candidate.IsGenericType || candidate.IsGenericTypeDefinition {
             return false
         }
         return RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidate.GetGenericTypeDefinition(), definition)
@@ -364,7 +364,7 @@ class ColumnarRuntimeGenericMethodResolver {
 
     static func BaseTypeOrNull(current: Type): Type? {
         try {
-            return current.get_BaseType()
+            return current.BaseType
         } catch ex: NotSupportedException {
             return null
         } catch ex: NotImplementedException {
@@ -373,7 +373,7 @@ class ColumnarRuntimeGenericMethodResolver {
     }
 
     static func StripByRef(candidate: Type): Type {
-        if !candidate.get_IsByRef() {
+        if !candidate.IsByRef {
             return candidate
         }
         element := candidate.GetElementType()
@@ -386,7 +386,7 @@ class ColumnarRuntimeGenericMethodResolver {
     // A type argument the CLR cannot close a method over. `void`, a by-ref or pointer shape and a
     // still-open one are what reach here.
     static func IsUnbindableInferredType(argumentType: Type): bool {
-        if argumentType.FullName == "System.Void" || argumentType.get_IsByRef() || argumentType.get_IsPointer() {
+        if argumentType.FullName == "System.Void" || argumentType.IsByRef || argumentType.IsPointer {
             return true
         }
         if IsEmittedTypeParameter(argumentType) {
@@ -403,7 +403,7 @@ class ColumnarRuntimeGenericMethodResolver {
             return false
         }
 
-        return argumentType.get_ContainsGenericParameters()
+        return argumentType.ContainsGenericParameters
     }
 
     // A TYPE PARAMETER OF THE DECLARATION BEING EMITTED — `TOk` inside `Result<TOk, TErr>`, or a
@@ -425,7 +425,7 @@ class ColumnarRuntimeGenericMethodResolver {
         result := new Type[](parameters.Length)
         index := 0
         while index < parameters.Length {
-            parameterType := SubstituteMethodTypeArguments(parameters[index].get_ParameterType(), typeArguments)
+            parameterType := SubstituteMethodTypeArguments(parameters[index].ParameterType, typeArguments)
             if parameterType == null || IsUnsupportedClosedSignatureType(parameterType) {
                 return null
             }
@@ -433,13 +433,13 @@ class ColumnarRuntimeGenericMethodResolver {
             index = index + 1
         }
 
-        returnType := SubstituteMethodTypeArguments(definition.get_ReturnType(), typeArguments)
-        if returnType == null || returnType.get_IsByRef() || returnType.get_IsPointer() {
+        returnType := SubstituteMethodTypeArguments(definition.ReturnType, typeArguments)
+        if returnType == null || returnType.IsByRef || returnType.IsPointer {
             return null
         }
         // A return that is ITSELF a source type parameter is a value the emitter can hold; one that
         // merely CONTAINS an open parameter (`List<T>`) is left to the tier that grows a call site.
-        if !IsEmittedTypeParameter(returnType) && returnType.get_ContainsGenericParameters() {
+        if !IsEmittedTypeParameter(returnType) && returnType.ContainsGenericParameters {
             return null
         }
         return result
@@ -466,22 +466,22 @@ class ColumnarRuntimeGenericMethodResolver {
             return null
         }
 
-        if signatureType.get_IsGenericParameter() {
-            if signatureType.get_DeclaringMethod() == null {
+        if signatureType.IsGenericParameter {
+            if signatureType.DeclaringMethod == null {
                 return signatureType
             }
-            position := signatureType.get_GenericParameterPosition()
+            position := signatureType.GenericParameterPosition
             if position < 0 || position >= typeArguments.Length {
                 return null
             }
             return typeArguments[position]
         }
 
-        if !signatureType.get_ContainsGenericParameters() {
+        if !signatureType.ContainsGenericParameters {
             return signatureType
         }
 
-        if signatureType.get_IsByRef() {
+        if signatureType.IsByRef {
             byRefElement := SubstituteMethodTypeArguments(signatureType.GetElementType(), typeArguments)
             if byRefElement == null {
                 return null
@@ -489,7 +489,7 @@ class ColumnarRuntimeGenericMethodResolver {
             return byRefElement.MakeByRefType()
         }
 
-        if signatureType.get_IsArray() {
+        if signatureType.IsArray {
             // A multi-dimensional array is left to the tier that grows a call site for one; its rank
             // would have to be reconstructed, and no shape in the corpus asks for it.
             if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
@@ -502,7 +502,7 @@ class ColumnarRuntimeGenericMethodResolver {
             return arrayElement.MakeArrayType()
         }
 
-        if !signatureType.get_IsGenericType() {
+        if !signatureType.IsGenericType {
             return null
         }
 
@@ -537,7 +537,7 @@ class ColumnarRuntimeGenericMethodResolver {
             typeof(object),
             ColumnarExternalCallKind.None,
             expectedStatic,
-            !expectedStatic && !lookupType.get_IsValueType(),
+            !expectedStatic && !lookupType.IsValueType,
             false,
             null,
             new Type[](0),
@@ -676,7 +676,7 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
         // The same owner boundary the inference tier keeps: a builder-bound or still-open lookup type
         // has no reachable member table, and closing a method on one would need the TYPE's arguments
         // bound at the same time.
-        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) || lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) || lookupType.IsGenericTypeDefinition || lookupType.IsGenericParameter {
             return false
         }
 
@@ -693,7 +693,7 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
             if parameters != null {
                 closed := ColumnarRuntimeGenericMethodResolver.CloseOrNull(candidate, typeArguments)
                 closedParameters := ColumnarRuntimeGenericMethodResolver.ClosedParameterTypesOrNull(candidate, typeArguments)
-                closedReturn := ColumnarRuntimeGenericMethodResolver.SubstituteMethodTypeArguments(candidate.get_ReturnType(), typeArguments)
+                closedReturn := ColumnarRuntimeGenericMethodResolver.SubstituteMethodTypeArguments(candidate.ReturnType, typeArguments)
                 if closed != null && closedParameters != null && closedReturn != null && TailFillable(parameters, closedParameters, argumentCount) {
                     candidates.Add(closed)
                     candidateParameters.Add(closedParameters)
@@ -738,7 +738,7 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
             return null
         }
         for parameter in parameters {
-            if parameter == null || parameter.get_ParameterType() == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
+            if parameter == null || parameter.ParameterType == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
                 return null
             }
         }
@@ -773,7 +773,7 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
     }
 
     static func Selected(lookupType: Type, method: MethodInfo, parameterTypes: Type[], returnType: Type, argumentCount: int, expectedStatic: bool): ColumnarExplicitGenericCallSelection {
-        usesCallVirtual := !expectedStatic && !lookupType.get_IsValueType()
+        usesCallVirtual := !expectedStatic && !lookupType.IsValueType
         return new ColumnarExplicitGenericCallSelection(true, method, lookupType, parameterTypes, returnType, argumentCount, expectedStatic, usesCallVirtual)
     }
 }

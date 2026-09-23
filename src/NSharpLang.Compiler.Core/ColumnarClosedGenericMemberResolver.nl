@@ -16,7 +16,7 @@ class ColumnarClosedGenericMemberResolver {
             return rebound
         }
 
-        resolved := MethodBase.GetMethodFromHandle(openMethod.get_MethodHandle(), closedType.get_TypeHandle())
+        resolved := MethodBase.GetMethodFromHandle(openMethod.MethodHandle, closedType.TypeHandle)
         resolvedObject: object? = resolved
         return (MethodInfo)resolvedObject
     }
@@ -37,13 +37,13 @@ class ColumnarClosedGenericMemberResolver {
     // other builder-bound rebinder still calls `TypeBuilder.GetMethod` on the receiver's own
     // instantiation and therefore still refuses an inherited member.
     static func RebindOntoClosedOwner(openMethod: MethodInfo, closedOwner: Type): MethodInfo {
-        declaring := openMethod.get_DeclaringType()
-        if declaring == null || !declaring.get_ContainsGenericParameters() {
+        declaring := openMethod.DeclaringType
+        if declaring == null || !declaring.ContainsGenericParameters {
             return openMethod
         }
 
         closedDeclaring := SubstituteInterfaceMemberType(declaring, closedOwner)
-        if closedDeclaring == declaring || closedDeclaring.get_ContainsGenericParameters() {
+        if closedDeclaring == declaring || closedDeclaring.ContainsGenericParameters {
             return openMethod
         }
 
@@ -64,12 +64,12 @@ class ColumnarClosedGenericMemberResolver {
     // method whose declaring type IS a definition — is returned untouched, and so is one whose twin
     // cannot be recovered, so the API keeps reporting for shapes this normalisation does not cover.
     static func OpenDefinitionDeclaration(closedType: Type, openMethod: MethodInfo): MethodInfo {
-        declaring := openMethod.get_DeclaringType()
-        if declaring == null || !declaring.get_IsGenericType() || declaring.get_IsGenericTypeDefinition() {
+        declaring := openMethod.DeclaringType
+        if declaring == null || !declaring.IsGenericType || declaring.IsGenericTypeDefinition {
             return openMethod
         }
 
-        if !closedType.get_IsGenericType() || closedType.get_IsGenericTypeDefinition() {
+        if !closedType.IsGenericType || closedType.IsGenericTypeDefinition {
             return openMethod
         }
 
@@ -97,13 +97,13 @@ class ColumnarClosedGenericMemberResolver {
     }
 
     static func SubstituteInterfaceMemberType(memberType: Type, closedInterfaceType: Type): Type {
-        if !closedInterfaceType.get_IsGenericType() || closedInterfaceType.get_IsGenericTypeDefinition() {
+        if !closedInterfaceType.IsGenericType || closedInterfaceType.IsGenericTypeDefinition {
             return memberType
         }
 
-        if memberType.get_IsGenericParameter() {
+        if memberType.IsGenericParameter {
             closedArguments := closedInterfaceType.GetGenericArguments()
-            position := memberType.get_GenericParameterPosition()
+            position := memberType.GenericParameterPosition
             if position >= 0 && position < closedArguments.Length {
                 return closedArguments[position]
             }
@@ -117,14 +117,14 @@ class ColumnarClosedGenericMemberResolver {
             return SubstituteInterfaceMemberType(elementType, closedInterfaceType).MakeArrayType()
         }
 
-        if memberType.get_IsByRef() {
+        if memberType.IsByRef {
             rawElementType := memberType.GetElementType()
             elementObject: object? = rawElementType
             elementType := (Type)elementObject
             return SubstituteInterfaceMemberType(elementType, closedInterfaceType).MakeByRefType()
         }
 
-        if memberType.get_IsGenericType() && memberType.get_ContainsGenericParameters() {
+        if memberType.IsGenericType && memberType.ContainsGenericParameters {
             arguments := memberType.GetGenericArguments()
             closedArguments := new Type[](arguments.Length)
             index := 0
@@ -553,7 +553,7 @@ class ColumnarClosedSourceInterfaceMethodBinding {
             if comparison.Matched {
                 openBuilderObject: object? = comparison.OpenBuilder
                 openBuilder := (MethodBuilder)openBuilderObject
-                if closedInterfaceType.get_IsGenericType() && !closedInterfaceType.get_IsGenericTypeDefinition() {
+                if closedInterfaceType.IsGenericType && !closedInterfaceType.IsGenericTypeDefinition {
                     target = ColumnarClosedGenericMemberResolver.ResolveMethod(closedInterfaceType, openBuilder)
                 } else {
                     target = openBuilder

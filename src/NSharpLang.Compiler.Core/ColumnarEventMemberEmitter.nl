@@ -114,7 +114,7 @@ class ColumnarEventMemberEmitter {
     // no `EventInfo` the CLR would accept, so the caller reports rather than emitting something the
     // runtime would refuse to load.
     static func IsDelegateHandlerType(handlerType: Type?): bool {
-        if handlerType == null || handlerType.get_IsValueType() || handlerType.get_IsInterface() {
+        if handlerType == null || handlerType.IsValueType || handlerType.IsInterface {
             return false
         }
 
@@ -125,7 +125,7 @@ class ColumnarEventMemberEmitter {
                 return true
             }
 
-            walk = walk.get_BaseType()
+            walk = walk.BaseType
         }
 
         return false
@@ -199,7 +199,7 @@ class ColumnarEventMemberEmitter {
     // serializer, an analyzer — that the field is the event's storage and not a member the author
     // wrote, and C# stamps it for exactly that reason.
     static func ApplyCompilerGenerated(field: FieldBuilder) {
-        attributeType := typeof(object).get_Assembly().GetType("System.Runtime.CompilerServices.CompilerGeneratedAttribute")
+        attributeType := typeof(object).Assembly.GetType("System.Runtime.CompilerServices.CompilerGeneratedAttribute")
         if attributeType == null {
             throw new InvalidOperationException("The CompilerGeneratedAttribute runtime type was not found.")
         }
@@ -243,9 +243,9 @@ class ColumnarEventMemberEmitter {
     static func CompareExchangeMethod(handlerType: Type): MethodInfo {
         candidates := typeof(Interlocked).GetMethods()
         for candidate in candidates {
-            if candidate.get_Name() == "CompareExchange" && candidate.get_IsGenericMethodDefinition() {
+            if candidate.Name == "CompareExchange" && candidate.IsGenericMethodDefinition {
                 parameters := candidate.GetParameters()
-                if parameters.Length == 3 && parameters[0].get_ParameterType().get_IsByRef() {
+                if parameters.Length == 3 && parameters[0].ParameterType.IsByRef {
                     arguments := new Type[](1)
                     arguments[0] = handlerType
                     return candidate.MakeGenericMethod(arguments)

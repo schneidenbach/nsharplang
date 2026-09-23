@@ -249,7 +249,7 @@ class ColumnarSourceImplicitConversionResolver {
             throw new InvalidOperationException("Source implicit-conversion lookup requires the exact source definition.")
         }
 
-        if sourceType.get_IsValueType() == definition.IsReference {
+        if sourceType.IsValueType == definition.IsReference {
             throw new InvalidOperationException("Source implicit-conversion reference facts do not match the source type.")
         }
     }
@@ -281,7 +281,7 @@ class ColumnarSourceImplicitConversionResolver {
 
         method: MethodInfo = definition.Builder
         ownerType: Type = owner.Builder
-        if !method.get_IsStatic() || method.get_Name() != "op_Implicit" || method.get_DeclaringType() != ownerType || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.get_ReturnType(), definition.ReturnType) {
+        if !method.IsStatic || method.Name != "op_Implicit" || method.DeclaringType != ownerType || !RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(method.ReturnType, definition.ReturnType) {
             throw new InvalidOperationException("Source implicit-conversion facts do not identify an exact static declaration.")
         }
     }
@@ -292,7 +292,7 @@ class ColumnarSourceImplicitConversionResolver {
 
     static func IsExactCallableOperator(definition: ColumnarStaticMethodDef, sourceType: Type, targetType: Type): bool {
         method: MethodInfo = definition.Builder
-        if sourceType.get_IsInterface() || sourceType.get_IsGenericTypeDefinition() || !method.get_IsPublic() || method.get_IsAbstract() || method.get_IsGenericMethod() || IsVarArgs(method) || definition.ParamTypes.Length != 1 || HasParameterModifiers(definition.ParamModifierKinds) || definition.ParamTypes[0].get_IsByRef() || definition.ReturnType.get_IsByRef() || definition.ParamTypes[0].get_IsGenericTypeDefinition() || definition.ReturnType.get_IsGenericTypeDefinition() || definition.ReturnType.FullName == "System.Void" {
+        if sourceType.IsInterface || sourceType.IsGenericTypeDefinition || !method.IsPublic || method.IsAbstract || method.IsGenericMethod || IsVarArgs(method) || definition.ParamTypes.Length != 1 || HasParameterModifiers(definition.ParamModifierKinds) || definition.ParamTypes[0].IsByRef || definition.ReturnType.IsByRef || definition.ParamTypes[0].IsGenericTypeDefinition || definition.ReturnType.IsGenericTypeDefinition || definition.ReturnType.FullName == "System.Void" {
             return false
         }
 
@@ -310,7 +310,7 @@ class ColumnarSourceImplicitConversionResolver {
     }
 
     static func IsVarArgs(method: MethodInfo): bool {
-        callingConvention := (int)method.get_CallingConvention()
+        callingConvention := (int)method.CallingConvention
         return (callingConvention & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0
     }
 

@@ -821,7 +821,7 @@ class AnalyzerResourceStatements {
         reflectedConstraint := constraintType as ReflectionTypeInfo
         if reflectedConstraint != null {
             clrType := reflectedConstraint.Type
-            return clrType.get_IsClass()
+            return clrType.IsClass
         }
 
         return false
@@ -894,7 +894,7 @@ class AnalyzerResourceStatements {
         reflected := candidate as ReflectionTypeInfo
         if reflected != null {
             clrType := reflected.Type
-            return clrType.get_IsValueType()
+            return clrType.IsValueType
         }
 
         return false
@@ -1068,11 +1068,11 @@ class AnalyzerResourceStatements {
         noParameters := new Type[](0)
         if isAsync {
             disposeAsync := clrType.GetMethod("DisposeAsync", flags, null, noParameters, null)
-            if disposeAsync == null || disposeAsync.get_IsStatic() {
+            if disposeAsync == null || disposeAsync.IsStatic {
                 return false
             }
 
-            return disposeAsync.get_ReturnType() != VoidRuntimeType()
+            return disposeAsync.ReturnType != VoidRuntimeType()
         }
 
         dispose := clrType.GetMethod("Dispose", flags, null, noParameters, null)
@@ -1080,11 +1080,11 @@ class AnalyzerResourceStatements {
             return false
         }
 
-        if dispose.get_IsStatic() {
+        if dispose.IsStatic {
             return false
         }
 
-        return dispose.get_ReturnType() == VoidRuntimeType()
+        return dispose.ReturnType == VoidRuntimeType()
     }
 
     // THE NOMINAL TEST. A reflected type answers by real CLR assignability; a declared class, struct,

@@ -1094,7 +1094,7 @@ class ColumnarBindingScopeFacts {
                 return false
             }
             claimed = elementClaimed
-            if !elementType.get_IsValueType() {
+            if !elementType.IsValueType {
                 result = elementType
                 return true
             }
@@ -1133,7 +1133,7 @@ class ColumnarBindingScopeFacts {
                 elementIndex = elementIndex + 1
             }
             tupleDefinition := Type.GetType("System.ValueTuple`" + elementCanonicals.Count.ToString())
-            if tupleDefinition == null || !tupleDefinition.get_IsGenericTypeDefinition() {
+            if tupleDefinition == null || !tupleDefinition.IsGenericTypeDefinition {
                 return false
             }
             try {
@@ -1151,7 +1151,7 @@ class ColumnarBindingScopeFacts {
             headType := typeof(object)
             headClaimed := false
             headResolved := TryResolveExactExplicitTypeAtFile(sourceFileId, canonical.Substring(0, genericOpen), allowTypeParameters, bindings, activeAliases, depth + 1, out headType, out headClaimed)
-            headHasExpectedArity := headResolved && headType.get_IsGenericTypeDefinition() && headType.GetGenericArguments().Length == argumentCanonicals.Count
+            headHasExpectedArity := headResolved && headType.IsGenericTypeDefinition && headType.GetGenericArguments().Length == argumentCanonicals.Count
             if !headHasExpectedArity {
                 if headClaimed && !NamespaceAliasHeadAllowsMetadataArityRetry(sourceFileId, canonical.Substring(0, genericOpen)) && !SourceHeadDeclaredAtArity(sourceFileId, canonical.Substring(0, genericOpen), argumentCanonicals.Count) {
                     claimed = true
@@ -1166,7 +1166,7 @@ class ColumnarBindingScopeFacts {
                 }
             }
             claimed = headClaimed
-            if !headType.get_IsGenericTypeDefinition() {
+            if !headType.IsGenericTypeDefinition {
                 return false
             }
             headArguments := headType.GetGenericArguments()
@@ -1812,7 +1812,7 @@ class ColumnarBindingScopeFacts {
         }
 
         expectedRuntimeType := Type.GetType(expectedDeclaringTypeIdentity)
-        if expectedRuntimeType == null || !expectedRuntimeType.get_IsGenericType() {
+        if expectedRuntimeType == null || !expectedRuntimeType.IsGenericType {
             return false
         }
         genericArguments := expectedRuntimeType.GetGenericArguments()
@@ -2168,7 +2168,7 @@ class ColumnarBindingScopeFacts {
                 argumentIndex = argumentIndex + 1
             }
             definition := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
-            if !assemblyCatalog.TryGet(activeSourceFileId, canonical.Substring(0, genericStart) + "`" + arguments.Count.ToString(), out definition) || definition.Status != ExternalAssemblyTypeLookupStatus.Found || !definition.HasRuntimeType || !definition.RuntimeType.get_IsGenericTypeDefinition() {
+            if !assemblyCatalog.TryGet(activeSourceFileId, canonical.Substring(0, genericStart) + "`" + arguments.Count.ToString(), out definition) || definition.Status != ExternalAssemblyTypeLookupStatus.Found || !definition.HasRuntimeType || !definition.RuntimeType.IsGenericTypeDefinition {
                 return false
             }
             runtimeType = definition.RuntimeType.MakeGenericType(argumentTypes)

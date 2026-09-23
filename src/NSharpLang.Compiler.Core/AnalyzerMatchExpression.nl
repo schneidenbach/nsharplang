@@ -357,14 +357,14 @@ class AnalyzerMatchExpression {
         }
 
         objectType := typeof(object)
-        current := firstClrType.get_BaseType()
+        current := firstClrType.BaseType
         while current != null && current != objectType {
             declaredBase := current
             if declaredBase.IsAssignableFrom(secondClrType) {
                 return new ReflectionTypeInfo(declaredBase)
             }
 
-            current = declaredBase.get_BaseType()
+            current = declaredBase.BaseType
         }
 
         return null

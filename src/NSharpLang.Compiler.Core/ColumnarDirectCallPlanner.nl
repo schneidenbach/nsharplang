@@ -404,7 +404,7 @@ class ColumnarDirectCallPlanner {
         }
         ownerParameters := definition.Builder.GetGenericArguments()
         ownerArguments := new Type[](0)
-        if receiverType.get_IsGenericType() {
+        if receiverType.IsGenericType {
             ownerArguments = receiverType.GetGenericArguments()
         }
 
@@ -474,11 +474,11 @@ class ColumnarDirectCallPlanner {
             return false
         }
         definitionMethod: MethodInfo = selected.Builder
-        if receiverType.get_IsGenericType() && !receiverType.get_IsGenericTypeDefinition() {
+        if receiverType.IsGenericType && !receiverType.IsGenericTypeDefinition {
             definitionMethod = ColumnarClosedGenericMemberResolver.ResolveMethod(receiverType, selected.Builder)
         }
         closedMethod := definitionMethod.MakeGenericMethod(methodArguments)
-        methodIndex := plan.AddMethodWithSignature(closedMethod, receiverType, selectedParameters, selectedReturn, false, selected.Builder.get_IsAbstract())
+        methodIndex := plan.AddMethodWithSignature(closedMethod, receiverType, selectedParameters, selectedReturn, false, selected.Builder.IsAbstract)
         plan.AppendMethodInstruction((short)(definition.IsReference ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
         resultType = selectedReturn
         ownership = ColumnarDirectCallOwnership.Planned
@@ -488,14 +488,14 @@ class ColumnarDirectCallPlanner {
     static func TryGetNamedReceiverType(name: string, bindings: ColumnarFragmentBindings, out receiverType: Type): bool {
         receiverType = typeof(object)
         if bindings.Locals.ContainsKey(name) {
-            receiverType = bindings.Locals[name].get_LocalType()
+            receiverType = bindings.Locals[name].LocalType
             return true
         }
         if bindings.PlanLocals.ContainsKey(name) {
             receiverType = bindings.PlanLocals[name].Item2
             return true
         }
-        return bindings.ParameterTypes.TryGetValue(name, out receiverType) && !receiverType.get_IsByRef()
+        return bindings.ParameterTypes.TryGetValue(name, out receiverType) && !receiverType.IsByRef
     }
 
     static func AppendNamedReceiver(name: string, receiverType: Type, isReference: bool, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
@@ -596,7 +596,7 @@ class ColumnarDirectCallPlanner {
             slot += 1
         }
 
-        declaringType := facts.Method.get_DeclaringType()
+        declaringType := facts.Method.DeclaringType
         if declaringType == null {
             return false
         }
@@ -753,11 +753,11 @@ class ColumnarDirectCallPlanner {
             }
             slot += 1
         }
-        declaringType := selected.Builder.get_DeclaringType()
+        declaringType := selected.Builder.DeclaringType
         if declaringType == null {
             return false
         }
-        methodIndex := plan.AddMethodWithSignature(selected.Builder, declaringType, selected.ParamTypes, selected.ReturnType, false, selected.Builder.get_IsAbstract())
+        methodIndex := plan.AddMethodWithSignature(selected.Builder, declaringType, selected.ParamTypes, selected.ReturnType, false, selected.Builder.IsAbstract)
         plan.AppendMethodInstruction((short)(definition.IsReference ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
         resultType = selected.ReturnType
         return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
@@ -846,7 +846,7 @@ class ColumnarDirectCallPlanner {
             }
             slot += 1
         }
-        declaringType := selected.Builder.get_DeclaringType()
+        declaringType := selected.Builder.DeclaringType
         if declaringType == null {
             return false
         }
@@ -888,21 +888,21 @@ class ColumnarDirectCallPlanner {
         tied := false
         exactDeclaresName := false
         for declaredMethod in lookupType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly) {
-            if declaredMethod.get_Name() == memberName && declaredMethod.get_IsStatic() == isStatic {
+            if declaredMethod.Name == memberName && declaredMethod.IsStatic == isStatic {
                 exactDeclaresName = true
                 break
             }
         }
         for method in lookupType.GetMethods() {
             parameters := method.GetParameters()
-            if method.get_Name() != memberName || method.get_IsStatic() != isStatic || (exactDeclaresName && method.get_DeclaringType() != lookupType) || method.get_ContainsGenericParameters() || parameters.Length <= argumentTypes.Length {
+            if method.Name != memberName || method.IsStatic != isStatic || (exactDeclaresName && method.DeclaringType != lookupType) || method.ContainsGenericParameters || parameters.Length <= argumentTypes.Length {
                 continue
             }
             parameterNames := ColumnarNamedArgumentBinder.ReflectedParameterNames(method)
             parameterTypes := new Type[](parameters.Length)
             index := 0
             while index < parameters.Length {
-                parameterTypes[index] = parameters[index].get_ParameterType()
+                parameterTypes[index] = parameters[index].ParameterType
                 index += 1
             }
             placement := new int[](0)
@@ -950,7 +950,7 @@ class ColumnarDirectCallPlanner {
         if selected == null || tied {
             return false
         }
-        if !isStatic && !AppendExplicitReceiver(nodes, source, receiverNode, bindings, handles, plan, callFragment, depth + 1, lookupType, !lookupType.get_IsValueType()) {
+        if !isStatic && !AppendExplicitReceiver(nodes, source, receiverNode, bindings, handles, plan, callFragment, depth + 1, lookupType, !lookupType.IsValueType) {
             return false
         }
         locals := new int[](selectedTypes.Length)
@@ -981,13 +981,13 @@ class ColumnarDirectCallPlanner {
             }
             emitSlot += 1
         }
-        declaringType := selected.get_DeclaringType()
+        declaringType := selected.DeclaringType
         if declaringType == null {
             return false
         }
-        methodIndex := plan.AddMethodWithSignature(selected, declaringType, selectedTypes, selected.get_ReturnType(), isStatic, selected.get_IsAbstract())
-        plan.AppendMethodInstruction((short)(!isStatic && !lookupType.get_IsValueType() ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
-        resultType = selected.get_ReturnType()
+        methodIndex := plan.AddMethodWithSignature(selected, declaringType, selectedTypes, selected.ReturnType, isStatic, selected.IsAbstract)
+        plan.AppendMethodInstruction((short)(!isStatic && !lookupType.IsValueType ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
+        resultType = selected.ReturnType
         return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
 
@@ -1420,7 +1420,7 @@ class ColumnarDirectCallPlanner {
         }
 
         closedMethod := method.MakeGenericMethod(typeArguments)
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         if declaringType == null {
             legacyWholeSubtreePlanning = true
             return false
@@ -1556,7 +1556,7 @@ class ColumnarDirectCallPlanner {
                 return false
             }
         }
-        ownerArguments := ownerType.get_IsGenericType() ? ownerType.GetGenericArguments() : new Type[](0)
+        ownerArguments := ownerType.IsGenericType ? ownerType.GetGenericArguments() : new Type[](0)
 
         selected: ColumnarStaticMethodDef? = null
         selectedParameters := new Type[](0)
@@ -1621,7 +1621,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
         definitionMethod: MethodInfo = selected.Builder
-        if ownerType.get_IsGenericType() && !ownerType.get_IsGenericTypeDefinition() {
+        if ownerType.IsGenericType && !ownerType.IsGenericTypeDefinition {
             definitionMethod = ColumnarClosedGenericMemberResolver.ResolveMethod(ownerType, selected.Builder)
         }
         closedMethod := definitionMethod.MakeGenericMethod(methodArguments)
@@ -1782,7 +1782,7 @@ class ColumnarDirectCallPlanner {
         }
 
         candidate := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(sourceDefinitions, elementType)
-        if candidate == null || !candidate.IsReference || candidate.Builder.get_IsGenericTypeDefinition() {
+        if candidate == null || !candidate.IsReference || candidate.Builder.IsGenericTypeDefinition {
             return false
         }
 
@@ -1856,7 +1856,7 @@ class ColumnarDirectCallPlanner {
         runtimeSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveInheritedWithFacts(runtimeBase, memberName, argumentTypes, argumentFacts, false)
 
         runtimeMethod := runtimeSelection.Method
-        if !runtimeSelection.IsSelected || runtimeMethod == null || runtimeMethod.get_IsAbstract() {
+        if !runtimeSelection.IsSelected || runtimeMethod == null || runtimeMethod.IsAbstract {
             plan.Rollback(checkpoint)
             return false
         }
@@ -2113,7 +2113,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, false, method.get_IsAbstract())
+        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, false, method.IsAbstract)
 
         plan.AppendMethodInstruction((short)(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
 
@@ -2140,7 +2140,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, false, method.get_IsAbstract())
+        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, false, method.IsAbstract)
 
         plan.AppendMethodInstruction((short)(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
 
@@ -2248,11 +2248,11 @@ class ColumnarDirectCallPlanner {
     // change what it derives from.
     static func IsDelegateValueType(valueType: Type): bool {
         candidate := valueType
-        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) {
+        if valueType.IsGenericType && !valueType.IsGenericTypeDefinition && RuntimeTypeShapeFacts.ContainsBuilderBoundType(valueType) {
             candidate = valueType.GetGenericTypeDefinition()
         }
 
-        if candidate is TypeBuilder || candidate.get_IsGenericParameter() || candidate == typeof(Delegate) || candidate == typeof(MulticastDelegate) {
+        if candidate is TypeBuilder || candidate.IsGenericParameter || candidate == typeof(Delegate) || candidate == typeof(MulticastDelegate) {
             return false
         }
 
@@ -2297,7 +2297,7 @@ class ColumnarDirectCallPlanner {
     static func HasNonOrdinarySiblingParameter(parameterTypes: Type[], modifierKinds: int[]): bool {
         index := 0
         while index < parameterTypes.Length {
-            if parameterTypes[index] == null || parameterTypes[index].get_IsByRef() {
+            if parameterTypes[index] == null || parameterTypes[index].IsByRef {
                 return true
             }
 
@@ -2327,7 +2327,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         if declaringType == null {
             return false
         }
@@ -2923,7 +2923,7 @@ class ColumnarDirectCallPlanner {
             defaultIndex += 1
         }
 
-        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, parameterTypes, selection.ReturnType, selection.IsStatic, method.get_IsAbstract())
+        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, parameterTypes, selection.ReturnType, selection.IsStatic, method.IsAbstract)
 
         plan.AppendMethodInstruction((short)(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
 
@@ -2972,7 +2972,7 @@ class ColumnarDirectCallPlanner {
                 return false
             }
 
-            expandedMethodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.DeclaredParameterTypes, selection.ReturnType, selection.IsStatic, method.get_IsAbstract())
+            expandedMethodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.DeclaredParameterTypes, selection.ReturnType, selection.IsStatic, method.IsAbstract)
             plan.AppendMethodInstruction((short)(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), expandedMethodIndex)
             resultType = selection.ReturnType
             return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
@@ -3010,14 +3010,14 @@ class ColumnarDirectCallPlanner {
                 // written somewhere else in the list, and `ref`/`out` is matched against the parameter
                 // it binds to, not the position it was typed at.
                 argumentNode := argumentFacts.ArgumentNodes[index]
-                if parameters[index].get_ParameterType().get_IsByRef() {
+                if parameters[index].ParameterType.IsByRef {
                     candidate := ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
                     if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.RefOutArgument || nodes.ChildCount(candidate) != 1 {
                         return false
                     }
 
                     modifier := nodes.Text(source, candidate)
-                    if parameters[index].get_IsOut() {
+                    if parameters[index].IsOut {
                         if modifier != "out" {
                             return false
                         }
@@ -3084,7 +3084,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, selection.IsStatic, method.get_IsAbstract())
+        methodIndex := plan.AddMethodWithSignature(method, selection.DeclaringType, selection.ParameterTypes, selection.ReturnType, selection.IsStatic, method.IsAbstract)
 
         plan.AppendMethodInstruction((short)(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call()), methodIndex)
 
@@ -3112,7 +3112,7 @@ class ColumnarDirectCallPlanner {
     // Reflection.Emit does answer. A value receiver is loaded as a managed ADDRESS, which a
     // `castclass` cannot consume, so it is left to the arms that own boxing.
     static func AppendInterfaceReceiverWidening(plan: ColumnarCodePlan, selection: ColumnarSourceDirectCallSelection) {
-        if !selection.ReceiverIsReference || !selection.DeclaringType.get_IsInterface() {
+        if !selection.ReceiverIsReference || !selection.DeclaringType.IsInterface {
             return
         }
 
@@ -3286,7 +3286,7 @@ class ColumnarDirectCallPlanner {
             // An EXPLICIT `ref`/`out` on a by-value parameter is still refused; the reverse — a
             // by-reference parameter reached by a plain argument — is the omitted `in`, and overload
             // resolution has already proved it is one.
-            if parameterTypes[guard] == null || (argumentFacts.IsByRefArgument[guard] && !parameterTypes[guard].get_IsByRef()) {
+            if parameterTypes[guard] == null || (argumentFacts.IsByRefArgument[guard] && !parameterTypes[guard].IsByRef) {
                 return false
             }
 
@@ -3337,10 +3337,10 @@ class ColumnarDirectCallPlanner {
         // modifier word can only be an `in`: overload resolution refuses a plain argument for a `ref`
         // or an `out`, so by the time a call is being planned the pairing has already been proved. What
         // goes on the stack is the same managed address either spelling produces.
-        if argumentFacts.IsByRefArgument[index] || parameterTypes[index].get_IsByRef() {
+        if argumentFacts.IsByRefArgument[index] || parameterTypes[index].IsByRef {
             byRefTarget := argumentFacts.IsByRefArgument[index] ? ByRefArgumentTarget(nodes, source, argumentNode) : ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
             byRefElement := typeof(int)
-            if byRefTarget < 0 || !parameterTypes[index].get_IsByRef() || !ColumnarBoundIdentifierPlanner.TryAppendAddressOf(nodes, source, byRefTarget, bindings, plan, out byRefElement) {
+            if byRefTarget < 0 || !parameterTypes[index].IsByRef || !ColumnarBoundIdentifierPlanner.TryAppendAddressOf(nodes, source, byRefTarget, bindings, plan, out byRefElement) {
                 return false
             }
 
@@ -3528,15 +3528,15 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         parameters := method.GetParameters()
         if declaringType == null || parameters.Length != 1 {
             return false
         }
 
         parameterTypes := new Type[](1)
-        parameterTypes[0] = parameters[0].get_ParameterType()
-        methodIndex := plan.AddMethodWithSignature(method, declaringType, parameterTypes, method.get_ReturnType(), true, false)
+        parameterTypes[0] = parameters[0].ParameterType
+        methodIndex := plan.AddMethodWithSignature(method, declaringType, parameterTypes, method.ReturnType, true, false)
         plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
         return true
     }
@@ -3551,7 +3551,7 @@ class ColumnarDirectCallPlanner {
         parameterTypes := new Type[](1)
         parameterTypes[0] = conversionSource
         conversion := typeof(decimal).GetMethod("op_Implicit", parameterTypes)
-        if conversion == null || conversion.get_ReturnType() != typeof(decimal) || !conversion.get_IsStatic() || conversion.get_IsGenericMethod() {
+        if conversion == null || conversion.ReturnType != typeof(decimal) || !conversion.IsStatic || conversion.IsGenericMethod {
             return false
         }
 
@@ -4031,7 +4031,7 @@ class ColumnarDirectCallPlanner {
 
     static func IsClosedSourceType(definition: ColumnarStructDef, receiverType: Type): bool {
         definitionType: Type = definition.Builder
-        return definitionType != receiverType && receiverType.get_IsGenericType() && !receiverType.get_IsGenericTypeDefinition() && receiverType.GetGenericTypeDefinition() == definitionType
+        return definitionType != receiverType && receiverType.IsGenericType && !receiverType.IsGenericTypeDefinition && receiverType.GetGenericTypeDefinition() == definitionType
     }
 
     static func FindExactSourceOwner(ownerName: string, sourceDefinitions: System.Collections.Generic.IEnumerable<ColumnarStructDef>): ColumnarStructDef? {

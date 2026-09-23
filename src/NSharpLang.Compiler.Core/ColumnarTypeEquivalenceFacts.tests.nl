@@ -251,19 +251,29 @@ test "every compiler owner asks the SZ-array question through the safe predicate
     rawCalls := 0
     for path in sources {
         text := File.ReadAllText(path)
-        if !text.Contains("get_IsSZArray()") {
+        if !text.Contains("IsSZArray") {
             continue
         }
 
         fileName := Path.GetFileName(path)
         for line in text.Replace("\r\n", "\n").Split('\n') {
-            if !line.Contains("get_IsSZArray()") {
+            // BOTH SPELLINGS COUNT. The property read `candidate.IsSZArray` and the accessor call
+            // `candidate.get_IsSZArray()` are the same question and the same crash; the guard must
+            // not be satisfied by rewriting one into the other. A whole-line comment and the
+            // quoted member NAME in the external-binding table are mentions, not asks, and a `.`
+            // immediately before the member is what tells them apart.
+            trimmed := line.Trim()
+            if trimmed.StartsWith("//", StringComparison.Ordinal) {
+                continue
+            }
+
+            if !line.Contains(".IsSZArray") && !line.Contains(".get_IsSZArray()") {
                 continue
             }
 
             rawCalls = rawCalls + 1
             if fileName != "ColumnarTypeEquivalenceFacts.nl" {
-                offenders.Add(fileName + ": " + line.Trim())
+                offenders.Add(fileName + ": " + trimmed)
             }
         }
     }

@@ -175,12 +175,12 @@ class AnalyzerAttributeUsageFacts {
         while rowIndex < rows.Count {
             row := rows[rowIndex]
             rowIndex = rowIndex + 1
-            if row.get_AttributeType().get_FullName() != "System.AttributeUsageAttribute" {
+            if row.AttributeType.FullName != "System.AttributeUsageAttribute" {
                 continue
             }
 
             targets := AnalyzerAttributeUsageFacts.AllTargets
-            constructorArguments := row.get_ConstructorArguments()
+            constructorArguments := row.ConstructorArguments
             if constructorArguments.Count == 1 {
                 targetValue := constructorArguments[0].get_Value()
                 if targetValue != null {
@@ -190,21 +190,21 @@ class AnalyzerAttributeUsageFacts {
 
             allowMultiple := false
             inherited := true
-            namedArguments := row.get_NamedArguments()
+            namedArguments := row.NamedArguments
             namedIndex := 0
             while namedIndex < namedArguments.Count {
                 named := namedArguments[namedIndex]
                 namedIndex = namedIndex + 1
-                namedValue := named.get_TypedValue().get_Value()
+                namedValue := named.TypedValue.get_Value()
                 if namedValue == null {
                     continue
                 }
 
-                if named.get_MemberName() == AnalyzerAttributeUsageFacts.AllowMultipleMemberName() {
+                if named.MemberName == AnalyzerAttributeUsageFacts.AllowMultipleMemberName() {
                     allowMultiple = Convert.ToBoolean(namedValue)
                 }
 
-                if named.get_MemberName() == AnalyzerAttributeUsageFacts.InheritedMemberName() {
+                if named.MemberName == AnalyzerAttributeUsageFacts.InheritedMemberName() {
                     inherited = Convert.ToBoolean(namedValue)
                 }
             }
@@ -229,7 +229,7 @@ class AnalyzerAttributeUsageFacts {
                 return usage
             }
 
-            current = step.get_BaseType()
+            current = step.BaseType
             depth = depth + 1
         }
 

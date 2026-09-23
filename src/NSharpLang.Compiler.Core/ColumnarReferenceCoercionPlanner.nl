@@ -19,7 +19,7 @@ class ColumnarReferenceCoercionPlanner {
             return CanUseClosedSourceInterfaceUpcast(valueType, targetType, structRegistry)
         }
         targetDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
-            structRegistry.get_Values(),
+            structRegistry.Values,
             targetBuilder
         )
         if targetDefinition == null || !targetDefinition.IsInterface {
@@ -31,7 +31,7 @@ class ColumnarReferenceCoercionPlanner {
             return false
         }
         valueDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
-            structRegistry.get_Values(),
+            structRegistry.Values,
             valueBuilder
         )
         if valueDefinition == null {
@@ -57,7 +57,7 @@ class ColumnarReferenceCoercionPlanner {
         targetType: Type,
         structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>
     ): bool {
-        if !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() {
+        if !targetType.IsGenericType || targetType.IsGenericTypeDefinition {
             return false
         }
 
@@ -67,7 +67,7 @@ class ColumnarReferenceCoercionPlanner {
         }
 
         targetDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
-            structRegistry.get_Values(),
+            structRegistry.Values,
             targetDefinitionBuilder
         )
         if targetDefinition == null || !targetDefinition.IsInterface {
@@ -81,7 +81,7 @@ class ColumnarReferenceCoercionPlanner {
         valueBuilder := valueType as TypeBuilder
         valueArguments := System.Array.Empty<Type>()
         if valueBuilder == null {
-            if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+            if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
                 return false
             }
 
@@ -94,7 +94,7 @@ class ColumnarReferenceCoercionPlanner {
         }
 
         current := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
-            structRegistry.get_Values(),
+            structRegistry.Values,
             valueBuilder
         )
         depth := 0
@@ -144,7 +144,7 @@ class ColumnarReferenceCoercionPlanner {
         valueBuilder := valueType as TypeBuilder
         definitionBuilder := valueBuilder
         if definitionBuilder == null {
-            if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+            if !valueType.IsGenericType || valueType.IsGenericTypeDefinition {
                 return false
             }
 
@@ -155,7 +155,7 @@ class ColumnarReferenceCoercionPlanner {
         }
 
         valueDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
-            structRegistry.get_Values(),
+            structRegistry.Values,
             definitionBuilder
         )
         if valueDefinition == null {
@@ -184,13 +184,13 @@ class ColumnarReferenceCoercionPlanner {
         out valueIsReference: bool
     ): bool {
         valueIsReference = false
-        if !targetType.get_IsInterface() || ColumnarReferenceConversionFacts.IsDynamicDeclarationType(targetType) {
+        if !targetType.IsInterface || ColumnarReferenceConversionFacts.IsDynamicDeclarationType(targetType) {
             return false
         }
         return ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
             valueType,
             targetType,
-            structRegistry.get_Values(),
+            structRegistry.Values,
             out valueIsReference
         )
     }
@@ -245,7 +245,7 @@ class ColumnarReferenceCoercionPlanner {
             }
 
             sourceDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
-                structRegistry.get_Values(),
+                structRegistry.Values,
                 sourceBuilder
             )
             if sourceDefinition != null && !sourceDefinition.IsReference {
@@ -254,7 +254,7 @@ class ColumnarReferenceCoercionPlanner {
             return true
         }
 
-        if source.get_IsValueType() || source.get_IsGenericParameter() || RuntimeTypeShapeFacts.IsEnumType(source) {
+        if source.IsValueType || source.IsGenericParameter || RuntimeTypeShapeFacts.IsEnumType(source) {
             il.Emit(OpCodes.Box, source)
         }
         return true
@@ -270,15 +270,15 @@ class ColumnarReferenceCoercionPlanner {
                 return true
             }
             sourceDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
-                structRegistry.get_Values(),
+                structRegistry.Values,
                 sourceBuilder
             )
             return sourceDefinition != null && !sourceDefinition.IsReference
         }
 
-        if source.get_IsGenericParameter() {
+        if source.IsGenericParameter {
             try {
-                attributes := source.get_GenericParameterAttributes()
+                attributes := source.GenericParameterAttributes
                 attributeBits := (int)attributes
                 // GenericParameterAttributes.ReferenceTypeConstraint is bit 4.
                 return (attributeBits & 4) == 0
@@ -286,6 +286,6 @@ class ColumnarReferenceCoercionPlanner {
                 return true
             }
         }
-        return source.get_IsValueType() || RuntimeTypeShapeFacts.IsEnumType(source)
+        return source.IsValueType || RuntimeTypeShapeFacts.IsEnumType(source)
     }
 }

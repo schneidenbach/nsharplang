@@ -189,7 +189,7 @@ class TypeMismatchDisplay {
     static func QualifyingNamespace(declarations: AnalyzerDeclarationContext?, candidate: TypeInfo): string {
         reflection := candidate as ReflectionTypeInfo
         if reflection != null {
-            return reflection.Type.get_Namespace() ?? ""
+            return reflection.Type.Namespace ?? ""
         }
 
         if declarations == null {

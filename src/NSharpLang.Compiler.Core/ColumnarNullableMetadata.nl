@@ -119,7 +119,7 @@ class ColumnarNullableMetadata {
         // modifier travels in its own column), but a written `&T` is accepted for the callers that
         // carry it. Nullability describes the referent either way.
         effective := clrType
-        if effective.get_IsByRef() {
+        if effective.IsByRef {
             byRefElement := effective.GetElementType()
             if byRefElement == null {
                 return false
@@ -142,12 +142,12 @@ class ColumnarNullableMetadata {
             return false
         }
 
-        if effective.get_IsGenericParameter() {
+        if effective.IsGenericParameter {
             flags.Add(AnnotationFlag(annotated))
             return true
         }
 
-        if effective.get_IsArray() {
+        if effective.IsArray {
             arrayElementType := effective.GetElementType()
             arrayElementText := ColumnarTupleElementNames.ArrayElementText(text)
             if arrayElementType == null || arrayElementText == null {
@@ -158,8 +158,8 @@ class ColumnarNullableMetadata {
             return TryCollect(arrayElementType, arrayElementText, flags, depth + 1)
         }
 
-        isValueType := effective.get_IsValueType()
-        if !effective.get_IsGenericType() {
+        isValueType := effective.IsValueType
+        if !effective.IsGenericType {
             // A value-type leaf occupies no slot; a reference leaf is one byte.
             if isValueType {
                 return true
@@ -256,7 +256,7 @@ class ColumnarNullableMetadata {
     // the identity comparison answers false for exactly the constructed shells this walk must
     // recognise. The name is the same in every universe.
     static func IsNullableValueTypeShape(clrType: Type): bool {
-        if !clrType.get_IsValueType() {
+        if !clrType.IsValueType {
             return false
         }
 

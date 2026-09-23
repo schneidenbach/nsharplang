@@ -101,12 +101,12 @@ class ColumnarContextualExtensionInference {
         // question about an INSTANCE call. A value-type receiver slot is therefore resolved where the
         // receiver's own push is still in this owner's hands — the explicit-type-argument path — and
         // not here.
-        if candidate.ReceiverParameterType.get_IsValueType() {
+        if candidate.ReceiverParameterType.IsValueType {
             return false
         }
 
         typeParameters := new Type[](0)
-        if method.get_IsGenericMethodDefinition() {
+        if method.IsGenericMethodDefinition {
             declared := method.GetGenericArguments()
             if declared == null || declared.Length == 0 {
                 return false
@@ -148,7 +148,7 @@ class ColumnarContextualExtensionInference {
         }
 
         typeParameters := new Type[](0)
-        if method.get_IsGenericMethodDefinition() {
+        if method.IsGenericMethodDefinition {
             declared := method.GetGenericArguments()
             if declared == null || declared.Length == 0 {
                 return false
@@ -157,7 +157,7 @@ class ColumnarContextualExtensionInference {
             typeParameters = declared
         }
 
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         if declaringType == null {
             return false
         }
@@ -229,7 +229,7 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        if !openReturn.get_ContainsGenericParameters() {
+        if !openReturn.ContainsGenericParameters {
             return true
         }
 
@@ -264,7 +264,7 @@ class ColumnarContextualExtensionInference {
             position = position + 1
         }
 
-        if !openReturn.get_ContainsGenericParameters() {
+        if !openReturn.ContainsGenericParameters {
             return true
         }
 
@@ -380,7 +380,7 @@ class ColumnarContextualExtensionInference {
         }
 
         closedReturnType := Substitute(candidate.ReturnType, binding.TypeParameters, binding.Inferred)
-        if closedReturnType == null || closedReturnType.get_ContainsGenericParameters() {
+        if closedReturnType == null || closedReturnType.ContainsGenericParameters {
             return false
         }
 
@@ -390,12 +390,12 @@ class ColumnarContextualExtensionInference {
 
     // An expression-tree target names its delegate one level in. Everything else IS its delegate.
     static func DelegateTargetType(parameterType: Type): Type {
-        if !parameterType.get_IsGenericType() {
+        if !parameterType.IsGenericType {
             return parameterType
         }
 
         definition := parameterType.GetGenericTypeDefinition()
-        if definition.get_FullName() != "System.Linq.Expressions.Expression`1" {
+        if definition.FullName != "System.Linq.Expressions.Expression`1" {
             return parameterType
         }
 
@@ -418,9 +418,9 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        if delegateType.get_IsGenericType() {
+        if delegateType.IsGenericType {
             definition := delegateType.GetGenericTypeDefinition()
-            definitionName := definition.get_FullName()
+            definitionName := definition.FullName
             arguments := delegateType.GetGenericArguments()
             if NSharpLang.Compiler.AnalyzerFunctionTypeFactory.IsActionDefinitionName(definitionName) {
                 parameterTypes = arguments
@@ -475,7 +475,7 @@ class ColumnarContextualExtensionInference {
         current: Type? = BaseTypeOrNull(candidate)
         depth := 0
         while current != null && depth < 32 {
-            fullName := current.get_FullName()
+            fullName := current.FullName
             if fullName == "System.MulticastDelegate" || fullName == "System.Delegate" {
                 return true
             }
@@ -491,7 +491,7 @@ class ColumnarContextualExtensionInference {
     // over a referenced type does.
     static func BaseTypeOrNull(candidate: Type): Type? {
         try {
-            return candidate.get_BaseType()
+            return candidate.BaseType
         } catch {
             return null
         }
@@ -506,7 +506,7 @@ class ColumnarContextualExtensionInference {
             return true
         }
 
-        if !parameterType.get_IsGenericType() {
+        if !parameterType.IsGenericType {
             return false
         }
 
@@ -522,7 +522,7 @@ class ColumnarContextualExtensionInference {
     // implements or a base class it derives from. Interfaces are searched first, matching the CLR's
     // own resolution order, and an exact definition match on the type itself wins over both.
     static func FindClosedImplementation(candidate: Type, openDefinition: Type): Type? {
-        if candidate.get_IsGenericType() && candidate.GetGenericTypeDefinition() == openDefinition {
+        if candidate.IsGenericType && candidate.GetGenericTypeDefinition() == openDefinition {
             return candidate
         }
 
@@ -544,11 +544,11 @@ class ColumnarContextualExtensionInference {
         current: Type? = BaseTypeOrNull(candidate)
         depth := 0
         while current != null && depth < 64 {
-            if current.get_IsGenericType() && current.GetGenericTypeDefinition() == openDefinition {
+            if current.IsGenericType && current.GetGenericTypeDefinition() == openDefinition {
                 return current
             }
 
-            if !openDefinition.get_IsGenericType() && current == openDefinition {
+            if !openDefinition.IsGenericType && current == openDefinition {
                 return current
             }
 
@@ -581,7 +581,7 @@ class ColumnarContextualExtensionInference {
         // receiver has IS the interface, with nothing to substitute. `OfType<T>` and `Cast<T>`
         // declare exactly this slot, so leaving it out made a source-element array the one vector
         // they could not be called on. The list is still read off the CLR's own `object[]`.
-        if !openDefinition.get_IsGenericType() {
+        if !openDefinition.IsGenericType {
             if SzArrayImplementsDefinition(openDefinition) {
                 return openDefinition
             }
@@ -635,7 +635,7 @@ class ColumnarContextualExtensionInference {
     // runtime instantiation the substituted answer is the same one `GetInterfaces` already gave,
     // which is why this is a fallback and not a second policy.
     static func FindClosedImplementationThroughDefinition(candidate: Type, openDefinition: Type): Type? {
-        if !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
+        if !candidate.IsGenericType || candidate.IsGenericTypeDefinition {
             return null
         }
 
@@ -667,11 +667,11 @@ class ColumnarContextualExtensionInference {
         current: Type? = BaseTypeOrNull(definition)
         depth := 0
         while current != null && depth < 64 {
-            if current.get_IsGenericType() && current.GetGenericTypeDefinition() == openDefinition {
+            if current.IsGenericType && current.GetGenericTypeDefinition() == openDefinition {
                 return ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(current, arguments)
             }
 
-            if !openDefinition.get_IsGenericType() && current == openDefinition {
+            if !openDefinition.IsGenericType && current == openDefinition {
                 return current
             }
 
@@ -686,8 +686,8 @@ class ColumnarContextualExtensionInference {
     // matched by its DEFINITION; a non-generic one (`IEnumerable`, which is what `Cast<T>` and
     // `OfType<T>` declare) is matched by identity.
     static func InterfaceMatchesDefinition(implemented: Type, openDefinition: Type): bool {
-        if openDefinition.get_IsGenericType() {
-            return implemented.get_IsGenericType() && implemented.GetGenericTypeDefinition() == openDefinition
+        if openDefinition.IsGenericType {
+            return implemented.IsGenericType && implemented.GetGenericTypeDefinition() == openDefinition
         }
 
         return implemented == openDefinition
@@ -702,11 +702,11 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        if !parameterType.get_ContainsGenericParameters() {
+        if !parameterType.ContainsGenericParameters {
             return true
         }
 
-        if parameterType.get_IsGenericParameter() {
+        if parameterType.IsGenericParameter {
             position := ColumnarExtensionMethodResolver.MethodTypeParameterOrdinal(parameterType, typeParameters)
             if position < 0 {
                 return false
@@ -747,7 +747,7 @@ class ColumnarContextualExtensionInference {
             return TryUnifySlot(parameterElement, actualElement, typeParameters, inferred)
         }
 
-        if !parameterType.get_IsGenericType() {
+        if !parameterType.IsGenericType {
             return false
         }
 
@@ -756,7 +756,7 @@ class ColumnarContextualExtensionInference {
         // `IEnumerable<char>`, which is the only way `SelectMany(x => x.ToCharArray())` can fix
         // `TResult`, and a user sequence class is its interface the same way.
         comparison := actualType
-        if !actualType.get_IsGenericType() || parameterType.GetGenericTypeDefinition() != actualType.GetGenericTypeDefinition() {
+        if !actualType.IsGenericType || parameterType.GetGenericTypeDefinition() != actualType.GetGenericTypeDefinition() {
             widened := FindClosedImplementation(actualType, parameterType.GetGenericTypeDefinition())
             if widened == null {
                 return false
@@ -790,11 +790,11 @@ class ColumnarContextualExtensionInference {
             return null
         }
 
-        if !openType.get_ContainsGenericParameters() {
+        if !openType.ContainsGenericParameters {
             return openType
         }
 
-        if openType.get_IsGenericParameter() {
+        if openType.IsGenericParameter {
             position := ColumnarExtensionMethodResolver.MethodTypeParameterOrdinal(openType, typeParameters)
             if position < 0 {
                 return null
@@ -817,7 +817,7 @@ class ColumnarContextualExtensionInference {
             return closedElement.MakeArrayType()
         }
 
-        if !openType.get_IsGenericType() {
+        if !openType.IsGenericType {
             return null
         }
 

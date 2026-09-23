@@ -356,8 +356,8 @@ class EditorInlayHintFacts {
     // A CLR TYPE READS IN N#'s OWN WORDS. `Int32` is `int` to someone writing N#, and a generic
     // is written with its arguments rather than with the arity mark the runtime uses.
     static func ReflectionHintText(clrType: Type): string {
-        typeName := clrType.get_Name()
-        if clrType.get_IsGenericType() {
+        typeName := clrType.Name
+        if clrType.IsGenericType {
             arguments := clrType.GetGenericArguments()
             builder := new StringBuilder()
             builder.Append(typeName.Substring(0, typeName.IndexOf("`", StringComparison.Ordinal)))

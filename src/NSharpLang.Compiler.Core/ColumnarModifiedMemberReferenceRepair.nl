@@ -40,9 +40,9 @@ class ColumnarModifiedMemberReferenceRequest {
         SignatureMethod = signatureMethod
         ParameterTypes = parameterTypes
         ReturnType = returnType
-        IsStatic = emittedMethod.get_IsStatic()
-        GenericArity = emittedMethod.get_IsGenericMethod() ? emittedMethod.GetGenericArguments().Length : 0
-        Name = signatureMethod.get_Name()
+        IsStatic = emittedMethod.IsStatic
+        GenericArity = emittedMethod.IsGenericMethod ? emittedMethod.GetGenericArguments().Length : 0
+        Name = signatureMethod.Name
         Identity = ColumnarModifiedMemberReferenceRepair.RuntimeTypeIdentity(owner) + "::" + ColumnarModifiedMemberReferenceRepair.RuntimeMethodIdentity(emittedMethod) + "::source=" + ColumnarModifiedMemberReferenceRepair.RuntimeMethodIdentity(signatureMethod)
     }
 }
@@ -110,9 +110,9 @@ class ColumnarModifiedMemberReferenceLedger {
         parameters := signatureMethod.GetParameters()
         parameterTypes := new Type[](parameters.Length)
         for index := 0; index < parameters.Length; index++ {
-            parameterTypes[index] = parameters[index].get_ParameterType()
+            parameterTypes[index] = parameters[index].ParameterType
         }
-        Record(owner, signatureMethod, signatureMethod, parameterTypes, signatureMethod.get_ReturnType())
+        Record(owner, signatureMethod, signatureMethod, parameterTypes, signatureMethod.ReturnType)
     }
 
     func Record(owner: Type, emittedMethod: MethodInfo, signatureMethod: MethodInfo, parameterTypes: Type[], returnType: Type) {
@@ -151,13 +151,13 @@ class ColumnarModifiedMemberReferenceRepair {
     const Pinned: int = 0x45
 
     static func RuntimeTypeIdentity(clrType: Type): string {
-        if clrType.get_IsByRef() {
+        if clrType.IsByRef {
             return RuntimeTypeIdentity(clrType.GetElementType()) + "&"
         }
-        if clrType.get_IsPointer() {
+        if clrType.IsPointer {
             return RuntimeTypeIdentity(clrType.GetElementType()) + "*"
         }
-        if clrType.get_IsArray() {
+        if clrType.IsArray {
             if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(clrType) {
                 return RuntimeTypeIdentity(clrType.GetElementType()) + "[]"
             }
@@ -171,9 +171,9 @@ class ColumnarModifiedMemberReferenceRepair {
             }
             return RuntimeTypeIdentity(clrType.GetElementType()) + suffix
         }
-        if clrType.get_IsGenericParameter() {
-            if clrType.get_IsGenericMethodParameter() {
-                declaringMethod := clrType.get_DeclaringMethod()
+        if clrType.IsGenericParameter {
+            if clrType.IsGenericMethodParameter {
+                declaringMethod := clrType.DeclaringMethod
                 if declaringMethod == null {
                     // GenericParameterBuilder preserves the VAR/MVAR kind and ordinal before its
                     // method is baked, but DeclaringMethod may still be unavailable. An MVAR in a
@@ -181,17 +181,17 @@ class ColumnarModifiedMemberReferenceRepair {
                     // so the portable signature identity here is exactly its kind and ordinal.
                     // Request identity separately includes the constructed owner and both setter
                     // identities; two different target members therefore cannot collapse here.
-                    return "!!:" + clrType.get_GenericParameterPosition().ToString()
+                    return "!!:" + clrType.GenericParameterPosition.ToString()
                 }
-                methodOwner := declaringMethod.get_DeclaringType()
+                methodOwner := declaringMethod.DeclaringType
                 ownerIdentity := methodOwner == null ? "" : RuntimeTypeDefinitionIdentity(methodOwner)
-                methodArity := declaringMethod.get_IsGenericMethod() ? declaringMethod.GetGenericArguments().Length : 0
-                return "!!" + ownerIdentity + "::" + declaringMethod.get_Name() + "`" + methodArity.ToString() + ":" + clrType.get_GenericParameterPosition().ToString()
+                methodArity := declaringMethod.IsGenericMethod ? declaringMethod.GetGenericArguments().Length : 0
+                return "!!" + ownerIdentity + "::" + declaringMethod.Name + "`" + methodArity.ToString() + ":" + clrType.GenericParameterPosition.ToString()
             }
-            declaringType := clrType.get_DeclaringType()
-            return "!" + (declaringType == null ? "" : RuntimeTypeDefinitionIdentity(declaringType)) + ":" + clrType.get_GenericParameterPosition().ToString()
+            declaringType := clrType.DeclaringType
+            return "!" + (declaringType == null ? "" : RuntimeTypeDefinitionIdentity(declaringType)) + ":" + clrType.GenericParameterPosition.ToString()
         }
-        if clrType.get_IsGenericType() {
+        if clrType.IsGenericType {
             definition := clrType.GetGenericTypeDefinition()
             text := RuntimeTypeDefinitionIdentity(definition)
             text = text + "<"
@@ -208,20 +208,20 @@ class ColumnarModifiedMemberReferenceRepair {
     }
 
     static func RuntimeTypeDefinitionIdentity(clrType: Type): string {
-        assemblyName := clrType.get_Assembly().get_FullName() ?? clrType.get_Assembly().GetName().get_Name() ?? ""
-        return assemblyName + "|" + (clrType.get_FullName() ?? clrType.get_Name())
+        assemblyName := clrType.Assembly.FullName ?? clrType.Assembly.GetName().Name ?? ""
+        return assemblyName + "|" + (clrType.FullName ?? clrType.Name)
     }
 
     static func RuntimeMethodIdentity(method: MethodBase): string {
-        identity := method.get_Name() + "|" + Convert.ToInt32(method.get_CallingConvention()).ToString()
-        if method.get_IsGenericMethod() {
+        identity := method.Name + "|" + Convert.ToInt32(method.CallingConvention).ToString()
+        if method.IsGenericMethod {
             identity = identity + "|g" + method.GetGenericArguments().Length.ToString()
         }
         try {
             parameters := method.GetParameters()
             identity = identity + "|p" + parameters.Length.ToString()
             for parameter in parameters {
-                identity = identity + "|" + Convert.ToInt32(AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameter)).ToString() + ":" + RuntimeTypeIdentity(parameter.get_ParameterType())
+                identity = identity + "|" + Convert.ToInt32(AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameter)).ToString() + ":" + RuntimeTypeIdentity(parameter.ParameterType)
             }
         } catch {
             identity = identity + "|unbaked"
@@ -229,7 +229,7 @@ class ColumnarModifiedMemberReferenceRepair {
         methodInfo := method as MethodInfo
         if methodInfo != null {
             try {
-                identity = identity + "|r:" + RuntimeTypeIdentity(methodInfo.get_ReturnType())
+                identity = identity + "|r:" + RuntimeTypeIdentity(methodInfo.ReturnType)
             } catch {
                 identity = identity + "|r:unbaked"
             }
@@ -612,11 +612,11 @@ class ColumnarModifiedMemberReferenceRepair {
 
     private static func AssemblyReferenceMatchesAnyRuntimeModifier(reader: MetadataReader, handle: AssemblyReferenceHandle, plan: ColumnarModifiedMemberReferencePlan): bool {
         for entry in plan.Entries {
-            modifierTokens := new List<int>(entry.Modifiers.get_Keys())
+            modifierTokens := new List<int>(entry.Modifiers.Keys)
             for modifierToken in modifierTokens {
                 modifier := entry.Modifiers[modifierToken]
                 runtimeType := modifier.RuntimeType
-                if runtimeType != null && AssemblyReferenceMatchesRuntime(reader, handle, runtimeType.get_Assembly().GetName()) {
+                if runtimeType != null && AssemblyReferenceMatchesRuntime(reader, handle, runtimeType.Assembly.GetName()) {
                     return true
                 }
             }
@@ -626,7 +626,7 @@ class ColumnarModifiedMemberReferenceRepair {
 
     private static func TypeReferenceMatchesAnyRuntimeModifier(reader: MetadataReader, handle: TypeReferenceHandle, plan: ColumnarModifiedMemberReferencePlan): bool {
         for entry in plan.Entries {
-            modifierTokens := new List<int>(entry.Modifiers.get_Keys())
+            modifierTokens := new List<int>(entry.Modifiers.Keys)
             for modifierToken in modifierTokens {
                 modifier := entry.Modifiers[modifierToken]
                 runtimeType := modifier.RuntimeType
@@ -634,7 +634,7 @@ class ColumnarModifiedMemberReferenceRepair {
                     if TypeReferenceMatchesRuntime(reader, handle, runtimeType) {
                         return true
                     }
-                    runtimeType = runtimeType.get_DeclaringType()
+                    runtimeType = runtimeType.DeclaringType
                 }
             }
         }
@@ -658,14 +658,14 @@ class ColumnarModifiedMemberReferenceRepair {
     private static func ResolveSourceSignature(reader: MetadataReader, request: ColumnarModifiedMemberReferenceRequest): byte[]? {
         try {
             if request.SignatureMethod as MethodBuilder != null {
-                token := request.SignatureMethod.get_MetadataToken()
+                token := request.SignatureMethod.MetadataToken
                 if (token >> 24) != 6 {
                     return null
                 }
                 method := reader.GetMethodDefinition(MetadataTokens.MethodDefinitionHandle(token & 0x00ffffff))
                 return reader.GetBlobBytes(method.Signature)
             } else {
-                return request.SignatureMethod.get_Module().ResolveSignature(request.SignatureMethod.get_MetadataToken())
+                return request.SignatureMethod.Module.ResolveSignature(request.SignatureMethod.MetadataToken)
             }
         } catch {
             return null
@@ -679,7 +679,7 @@ class ColumnarModifiedMemberReferenceRepair {
             return null
         }
         modifiers := new Dictionary<int, ColumnarModifiedMemberReferenceModifier>()
-        keys := new List<int>(names.get_Keys())
+        keys := new List<int>(names.Keys)
         for token in keys {
             if request.SignatureMethod as MethodBuilder != null {
                 handle := EntityHandleFromTypeDefOrRef(token)
@@ -689,7 +689,7 @@ class ColumnarModifiedMemberReferenceRepair {
                 modifiers[token] = new ColumnarModifiedMemberReferenceModifier(handle, null)
             } else {
                 try {
-                    resolved := request.SignatureMethod.get_Module().ResolveType(TypeDefOrRefMetadataToken(token))
+                    resolved := request.SignatureMethod.Module.ResolveType(TypeDefOrRefMetadataToken(token))
                     modifiers[token] = new ColumnarModifiedMemberReferenceModifier(new EntityHandle(), resolved)
                 } catch {
                     return null
@@ -1114,12 +1114,12 @@ class ColumnarModifiedMemberReferenceRepair {
             cursor := 0
             return SignatureTypeMatchesRuntime(reader, bytes, ref cursor, clrType) && cursor == bytes.Length
         }
-        definitionType := clrType.get_IsGenericType() ? clrType.GetGenericTypeDefinition() : clrType
+        definitionType := clrType.IsGenericType ? clrType.GetGenericTypeDefinition() : clrType
         if handle.Kind == HandleKind.TypeDefinition {
-            if !definitionType.get_Assembly().get_IsDynamic() {
+            if !definitionType.Assembly.IsDynamic {
                 return false
             }
-            return RenderTypeDefinition(reader, (TypeDefinitionHandle)handle) == (definitionType.get_FullName() ?? definitionType.get_Name())
+            return RenderTypeDefinition(reader, (TypeDefinitionHandle)handle) == (definitionType.FullName ?? definitionType.Name)
         }
         if handle.Kind != HandleKind.TypeReference {
             return false
@@ -1129,26 +1129,26 @@ class ColumnarModifiedMemberReferenceRepair {
 
     private static func TypeReferenceMatchesRuntime(reader: MetadataReader, handle: TypeReferenceHandle, clrType: Type): bool {
         reference := reader.GetTypeReference(handle)
-        if reader.GetString(reference.Name) != clrType.get_Name() {
+        if reader.GetString(reference.Name) != clrType.Name {
             return false
         }
-        declaringType := clrType.get_DeclaringType()
+        declaringType := clrType.DeclaringType
         if declaringType != null {
             return reference.ResolutionScope.Kind == HandleKind.TypeReference && TypeReferenceMatchesRuntime(reader, (TypeReferenceHandle)reference.ResolutionScope, declaringType)
         }
-        if reader.GetString(reference.Namespace) != (clrType.get_Namespace() ?? "") || reference.ResolutionScope.Kind != HandleKind.AssemblyReference {
+        if reader.GetString(reference.Namespace) != (clrType.Namespace ?? "") || reference.ResolutionScope.Kind != HandleKind.AssemblyReference {
             return false
         }
-        return AssemblyReferenceMatchesRuntime(reader, (AssemblyReferenceHandle)reference.ResolutionScope, clrType.get_Assembly().GetName())
+        return AssemblyReferenceMatchesRuntime(reader, (AssemblyReferenceHandle)reference.ResolutionScope, clrType.Assembly.GetName())
     }
 
     private static func AssemblyReferenceMatchesRuntime(reader: MetadataReader, handle: AssemblyReferenceHandle, runtimeName: AssemblyName): bool {
         reference := reader.GetAssemblyReference(handle)
-        if reader.GetString(reference.Name) != (runtimeName.get_Name() ?? "") || reference.Version != runtimeName.get_Version() {
+        if reader.GetString(reference.Name) != (runtimeName.Name ?? "") || reference.Version != runtimeName.Version {
             return false
         }
         metadataCulture := reader.GetString(reference.Culture)
-        runtimeCulture := runtimeName.get_CultureName() ?? ""
+        runtimeCulture := runtimeName.CultureName ?? ""
         if metadataCulture != runtimeCulture {
             return false
         }
@@ -1166,10 +1166,10 @@ class ColumnarModifiedMemberReferenceRepair {
         code := (int)bytes[cursor]
         cursor = cursor + 1
         if code == ByRef || code == Pointer || code == SzArray {
-            if code == ByRef && !clrType.get_IsByRef() {
+            if code == ByRef && !clrType.IsByRef {
                 return false
             }
-            if code == Pointer && !clrType.get_IsPointer() {
+            if code == Pointer && !clrType.IsPointer {
                 return false
             }
             if code == SzArray && !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(clrType) {
@@ -1178,7 +1178,7 @@ class ColumnarModifiedMemberReferenceRepair {
             return SignatureTypeMatchesRuntime(reader, bytes, ref cursor, clrType.GetElementType())
         }
         if code == ArrayType {
-            if !clrType.get_IsArray() || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(clrType) || !SignatureTypeMatchesRuntime(reader, bytes, ref cursor, clrType.GetElementType()) {
+            if !clrType.IsArray || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(clrType) || !SignatureTypeMatchesRuntime(reader, bytes, ref cursor, clrType.GetElementType()) {
                 return false
             }
             let rank: int = 0
@@ -1189,11 +1189,11 @@ class ColumnarModifiedMemberReferenceRepair {
         }
         if code == Var || code == MVar {
             let position: int = 0
-            if !clrType.get_IsGenericParameter() || !TryReadCompressed(bytes, ref cursor, out position) || position != clrType.get_GenericParameterPosition() {
+            if !clrType.IsGenericParameter || !TryReadCompressed(bytes, ref cursor, out position) || position != clrType.GenericParameterPosition {
                 return false
             }
-            methodOwned := clrType.get_IsGenericMethodParameter()
-            typeOwned := clrType.get_IsGenericTypeParameter()
+            methodOwned := clrType.IsGenericMethodParameter
+            typeOwned := clrType.IsGenericTypeParameter
             if methodOwned == typeOwned {
                 return false
             }
@@ -1204,7 +1204,7 @@ class ColumnarModifiedMemberReferenceRepair {
             return TryReadCompressed(bytes, ref cursor, out token) && EntityTypeMatchesRuntime(reader, EntityHandleFromTypeDefOrRef(token), clrType)
         }
         if code == GenericInstance {
-            if !clrType.get_IsGenericType() || cursor >= bytes.Length {
+            if !clrType.IsGenericType || cursor >= bytes.Length {
                 return false
             }
             cursor = cursor + 1
@@ -1226,7 +1226,7 @@ class ColumnarModifiedMemberReferenceRepair {
 
     private static func PrimitiveRuntimeTypeMatches(code: int, clrType: Type): bool {
         if code == 0x01 {
-            return clrType.get_FullName() == "System.Void"
+            return clrType.FullName == "System.Void"
         }
         if code == 0x02 {
             return clrType == typeof(bool)
@@ -1304,7 +1304,7 @@ class ColumnarModifiedMemberReferenceRepair {
     }
 
     private static func TryGetOrAddRuntimeTypeReference(metadata: MetadataBuilder, reader: MetadataReader, clrType: Type, out handle: EntityHandle): bool {
-        definitionType := clrType.get_IsGenericType() ? clrType.GetGenericTypeDefinition() : clrType
+        definitionType := clrType.IsGenericType ? clrType.GetGenericTypeDefinition() : clrType
         row := 1
         while row <= reader.TypeReferences.Count {
             candidate := MetadataTokens.TypeReferenceHandle(row)
@@ -1315,14 +1315,14 @@ class ColumnarModifiedMemberReferenceRepair {
             }
         }
         let scope: System.Reflection.Metadata.EntityHandle = new System.Reflection.Metadata.EntityHandle()
-        declaringType := definitionType.get_DeclaringType()
+        declaringType := definitionType.DeclaringType
         if declaringType != null {
             if !TryGetOrAddRuntimeTypeReference(metadata, reader, declaringType, out scope) {
                 handle = new EntityHandle()
                 return false
             }
         } else {
-            runtimeAssembly := definitionType.get_Assembly().GetName()
+            runtimeAssembly := definitionType.Assembly.GetName()
             assemblyRow := 1
             while assemblyRow <= reader.AssemblyReferences.Count {
                 assemblyHandle := MetadataTokens.AssemblyReferenceHandle(assemblyRow)
@@ -1333,11 +1333,11 @@ class ColumnarModifiedMemberReferenceRepair {
                 }
             }
             if scope.get_IsNil() {
-                runtimeName := runtimeAssembly.get_Name() ?? ""
-                runtimeCulture := runtimeAssembly.get_CultureName() ?? ""
+                runtimeName := runtimeAssembly.Name ?? ""
+                runtimeCulture := runtimeAssembly.CultureName ?? ""
                 runtimeKey := runtimeAssembly.GetPublicKeyToken() ?? new byte[](0)
-                runtimeVersion := runtimeAssembly.get_Version() ?? new Version(0, 0, 0, 0)
-                runtimeFlagBits := (int)runtimeAssembly.get_Flags()
+                runtimeVersion := runtimeAssembly.Version ?? new Version(0, 0, 0, 0)
+                runtimeFlagBits := (int)runtimeAssembly.Flags
                 if (runtimeFlagBits & 1) != 0 {
                     runtimeFlagBits = runtimeFlagBits - 1
                 }
@@ -1349,9 +1349,9 @@ class ColumnarModifiedMemberReferenceRepair {
                 scope = addedAssembly
             }
         }
-        namespaceText := declaringType == null ? (definitionType.get_Namespace() ?? "") : ""
+        namespaceText := declaringType == null ? (definitionType.Namespace ?? "") : ""
         namespaceHandle := metadata.GetOrAddString(namespaceText)
-        nameHandle2 := metadata.GetOrAddString(definitionType.get_Name())
+        nameHandle2 := metadata.GetOrAddString(definitionType.Name)
         addedType := metadata.AddTypeReference(scope, namespaceHandle, nameHandle2)
         handle = addedType
         return true

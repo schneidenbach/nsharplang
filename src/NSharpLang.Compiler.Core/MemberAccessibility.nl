@@ -121,7 +121,7 @@ class MemberAccessibility {
             return Private
         }
 
-        return LevelOfClrFlags(method.get_IsPublic(), method.get_IsFamilyOrAssembly(), method.get_IsFamilyAndAssembly(), method.get_IsFamily(), method.get_IsAssembly())
+        return LevelOfClrFlags(method.IsPublic, method.IsFamilyOrAssembly, method.IsFamilyAndAssembly, method.IsFamily, method.IsAssembly)
     }
 
     static func LevelOfField(field: FieldInfo?): int {
@@ -129,7 +129,7 @@ class MemberAccessibility {
             return Private
         }
 
-        return LevelOfClrFlags(field.get_IsPublic(), field.get_IsFamilyOrAssembly(), field.get_IsFamilyAndAssembly(), field.get_IsFamily(), field.get_IsAssembly())
+        return LevelOfClrFlags(field.IsPublic, field.IsFamilyOrAssembly, field.IsFamilyAndAssembly, field.IsFamily, field.IsAssembly)
     }
 
     static func LevelOfClrFlags(isPublic: bool, isFamilyOrAssembly: bool, isFamilyAndAssembly: bool, isFamily: bool, isAssembly: bool): int {

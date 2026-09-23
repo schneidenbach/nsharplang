@@ -78,7 +78,7 @@ class ColumnarInternalsVisibleToEmitter {
     // other compiler-services attribute this back end writes, and the constructor that takes the
     // display name is its only fixed-argument one.
     static func AttributeConstructor(): ConstructorInfo {
-        attributeType := typeof(object).get_Assembly().GetType(InternalsVisibleToGrants.InternalsVisibleToAttributeFullName)
+        attributeType := typeof(object).Assembly.GetType(InternalsVisibleToGrants.InternalsVisibleToAttributeFullName)
         if attributeType == null {
             throw new InvalidOperationException("The InternalsVisibleToAttribute runtime type was not found.")
         }

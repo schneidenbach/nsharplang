@@ -179,7 +179,7 @@ class ColumnarExtensionMethodResolver {
                     parameterTypes := ParameterTypesOrNull(parameters)
                     returnType := ReturnTypeOrNull(method)
                     if parameterTypes != null && returnType != null && IsSupportedReceiverParameter(parameterTypes[0]) {
-                        index.Add(method.get_Name(), new ColumnarExtensionMethodCandidate(method, hostType, parameterTypes, returnType))
+                        index.Add(method.Name, new ColumnarExtensionMethodCandidate(method, hostType, parameterTypes, returnType))
                     }
                 }
             }
@@ -196,7 +196,7 @@ class ColumnarExtensionMethodResolver {
 
     static func ReturnTypeOrNull(method: MethodInfo): Type? {
         try {
-            return method.get_ReturnType()
+            return method.ReturnType
         } catch {
             return null
         }
@@ -204,7 +204,7 @@ class ColumnarExtensionMethodResolver {
 
     static func ParameterTypeOrNull(parameter: ParameterInfo): Type? {
         try {
-            return parameter.get_ParameterType()
+            return parameter.ParameterType
         } catch {
             return null
         }
@@ -216,7 +216,7 @@ class ColumnarExtensionMethodResolver {
         }
 
         try {
-            if !candidateType.get_IsClass() || !candidateType.get_IsSealed() || !candidateType.get_IsAbstract() || candidateType.get_IsGenericType() {
+            if !candidateType.IsClass || !candidateType.IsSealed || !candidateType.IsAbstract || candidateType.IsGenericType {
                 return false
             }
         } catch {
@@ -236,7 +236,7 @@ class ColumnarExtensionMethodResolver {
         index := 0
         while index < count {
             attribute := attributes.get_Item(index)
-            attributeType := attribute.get_AttributeType()
+            attributeType := attribute.AttributeType
             if attributeType.FullName == fullName {
                 return true
             }
@@ -286,7 +286,7 @@ class ColumnarExtensionMethodResolver {
         try {
             // `public` OR, in an assembly that made this emission a friend, `internal` and
             // `protected internal` — the same relation every other external member filter applies.
-            if !method.get_IsStatic() || !InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.LevelOfMethod(method), method.get_DeclaringType()) {
+            if !method.IsStatic || !InternalsVisibleToEmissionScope.ReachesLevel(MemberAccessibility.LevelOfMethod(method), method.DeclaringType) {
                 return false
             }
         } catch {
@@ -295,7 +295,7 @@ class ColumnarExtensionMethodResolver {
 
         // Generic extension methods are indexed only as OPEN definitions; resolution closes them by
         // receiver/argument inference. A partially constructed generic method is never a candidate.
-        if method.get_IsGenericMethod() && !method.get_IsGenericMethodDefinition() {
+        if method.IsGenericMethod && !method.IsGenericMethodDefinition {
             return false
         }
 
@@ -317,7 +317,7 @@ class ColumnarExtensionMethodResolver {
             }
 
             parameterType := ParameterTypeOrNull(parameter)
-            if parameterType == null || parameterType.get_IsByRef() || parameterType.get_IsPointer() {
+            if parameterType == null || parameterType.IsByRef || parameterType.IsPointer {
                 return true
             }
 
@@ -337,7 +337,7 @@ class ColumnarExtensionMethodResolver {
     // type is an ordinary receiver slot: `JsonSerializer.Deserialize<TValue>(this JsonElement, ...)`
     // is declared on a struct, and the call site loads the struct's VALUE rather than its address.
     static func IsSupportedReceiverParameter(receiverParameterType: Type): bool {
-        return receiverParameterType != null && !receiverParameterType.get_IsByRef() && !receiverParameterType.get_IsPointer() && !receiverParameterType.get_IsGenericParameter()
+        return receiverParameterType != null && !receiverParameterType.IsByRef && !receiverParameterType.IsPointer && !receiverParameterType.IsGenericParameter
     }
 
     static func ParameterTypesOrNull(parameters: ParameterInfo[]): Type[]? {
@@ -420,7 +420,7 @@ class ColumnarExtensionMethodResolver {
             return ColumnarExtensionMethodSelection.None()
         }
 
-        if receiverType.get_IsValueType() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter() {
+        if receiverType.IsValueType || receiverType.IsByRef || receiverType.IsPointer || receiverType.IsGenericParameter {
             return ColumnarExtensionMethodSelection.None()
         }
 
@@ -448,7 +448,7 @@ class ColumnarExtensionMethodResolver {
                     score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts)
                     if score >= 0 {
                         parameterCount := parameterTypes.Length
-                        candidateIsGeneric := candidate.Method.get_IsGenericMethod()
+                        candidateIsGeneric := candidate.Method.IsGenericMethod
                         if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) || (score == bestScore && parameterCount == bestParameterCount && bestIsGeneric && !candidateIsGeneric) {
                             bestScore = score
                             bestParameterCount = parameterCount
@@ -495,7 +495,7 @@ class ColumnarExtensionMethodResolver {
         bestElementType: Type? = null
         selected: ColumnarExtensionMethodCandidate? = null
         for candidate in candidates {
-            if candidate != null && !candidate.Method.get_IsGenericMethodDefinition() && CandidateAppliesToReceiver(candidate, receiverType) {
+            if candidate != null && !candidate.Method.IsGenericMethodDefinition && CandidateAppliesToReceiver(candidate, receiverType) {
                 parameters := ParametersOrNull(candidate.Method)
                 if parameters != null {
                     expanded := ColumnarParamsExpansion.ExpandedParameterTypesOrNull(parameters, candidate.ParameterTypes, 1, explicitCount)
@@ -541,7 +541,7 @@ class ColumnarExtensionMethodResolver {
             return false
         }
 
-        if receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter() {
+        if receiverType.IsByRef || receiverType.IsPointer || receiverType.IsGenericParameter {
             return false
         }
 
@@ -557,7 +557,7 @@ class ColumnarExtensionMethodResolver {
         }
 
         for indexed in candidates {
-            if indexed != null && indexed.Method.get_IsGenericMethodDefinition() && indexed.Method.GetGenericArguments().Length == typeArguments.Length && indexed.ParameterTypes.Length - 1 >= argumentCount {
+            if indexed != null && indexed.Method.IsGenericMethodDefinition && indexed.Method.GetGenericArguments().Length == typeArguments.Length && indexed.ParameterTypes.Length - 1 >= argumentCount {
                 closedMethod := ColumnarRuntimeGenericMethodResolver.CloseOrNull(indexed.Method, typeArguments)
                 closedParameterTypes := ColumnarRuntimeGenericMethodResolver.ClosedParameterTypesOrNull(indexed.Method, typeArguments)
                 closedReturnType := ColumnarRuntimeGenericMethodResolver.SubstituteMethodTypeArguments(indexed.ReturnType, typeArguments)
@@ -634,7 +634,7 @@ class ColumnarExtensionMethodResolver {
     // the runtime rejects (a violated constraint) is not a candidate.
     static func ResolveCandidateShape(candidate: ColumnarExtensionMethodCandidate, receiverType: Type, argumentTypes: Type[], explicitCount: int): ColumnarExtensionMethodCandidate? {
         method := candidate.Method
-        if !method.get_IsGenericMethodDefinition() {
+        if !method.IsGenericMethodDefinition {
             return candidate
         }
 
@@ -690,8 +690,8 @@ class ColumnarExtensionMethodResolver {
             return null
         }
 
-        closedReturnType := closedMethod.get_ReturnType()
-        if closedReturnType == null || closedReturnType.get_ContainsGenericParameters() {
+        closedReturnType := closedMethod.ReturnType
+        if closedReturnType == null || closedReturnType.ContainsGenericParameters {
             return null
         }
 
@@ -708,11 +708,11 @@ class ColumnarExtensionMethodResolver {
             return false
         }
 
-        if !parameterType.get_ContainsGenericParameters() {
+        if !parameterType.ContainsGenericParameters {
             return true
         }
 
-        if parameterType.get_IsGenericParameter() {
+        if parameterType.IsGenericParameter {
             position := MethodTypeParameterOrdinal(parameterType, typeParameters)
             if position < 0 {
                 return false
@@ -741,7 +741,7 @@ class ColumnarExtensionMethodResolver {
             return TryUnifyCandidateSlot(parameterElement, actualElement, typeParameters, inferred)
         }
 
-        if !parameterType.get_IsGenericType() || !actualType.get_IsGenericType() {
+        if !parameterType.IsGenericType || !actualType.IsGenericType {
             return false
         }
 
@@ -783,7 +783,7 @@ class ColumnarExtensionMethodResolver {
 
     static func CandidateAppliesToReceiver(candidate: ColumnarExtensionMethodCandidate, receiverType: Type): bool {
         receiverParameterType := candidate.ReceiverParameterType
-        return !receiverParameterType.get_IsValueType() && ReferenceAssignableFrom(receiverParameterType, receiverType)
+        return !receiverParameterType.IsValueType && ReferenceAssignableFrom(receiverParameterType, receiverType)
     }
 
     // Explicit call arguments occupy the extension parameters after the receiver slot.
@@ -930,7 +930,7 @@ class ColumnarExtensionMethodResolver {
     static func ConstantCarrierType(resolvedType: Type): Type {
         underlying := Nullable.GetUnderlyingType(resolvedType)
         carrier := underlying ?? resolvedType
-        if carrier.get_IsEnum() {
+        if carrier.IsEnum {
             return carrier.GetEnumUnderlyingType()
         }
 
@@ -956,23 +956,23 @@ class ColumnarExtensionMethodResolver {
 
     static func OptionalDefaultKind(parameter: ParameterInfo, resolvedType: Type, out defaultValue: object?): int {
         defaultValue = null
-        if parameter == null || resolvedType == null || !parameter.get_IsOptional() {
+        if parameter == null || resolvedType == null || !parameter.IsOptional {
             return OptionalDefaultKindNone()
         }
 
-        if resolvedType.get_IsByRef() || resolvedType.get_IsPointer() || resolvedType.get_IsGenericParameter() {
+        if resolvedType.IsByRef || resolvedType.IsPointer || resolvedType.IsGenericParameter {
             return OptionalDefaultKindNone()
         }
 
         value: object? = null
         try {
-            value = parameter.get_DefaultValue()
+            value = parameter.DefaultValue
         } catch {
             // A parameter whose default value cannot be read is not a fillable default.
             return OptionalDefaultKindNone()
         }
 
-        if !resolvedType.get_IsValueType() {
+        if !resolvedType.IsValueType {
             if value != null {
                 stringDefault := value as string
                 if stringDefault != null && resolvedType == typeof(string) {
@@ -1111,7 +1111,7 @@ class ColumnarExtensionMethodResolver {
 
     static func DefaultIsNullReference(parameter: ParameterInfo): bool {
         try {
-            return parameter.get_DefaultValue() == null
+            return parameter.DefaultValue == null
         } catch {
             // A parameter whose default value cannot be read is not a fillable null default.
             return false
@@ -1245,15 +1245,15 @@ class ColumnarExtensionMethodResolver {
     // that is still open — a bare type parameter, or anything containing one — names no shape a
     // receiver can be said to have, and keeps the ordinary reflection answer.
     static func ExpectedSlotDefinitionOrNull(expectedType: Type): Type? {
-        if expectedType.get_IsGenericTypeDefinition() {
+        if expectedType.IsGenericTypeDefinition {
             return null
         }
 
-        if expectedType.get_IsGenericType() {
+        if expectedType.IsGenericType {
             return expectedType.GetGenericTypeDefinition()
         }
 
-        if expectedType.get_IsGenericParameter() || expectedType.get_ContainsGenericParameters() {
+        if expectedType.IsGenericParameter || expectedType.ContainsGenericParameters {
             return null
         }
 

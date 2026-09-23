@@ -966,7 +966,7 @@ class AnalyzerAttributeValidator {
     // outside that set is `UnknownStaticMember` rather than an error — the constant exists, its kind
     // is simply not one the operator rules work over.
     static func ClassifyAttributeRuntimeType(clrType: Type): AttributeArgumentConstantKind {
-        if clrType.get_IsArray() {
+        if clrType.IsArray {
             return AttributeArgumentConstantKind.Array
         }
 
@@ -974,7 +974,7 @@ class AnalyzerAttributeValidator {
             return AttributeArgumentConstantKind.Enum
         }
 
-        fullName := clrType.get_FullName()
+        fullName := clrType.FullName
         if fullName == "System.Boolean" {
             return AttributeArgumentConstantKind.Bool
         }
@@ -1006,16 +1006,16 @@ class AnalyzerAttributeValidator {
     // `IsEnum` depends on the core assembly being the one it was loaded against. The base-type name
     // is the second door and it is the one that answers for reference-only loads.
     static func IsRuntimeEnumType(clrType: Type): bool {
-        if clrType.get_IsEnum() {
+        if clrType.IsEnum {
             return true
         }
 
-        baseType := clrType.get_BaseType()
+        baseType := clrType.BaseType
         if baseType == null {
             return false
         }
 
-        return baseType.get_FullName() == "System.Enum"
+        return baseType.FullName == "System.Enum"
     }
 
     // `nameof` ADMITS A NAME AND A DOTTED PATH OF NAMES, AND NOTHING ELSE. A null-conditional link in
@@ -1231,11 +1231,11 @@ class AnalyzerAttributeValidator {
         current: Type? = clrType
         while current != null {
             step: Type = current
-            if step.get_FullName() == "System.Attribute" {
+            if step.FullName == "System.Attribute" {
                 return true
             }
 
-            current = step.get_BaseType()
+            current = step.BaseType
         }
 
         return false
@@ -1831,16 +1831,16 @@ class AnalyzerAttributeValidator {
         instanceFlags := BindingFlags.Public | BindingFlags.Instance
         property := attributeType.GetProperty(memberName, instanceFlags)
         if property != null {
-            setter := property.get_SetMethod()
-            if setter != null && setter.get_IsPublic() && property.GetIndexParameters().Length == 0 {
-                memberType = property.get_PropertyType()
+            setter := property.SetMethod
+            if setter != null && setter.IsPublic && property.GetIndexParameters().Length == 0 {
+                memberType = property.PropertyType
                 return true
             }
         }
 
         field := attributeType.GetField(memberName, instanceFlags)
-        if field != null && !field.get_IsInitOnly() && !field.get_IsLiteral() {
-            memberType = field.get_FieldType()
+        if field != null && !field.IsInitOnly && !field.IsLiteral {
+            memberType = field.FieldType
             return true
         }
 
@@ -1865,7 +1865,7 @@ class AnalyzerAttributeValidator {
             names := new string[](parameters.Length)
             nameIndex := 0
             while nameIndex < parameters.Length {
-                names[nameIndex] = parameters[nameIndex].get_Name() ?? ""
+                names[nameIndex] = parameters[nameIndex].Name ?? ""
                 nameIndex += 1
             }
             nextPositional := 0
@@ -1880,7 +1880,7 @@ class AnalyzerAttributeValidator {
                 }
                 claimed[parameterIndex] = true
                 parameter := parameters[parameterIndex]
-                if !IsAttributeArgumentCompatibleValue(parameter.get_ParameterType(), argumentInfo) {
+                if !IsAttributeArgumentCompatibleValue(parameter.ParameterType, argumentInfo) {
                     matches = false
                     break
                 }
@@ -1926,7 +1926,7 @@ class AnalyzerAttributeValidator {
         count := parameters.Length
         while count > 0 {
             parameter := parameters[count - 1]
-            if !parameter.get_IsOptional() {
+            if !parameter.IsOptional {
                 return count
             }
 
@@ -1963,7 +1963,7 @@ class AnalyzerAttributeValidator {
         // elements is an integer constant a `byte` holds. The rule is therefore the same
         // constant-expression conversion applied one level down, which is exactly as deep as
         // attribute metadata goes.
-        if parameterType.get_IsArray() && !argumentInfo.IsNull {
+        if parameterType.IsArray && !argumentInfo.IsNull {
             return ArrayElementsFitParameter(parameterType, argumentInfo.Value)
         }
 
@@ -2005,14 +2005,14 @@ class AnalyzerAttributeValidator {
     }
 
     static func IsIntegralClrType(clrType: Type): bool {
-        fullName := clrType.get_FullName()
+        fullName := clrType.FullName
         return fullName == "System.SByte" || fullName == "System.Byte" || fullName == "System.Int16" || fullName == "System.UInt16" || fullName == "System.Int32" || fullName == "System.UInt32" || fullName == "System.Int64" || fullName == "System.UInt64" || fullName == "System.Char"
     }
 
     // THE RANGES, WRITTEN OUT, over a magnitude and a sign. A negative constant is out of range for
     // every unsigned parameter whatever its magnitude, which is why the sign is asked first.
     static func ConstantFitsNumericType(parameterType: Type, magnitude: ulong, isNegative: bool): bool {
-        fullName := parameterType.get_FullName()
+        fullName := parameterType.FullName
         if fullName == "System.Single" || fullName == "System.Double" {
             return true
         }
@@ -2091,7 +2091,7 @@ class AnalyzerAttributeValidator {
 
     static func IsAttributeArgumentCompatible(parameterType: Type, argumentType: Type, isNull: bool): bool {
         if isNull {
-            if !parameterType.get_IsValueType() {
+            if !parameterType.IsValueType {
                 return true
             }
 
@@ -2106,7 +2106,7 @@ class AnalyzerAttributeValidator {
             return true
         }
 
-        if parameterType.get_IsArray() && argumentType.get_IsArray() {
+        if parameterType.IsArray && argumentType.IsArray {
             parameterElementCandidate := parameterType.GetElementType()
             argumentElementCandidate := argumentType.GetElementType()
             if parameterElementCandidate == null || argumentElementCandidate == null {
@@ -2139,7 +2139,7 @@ class AnalyzerAttributeValidator {
     }
 
     static func TryGetRuntimeEnumUnderlyingType(clrType: Type): Type? {
-        if !clrType.get_IsEnum() {
+        if !clrType.IsEnum {
             return null
         }
 
@@ -2210,12 +2210,12 @@ class AnalyzerAttributeValidator {
     }
 
     static func GetAttributeDisplayName(attributeType: Type): string {
-        fullName := attributeType.get_FullName()
+        fullName := attributeType.FullName
         if fullName != null {
             return fullName
         }
 
-        return attributeType.get_Name()
+        return attributeType.Name
     }
 
     // ------------------------------------------------------------------------------------------
@@ -2364,13 +2364,13 @@ class AnalyzerAttributeValidator {
         staticFlags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static
         field := containerType.GetField(memberName, staticFlags)
         if field != null {
-            memberType = field.get_FieldType()
+            memberType = field.FieldType
             return true
         }
 
         property := containerType.GetProperty(memberName, staticFlags)
-        if property != null && property.get_GetMethod() != null {
-            memberType = property.get_PropertyType()
+        if property != null && property.GetMethod != null {
+            memberType = property.PropertyType
             return true
         }
 
@@ -2487,6 +2487,6 @@ class AnalyzerAttributeValidator {
             return true
         }
 
-        return clrType.get_FullName() == runtimeType.get_FullName()
+        return clrType.FullName == runtimeType.FullName
     }
 }

@@ -644,7 +644,7 @@ class AnalyzerAssignability {
         // `AnalyzerAssignability.tests.nl` pins it false — and would put boxing into a predicate that
         // several callers read as nominal subtyping. One defect, one arm.
         bridgeTarget := clrTypeConversion.TryConvertTypeInfoToClrType(target)
-        if bridgeTarget != null && bridgeTarget.get_IsInterface() {
+        if bridgeTarget != null && bridgeTarget.IsInterface {
             bridgeSource := clrTypeConversion.TryConvertTypeInfoToClrType(effectiveSource)
             if bridgeSource != null && AnalyzerConversionFacts.IsReflectionAssignableFrom(bridgeTarget, bridgeSource) {
                 return true
@@ -679,8 +679,8 @@ class AnalyzerAssignability {
         typeOverride := AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericSource)
         activeExternalDefinitions.Add(definition)
         try {
-            baseDefinition := definition.get_BaseType()
-            if baseDefinition != null && !baseDefinition.get_IsGenericParameter() {
+            baseDefinition := definition.BaseType
+            if baseDefinition != null && !baseDefinition.IsGenericParameter {
                 if IsAssignable(target, NullabilityMetadataReflection.ConvertReflectedType(baseDefinition, null, typeOverride)) {
                     return true
                 }
@@ -1465,7 +1465,7 @@ class AnalyzerAssignability {
         }
 
         reflected := reflection.Type
-        return reflected.get_IsGenericParameter()
+        return reflected.IsGenericParameter
     }
 
     static func ParameterTypesOrEmpty(functionType: FunctionTypeInfo): List<TypeInfo> {

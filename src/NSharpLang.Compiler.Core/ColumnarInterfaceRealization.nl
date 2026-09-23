@@ -189,11 +189,11 @@ class ColumnarInterfaceRealization {
         try {
             while implementedTypeEnumerator.MoveNext() {
                 implementedInterfaceType := implementedTypeEnumerator.get_Current()
-                if implementedInterfaceType.get_IsGenericType() && !implementedInterfaceType.get_IsGenericTypeDefinition() {
+                if implementedInterfaceType.IsGenericType && !implementedInterfaceType.IsGenericTypeDefinition {
                     closedInterfaceDefinition: ColumnarStructDef = null
                     if ColumnarSourceDefinitionResolver.TryResolveInterface(
                         implementedInterfaceType,
-                        structRegistry.get_Values(),
+                        structRegistry.Values,
                         out closedInterfaceDefinition
                     ) && Object.ReferenceEquals(closedInterfaceDefinition, implementedInterface) {
                         hasClosedImplementations = true
@@ -287,7 +287,7 @@ class ColumnarInterfaceRealization {
     }
 
     static func IsSupportedParameterType(parameterType: Type): bool {
-        return ColumnarTypeOfPlanner.IsSupportedType(parameterType) || (parameterType.get_IsByRef() && ColumnarCanonicalTypeResolver.IsSupportedByRefElementType(parameterType.GetElementType()))
+        return ColumnarTypeOfPlanner.IsSupportedType(parameterType) || (parameterType.IsByRef && ColumnarCanonicalTypeResolver.IsSupportedByRefElementType(parameterType.GetElementType()))
     }
 
     static func TryComputeAsyncReturnShape(

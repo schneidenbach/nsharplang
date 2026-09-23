@@ -68,7 +68,7 @@ class ColumnarExternalBaseConstructors {
             return false
         }
 
-        if !baseType.get_IsGenericType() || baseType.get_IsGenericTypeDefinition() {
+        if !baseType.IsGenericType || baseType.IsGenericTypeDefinition {
             return false
         }
 
@@ -102,7 +102,7 @@ class ColumnarExternalBaseConstructors {
             parameterTypes := new Type[](parameters.Length)
             parameterIndex := 0
             while parameterIndex < parameters.Length {
-                parameterType := parameters[parameterIndex].get_ParameterType()
+                parameterType := parameters[parameterIndex].ParameterType
                 if builderBound {
                     parameterType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(parameterType, arguments)
                 }

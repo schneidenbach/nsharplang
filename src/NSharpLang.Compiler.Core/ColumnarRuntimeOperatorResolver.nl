@@ -110,7 +110,7 @@ class ColumnarRuntimeOperatorResolver {
             }
 
             // A value type's operator set is its own; only a class hierarchy is walked.
-            if current.get_IsValueType() {
+            if current.IsValueType {
                 return
             }
             current = BaseTypeOrNull(current)
@@ -120,7 +120,7 @@ class ColumnarRuntimeOperatorResolver {
     // The type whose declarations are read for the operand. A pointer, by-ref or open generic operand
     // has no operator surface at all.
     static func OperatorLookupStart(operandType: Type): Type? {
-        if operandType == null || operandType.get_IsByRef() || operandType.get_IsPointer() || operandType.get_IsGenericParameter() || operandType.get_IsGenericTypeDefinition() || operandType.get_IsArray() {
+        if operandType == null || operandType.IsByRef || operandType.IsPointer || operandType.IsGenericParameter || operandType.IsGenericTypeDefinition || operandType.IsArray {
             return null
         }
         return operandType
@@ -128,7 +128,7 @@ class ColumnarRuntimeOperatorResolver {
 
     static func BaseTypeOrNull(current: Type): Type? {
         try {
-            return current.get_BaseType()
+            return current.BaseType
         } catch ex: NotSupportedException {
             return null
         } catch ex: NotImplementedException {
@@ -140,7 +140,7 @@ class ColumnarRuntimeOperatorResolver {
         closedArguments := new Type[](0)
         candidateOwner := lookupType
         if RuntimeTypeShapeFacts.ContainsBuilderBoundType(lookupType) {
-            if !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() {
+            if !lookupType.IsGenericType || lookupType.IsGenericTypeDefinition {
                 return
             }
             definition := lookupType.GetGenericTypeDefinition()
@@ -156,7 +156,7 @@ class ColumnarRuntimeOperatorResolver {
         for candidate in declared {
             if IsCallableOperator(candidate, candidateOwner, methodName, arity) {
                 parameterTypes := SubstitutedParameterTypes(candidate, closedArguments)
-                returnType := SubstitutedType(candidate.get_ReturnType(), closedArguments)
+                returnType := SubstitutedType(candidate.ReturnType, closedArguments)
                 if parameterTypes != null && !HasUnsupportedOperatorSignature(parameterTypes, returnType) {
                     bound := BindOperator(candidate, lookupType, closedArguments)
                     if bound != null && !ContainsSameOperator(candidates, bound) {
@@ -184,16 +184,16 @@ class ColumnarRuntimeOperatorResolver {
     }
 
     static func IsCallableOperator(candidate: MethodInfo, candidateOwner: Type, methodName: string, arity: int): bool {
-        if candidate == null || !candidate.get_IsPublic() || !candidate.get_IsStatic() || !candidate.get_IsSpecialName() {
+        if candidate == null || !candidate.IsPublic || !candidate.IsStatic || !candidate.IsSpecialName {
             return false
         }
-        if candidate.get_Name() != methodName || candidate.get_IsGenericMethod() || candidate.get_IsGenericMethodDefinition() {
+        if candidate.Name != methodName || candidate.IsGenericMethod || candidate.IsGenericMethodDefinition {
             return false
         }
         if ColumnarSourceOperatorResolver.IsVarArgs(candidate) {
             return false
         }
-        declaringType := candidate.get_DeclaringType()
+        declaringType := candidate.DeclaringType
         if declaringType == null || !ColumnarConstructionPlanner.SameObject(declaringType, candidateOwner) {
             return false
         }
@@ -202,7 +202,7 @@ class ColumnarRuntimeOperatorResolver {
             return false
         }
         for parameter in parameters {
-            if parameter == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) || parameter.get_ParameterType() == null {
+            if parameter == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) || parameter.ParameterType == null {
                 return false
             }
         }
@@ -214,7 +214,7 @@ class ColumnarRuntimeOperatorResolver {
         result := new Type[](parameters.Length)
         index := 0
         while index < parameters.Length {
-            parameterType := parameters[index].get_ParameterType()
+            parameterType := parameters[index].ParameterType
             if parameterType == null {
                 return null
             }
@@ -232,11 +232,11 @@ class ColumnarRuntimeOperatorResolver {
     }
 
     static func HasUnsupportedOperatorSignature(parameterTypes: Type[], returnType: Type): bool {
-        if returnType == null || returnType.FullName == "System.Void" || returnType.get_IsByRef() || returnType.get_IsPointer() {
+        if returnType == null || returnType.FullName == "System.Void" || returnType.IsByRef || returnType.IsPointer {
             return true
         }
         for parameterType in parameterTypes {
-            if parameterType == null || parameterType.get_IsPointer() || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(parameterType) {
+            if parameterType == null || parameterType.IsPointer || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(parameterType) {
                 return true
             }
         }
@@ -273,7 +273,7 @@ class ColumnarRuntimeOperatorResolver {
         }
 
         selected := candidates[selectedIndex]
-        declaringType := selected.get_DeclaringType()
+        declaringType := selected.DeclaringType
         if declaringType == null {
             return Unselected(ColumnarRuntimeOperatorStatus.Rejected)
         }

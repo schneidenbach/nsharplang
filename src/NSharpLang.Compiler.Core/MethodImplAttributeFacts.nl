@@ -41,7 +41,7 @@ class MethodImplAttributeFacts {
         }
 
         resolved: Type = clrType
-        return string.Equals(resolved.get_FullName(), AttributeFullName(), StringComparison.Ordinal)
+        return string.Equals(resolved.FullName, AttributeFullName(), StringComparison.Ordinal)
     }
 
     // `MethodImplOptions` IS READ OFF THE ATTRIBUTE ITSELF rather than looked up by name: the
@@ -52,8 +52,8 @@ class MethodImplAttributeFacts {
         for constructor in attributeType.GetConstructors() {
             parameters := constructor.GetParameters()
             if parameters.Length == 1 {
-                candidate := parameters[0].get_ParameterType()
-                if candidate.get_IsEnum() {
+                candidate := parameters[0].ParameterType
+                if candidate.IsEnum {
                     optionsType = candidate
                     return true
                 }
@@ -72,8 +72,8 @@ class MethodImplAttributeFacts {
             return false
         }
 
-        fieldType := field.get_FieldType()
-        if !fieldType.get_IsEnum() {
+        fieldType := field.FieldType
+        if !fieldType.IsEnum {
             return false
         }
 
@@ -86,7 +86,7 @@ class MethodImplAttributeFacts {
     static func DefinedMask(enumType: Type): int {
         mask := 0
         for field in enumType.GetFields(BindingFlags.Public | BindingFlags.Static) {
-            if field.get_IsLiteral() {
+            if field.IsLiteral {
                 mask = mask | Convert.ToInt32(field.GetRawConstantValue(), CultureInfo.InvariantCulture)
             }
         }
@@ -97,7 +97,7 @@ class MethodImplAttributeFacts {
     static func TryGetMemberValue(enumType: Type, memberName: string, out value: int): bool {
         value = 0
         field := enumType.GetField(memberName, BindingFlags.Public | BindingFlags.Static)
-        if field == null || !field.get_IsLiteral() {
+        if field == null || !field.IsLiteral {
             return false
         }
 

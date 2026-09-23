@@ -1333,7 +1333,7 @@ class AnalyzerOperatorExpressions {
         while candidateIndex < candidates.Length {
             candidate := candidates[candidateIndex]
             candidateIndex = candidateIndex + 1
-            if candidate.get_Name() != clrName {
+            if candidate.Name != clrName {
                 continue
             }
 
@@ -1342,15 +1342,15 @@ class AnalyzerOperatorExpressions {
                 continue
             }
 
-            if !AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(parameters[0].get_ParameterType(), leftClr) {
+            if !AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(parameters[0].ParameterType, leftClr) {
                 continue
             }
 
-            if !AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(parameters[1].get_ParameterType(), rightClr) {
+            if !AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(parameters[1].ParameterType, rightClr) {
                 continue
             }
 
-            result = AnalyzerReflectionTypeConversion.ConvertReflectionType(candidate.get_ReturnType())
+            result = AnalyzerReflectionTypeConversion.ConvertReflectionType(candidate.ReturnType)
             return true
         }
 
@@ -1411,7 +1411,7 @@ class AnalyzerOperatorExpressions {
         while candidateIndex < candidates.Length {
             candidate := candidates[candidateIndex]
             candidateIndex = candidateIndex + 1
-            if candidate.get_Name() != clrName {
+            if candidate.Name != clrName {
                 continue
             }
 
@@ -1420,11 +1420,11 @@ class AnalyzerOperatorExpressions {
                 continue
             }
 
-            if !AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(parameters[0].get_ParameterType(), clrType) {
+            if !AnalyzerOverloadFacts.IsRuntimeOperatorParameterCompatible(parameters[0].ParameterType, clrType) {
                 continue
             }
 
-            result = AnalyzerReflectionTypeConversion.ConvertReflectionType(candidate.get_ReturnType())
+            result = AnalyzerReflectionTypeConversion.ConvertReflectionType(candidate.ReturnType)
             return true
         }
 
@@ -1454,7 +1454,7 @@ class AnalyzerOperatorExpressions {
         }
 
         openType := openCandidate.Type
-        if !openType.get_IsGenericTypeDefinition() {
+        if !openType.IsGenericTypeDefinition {
             return null
         }
 
@@ -2336,7 +2336,7 @@ class AnalyzerOperatorExpressions {
         }
 
         reflection := resolved as ReflectionTypeInfo
-        return reflection != null && reflection.Type.get_IsEnum()
+        return reflection != null && reflection.Type.IsEnum
     }
 
     func IsSameBitwiseEnumType(left: TypeInfo, right: TypeInfo): bool {
@@ -2351,7 +2351,7 @@ class AnalyzerOperatorExpressions {
         leftReflection := resolvedLeft as ReflectionTypeInfo
         rightReflection := resolvedRight as ReflectionTypeInfo
         if leftReflection != null && rightReflection != null {
-            return leftReflection.Type.get_IsEnum() && rightReflection.Type.get_IsEnum() && leftReflection.Type == rightReflection.Type
+            return leftReflection.Type.IsEnum && rightReflection.Type.IsEnum && leftReflection.Type == rightReflection.Type
         }
 
         return false

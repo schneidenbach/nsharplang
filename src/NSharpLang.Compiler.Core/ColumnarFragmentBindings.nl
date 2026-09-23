@@ -305,7 +305,7 @@ class ColumnarFragmentBindings {
     }
 
     static func ValidateTypeParameter(name: string, parameterType: Type) {
-        if name == null || name.Length == 0 || parameterType == null || !parameterType.get_IsGenericParameter() || parameterType.Name != name {
+        if name == null || name.Length == 0 || parameterType == null || !parameterType.IsGenericParameter || parameterType.Name != name {
             throw new InvalidOperationException("Columnar type-parameter facts must map each non-empty name to its exact generic parameter handle.")
         }
     }

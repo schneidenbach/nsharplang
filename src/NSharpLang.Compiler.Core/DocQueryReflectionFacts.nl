@@ -34,16 +34,16 @@ class DocQueryReflectionFacts {
     // (`System.Int32` must read as `int`, not `Int32`), then the generic and array walks, then the
     // bare name with its arity suffix stripped.
     static func FormatType(reflectionType: Type): string {
-        if reflectionType.get_IsGenericParameter() {
-            return reflectionType.get_Name()
+        if reflectionType.IsGenericParameter {
+            return reflectionType.Name
         }
 
-        builtinName := DocQueryKernels.FormatBuiltinTypeName(reflectionType.get_FullName())
+        builtinName := DocQueryKernels.FormatBuiltinTypeName(reflectionType.FullName)
         if builtinName != null {
             return builtinName
         }
 
-        if reflectionType.get_IsGenericType() {
+        if reflectionType.IsGenericType {
             arguments := reflectionType.GetGenericArguments()
             formattedArguments := new string[](arguments.Length)
             argumentIndex := 0
@@ -52,52 +52,52 @@ class DocQueryReflectionFacts {
                 argumentIndex = argumentIndex + 1
             }
 
-            return DocQueryKernels.FormatGenericTypeName(reflectionType.get_Name(), formattedArguments)
+            return DocQueryKernels.FormatGenericTypeName(reflectionType.Name, formattedArguments)
         }
 
-        if reflectionType.get_IsArray() {
+        if reflectionType.IsArray {
             arrayElementType := reflectionType.GetElementType()
             if arrayElementType != null {
                 return DocQueryKernels.FormatArrayTypeName(FormatType(arrayElementType))
             }
         }
 
-        return DocQueryKernels.StripGenericArity(reflectionType.get_Name())
+        return DocQueryKernels.StripGenericArity(reflectionType.Name)
     }
 
     // THE QUALIFIED SPELLING, WHICH IS NOT THE FULL NAME. A nested type is rendered through its
     // DECLARING type rather than through the CLR's `Outer+Inner`, so `Environment.SpecialFolder`
     // reads the way a user would write it; a top-level type is rendered through its namespace.
     static func FormatQualifiedType(reflectionType: Type): string {
-        if reflectionType.get_IsGenericParameter() {
-            return reflectionType.get_Name()
+        if reflectionType.IsGenericParameter {
+            return reflectionType.Name
         }
 
-        declaringType := reflectionType.get_DeclaringType()
-        if reflectionType.get_IsNested() && declaringType != null {
+        declaringType := reflectionType.DeclaringType
+        if reflectionType.IsNested && declaringType != null {
             return DocQueryKernels.FormatNestedQualifiedTypeName(FormatQualifiedType(declaringType), FormatTypeName(reflectionType))
         }
 
-        return DocQueryKernels.FormatQualifiedTypeName(reflectionType.get_Namespace(), FormatTypeName(reflectionType))
+        return DocQueryKernels.FormatQualifiedTypeName(reflectionType.Namespace, FormatTypeName(reflectionType))
     }
 
     // THE ONE PLACE A DEFINITION AND A CONSTRUCTION DIVERGE. `List<>` shows its PARAMETER names
     // (`List<T>`) while `List<string>` shows its ARGUMENTS formatted (`List<string>`), so the same
     // walk cannot serve both and the definition test is what picks.
     static func FormatTypeName(reflectionType: Type): string {
-        name := DocQueryKernels.StripGenericArity(reflectionType.get_Name())
-        if !reflectionType.get_IsGenericType() {
+        name := DocQueryKernels.StripGenericArity(reflectionType.Name)
+        if !reflectionType.IsGenericType {
             return name
         }
 
         arguments := reflectionType.GetGenericArguments()
-        isDefinition := reflectionType.get_IsGenericTypeDefinition()
+        isDefinition := reflectionType.IsGenericTypeDefinition
         formattedArguments := new string[](arguments.Length)
         argumentIndex := 0
         while argumentIndex < arguments.Length {
             argument := arguments[argumentIndex]
             if isDefinition {
-                formattedArguments[argumentIndex] = argument.get_Name()
+                formattedArguments[argumentIndex] = argument.Name
             } else {
                 formattedArguments[argumentIndex] = FormatType(argument)
             }
@@ -117,18 +117,18 @@ class DocQueryReflectionFacts {
         parameterIndex := 0
         while parameterIndex < parameters.Length {
             parameter := parameters[parameterIndex]
-            parameterNames[parameterIndex] = parameter.get_Name() ?? ""
-            parameterTypeNames[parameterIndex] = FormatType(parameter.get_ParameterType())
+            parameterNames[parameterIndex] = parameter.Name ?? ""
+            parameterTypeNames[parameterIndex] = FormatType(parameter.ParameterType)
             parameterIndex = parameterIndex + 1
         }
 
-        declaringType := method.get_DeclaringType()
+        declaringType := method.DeclaringType
         declaringTypeName: string? = null
         if declaringType != null {
-            declaringTypeName = declaringType.get_Name()
+            declaringTypeName = declaringType.Name
         }
 
-        name := DocQueryKernels.GetMethodSignatureName(method.get_Name(), declaringTypeName, method is ConstructorInfo)
+        name := DocQueryKernels.GetMethodSignatureName(method.Name, declaringTypeName, method is ConstructorInfo)
         return DocQueryKernels.FormatMethodSignature(name, parameterNames, parameterTypeNames)
     }
 
@@ -140,8 +140,8 @@ class DocQueryReflectionFacts {
         parameterIndex := 0
         while parameterIndex < parameters.Length {
             parameter := parameters[parameterIndex]
-            parameterNames[parameterIndex] = parameter.get_Name() ?? ""
-            parameterTypeNames[parameterIndex] = FormatType(parameter.get_ParameterType())
+            parameterNames[parameterIndex] = parameter.Name ?? ""
+            parameterTypeNames[parameterIndex] = FormatType(parameter.ParameterType)
             parameterIndex = parameterIndex + 1
         }
 
@@ -152,21 +152,21 @@ class DocQueryReflectionFacts {
     // array second, and its id is `System.Int32[]@` — reversing the first two arms produces
     // `System.Int32@[]`, which matches no member in any XML file.
     static func FormatTypeForDocId(reflectionType: Type): string {
-        if reflectionType.get_IsByRef() {
+        if reflectionType.IsByRef {
             byRefElementType := reflectionType.GetElementType()
             if byRefElementType != null {
                 return DocQueryKernels.FormatByRefTypeDocId(FormatTypeForDocId(byRefElementType))
             }
         }
 
-        if reflectionType.get_IsPointer() {
+        if reflectionType.IsPointer {
             pointerElementType := reflectionType.GetElementType()
             if pointerElementType != null {
                 return DocQueryKernels.FormatPointerTypeDocId(FormatTypeForDocId(pointerElementType))
             }
         }
 
-        if reflectionType.get_IsArray() {
+        if reflectionType.IsArray {
             arrayElementType := reflectionType.GetElementType()
             if arrayElementType != null {
                 return DocQueryKernels.FormatArrayTypeDocId(FormatTypeForDocId(arrayElementType), reflectionType.GetArrayRank())
@@ -176,13 +176,13 @@ class DocQueryReflectionFacts {
         // A TYPE's parameter and a METHOD's parameter take different prefixes, and the position is
         // the only identity a parameter has in a doc id at all — so which prefix it takes is decided
         // by whether a method declared it, and nothing else about it is written down.
-        if reflectionType.get_IsGenericParameter() {
-            return DocQueryKernels.FormatGenericParameterDocId(reflectionType.get_DeclaringMethod() != null, reflectionType.get_GenericParameterPosition())
+        if reflectionType.IsGenericParameter {
+            return DocQueryKernels.FormatGenericParameterDocId(reflectionType.DeclaringMethod != null, reflectionType.GenericParameterPosition)
         }
 
-        if reflectionType.get_IsGenericType() {
+        if reflectionType.IsGenericType {
             genericType := reflectionType
-            if !reflectionType.get_IsGenericTypeDefinition() {
+            if !reflectionType.IsGenericTypeDefinition {
                 genericType = reflectionType.GetGenericTypeDefinition()
             }
 
@@ -194,10 +194,10 @@ class DocQueryReflectionFacts {
                 argumentIndex = argumentIndex + 1
             }
 
-            return DocQueryKernels.FormatGenericTypeDocId(genericType.get_FullName(), parameterTypeDocIds)
+            return DocQueryKernels.FormatGenericTypeDocId(genericType.FullName, parameterTypeDocIds)
         }
 
-        return DocQueryKernels.FormatNamedTypeDocId(reflectionType.get_FullName(), reflectionType.get_Name())
+        return DocQueryKernels.FormatNamedTypeDocId(reflectionType.FullName, reflectionType.Name)
     }
 
     // A CALLABLE'S DOC-ID, whose parameter list is the doc-id spelling and NOT the human one.
@@ -207,15 +207,15 @@ class DocQueryReflectionFacts {
         parameterIndex := 0
         while parameterIndex < parameters.Length {
             parameter := parameters[parameterIndex]
-            parameterTypeDocIds[parameterIndex] = FormatTypeForDocId(parameter.get_ParameterType())
+            parameterTypeDocIds[parameterIndex] = FormatTypeForDocId(parameter.ParameterType)
             parameterIndex = parameterIndex + 1
         }
 
-        memberName := DocQueryKernels.GetMethodDocMemberName(method.get_Name(), method is ConstructorInfo)
-        declaringType := method.get_DeclaringType()
+        memberName := DocQueryKernels.GetMethodDocMemberName(method.Name, method is ConstructorInfo)
+        declaringType := method.DeclaringType
         declaringTypeFullName: string? = null
         if declaringType != null {
-            declaringTypeFullName = declaringType.get_FullName()
+            declaringTypeFullName = declaringType.FullName
         }
 
         return DocQueryKernels.GetMethodDocId(declaringTypeFullName, memberName, parameterTypeDocIds)
@@ -224,18 +224,18 @@ class DocQueryReflectionFacts {
     // WHICH OF THE FIVE WORDS A TYPE IS. The five predicates are read here and ranked by the
     // kernel, because the ranking is where `enum` beating `struct` lives.
     static func GetTypeKind(reflectionType: Type): string {
-        return DocQueryKernels.GetReflectionTypeKind(reflectionType.get_IsEnum(), reflectionType.get_IsInterface(), reflectionType.get_IsValueType(), reflectionType.get_IsAbstract(), reflectionType.get_IsSealed())
+        return DocQueryKernels.GetReflectionTypeKind(reflectionType.IsEnum, reflectionType.IsInterface, reflectionType.IsValueType, reflectionType.IsAbstract, reflectionType.IsSealed)
     }
 
     // WHAT A TYPE INHERITS AND IMPLEMENTS, as one list. The base type is passed twice — once as its
     // FULL name, which is how the kernel decides whether `System.Object` is worth showing, and once
     // as its DISPLAY name, which is what a reader sees.
     static func GetBaseTypes(reflectionType: Type): string[] {
-        baseType := reflectionType.get_BaseType()
+        baseType := reflectionType.BaseType
         baseTypeFullName: string? = null
         baseTypeDisplayName: string? = null
         if baseType != null {
-            baseTypeFullName = baseType.get_FullName()
+            baseTypeFullName = baseType.FullName
             baseTypeDisplayName = FormatType(baseType)
         }
 

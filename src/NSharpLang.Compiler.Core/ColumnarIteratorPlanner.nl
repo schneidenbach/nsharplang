@@ -1839,7 +1839,7 @@ class ColumnarIteratorEmitContext {
             boxIndex := FieldIndex(boxName)
             valueIndex := FieldIndex(captureName)
             if boxIndex >= 0 && valueIndex >= 0 && Fields[boxIndex] != null && Fields[valueIndex] != null {
-                bodyScope.PublishBoxedCapture(captureName, Fields[boxIndex], Fields[valueIndex].get_FieldType())
+                bodyScope.PublishBoxedCapture(captureName, Fields[boxIndex], Fields[valueIndex].FieldType)
             }
         }
         if bodyScope.HasField("<>__this") {
@@ -1873,7 +1873,7 @@ class ColumnarIteratorEmitContext {
         // A BUILDER-BOUND handle cannot answer an assignability question at all under persisted emit —
         // `TypeBuilder` and a generic instantiation over one both throw from `IsAssignableFrom` — so
         // identity is the only answer such a pair gets.
-        if fieldType == null || valueType == null || RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(fieldType) || RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(valueType) || fieldType.get_IsValueType() || valueType.get_IsValueType() {
+        if fieldType == null || valueType == null || RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(fieldType) || RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(valueType) || fieldType.IsValueType || valueType.IsValueType {
             return false
         }
         return fieldType.IsAssignableFrom(valueType)
@@ -1892,7 +1892,7 @@ class ColumnarIteratorEmitContext {
     // declarations agree on the type; disagreeing declarations cannot share a CLR field and decline.
     func TryEnsureHoistedField(name: string, fieldType: Type, out field: FieldInfo): bool {
         field = null
-        if fieldType == null || fieldType.FullName == "System.Void" || fieldType.get_IsByRef() || fieldType.get_IsPointer() {
+        if fieldType == null || fieldType.FullName == "System.Void" || fieldType.IsByRef || fieldType.IsPointer {
             return false
         }
         index := 0
@@ -1905,10 +1905,10 @@ class ColumnarIteratorEmitContext {
                     // be storable in it. `v := 1` then `v := true` in disjoint branches cannot share a
                     // CLR field and declines here; a declared `x: object = ...` holding a narrower value
                     // does, exactly as an assignment to that declaration would.
-                    if !IsStorableInField(existing.get_FieldType(), fieldType) {
+                    if !IsStorableInField(existing.FieldType, fieldType) {
                         return false
                     }
-                    if !TryPublishLoopCaptureBox(name, existing.get_FieldType()) {
+                    if !TryPublishLoopCaptureBox(name, existing.FieldType) {
                         return false
                     }
                     field = existing
@@ -2780,7 +2780,7 @@ class ColumnarIteratorBodyPlanner {
         currentPool := plan.AddField(context.FieldForName("<>__current"))
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
         plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), currentPool)
-        if context.ElementType.get_IsValueType() || context.ElementType.get_IsGenericParameter() {
+        if context.ElementType.IsValueType || context.ElementType.IsGenericParameter {
             // A value element boxes to object; an unconstrained type parameter boxes unconditionally
             // (`box !T` is a no-op for reference instantiations).
             boxTypePool := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.ElementType), context.StructuralTypeReferences)
@@ -2877,7 +2877,7 @@ class ColumnarIteratorBodyPlanner {
         i := 0
         while i < context.Shape.FieldRoles.Length {
             if context.Shape.FieldRoles[i] == ColumnarIteratorPlanner.CapturedParameterFieldRole() {
-                fieldType := context.Fields[i].get_FieldType()
+                fieldType := context.Fields[i].FieldType
                 argTypePool := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(fieldType), context.StructuralTypeReferences)
                 argPool := plan.AddArgument(ordinal, argTypePool)
                 fieldPool := plan.AddField(context.Fields[i])
@@ -3032,13 +3032,13 @@ class ColumnarIteratorBodyPlanner {
         if hasValue && !AppendStoredValue(emit, valueNode, valueType) {
             return false
         }
-        constructor := StrongBoxConstructor(boxField.get_FieldType(), hasValue)
+        constructor := StrongBoxConstructor(boxField.FieldType, hasValue)
         constructorParameters := System.Type.EmptyTypes
         if hasValue {
             constructorParameters = new Type[](1)
             constructorParameters[0] = valueType
         }
-        emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), emit.Plan.AddConstructorWithSignature(constructor, boxField.get_FieldType(), constructorParameters))
+        emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), emit.Plan.AddConstructorWithSignature(constructor, boxField.FieldType, constructorParameters))
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(boxField))
         return true
     }
@@ -3049,10 +3049,10 @@ class ColumnarIteratorBodyPlanner {
             emit.Context.Decline("emit.iterator.lambda-unsupported", "the per-iteration storage for '" + name + "' could not be defined")
             return false
         }
-        constructor := StrongBoxConstructor(boxField.get_FieldType(), true)
+        constructor := StrongBoxConstructor(boxField.FieldType, true)
         parameterTypes := new Type[](1)
         parameterTypes[0] = valueType
-        emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), emit.Plan.AddConstructorWithSignature(constructor, boxField.get_FieldType(), parameterTypes))
+        emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), emit.Plan.AddConstructorWithSignature(constructor, boxField.FieldType, parameterTypes))
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(boxField))
         return true
     }
@@ -3106,7 +3106,7 @@ class ColumnarIteratorBodyPlanner {
                 emit.Context.Decline("emit.iterator.unsupported-shape", "a postfix step of '" + name + "' is not a hoisted binding in an iterator body")
                 return false
             }
-            resultType = emit.Context.FieldForName(name).get_FieldType()
+            resultType = emit.Context.FieldForName(name).FieldType
             EmitPostfixStep(emit, node, true)
             return !emit.Context.Declined
         }
@@ -3239,11 +3239,11 @@ class ColumnarIteratorBodyPlanner {
         if getAwaiter == null {
             return false
         }
-        getResult := ParameterlessMethodOrNull(getAwaiter.get_ReturnType(), "GetResult")
+        getResult := ParameterlessMethodOrNull(getAwaiter.ReturnType, "GetResult")
         if getResult == null {
             return false
         }
-        resultType = getResult.get_ReturnType()
+        resultType = getResult.ReturnType
         return !ColumnarCodePlanExecutor.IsVoidType(resultType)
     }
 
@@ -3297,7 +3297,7 @@ class ColumnarIteratorBodyPlanner {
             if !AppendValue(emit, receiverNode, out receiverType) {
                 return false
             }
-            if receiverType.get_IsValueType() {
+            if receiverType.IsValueType {
                 emit.Context.Decline("emit.iterator.on-value-type-receiver", "an instance event cannot be bound through a value-type receiver")
                 return false
             }
@@ -3313,7 +3313,7 @@ class ColumnarIteratorBodyPlanner {
             emit.Context.Decline("emit.iterator.on-event-lookup", "no accessible event '" + eventName + "' on '" + ownerType.Name + "'")
             return false
         }
-        if addMethod.get_IsStatic() != (receiverLocal < 0) {
+        if addMethod.IsStatic != (receiverLocal < 0) {
             emit.Context.Decline("emit.iterator.on-receiver-kind", "event '" + eventName + "' does not match the receiver it was given")
             return false
         }
@@ -3335,7 +3335,7 @@ class ColumnarIteratorBodyPlanner {
         }
         emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), handlerLocal)
         addOpCode := ColumnarCodePlanContract.Callvirt()
-        if addMethod.get_IsStatic() {
+        if addMethod.IsStatic {
             addOpCode = ColumnarCodePlanContract.Call()
         }
         emit.Plan.AppendMethodInstruction(addOpCode, emit.Plan.AddMethod(addMethod))
@@ -3354,7 +3354,7 @@ class ColumnarIteratorBodyPlanner {
             emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Ldftn(), emit.Plan.AddMethod(removeMethod))
         } else {
             emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), receiverLocal)
-            if removeMethod.get_IsVirtual() && !removeMethod.get_IsFinal() {
+            if removeMethod.IsVirtual && !removeMethod.IsFinal {
                 emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
                 emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Ldvirtftn(), emit.Plan.AddMethod(removeMethod))
             } else {
@@ -3407,7 +3407,7 @@ class ColumnarIteratorBodyPlanner {
         if !emit.Context.RequiredScope().Facts.SiblingCallables.TryGetValue(name, out sibling) {
             return false
         }
-        if sibling.TypeParameterCount != 0 || !sibling.Method.get_IsStatic() {
+        if sibling.TypeParameterCount != 0 || !sibling.Method.IsStatic {
             return false
         }
         invoke := DelegateInvokeOrNull(handlerType)
@@ -3416,12 +3416,12 @@ class ColumnarIteratorBodyPlanner {
             return false
         }
         invokeParameters := invoke.GetParameters()
-        if invokeParameters.Length != sibling.ParameterTypes.Length || invoke.get_ReturnType() != sibling.ReturnType {
+        if invokeParameters.Length != sibling.ParameterTypes.Length || invoke.ReturnType != sibling.ReturnType {
             return false
         }
         index := 0
         while index < invokeParameters.Length {
-            if invokeParameters[index].get_ParameterType() != sibling.ParameterTypes[index] || sibling.ParameterModifierKinds[index] != 0 {
+            if invokeParameters[index].ParameterType != sibling.ParameterTypes[index] || sibling.ParameterModifierKinds[index] != 0 {
                 return false
             }
             index = index + 1
@@ -3531,13 +3531,13 @@ class ColumnarIteratorBodyPlanner {
             if walk as TypeBuilder == null && walk as EnumBuilder == null {
                 candidate := walk.GetEvent(eventName, flags)
                 if candidate != null {
-                    handlerType = candidate.get_EventHandlerType()
+                    handlerType = candidate.EventHandlerType
                     addMethod = candidate.GetAddMethod(false)
                     removeMethod = candidate.GetRemoveMethod(false)
                     return handlerType != null && addMethod != null && removeMethod != null
                 }
             }
-            walk = walk.get_BaseType()
+            walk = walk.BaseType
         }
         return false
     }
@@ -3590,7 +3590,7 @@ class ColumnarIteratorBodyPlanner {
             context.Decline("emit.iterator.lambda-unsupported", "a per-iteration lambda requires the state-machine builder and synthesized-type ledger")
             return false
         }
-        moduleObject: object? = (builder as Type).get_Module()
+        moduleObject: object? = (builder as Type).Module
         module := (ModuleBuilder)moduleObject
         display := module.DefineType(
             context.Shape.TypeName + "<>c__Display" + emit.NextLambda.ToString(),
@@ -3603,7 +3603,7 @@ class ColumnarIteratorBodyPlanner {
             names := new string[](smParameters.Length)
             i := 0
             while i < names.Length {
-                names[i] = smParameters[i].get_Name()
+                names[i] = smParameters[i].Name
                 i = i + 1
             }
             displayBuilders := display.DefineGenericParameters(names)
@@ -3653,7 +3653,7 @@ class ColumnarIteratorBodyPlanner {
         while capture < captureNames.Length {
             captureName := captureNames[capture]
             sourceBox: FieldInfo? = null
-            valueType := context.FieldForName(captureName).get_FieldType()
+            valueType := context.FieldForName(captureName).FieldType
             if !context.TryEnsureLoopCaptureBox(captureName, valueType, out sourceBox) || sourceBox == null {
                 return false
             }
@@ -3662,7 +3662,7 @@ class ColumnarIteratorBodyPlanner {
             if displayParameters.Length > 0 {
                 methodMachineCapture = TypeBuilder.GetField(methodMachineType, boxDefinitionField)
             }
-            captureType := boxDefinitionField.get_FieldType()
+            captureType := boxDefinitionField.FieldType
             if displayParameters.Length > 0 {
                 let substitutedCaptureType: Type? = null
                 if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(smParameters, displayParameters, captureType, out substitutedCaptureType) || substitutedCaptureType == null {
@@ -3694,7 +3694,7 @@ class ColumnarIteratorBodyPlanner {
             if displayParameters.Length > 0 {
                 methodMachineReceiver = TypeBuilder.GetField(methodMachineType, machineReceiverDefinition)
             }
-            receiverBuilder := display.DefineField("<>__this", methodMachineReceiver.get_FieldType(), FieldAttributes.Public)
+            receiverBuilder := display.DefineField("<>__this", methodMachineReceiver.FieldType, FieldAttributes.Public)
             receiverHandle: FieldInfo = receiverBuilder
             if displayParameters.Length > 0 {
                 receiverHandle = TypeBuilder.GetField(methodOwnerType, receiverBuilder)
@@ -3797,7 +3797,7 @@ class ColumnarIteratorBodyPlanner {
         ownerParameters := ownerBuilder.GetGenericArguments()
         p := 0
         while p < invokeParameters.Length {
-            parameterType := invokeParameters[p].get_ParameterType()
+            parameterType := invokeParameters[p].ParameterType
             if display != null && smParameters.Length > 0 {
                 substitutedParameter := parameterType
                 if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(smParameters, ownerParameters, parameterType, out substitutedParameter) {
@@ -3811,7 +3811,7 @@ class ColumnarIteratorBodyPlanner {
             parameterTypeMap[parameterName] = parameterTypes[p]
             p = p + 1
         }
-        returnType: Type = invoke.get_ReturnType()
+        returnType: Type = invoke.ReturnType
         if display != null && smParameters.Length > 0 {
             substitutedReturn := returnType
             if !ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(smParameters, ownerParameters, returnType, out substitutedReturn) {
@@ -3890,8 +3890,8 @@ class ColumnarIteratorBodyPlanner {
             while capture < context.Shape.LoopCaptureNames.Length {
                 name := context.Shape.LoopCaptureNames[capture]
                 boxField: FieldInfo? = null
-                if context.TryEnsureLoopCaptureBox(name, context.FieldForName(name).get_FieldType(), out boxField) && boxField != null {
-                    scope.PublishBoxedCapture(name, boxField, context.FieldForName(name).get_FieldType())
+                if context.TryEnsureLoopCaptureBox(name, context.FieldForName(name).FieldType, out boxField) && boxField != null {
+                    scope.PublishBoxedCapture(name, boxField, context.FieldForName(name).FieldType)
                 }
                 capture = capture + 1
             }
@@ -3919,7 +3919,7 @@ class ColumnarIteratorBodyPlanner {
             if definitionField != null && !capturedDirectly {
                 machineField := definitionField
                 if display.TypeParameters.Count > 0 {
-                    machineField = TypeBuilder.GetField(display.MachineField.get_FieldType(), definitionField)
+                    machineField = TypeBuilder.GetField(display.MachineField.FieldType, definitionField)
                 }
                 scope.PublishEnclosingMember(context.FieldNames[index], display.MachineField, machineField)
             }
@@ -3927,7 +3927,7 @@ class ColumnarIteratorBodyPlanner {
         }
         capture := 0
         while capture < display.CaptureNames.Length {
-            valueType := display.CaptureFields[capture].get_FieldType().GetGenericArguments()[0]
+            valueType := display.CaptureFields[capture].FieldType.GetGenericArguments()[0]
             scope.PublishBoxedCapture(display.CaptureNames[capture], display.CaptureFields[capture], valueType)
             capture = capture + 1
         }
@@ -4026,7 +4026,7 @@ class ColumnarIteratorBodyPlanner {
         if returnType == typeof(System.Threading.Tasks.Task) || returnType == typeof(System.Threading.Tasks.ValueTask) {
             return true
         }
-        if !returnType.get_IsGenericType() {
+        if !returnType.IsGenericType {
             return false
         }
         definition := returnType.GetGenericTypeDefinition()
@@ -4079,7 +4079,7 @@ class ColumnarIteratorBodyPlanner {
 
     static func RequiredTaskFactory(name: string, generic: bool): MethodInfo {
         for candidate in typeof(System.Threading.Tasks.Task).GetMethods(BindingFlags.Public | BindingFlags.Static) {
-            if candidate.get_Name() == name && candidate.get_IsGenericMethodDefinition() == generic && candidate.GetParameters().Length == 1 {
+            if candidate.Name == name && candidate.IsGenericMethodDefinition == generic && candidate.GetParameters().Length == 1 {
                 return candidate
             }
         }
@@ -4232,8 +4232,8 @@ class ColumnarIteratorBodyPlanner {
                     context.Decline("emit.iterator.lambda-unsupported", "the value assigned to '" + name + "' inside a lambda in an iterator body could not be lowered")
                     return false
                 }
-                valueField := StrongBoxValueField(boxField.get_FieldType())
-                plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddFieldWithSignature(valueField, boxField.get_FieldType(), valueType, false))
+                valueField := StrongBoxValueField(boxField.FieldType)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddFieldWithSignature(valueField, boxField.FieldType, valueType, false))
                 return true
             }
             if scope.Bindings.CapturedInstanceFields.ContainsKey(name) {
@@ -4242,7 +4242,7 @@ class ColumnarIteratorBodyPlanner {
                 memberField := captured.Item2
                 plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, scope.StateMachineType, false))
                 plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), plan.AddField(receiverField))
-                if !scope.TryAppendTargetTypedValue(nodes, source, value, plan, memberField.get_FieldType()) {
+                if !scope.TryAppendTargetTypedValue(nodes, source, value, plan, memberField.FieldType) {
                     context.Decline("emit.iterator.lambda-unsupported", "the value assigned to '" + name + "' inside a lambda in an iterator body could not be lowered")
                     return false
                 }
@@ -4256,7 +4256,7 @@ class ColumnarIteratorBodyPlanner {
             field := scope.FieldHandle(name)
             receiverArgument := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, scope.StateMachineType, false)
             plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), receiverArgument)
-            if !scope.TryAppendTargetTypedValue(nodes, source, value, plan, field.get_FieldType()) {
+            if !scope.TryAppendTargetTypedValue(nodes, source, value, plan, field.FieldType) {
                 context.Decline("emit.iterator.lambda-unsupported", "the value assigned to '" + name + "' inside a lambda in an iterator body could not be lowered")
                 return false
             }
@@ -4289,7 +4289,7 @@ class ColumnarIteratorBodyPlanner {
         parameters := new Type[](2)
         parameters[0] = typeof(object)
         parameters[1] = typeof(IntPtr)
-        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateType) && delegateType.get_IsGenericType() && !delegateType.get_IsGenericTypeDefinition() {
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(delegateType) && delegateType.IsGenericType && !delegateType.IsGenericTypeDefinition {
             definition := delegateType.GetGenericTypeDefinition()
             openConstructor := definition.GetConstructor(parameters)
             if openConstructor == null {
@@ -4336,7 +4336,7 @@ class ColumnarIteratorBodyPlanner {
             // initializer leaves the field at its default — nothing to store.
             if nodes.ChildCount(node) >= 2 {
                 name := nodes.Text(source, nodes.Child(node, 0))
-                fieldType := emit.Context.FieldForName(name).get_FieldType()
+                fieldType := emit.Context.FieldForName(name).FieldType
                 if emit.Context.IsLoopCaptured(name) {
                     if !AppendFreshLoopCaptureBox(emit, name, nodes.Child(node, 1), fieldType, true) {
                         return false
@@ -4346,7 +4346,7 @@ class ColumnarIteratorBodyPlanner {
                 }
             } else {
                 name := nodes.Text(source, nodes.Child(node, 0))
-                if emit.Context.IsLoopCaptured(name) && !AppendFreshLoopCaptureBox(emit, name, 0, emit.Context.FieldForName(name).get_FieldType(), false) {
+                if emit.Context.IsLoopCaptured(name) && !AppendFreshLoopCaptureBox(emit, name, 0, emit.Context.FieldForName(name).FieldType, false) {
                     return false
                 }
             }
@@ -4700,8 +4700,8 @@ class ColumnarIteratorBodyPlanner {
         // plain-body `using` consults (`ColumnarIlEmitter.PlanUsingDisposal`), reached through the
         // body scope's own live view.
         resourceDefinition: ColumnarStructDef? = null
-        ColumnarSourceDefinitionResolver.TryResolveStruct(field.get_FieldType(), emit.Context.RequiredScope().Facts.StructDefinitions, out resourceDefinition)
-        disposal := ColumnarUsingResourcePlanner.Plan(field.get_FieldType(), false, resourceDefinition)
+        ColumnarSourceDefinitionResolver.TryResolveStruct(field.FieldType, emit.Context.RequiredScope().Facts.StructDefinitions, out resourceDefinition)
+        disposal := ColumnarUsingResourcePlanner.Plan(field.FieldType, false, resourceDefinition)
         if disposal == null {
             emit.Context.Decline("emit.iterator.unsupported-shape", "the resource of a `using` statement has no release shape in an iterator body")
             return false
@@ -4756,8 +4756,8 @@ class ColumnarIteratorBodyPlanner {
     static func EmitAwaitedUsingRegion(emit: ColumnarMoveNextEmit, resourceName: string, bodyNode: int, blockNode: int, restFrom: int): bool {
         field := emit.Context.FieldForName(resourceName)
         resourceDefinition: ColumnarStructDef? = null
-        ColumnarSourceDefinitionResolver.TryResolveStruct(field.get_FieldType(), emit.Context.RequiredScope().Facts.StructDefinitions, out resourceDefinition)
-        disposal := ColumnarUsingResourcePlanner.Plan(field.get_FieldType(), true, resourceDefinition)
+        ColumnarSourceDefinitionResolver.TryResolveStruct(field.FieldType, emit.Context.RequiredScope().Facts.StructDefinitions, out resourceDefinition)
+        disposal := ColumnarUsingResourcePlanner.Plan(field.FieldType, true, resourceDefinition)
         if disposal == null {
             emit.Context.Decline("emit.iterator.async-await-unsupported", "the resource of an `await using` statement has no asynchronous release shape in an iterator body")
             return false
@@ -4801,7 +4801,7 @@ class ColumnarIteratorBodyPlanner {
     static func AppendAwaitedUsingRelease(emit: ColumnarMoveNextEmit, disposal: ColumnarUsingDisposalPlan, resourceName: string) {
         fieldPool := FieldPool(emit, resourceName)
         methodPool := emit.Plan.AddMethod(disposal.Method)
-        releaseType := disposal.Method.get_ReturnType()
+        releaseType := disposal.Method.ReturnType
         if disposal.Kind == 1 || disposal.Kind == 4 {
             LoadThis(emit)
             LoadThis(emit)
@@ -5131,7 +5131,7 @@ class ColumnarIteratorBodyPlanner {
         }
         name := ColumnarIteratorPlanner.CatchBindingName(nodes, emit.Context.Source, clause, ordinal)
         field := emit.Context.FieldForName(name)
-        exceptionType := field.get_FieldType()
+        exceptionType := field.FieldType
         typeIdx := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(exceptionType), emit.Context.StructuralTypeReferences)
         emit.Plan.AppendBeginCatchBlock(typeIdx)
         caught := emit.Plan.DeclarePlanLocal(typeIdx)
@@ -5167,7 +5167,7 @@ class ColumnarIteratorBodyPlanner {
         if !emit.Context.HasHoistedField(name) {
             return EmitEnclosingMemberAssignment(emit, node, name)
         }
-        fieldType := emit.Context.FieldForName(name).get_FieldType()
+        fieldType := emit.Context.FieldForName(name).FieldType
         assignOperator := nodes.Text(source, node)
         if emit.Context.IsLoopCaptured(name) {
             boxField: FieldInfo? = null
@@ -5175,7 +5175,7 @@ class ColumnarIteratorBodyPlanner {
                 return false
             }
             boxPool := emit.Plan.AddField(boxField)
-            valuePool := emit.Plan.AddField(StrongBoxValueField(boxField.get_FieldType()))
+            valuePool := emit.Plan.AddField(StrongBoxValueField(boxField.FieldType))
             if assignOperator == "=" || assignOperator.Length == 0 {
                 LoadThis(emit)
                 emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), boxPool)
@@ -5244,8 +5244,8 @@ class ColumnarIteratorBodyPlanner {
 
         assignOperator := nodes.Text(emit.Context.Source, node)
         memberField := emit.Context.EnclosingFields[index]
-        fieldType := memberField.get_FieldType()
-        if memberField.get_IsInitOnly() || memberField.get_IsLiteral() {
+        fieldType := memberField.FieldType
+        if memberField.IsInitOnly || memberField.IsLiteral {
             emit.Context.Decline("emit.iterator.unsupported-shape", "'" + name + "' is read-only and cannot be assigned")
             return false
         }
@@ -5344,7 +5344,7 @@ class ColumnarIteratorBodyPlanner {
             emit.Context.Decline("emit.iterator.for-in-unsupported", "the `for..in` element '" + varName + "' could not be hoisted as '" + elementType.Name + "'")
             return false
         }
-        declared := emit.Context.FieldForName(varName).get_FieldType()
+        declared := emit.Context.FieldForName(varName).FieldType
         if !ColumnarCastConversionPlanner.CanAppendCast(elementType, declared) {
             emit.Context.Decline("emit.iterator.for-in-unsupported", "a '" + elementType.Name + "' cannot be read as a '" + declared.Name + "' by the annotated loop variable '" + varName + "'")
             return false
@@ -5371,7 +5371,7 @@ class ColumnarIteratorBodyPlanner {
         emit.NextForIn = emit.NextForIn + 1
         arrayPool := FieldPool(emit, sourceName)
         indexPool := FieldPool(emit, indexName)
-        arrayType := emit.Context.FieldForName(sourceName).get_FieldType()
+        arrayType := emit.Context.FieldForName(sourceName).FieldType
         elementType: Type = arrayType.GetElementType()
         storageType := elementType
         if !TryResolveLoopVariableStorage(emit, varName, elementType, out storageType) {
@@ -5676,7 +5676,7 @@ class ColumnarIteratorBodyPlanner {
     // has no single answer and is refused rather than guessed.
     static func TryGetSequenceElementType(sourceType: Type, out elementType: Type): bool {
         elementType = null
-        if sourceType == null || sourceType.get_IsByRef() || sourceType.get_IsPointer() {
+        if sourceType == null || sourceType.IsByRef || sourceType.IsPointer {
             return false
         }
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
@@ -5687,14 +5687,14 @@ class ColumnarIteratorBodyPlanner {
             elementType = sourceType.GetGenericArguments()[0]
             return true
         }
-        if sourceType.get_IsGenericParameter() {
+        if sourceType.IsGenericParameter {
             return false
         }
         // A CLOSED GENERIC ASKS ITS DEFINITION, NOT ITSELF. `List<TreeNode>` over an emitted type is a
         // generic instantiation whose `GetInterfaces()` throws under persisted emit, but its DEFINITION
         // (`List<>`) is a baked runtime type whose interface list is readable; the element is then the
         // instantiation's own argument at the position the definition's `IEnumerable<T>` names.
-        if sourceType.get_IsGenericType() && !sourceType.get_IsGenericTypeDefinition() {
+        if sourceType.IsGenericType && !sourceType.IsGenericTypeDefinition {
             definition := sourceType.GetGenericTypeDefinition()
             arguments := sourceType.GetGenericArguments()
             if definition != null && !(definition is TypeBuilder) {
@@ -5719,8 +5719,8 @@ class ColumnarIteratorBodyPlanner {
                 continue
             }
             argument := candidate.GetGenericArguments()[0]
-            if argument.get_IsGenericParameter() {
-                position := argument.get_GenericParameterPosition()
+            if argument.IsGenericParameter {
+                position := argument.GenericParameterPosition
                 if position < 0 || position >= arguments.Length {
                     return false
                 }
@@ -5739,7 +5739,7 @@ class ColumnarIteratorBodyPlanner {
     }
 
     static func IsConstructedEnumerable(candidate: Type): bool {
-        if !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
+        if !candidate.IsGenericType || candidate.IsGenericTypeDefinition {
             return false
         }
         definition := candidate.GetGenericTypeDefinition()
@@ -5747,7 +5747,7 @@ class ColumnarIteratorBodyPlanner {
     }
 
     static func IsBuilderBoundElement(elementType: Type): bool {
-        return elementType is TypeBuilder || elementType is EnumBuilder || elementType.get_IsGenericParameter()
+        return elementType is TypeBuilder || elementType is EnumBuilder || elementType.IsGenericParameter
     }
 
     // GetEnumerator on IEnumerable<element>: a runtime handle for baked elements, a
@@ -5811,7 +5811,7 @@ class ColumnarIteratorBodyPlanner {
     }
 
     static func IsConstructedAsyncEnumerable(candidate: Type): bool {
-        return candidate != null && candidate.get_IsGenericType() && !candidate.get_IsGenericTypeDefinition() && candidate.GetGenericTypeDefinition().FullName == "System.Collections.Generic.IAsyncEnumerable`1"
+        return candidate != null && candidate.IsGenericType && !candidate.IsGenericTypeDefinition && candidate.GetGenericTypeDefinition().FullName == "System.Collections.Generic.IAsyncEnumerable`1"
     }
 
     static func AsyncSequenceGetAsyncEnumerator(elementType: Type): MethodInfo {
@@ -6181,7 +6181,7 @@ class ColumnarIteratorBodyPlanner {
             emit.Context.Decline("emit.iterator.async-await-unsupported", "'" + operandType.Name + "' is not awaitable: it has no `GetAwaiter()`")
             return false
         }
-        awaiterType: Type = getAwaiter.get_ReturnType()
+        awaiterType: Type = getAwaiter.ReturnType
         isCompleted := ParameterlessMethodOrNull(awaiterType, "get_IsCompleted")
         getResult := ParameterlessMethodOrNull(awaiterType, "GetResult")
         onCompleted := ActionMethodOrNull(awaiterType, "OnCompleted")
@@ -6201,10 +6201,10 @@ class ColumnarIteratorBodyPlanner {
         }
         awPool := FieldPool(emit, awaiterName)
         promPool := FieldPool(emit, "<>__promise")
-        byAddress := awaiterType.get_IsValueType()
+        byAddress := awaiterType.IsValueType
 
         // this.<>__awaiterK = <operand>.GetAwaiter() — the receiver and the operand are already down.
-        if operandType.get_IsValueType() {
+        if operandType.IsValueType {
             // An instance call on a STRUCT needs a managed pointer, and the operand is a value on the
             // stack; park it in a temporary and call through its address. The receiver of the store
             // (`this`) is already below it and is untouched.
@@ -6244,7 +6244,7 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendMarkLabel(fastLabel)
         AppendAwaiterReceiver(emit, awPool, byAddress)
         emit.Plan.AppendMethodInstruction(AwaiterCallOpcode(byAddress), emit.Plan.AddMethod(getResult))
-        resultType = getResult.get_ReturnType()
+        resultType = getResult.ReturnType
 
         // Release whatever the awaiter held: a struct awaiter is re-initialized in place, a reference
         // one is nulled out, so a completed suspension never keeps its continuation state alive.
@@ -6283,13 +6283,13 @@ class ColumnarIteratorBodyPlanner {
     }
 
     static func InstanceCallOpcode(receiverType: Type): short {
-        return (short)(receiverType.get_IsValueType() ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt())
+        return (short)(receiverType.IsValueType ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt())
     }
 
     // A public parameterless instance method, by ordinary CLR lookup. `null` when the type does not
     // have one, which is how "this is not awaitable" is discovered rather than asserted.
     static func ParameterlessMethodOrNull(owner: Type, name: string): MethodInfo? {
-        if owner == null || owner.get_IsGenericParameter() {
+        if owner == null || owner.IsGenericParameter {
             return null
         }
         return owner.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
@@ -6297,7 +6297,7 @@ class ColumnarIteratorBodyPlanner {
 
     // A public instance method taking exactly one `System.Action`.
     static func ActionMethodOrNull(owner: Type, name: string): MethodInfo? {
-        if owner == null || owner.get_IsGenericParameter() {
+        if owner == null || owner.IsGenericParameter {
             return null
         }
         actionType := typeof(Action)
@@ -6310,7 +6310,7 @@ class ColumnarIteratorBodyPlanner {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
         name := nodes.Text(source, nodes.Child(node, 0))
-        fieldType := emit.Context.FieldForName(name).get_FieldType()
+        fieldType := emit.Context.FieldForName(name).FieldType
         if fieldType != typeof(int) {
             emit.Context.Decline("emit.iterator.unsupported-shape", "a postfix step over '" + name + "' of type '" + fieldType.Name + "' is not yet lowered in an iterator body")
             return
@@ -6321,7 +6321,7 @@ class ColumnarIteratorBodyPlanner {
                 return
             }
             boxPool := emit.Plan.AddField(boxField)
-            valuePool := emit.Plan.AddField(StrongBoxValueField(boxField.get_FieldType()))
+            valuePool := emit.Plan.AddField(StrongBoxValueField(boxField.FieldType))
             if keepValue {
                 LoadThis(emit)
                 emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), boxPool)

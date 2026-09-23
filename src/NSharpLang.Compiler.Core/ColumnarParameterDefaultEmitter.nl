@@ -289,12 +289,12 @@ class ColumnarParameterDefaultEmitter {
             return true
         }
 
-        if !(parameterType is TypeBuilder) && !(parameterType is EnumBuilder) && parameterType.get_IsEnum() && string.Equals(Enum.GetUnderlyingType(parameterType).FullName, "System.Int32", StringComparison.Ordinal) && string.Equals(parameterType.Name, enumTypeName, StringComparison.Ordinal) && Enum.IsDefined(parameterType, memberName) {
+        if !(parameterType is TypeBuilder) && !(parameterType is EnumBuilder) && parameterType.IsEnum && string.Equals(Enum.GetUnderlyingType(parameterType).FullName, "System.Int32", StringComparison.Ordinal) && string.Equals(parameterType.Name, enumTypeName, StringComparison.Ordinal) && Enum.IsDefined(parameterType, memberName) {
             value = Convert.ToInt32(Enum.Parse(parameterType, memberName), CultureInfo.InvariantCulture)
             return true
         }
 
-        if !(parameterType is TypeBuilder) && !(parameterType is EnumBuilder) && parameterType.get_IsEnum() && string.Equals(Enum.GetUnderlyingType(parameterType).FullName, "System.Int32", StringComparison.Ordinal) && string.Equals(parameterType.FullName, enumTypeName, StringComparison.Ordinal) && Enum.IsDefined(parameterType, memberName) {
+        if !(parameterType is TypeBuilder) && !(parameterType is EnumBuilder) && parameterType.IsEnum && string.Equals(Enum.GetUnderlyingType(parameterType).FullName, "System.Int32", StringComparison.Ordinal) && string.Equals(parameterType.FullName, enumTypeName, StringComparison.Ordinal) && Enum.IsDefined(parameterType, memberName) {
             value = Convert.ToInt32(Enum.Parse(parameterType, memberName), CultureInfo.InvariantCulture)
             return true
         }
@@ -319,13 +319,13 @@ class ColumnarParameterDefaultEmitter {
         kind = ColumnarParameterDefaultEmitter.NoMetadataDefault
         bits = 0L
         text = ""
-        if !parameter.get_IsOptional() || !parameter.get_HasDefaultValue() {
+        if !parameter.IsOptional || !parameter.HasDefaultValue {
             return false
         }
 
-        defaultValue := parameter.get_DefaultValue()
+        defaultValue := parameter.DefaultValue
         if defaultValue == null {
-            if expectedType.get_IsValueType() {
+            if expectedType.IsValueType {
                 return false
             }
 
@@ -378,7 +378,7 @@ class ColumnarParameterDefaultEmitter {
             return true
         }
 
-        if expectedType is TypeBuilder || expectedType is EnumBuilder || !expectedType.get_IsEnum() {
+        if expectedType is TypeBuilder || expectedType is EnumBuilder || !expectedType.IsEnum {
             return false
         }
 
@@ -456,7 +456,7 @@ class ColumnarParameterDefaultEmitter {
         }
         defaultKind := defaultKinds[index]
         if defaultKind == 46 {
-            return !expectedType.get_IsValueType()
+            return !expectedType.IsValueType
         }
         if defaultKind == 44 || defaultKind == 45 {
             return expectedType == typeof(bool)
@@ -488,7 +488,7 @@ class ColumnarParameterDefaultEmitter {
         out resultType: Type
     ): bool {
         resultType = null
-        if defaultKind == 46 && !expectedType.get_IsValueType() {
+        if defaultKind == 46 && !expectedType.IsValueType {
             il.Emit(OpCodes.Ldnull)
             resultType = expectedType
             return true

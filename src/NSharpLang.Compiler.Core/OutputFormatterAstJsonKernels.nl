@@ -87,7 +87,7 @@ class OutputFormatterAstJsonKernels {
             return value.ToString()
         }
 
-        if valueType.get_IsEnum() {
+        if valueType.IsEnum {
             return value.ToString()
         }
 
@@ -95,7 +95,7 @@ class OutputFormatterAstJsonKernels {
             return value
         }
 
-        if valueType.get_IsPrimitive() {
+        if valueType.IsPrimitive {
             return Convert.ToString(value, CultureInfo.InvariantCulture)
         }
 
@@ -132,14 +132,14 @@ class OutputFormatterAstJsonKernels {
         members := new List<AstJsonMember>()
         fields := owner.GetFields(flags)
         for field in fields {
-            members.Add(new AstJsonMember(field.get_MetadataToken(), field.get_Name(), field.GetValue(value)))
+            members.Add(new AstJsonMember(field.MetadataToken, field.Name, field.GetValue(value)))
         }
 
         properties := owner.GetProperties(flags)
         for property in properties {
             indexParameters := property.GetIndexParameters()
-            if indexParameters.Length == 0 && property.get_Name() != "EqualityContract" {
-                members.Add(new AstJsonMember(property.get_MetadataToken(), property.get_Name(), property.GetValue(value)))
+            if indexParameters.Length == 0 && property.Name != "EqualityContract" {
+                members.Add(new AstJsonMember(property.MetadataToken, property.Name, property.GetValue(value)))
             }
         }
 

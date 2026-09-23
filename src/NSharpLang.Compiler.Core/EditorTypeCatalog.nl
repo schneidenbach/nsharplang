@@ -97,7 +97,7 @@ class EditorTypeCatalog {
         }
 
         if friendGrants == null {
-            return candidate.get_IsVisible()
+            return candidate.IsVisible
         }
 
         return friendGrants.IsNameableType(candidate)
@@ -170,7 +170,7 @@ class EditorTypeCatalog {
             exported := ExportedTypesAt(index)
             typeIndex := 0
             while typeIndex < exported.Length {
-                if exported[typeIndex].get_Name() == simpleName && IsNameable(exported[typeIndex]) {
+                if exported[typeIndex].Name == simpleName && IsNameable(exported[typeIndex]) {
                     return exported[typeIndex]
                 }
 
@@ -250,16 +250,16 @@ class EditorTypeCatalog {
         // `IsPublic` is true only for a TOP-LEVEL public type — a public NESTED type answers false
         // here and is rejected by the same test (022/4a measured 138 of 1,498 exported types
         // answering `IsPublic == false`, and 138 was exactly the nested count).
-        if !EditorTypeCatalogFacts.IsOfferableCompletionType(candidate.get_Name(), candidate.get_Namespace(), candidate.get_FullName(), candidate.get_IsPublic(), candidate.get_IsNested()) {
+        if !EditorTypeCatalogFacts.IsOfferableCompletionType(candidate.Name, candidate.Namespace, candidate.FullName, candidate.IsPublic, candidate.IsNested) {
             return null
         }
 
         return new EditorImportableType(
-            EditorTypeCatalogFacts.CompletionTypeDisplayName(candidate.get_Name()),
-            candidate.get_FullName() ?? "",
-            candidate.get_Namespace() ?? "",
-            candidate.get_IsInterface(),
-            candidate.get_IsEnum()
+            EditorTypeCatalogFacts.CompletionTypeDisplayName(candidate.Name),
+            candidate.FullName ?? "",
+            candidate.Namespace ?? "",
+            candidate.IsInterface,
+            candidate.IsEnum
         )
     }
 
@@ -371,7 +371,7 @@ class EditorTypeCatalog {
             exported := ExportedTypesAt(index)
             typeIndex := 0
             while typeIndex < exported.Length {
-                candidateNamespace := exported[typeIndex].get_Namespace() ?? ""
+                candidateNamespace := exported[typeIndex].Namespace ?? ""
                 if !string.IsNullOrWhiteSpace(candidateNamespace) && !seen.Contains(candidateNamespace) {
                     seen.Add(candidateNamespace)
                     namespaces.Add(candidateNamespace)

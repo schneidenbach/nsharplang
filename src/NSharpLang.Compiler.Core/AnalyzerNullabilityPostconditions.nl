@@ -168,7 +168,7 @@ class NullabilityFlowAttributeReflection {
         while index < count {
             attribute := attributes.get_Item(index)
             index = index + 1
-            name := attribute.get_AttributeType().FullName ?? ""
+            name := attribute.AttributeType.FullName ?? ""
             if NullabilityFlowFacts.IsNotNullName(name) {
                 facts = facts | NullabilityFlowFacts.NotNull()
                 continue
@@ -184,7 +184,7 @@ class NullabilityFlowAttributeReflection {
                 continue
             }
 
-            constructorArguments := attribute.get_ConstructorArguments()
+            constructorArguments := attribute.ConstructorArguments
             if NullabilityMetadataReflection.SequenceCount(constructorArguments) != 1 {
                 continue
             }
@@ -212,11 +212,11 @@ class NullabilityFlowAttributeReflection {
         while index < count {
             attribute := attributes.get_Item(index)
             index = index + 1
-            if !NullabilityFlowFacts.IsNotNullIfNotNullName(attribute.get_AttributeType().FullName ?? "") {
+            if !NullabilityFlowFacts.IsNotNullIfNotNullName(attribute.AttributeType.FullName ?? "") {
                 continue
             }
 
-            constructorArguments := attribute.get_ConstructorArguments()
+            constructorArguments := attribute.ConstructorArguments
             if NullabilityMetadataReflection.SequenceCount(constructorArguments) != 1 {
                 continue
             }

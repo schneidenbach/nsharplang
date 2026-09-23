@@ -332,7 +332,7 @@ class ColumnarConstructionPlanner {
         // A live generic parameter still requires contextual construction facts that are outside
         // this root slice. A raw union base is semantically claimed but is never constructible;
         // only one of its declared cases may allocate a union value.
-        if targetType.get_IsGenericParameter() {
+        if targetType.IsGenericParameter {
             ownership = ColumnarDirectCallOwnership.NotOwned
             legacyWholeSubtreePlanning = true
             return false
@@ -340,7 +340,7 @@ class ColumnarConstructionPlanner {
         if IsSourceUnionType(targetType, bindings) {
             return false
         }
-        if targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() {
+        if targetType.IsGenericType && !targetType.IsGenericTypeDefinition {
             if TryAppendClosedGenericConstruction(nodes, source, candidate, bindings, handles, plan, fragment, depth, targetType, out ownership, out legacyWholeSubtreePlanning) {
                 resultType = targetType
                 ownership = ColumnarDirectCallOwnership.Planned
@@ -695,7 +695,7 @@ class ColumnarConstructionPlanner {
     static func TryAppendSourceObjectInitializerConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, definition: ColumnarStructDef, targetType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
         ownership = ColumnarDirectCallOwnership.OwnedRejected
         legacyWholeSubtreePlanning = false
-        closed := targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition()
+        closed := targetType.IsGenericType && !targetType.IsGenericTypeDefinition
 
         if definition.IsReference {
             // `new T { … }` AND `new T() { … }` NAME THE SAME CONSTRUCTOR — the parameterless one.
@@ -798,7 +798,7 @@ class ColumnarConstructionPlanner {
                         return false
                     }
                     parameterTypes := Types1(propertyType)
-                    methodIndex := plan.AddMethodWithSignature(setter, declaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.get_IsAbstract())
+                    methodIndex := plan.AddMethodWithSignature(setter, declaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.IsAbstract)
                     if modifierSignatureSource != null {
                         plan.MarkMethodForModifiedMemberReferenceRepair(methodIndex, modifierSignatureSource)
                     }
@@ -813,7 +813,7 @@ class ColumnarConstructionPlanner {
                     return false
                 }
                 selectedField: FieldBuilder = field
-                if selectedField.get_IsInitOnly() {
+                if selectedField.IsInitOnly {
                     return false
                 }
                 fieldOwnerType := typeof(object)
@@ -822,7 +822,7 @@ class ColumnarConstructionPlanner {
                     return false
                 }
                 fieldType: Type = typeof(object)
-                fieldType = selectedField.get_FieldType()
+                fieldType = selectedField.FieldType
                 if fieldOwnerArguments.Length > 0 {
                     fieldType = SubstituteTypeArgument(fieldType, fieldOwnerArguments)
                 }
@@ -850,14 +850,14 @@ class ColumnarConstructionPlanner {
                 // resolution: a public, non-static, writable instance field is assigned by `stfld`,
                 // which is the same row the source-definition arm above emits for a field member.
                 runtimeField := targetType.GetField(memberName)
-                if runtimeField == null || runtimeField.get_IsStatic() || runtimeField.get_IsInitOnly() || runtimeField.get_IsLiteral() {
+                if runtimeField == null || runtimeField.IsStatic || runtimeField.IsInitOnly || runtimeField.IsLiteral {
                     return false
                 }
-                runtimeFieldDeclaringType := runtimeField.get_DeclaringType()
+                runtimeFieldDeclaringType := runtimeField.DeclaringType
                 if runtimeFieldDeclaringType == null {
                     return false
                 }
-                runtimeFieldType := runtimeField.get_FieldType()
+                runtimeFieldType := runtimeField.FieldType
                 plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
                 if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, runtimeFieldType, out ownership, out legacyWholeSubtreePlanning) {
                     return false
@@ -868,28 +868,28 @@ class ColumnarConstructionPlanner {
                 continue
             }
             selectedProperty: PropertyInfo = runtimeProperty
-            setterCandidate := selectedProperty.get_SetMethod()
-            if setterCandidate == null || setterCandidate.get_IsStatic() || setterCandidate.GetParameters().Length != 1 {
+            setterCandidate := selectedProperty.SetMethod
+            if setterCandidate == null || setterCandidate.IsStatic || setterCandidate.GetParameters().Length != 1 {
                 return false
             }
 
             setter: MethodInfo = setterCandidate
-            setterDeclaringType := setter.get_DeclaringType()
+            setterDeclaringType := setter.DeclaringType
             if setterDeclaringType == null {
                 return false
             }
             requiresModifierRepair := !SetterSignatureSurvivesAMemberRef(setterCandidate)
-            propertyType := selectedProperty.get_PropertyType()
+            propertyType := selectedProperty.PropertyType
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
             if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, propertyType, out ownership, out legacyWholeSubtreePlanning) {
                 return false
             }
             parameterTypes := Types1(propertyType)
-            methodIndex := plan.AddMethodWithSignature(setter, setterDeclaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.get_IsAbstract())
+            methodIndex := plan.AddMethodWithSignature(setter, setterDeclaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), false, setter.IsAbstract)
             if requiresModifierRepair {
                 plan.MarkMethodForModifiedMemberReferenceRepair(methodIndex, setter)
             }
-            plan.AppendMethodInstruction(setter.get_IsVirtual() ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
+            plan.AppendMethodInstruction(setter.IsVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
             index += 2
         }
         return true
@@ -900,7 +900,7 @@ class ColumnarConstructionPlanner {
     static func SetterSignatureSurvivesAMemberRef(setter: MethodInfo): bool {
         modifiers: Type[]? = null
         try {
-            modifiers = setter.get_ReturnParameter().GetRequiredCustomModifiers()
+            modifiers = setter.ReturnParameter.GetRequiredCustomModifiers()
         } catch {
             return false
         }
@@ -970,7 +970,7 @@ class ColumnarConstructionPlanner {
                 return false
             }
             selectedField: FieldBuilder = field
-            if selectedField.get_IsInitOnly() {
+            if selectedField.IsInitOnly {
                 return false
             }
             fieldOwnerType := typeof(object)
@@ -979,7 +979,7 @@ class ColumnarConstructionPlanner {
                 return false
             }
             fieldType: Type = typeof(object)
-            fieldType = selectedField.get_FieldType()
+            fieldType = selectedField.FieldType
             if fieldOwnerArguments.Length > 0 {
                 fieldType = SubstituteTypeArgument(fieldType, fieldOwnerArguments)
             }
@@ -1100,18 +1100,18 @@ class ColumnarConstructionPlanner {
             candidate := currentDefinition
             if SameObject(candidate, owner) {
                 ownerType = currentType
-                if currentType.get_IsGenericType() && !currentType.get_IsGenericTypeDefinition() {
+                if currentType.IsGenericType && !currentType.IsGenericTypeDefinition {
                     ownerArguments = currentType.GetGenericArguments()
                 }
                 return true
             }
 
             baseDefinition := candidate.BaseDef
-            openBaseType := candidate.Builder.get_BaseType()
+            openBaseType := candidate.Builder.BaseType
             if baseDefinition == null || openBaseType == null {
                 return false
             }
-            if currentType.get_IsGenericType() && !currentType.get_IsGenericTypeDefinition() {
+            if currentType.IsGenericType && !currentType.IsGenericTypeDefinition {
                 currentType = SubstituteTypeArgument(openBaseType, currentType.GetGenericArguments())
             } else {
                 currentType = openBaseType
@@ -1175,7 +1175,7 @@ class ColumnarConstructionPlanner {
         }
 
         openUnionType := resolvedUnionType
-        if resolvedUnionType.get_IsGenericType() && !resolvedUnionType.get_IsGenericTypeDefinition() {
+        if resolvedUnionType.IsGenericType && !resolvedUnionType.IsGenericTypeDefinition {
             openUnionType = resolvedUnionType.GetGenericTypeDefinition()
             caseArguments = resolvedUnionType.GetGenericArguments()
         }
@@ -1207,7 +1207,7 @@ class ColumnarConstructionPlanner {
         resolvedCaseType: Type = selectedCase.CaseType
         if caseArguments.Length > 0 {
             caseDefinitionType: Type = selectedCase.CaseType
-            if !caseDefinitionType.get_IsGenericTypeDefinition() || caseDefinitionType.GetGenericArguments().Length != caseArguments.Length {
+            if !caseDefinitionType.IsGenericTypeDefinition || caseDefinitionType.GetGenericArguments().Length != caseArguments.Length {
                 return false
             }
             try {
@@ -1215,7 +1215,7 @@ class ColumnarConstructionPlanner {
             } catch {
                 return false
             }
-        } else if selectedCase.UnionBase.get_IsGenericTypeDefinition() {
+        } else if selectedCase.UnionBase.IsGenericTypeDefinition {
             return false
         }
         unionDefinition = selectedUnion
@@ -1229,7 +1229,7 @@ class ColumnarConstructionPlanner {
     static func TryFindSourceUnionDefinition(targetType: Type, bindings: ColumnarFragmentBindings, out selected: ColumnarUnionDef?): bool {
         selected = null
         openTarget := targetType
-        if targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() {
+        if targetType.IsGenericType && !targetType.IsGenericTypeDefinition {
             openTarget = targetType.GetGenericTypeDefinition()
         }
         for candidate in bindings.SourceUnionDefinitions {
@@ -1362,10 +1362,10 @@ class ColumnarConstructionPlanner {
         fieldHandle = null
         fieldType = typeof(object)
         openField: FieldBuilder? = null
-        if definition.Fields == null || !definition.Fields.TryGetValue(fieldName, out openField) || openField == null || openField.get_IsStatic() || openField.get_IsInitOnly() || !SameObject(openField.get_DeclaringType(), definition.CaseType) {
+        if definition.Fields == null || !definition.Fields.TryGetValue(fieldName, out openField) || openField == null || openField.IsStatic || openField.IsInitOnly || !SameObject(openField.DeclaringType, definition.CaseType) {
             return false
         }
-        fieldType = openField.get_FieldType()
+        fieldType = openField.FieldType
         if typeArguments.Length > 0 {
             fieldType = SubstituteTypeArgument(fieldType, typeArguments)
             try {
@@ -1571,7 +1571,7 @@ class ColumnarConstructionPlanner {
             // A value type written `new S()` with no selectable constructor is its CLR zero value, the
             // same reading C# gives it. `JsonElement` and `Label` used to be spelled out here one type
             // at a time; every struct without a public parameterless constructor takes this route now.
-            if argumentCount == 0 && targetType.get_IsValueType() {
+            if argumentCount == 0 && targetType.IsValueType {
                 AppendDefaultValueConstruction(plan, targetType)
                 return true
             }
@@ -1608,7 +1608,7 @@ class ColumnarConstructionPlanner {
             types := new Type[](parameters.Length)
             index := 0
             while index < parameters.Length {
-                types[index] = parameters[index].get_ParameterType()
+                types[index] = parameters[index].ParameterType
                 index += 1
             }
             placement := new int[](0)
@@ -1683,7 +1683,7 @@ class ColumnarConstructionPlanner {
     static func TryAppendClosedGenericConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
         ownership = ColumnarDirectCallOwnership.OwnedRejected
         legacyWholeSubtreePlanning = false
-        if targetType == null || !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() {
+        if targetType == null || !targetType.IsGenericType || targetType.IsGenericTypeDefinition {
             return false
         }
 
@@ -1848,7 +1848,7 @@ class ColumnarConstructionPlanner {
             // A value type written `new S()` with no selectable constructor is its CLR zero value, the
             // same reading C# gives it. This is the general rule the JsonElement and Label arms used to
             // spell one type at a time.
-            if argumentCount == 0 && targetType.get_IsValueType() {
+            if argumentCount == 0 && targetType.IsValueType {
                 AppendDefaultValueConstruction(plan, targetType)
                 return true
             }
@@ -1870,7 +1870,7 @@ class ColumnarConstructionPlanner {
         constructor = null
         parameterTypes = new Type[](0)
         elementType = null
-        if targetType == null || !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() {
+        if targetType == null || !targetType.IsGenericType || targetType.IsGenericTypeDefinition {
             return false
         }
         if !RuntimeTypeShapeFacts.ContainsBuilderBoundTypeThroughElements(targetType) {
@@ -1919,7 +1919,7 @@ class ColumnarConstructionPlanner {
 
     static func TryFindClosedSourceDefinition(targetType: Type, bindings: ColumnarFragmentBindings, out selected: ColumnarStructDef?): bool {
         selected = null
-        if targetType == null || !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() {
+        if targetType == null || !targetType.IsGenericType || targetType.IsGenericTypeDefinition {
             return false
         }
         openType := targetType.GetGenericTypeDefinition()
@@ -1950,14 +1950,14 @@ class ColumnarConstructionPlanner {
     }
 
     static func SubstituteTypeArgument(signatureType: Type, arguments: Type[]): Type {
-        if signatureType.get_IsGenericParameter() && signatureType.get_DeclaringMethod() == null {
-            position := signatureType.get_GenericParameterPosition()
+        if signatureType.IsGenericParameter && signatureType.DeclaringMethod == null {
+            position := signatureType.GenericParameterPosition
             if position < 0 || position >= arguments.Length {
                 throw new InvalidOperationException("Construction generic parameter position is invalid.")
             }
             return arguments[position]
         }
-        if signatureType.get_IsByRef() {
+        if signatureType.IsByRef {
             element := signatureType.GetElementType()
             if element == null {
                 throw new InvalidOperationException("Construction by-reference signature has no element type.")
@@ -1971,7 +1971,7 @@ class ColumnarConstructionPlanner {
             }
             return SubstituteTypeArgument(element, arguments).MakeArrayType()
         }
-        if signatureType.get_IsGenericType() && !signatureType.get_IsGenericTypeDefinition() {
+        if signatureType.IsGenericType && !signatureType.IsGenericTypeDefinition {
             definition := signatureType.GetGenericTypeDefinition()
             rawArguments := signatureType.GetGenericArguments()
             closedArguments := new Type[](rawArguments.Length)
@@ -2094,7 +2094,7 @@ class ColumnarConstructionPlanner {
         kinds := new int[](parameters.Length)
         index := 0
         while index < parameters.Length {
-            if parameters[index].get_ParameterType().get_IsByRef() && parameters[index].get_IsIn() {
+            if parameters[index].ParameterType.IsByRef && parameters[index].IsIn {
                 kinds[index] = 5
             }
             index = index + 1
@@ -2223,7 +2223,7 @@ class ColumnarConstructionPlanner {
         if constructor == null || ownerType == null {
             return false
         }
-        declaringType := constructor.get_DeclaringType()
+        declaringType := constructor.DeclaringType
         return declaringType != null && RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(declaringType, ownerType)
     }
 
@@ -2276,7 +2276,7 @@ class ColumnarConstructionPlanner {
                 return false
             }
 
-            expandedDeclaringType := expandedConstructor.get_DeclaringType()
+            expandedDeclaringType := expandedConstructor.DeclaringType
             if expandedDeclaringType == null || !ExternalAssemblyScan.HasExactTypeIdentity(expandedDeclaringType, TargetTypeIdentity(targetType)) {
                 throw new InvalidOperationException("Construction selected a constructor on the wrong owner.")
             }
@@ -2289,7 +2289,7 @@ class ColumnarConstructionPlanner {
         selected := applicable[selectedIndex]
         selectedParameters := applicableParameters[selectedIndex]
 
-        declaringType := selected.get_DeclaringType()
+        declaringType := selected.DeclaringType
         if declaringType == null || !ExternalAssemblyScan.HasExactTypeIdentity(declaringType, TargetTypeIdentity(targetType)) {
             throw new InvalidOperationException("Construction selected a constructor on the wrong owner.")
         }
@@ -2309,7 +2309,7 @@ class ColumnarConstructionPlanner {
     // emittable-signature test must run on the substituted form, never on the open one.
     static func CollectApplicableRuntimeConstructors(candidates: ConstructorInfo[], closedArguments: Type[], argumentTypes: Type[], applicable: List<ConstructorInfo>, applicableParameters: List<Type[]>) {
         for candidate in candidates {
-            if candidate != null && candidate.get_IsPublic() && !candidate.get_IsStatic() && !IsExpandedConstructorShape(candidate) {
+            if candidate != null && candidate.IsPublic && !candidate.IsStatic && !IsExpandedConstructorShape(candidate) {
                 parameters := candidate.GetParameters()
                 if parameters != null && parameters.Length == argumentTypes.Length {
                     openTypes := ConstructorParameterTypesOrNull(parameters)
@@ -2334,7 +2334,7 @@ class ColumnarConstructionPlanner {
     // only turn a decline into an emission.
     static func CollectOptionalFillRuntimeConstructors(candidates: ConstructorInfo[], closedArguments: Type[], argumentTypes: Type[], applicable: List<ConstructorInfo>, applicableParameters: List<Type[]>) {
         for candidate in candidates {
-            if candidate != null && candidate.get_IsPublic() && !candidate.get_IsStatic() && !IsExpandedConstructorShape(candidate) {
+            if candidate != null && candidate.IsPublic && !candidate.IsStatic && !IsExpandedConstructorShape(candidate) {
                 parameters := candidate.GetParameters()
                 if parameters != null && parameters.Length > argumentTypes.Length {
                     openTypes := ConstructorParameterTypesOrNull(parameters)
@@ -2401,7 +2401,7 @@ class ColumnarConstructionPlanner {
     }
 
     static func TargetTypeIdentity(targetType: Type): string {
-        identity := targetType.get_AssemblyQualifiedName()
+        identity := targetType.AssemblyQualifiedName
         if identity == null {
             return ""
         }
@@ -2417,7 +2417,7 @@ class ColumnarConstructionPlanner {
             return false
         }
 
-        return !targetType.get_IsAbstract() && !targetType.get_IsInterface() && !targetType.get_IsGenericTypeDefinition() && !targetType.get_IsGenericParameter() && !targetType.get_IsArray() && !targetType.get_IsByRef() && !targetType.get_IsPointer()
+        return !targetType.IsAbstract && !targetType.IsInterface && !targetType.IsGenericTypeDefinition && !targetType.IsGenericParameter && !targetType.IsArray && !targetType.IsByRef && !targetType.IsPointer
     }
 
     static func RuntimeConstructorsOrEmpty(targetType: Type): ConstructorInfo[] {
@@ -2441,7 +2441,7 @@ class ColumnarConstructionPlanner {
     // `HasUnsupportedConstructorSignature` on the SUBSTITUTED signature: an open generic parameter is
     // unemittable as written but perfectly emittable once the closed type arguments are in place.
     static func IsExpandedConstructorShape(candidate: ConstructorInfo): bool {
-        convention := (int)candidate.get_CallingConvention()
+        convention := (int)candidate.CallingConvention
         if (convention & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0 {
             return true
         }
@@ -2484,7 +2484,7 @@ class ColumnarConstructionPlanner {
         applicableExpanded := new List<Type[]>()
         applicableElements := new List<Type>()
         for candidate in candidates {
-            if candidate != null && candidate.get_IsPublic() && !candidate.get_IsStatic() && !IsExpandedConstructorShape(candidate) {
+            if candidate != null && candidate.IsPublic && !candidate.IsStatic && !IsExpandedConstructorShape(candidate) {
                 parameters := candidate.GetParameters()
                 if parameters != null {
                     openTypes := ConstructorParameterTypesOrNull(parameters)
@@ -2540,7 +2540,7 @@ class ColumnarConstructionPlanner {
         types := new Type[](parameters.Length)
         index := 0
         while index < parameters.Length {
-            parameterType := parameters[index].get_ParameterType()
+            parameterType := parameters[index].ParameterType
             if parameterType == null {
                 return null
             }
@@ -2560,7 +2560,7 @@ class ColumnarConstructionPlanner {
 
     static func CanUseConstructorDefault(nodes: ColumnarNodeTable, expectedType: Type, defaultKind: int, defaultText: string, bindings: ColumnarFragmentBindings): bool {
         if defaultKind == 46 {
-            return !expectedType.get_IsValueType()
+            return !expectedType.IsValueType
         }
         if defaultKind == 44 || defaultKind == 45 {
             return expectedType == typeof(bool)
@@ -2845,7 +2845,7 @@ class ColumnarConstructionPlanner {
 
     static func TryResolveRuntimeEnumMember(enumType: Type, memberName: string, out value: int): bool {
         value = 0
-        if enumType is TypeBuilder || enumType.GetType().FullName == "System.Reflection.Emit.EnumBuilder" || !enumType.get_IsEnum() || Enum.GetUnderlyingType(enumType).FullName != "System.Int32" || !Enum.IsDefined(enumType, memberName) {
+        if enumType is TypeBuilder || enumType.GetType().FullName == "System.Reflection.Emit.EnumBuilder" || !enumType.IsEnum || Enum.GetUnderlyingType(enumType).FullName != "System.Int32" || !Enum.IsDefined(enumType, memberName) {
             return false
         }
         value = Convert.ToInt32(Enum.Parse(enumType, memberName), CultureInfo.InvariantCulture)
@@ -2880,7 +2880,7 @@ class ColumnarConstructionPlanner {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemR4())
         } else if elementType == typeof(double) {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemR8())
-        } else if !elementType.get_IsValueType() && !elementType.get_IsGenericParameter() {
+        } else if !elementType.IsValueType && !elementType.IsGenericParameter {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.StelemRef())
         } else {
             typeIndex := plan.AddType(elementType)
@@ -2889,7 +2889,7 @@ class ColumnarConstructionPlanner {
     }
 
     static func IsSupportedArrayElement(elementType: Type): bool {
-        if elementType == null || elementType.FullName == "System.Void" || elementType.get_IsByRef() || elementType.get_IsPointer() {
+        if elementType == null || elementType.FullName == "System.Void" || elementType.IsByRef || elementType.IsPointer {
             return false
         }
         return ColumnarTypeOfPlanner.IsSupportedElementType(elementType)

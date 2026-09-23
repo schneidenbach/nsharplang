@@ -615,7 +615,7 @@ class AnalyzerLoopSequence {
 
     func ReflectedEnumeratorCurrentType(clrType: Type): Type? {
         moveNext := ForeachPatternFacts.FindParameterlessInstanceMethod(clrType, "MoveNext")
-        if moveNext == null || !ForeachPatternFacts.IsBoolean(moveNext.get_ReturnType()) {
+        if moveNext == null || !ForeachPatternFacts.IsBoolean(moveNext.ReturnType) {
             return null
         }
 
@@ -624,8 +624,8 @@ class AnalyzerLoopSequence {
             return null
         }
 
-        currentType := currentGetter.get_ReturnType()
-        if currentType.get_IsByRef() {
+        currentType := currentGetter.ReturnType
+        if currentType.IsByRef {
             return currentType.GetElementType()
         }
 
@@ -786,7 +786,7 @@ class AnalyzerLoopSequence {
     func GetReflectionLoopSequenceElementType(clrType: Type, requireAsync: bool): TypeInfo? {
         runtimeType := StripNullableRuntimeType(clrType)
 
-        if !requireAsync && runtimeType.get_IsArray() {
+        if !requireAsync && runtimeType.IsArray {
             elementReflectionType := runtimeType.GetElementType()
             if elementReflectionType != null {
                 return AnalyzerReflectionTypeConversion.ConvertReflectionType(elementReflectionType)

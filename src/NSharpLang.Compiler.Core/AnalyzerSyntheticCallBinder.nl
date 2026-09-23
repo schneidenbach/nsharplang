@@ -1016,7 +1016,7 @@ class AnalyzerSyntheticCallBinder {
         external := argumentType as ExternalTypeInfo
         if external != null {
             clrType := clrTypeConversion.TryConvertTypeInfoToClrType(external)
-            if clrType != null && clrType.get_IsGenericType() {
+            if clrType != null && clrType.IsGenericType {
                 CollectClrTypeParameterBounds(generic, clrType, typeParameters, allBounds)
             }
 
@@ -1024,7 +1024,7 @@ class AnalyzerSyntheticCallBinder {
         }
 
         reflection := argumentType as ReflectionTypeInfo
-        if reflection != null && reflection.Type.get_IsGenericType() {
+        if reflection != null && reflection.Type.IsGenericType {
             CollectClrTypeParameterBounds(generic, reflection.Type, typeParameters, allBounds)
         }
     }

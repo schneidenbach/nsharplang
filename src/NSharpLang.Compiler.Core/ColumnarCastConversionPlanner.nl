@@ -30,19 +30,19 @@ class ColumnarCastConversionPlanner {
     // Whether a conversion from `sourceType` to `targetType` has rows this owner can append. Asked
     // before a receiver goes on the stack, so a decline never leaves a half-converted value.
     static func CanAppendCast(sourceType: Type, targetType: Type): bool {
-        if sourceType == null || targetType == null || targetType.get_IsByRef() || targetType.get_IsPointer() || targetType.get_IsGenericTypeDefinition() {
+        if sourceType == null || targetType == null || targetType.IsByRef || targetType.IsPointer || targetType.IsGenericTypeDefinition {
             return false
         }
         if sourceType == targetType {
             return true
         }
-        if targetType.get_IsGenericParameter() {
-            return !sourceType.get_IsValueType()
+        if targetType.IsGenericParameter {
+            return !sourceType.IsValueType
         }
-        if sourceType.get_IsGenericParameter() {
+        if sourceType.IsGenericParameter {
             return targetType == typeof(object)
         }
-        if targetType.get_IsValueType() {
+        if targetType.IsValueType {
             if IsNumeric(sourceType) && IsNumeric(targetType) {
                 return true
             }
@@ -50,12 +50,12 @@ class ColumnarCastConversionPlanner {
             // the boxed target actually IS — `object`, `ValueType`, or an interface it implements.
             // A `string` source is not, and refusing it here is what keeps `unbox.any` from being
             // emitted for a pair no conversion exists between.
-            return !sourceType.get_IsValueType() && sourceType.IsAssignableFrom(targetType)
+            return !sourceType.IsValueType && sourceType.IsAssignableFrom(targetType)
         }
-        if sourceType.get_IsValueType() {
+        if sourceType.IsValueType {
             // A value read at a reference type is a box; only `object` and an interface the value
             // implements can hold one, and the interface case is the boxing conversion too.
-            return targetType == typeof(object) || targetType.get_IsInterface()
+            return targetType == typeof(object) || targetType.IsInterface
         }
         return true
     }
@@ -70,15 +70,15 @@ class ColumnarCastConversionPlanner {
             return true
         }
 
-        if targetType.get_IsGenericParameter() || (targetType.get_IsValueType() && !sourceType.get_IsValueType()) {
+        if targetType.IsGenericParameter || (targetType.IsValueType && !sourceType.IsValueType) {
             plan.AppendTypeInstruction(ColumnarCodePlanContract.UnboxAny(), AddType(plan, targetType, structuralTypeReferences))
             return true
         }
-        if sourceType.get_IsValueType() && !targetType.get_IsValueType() {
+        if sourceType.IsValueType && !targetType.IsValueType {
             plan.AppendTypeInstruction(ColumnarCodePlanContract.Box(), AddType(plan, sourceType, structuralTypeReferences))
             return true
         }
-        if sourceType.get_IsValueType() && targetType.get_IsValueType() {
+        if sourceType.IsValueType && targetType.IsValueType {
             return TryAppendNumericCast(plan, sourceType, targetType)
         }
         if targetType.IsAssignableFrom(sourceType) {
@@ -135,7 +135,7 @@ class ColumnarCastConversionPlanner {
     }
 
     static func UnderlyingNumeric(candidate: Type): Type {
-        if candidate != null && candidate.get_IsEnum() {
+        if candidate != null && candidate.IsEnum {
             return candidate.GetEnumUnderlyingType()
         }
         return candidate

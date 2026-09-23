@@ -242,7 +242,7 @@ class ExternalAssemblyScan {
         assemblies := Loaded()
         for assembly in assemblies {
             try {
-                identity := assembly.GetName().get_FullName()
+                identity := assembly.GetName().FullName
                 if !byIdentity.ContainsKey(identity) {
                     byIdentity[identity] = assembly
                 }
@@ -266,7 +266,7 @@ class ExternalAssemblyScan {
     // unchanged. An owned collectible context is deliberately eligible: its dependencies are the only
     // executable handles for that compiler instance, while unrelated collectible contexts stay absent.
     static func PreferEmissionRuntimeAssemblies(byIdentity: Dictionary<string, Assembly>): Dictionary<string, Assembly> {
-        compilerContext := AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).get_Assembly())
+        compilerContext := AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).Assembly)
         if compilerContext == null {
             return byIdentity
         }
@@ -275,7 +275,7 @@ class ExternalAssemblyScan {
         for candidate in loaded {
             if !candidate.IsDynamic && Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(candidate), compilerContext) {
                 try {
-                    identity := candidate.GetName().get_FullName()
+                    identity := candidate.GetName().FullName
                     if !byIdentity.ContainsKey(identity) {
                         byIdentity[identity] = candidate
                     } else {
@@ -300,7 +300,7 @@ class ExternalAssemblyScan {
             try {
                 runtimeAssembly := LoadHostAssemblyByName(name)
                 identityName := runtimeAssembly.GetName()
-                identity := identityName.get_FullName()
+                identity := identityName.FullName
                 metadataPath := CommonAssemblyMetadataPath(searchDirectories, name)
                 AddSemanticEntry(entries, identityName, identity, metadataPath, runtimeAssembly)
             } catch {
@@ -330,7 +330,7 @@ class ExternalAssemblyScan {
                     continue
                 }
 
-                identity := identityName.get_FullName()
+                identity := identityName.FullName
                 existing := FindSemanticIdentity(entries, identityName)
                 if existing >= 0 {
                     if entries[existing].Identity == identity && entries[existing].RuntimeAssembly == null {
@@ -400,12 +400,12 @@ class ExternalAssemblyScan {
     }
 
     // WHERE A COMMON ASSEMBLY'S METADATA IS, FOUND ON DISK RATHER THAN READ OFF A LOADED ASSEMBLY.
-    // `runtimeAssembly.get_Location()` answers the EMPTY STRING under a single-file binary -- measured,
+    // `runtimeAssembly.Location` answers the EMPTY STRING under a single-file binary -- measured,
     // not assumed -- and an entry with an empty metadata path is not inspectable, so the metadata
     // context would quietly be handed nothing and every common assembly would drop out of binding with
     // no error anywhere. The path is therefore resolved from DIRECTORIES.
     //
-    // The runtime directory comes FIRST deliberately. It is the directory `get_Location()` used to
+    // The runtime directory comes FIRST deliberately. It is the directory `Location` used to
     // answer out of, so for a framework-dependent host every one of the 27 common names resolves to the
     // byte-identical file the old reading returned, and the change moves nothing. The project's own
     // resolved reference directories come after, as the answer for a name the runtime directory does
@@ -544,8 +544,8 @@ class ExternalAssemblyScan {
         }
 
         try {
-            referenceIdentity := AssemblyName.GetAssemblyName(referencePath).get_FullName()
-            runtimeIdentity := AssemblyName.GetAssemblyName(runtimePath).get_FullName()
+            referenceIdentity := AssemblyName.GetAssemblyName(referencePath).FullName
+            runtimeIdentity := AssemblyName.GetAssemblyName(runtimePath).FullName
             return referenceIdentity != null && runtimeIdentity != null && string.Equals(referenceIdentity, runtimeIdentity, StringComparison.Ordinal)
         } catch {
 
@@ -814,7 +814,7 @@ class ExternalAssemblyScan {
         }
 
         try {
-            return assembly.GetName().get_FullName() == identity
+            return assembly.GetName().FullName == identity
         } catch {
             return false
         }
@@ -826,7 +826,7 @@ class ExternalAssemblyScan {
         }
 
         try {
-            location := assembly.get_Location()
+            location := assembly.Location
             return location != null && location.Length > 0 && string.Equals(Path.GetFullPath(location), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase)
         } catch {
             return false
@@ -839,7 +839,7 @@ class ExternalAssemblyScan {
         }
 
         try {
-            return assembly.get_ManifestModule().get_ModuleVersionId().ToString()
+            return assembly.ManifestModule.ModuleVersionId.ToString()
         } catch {
             return ""
         }
@@ -922,9 +922,9 @@ class ExternalAssemblyScan {
             return false
         }
 
-        references := typeof(ExternalAssemblyScan).get_Assembly().GetReferencedAssemblies()
+        references := typeof(ExternalAssemblyScan).Assembly.GetReferencedAssemblies()
         for reference in references {
-            if reference.get_FullName() == identity {
+            if reference.FullName == identity {
                 return true
             }
         }
@@ -933,7 +933,7 @@ class ExternalAssemblyScan {
     }
 
     static func CompilerLoadContext(): AssemblyLoadContext? {
-        return AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).get_Assembly())
+        return AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).Assembly)
     }
 
     // WHICH HANDLE A LOAD CONTEXT EXECUTES AGAINST FOR AN IDENTITY -- asked of the binder rather
@@ -1148,7 +1148,7 @@ class ExternalAssemblyScan {
             return false
         }
 
-        actual := candidate.get_AssemblyQualifiedName()
+        actual := candidate.AssemblyQualifiedName
         return actual != null && (actual == identity || actual.StartsWith(identity + ",", StringComparison.Ordinal))
     }
 
@@ -1157,7 +1157,7 @@ class ExternalAssemblyScan {
     }
 
     static func FoundResolution(entry: ExternalAssemblyCatalogEntry, metadataType: Type): ExternalAssemblyTypeResolution {
-        identity := metadataType.get_AssemblyQualifiedName()
+        identity := metadataType.AssemblyQualifiedName
         fullName := metadataType.FullName
         if identity == null || fullName == null || identity.Length == 0 || fullName.Length == 0 {
             return UnknownResolution()
@@ -1168,7 +1168,7 @@ class ExternalAssemblyScan {
         if entry.RuntimeAssembly != null {
             try {
                 candidate := entry.RuntimeAssembly.GetType(fullName)
-                if candidate != null && candidate.get_AssemblyQualifiedName() == identity {
+                if candidate != null && candidate.AssemblyQualifiedName == identity {
                     runtimeType = candidate
                     hasRuntimeType = true
                 }

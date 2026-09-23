@@ -121,11 +121,11 @@ class NullabilityGenericSubstitution {
             return null
         }
 
-        if !declaringType.get_IsGenericType() {
+        if !declaringType.IsGenericType {
             return null
         }
 
-        if declaringType.get_IsGenericTypeDefinition() {
+        if declaringType.IsGenericTypeDefinition {
             return null
         }
 
@@ -136,8 +136,8 @@ class NullabilityGenericSubstitution {
     // ARITY as well as their name, because a type may declare several and they are all called
     // `Item`.
     static func OpenPropertyType(property: PropertyInfo): Type {
-        declared := property.get_PropertyType()
-        definition := DeclaringDefinition(property.get_DeclaringType())
+        declared := property.PropertyType
+        definition := DeclaringDefinition(property.DeclaringType)
         if definition == null {
             return declared
         }
@@ -145,8 +145,8 @@ class NullabilityGenericSubstitution {
         indexCount := property.GetIndexParameters().Length
         candidates := definition.GetProperties(MemberFlags())
         for candidate in candidates {
-            if candidate.get_Name() == property.get_Name() && candidate.GetIndexParameters().Length == indexCount {
-                return candidate.get_PropertyType()
+            if candidate.Name == property.Name && candidate.GetIndexParameters().Length == indexCount {
+                return candidate.PropertyType
             }
         }
 
@@ -156,17 +156,17 @@ class NullabilityGenericSubstitution {
     // AN EVENT'S HANDLER DELEGATE TYPE AS ITS DEFINITION SPELLS IT. An event has no overloads and no
     // index parameters, so the name alone identifies it — the simplest member of this family.
     static func OpenEventHandlerType(eventMember: EventInfo, declared: Type): Type {
-        definition := DeclaringDefinition(eventMember.get_DeclaringType())
+        definition := DeclaringDefinition(eventMember.DeclaringType)
         if definition == null {
             return declared
         }
 
-        candidate := definition.GetEvent(eventMember.get_Name(), MemberFlags())
+        candidate := definition.GetEvent(eventMember.Name, MemberFlags())
         if candidate == null {
             return declared
         }
 
-        candidateType := candidate.get_EventHandlerType()
+        candidateType := candidate.EventHandlerType
         if candidateType == null {
             return declared
         }
@@ -175,18 +175,18 @@ class NullabilityGenericSubstitution {
     }
 
     static func OpenFieldType(field: FieldInfo): Type {
-        declared := field.get_FieldType()
-        definition := DeclaringDefinition(field.get_DeclaringType())
+        declared := field.FieldType
+        definition := DeclaringDefinition(field.DeclaringType)
         if definition == null {
             return declared
         }
 
-        candidate := definition.GetField(field.get_Name(), MemberFlags())
+        candidate := definition.GetField(field.Name, MemberFlags())
         if candidate == null {
             return declared
         }
 
-        return candidate.get_FieldType()
+        return candidate.FieldType
     }
 
     // A PARAMETER'S — OR A RETURN'S — DECLARED TYPE AS ITS DEFINITION SPELLS IT. A return parameter's
@@ -203,13 +203,13 @@ class NullabilityGenericSubstitution {
     // resolved from the closed side without re-doing binding, so an ambiguous name answers with the
     // closed type rather than guessing. A CONSTRUCTOR is matched the same way.
     static func OpenParameterType(parameter: ParameterInfo): Type {
-        declared := parameter.get_ParameterType()
-        method := parameter.get_Member() as MethodInfo
+        declared := parameter.ParameterType
+        method := parameter.Member as MethodInfo
         if method != null {
             return OpenMethodPositionType(method, parameter, declared)
         }
 
-        constructor := parameter.get_Member() as ConstructorInfo
+        constructor := parameter.Member as ConstructorInfo
         if constructor != null {
             return OpenConstructorPositionType(constructor, parameter, declared)
         }
@@ -219,18 +219,18 @@ class NullabilityGenericSubstitution {
 
     static func OpenMethodPositionType(method: MethodInfo, parameter: ParameterInfo, declared: Type): Type {
         open := method
-        if method.get_IsGenericMethod() && !method.get_IsGenericMethodDefinition() {
+        if method.IsGenericMethod && !method.IsGenericMethodDefinition {
             open = method.GetGenericMethodDefinition()
         }
 
-        definition := DeclaringDefinition(open.get_DeclaringType())
+        definition := DeclaringDefinition(open.DeclaringType)
         if definition != null {
             parameterCount := open.GetParameters().Length
             candidates := definition.GetMethods(MemberFlags())
             found: MethodInfo? = null
             matches := 0
             for candidate in candidates {
-                if candidate.get_Name() == open.get_Name() && candidate.GetParameters().Length == parameterCount {
+                if candidate.Name == open.Name && candidate.GetParameters().Length == parameterCount {
                     found = candidate
                     matches = matches + 1
                 }
@@ -245,15 +245,15 @@ class NullabilityGenericSubstitution {
             return declared
         }
 
-        if parameter.get_Position() < 0 {
-            return open.get_ReturnType()
+        if parameter.Position < 0 {
+            return open.ReturnType
         }
 
-        return PositionType(open.GetParameters(), parameter.get_Position(), declared)
+        return PositionType(open.GetParameters(), parameter.Position, declared)
     }
 
     static func OpenConstructorPositionType(constructor: ConstructorInfo, parameter: ParameterInfo, declared: Type): Type {
-        definition := DeclaringDefinition(constructor.get_DeclaringType())
+        definition := DeclaringDefinition(constructor.DeclaringType)
         if definition == null {
             return declared
         }
@@ -273,7 +273,7 @@ class NullabilityGenericSubstitution {
             return declared
         }
 
-        return PositionType(found.GetParameters(), parameter.get_Position(), declared)
+        return PositionType(found.GetParameters(), parameter.Position, declared)
     }
 
     static func PositionType(parameters: ParameterInfo[], position: int, declared: Type): Type {
@@ -281,7 +281,7 @@ class NullabilityGenericSubstitution {
             return declared
         }
 
-        return parameters[position].get_ParameterType()
+        return parameters[position].ParameterType
     }
 
     // IS THIS POSITION A TYPE PARAMETER THE INSTANTIATION SUBSTITUTED? A by-ref shell is transparent:
@@ -292,14 +292,14 @@ class NullabilityGenericSubstitution {
         }
 
         effective := openType
-        if openType.get_IsByRef() {
+        if openType.IsByRef {
             element := openType.GetElementType()
             if element != null {
                 effective = element
             }
         }
 
-        return effective.get_IsGenericParameter()
+        return effective.IsGenericParameter
     }
 
     // DID THE MEMBER ANNOTATE THE POSITION `T?`?
@@ -353,14 +353,14 @@ class NullabilityGenericSubstitution {
             return memberFlag
         }
 
-        owner := member.get_DeclaringType()
+        owner := member.DeclaringType
         while owner != null {
             ownerFlag := ReadFlag(owner.GetCustomAttributesData(), "System.Runtime.CompilerServices.NullableContextAttribute")
             if ownerFlag >= 0 {
                 return ownerFlag
             }
 
-            owner = owner.get_DeclaringType()
+            owner = owner.DeclaringType
         }
 
         return -1
@@ -374,9 +374,9 @@ class NullabilityGenericSubstitution {
         index := 0
         while index < count {
             attribute := attributes.get_Item(index)
-            attributeType := attribute.get_AttributeType()
+            attributeType := attribute.AttributeType
             if string.Equals(attributeType.FullName ?? "", attributeFullName, StringComparison.Ordinal) {
-                constructorArguments := attribute.get_ConstructorArguments()
+                constructorArguments := attribute.ConstructorArguments
                 if NullabilityMetadataReflection.SequenceCount(constructorArguments) == 1 {
                     return ByteValue(constructorArguments.get_Item(0).get_Value())
                 }

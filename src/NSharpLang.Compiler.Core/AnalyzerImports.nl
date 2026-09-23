@@ -355,7 +355,7 @@ class AnalyzerImports {
         importedType := externalTypeProbe.ResolveExactExternalType(namespaceName)
         if importedType != null {
             CreditUnjudgeableImport(namespaceName)
-            typeNamespace := importedType.get_Namespace()
+            typeNamespace := importedType.Namespace
             suggestion := "Import a namespace instead of a type name."
             if !string.IsNullOrWhiteSpace(typeNamespace) {
                 suggestion = "Import '" + typeNamespace + "' instead."
@@ -448,10 +448,10 @@ class AnalyzerImports {
 
         seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         for assembly in mlcAssemblies {
-            assemblyName := assembly.get_FullName()
+            assemblyName := assembly.FullName
             if assemblyName == null {
                 identity := assembly.GetName()
-                assemblyName = identity.get_Name()
+                assemblyName = identity.Name
             }
 
             if assemblyName != null {
@@ -471,7 +471,7 @@ class AnalyzerImports {
     func AssemblyExportsNamespace(assembly: Assembly, namespaceName: string): bool {
         exported := assembly.GetExportedTypes()
         for exportedType in exported {
-            exportedNamespace := exportedType.get_Namespace()
+            exportedNamespace := exportedType.Namespace
             if string.Equals(exportedNamespace, namespaceName, StringComparison.Ordinal) {
                 return true
             }
