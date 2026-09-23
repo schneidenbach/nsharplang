@@ -18,7 +18,7 @@ class ColumnarNamedArgumentCandidate {
 //
 // A named argument names a PARAMETER: `Retry(attempts: 3)` says nothing about where `attempts` sits
 // in the signature, only that this value is its. The parser records the name as a kind-60 wrapper
-// around the argument it names (ColumnarParserKernels' NamedArgumentExpression), and everything
+// around the argument it names (ColumnarParserExpressionKernels' NamedArgumentExpression), and everything
 // below this owner -- overload scoring, conversions, IL -- is positional. So exactly one thing has
 // to happen between them: each written argument has to be moved into the slot its parameter
 // occupies, and the columns that describe it (its type, its literal facts, the node to emit) have to

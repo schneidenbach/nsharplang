@@ -17,7 +17,7 @@ import System
 // TWO TABLES REALLY DEFINE THOSE ORDINALS, AND BOTH ARE N#. (1) `Token.nl`'s `enum TokenType`,
 // whose member ORDER *is* the numbering — the tree lexer, the parser, the formatter and the LSP all
 // speak it. (2) The COLUMNAR lexer, which never sees the enum: `KeywordKind` and
-// `TokenizeMetadataCore` (`CompilerServices/ColumnarParserKernels.nl`) hand-write the same numbers
+// `TokenizeMetadataCore` (`CompilerServices/ColumnarLexerKernels.nl`) hand-write the same numbers
 // into `ck[]`. The C# literals were a THIRD copy. This file deletes the third copy's excuse by
 // pinning the surviving two to each other through ONE named ordinal per token:
 //

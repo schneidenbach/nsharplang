@@ -169,7 +169,7 @@ The two parsers enforce it differently, and each way suits its job:
   flag) is what makes nesting free: `1 + throw e` has consumed `1` and `+` by the time it arrives,
   and `x ?? (throw e)` has consumed the `(` — which is why parentheses do not rescue a misplaced
   throw, and why the message says so.
-- **`ColumnarParserKernels` (the columnar table)** has no unary arm for `throw` at all. The three
+- **the columnar parser kernels (the columnar table)** has no unary arm for `throw` at all. The three
   positions call `ParseThrowExpressionNode` / `ParseValueOrThrowExpressionNode` (assignment level,
   for conditional arms) / `ParseBodyValueOrThrowExpressionNode` (lambda level, for expression bodies)
   BY NAME, so `1 + throw e` simply refuses (-1) and declines the program. It never has to: the

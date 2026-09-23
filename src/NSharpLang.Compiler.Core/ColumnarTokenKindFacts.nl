@@ -5,7 +5,7 @@ namespace NSharpLang.Compiler
 //
 // The columnar pipeline does not carry `TokenType` values; it carries their ORDINALS as bare `int`
 // columns. The columnar lexer writes them (`KeywordKind` and `TokenizeMetadataCore` in
-// `CompilerServices/ColumnarParserKernels.nl`) and every kernel reads them back out of `ck[]`.
+// `CompilerServices/ColumnarLexerKernels.nl`) and every kernel reads them back out of `ck[]`.
 // There are therefore TWO tables that must agree: `Token.nl`'s `enum TokenType`, whose member
 // ORDER defines the ordinals, and the columnar lexer, which hand-writes them.
 //

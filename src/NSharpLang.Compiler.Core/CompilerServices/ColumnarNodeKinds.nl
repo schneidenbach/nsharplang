@@ -7,7 +7,7 @@ namespace NSharpLang.Compiler.Columnar
 // nothing named those integers at the boundary: 1,355 comparisons were written against a raw
 // literal, against 337 that used this table -- often in the same expression, as
 // `Kind(node) == 5 || Kind(node) == ColumnarExpressionNodeKind.NullLiteralExpression`. The
-// producers in `ColumnarParserKernels` and the consumers in the emitter and the planners agreed by
+// producers in the parser kernels and the consumers in the emitter and the planners agreed by
 // coincidence of arithmetic. They agree by name now.
 //
 // EXPRESSION AND STATEMENT KINDS SHARE ONE INTEGER SPACE AND OVERLAP IN IT: 60, 61 and 62 are

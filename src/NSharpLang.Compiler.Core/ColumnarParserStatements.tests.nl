@@ -612,7 +612,7 @@ test "020 s18 parser statements: a table-driven test carries BOTH its rows and a
 // too. A member CALL (`print(c.Get())`) and a real ARGUMENT LIST (`g(a.B)`) were never affected: neither
 // leaves a `)` closing a type-shaped parenthesis in expression-primary position.
 //
-// `ColumnarParserRecovery.IsCastExpression` and the `ColumnarParserKernels` cast arm now both require the
+// `ColumnarParserRecovery.IsCastExpression` and the `ColumnarParserExpressionKernels` cast arm now both require the
 // operand to begin on the CLOSING PAREN'S OWN LINE, so the diagnostic front end and the emit front end
 // read one grammar and the FOLLOWING statement always parses independently. The same-line cast is
 // untouched, including the dotted-type form the estate already pins.
