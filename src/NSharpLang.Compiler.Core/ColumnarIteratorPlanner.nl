@@ -302,12 +302,10 @@ class ColumnarIteratorWalkState {
     }
 
     func NameIsTypeParameter(name: string): bool {
-        i := 0
-        while i < TypeParamNames.Length {
-            if TypeParamNames[i] == name {
+        for typeParamName2 in TypeParamNames {
+            if typeParamName2 == name {
                 return true
             }
-            i = i + 1
         }
         return false
     }
@@ -318,13 +316,11 @@ class ColumnarIteratorWalkState {
 
     func AddHoistedLocal(name: string, canonical: string, role: int) {
         // A local that re-declares a parameter name collides with its captured field.
-        p := 0
-        while p < ParamNames.Length {
-            if ParamNames[p] == name {
+        for paramName2 in ParamNames {
+            if paramName2 == name {
                 Decline("emit.iterator.unsupported-shape", "a hoisted local shadows an existing binding ('" + name + "'); this shape is not yet lowered")
                 return
             }
-            p = p + 1
         }
         l := 0
         while l < LocalCount {
@@ -1838,16 +1834,13 @@ class ColumnarIteratorEmitContext {
             }
             index = index + 1
         }
-        capture := 0
-        while capture < Shape.LoopCaptureNames.Length {
-            captureName := Shape.LoopCaptureNames[capture]
+        for captureName in Shape.LoopCaptureNames {
             boxName := ColumnarIteratorPlanner.LoopCaptureBoxFieldName(captureName)
             boxIndex := FieldIndex(boxName)
             valueIndex := FieldIndex(captureName)
             if boxIndex >= 0 && valueIndex >= 0 && Fields[boxIndex] != null && Fields[valueIndex] != null {
                 bodyScope.PublishBoxedCapture(captureName, Fields[boxIndex], Fields[valueIndex].get_FieldType())
             }
-            capture = capture + 1
         }
         if bodyScope.HasField("<>__this") {
             receiver := bodyScope.FieldHandle("<>__this")
@@ -2020,12 +2013,10 @@ class ColumnarIteratorEmitContext {
     }
 
     func HasHoistedField(name: string): bool {
-        i := 0
-        while i < FieldNames.Length {
-            if FieldNames[i] == name {
+        for fieldName2 in FieldNames {
+            if fieldName2 == name {
                 return true
             }
-            i = i + 1
         }
         return false
     }
@@ -5803,9 +5794,7 @@ class ColumnarIteratorBodyPlanner {
         }
         interfaces := sourceType.GetInterfaces()
         found: Type? = null
-        i := 0
-        while i < interfaces.Length {
-            candidate := interfaces[i]
+        for candidate in interfaces {
             if IsConstructedAsyncEnumerable(candidate) {
                 argument := candidate.GetGenericArguments()[0]
                 if found != null && found != argument {
@@ -5813,7 +5802,6 @@ class ColumnarIteratorBodyPlanner {
                 }
                 found = argument
             }
-            i = i + 1
         }
         if found == null {
             return false

@@ -65,13 +65,10 @@ class ColumnarReachabilityAttributeFacts {
             return false
         }
 
-        index := 0
-        while index < attributes.Length {
-            if ReachabilityFlowFacts.IsDoesNotReturnName(attributes[index].Name) {
+        for attribute in attributes {
+            if ReachabilityFlowFacts.IsDoesNotReturnName(attribute.Name) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

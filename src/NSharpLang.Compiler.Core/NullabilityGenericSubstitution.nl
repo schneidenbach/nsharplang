@@ -83,10 +83,8 @@ class NullabilityGenericSubstitution {
         }
 
         names: HashSet<string>? = null
-        index := 0
-        while index < constraints.Length {
-            names = AddLiftedTypeParameter(names, constraints[index])
-            index = index + 1
+        for constraint in constraints {
+            names = AddLiftedTypeParameter(names, constraint)
         }
 
         return names
@@ -148,14 +146,10 @@ class NullabilityGenericSubstitution {
 
         indexCount := property.GetIndexParameters().Length
         candidates := definition.GetProperties(MemberFlags())
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate.get_Name() == property.get_Name() && candidate.GetIndexParameters().Length == indexCount {
                 return candidate.get_PropertyType()
             }
-
-            index = index + 1
         }
 
         return declared
@@ -237,15 +231,11 @@ class NullabilityGenericSubstitution {
             candidates := definition.GetMethods(MemberFlags())
             found: MethodInfo? = null
             matches := 0
-            index := 0
-            while index < candidates.Length {
-                candidate := candidates[index]
+            for candidate in candidates {
                 if candidate.get_Name() == open.get_Name() && candidate.GetParameters().Length == parameterCount {
                     found = candidate
                     matches = matches + 1
                 }
-
-                index = index + 1
             }
 
             if matches == 1 && found != null {
@@ -274,15 +264,11 @@ class NullabilityGenericSubstitution {
         candidates := definition.GetConstructors(MemberFlags())
         found: ConstructorInfo? = null
         matches := 0
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate.GetParameters().Length == parameterCount {
                 found = candidate
                 matches = matches + 1
             }
-
-            index = index + 1
         }
 
         if matches != 1 || found == null {

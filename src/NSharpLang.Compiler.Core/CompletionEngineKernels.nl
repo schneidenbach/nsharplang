@@ -1007,10 +1007,8 @@ class CompletionEngineKernels {
         items := new List<CompletionItem>()
         parts := words.Split(' ')
 
-        index := 0
-        while index < parts.Length {
-            items.Add(new CompletionItem(parts[index], kind, null, null, null, false))
-            index = index + 1
+        for part in parts {
+            items.Add(new CompletionItem(part, kind, null, null, null, false))
         }
 
         return items

@@ -193,13 +193,10 @@ class ColumnarSourceAttributeBinder {
 
     static func ObjectParameterCount(parameterTypes: Type[]): int {
         count := 0
-        index := 0
-        while index < parameterTypes.Length {
-            if parameterTypes[index].get_FullName() == "System.Object" {
+        for parameterType in parameterTypes {
+            if parameterType.get_FullName() == "System.Object" {
                 count = count + 1
             }
-
-            index = index + 1
         }
 
         return count
@@ -267,17 +264,14 @@ class ColumnarSourceAttributeBinder {
             return false
         }
 
-        index := 0
-        while index < attributes.Length {
+        for attribute in attributes {
             attributeType: Type = null
             sourceDefinition: ColumnarStructDef = null
-            if TryResolveAttributeType(attributes[index].Name, resolution, out attributeType, out sourceDefinition) {
+            if TryResolveAttributeType(attribute.Name, resolution, out attributeType, out sourceDefinition) {
                 if DerivesFromFullName(attributeType, factAttributeFullName) {
                     return true
                 }
             }
-
-            index = index + 1
         }
 
         return false

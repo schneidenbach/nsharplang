@@ -395,14 +395,10 @@ class DocCommandKernels {
 
     static func CreateSlug(raw: string): string {
         builder := new StringBuilder(raw.Length)
-        i := 0
-        while i < raw.Length {
-            ch := raw[i]
+        for ch in raw {
             if Char.IsLetterOrDigit(ch) {
                 builder.Append(Char.ToLowerInvariant(ch))
             }
-
-            i = i + 1
         }
 
         return builder.ToString()

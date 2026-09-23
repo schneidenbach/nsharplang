@@ -2169,13 +2169,10 @@ class ColumnarCanonicalTypeResolver {
     // brackets, commas, `&`, `*` and `+` all mean something in it — so a canonical carrying any of them
     // is not a plain name and must not be handed to it.
     static func IsPlainTypeNameSpelling(canonical: string): bool {
-        i := 0
-        while i < canonical.Length {
-            c := canonical[i]
+        for c in canonical {
             if !char.IsLetterOrDigit(c) && c != '_' && c != '.' {
                 return false
             }
-            i = i + 1
         }
         return canonical[0] != '.' && canonical[canonical.Length - 1] != '.'
     }

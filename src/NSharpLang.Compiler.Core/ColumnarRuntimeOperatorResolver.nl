@@ -153,9 +153,7 @@ class ColumnarRuntimeOperatorResolver {
         }
 
         declared := DeclaredMethodsOrEmpty(candidateOwner)
-        index := 0
-        while index < declared.Length {
-            candidate := declared[index]
+        for candidate in declared {
             if IsCallableOperator(candidate, candidateOwner, methodName, arity) {
                 parameterTypes := SubstitutedParameterTypes(candidate, closedArguments)
                 returnType := SubstitutedType(candidate.get_ReturnType(), closedArguments)
@@ -168,8 +166,6 @@ class ColumnarRuntimeOperatorResolver {
                     }
                 }
             }
-
-            index = index + 1
         }
     }
 
@@ -205,13 +201,10 @@ class ColumnarRuntimeOperatorResolver {
         if parameters == null || parameters.Length != arity {
             return false
         }
-        index := 0
-        while index < parameters.Length {
-            parameter := parameters[index]
+        for parameter in parameters {
             if parameter == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) || parameter.get_ParameterType() == null {
                 return false
             }
-            index = index + 1
         }
         return true
     }
@@ -242,13 +235,10 @@ class ColumnarRuntimeOperatorResolver {
         if returnType == null || returnType.FullName == "System.Void" || returnType.get_IsByRef() || returnType.get_IsPointer() {
             return true
         }
-        index := 0
-        while index < parameterTypes.Length {
-            parameterType := parameterTypes[index]
+        for parameterType in parameterTypes {
             if parameterType == null || parameterType.get_IsPointer() || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(parameterType) {
                 return true
             }
-            index = index + 1
         }
         return false
     }

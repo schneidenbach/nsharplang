@@ -50,9 +50,7 @@ class BindingLookupKernels {
             return true
         }
 
-        i := 0
-        while i < candidateColumns.Length {
-            candidateColumn := candidateColumns[i]
+        for candidateColumn in candidateColumns {
             found := FindDeclarationAt(bindingMap, filePathValue, line, candidateColumn)
             if found != null {
                 declaration = found
@@ -64,8 +62,6 @@ class BindingLookupKernels {
                 declaration = found
                 return true
             }
-
-            i = i + 1
         }
 
         return true

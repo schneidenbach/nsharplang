@@ -827,12 +827,10 @@ class ColumnarCodePlan {
         if vocabulary == null {
             throw new ArgumentNullException("vocabulary")
         }
-        i := 0
-        while i < vocabulary.Length {
-            if vocabulary[i] == null {
+        for vocabularyItem in vocabulary {
+            if vocabularyItem == null {
                 throw new InvalidOperationException("A plan-local mirror vocabulary cannot carry a null slot type.")
             }
-            i = i + 1
         }
         planLocalMirrorTypes = vocabulary
     }
@@ -876,12 +874,10 @@ class ColumnarCodePlan {
     }
 
     func MaterialisePlanLocalMirror() {
-        i := 0
-        while i < planLocalMirrorTypes.Length {
-            typeIndex := AddType(planLocalMirrorTypes[i])
+        for planLocalMirrorType in planLocalMirrorTypes {
+            typeIndex := AddType(planLocalMirrorType)
             mirrorIndex := DeclarePlanLocal(typeIndex)
             PlanLocalIsMirror[mirrorIndex] = true
-            i = i + 1
         }
     }
 

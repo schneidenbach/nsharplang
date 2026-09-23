@@ -3569,13 +3569,10 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        index := 0
-        while index < argumentFacts.IsByRefArgument.Length {
-            if argumentFacts.IsByRefArgument[index] {
+        for isByRefArgumentItem2 in argumentFacts.IsByRefArgument {
+            if isByRefArgumentItem2 {
                 return true
             }
-
-            index += 1
         }
 
         return false
@@ -4080,13 +4077,10 @@ class ColumnarDirectCallPlanner {
     }
 
     static func ContainsName(values: string[], name: string): bool {
-        index := 0
-        while index < values.Length {
-            if values[index] == name {
+        for value in values {
+            if value == name {
                 return true
             }
-
-            index += 1
         }
 
         return false

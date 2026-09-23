@@ -224,14 +224,10 @@ class ExternalAssemblyScan {
     static func Loaded(): Assembly[] {
         assemblies := LoadedAcrossContexts()
         loaded := new List<Assembly>()
-        index := 0
-        while index < assemblies.Length {
-            assembly := assemblies[index]
+        for assembly in assemblies {
             if !assembly.IsDynamic && !assembly.IsCollectible {
                 loaded.Add(assembly)
             }
-
-            index = index + 1
         }
 
         return loaded.ToArray()
@@ -244,9 +240,7 @@ class ExternalAssemblyScan {
     static func LoadedByIdentity(): Dictionary<string, Assembly> {
         byIdentity := new Dictionary<string, Assembly>(StringComparer.Ordinal)
         assemblies := Loaded()
-        index := 0
-        while index < assemblies.Length {
-            assembly := assemblies[index]
+        for assembly in assemblies {
             try {
                 identity := assembly.GetName().get_FullName()
                 if !byIdentity.ContainsKey(identity) {
@@ -256,8 +250,6 @@ class ExternalAssemblyScan {
             }
 
             // A hostile loaded assembly is not semantic evidence; keep indexing.
-
-            index = index + 1
         }
 
         return byIdentity
@@ -280,9 +272,7 @@ class ExternalAssemblyScan {
         }
 
         loaded := LoadedAcrossContexts()
-        loadedIndex := 0
-        while loadedIndex < loaded.Length {
-            candidate := loaded[loadedIndex]
+        for candidate in loaded {
             if !candidate.IsDynamic && Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(candidate), compilerContext) {
                 try {
                     identity := candidate.GetName().get_FullName()
@@ -297,8 +287,6 @@ class ExternalAssemblyScan {
                 } catch {
                 }
             }
-
-            loadedIndex = loadedIndex + 1
         }
 
         return byIdentity
@@ -308,9 +296,7 @@ class ExternalAssemblyScan {
         entries := new List<ExternalAssemblyCatalogEntry>()
         searchDirectories := CommonAssemblySearchDirectories(referenceAssemblyPaths)
         commonNames := CommonAssemblyNames()
-        commonIndex := 0
-        while commonIndex < commonNames.Length {
-            name := commonNames[commonIndex]
+        for name in commonNames {
             try {
                 runtimeAssembly := LoadHostAssemblyByName(name)
                 identityName := runtimeAssembly.GetName()
@@ -320,8 +306,6 @@ class ExternalAssemblyScan {
             } catch {
                 entries.Add(new ExternalAssemblyCatalogEntry(null, "unresolved-common:" + name, "", null, false))
             }
-
-            commonIndex = commonIndex + 1
         }
 
         runtimeAssemblies := LoadedForEmissionByIdentity()
@@ -458,14 +442,11 @@ class ExternalAssemblyScan {
     // is genuinely absent, not because the host is single-file.
     static func CommonAssemblyMetadataPath(searchDirectories: string[], name: string): string {
         fileName := name + ".dll"
-        index := 0
-        while index < searchDirectories.Length {
-            candidate := Path.Combine(searchDirectories[index], fileName)
+        for searchDirectory in searchDirectories {
+            candidate := Path.Combine(searchDirectory, fileName)
             if File.Exists(candidate) {
                 return candidate
             }
-
-            index = index + 1
         }
 
         return ""
@@ -723,14 +704,10 @@ class ExternalAssemblyScan {
         }
 
         loaded := Loaded()
-        index := 0
-        while index < loaded.Length {
-            candidate := loaded[index]
+        for candidate in loaded {
             if candidate != null && !ContainsAssemblyReference(candidates, candidate) {
                 candidates.Add(candidate)
             }
-
-            index = index + 1
         }
 
         return SelectRuntimeAssemblyByMetadata(candidates, metadataAssembly, identity, metadataPath)
@@ -969,13 +946,10 @@ class ExternalAssemblyScan {
         }
 
         references := typeof(ExternalAssemblyScan).get_Assembly().GetReferencedAssemblies()
-        index := 0
-        while index < references.Length {
-            if references[index].get_FullName() == identity {
+        for reference in references {
+            if reference.get_FullName() == identity {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -1046,9 +1020,8 @@ class ExternalAssemblyScan {
 
         frameworkName := packName.Substring(0, packName.Length - 4)
         sharedRoots := CompilationReferenceResolverKernels.GetDotnetSharedRootCandidates(RuntimeEnvironment.GetRuntimeDirectory())
-        rootIndex := 0
-        while rootIndex < sharedRoots.Length {
-            frameworkRoot := CompilationReferenceResolverKernels.GetSharedFrameworkRoot(sharedRoots[rootIndex], frameworkName)
+        for sharedRoot in sharedRoots {
+            frameworkRoot := CompilationReferenceResolverKernels.GetSharedFrameworkRoot(sharedRoot, frameworkName)
             if Directory.Exists(frameworkRoot) {
                 selectedDirectory := CompilationReferenceResolverKernels.SelectSharedFrameworkDirectory(Directory.GetDirectories(frameworkRoot), targetFramework)
                 if selectedDirectory != null {
@@ -1058,8 +1031,6 @@ class ExternalAssemblyScan {
                     }
                 }
             }
-
-            rootIndex = rootIndex + 1
         }
 
         return ""
@@ -1072,14 +1043,10 @@ class ExternalAssemblyScan {
         }
 
         loadedAssemblies := Loaded()
-        loadedIndex := 0
-        while loadedIndex < loadedAssemblies.Length {
-            loaded := loadedAssemblies[loadedIndex]
+        for loaded in loadedAssemblies {
             if RuntimeAssemblyHasIdentity(loaded, identity) && RuntimeAssemblyPathMatches(loaded, runtimePath) {
                 return loaded
             }
-
-            loadedIndex = loadedIndex + 1
         }
 
         if runtimeAssemblies != null && runtimeAssemblies.ContainsKey(identity) {
@@ -1112,9 +1079,7 @@ class ExternalAssemblyScan {
             return UnknownResolution()
         }
 
-        index := 0
-        while index < scan.Entries.Length {
-            entry := scan.Entries[index]
+        for entry in scan.Entries {
             if entry == null || !entry.IsInspectable || entry.MetadataAssembly == null {
                 return UnknownResolution()
             }
@@ -1127,8 +1092,6 @@ class ExternalAssemblyScan {
             } catch {
                 return UnknownResolution()
             }
-
-            index = index + 1
         }
 
         return MissingResolution()
@@ -1175,9 +1138,7 @@ class ExternalAssemblyScan {
             return UnknownResolution()
         }
 
-        index := 0
-        while index < scan.Entries.Length {
-            entry := scan.Entries[index]
+        for entry in scan.Entries {
             if entry == null || !entry.IsInspectable || entry.MetadataAssembly == null {
                 return UnknownResolution()
             }
@@ -1200,8 +1161,6 @@ class ExternalAssemblyScan {
             } catch {
                 return UnknownResolution()
             }
-
-            index = index + 1
         }
 
         return MissingResolution()
@@ -1296,9 +1255,7 @@ class ExternalAssemblyScan {
 
             selectedModuleVersionId := RuntimeAssemblyModuleVersionId(selected)
             loadedAssemblies := Loaded()
-            loadedIndex := 0
-            while loadedIndex < loadedAssemblies.Length {
-                loaded := loadedAssemblies[loadedIndex]
+            for loaded in loadedAssemblies {
                 if RuntimeAssemblyHasIdentity(loaded, identity) && RuntimeAssemblyPathMatches(loaded, path) {
                     if selectedModuleVersionId.Length > 0 && RuntimeAssemblyModuleVersionId(loaded) == selectedModuleVersionId {
                         return selected
@@ -1306,8 +1263,6 @@ class ExternalAssemblyScan {
 
                     return loaded
                 }
-
-                loadedIndex = loadedIndex + 1
             }
 
             if IsProjectReferenceAssemblyPath(path) {
@@ -1403,9 +1358,7 @@ class ExternalAssemblyScan {
     // already supplies that file name, so a reference-pack facade a project chose is never displaced
     // by the implementation beside it.
     static func AddForwardTargetPaths(resolverPaths: List<string>, resolverNames: HashSet<string>, searchDirectories: string[]) {
-        directoryIndex := 0
-        while directoryIndex < searchDirectories.Length {
-            directory := searchDirectories[directoryIndex]
+        for directory in searchDirectories {
             candidates := new string[](0)
             try {
                 candidates = Directory.GetFiles(directory, "*.dll")
@@ -1426,8 +1379,6 @@ class ExternalAssemblyScan {
 
                 candidateIndex = candidateIndex + 1
             }
-
-            directoryIndex = directoryIndex + 1
         }
     }
 

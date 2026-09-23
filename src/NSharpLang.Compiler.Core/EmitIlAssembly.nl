@@ -181,16 +181,14 @@ class EmitIlAssembly: Microsoft.Build.Utilities.Task {
 
     private func AddResolvedDllReferences(config: ProjectConfig) {
         references := References
-        index := 0
-        while index < references.Length {
-            referencePath: string = references[index].ItemSpec
+        for reference in references {
+            referencePath: string = reference.ItemSpec
             if !string.IsNullOrWhiteSpace(referencePath) {
                 fullPath := Path.GetFullPath(referencePath)
                 if !IsOwnOutput(fullPath) && CompilationReferenceResolverKernels.ShouldAddDllReference(config.Dependencies, fullPath) {
                     config.Dependencies.Add(new Reference { Dll: fullPath })
                 }
             }
-            index = index + 1
         }
     }
 
@@ -281,9 +279,8 @@ class EmitIlAssembly: Microsoft.Build.Utilities.Task {
         ownerNames = new Dictionary<string, AssemblyNameDefinition>(StringComparer.Ordinal)
         seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         references := References
-        referenceIndex := 0
-        while referenceIndex < references.Length {
-            referencePath: string = references[referenceIndex].ItemSpec
+        for reference in references {
+            referencePath: string = reference.ItemSpec
             if !string.IsNullOrWhiteSpace(referencePath) {
                 fullPath := Path.GetFullPath(referencePath)
                 referenceExists := File.Exists(referencePath)
@@ -292,7 +289,6 @@ class EmitIlAssembly: Microsoft.Build.Utilities.Task {
                     ScanReferenceAssembly(fullPath, owners, ownerNames)
                 }
             }
-            referenceIndex = referenceIndex + 1
         }
 
         return owners

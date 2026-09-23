@@ -144,14 +144,11 @@ class EditorTypeCatalogFacts {
     static func CommonShortTypeFullNames(): string[] {
         spellings := CommonShortTypeNames()
         resolved := new List<string>()
-        index := 0
-        while index < spellings.Length {
-            fullName := CommonShortTypeFullName(spellings[index])
+        for spelling in spellings {
+            fullName := CommonShortTypeFullName(spelling)
             if fullName != null {
                 resolved.Add(fullName)
             }
-
-            index = index + 1
         }
 
         return resolved.ToArray()

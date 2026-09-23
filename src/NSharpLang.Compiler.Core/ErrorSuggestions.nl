@@ -119,13 +119,10 @@ class ErrorSuggestions {
     static func IsPossibleTypo(name: string): bool {
         lowerName := name.ToLowerInvariant()
         commonTypes := CommonTypes()
-        i := 0
-        while i < commonTypes.Length {
-            if LevenshteinDistance(lowerName, commonTypes[i].ToLowerInvariant()) <= 2 {
+        for commonType in commonTypes {
+            if LevenshteinDistance(lowerName, commonType.ToLowerInvariant()) <= 2 {
                 return true
             }
-
-            i = i + 1
         }
 
         return false

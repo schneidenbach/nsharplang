@@ -299,10 +299,8 @@ class CompletionDeclarationFacts {
         }
 
         parameters := member.TypeParameters
-        index := 0
-        while index < parameters.Length {
-            effective.Remove(parameters[index].Name)
-            index = index + 1
+        for parameter in parameters {
+            effective.Remove(parameter.Name)
         }
 
         return effective

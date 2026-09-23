@@ -843,12 +843,10 @@ class ColumnarIteratorRealization {
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             arguments := valueType.GetGenericArguments()
-            i := 0
-            while i < arguments.Length {
-                if ContainsMethodVarReference(arguments[i], smTypeParamMap) {
+            for argument in arguments {
+                if ContainsMethodVarReference(argument, smTypeParamMap) {
                     return true
                 }
-                i = i + 1
             }
         }
         return false

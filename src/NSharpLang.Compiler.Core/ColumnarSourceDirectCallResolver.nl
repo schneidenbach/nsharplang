@@ -779,13 +779,10 @@ class ColumnarSourceDirectCallResolver {
     // reason, which is the defect `ColumnarOrdinaryRuntimeDirectCallResolver` already records about
     // asking one predicate two questions.
     static func HasUnsupportedModifiers(modifierKinds: int[]): bool {
-        index := 0
-        while index < modifierKinds.Length {
-            if modifierKinds[index] != 0 && modifierKinds[index] != 5 {
+        for modifierKind in modifierKinds {
+            if modifierKind != 0 && modifierKind != 5 {
                 return true
             }
-
-            index += 1
         }
 
         return false
@@ -796,14 +793,10 @@ class ColumnarSourceDirectCallResolver {
             return false
         }
 
-        index := 0
-        while index < parameterTypes.Length {
-            parameterType := parameterTypes[index]
+        for parameterType in parameterTypes {
             if parameterType.get_IsByRef() || parameterType.get_IsGenericTypeDefinition() {
                 return false
             }
-
-            index += 1
         }
 
         return true
@@ -1007,13 +1000,10 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func HasParamsModifier(modifierKinds: int[]): bool {
-        index := 0
-        while index < modifierKinds.Length {
-            if modifierKinds[index] == 3 {
+        for modifierKind in modifierKinds {
+            if modifierKind == 3 {
                 return true
             }
-
-            index += 1
         }
 
         return false
@@ -1024,13 +1014,10 @@ class ColumnarSourceDirectCallResolver {
             return true
         }
 
-        index := 0
-        while index < parameterTypes.Length {
-            if parameterTypes[index].get_IsByRef() {
+        for parameterType in parameterTypes {
+            if parameterType.get_IsByRef() {
                 return true
             }
-
-            index += 1
         }
 
         return false
@@ -1803,13 +1790,10 @@ class ColumnarSourceDirectCallResolver {
             throw new InvalidOperationException("Source direct-call inputs cannot be null.")
         }
 
-        index := 0
-        while index < argumentTypes.Length {
-            if argumentTypes[index] == null {
+        for argumentType in argumentTypes {
+            if argumentType == null {
                 throw new InvalidOperationException("Source direct-call argument types cannot be null.")
             }
-
-            index += 1
         }
     }
 

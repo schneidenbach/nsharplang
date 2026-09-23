@@ -140,14 +140,10 @@ class ColumnarExtensionMethodResolver {
             return index
         }
 
-        entryIndex := 0
-        while entryIndex < scan.Entries.Length {
-            entry := scan.Entries[entryIndex]
+        for entry in scan.Entries {
             if entry != null && entry.RuntimeAssembly != null {
                 AddAssembly(index, entry.RuntimeAssembly)
             }
-
-            entryIndex = entryIndex + 1
         }
 
         return index
@@ -155,14 +151,10 @@ class ColumnarExtensionMethodResolver {
 
     static func AddAssembly(index: ColumnarExtensionMethodIndex, assembly: Assembly) {
         types := HostTypesOrEmpty(assembly)
-        typeIndex := 0
-        while typeIndex < types.Length {
-            candidateType := types[typeIndex]
+        for candidateType in types {
             if IsStaticExtensionHost(candidateType) {
                 AddType(index, candidateType)
             }
-
-            typeIndex = typeIndex + 1
         }
     }
 
@@ -180,9 +172,7 @@ class ColumnarExtensionMethodResolver {
     // return type and the attribute reads each reach the missing assembly on their own.
     static func AddType(index: ColumnarExtensionMethodIndex, hostType: Type) {
         methods := MethodsOrEmpty(hostType)
-        methodIndex := 0
-        while methodIndex < methods.Length {
-            method := methods[methodIndex]
+        for method in methods {
             if IsExtensionMethodCandidate(method) {
                 parameters := ParametersOrNull(method)
                 if parameters != null && parameters.Length >= 1 && !HasExcludedParameterShape(parameters) {
@@ -193,8 +183,6 @@ class ColumnarExtensionMethodResolver {
                     }
                 }
             }
-
-            methodIndex = methodIndex + 1
         }
     }
 
@@ -565,13 +553,10 @@ class ColumnarExtensionMethodResolver {
             return false
         }
 
-        position := 0
-        while position < typeArguments.Length {
-            if typeArguments[position] == null || ColumnarRuntimeGenericMethodResolver.IsUnbindableInferredType(typeArguments[position]) {
+        for typeArgument in typeArguments {
+            if typeArgument == null || ColumnarRuntimeGenericMethodResolver.IsUnbindableInferredType(typeArgument) {
                 return false
             }
-
-            position = position + 1
         }
 
         candidates := new List<ColumnarExtensionMethodCandidate>()
@@ -690,14 +675,10 @@ class ColumnarExtensionMethodResolver {
 
         // Partial inference never closes, and a builder-bound type argument stays with later owners:
         // MakeGenericMethod over Reflection.Emit builders is outside this exact-handle surface.
-        inferredIndex := 0
-        while inferredIndex < inferred.Length {
-            inferredArgument := inferred[inferredIndex]
+        for inferredArgument in inferred {
             if inferredArgument == null || RuntimeTypeShapeFacts.ContainsBuilderBoundType(inferredArgument) {
                 return null
             }
-
-            inferredIndex = inferredIndex + 1
         }
 
         closedMethod: MethodInfo? = null

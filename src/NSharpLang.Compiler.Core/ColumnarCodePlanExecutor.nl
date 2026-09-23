@@ -1273,10 +1273,8 @@ class ColumnarCodePlanExecutor {
             ValidateStorableType(declaredType, "method receiver", schemaName)
             ValidateMethodReturnType(plan.MethodReturnTypes[methodIndex], schemaName, allowVoidReturn)
             declaredParameters := plan.MethodParameterTypes[methodIndex]
-            declaredIndex := 0
-            while declaredIndex < declaredParameters.Length {
-                ValidateParameterType(declaredParameters[declaredIndex], "method argument", schemaName)
-                declaredIndex += 1
+            for declaredParameter in declaredParameters {
+                ValidateParameterType(declaredParameter, "method argument", schemaName)
             }
             ValidateDeclaredMethodSignatureIfAvailable(plan, methodIndex, method, schemaName)
             return
@@ -1289,11 +1287,9 @@ class ColumnarCodePlanExecutor {
         returnType := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
         ValidateMethodReturnType(returnType, schemaName, allowVoidReturn)
         parameters := signatureMethod.GetParameters()
-        i := 0
-        while i < parameters.Length {
-            parameterType := ResolveMemberSignatureType(parameters[i].get_ParameterType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
+        for parameter in parameters {
+            parameterType := ResolveMemberSignatureType(parameter.get_ParameterType(), declaringArguments, methodParameterDefinitions, genericArguments, schemaName)
             ValidateParameterType(parameterType, "method argument", schemaName)
-            i += 1
         }
     }
 
@@ -1329,10 +1325,8 @@ class ColumnarCodePlanExecutor {
 
         ValidateStorableType(declaringType, "constructor result", schemaName)
         parameters := constructorInfo.GetParameters()
-        i := 0
-        while i < parameters.Length {
-            ValidateParameterType(parameters[i].get_ParameterType(), "constructor argument", schemaName)
-            i += 1
+        for parameterItem in parameters {
+            ValidateParameterType(parameterItem.get_ParameterType(), "constructor argument", schemaName)
         }
     }
 
@@ -1578,12 +1572,10 @@ class ColumnarCodePlanExecutor {
     }
 
     static func ValidateAllUsed(used: bool[], poolName: string, schemaName: string) {
-        i := 0
-        while i < used.Length {
-            if !used[i] {
+        for usedItem in used {
+            if !usedItem {
                 throw new InvalidOperationException(schemaName + " " + poolName + " pool contains hidden unused state.")
             }
-            i += 1
         }
     }
 
@@ -2424,9 +2416,7 @@ class ColumnarCodePlanExecutor {
             return false
         }
         arguments := signatureType.GetGenericArguments()
-        i := 0
-        while i < arguments.Length {
-            argument := arguments[i]
+        for argument in arguments {
             if !argument.get_IsGenericParameter() {
                 return false
             }
@@ -2436,7 +2426,6 @@ class ColumnarCodePlanExecutor {
             if position < 0 || position >= available.Length {
                 return false
             }
-            i += 1
         }
         return arguments.Length > 0
     }

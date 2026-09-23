@@ -595,10 +595,8 @@ class DocQueryKernels {
             result.Add(baseTypeDisplayName)
         }
 
-        i := 0
-        while i < interfaceDisplayNames.Length {
-            result.Add(interfaceDisplayNames[i])
-            i = i + 1
+        for interfaceDisplayName in interfaceDisplayNames {
+            result.Add(interfaceDisplayName)
         }
 
         return result.ToArray()
@@ -699,14 +697,11 @@ class DocQueryKernels {
             }
         }
 
-        i := 0
-        while i < referencePackDirectories.Length {
-            candidate := Path.Combine(referencePackDirectories[i], assemblyName + ".xml")
+        for referencePackDirectory in referencePackDirectories {
+            candidate := Path.Combine(referencePackDirectory, assemblyName + ".xml")
             if File.Exists(candidate) {
                 return candidate
             }
-
-            i = i + 1
         }
 
         return ""
@@ -714,9 +709,8 @@ class DocQueryKernels {
 
     static func DiscoverReferencePackAssemblyNames(referencePackDirectories: string[]): string[] {
         names := new List<string>()
-        i := 0
-        while i < referencePackDirectories.Length {
-            dllFiles := Directory.GetFiles(referencePackDirectories[i], "*.dll", SearchOption.TopDirectoryOnly)
+        for referencePackDirectory in referencePackDirectories {
+            dllFiles := Directory.GetFiles(referencePackDirectory, "*.dll", SearchOption.TopDirectoryOnly)
             fileIndex := 0
             while fileIndex < dllFiles.Length {
                 name := GetPathFileNameWithoutExtension(dllFiles[fileIndex])
@@ -726,8 +720,6 @@ class DocQueryKernels {
 
                 fileIndex = fileIndex + 1
             }
-
-            i = i + 1
         }
 
         return DeduplicateStableStringsOrdinalIgnoreCase(names)
@@ -851,13 +843,10 @@ class DocQueryKernels {
     }
 
     static func IsUnloadableAssemblyName(assemblyName: string, unloadableAssemblyNames: string[]): bool {
-        i := 0
-        while i < unloadableAssemblyNames.Length {
-            if DocQueryEqualsIgnoreCase(assemblyName, unloadableAssemblyNames[i]) {
+        for unloadableAssemblyName in unloadableAssemblyNames {
+            if DocQueryEqualsIgnoreCase(assemblyName, unloadableAssemblyName) {
                 return true
             }
-
-            i = i + 1
         }
 
         return false
@@ -882,15 +871,11 @@ class DocQueryKernels {
     static func SelectUnloadableAssemblyForName(name: string, unloadableAssemblyNames: string[]): string? {
         best: string? = null
         bestLength := 0
-        i := 0
-        while i < unloadableAssemblyNames.Length {
-            candidate := unloadableAssemblyNames[i]
+        for candidate in unloadableAssemblyNames {
             if candidate.Length > bestLength && IsDotAlignedPrefixIgnoreCase(name, candidate) {
                 best = candidate
                 bestLength = candidate.Length
             }
-
-            i = i + 1
         }
 
         return best
@@ -1069,9 +1054,7 @@ class DocQueryKernels {
         builder := new StringBuilder()
         pendingSpace := false
         wroteText := false
-        i := 0
-        while i < raw.Length {
-            ch := raw[i]
+        for ch in raw {
             if char.IsWhiteSpace(ch) {
                 if wroteText {
                     pendingSpace = true
@@ -1085,8 +1068,6 @@ class DocQueryKernels {
                 wroteText = true
                 pendingSpace = false
             }
-
-            i = i + 1
         }
 
         return builder.ToString()

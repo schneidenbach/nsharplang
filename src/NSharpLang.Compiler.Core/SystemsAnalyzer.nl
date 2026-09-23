@@ -96,11 +96,8 @@ sealed class SystemsAnalyzer {
         compilationUnitKeys := compilationUnits.get_Keys()
         orderedFileInputs := compilationUnitKeys.ToArray()
         orderedFiles := SystemsReportOrder.OrderedFiles(orderedFileInputs)
-        fileIndex := 0
-        while fileIndex < orderedFiles.Length {
-            filePath := orderedFiles[fileIndex]
+        for filePath in orderedFiles {
             RegisterDeclarations(filePath, compilationUnits[filePath].Declarations, null)
-            fileIndex = fileIndex + 1
         }
 
         entryEnumerator := OrderedFunctionEntries.GetEnumerator()
@@ -895,13 +892,10 @@ sealed class SystemsAnalyzer {
     }
 
     private static func FirstDeclaredFunction(members: DeclaredMemberInfo[], memberName: string): DeclaredMemberInfo? {
-        index := 0
-        while index < members.Length {
-            candidate := members[index]
+        for candidate in members {
             if candidate.Kind == DeclaredMemberKind.Function && candidate.Name == memberName {
                 return candidate
             }
-            index = index + 1
         }
         return null
     }

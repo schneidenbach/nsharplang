@@ -130,11 +130,9 @@ class CodeIntelligenceSignatureKernels {
 
         modifierWords := CodeIntelligenceDisplayText.FormatModifiers(modifiers)
         if modifierWords != null {
-            index := 0
-            while index < modifierWords.Length {
-                builder.Append(modifierWords[index])
+            for modifierWord in modifierWords {
+                builder.Append(modifierWord)
                 builder.Append(" ")
-                index = index + 1
             }
         }
 

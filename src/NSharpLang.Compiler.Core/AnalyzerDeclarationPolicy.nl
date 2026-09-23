@@ -526,13 +526,10 @@ class AnalyzerDeclarationPolicy {
         }
 
         parts := declaration.Name.Split('.')
-        index := 0
-        while index < parts.Length {
-            if !IdentifierText.IsValid(parts[index]) {
-                diagnostics.Report(ErrorCode.InvalidSyntax, PackageNameReport(parts[index]), declaration.Line, declaration.Column, null, 0)
+        for part in parts {
+            if !IdentifierText.IsValid(part) {
+                diagnostics.Report(ErrorCode.InvalidSyntax, PackageNameReport(part), declaration.Line, declaration.Column, null, 0)
             }
-
-            index = index + 1
         }
     }
 

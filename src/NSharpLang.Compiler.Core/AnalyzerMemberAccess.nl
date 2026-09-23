@@ -198,10 +198,8 @@ class AnalyzerMemberAccess {
 
     static func NameSet(names: string[]): HashSet<string> {
         result := new HashSet<string>(StringComparer.Ordinal)
-        index := 0
-        while index < names.Length {
-            result.Add(names[index])
-            index = index + 1
+        for name in names {
+            result.Add(name)
         }
 
         return result
@@ -672,21 +670,15 @@ class AnalyzerMemberAccess {
 
         declaredFlags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly
         properties := definition.GetProperties(declaredFlags)
-        propertyIndex := 0
-        while propertyIndex < properties.Length {
-            names.Add(properties[propertyIndex].get_Name())
-            propertyIndex = propertyIndex + 1
+        for property in properties {
+            names.Add(property.get_Name())
         }
 
         methods := definition.GetMethods(declaredFlags)
-        methodIndex := 0
-        while methodIndex < methods.Length {
-            method := methods[methodIndex]
+        for method in methods {
             if includeAccessors || !method.get_IsSpecialName() {
                 names.Add(method.get_Name())
             }
-
-            methodIndex = methodIndex + 1
         }
 
         return names
@@ -733,14 +725,10 @@ class AnalyzerMemberAccess {
 
         methods := definition.GetMethods(memberFlags)
         functions := new List<FunctionTypeInfo>()
-        index := 0
-        while index < methods.Length {
-            method := methods[index]
+        for method in methods {
             if method.get_Name() == memberName {
                 functions.Add(CreateSubstitutedNullableSignature(method, answering))
             }
-
-            index = index + 1
         }
 
         if functions.Count == 0 {
@@ -775,12 +763,9 @@ class AnalyzerMemberAccess {
         parameterNames := new List<string>()
         parameterTypes := new List<TypeInfo>()
         parameters := method.GetParameters()
-        index := 0
-        while index < parameters.Length {
-            parameter := parameters[index]
+        for parameter in parameters {
             parameterNames.Add(parameter.get_Name() ?? "")
             parameterTypes.Add(NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, answering))
-            index = index + 1
         }
 
         signature.ParameterNames = parameterNames

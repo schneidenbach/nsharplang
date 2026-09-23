@@ -1401,9 +1401,7 @@ class AnalyzerTypeDeclarations {
     // A SOURCE SHAPE'S OWN EVENT MEMBERS. Only events answer: a base FIELD or PROPERTY of the same
     // name is not an event slot, and telling the reader it is would send them to the wrong member.
     static func ClassifyDeclaredOverrideEventTarget(declaredMembers: DeclaredMemberInfo[], name: string): int {
-        index := 0
-        while index < declaredMembers.Length {
-            declared := declaredMembers[index]
+        for declared in declaredMembers {
             if declared.Kind == DeclaredMemberKind.Event && declared.Name == name {
                 if declared.IsOverridable {
                     return 1
@@ -1411,8 +1409,6 @@ class AnalyzerTypeDeclarations {
 
                 return 2
             }
-
-            index = index + 1
         }
 
         return 0
@@ -1426,9 +1422,7 @@ class AnalyzerTypeDeclarations {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         events := clrType.GetEvents(flags)
         found := false
-        index := 0
-        while index < events.Length {
-            candidate := events[index]
+        for candidate in events {
             if candidate.get_Name() == name {
                 found = true
                 if IsOverridablePropertyAccessor(candidate.GetAddMethod(true)) {
@@ -1439,8 +1433,6 @@ class AnalyzerTypeDeclarations {
                     return 1
                 }
             }
-
-            index = index + 1
         }
 
         if found {
@@ -1682,14 +1674,10 @@ class AnalyzerTypeDeclarations {
             wanted = DeclaredMemberKind.Property
         }
 
-        index := 0
-        while index < declaredMembers.Length {
-            declared := declaredMembers[index]
+        for declared in declaredMembers {
             if declared.Kind == wanted && declared.Name == name {
                 return DeclaredAccessibilityLevel(declared.Name, declared.DeclaredModifiers)
             }
-
-            index = index + 1
         }
 
         return 0
@@ -2270,9 +2258,7 @@ class AnalyzerTypeDeclarations {
     // FIRST function of the name decides, because overloads of one name share one virtual-ness in
     // every shape this walk can read.
     static func ClassifyDeclaredOverrideTarget(declaredMembers: DeclaredMemberInfo[], name: string): int {
-        index := 0
-        while index < declaredMembers.Length {
-            declared := declaredMembers[index]
+        for declared in declaredMembers {
             if declared.Kind == DeclaredMemberKind.Function && declared.Name == name {
                 if declared.IsOverridable {
                     return 1
@@ -2280,8 +2266,6 @@ class AnalyzerTypeDeclarations {
 
                 return 2
             }
-
-            index = index + 1
         }
 
         return 0
@@ -2294,17 +2278,13 @@ class AnalyzerTypeDeclarations {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         methods := clrType.GetMethods(flags)
         found := false
-        index := 0
-        while index < methods.Length {
-            method := methods[index]
+        for method in methods {
             if method.get_Name() == name && !method.get_IsSpecialName() {
                 found = true
                 if method.get_IsVirtual() && !method.get_IsFinal() {
                     return 1
                 }
             }
-
-            index = index + 1
         }
 
         if found {
@@ -2581,9 +2561,7 @@ class AnalyzerTypeDeclarations {
         }
 
         declaredMembers := shape.DeclaredMembers
-        index := 0
-        while index < declaredMembers.Length {
-            declared := declaredMembers[index]
+        for declared in declaredMembers {
             if declared.Kind == DeclaredMemberKind.Function {
                 suppliedFunctions.Add(declared.Name)
             } else {
@@ -2591,8 +2569,6 @@ class AnalyzerTypeDeclarations {
                     suppliedValues.Add(declared.Name)
                 }
             }
-
-            index = index + 1
         }
 
         if shape.BaseType == null && WritesUnresolvedBase(candidate) {
@@ -2616,37 +2592,25 @@ class AnalyzerTypeDeclarations {
     static func CollectReflectedMemberNames(clrType: Type, suppliedFunctions: HashSet<string>, suppliedValues: HashSet<string>) {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         methods := clrType.GetMethods(flags)
-        index := 0
-        while index < methods.Length {
-            method := methods[index]
+        for method in methods {
             if !method.get_IsSpecialName() && !method.get_IsAbstract() {
                 suppliedFunctions.Add(method.get_Name())
             }
-
-            index = index + 1
         }
 
         properties := clrType.GetProperties(flags)
-        propertyIndex := 0
-        while propertyIndex < properties.Length {
-            property := properties[propertyIndex]
+        for property in properties {
             if !IsAbstractPropertyAccessor(property.GetGetMethod(true)) && !IsAbstractPropertyAccessor(property.GetSetMethod(true)) {
                 suppliedValues.Add(property.get_Name())
             }
-
-            propertyIndex = propertyIndex + 1
         }
 
         // A CONCRETE base's events supply their names too, for the same reason its properties do.
         events := clrType.GetEvents(flags)
-        eventIndex := 0
-        while eventIndex < events.Length {
-            eventMember := events[eventIndex]
+        for eventMember in events {
             if !IsAbstractPropertyAccessor(eventMember.GetAddMethod(true)) && !IsAbstractPropertyAccessor(eventMember.GetRemoveMethod(true)) {
                 suppliedValues.Add(eventMember.get_Name())
             }
-
-            eventIndex = eventIndex + 1
         }
     }
 
@@ -2683,10 +2647,8 @@ class AnalyzerTypeDeclarations {
         }
 
         declaredMembers := shape.DeclaredMembers
-        index := 0
-        while index < declaredMembers.Length {
-            RequireInterfaceMember(declaredMembers[index], suppliedFunctions, suppliedValues, missing)
-            index = index + 1
+        for declaredMember in declaredMembers {
+            RequireInterfaceMember(declaredMember, suppliedFunctions, suppliedValues, missing)
         }
 
         return CollectSourceBaseInterfaceRequirements(opened, suppliedFunctions, suppliedValues, missing, depth)
@@ -2702,9 +2664,8 @@ class AnalyzerTypeDeclarations {
         }
 
         baseInterfaces := interfaceType.BaseInterfaces
-        index := 0
-        while index < baseInterfaces.Length {
-            resolved := typeResolverValue.ResolveType(baseInterfaces[index])
+        for baseInterface in baseInterfaces {
+            resolved := typeResolverValue.ResolveType(baseInterface)
             if resolved == null {
                 return false
             }
@@ -2712,8 +2673,6 @@ class AnalyzerTypeDeclarations {
             if !CollectUnimplementedInterfaceMembers(resolved, suppliedFunctions, suppliedValues, missing, depth + 1) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
@@ -2760,55 +2719,41 @@ class AnalyzerTypeDeclarations {
     static func CollectReflectedInterfaceRequirements(clrType: Type, suppliedFunctions: HashSet<string>, suppliedValues: HashSet<string>, missing: List<string>) {
         AddReflectedInterfaceMembers(clrType, suppliedFunctions, suppliedValues, missing)
         inherited := clrType.GetInterfaces()
-        index := 0
-        while index < inherited.Length {
-            AddReflectedInterfaceMembers(inherited[index], suppliedFunctions, suppliedValues, missing)
-            index = index + 1
+        for inheritedItem in inherited {
+            AddReflectedInterfaceMembers(inheritedItem, suppliedFunctions, suppliedValues, missing)
         }
     }
 
     static func AddReflectedInterfaceMembers(clrType: Type, suppliedFunctions: HashSet<string>, suppliedValues: HashSet<string>, missing: List<string>) {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         methods := clrType.GetMethods(flags)
-        index := 0
-        while index < methods.Length {
-            method := methods[index]
+        for method in methods {
             if !method.get_IsSpecialName() && method.get_IsAbstract() {
                 if suppliedFunctions.Add(method.get_Name()) {
                     missing.Add(method.get_Name())
                 }
             }
-
-            index = index + 1
         }
 
         properties := clrType.GetProperties(flags)
-        propertyIndex := 0
-        while propertyIndex < properties.Length {
-            property := properties[propertyIndex]
+        for property in properties {
             if IsAbstractPropertyAccessor(property.GetGetMethod(true)) || IsAbstractPropertyAccessor(property.GetSetMethod(true)) {
                 if suppliedValues.Add(property.get_Name()) {
                     missing.Add(property.get_Name())
                 }
             }
-
-            propertyIndex = propertyIndex + 1
         }
 
         // AN EVENT A CLR INTERFACE DECLARES — `INotifyPropertyChanged.PropertyChanged` is the one every
         // reader meets. Its accessors are `SpecialName` and are skipped by the method walk on purpose,
         // so the event is demanded once under its own name rather than twice as `add_`/`remove_`.
         events := clrType.GetEvents(flags)
-        eventIndex := 0
-        while eventIndex < events.Length {
-            eventMember := events[eventIndex]
+        for eventMember in events {
             if IsAbstractPropertyAccessor(eventMember.GetAddMethod(true)) || IsAbstractPropertyAccessor(eventMember.GetRemoveMethod(true)) {
                 if suppliedValues.Add(eventMember.get_Name()) {
                     missing.Add(eventMember.get_Name())
                 }
             }
-
-            eventIndex = eventIndex + 1
         }
     }
 
@@ -2984,11 +2929,8 @@ class AnalyzerTypeDeclarations {
         }
 
         declaredMembers := shape.DeclaredMembers
-        index := 0
-        while index < declaredMembers.Length {
-            declared := declaredMembers[index]
+        for declared in declaredMembers {
             RecordAbstractCandidate(declared, seenFunctions, seenProperties, seenEvents, missing)
-            index = index + 1
         }
 
         if shape.BaseType == null && WritesUnresolvedBase(candidate) {
@@ -3033,29 +2975,21 @@ class AnalyzerTypeDeclarations {
     static func CollectReflectedAbstractMembers(clrType: Type, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, seenEvents: HashSet<string>, missing: List<string>) {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         methods := clrType.GetMethods(flags)
-        index := 0
-        while index < methods.Length {
-            method := methods[index]
+        for method in methods {
             if !method.get_IsSpecialName() && method.get_IsAbstract() {
                 if seenFunctions.Add(method.get_Name()) {
                     missing.Add(method.get_Name())
                 }
             }
-
-            index = index + 1
         }
 
         properties := clrType.GetProperties(flags)
-        propertyIndex := 0
-        while propertyIndex < properties.Length {
-            property := properties[propertyIndex]
+        for property in properties {
             if IsAbstractPropertyAccessor(property.GetGetMethod(true)) || IsAbstractPropertyAccessor(property.GetSetMethod(true)) {
                 if seenProperties.Add(property.get_Name()) {
                     missing.Add(property.get_Name())
                 }
             }
-
-            propertyIndex = propertyIndex + 1
         }
 
         // An EVENT's abstractness lives on its accessors, exactly as a property's does. The method
@@ -3063,16 +2997,12 @@ class AnalyzerTypeDeclarations {
         // that a missing event is reported once, by its own name, rather than twice as `add_Ping` and
         // `remove_Ping`.
         events := clrType.GetEvents(flags)
-        eventIndex := 0
-        while eventIndex < events.Length {
-            eventMember := events[eventIndex]
+        for eventMember in events {
             if IsAbstractPropertyAccessor(eventMember.GetAddMethod(true)) || IsAbstractPropertyAccessor(eventMember.GetRemoveMethod(true)) {
                 if seenEvents.Add(eventMember.get_Name()) {
                     missing.Add(eventMember.get_Name())
                 }
             }
-
-            eventIndex = eventIndex + 1
         }
     }
 
@@ -3165,9 +3095,7 @@ class AnalyzerTypeDeclarations {
     // functions answer above: a base FIELD of the same name is not a property slot either, and a bare
     // `Name: Type` member is a field in this model and in the emitted metadata both.
     static func ClassifyDeclaredOverridePropertyTarget(declaredMembers: DeclaredMemberInfo[], name: string): int {
-        index := 0
-        while index < declaredMembers.Length {
-            declared := declaredMembers[index]
+        for declared in declaredMembers {
             if declared.Kind == DeclaredMemberKind.Property && declared.Name == name {
                 if declared.IsOverridable {
                     return 1
@@ -3175,8 +3103,6 @@ class AnalyzerTypeDeclarations {
 
                 return 2
             }
-
-            index = index + 1
         }
 
         return 0
@@ -3191,9 +3117,7 @@ class AnalyzerTypeDeclarations {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         properties := clrType.GetProperties(flags)
         found := false
-        index := 0
-        while index < properties.Length {
-            property := properties[index]
+        for property in properties {
             if property.get_Name() == name {
                 found = true
                 if IsOverridablePropertyAccessor(property.GetGetMethod(true)) {
@@ -3204,8 +3128,6 @@ class AnalyzerTypeDeclarations {
                     return 1
                 }
             }
-
-            index = index + 1
         }
 
         if found {

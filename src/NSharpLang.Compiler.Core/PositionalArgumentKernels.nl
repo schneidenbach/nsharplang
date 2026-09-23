@@ -56,13 +56,10 @@ class PositionalArgumentKernels {
     }
 
     static func IsOptionWithValue(arg: string, optionsWithValues: string[]): bool {
-        i := 0
-        while i < optionsWithValues.Length {
-            if arg == optionsWithValues[i] {
+        for optionsWithValue in optionsWithValues {
+            if arg == optionsWithValue {
                 return true
             }
-
-            i = i + 1
         }
 
         return false

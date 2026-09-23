@@ -39,16 +39,12 @@ class LinterBlockOwnerSpanResolver {
 
         bestColumn := 0
         bestLength := 0
-        index := 0
-        while index < keywords.Length {
-            keyword := keywords[index]
+        for keyword in keywords {
             column := FindKeywordColumn(prefix, keyword)
             if column > bestColumn {
                 bestColumn = column
                 bestLength = keyword.Length
             }
-
-            index = index + 1
         }
 
         if bestColumn > 0 {

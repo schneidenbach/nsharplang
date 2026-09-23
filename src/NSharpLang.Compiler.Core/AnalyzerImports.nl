@@ -474,15 +474,11 @@ class AnalyzerImports {
 
     func AssemblyExportsNamespace(assembly: Assembly, namespaceName: string): bool {
         exported := assembly.GetExportedTypes()
-        index := 0
-        while index < exported.Length {
-            exportedType := exported[index]
+        for exportedType in exported {
             exportedNamespace := exportedType.get_Namespace()
             if string.Equals(exportedNamespace, namespaceName, StringComparison.Ordinal) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -512,13 +508,10 @@ class AnalyzerImports {
 
     static func DotCount(namespaceName: string): int {
         count := 0
-        index := 0
-        while index < namespaceName.Length {
-            if namespaceName[index] == '.' {
+        for namespaceNameItem in namespaceName {
+            if namespaceNameItem == '.' {
                 count = count + 1
             }
-
-            index = index + 1
         }
 
         return count

@@ -295,13 +295,10 @@ class LintCommandKernels {
 
     static func CountFileArgs(args: string[], projectValues: string[]): int {
         count := 0
-        i := 0
-        while i < args.Length {
-            if IsLintFileArg(args[i], projectValues) {
+        for arg in args {
+            if IsLintFileArg(arg, projectValues) {
                 count = count + 1
             }
-
-            i = i + 1
         }
 
         return count
@@ -316,13 +313,10 @@ class LintCommandKernels {
             return false
         }
 
-        i := 0
-        while i < projectValues.Length {
-            if projectValues[i] == arg {
+        for projectValue in projectValues {
+            if projectValue == arg {
                 return false
             }
-
-            i = i + 1
         }
 
         return true

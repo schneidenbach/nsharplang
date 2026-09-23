@@ -96,17 +96,14 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
         }
 
         targetFrameworks := AnalyzerMetadataLoadPolicy.FallbackTargetFrameworks()
-        index := 0
-        while index < targetFrameworks.Length {
-            assemblyPath := AnalyzerMetadataLoadPolicy.PackageLibAssetPath(versionDirectory, targetFrameworks[index], simpleName)
+        for targetFramework in targetFrameworks {
+            assemblyPath := AnalyzerMetadataLoadPolicy.PackageLibAssetPath(versionDirectory, targetFramework, simpleName)
             if File.Exists(assemblyPath) {
                 loaded := TryLoadFromPath(context, assemblyPath)
                 if loaded != null {
                     return loaded
                 }
             }
-
-            index = index + 1
         }
 
         return null

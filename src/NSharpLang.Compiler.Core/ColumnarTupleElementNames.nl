@@ -74,13 +74,10 @@ class ColumnarTupleElementNames {
             return false
         }
 
-        index := 0
-        while index < names.Length {
-            if names[index].Length > 0 {
+        for name in names {
+            if name.Length > 0 {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -449,9 +446,7 @@ class ColumnarTupleElementNames {
 
     static func HasTopLevelUnionBar(text: string): bool {
         depth := 0
-        index := 0
-        while index < text.Length {
-            c := text[index]
+        for c in text {
             if c == '(' || c == '<' || c == '[' {
                 depth = depth + 1
             } else if c == ')' || c == '>' || c == ']' {
@@ -459,8 +454,6 @@ class ColumnarTupleElementNames {
             } else if c == '|' && depth == 0 {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

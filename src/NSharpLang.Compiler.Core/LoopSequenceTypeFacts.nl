@@ -72,28 +72,20 @@ class LoopSequenceTypeFacts {
     // arrays on the declaration, so this is the declaration's own answer; the caller walks the base
     // chain, because only it can resolve a base reference to another declaration.
     static func FindDeclaredParameterlessFunction(members: DeclaredMemberInfo[], name: string): DeclaredMemberInfo? {
-        index := 0
-        while index < members.Length {
-            candidate := members[index]
+        for candidate in members {
             if candidate.Kind == DeclaredMemberKind.Function && candidate.Name == name && !candidate.IsStatic && candidate.ParameterCount == 0 && candidate.TypeParameterCount == 0 && candidate.ReturnType != null {
                 return candidate
             }
-
-            index = index + 1
         }
 
         return null
     }
 
     static func FindDeclaredReadableProperty(members: DeclaredMemberInfo[], name: string): DeclaredMemberInfo? {
-        index := 0
-        while index < members.Length {
-            candidate := members[index]
+        for candidate in members {
             if candidate.Name == name && !candidate.IsStatic && (candidate.Kind == DeclaredMemberKind.Property || candidate.Kind == DeclaredMemberKind.Field) && candidate.Type != null {
                 return candidate
             }
-
-            index = index + 1
         }
 
         return null

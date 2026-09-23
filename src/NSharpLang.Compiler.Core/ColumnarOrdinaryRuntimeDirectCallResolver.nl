@@ -305,10 +305,8 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         combined := new List<MethodInfo>()
-        index := 0
-        while index < declared.Length {
-            combined.Add(declared[index])
-            index = index + 1
+        for declaredItem in declared {
+            combined.Add(declaredItem)
         }
 
         baseIndex := 0
@@ -438,9 +436,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             ValidateBuilderBoundCandidates(candidates)
         }
 
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate != null && IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, expectedStatic, allowInheritedProtected) {
                 parameters := candidate.GetParameters()
                 if parameters == null {
@@ -494,8 +490,6 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     }
                 }
             }
-
-            index += 1
         }
 
         // Exact fixed-arity matches remain deterministic beside excluded overloads. Weaker
@@ -613,9 +607,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         selectedFixedCount := -1
         builderBound := closedArguments.Length > 0
 
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate != null && !candidate.get_IsGenericMethod() && !candidate.get_IsGenericMethodDefinition() && !IsVarArgs(candidate) && IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, expectedStatic, allowInheritedProtected) {
                 parameters := candidate.GetParameters()
                 if parameters == null {
@@ -644,8 +636,6 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     }
                 }
             }
-
-            index += 1
         }
 
         if bestCount != 1 || selected == null || selectedElement == null || bestScore < 0 {
@@ -671,9 +661,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         selectedParameters := new Type[](0)
         selectedReturnType := typeof(object)
 
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate != null && !candidate.get_IsGenericMethod() && !candidate.get_IsGenericMethodDefinition() && !IsVarArgs(candidate) && IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, expectedStatic, allowInheritedProtected) {
                 parameters := candidate.GetParameters()
                 if parameters == null {
@@ -697,8 +685,6 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     }
                 }
             }
-
-            index += 1
         }
 
         if bestCount != 1 || selected == null || bestScore < 0 || closedArguments.Length > 0 {
@@ -924,17 +910,13 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func ValidateBuilderBoundCandidates(candidates: MethodInfo[]) {
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate != null {
                 declaringType := candidate.get_DeclaringType()
                 if declaringType != null && DeclaringTypeIsBuilderBoundInstantiation(declaringType) {
                     throw new InvalidOperationException("Builder-bound runtime candidates must come from the open generic definition.")
                 }
             }
-
-            index += 1
         }
     }
 
@@ -963,13 +945,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         arguments := declaringType.GetGenericArguments()
-        index := 0
-        while index < arguments.Length {
-            if DeclaringTypeIsBuilderBoundInstantiation(arguments[index]) {
+        for argument in arguments {
+            if DeclaringTypeIsBuilderBoundInstantiation(argument) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -1088,14 +1067,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return true
         }
 
-        index := 0
-        while index < parameters.Length {
-            parameter := parameters[index]
+        for parameter in parameters {
             if parameter == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
                 return true
             }
-
-            index += 1
         }
 
         return false
@@ -1116,13 +1091,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return true
         }
 
-        index := 0
-        while index < parameterTypes.Length {
-            if IsUnsupportedParameterType(parameterTypes[index], closedArguments) {
+        for parameterType in parameterTypes {
+            if IsUnsupportedParameterType(parameterType, closedArguments) {
                 return true
             }
-
-            index += 1
         }
 
         return false
@@ -1161,13 +1133,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return false
         }
 
-        index := 0
-        while index < closedArguments.Length {
-            if Object.ReferenceEquals(closedArguments[index], signatureType) {
+        for closedArgument in closedArguments {
+            if Object.ReferenceEquals(closedArgument, signatureType) {
                 return false
             }
-
-            index += 1
         }
 
         return true
@@ -1190,14 +1159,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func HasParamsParameter(parameters: ParameterInfo[]): bool {
-        index := 0
-        while index < parameters.Length {
-            parameter := parameters[index]
+        for parameter in parameters {
             if parameter != null && ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
                 return true
             }
-
-            index += 1
         }
 
         return false
@@ -1316,9 +1281,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         selected: MethodInfo? = null
         selectedParameters := new Type[](0)
         selectedReturnType := typeof(object)
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate != null && IsPublicCandidateForLookup(candidate, lookupType, memberName, expectedStatic) {
                 parameters := candidate.GetParameters()
                 if parameters != null && !IsIntrinsicExcludedShape(candidate, parameters) && parameters.Length > argumentCount {
@@ -1343,8 +1306,6 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                     }
                 }
             }
-
-            index = index + 1
         }
 
         if bestCount == 1 && selected != null {
@@ -1407,13 +1368,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             throw new InvalidOperationException("Ordinary runtime direct-call inputs cannot be null.")
         }
 
-        index := 0
-        while index < argumentTypes.Length {
-            if argumentTypes[index] == null {
+        for argumentType in argumentTypes {
+            if argumentType == null {
                 throw new InvalidOperationException("Ordinary runtime direct-call argument types cannot be null.")
             }
-
-            index += 1
         }
     }
 }

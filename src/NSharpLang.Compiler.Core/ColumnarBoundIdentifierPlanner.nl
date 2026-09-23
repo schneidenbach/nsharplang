@@ -360,12 +360,10 @@ class ColumnarBoundIdentifierPlanner {
         argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, false)
 
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
-        hop := 0
-        while hop < receiverFields.Length {
-            hopFieldIndex := plan.AddField(RequiredField(receiverFields[hop], description + " selection has no receiver field."))
+        for receiverField in receiverFields {
+            hopFieldIndex := plan.AddField(RequiredField(receiverField, description + " selection has no receiver field."))
 
             plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), hopFieldIndex)
-            hop = hop + 1
         }
     }
 

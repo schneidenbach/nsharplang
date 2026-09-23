@@ -135,9 +135,8 @@ class AnalyzerMetadataLoadSurface {
         sharedRoot := AnalyzerMetadataLoadPolicy.SharedRootFromRuntimeDirectory(runtimeDirectory)
         if sharedRoot != null {
             frameworkNames := AnalyzerMetadataLoadPolicy.SharedFrameworkDirectoryNames()
-            nameIndex := 0
-            while nameIndex < frameworkNames.Length {
-                frameworkPath := Path.Combine(sharedRoot, frameworkNames[nameIndex])
+            for frameworkName in frameworkNames {
+                frameworkPath := Path.Combine(sharedRoot, frameworkName)
                 if Directory.Exists(frameworkPath) {
                     versionDirectories := AnalyzerMetadataLoadPolicy.OrderVersionDirectoriesDescending(Directory.GetDirectories(frameworkPath))
                     versionIndex := 0
@@ -146,8 +145,6 @@ class AnalyzerMetadataLoadSurface {
                         versionIndex = versionIndex + 1
                     }
                 }
-
-                nameIndex = nameIndex + 1
             }
         }
 

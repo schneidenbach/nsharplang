@@ -827,13 +827,10 @@ class ColumnarParserRecovery {
         if text.Length == 0 {
             return false
         }
-        index := 0
-        while index < text.Length {
-            current := text[index]
+        for current in text {
             if !char.IsLetterOrDigit(current) && current != '_' {
                 return false
             }
-            index = index + 1
         }
         return true
     }
@@ -1805,13 +1802,10 @@ class ColumnarParserRecovery {
     func TokenEndLine(token: Token): int {
         line := token.Line
         text := token.Value
-        index := 0
-        while index < text.Length {
-            if text[index] == '\n' {
+        for textItem in text {
+            if textItem == '\n' {
                 line = line + 1
             }
-
-            index = index + 1
         }
 
         return line
@@ -8864,13 +8858,10 @@ class ColumnarParserRecovery {
     }
 
     func ContainsNewline(text: string): bool {
-        idx := 0
-        while idx < text.Length {
-            c := text[idx]
+        for c in text {
             if c == '\r' || c == '\n' {
                 return true
             }
-            idx = idx + 1
         }
         return false
     }

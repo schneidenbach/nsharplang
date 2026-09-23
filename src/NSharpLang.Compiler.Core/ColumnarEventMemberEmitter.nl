@@ -242,9 +242,7 @@ class ColumnarEventMemberEmitter {
     // subscribe to.
     static func CompareExchangeMethod(handlerType: Type): MethodInfo {
         candidates := typeof(Interlocked).GetMethods()
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate.get_Name() == "CompareExchange" && candidate.get_IsGenericMethodDefinition() {
                 parameters := candidate.GetParameters()
                 if parameters.Length == 3 && parameters[0].get_ParameterType().get_IsByRef() {
@@ -253,8 +251,6 @@ class ColumnarEventMemberEmitter {
                     return candidate.MakeGenericMethod(arguments)
                 }
             }
-
-            index = index + 1
         }
 
         throw new InvalidOperationException("Interlocked.CompareExchange<T>(ref T, T, T) was not found.")

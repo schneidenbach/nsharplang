@@ -313,13 +313,10 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        index := 0
-        while index < binding.Inferred.Length {
-            if binding.Inferred[index] == null {
+        for inferredItem2 in binding.Inferred {
+            if inferredItem2 == null {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
@@ -353,13 +350,10 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        index := 0
-        while index < binding.Inferred.Length {
-            if ColumnarRuntimeGenericMethodResolver.IsUnbindableInferredType(binding.Inferred[index]) {
+        for inferredItem2 in binding.Inferred {
+            if ColumnarRuntimeGenericMethodResolver.IsUnbindableInferredType(inferredItem2) {
                 return false
             }
-
-            index = index + 1
         }
 
         closedMethod: MethodInfo? = null
@@ -540,14 +534,10 @@ class ColumnarContextualExtensionInference {
         }
 
         if interfaces != null {
-            index := 0
-            while index < interfaces.Length {
-                implemented := interfaces[index]
+            for implemented in interfaces {
                 if InterfaceMatchesDefinition(implemented, openDefinition) {
                     return implemented
                 }
-
-                index = index + 1
             }
         }
 
@@ -624,13 +614,10 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        index := 0
-        while index < vectorInterfaces.Length {
-            if InterfaceMatchesDefinition(vectorInterfaces[index], openDefinition) {
+        for vectorInterface in vectorInterfaces {
+            if InterfaceMatchesDefinition(vectorInterface, openDefinition) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -670,14 +657,10 @@ class ColumnarContextualExtensionInference {
         }
 
         if definitionInterfaces != null {
-            index := 0
-            while index < definitionInterfaces.Length {
-                implemented := definitionInterfaces[index]
+            for implemented in definitionInterfaces {
                 if InterfaceMatchesDefinition(implemented, openDefinition) {
                     return ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(implemented, arguments)
                 }
-
-                index = index + 1
             }
         }
 

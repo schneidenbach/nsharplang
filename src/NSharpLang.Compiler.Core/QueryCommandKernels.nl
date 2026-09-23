@@ -712,9 +712,7 @@ class QueryCommandKernels {
         localLine := 0
         localColumn := 0
 
-        i := 0
-        while i < position.Length {
-            ch := position[i]
+        for ch in position {
             if ch == ':' {
                 if sawColon || lineDigits == 0 {
                     return -1
@@ -749,8 +747,6 @@ class QueryCommandKernels {
             } else {
                 return -1
             }
-
-            i = i + 1
         }
 
         if !sawColon || columnDigits == 0 {

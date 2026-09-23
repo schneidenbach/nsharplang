@@ -966,14 +966,10 @@ class AnalyzerExpressionStatements {
             return null
         }
 
-        index := 0
-        while index < methods.Length {
-            candidate := methods[index]
+        for candidate in methods {
             if !HasMustUseAttribute(candidate) {
                 return null
             }
-
-            index = index + 1
         }
 
         first := methods[0]

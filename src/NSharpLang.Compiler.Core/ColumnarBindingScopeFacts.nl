@@ -2892,9 +2892,7 @@ class ColumnarBindingScopeFacts {
         if projectRootValue != null && projectRootValue.Length > 0 {
             return Path.GetFullPath(projectRootValue)
         }
-        index := 0
-        while index < sources.Length {
-            sourceFile := sources[index]
+        for sourceFile in sources {
             if sourceFile != null && sourceFile.FileName.Length > 0 {
                 fullPath := Path.GetFullPath(sourceFile.FileName)
                 directory := Path.GetDirectoryName(fullPath)
@@ -2902,7 +2900,6 @@ class ColumnarBindingScopeFacts {
                     return directory
                 }
             }
-            index = index + 1
         }
         return Path.GetFullPath(".")
     }
@@ -2963,22 +2960,18 @@ class ColumnarBindingScopeFacts {
     }
 
     static func AddNames(target: HashSet<string>, values: string[]) {
-        index := 0
-        while index < values.Length {
-            if values[index].Length > 0 {
-                target.Add(values[index])
+        for value in values {
+            if value.Length > 0 {
+                target.Add(value)
             }
-            index = index + 1
         }
     }
 
     static func ContainsName(values: string[], name: string): bool {
-        index := 0
-        while index < values.Length {
-            if String.Equals(values[index], name, StringComparison.Ordinal) {
+        for value in values {
+            if String.Equals(value, name, StringComparison.Ordinal) {
                 return true
             }
-            index = index + 1
         }
         return false
     }

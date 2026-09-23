@@ -929,12 +929,10 @@ class AnalyzerTypeResolver {
     static func SplitNonEmpty(name: string): List<string> {
         parts := new List<string>()
         raw := name.Split('.')
-        index := 0
-        while index < raw.Length {
-            if raw[index].Length > 0 {
-                parts.Add(raw[index])
+        for rawItem in raw {
+            if rawItem.Length > 0 {
+                parts.Add(rawItem)
             }
-            index = index + 1
         }
 
         return parts

@@ -82,10 +82,8 @@ class TidyCommand {
         if fix {
             selectedIndices := TidyCommandKernels.SelectPossiblyUnusedDependencyIndices(StatusesToArray(results))
             toRemove := new List<TidyDependencyStatus>()
-            index := 0
-            while index < selectedIndices.Length {
-                toRemove.Add(results[selectedIndices[index]])
-                index = index + 1
+            for selectedIndice in selectedIndices {
+                toRemove.Add(results[selectedIndice])
             }
 
             if toRemove.Count == 0 {
@@ -111,9 +109,8 @@ class TidyCommand {
 
         sourceConfig := new ProjectConfig()
         files := sourceConfig.GetSourceFiles(projectRoot, true)
-        fileIndex := 0
-        while fileIndex < files.Length {
-            lines := File.ReadAllLines(files[fileIndex])
+        for fileItem in files {
+            lines := File.ReadAllLines(fileItem)
             lineIndex := 0
             while lineIndex < lines.Length {
                 importedNamespace := TidyCommandKernels.GetImportedNamespace(lines[lineIndex])
@@ -123,8 +120,6 @@ class TidyCommand {
 
                 lineIndex = lineIndex + 1
             }
-
-            fileIndex = fileIndex + 1
         }
 
         return namespaces
@@ -192,10 +187,8 @@ class TidyCommand {
         filtered := TidyCommandKernels.FilterRemovalLines(lines, dependencies)
         builder := new StringBuilder()
 
-        i := 0
-        while i < filtered.Length {
-            builder.AppendLine(filtered[i])
-            i = i + 1
+        for filteredItem in filtered {
+            builder.AppendLine(filteredItem)
         }
 
         File.WriteAllText(projectYml, builder.ToString())

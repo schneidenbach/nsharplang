@@ -708,9 +708,8 @@ class AnalyzerReflectionArgumentBinder {
             reflectedAmbiguous := false
             bestReflected: FunctionTypeInfo? = null
             reflectedMethods := reflectionGroup.Methods
-            reflectedIndex := 0
-            while reflectedIndex < reflectedMethods.Length {
-                reflectedCandidate := AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(reflectedMethods[reflectedIndex])
+            for reflectedMethod in reflectedMethods {
+                reflectedCandidate := AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(reflectedMethod)
                 reflectedCandidateScore := 0
                 if reflectedCandidate != null && TryGetMethodGroupMatchScore(reflectedCandidate, expectedSignature, out reflectedCandidateScore) {
                     reflectedWithConversion := 4 + reflectedCandidateScore
@@ -722,8 +721,6 @@ class AnalyzerReflectionArgumentBinder {
                         reflectedAmbiguous = true
                     }
                 }
-
-                reflectedIndex = reflectedIndex + 1
             }
 
             if bestReflected == null || bestReflectedScore < 0 || reflectedAmbiguous {
@@ -808,10 +805,8 @@ class AnalyzerReflectionArgumentBinder {
             }
 
             typeArguments := new List<TypeInfo>()
-            argumentIndex := 0
-            while argumentIndex < openTypeArguments.Length {
-                typeArguments.Add(AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(openTypeArguments[argumentIndex], typeInfoOverrides, clrBindings))
-                argumentIndex = argumentIndex + 1
+            for openTypeArgument in openTypeArguments {
+                typeArguments.Add(AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(openTypeArgument, typeInfoOverrides, clrBindings))
             }
 
             if AnalyzerFunctionTypeFactory.IsActionDefinitionName(definitionName) {
@@ -1052,13 +1047,10 @@ class AnalyzerReflectionArgumentBinder {
 
         genericDefinition := declaringType.GetGenericTypeDefinition()
         candidates := genericDefinition.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
-        i := 0
-        while i < candidates.Length {
-            candidate := candidates[i]
+        for candidate in candidates {
             if candidate.get_MetadataToken() == signatureMethod.get_MetadataToken() {
                 return candidate
             }
-            i = i + 1
         }
 
         return signatureMethod
@@ -1370,14 +1362,10 @@ class AnalyzerReflectionArgumentBinder {
     // are searched before the base chain, matching the CLR's own resolution order.
     static func FindOpenImplementation(definition: Type, openDefinition: Type): Type? {
         interfaces := definition.GetInterfaces()
-        index := 0
-        while index < interfaces.Length {
-            candidate := interfaces[index]
+        for candidate in interfaces {
             if candidate.get_IsGenericType() && candidate.GetGenericTypeDefinition() == openDefinition {
                 return candidate
             }
-
-            index = index + 1
         }
 
         baseType := definition.get_BaseType()

@@ -19,16 +19,12 @@ class RestoreCommandKernels {
     static func GetOptionSummary(args: string[]): RestoreOptionSummary {
         showHelp := false
 
-        i := 0
-        while i < args.Length {
-            arg := args[i]
+        for arg in args {
             if arg == "--help" {
                 showHelp = true
             } else if arg == "-h" {
                 showHelp = true
             }
-
-            i = i + 1
         }
 
         return new RestoreOptionSummary(showHelp)
@@ -157,14 +153,12 @@ class RestoreCommandKernels {
         if projectReferences.Length > 0 {
             CommandOutputKernels.AppendLine(builder, "  <ItemGroup>")
 
-            i := 0
-            while i < projectReferences.Length {
+            for projectReference in projectReferences {
                 builder.Append("    <ProjectReference Include=")
                 builder.Append('"')
-                builder.Append(CommandOutputKernels.XmlEscape(projectReferences[i]))
+                builder.Append(CommandOutputKernels.XmlEscape(projectReference))
                 builder.Append('"')
                 CommandOutputKernels.AppendLine(builder, " />")
-                i = i + 1
             }
 
             CommandOutputKernels.AppendLine(builder, "  </ItemGroup>")

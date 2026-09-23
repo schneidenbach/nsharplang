@@ -305,13 +305,10 @@ class AnalyzerConversionFacts {
         }
 
         sourceInterfaces := sourceType.GetInterfaces()
-        index := 0
-        while index < sourceInterfaces.Length {
-            if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(targetType, sourceInterfaces[index]) {
+        for sourceInterface in sourceInterfaces {
+            if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(targetType, sourceInterface) {
                 return true
             }
-
-            index += 1
         }
 
         baseType := sourceType.get_BaseType()

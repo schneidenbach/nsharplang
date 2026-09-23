@@ -305,14 +305,10 @@ class TidyCommandKernels {
             return 3
         }
 
-        i := 0
-        while i < importNamespaces.Length {
-            namespaceName := importNamespaces[i]
+        for namespaceName in importNamespaces {
             if NamespaceMatchesPrefix(namespaceName, packageName, firstDot) {
                 return 2
             }
-
-            i = i + 1
         }
 
         return 1

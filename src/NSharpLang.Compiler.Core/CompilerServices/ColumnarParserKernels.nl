@@ -10254,9 +10254,7 @@ func CollapseTestCaseWhitespace(text: string): string {
     pendingSpace := false
     written := 0
     previous := ' '
-    i := 0
-    while i < text.Length {
-        ch := text[i]
+    for ch in text {
         if char.IsWhiteSpace(ch) {
             pendingSpace = written > 0
         } else {
@@ -10269,8 +10267,6 @@ func CollapseTestCaseWhitespace(text: string): string {
             previous = ch
             written = written + 1
         }
-
-        i = i + 1
     }
 
     return builder.ToString()

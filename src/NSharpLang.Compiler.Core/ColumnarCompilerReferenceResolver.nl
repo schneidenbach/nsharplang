@@ -15,13 +15,11 @@ class ColumnarCompilerReferenceResolver {
         assemblyNames: string[]
     ): Type {
         loadedAssemblies := ExternalAssemblyScan.Loaded()
-        loadedIndex := 0
-        while loadedIndex < loadedAssemblies.Length {
-            loadedType := loadedAssemblies[loadedIndex].GetType(fullTypeName, false)
+        for loadedAssembly in loadedAssemblies {
+            loadedType := loadedAssembly.GetType(fullTypeName, false)
             if loadedType != null {
                 return loadedType
             }
-            loadedIndex = loadedIndex + 1
         }
 
         if referenceAssemblyPaths != null {
@@ -50,9 +48,7 @@ class ColumnarCompilerReferenceResolver {
         // The test framework is the HOST's assembly, not a file in the project's closure, so this
         // last resort is the owner's documented by-name route into the default context rather than
         // a fourth `Assembly.Load` of its own.
-        assemblyIndex := 0
-        while assemblyIndex < assemblyNames.Length {
-            assemblyName := assemblyNames[assemblyIndex]
+        for assemblyName in assemblyNames {
             try {
                 assemblyIdentity := new AssemblyName(assemblyName)
                 assembly := ExternalAssemblyScan.TryLoadHostAssemblyByName(assemblyIdentity)
@@ -67,7 +63,6 @@ class ColumnarCompilerReferenceResolver {
                 // A name this host cannot spell, or a type whose own dependencies will not load, is
                 // not the answer; the next candidate name is.
             }
-            assemblyIndex = assemblyIndex + 1
         }
 
         throw new InvalidOperationException("Could not resolve required test framework type " + fullTypeName)

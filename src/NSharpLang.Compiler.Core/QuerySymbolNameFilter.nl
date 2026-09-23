@@ -47,13 +47,10 @@ class QuerySymbolNameFilter {
     }
 
     static func IsAscii(value: string): bool {
-        i := 0
-        while i < value.Length {
-            if (int)value[i] > 127 {
+        for valueItem in value {
+            if (int)valueItem > 127 {
                 return false
             }
-
-            i = i + 1
         }
 
         return true

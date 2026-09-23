@@ -944,17 +944,13 @@ class NominalTypeInfoFactory {
         }
 
         hasConstructor := false
-        index := 0
-        while index < members.Length {
-            member := members[index]
+        for member in members {
             if member.Kind == DeclaredMemberKind.Constructor {
                 hasConstructor = true
                 if member.ParameterCount == 0 {
                     return true
                 }
             }
-
-            index = index + 1
         }
 
         return !hasConstructor

@@ -686,14 +686,11 @@ class AnalyzerCallAnalysis {
         candidates := new List<ReflectionPreBoundCandidate>()
         if methodGroup != null {
             methods := methodGroup.Methods
-            methodIndex := 0
-            while methodIndex < methods.Length {
-                candidate := reflectionArgumentBinder.PreBindReflectionMethod(methods[methodIndex], state.Call, state.ReflectionReceiverClrType, state.ReflectionReceiverTypeInfo, arguments)
+            for method in methods {
+                candidate := reflectionArgumentBinder.PreBindReflectionMethod(method, state.Call, state.ReflectionReceiverClrType, state.ReflectionReceiverTypeInfo, arguments)
                 if candidate != null {
                     candidates.Add(candidate)
                 }
-
-                methodIndex = methodIndex + 1
             }
         }
 
@@ -1991,10 +1988,8 @@ class AnalyzerCallAnalysis {
         methodGroup := calleeType as ReflectionMethodGroupInfo
         if methodGroup != null {
             methods := methodGroup.Methods
-            methodIndex := 0
-            while methodIndex < methods.Length {
-                state.CandidateMethods.Add(methods[methodIndex])
-                methodIndex = methodIndex + 1
+            for method in methods {
+                state.CandidateMethods.Add(method)
             }
 
             state.ReflectionMethodGroup = methodGroup

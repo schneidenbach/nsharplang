@@ -816,13 +816,10 @@ class AnalyzerWriteTargets {
         }
 
         modifiers := setter.get_ReturnParameter().GetRequiredCustomModifiers()
-        index := 0
-        while index < modifiers.Length {
-            if modifiers[index].FullName == "System.Runtime.CompilerServices.IsExternalInit" {
+        for modifier in modifiers {
+            if modifier.FullName == "System.Runtime.CompilerServices.IsExternalInit" {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

@@ -540,9 +540,7 @@ class ColumnarTypeOfPlanner {
         // `ExternalAssemblyScan` owns every read of the process's loaded assemblies; this is the
         // same unfiltered snapshot in the same order the `AppDomain` call gave.
         assemblies := ExternalAssemblyScan.LoadedAcrossContexts()
-        i := 0
-        while i < assemblies.Length {
-            assembly := assemblies[i]
+        for assembly in assemblies {
             identity := assembly.GetName().get_FullName()
             if String.Equals(identity, assemblyName, StringComparison.Ordinal) || identity.StartsWith(assemblyName + ",", StringComparison.Ordinal) {
                 candidate := assembly.GetType(fullName)
@@ -551,7 +549,6 @@ class ColumnarTypeOfPlanner {
                     return true
                 }
             }
-            i += 1
         }
         return false
     }
@@ -677,9 +674,7 @@ class ColumnarTypeOfPlanner {
         }
 
         assemblies := ExternalAssemblyScan.Loaded()
-        i := 0
-        while i < assemblies.Length {
-            assembly := assemblies[i]
+        for assembly in assemblies {
             try {
                 candidate := assembly.GetType(aspNetName)
                 if candidate != null && IsSupportedExternalType(candidate) {
@@ -689,8 +684,6 @@ class ColumnarTypeOfPlanner {
             } catch {
             }
             // A later loaded assembly may carry the exact supported type.
-
-            i += 1
         }
         return false
     }
@@ -1125,9 +1118,7 @@ class ColumnarTypeOfPlanner {
         }
 
         arguments := valueType.GetGenericArguments()
-        index := 0
-        while index < arguments.Length {
-            argument := arguments[index]
+        for argument in arguments {
             if argument.get_IsGenericParameter() {
                 if RuntimeTypeShapeFacts.IsByRefLike(argument) {
                     return false
@@ -1135,7 +1126,6 @@ class ColumnarTypeOfPlanner {
             } else if RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsSupportedType(argument) {
                 return false
             }
-            index = index + 1
         }
         return arguments.Length > 0
     }
@@ -1191,13 +1181,10 @@ class ColumnarTypeOfPlanner {
                 if arguments.Length == 0 {
                     return false
                 }
-                argumentIndex := 0
-                while argumentIndex < arguments.Length {
-                    argument := arguments[argumentIndex]
+                for argument in arguments {
                     if argument == null || argument.get_IsPointer() || argument.get_IsByRef() || ContainsOpenGenericParameters(argument) || !IsSupportedType(argument) {
                         return false
                     }
-                    argumentIndex = argumentIndex + 1
                 }
 
                 // Reconstruct the selected closed identity from the reproduced definition. This
@@ -1266,12 +1253,10 @@ class ColumnarTypeOfPlanner {
             return false
         }
         arguments := valueType.GetGenericArguments()
-        i := 0
-        while i < arguments.Length {
-            if !IsSupportedType(arguments[i]) {
+        for argument in arguments {
+            if !IsSupportedType(argument) {
                 return false
             }
-            i += 1
         }
         return arguments.Length > 0
     }
@@ -1468,12 +1453,10 @@ class ColumnarTypeOfPlanner {
             return false
         }
         arguments := valueType.GetGenericArguments()
-        i := 0
-        while i < arguments.Length {
-            if ContainsOpenGenericParameters(arguments[i]) {
+        for argument in arguments {
+            if ContainsOpenGenericParameters(argument) {
                 return true
             }
-            i += 1
         }
         return false
     }
@@ -1530,12 +1513,10 @@ class ColumnarTypeOfPlanner {
             return false
         }
         arguments := valueType.GetGenericArguments()
-        i := 0
-        while i < arguments.Length {
-            if !IsSupportedAnonymousUnionArm(arguments[i]) {
+        for argument in arguments {
+            if !IsSupportedAnonymousUnionArm(argument) {
                 return false
             }
-            i += 1
         }
         return true
     }
@@ -1800,12 +1781,10 @@ class ColumnarTypeOfPlanner {
             return false
         }
         arguments := valueType.GetGenericArguments()
-        i := 0
-        while i < arguments.Length {
-            if RuntimeTypeShapeFacts.ContainsBuilderBoundType(arguments[i]) || !IsSupportedType(arguments[i]) {
+        for argument in arguments {
+            if RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsSupportedType(argument) {
                 return false
             }
-            i += 1
         }
         return true
     }
@@ -1898,12 +1877,10 @@ class ColumnarTypeOfPlanner {
             return true
         }
         arguments := valueType.GetGenericArguments()
-        i := 0
-        while i < arguments.Length {
-            if ContainsNonEnumBuilderBoundType(arguments[i]) {
+        for argument in arguments {
+            if ContainsNonEnumBuilderBoundType(argument) {
                 return true
             }
-            i += 1
         }
         return false
     }

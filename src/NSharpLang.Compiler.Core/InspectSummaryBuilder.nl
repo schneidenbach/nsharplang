@@ -127,11 +127,8 @@ class InspectSummaryBuilder {
     static func BuildGroupCounts(completions: Dictionary<string, List<CompletionItem>>): Dictionary<string, int> {
         keys := CompletionGroupKeys(completions)
         result := new Dictionary<string, int>(StringComparer.Ordinal)
-        i := 0
-        while i < keys.Length {
-            key := keys[i]
+        for key in keys {
             result[key] = completions[key].Count
-            i = i + 1
         }
 
         return result
@@ -140,11 +137,8 @@ class InspectSummaryBuilder {
     static func BuildCompletionGroups(completions: Dictionary<string, List<CompletionItem>>): Dictionary<string, string[]> {
         keys := CompletionGroupKeys(completions)
         result := new Dictionary<string, string[]>(StringComparer.Ordinal)
-        i := 0
-        while i < keys.Length {
-            key := keys[i]
+        for key in keys {
             result[key] = SampleCompletionNames(completions[key])
-            i = i + 1
         }
 
         return result

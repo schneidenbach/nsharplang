@@ -34,14 +34,10 @@ class ColumnarTypeCanonicalizer {
 
     static func RemoveWhitespace(s: string): string {
         sb := new StringBuilder(s.Length)
-        i := 0
-        while i < s.Length {
-            c := s[i]
+        for c in s {
             if !char.IsWhiteSpace(c) {
                 sb.Append(c)
             }
-
-            i = i + 1
         }
 
         return sb.ToString()
@@ -109,14 +105,10 @@ class ColumnarTypeCanonicalizer {
             return false
         }
 
-        i := 0
-        while i < text.Length {
-            c := text[i]
+        for c in text {
             if !char.IsLetterOrDigit(c) && c != '_' {
                 return false
             }
-
-            i = i + 1
         }
 
         return !char.IsDigit(text[0])

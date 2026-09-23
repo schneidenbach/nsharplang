@@ -95,12 +95,9 @@ class AnalyzerReferenceLoadReport {
         identities := collected.ToArray()
         Array.Sort(identities, 0, identities.Length, StringComparer.Ordinal)
 
-        position := 0
-        while position < identities.Length {
-            identity := identities[position]
+        for identity in identities {
             detail := merged[identity]
             diagnostics.Warn(ErrorCode.ReferenceLoadFailure, "Reference assembly '" + identity + "' could not be loaded or fully inspected (" + detail + "); types from it may be reported as not found.", 1, 1, null, 0)
-            position = position + 1
         }
     }
 

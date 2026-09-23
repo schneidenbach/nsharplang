@@ -71,9 +71,7 @@ class ColumnarRuntimeDirectCallResolver {
 
         selected := ColumnarRuntimeDirectCallSelection.Empty()
         selectedCount := 0
-        index := 0
-        while index < methods.Length {
-            definition := methods[index]
+        for definition in methods {
             if definition != null && definition.get_Name() == "Empty" && definition.get_IsPublic() && definition.get_IsStatic() && definition.get_IsGenericMethodDefinition() && definition.get_DeclaringType() == lookupType {
                 definitionTypeArguments := definition.GetGenericArguments()
                 definitionParameters := definition.GetParameters()
@@ -105,8 +103,6 @@ class ColumnarRuntimeDirectCallResolver {
                     }
                 }
             }
-
-            index = index + 1
         }
 
         if selectedCount != 1 {
@@ -177,9 +173,7 @@ class ColumnarRuntimeDirectCallResolver {
 
         closed := ColumnarRuntimeDirectCallSelection.Empty()
         closedCount := 0
-        index := 0
-        while index < methods.Length {
-            definition := methods[index]
+        for definition in methods {
             if definition != null && definition.get_Name() == plan.MemberName && definition.get_IsGenericMethodDefinition() && definition.GetGenericArguments().Length == typeArguments.Length {
                 candidate: MethodInfo? = null
                 try {
@@ -206,8 +200,6 @@ class ColumnarRuntimeDirectCallResolver {
                     }
                 }
             }
-
-            index = index + 1
         }
 
         if closedCount != 1 {
@@ -255,9 +247,7 @@ class ColumnarRuntimeDirectCallResolver {
 
         exact := ColumnarRuntimeDirectCallSelection.Empty()
         exactCount := 0
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             candidateSelection := ColumnarRuntimeDirectCallSelection.Empty()
             candidateMatches := false
             if candidate != null {
@@ -275,8 +265,6 @@ class ColumnarRuntimeDirectCallResolver {
                     return false
                 }
             }
-
-            index = index + 1
         }
 
         if exactCount != 1 {

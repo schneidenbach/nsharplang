@@ -144,9 +144,7 @@ class ForeachPatternFacts {
         }
 
         interfaces := SafeGetInterfaces(clrType)
-        index := 0
-        while index < interfaces.Length {
-            candidate := interfaces[index]
+        for candidate in interfaces {
             if MatchesConstructedDefinition(candidate, definitionName) {
                 if found == null {
                     found = candidate
@@ -156,8 +154,6 @@ class ForeachPatternFacts {
                     }
                 }
             }
-
-            index = index + 1
         }
 
         return found
@@ -238,13 +234,10 @@ class ForeachPatternFacts {
         }
 
         interfaces := SafeGetInterfaces(clrType)
-        index := 0
-        while index < interfaces.Length {
-            if interfaces[index].FullName == interfaceName {
+        for interfaceItem in interfaces {
+            if interfaceItem.FullName == interfaceName {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -297,14 +290,11 @@ class ForeachPatternFacts {
         }
 
         interfaces := SafeGetInterfaces(owner)
-        index := 0
-        while index < interfaces.Length {
-            declared := DeclaredParameterlessInstanceMethod(interfaces[index], name)
+        for interfaceItem in interfaces {
+            declared := DeclaredParameterlessInstanceMethod(interfaceItem, name)
             if declared != null {
                 return declared
             }
-
-            index = index + 1
         }
 
         return null
@@ -313,14 +303,10 @@ class ForeachPatternFacts {
     static func DeclaredParameterlessInstanceMethod(owner: Type, name: string): MethodInfo? {
         flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly
         methods := SafeGetMethods(owner, flags)
-        index := 0
-        while index < methods.Length {
-            candidate := methods[index]
+        for candidate in methods {
             if candidate.Name == name && !candidate.get_IsGenericMethodDefinition() && candidate.GetParameters().Length == 0 {
                 return candidate
             }
-
-            index = index + 1
         }
 
         return null
@@ -348,14 +334,11 @@ class ForeachPatternFacts {
         }
 
         interfaces := SafeGetInterfaces(owner)
-        index := 0
-        while index < interfaces.Length {
-            declared := DeclaredCurrentGetter(interfaces[index])
+        for interfaceItem in interfaces {
+            declared := DeclaredCurrentGetter(interfaceItem)
             if declared != null {
                 return declared
             }
-
-            index = index + 1
         }
 
         return null
@@ -364,17 +347,13 @@ class ForeachPatternFacts {
     static func DeclaredCurrentGetter(owner: Type): MethodInfo? {
         flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly
         properties := SafeGetProperties(owner, flags)
-        index := 0
-        while index < properties.Length {
-            candidate := properties[index]
+        for candidate in properties {
             if candidate.Name == "Current" && candidate.GetIndexParameters().Length == 0 {
                 getter := candidate.get_GetMethod()
                 if getter != null {
                     return getter
                 }
             }
-
-            index = index + 1
         }
 
         return null

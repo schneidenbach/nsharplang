@@ -594,19 +594,16 @@ class ColumnarProgramInput {
         interfaces := new List<ColumnarInterfaceInput>()
         tests := new List<ColumnarTestInput>()
 
-        index := 0
-        while index < programs.Length {
-            AddFunctions(functions, programs[index].Functions)
-            AddEnums(enums, programs[index].Enums)
-            AddStructs(structs, programs[index].Structs)
-            AddUnions(unions, programs[index].Unions)
-            AddInterfaces(interfaces, programs[index].Interfaces)
-            programTests := programs[index].Tests
+        for program in programs {
+            AddFunctions(functions, program.Functions)
+            AddEnums(enums, program.Enums)
+            AddStructs(structs, program.Structs)
+            AddUnions(unions, program.Unions)
+            AddInterfaces(interfaces, program.Interfaces)
+            programTests := program.Tests
             if programTests != null {
                 AddTests(tests, programTests)
             }
-
-            index = index + 1
         }
 
         return new ColumnarProgramInput(GetFirstSource(sourceFiles), functions, enums, structs, unions, interfaces, sourceFiles, tests, projectRoot)
@@ -861,11 +858,9 @@ class ColumnarProgramInput {
             index = index + 1
         }
 
-        secondIndex := 0
-        while secondIndex < second.Length {
-            result[index] = second[secondIndex]
+        for secondItem in second {
+            result[index] = secondItem
             index = index + 1
-            secondIndex = secondIndex + 1
         }
 
         return result
@@ -966,14 +961,10 @@ class ColumnarProgramInput {
     static func AssignInterfaceSourceFileId(interfaceInput: ColumnarInterfaceInput, sourceFileId: int) {
         interfaceInput.SourceFileId = sourceFileId
 
-        methodIndex := 0
-        while methodIndex < interfaceInput.MethodBodies.Length {
-            methodBody := interfaceInput.MethodBodies[methodIndex]
+        for methodBody in interfaceInput.MethodBodies {
             if methodBody != null {
                 AssignFunctionSourceFileId(methodBody, sourceFileId)
             }
-
-            methodIndex = methodIndex + 1
         }
     }
 

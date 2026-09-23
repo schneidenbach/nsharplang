@@ -569,12 +569,10 @@ class AnalyzerConstruction {
 
     static func ConstructorsFromMembers(members: DeclaredMemberInfo[]): List<DeclaredMemberInfo> {
         constructors := new List<DeclaredMemberInfo>()
-        index := 0
-        while index < members.Length {
-            if members[index].Kind == DeclaredMemberKind.Constructor {
-                constructors.Add(members[index])
+        for member in members {
+            if member.Kind == DeclaredMemberKind.Constructor {
+                constructors.Add(member)
             }
-            index = index + 1
         }
         return constructors
     }
@@ -696,11 +694,10 @@ class AnalyzerConstruction {
         constructedClrType := clrTypeConversionValue.TryConvertTypeInfoToClrType(state.ConstructedType)
         if constructedClrType != null {
             reflectedConstructors := AnalyzerReflectionMemberProbe.ConstructorsOrEmpty(constructedClrType)
-            reflectedIndex := 0
-            while reflectedIndex < reflectedConstructors.Length {
+            for reflectedConstructor in reflectedConstructors {
                 // A constructor whose signature mentions a type the reference set cannot resolve is
                 // read as "no delegate here" rather than throwing out of the whole analysis.
-                parameterTypes := AnalyzerReflectionMemberProbe.ParameterTypesOrNull(reflectedConstructors[reflectedIndex])
+                parameterTypes := AnalyzerReflectionMemberProbe.ParameterTypesOrNull(reflectedConstructor)
                 if parameterTypes != null && parameterTypes.Length == argumentCount && index < parameterTypes.Length {
                     candidate := AnalyzerReflectionTypeConversion.ConvertReflectionType(parameterTypes[index])
                     if AnalyzerCallableReferenceFacts.IsInvocableMemberType(candidate) {
@@ -712,8 +709,6 @@ class AnalyzerConstruction {
                         }
                     }
                 }
-
-                reflectedIndex = reflectedIndex + 1
             }
 
             return agreed
@@ -819,9 +814,8 @@ class AnalyzerConstruction {
         constructors := AnalyzerReflectionMemberProbe.ConstructorsOrEmpty(definition)
         agreed: TypeInfo? = null
         found := false
-        constructorIndex := 0
-        while constructorIndex < constructors.Length {
-            parameterTypes := AnalyzerReflectionMemberProbe.ParameterTypesOrNull(constructors[constructorIndex])
+        for constructor in constructors {
+            parameterTypes := AnalyzerReflectionMemberProbe.ParameterTypesOrNull(constructor)
             if parameterTypes != null && parameterTypes.Length == argumentCount && index < parameterTypes.Length {
                 candidate := NullabilityMetadataReflection.ConvertReflectedType(parameterTypes[index], null, typeOverride)
                 if AnalyzerCallableReferenceFacts.IsInvocableMemberType(candidate) {
@@ -833,8 +827,6 @@ class AnalyzerConstruction {
                     }
                 }
             }
-
-            constructorIndex = constructorIndex + 1
         }
 
         return agreed
@@ -843,13 +835,10 @@ class AnalyzerConstruction {
     static func DeclaredConstructors(classType: ClassTypeInfo): List<DeclaredMemberInfo> {
         constructors := new List<DeclaredMemberInfo>()
         members := classType.DeclaredMembers
-        index := 0
-        while index < members.Length {
-            if members[index].Kind == DeclaredMemberKind.Constructor {
-                constructors.Add(members[index])
+        for member in members {
+            if member.Kind == DeclaredMemberKind.Constructor {
+                constructors.Add(member)
             }
-
-            index = index + 1
         }
 
         return constructors

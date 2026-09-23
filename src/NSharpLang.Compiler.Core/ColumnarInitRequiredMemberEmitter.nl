@@ -122,13 +122,10 @@ class ColumnarInitRequiredMemberEmitter {
     // per-constructor guard are decided from this one question, and it is asked of the INPUT rather
     // than of the emitted builders because a type under construction answers no reflection question.
     static func DeclaresRequiredMember(input: ColumnarStructInput): bool {
-        fieldIndex := 0
-        while fieldIndex < input.FieldRequiredFlags.Length {
-            if input.FieldRequiredFlags[fieldIndex] {
+        for fieldRequiredFlag2 in input.FieldRequiredFlags {
+            if fieldRequiredFlag2 {
                 return true
             }
-
-            fieldIndex = fieldIndex + 1
         }
 
         propertyIndex := 0

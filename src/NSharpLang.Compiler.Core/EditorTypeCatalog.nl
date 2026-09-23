@@ -313,10 +313,8 @@ class EditorTypeCatalog {
         // The curated roster is offered whatever the prefix, so general completion stays useful
         // without posting the whole framework into the editor.
         roster := EditorTypeCatalogFacts.CommonShortTypeFullNames()
-        rosterIndex := 0
-        while rosterIndex < roster.Length {
-            AddImportable(results, seen, ResolveByFullName(roster[rosterIndex]), true, trimmed)
-            rosterIndex = rosterIndex + 1
+        for rosterItem in roster {
+            AddImportable(results, seen, ResolveByFullName(rosterItem), true, trimmed)
         }
 
         if trimmed.Length > 0 {
@@ -364,14 +362,11 @@ class EditorTypeCatalog {
         seen := new HashSet<string>(StringComparer.Ordinal)
 
         seeds := EditorTypeCatalogFacts.WellKnownNamespaceSeeds()
-        seedIndex := 0
-        while seedIndex < seeds.Length {
-            if !seen.Contains(seeds[seedIndex]) {
-                seen.Add(seeds[seedIndex])
-                namespaces.Add(seeds[seedIndex])
+        for seed in seeds {
+            if !seen.Contains(seed) {
+                seen.Add(seed)
+                namespaces.Add(seed)
             }
-
-            seedIndex = seedIndex + 1
         }
 
         index := 0

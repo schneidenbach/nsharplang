@@ -72,9 +72,7 @@ class CodeIntelligenceNavigation {
     // coordinate system.
     static func FindExpressionAtPositionRobust(cu: CompilationUnit, line: int, col: int): Expression? {
         candidateColumns := CodeIntelligenceSourceDoor.NearbyColumns(col, 3)
-        index := 0
-        while index < candidateColumns.Length {
-            candidateColumn := candidateColumns[index]
+        for candidateColumn in candidateColumns {
             expression := AstNodeFinderCore.FindExpressionAtPosition(cu, line - 1, candidateColumn - 1) as Expression
             if expression == null {
                 expression = AstNodeFinderCore.FindExpressionAtPosition(cu, line, candidateColumn) as Expression
@@ -83,8 +81,6 @@ class CodeIntelligenceNavigation {
             if expression != null {
                 return expression
             }
-
-            index = index + 1
         }
 
         return null
@@ -99,9 +95,7 @@ class CodeIntelligenceNavigation {
     // the call only where it answered.
     static func FindEnclosingCallAtPositionRobust(cu: CompilationUnit, line: int, col: int): CallExpression? {
         candidateColumns := CodeIntelligenceSourceDoor.NearbyColumns(col, 3)
-        index := 0
-        while index < candidateColumns.Length {
-            candidateColumn := candidateColumns[index]
+        for candidateColumn in candidateColumns {
             zeroBased := AstNodeFinderCore.FindExpressionAtPosition(cu, line - 1, candidateColumn - 1) as Expression
             if zeroBased != null {
                 return AstNodeFinderCore.FindCallExpressionAtPosition(cu, line - 1, candidateColumn - 1) as CallExpression
@@ -111,8 +105,6 @@ class CodeIntelligenceNavigation {
             if oneBased != null {
                 return AstNodeFinderCore.FindCallExpressionAtPosition(cu, line, candidateColumn) as CallExpression
             }
-
-            index = index + 1
         }
 
         return null

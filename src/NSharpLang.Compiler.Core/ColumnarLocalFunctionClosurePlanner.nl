@@ -78,10 +78,8 @@ class ColumnarLocalFunctionClosurePlanner {
         while index < localFunctions.Count {
             declaration := localFunctions[index].Function
             bound := new HashSet<string>(StringComparer.Ordinal)
-            parameterIndex := 0
-            while parameterIndex < declaration.ParamNames.Length {
-                bound.Add(declaration.ParamNames[parameterIndex])
-                parameterIndex = parameterIndex + 1
+            for paramName2 in declaration.ParamNames {
+                bound.Add(paramName2)
             }
             // A name this body BINDS for itself is never a capture: the emitter refuses a local
             // function whose parameter or local shadows an enclosing binding (NL316), so subtracting

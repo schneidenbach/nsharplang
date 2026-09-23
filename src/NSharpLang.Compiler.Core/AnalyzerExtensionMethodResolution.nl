@@ -280,9 +280,7 @@ class AnalyzerExtensionMethodResolution {
 
     static func CollectExtensionMethods(hostType: Type, memberFlags: BindingFlags, methodName: string, targetClrType: Type, methods: List<MethodInfo>, grants: InternalsVisibleToGrants?) {
         hostMethods := AnalyzerReflectionMemberProbe.MethodsOrEmpty(hostType, memberFlags)
-        methodIndex := 0
-        while methodIndex < hostMethods.Length {
-            method := hostMethods[methodIndex]
+        for method in hostMethods {
             if method.get_Name() == methodName && AnalyzerMemberResolution.IsReachableReflectedMethod(method, false, grants) && AnalyzerOverloadFacts.HasExtensionAttribute(method) {
                 // The RECEIVER parameter's type is the read that reaches the missing assembly. A
                 // candidate whose receiver cannot be materialised is not a candidate.
@@ -294,7 +292,6 @@ class AnalyzerExtensionMethodResolution {
                     }
                 }
             }
-            methodIndex = methodIndex + 1
         }
     }
 }

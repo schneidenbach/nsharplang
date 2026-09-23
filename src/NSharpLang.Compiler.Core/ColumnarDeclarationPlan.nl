@@ -302,13 +302,11 @@ class ColumnarMethodOverrideCompletion {
         declarationParameterTypesValue = new List<object>().AsReadOnly()
         declarationParameterCountValue = 0
         targetCopy := new List<object>()
-        index := 0
-        while index < targets.Length {
-            if targets[index] == null {
+        for targetItem in targets {
+            if targetItem == null {
                 throw new InvalidOperationException("A completed override target cannot be null.")
             }
-            targetCopy.Add(targets[index])
-            index += 1
+            targetCopy.Add(targetItem)
         }
         targetsValue = targetCopy.AsReadOnly()
         targetCountValue = targets.Length
@@ -336,25 +334,20 @@ class ColumnarMethodOverrideCompletion {
         declarationNameValue = declarationName
         declarationReturnTypeValue = declarationReturnType
         parameterCopy := new List<object>()
-        parameterIndex := 0
-        while parameterIndex < declarationParameterTypes.Length {
-            parameterType := declarationParameterTypes[parameterIndex]
+        for parameterType in declarationParameterTypes {
             if parameterType == null {
                 throw new InvalidOperationException("A realized method declaration parameter type cannot be null.")
             }
             parameterCopy.Add(parameterType)
-            parameterIndex += 1
         }
         declarationParameterTypesValue = parameterCopy.AsReadOnly()
         declarationParameterCountValue = declarationParameterTypes.Length
         targetCopy := new List<object>()
-        index := 0
-        while index < targets.Length {
-            if targets[index] == null {
+        for targetItem in targets {
+            if targetItem == null {
                 throw new InvalidOperationException("A completed override target cannot be null.")
             }
-            targetCopy.Add(targets[index])
-            index += 1
+            targetCopy.Add(targetItem)
         }
         targetsValue = targetCopy.AsReadOnly()
         targetCountValue = targets.Length

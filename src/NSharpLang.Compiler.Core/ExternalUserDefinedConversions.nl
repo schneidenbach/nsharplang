@@ -257,15 +257,11 @@ class ExternalUserDefinedConversions {
         while owner != null && depth < 64 {
             methods := DeclaredPublicStaticMethodsOrNull(owner)
             if methods != null {
-                index := 0
-                while index < methods.Length {
-                    method := methods[index]
+                for method in methods {
                     name := method.get_Name()
                     if name == "op_Implicit" || name == "op_Explicit" {
                         return true
                     }
-
-                    index += 1
                 }
             }
 
@@ -295,14 +291,10 @@ class ExternalUserDefinedConversions {
             return
         }
 
-        index := 0
-        while index < methods.Length {
-            method := methods[index]
+        for method in methods {
             if IsConversionOperator(method, allowExplicit) && !AlreadyPresent(candidates, method) {
                 candidates.Add(method)
             }
-
-            index += 1
         }
     }
 

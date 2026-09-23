@@ -52,9 +52,7 @@ class AnalyzerStructuralAssignability {
         }
 
         interfaceMembers := duckInterface.DeclaredMembers
-        interfaceIndex := 0
-        while interfaceIndex < interfaceMembers.Length {
-            interfaceMember := interfaceMembers[interfaceIndex]
+        for interfaceMember in interfaceMembers {
             if interfaceMember.Kind == DeclaredMemberKind.Function {
                 found := false
                 sourceIndex := 0
@@ -72,8 +70,6 @@ class AnalyzerStructuralAssignability {
                     return false
                 }
             }
-
-            interfaceIndex = interfaceIndex + 1
         }
 
         return true

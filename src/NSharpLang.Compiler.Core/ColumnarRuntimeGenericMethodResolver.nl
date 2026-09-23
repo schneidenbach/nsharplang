@@ -88,9 +88,7 @@ class ColumnarRuntimeGenericMethodResolver {
 
     static func AppendClosedCandidates(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, candidates: List<MethodInfo>, candidateParameters: List<Type[]>, candidateReturns: List<Type>, expectedStatic: bool) {
         declared := MethodsOrEmpty(lookupType)
-        index := 0
-        while index < declared.Length {
-            candidate := declared[index]
+        for candidate in declared {
             if IsInferableCandidate(candidate, lookupType, memberName, argumentTypes.Length, expectedStatic) {
                 inferred := InferTypeArgumentsOrNull(candidate, argumentTypes, argumentFacts)
                 if inferred != null {
@@ -111,8 +109,6 @@ class ColumnarRuntimeGenericMethodResolver {
                     }
                 }
             }
-
-            index = index + 1
         }
     }
 
@@ -139,13 +135,10 @@ class ColumnarRuntimeGenericMethodResolver {
         if parameters == null || parameters.Length != argumentCount {
             return false
         }
-        index := 0
-        while index < parameters.Length {
-            parameter := parameters[index]
+        for parameter in parameters {
             if parameter == null || parameter.get_ParameterType() == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
                 return false
             }
-            index = index + 1
         }
         return true
     }
@@ -340,12 +333,10 @@ class ColumnarRuntimeGenericMethodResolver {
         }
 
         interfaces := InterfacesOrEmpty(argumentType)
-        index := 0
-        while index < interfaces.Length {
-            if IsInstantiationOf(definition, interfaces[index]) {
-                return interfaces[index]
+        for interfaceItem in interfaces {
+            if IsInstantiationOf(definition, interfaceItem) {
+                return interfaceItem
             }
-            index = index + 1
         }
         return null
     }
@@ -689,19 +680,15 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
             return false
         }
 
-        position := 0
-        while position < typeArguments.Length {
-            if typeArguments[position] == null {
+        for typeArgument in typeArguments {
+            if typeArgument == null {
                 return false
             }
-            position = position + 1
         }
 
         declared := ColumnarRuntimeGenericMethodResolver.MethodsOrEmpty(lookupType)
         exactArity := false
-        index := 0
-        while index < declared.Length {
-            candidate := declared[index]
+        for candidate in declared {
             parameters := AdmittedParameters(candidate, lookupType, memberName, typeArguments.Length, argumentCount, expectedStatic)
             if parameters != null {
                 closed := ColumnarRuntimeGenericMethodResolver.CloseOrNull(candidate, typeArguments)
@@ -716,7 +703,6 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
                     }
                 }
             }
-            index = index + 1
         }
 
         // AN EXACTLY-MATCHING ARITY BEATS A FILLED TAIL, which is C#'s rule and the ordinary
@@ -751,13 +737,10 @@ class ColumnarExplicitRuntimeGenericMethodResolver {
         if parameters == null || parameters.Length < argumentCount {
             return null
         }
-        index := 0
-        while index < parameters.Length {
-            parameter := parameters[index]
+        for parameter in parameters {
             if parameter == null || parameter.get_ParameterType() == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
                 return null
             }
-            index = index + 1
         }
         return parameters
     }

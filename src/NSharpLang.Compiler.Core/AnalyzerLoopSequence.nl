@@ -532,15 +532,12 @@ class AnalyzerLoopSequence {
     // top-level question, so an interface that inherits a sequence interface answers too.
     func GetDeclaredInterfaceElementType(declaration: TypeInfo, substitution: Dictionary<string, TypeInfo>?, requireAsync: bool, depth: int): TypeInfo? {
         interfaceReferences := LoopSequenceTypeFacts.DeclaredInterfacesOf(declaration)
-        index := 0
-        while index < interfaceReferences.Length {
-            interfaceType := typeSubstitutionValue.ResolveTypeForSourceOwner(interfaceReferences[index], declaration, substitution)
+        for interfaceReference in interfaceReferences {
+            interfaceType := typeSubstitutionValue.ResolveTypeForSourceOwner(interfaceReference, declaration, substitution)
             elementType := GetLoopSequenceElementTypeAt(interfaceType, requireAsync, depth + 1)
             if elementType != null {
                 return elementType
             }
-
-            index = index + 1
         }
 
         return null

@@ -24,14 +24,10 @@ class UpdateDependencyFilter {
     static func FilterAllNuGetDependencies(dependencies: Reference[]): List<Reference> {
         filteredDependencies := new List<Reference>()
 
-        i := 0
-        while i < dependencies.Length {
-            dependency := dependencies[i]
+        for dependency in dependencies {
             if dependency.Nuget != null {
                 filteredDependencies.Add(dependency)
             }
-
-            i = i + 1
         }
 
         return filteredDependencies
@@ -57,15 +53,11 @@ class UpdateDependencyFilter {
     static func FilterTargetNuGetDependencies(dependencies: Reference[], targetPackage: string): List<Reference> {
         filteredDependencies := new List<Reference>()
 
-        i := 0
-        while i < dependencies.Length {
-            dependency := dependencies[i]
+        for dependency in dependencies {
             packageName := dependency.Nuget
             if packageName != null && string.Equals(packageName, targetPackage, StringComparison.OrdinalIgnoreCase) {
                 filteredDependencies.Add(dependency)
             }
-
-            i = i + 1
         }
 
         return filteredDependencies

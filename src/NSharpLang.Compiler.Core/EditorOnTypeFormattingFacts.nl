@@ -140,9 +140,7 @@ class EditorOnTypeFormattingFacts {
     // the same column compare equal and a file that mixes them is not re-indented on every keystroke.
     static func LineIndentWidth(line: string, tabSize: int): int {
         width := 0
-        index := 0
-        while index < line.Length {
-            character := line[index]
+        for character in line {
             if character == ' ' {
                 width = width + 1
             } else if character == '\t' {
@@ -150,8 +148,6 @@ class EditorOnTypeFormattingFacts {
             } else {
                 return width
             }
-
-            index = index + 1
         }
 
         return width

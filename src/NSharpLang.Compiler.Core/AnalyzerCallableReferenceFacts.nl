@@ -324,10 +324,8 @@ class AnalyzerCallableReferenceFacts {
             return null
         }
         names := new List<string>()
-        index := 0
-        while index < parameters.Length {
-            names.Add(parameters[index].get_Name() ?? "")
-            index += 1
+        for parameter in parameters {
+            names.Add(parameter.get_Name() ?? "")
         }
         return names
     }

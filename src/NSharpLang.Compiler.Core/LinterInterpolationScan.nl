@@ -287,14 +287,11 @@ class LinterInterpolationScan {
     static func FirstSeparatorIndex(holeText: string): int {
         separators := ['.', '?', '[', '(', ' ', '+', '-', '*', '/', '%', '&', '|', '^', '!', '=', '<', '>', ':', ',']
         first := holeText.Length
-        position := 0
-        while position < separators.Length {
-            index := holeText.IndexOf(separators[position])
+        for separator in separators {
+            index := holeText.IndexOf(separator)
             if index >= 0 && index < first {
                 first = index
             }
-
-            position = position + 1
         }
 
         return first

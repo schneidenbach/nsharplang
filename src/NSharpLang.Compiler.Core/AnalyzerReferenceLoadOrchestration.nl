@@ -218,10 +218,8 @@ class AnalyzerReferenceLoadOrchestration {
         // by name — the same door a test dependency uses, for the same reason.
         if AnalyzerMetadataLoadPolicy.RequiresAspNetCoreAssemblies(config.Sdk) {
             aspNetNames := AnalyzerMetadataLoadPolicy.AspNetCoreAssemblyNames()
-            nameIndex := 0
-            while nameIndex < aspNetNames.Length {
-                requests.Add(new ReferenceLoadRequest("name", aspNetNames[nameIndex], null, aspNetNames[nameIndex], null, null))
-                nameIndex = nameIndex + 1
+            for aspNetName in aspNetNames {
+                requests.Add(new ReferenceLoadRequest("name", aspNetName, null, aspNetName, null, null))
             }
         }
 
@@ -399,15 +397,12 @@ class AnalyzerReferenceLoadOrchestration {
         }
 
         targetFrameworks := AnalyzerMetadataLoadPolicy.MetadataProbeTargetFrameworks(targetFramework)
-        tfmIndex := 0
-        while tfmIndex < targetFrameworks.Length {
-            assetPath := AnalyzerMetadataLoadPolicy.PackageLibAssetPath(versionDir, targetFrameworks[tfmIndex], assemblyName)
+        for targetFrameworkItem in targetFrameworks {
+            assetPath := AnalyzerMetadataLoadPolicy.PackageLibAssetPath(versionDir, targetFrameworkItem, assemblyName)
             if File.Exists(assetPath) {
                 surface.LoadByPath(assetPath)
                 return
             }
-
-            tfmIndex = tfmIndex + 1
         }
 
         surface.RecordFailure(

@@ -1502,10 +1502,8 @@ class Analyzer: IDisposable {
             kind := step.Kind
             if kind == 1 {
                 assemblyNames := step.AssemblyNames
-                assemblyIndex := 0
-                while assemblyIndex < assemblyNames.Length {
-                    MetadataLoadSurface.LoadByName(assemblyNames[assemblyIndex])
-                    assemblyIndex = assemblyIndex + 1
+                for assemblyName in assemblyNames {
+                    MetadataLoadSurface.LoadByName(assemblyName)
                 }
             }
             Imports.Supply(state)
@@ -2134,10 +2132,8 @@ class Analyzer: IDisposable {
         MetadataLoadSurface.Open()
 
         assemblyNames := AnalyzerMetadataLoadPolicy.CommonAssemblyNames()
-        assemblyIndex := 0
-        while assemblyIndex < assemblyNames.Length {
-            MetadataLoadSurface.LoadByName(assemblyNames[assemblyIndex])
-            assemblyIndex = assemblyIndex + 1
+        for assemblyName in assemblyNames {
+            MetadataLoadSurface.LoadByName(assemblyName)
         }
 
         WellKnownTypes = MetadataLoadSurface.CreateWellKnownTypes()

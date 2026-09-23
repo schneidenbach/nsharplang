@@ -213,15 +213,12 @@ class CompilationReferenceResolverKernels {
     static func SelectBestInstalledNuGetVersionDirectory(installedVersionDirectories: string[]): string? {
         installedVersions := new List<string>()
         candidateDirectories := new List<string>()
-        index := 0
-        while index < installedVersionDirectories.Length {
-            version := Path.GetFileName(installedVersionDirectories[index]) ?? ""
+        for installedVersionDirectory in installedVersionDirectories {
+            version := Path.GetFileName(installedVersionDirectory) ?? ""
             if !string.IsNullOrWhiteSpace(version) {
                 installedVersions.Add(version)
-                candidateDirectories.Add(installedVersionDirectories[index])
+                candidateDirectories.Add(installedVersionDirectory)
             }
-
-            index = index + 1
         }
 
         bestVersionIndex := SelectBestNuGetVersionIndex(installedVersions.ToArray())
@@ -234,14 +231,11 @@ class CompilationReferenceResolverKernels {
 
     static func GetLatestNuGetVersionOrThrow(packageName: string, rawVersions: string?[]): string {
         versionsList := new List<string>()
-        index := 0
-        while index < rawVersions.Length {
-            version := rawVersions[index] ?? ""
+        for rawVersion in rawVersions {
+            version := rawVersion ?? ""
             if !string.IsNullOrWhiteSpace(version) {
                 versionsList.Add(version)
             }
-
-            index = index + 1
         }
 
         versions := versionsList.ToArray()
@@ -995,13 +989,10 @@ class CompilationReferenceResolverKernels {
     }
 
     static func NuGetVersionHasPrereleaseSuffix(version: string): bool {
-        index := 0
-        while index < version.Length {
-            if version[index] == '-' {
+        for versionItem in version {
+            if versionItem == '-' {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -1679,13 +1670,10 @@ class CompilationReferenceResolverKernels {
     }
 
     static func ContainsPackageId(packageIds: string[], packageName: string): bool {
-        index := 0
-        while index < packageIds.Length {
-            if string.Equals(packageIds[index], packageName, StringComparison.OrdinalIgnoreCase) {
+        for packageId in packageIds {
+            if string.Equals(packageId, packageName, StringComparison.OrdinalIgnoreCase) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

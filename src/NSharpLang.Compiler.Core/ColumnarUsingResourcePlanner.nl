@@ -130,13 +130,10 @@ class ColumnarUsingResourcePlanner {
         }
 
         interfaces := SafeGetInterfaces(clrType)
-        index := 0
-        while index < interfaces.Length {
-            if interfaces[index].FullName == interfaceName {
+        for interfaceItem in interfaces {
+            if interfaceItem.FullName == interfaceName {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

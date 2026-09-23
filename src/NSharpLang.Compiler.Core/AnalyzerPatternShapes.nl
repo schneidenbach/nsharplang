@@ -196,10 +196,8 @@ class AnalyzerPatternShapes {
         }
 
         inheritedInterfaces := clrType.GetInterfaces()
-        index := 0
-        while index < inheritedInterfaces.Length {
-            shapeTypes.Add(inheritedInterfaces[index])
-            index = index + 1
+        for inheritedInterface in inheritedInterfaces {
+            shapeTypes.Add(inheritedInterface)
         }
 
         return shapeTypes

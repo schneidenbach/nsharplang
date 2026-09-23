@@ -373,15 +373,11 @@ class AnalyzerOverloadFacts {
         }
 
         interfaces := actualType.GetInterfaces()
-        index := 0
-        while index < interfaces.Length {
-            candidateInterface := interfaces[index]
+        for candidateInterface in interfaces {
             if candidateInterface.get_IsGenericType() && candidateInterface.GetGenericTypeDefinition() == genericDefinition {
                 compatibleType = candidateInterface
                 return true
             }
-
-            index = index + 1
         }
 
         currentBase := actualType.get_BaseType()

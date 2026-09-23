@@ -246,20 +246,15 @@ class ColumnarSourceOperatorResolver {
             throw new InvalidOperationException("Source operator declaration facts cannot be null.")
         }
 
-        parameterIndex := 0
-        while parameterIndex < definition.ParamTypes.Length {
-            if definition.ParamTypes[parameterIndex] == null {
+        for paramType2 in definition.ParamTypes {
+            if paramType2 == null {
                 throw new InvalidOperationException("Source operator parameter facts cannot contain null values.")
             }
-            parameterIndex += 1
         }
-        modifierIndex := 0
-        while modifierIndex < definition.ParamModifierKinds.Length {
-            modifier := definition.ParamModifierKinds[modifierIndex]
+        for modifier in definition.ParamModifierKinds {
             if modifier < 0 || modifier > 4 {
                 throw new InvalidOperationException("Source operator modifier facts are invalid.")
             }
-            modifierIndex += 1
         }
 
         method: MethodInfo = definition.Builder

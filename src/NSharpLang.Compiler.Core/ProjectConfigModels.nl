@@ -251,10 +251,8 @@ class ProjectConfig {
             return
         }
 
-        i := 0
-        while i < directoryFiles.Length {
-            files.Add(directoryFiles[i])
-            i = i + 1
+        for directoryFile in directoryFiles {
+            files.Add(directoryFile)
         }
 
         subdirectories := new string[](0)
@@ -264,15 +262,11 @@ class ProjectConfig {
             return
         }
 
-        j := 0
-        while j < subdirectories.Length {
-            subdirectory := subdirectories[j]
+        for subdirectory in subdirectories {
             directoryName := Path.GetFileName(subdirectory) ?? ""
             if !ShouldSkipSourceDirectory(directoryName) {
                 EnumerateSourceFilesRecursive(subdirectory, files)
             }
-
-            j = j + 1
         }
     }
 

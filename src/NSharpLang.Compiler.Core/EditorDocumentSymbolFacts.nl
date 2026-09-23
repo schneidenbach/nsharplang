@@ -259,9 +259,7 @@ class EditorDocumentSymbolFacts {
         index := oneBasedStartLine - 1
         while index < sourceLines.Length {
             line := sourceLines[index]
-            column := 0
-            while column < line.Length {
-                character := line[column]
+            for character in line {
                 if character == '{' {
                     depth = depth + 1
                     foundOpen = true
@@ -271,8 +269,6 @@ class EditorDocumentSymbolFacts {
                         return index + 1
                     }
                 }
-
-                column = column + 1
             }
 
             index = index + 1

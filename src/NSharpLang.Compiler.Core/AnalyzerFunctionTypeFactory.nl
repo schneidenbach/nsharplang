@@ -52,10 +52,8 @@ class AnalyzerFunctionTypeFactory {
             definitionName := definition.get_FullName()
             arguments := effectiveType.GetGenericArguments()
             typeArguments := new List<TypeInfo>()
-            index := 0
-            while index < arguments.Length {
-                typeArguments.Add(AnalyzerReflectionTypeConversion.ConvertReflectionType(arguments[index]))
-                index = index + 1
+            for argument in arguments {
+                typeArguments.Add(AnalyzerReflectionTypeConversion.ConvertReflectionType(argument))
             }
 
             if IsActionDefinitionName(definitionName) {
@@ -177,9 +175,7 @@ class AnalyzerFunctionTypeFactory {
 
         parameterTypeList := new List<TypeInfo>()
         parameterModifierList := new List<Ast.ParameterModifier>()
-        index := 0
-        while index < invokeParameters.Length {
-            parameter := invokeParameters[index]
+        for parameter in invokeParameters {
             substituted := SubstituteDelegateDefinitionType(parameter.get_ParameterType(), genericParameters, typeArguments)
             if substituted == null {
                 return null
@@ -187,7 +183,6 @@ class AnalyzerFunctionTypeFactory {
 
             parameterTypeList.Add(substituted)
             parameterModifierList.Add(GetReflectionParameterModifier(parameter))
-            index = index + 1
         }
 
         returnReflection := AnalyzerReflectionMemberProbe.ReturnTypeOrNull(invokeMethod)
@@ -247,13 +242,10 @@ class AnalyzerFunctionTypeFactory {
         }
 
         arguments := candidate.GetGenericArguments()
-        index := 0
-        while index < arguments.Length {
-            if MentionsGenericParameter(arguments[index], genericParameters) {
+        for argument in arguments {
+            if MentionsGenericParameter(argument, genericParameters) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -416,12 +408,9 @@ class AnalyzerFunctionTypeFactory {
         }
 
         memberTypeParameters := member.TypeParameters
-        typeParameterIndex := 0
-        while typeParameterIndex < memberTypeParameters.Length {
-            typeParameter := memberTypeParameters[typeParameterIndex]
+        for typeParameter in memberTypeParameters {
             shadowed: TypeInfo = new SimpleTypeInfo(typeParameter.Name)
             effectiveSubstitution[typeParameter.Name] = shadowed
-            typeParameterIndex = typeParameterIndex + 1
         }
 
         memberReturnType := member.ReturnType
@@ -433,12 +422,9 @@ class AnalyzerFunctionTypeFactory {
         memberParameterTypes := member.ParameterTypes
         parameterTypes := new List<TypeInfo>()
         sourceParameterTypes := new List<TypeReference>()
-        parameterIndex := 0
-        while parameterIndex < memberParameterTypes.Length {
-            reference := memberParameterTypes[parameterIndex]
+        for reference in memberParameterTypes {
             parameterTypes.Add(ResolveMemberReference(reference, declarationOwner, effectiveSubstitution))
             sourceParameterTypes.Add(reference)
-            parameterIndex = parameterIndex + 1
         }
 
         signature := new FunctionTypeInfo()
@@ -615,20 +601,19 @@ class AnalyzerFunctionTypeFactory {
 
         parameterTypes := new List<TypeInfo>()
         parameterModifiers := new List<Ast.ParameterModifier>()
-        index := 0
-        while index < parameters.Length {
+        for parameter in parameters {
             // A FUNCTION TYPE CANNOT CARRY A DIRECTION, so a member with one is not convertible to
             // one. `in` is excluded here for the same reason `ref` and `out` are — a delegate type
             // built from this signature would lose the direction — and NOT because the member is
             // uncallable: the columnar resolvers reach an `in` member through the ordinary by-ref
             // door.
-            if GetReflectionParameterModifier(parameters[index]) != Ast.ParameterModifier.None {
+            if GetReflectionParameterModifier(parameter) != Ast.ParameterModifier.None {
                 return null
             }
 
             converted: TypeInfo? = null
             try {
-                converted = NullabilityMetadataReflection.ConvertParameter(parameters[index])
+                converted = NullabilityMetadataReflection.ConvertParameter(parameter)
             } catch {
                 return null
             }
@@ -639,7 +624,6 @@ class AnalyzerFunctionTypeFactory {
 
             parameterTypes.Add(converted)
             parameterModifiers.Add(Ast.ParameterModifier.None)
-            index = index + 1
         }
 
         signature := new FunctionTypeInfo()
@@ -864,9 +848,7 @@ class AnalyzerFunctionTypeFactory {
 
     func ResolveMemberConstraints(constraints: GenericConstraint[], declarationOwner: TypeInfo?, substitution: Dictionary<string, TypeInfo>): Dictionary<string, List<TypeInfo>> {
         grouped := new Dictionary<string, List<TypeInfo>>(StringComparer.Ordinal)
-        index := 0
-        while index < constraints.Length {
-            constraint := constraints[index]
+        for constraint in constraints {
             bucket := GetConstraintBucket(grouped, constraint.TypeParameter)
             inner := constraint.Constraints
             innerIndex := 0
@@ -874,8 +856,6 @@ class AnalyzerFunctionTypeFactory {
                 bucket.Add(ResolveMemberReference(inner[innerIndex], declarationOwner, substitution))
                 innerIndex = innerIndex + 1
             }
-
-            index = index + 1
         }
 
         return grouped
@@ -963,10 +943,8 @@ class AnalyzerFunctionTypeFactory {
 
     static func ToStringList(values: string[]): List<string> {
         result := new List<string>()
-        index := 0
-        while index < values.Length {
-            result.Add(values[index])
-            index = index + 1
+        for value in values {
+            result.Add(value)
         }
 
         return result
@@ -974,10 +952,8 @@ class AnalyzerFunctionTypeFactory {
 
     static func ToModifierList(values: Ast.ParameterModifier[]): List<Ast.ParameterModifier> {
         result := new List<Ast.ParameterModifier>()
-        index := 0
-        while index < values.Length {
-            result.Add(values[index])
-            index = index + 1
+        for value in values {
+            result.Add(value)
         }
 
         return result
@@ -985,10 +961,8 @@ class AnalyzerFunctionTypeFactory {
 
     static func ToTypeParameterList(values: TypeParameter[]): List<TypeParameter> {
         result := new List<TypeParameter>()
-        index := 0
-        while index < values.Length {
-            result.Add(values[index])
-            index = index + 1
+        for value in values {
+            result.Add(value)
         }
 
         return result
@@ -996,10 +970,8 @@ class AnalyzerFunctionTypeFactory {
 
     static func ToConstraintList(values: GenericConstraint[]): List<GenericConstraint> {
         result := new List<GenericConstraint>()
-        index := 0
-        while index < values.Length {
-            result.Add(values[index])
-            index = index + 1
+        for value in values {
+            result.Add(value)
         }
 
         return result

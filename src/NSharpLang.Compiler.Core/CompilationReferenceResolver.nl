@@ -151,14 +151,11 @@ sealed class CompilationReferenceResolver {
             AppContext.BaseDirectory,
             compilerDirectory
         )
-        candidateIndex := 0
-        while candidateIndex < candidates.Length {
-            candidate := candidates[candidateIndex]
+        for candidate in candidates {
             if File.Exists(candidate) {
                 result.AddRuntimeAsset(candidate)
                 return
             }
-            candidateIndex = candidateIndex + 1
         }
     }
 
@@ -316,9 +313,7 @@ sealed class CompilationReferenceResolver {
             config.Sdk,
             config.Dependencies
         )
-        frameworkIndex := 0
-        while frameworkIndex < frameworkNames.Length {
-            frameworkName := frameworkNames[frameworkIndex]
+        for frameworkName in frameworkNames {
             directory := FindSharedFrameworkDirectory(frameworkName, config.TargetFramework)
             if directory == null {
                 throw new InvalidOperationException(
@@ -330,7 +325,6 @@ sealed class CompilationReferenceResolver {
                 )
             }
             directories.Add(directory)
-            frameworkIndex = frameworkIndex + 1
         }
         return directories
     }

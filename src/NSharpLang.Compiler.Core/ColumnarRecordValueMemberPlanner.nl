@@ -124,9 +124,7 @@ class ColumnarRecordValueMemberPlanner {
         }
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), otherLocal)
 
-        i := 0
-        while i < fieldNames.Length {
-            fieldName := fieldNames[i]
+        for fieldName in fieldNames {
             field := def.Fields[fieldName]
             fieldType := field.get_FieldType()
             comparerType := ComparerTypeFor(fieldType)
@@ -138,7 +136,6 @@ class ColumnarRecordValueMemberPlanner {
             plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldPool)
             plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethod(ComparerEqualsMethod(comparerType, fieldType)))
             plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), returnFalse)
-            i = i + 1
         }
 
         plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_1())
@@ -169,9 +166,7 @@ class ColumnarRecordValueMemberPlanner {
         plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(17))
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), accumulator)
 
-        i := 0
-        while i < fieldNames.Length {
-            fieldName := fieldNames[i]
+        for fieldName in fieldNames {
             field := def.Fields[fieldName]
             fieldType := field.get_FieldType()
             comparerType := ComparerTypeFor(fieldType)
@@ -184,7 +179,6 @@ class ColumnarRecordValueMemberPlanner {
             plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethod(ComparerHashMethod(comparerType, fieldType)))
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
             plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), accumulator)
-            i = i + 1
         }
 
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), accumulator)
@@ -276,16 +270,13 @@ class ColumnarRecordValueMemberPlanner {
     // non-public instance method list is, so the member is found by name in that list.
     static func MemberwiseCloneMethod(): MethodInfo {
         candidates := typeof(object).GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
-        i := 0
-        while i < candidates.Length {
-            candidate := candidates[i]
+        for candidate in candidates {
             if candidate.get_Name() == "MemberwiseClone" {
                 parameters := candidate.GetParameters()
                 if parameters.Length == 0 {
                     return candidate
                 }
             }
-            i = i + 1
         }
         throw new InvalidOperationException("System.Object.MemberwiseClone was not found.")
     }

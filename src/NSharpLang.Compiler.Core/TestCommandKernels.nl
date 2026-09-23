@@ -186,13 +186,10 @@ class TestCommandKernels {
     }
 
     static func NamesContain(names: string[], name: string): bool {
-        i := 0
-        while i < names.Length {
-            if names[i] == name {
+        for nameItem in names {
+            if nameItem == name {
                 return true
             }
-
-            i = i + 1
         }
 
         return false
@@ -656,14 +653,10 @@ class TestCommandKernels {
     // empty lines.
     static func JoinFailureMessages(messages: string[]): string {
         kept := new List<string>()
-        i := 0
-        while i < messages.Length {
-            message := messages[i]
+        for message in messages {
             if !string.IsNullOrWhiteSpace(message) {
                 kept.Add(message)
             }
-
-            i = i + 1
         }
 
         return string.Join(Environment.NewLine, kept)

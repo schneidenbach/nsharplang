@@ -73,10 +73,8 @@ class AnalyzerSoaDirectColumnCalls {
 
     static func NameSet(names: string[]): HashSet<string> {
         result := new HashSet<string>(StringComparer.Ordinal)
-        index := 0
-        while index < names.Length {
-            result.Add(names[index])
-            index = index + 1
+        for name in names {
+            result.Add(name)
         }
 
         return result
@@ -411,13 +409,10 @@ class AnalyzerSoaDirectColumnCalls {
                 return false
             }
 
-            index := 0
-            while index < methodGroup.Methods.Length {
-                if !IsRuntimeArrayInstanceMethod(methodGroup.Methods[index]) {
+            for method2 in methodGroup.Methods {
+                if !IsRuntimeArrayInstanceMethod(method2) {
                     return false
                 }
-
-                index = index + 1
             }
 
             return true

@@ -58,25 +58,19 @@ class CleanCommand {
         ordered := CleanArtifactDirectoryOrderer.Order(candidates)
 
         removed := new List<string>()
-        i := 0
-        while i < ordered.Length {
-            dir := ordered[i]
+        for dir in ordered {
             if Directory.Exists(dir) {
                 DeleteDirectoryTree(dir)
                 removed.Add(CommandOutputKernels.NormalizePath(Path.GetRelativePath(projectRoot, dir)))
             }
-
-            i = i + 1
         }
 
         array := removed.ToArray()
         Array.Sort(array, 0, array.Length, StringComparer.Ordinal)
 
         sorted := new List<string>()
-        j := 0
-        while j < array.Length {
-            sorted.Add(array[j])
-            j = j + 1
+        for arrayItem in array {
+            sorted.Add(arrayItem)
         }
 
         return sorted
@@ -97,17 +91,13 @@ class CleanCommand {
             return
         }
 
-        i := 0
-        while i < subdirectories.Length {
-            subdirectory := subdirectories[i]
+        for subdirectory in subdirectories {
             AddIfExists(candidates, subdirectory)
 
             directoryName := Path.GetFileName(subdirectory) ?? ""
             if String.Compare(directoryName, "node_modules", StringComparison.OrdinalIgnoreCase) != 0 {
                 AddArtifactCandidatesRecursive(subdirectory, candidates)
             }
-
-            i = i + 1
         }
     }
 
@@ -154,15 +144,12 @@ class CleanCommand {
         builder := new StringBuilder()
         builder.Append('"')
 
-        i := 0
-        while i < value.Length {
-            ch := value[i]
+        for ch in value {
             if ch == '\\' || ch == '"' {
                 builder.Append('\\')
             }
 
             builder.Append(ch)
-            i = i + 1
         }
 
         builder.Append('"')

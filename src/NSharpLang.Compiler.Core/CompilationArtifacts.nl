@@ -40,13 +40,10 @@ class CompilationArtifacts {
         }
 
         dotCount := 0
-        i := 0
-        while i < version.Length {
-            if version[i] == '.' {
+        for versionItem in version {
+            if versionItem == '.' {
                 dotCount = dotCount + 1
             }
-
-            i = i + 1
         }
 
         if dotCount == 0 {

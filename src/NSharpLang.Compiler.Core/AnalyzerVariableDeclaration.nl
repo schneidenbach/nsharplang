@@ -853,9 +853,7 @@ class AnalyzerVariableDeclaration {
 
         selected: MethodInfo? = null
         candidates := definitionType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate.get_Name() == "Deconstruct" && DeconstructOutParameterCount(candidate) == targetCount {
                 if selected != null {
                     return null
@@ -863,8 +861,6 @@ class AnalyzerVariableDeclaration {
 
                 selected = candidate
             }
-
-            index = index + 1
         }
 
         if selected == null {
@@ -873,9 +869,8 @@ class AnalyzerVariableDeclaration {
 
         parameters := selected.GetParameters()
         elements := new List<TypeInfo>()
-        parameterIndex := 0
-        while parameterIndex < parameters.Length {
-            elementType := parameters[parameterIndex].get_ParameterType().GetElementType()
+        for parameter in parameters {
+            elementType := parameter.get_ParameterType().GetElementType()
             if elementType == null {
                 return null
             }
@@ -890,8 +885,6 @@ class AnalyzerVariableDeclaration {
             } else {
                 elements.Add(AnalyzerReflectionTypeConversion.ConvertReflectionType(elementType))
             }
-
-            parameterIndex = parameterIndex + 1
         }
 
         return elements
@@ -920,9 +913,7 @@ class AnalyzerVariableDeclaration {
     // The same `Deconstruct` rule, asked of a SOURCE type's own declaration rather than of metadata.
     func TryGetSourceDeconstructElements(members: DeclaredMemberInfo[], targetCount: int): List<TypeInfo>? {
         selected: DeclaredMemberInfo? = null
-        index := 0
-        while index < members.Length {
-            candidate := members[index]
+        for candidate in members {
             if candidate.Name == "Deconstruct" && !candidate.IsStatic && candidate.Kind == DeclaredMemberKind.Function && candidate.ParameterCount == targetCount && AllParametersAreOut(candidate) {
                 if selected != null {
                     return null
@@ -930,8 +921,6 @@ class AnalyzerVariableDeclaration {
 
                 selected = candidate
             }
-
-            index = index + 1
         }
 
         if selected == null {
@@ -940,10 +929,8 @@ class AnalyzerVariableDeclaration {
 
         parameterTypes := selected.ParameterTypes
         elements := new List<TypeInfo>()
-        parameterIndex := 0
-        while parameterIndex < parameterTypes.Length {
-            elements.Add(typeResolverValue.ResolveType(parameterTypes[parameterIndex]))
-            parameterIndex = parameterIndex + 1
+        for parameterType in parameterTypes {
+            elements.Add(typeResolverValue.ResolveType(parameterType))
         }
 
         return elements
@@ -955,13 +942,10 @@ class AnalyzerVariableDeclaration {
             return false
         }
 
-        index := 0
-        while index < modifiers.Length {
-            if modifiers[index] != ParameterModifier.Out {
+        for modifier in modifiers {
+            if modifier != ParameterModifier.Out {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
@@ -979,13 +963,10 @@ class AnalyzerVariableDeclaration {
             return -1
         }
 
-        index := 0
-        while index < parameters.Length {
-            if !parameters[index].get_IsOut() || !parameters[index].get_ParameterType().get_IsByRef() {
+        for parameter in parameters {
+            if !parameter.get_IsOut() || !parameter.get_ParameterType().get_IsByRef() {
                 return -1
             }
-
-            index = index + 1
         }
 
         return parameters.Length

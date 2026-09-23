@@ -473,9 +473,8 @@ class CompletionReceiverFacts {
         }
 
         interfaceReferences := LoopSequenceTypeFacts.DeclaredInterfacesOf(declaration)
-        interfaceIndex := 0
-        while interfaceIndex < interfaceReferences.Length {
-            interfaceType := RecordedTypeReferenceType(interfaceReferences[interfaceIndex], semanticModels, declaration)
+        for interfaceReference in interfaceReferences {
+            interfaceType := RecordedTypeReferenceType(interfaceReference, semanticModels, declaration)
             if interfaceType != null {
                 AppendInheritedType(
                     CompletionInheritanceFacts.ApplySubstitution(interfaceType, substitution),
@@ -491,8 +490,6 @@ class CompletionReceiverFacts {
                     declarationPath
                 )
             }
-
-            interfaceIndex = interfaceIndex + 1
         }
     }
 

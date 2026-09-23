@@ -178,9 +178,7 @@ record CompilerError(code: ErrorCode, message: string, line: int, column: int, s
     static func NormalizeInlineText(value: string): string {
         builder := new StringBuilder()
         pendingSpace := false
-        index := 0
-        while index < value.Length {
-            ch := value[index]
+        for ch in value {
             if ch == '\r' || ch == '\n' {
                 pendingSpace = true
             } else {
@@ -191,8 +189,6 @@ record CompilerError(code: ErrorCode, message: string, line: int, column: int, s
                 builder.Append(ch)
                 pendingSpace = false
             }
-
-            index = index + 1
         }
 
         return builder.ToString().Trim()

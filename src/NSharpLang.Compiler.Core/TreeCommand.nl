@@ -382,10 +382,8 @@ class TreeCommand {
             print ""
             print TreeCommandKernels.GetTransitiveHeader(report.TransitiveDependencies.Length)
 
-            transitiveIndex := 0
-            while transitiveIndex < report.TransitiveDependencies.Length {
-                print TreeCommandKernels.GetTransitiveDependencyLine(FormatDependency(report.TransitiveDependencies[transitiveIndex]))
-                transitiveIndex = transitiveIndex + 1
+            for transitiveDependency2 in report.TransitiveDependencies {
+                print TreeCommandKernels.GetTransitiveDependencyLine(FormatDependency(transitiveDependency2))
             }
         }
 
@@ -393,10 +391,8 @@ class TreeCommand {
             print ""
             print TreeCommandKernels.GetLimitationsHeader()
 
-            limitationIndex := 0
-            while limitationIndex < report.Limitations.Length {
-                print TreeCommandKernels.GetLimitationLine(report.Limitations[limitationIndex])
-                limitationIndex = limitationIndex + 1
+            for limitation2 in report.Limitations {
+                print TreeCommandKernels.GetLimitationLine(limitation2)
             }
         }
     }

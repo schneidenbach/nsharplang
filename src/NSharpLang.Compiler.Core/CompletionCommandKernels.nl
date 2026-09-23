@@ -45,14 +45,10 @@ class CompletionCommandKernels {
             shellKind = CompletionShellKind.Fish
         }
 
-        i := 0
-        while i < args.Length {
-            arg := args[i]
+        for arg in args {
             if arg == "--help" || arg == "-h" {
                 showHelp = true
             }
-
-            i = i + 1
         }
 
         return new CompletionOptionSummary(shellKind, showHelp)

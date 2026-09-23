@@ -316,10 +316,8 @@ class ColumnarClosedSourceInterfaceMethodMatch {
             modifiers := member.ParamModifierKinds
             if modifiers != null {
                 openParameterModifierCount = modifiers.Length
-                modifierIndex := 0
-                while modifierIndex < modifiers.Length {
-                    openParameterModifiers.Add(modifiers[modifierIndex])
-                    modifierIndex += 1
+                for modifier in modifiers {
+                    openParameterModifiers.Add(modifier)
                 }
             }
         }

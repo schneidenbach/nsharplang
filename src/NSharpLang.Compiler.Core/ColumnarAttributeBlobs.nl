@@ -27,10 +27,8 @@ class ColumnarAttributeBlobs {
     // builders. Binding constructors stays with the current host until S2.2; no selection or
     // attachment-order policy stays there. An empty sequence performs no attachment.
     static func ApplyToType(target: TypeBuilder, attributeConstructor: ConstructorInfo, blobs: byte[][]) {
-        index := 0
-        while index < blobs.Length {
-            target.SetCustomAttribute(attributeConstructor, blobs[index])
-            index = index + 1
+        for blob in blobs {
+            target.SetCustomAttribute(attributeConstructor, blob)
         }
     }
 
@@ -131,10 +129,8 @@ class ColumnarAttributeBlobs {
         blob := new List<byte>()
         WritePrologue(blob)
         WriteUInt32(blob, values.Length)
-        index := 0
-        while index < values.Length {
-            Append(blob, values[index])
-            index = index + 1
+        for value in values {
+            Append(blob, value)
         }
 
         WriteNamedArgumentCount(blob, 0)
@@ -152,10 +148,8 @@ class ColumnarAttributeBlobs {
     // entirely when there is nothing to say.
     static func WriteStringArrayArgument(blob: List<byte>, values: string?[]) {
         WriteUInt32(blob, values.Length)
-        index := 0
-        while index < values.Length {
-            WriteSerString(blob, values[index])
-            index = index + 1
+        for value in values {
+            WriteSerString(blob, value)
         }
     }
 

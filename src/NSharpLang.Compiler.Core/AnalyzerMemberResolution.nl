@@ -327,13 +327,10 @@ class AnalyzerMemberResolution {
 
             reflectedMethods := AnalyzerReflectionMemberProbe.MethodsOrEmpty(clrType, memberFlags)
             matchingMethods := new List<MethodInfo>()
-            reflectedIndex := 0
-            while reflectedIndex < reflectedMethods.Length {
-                reflectedMethod := reflectedMethods[reflectedIndex]
+            for reflectedMethod in reflectedMethods {
                 if reflectedMethod.get_Name() == memberName && IsReachableReflectedMethod(reflectedMethod, inheritedProtectedAccess, friendGrants) {
                     matchingMethods.Add(reflectedMethod)
                 }
-                reflectedIndex = reflectedIndex + 1
             }
 
             if matchingMethods.Count > 0 {
@@ -418,14 +415,11 @@ class AnalyzerMemberResolution {
             // `INamed::Name` on it directly and there is no conversion for the source to write. The
             // walk is a full re-resolution per base, in written order, exactly as the base-class walk
             // above is, so generic substitution and the base's OWN bases are carried along.
-            baseInterfaceIndex := 0
-            while baseInterfaceIndex < sourceShape.BaseInterfaces.Length {
-                baseInterfaceMember := ResolveMember(sourceShape.BaseInterfaces[baseInterfaceIndex], memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess)
+            for baseInterface2 in sourceShape.BaseInterfaces {
+                baseInterfaceMember := ResolveMember(baseInterface2, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess)
                 if !BuiltInTypes.IsUnknown(baseInterfaceMember) {
                     return baseInterfaceMember
                 }
-
-                baseInterfaceIndex = baseInterfaceIndex + 1
             }
 
             if !includeStaticMembers && sourceShape.SupportsObjectMembers {
@@ -597,14 +591,10 @@ class AnalyzerMemberResolution {
         memberType = BuiltInTypes.Unknown
         methods := clrType.GetMethods(GetReflectionMemberFlags(includeStaticMembers, inheritedProtectedAccess, FriendAdmits(grants, clrType)))
         matching := new List<MethodInfo>()
-        index := 0
-        while index < methods.Length {
-            method := methods[index]
+        for method in methods {
             if method.get_Name() == memberName && IsReachableReflectedMethod(method, inheritedProtectedAccess, grants) {
                 matching.Add(method)
             }
-
-            index = index + 1
         }
 
         if matching.Count == 0 {
@@ -746,15 +736,11 @@ class AnalyzerMemberResolution {
         }
 
         methods := AnalyzerReflectionMemberProbe.MethodsOrEmpty(clrType, probeFlags)
-        methodIndex := 0
-        while methodIndex < methods.Length {
-            probedMethod := methods[methodIndex]
+        for probedMethod in methods {
             if probedMethod.get_Name() == memberName && !probedMethod.get_IsSpecialName() && IsFriendBarredLevel(MemberAccessibility.LevelOfMethod(probedMethod)) {
                 level = MemberAccessibility.LevelOfMethod(probedMethod)
                 return true
             }
-
-            methodIndex = methodIndex + 1
         }
 
         probedField := clrType.GetField(memberName, probeFlags)
@@ -809,13 +795,10 @@ class AnalyzerMemberResolution {
         }
 
         baseInterfaces := reflectedType.GetInterfaces()
-        index := 0
-        while index < baseInterfaces.Length {
-            if TryResolveReflectionMemberOnType(baseInterfaces[index], memberName, includeStaticMembers, inheritedProtectedAccess, grants, out memberType) {
+        for baseInterface in baseInterfaces {
+            if TryResolveReflectionMemberOnType(baseInterface, memberName, includeStaticMembers, inheritedProtectedAccess, grants, out memberType) {
                 return true
             }
-
-            index = index + 1
         }
 
         memberType = BuiltInTypes.Unknown
@@ -863,13 +846,10 @@ class AnalyzerMemberResolution {
     // to the wrong overload with no diagnostic at all.
     func ResolveDeclaredFunctionMember(members: DeclaredMemberInfo[], memberName: string, substitution: Dictionary<string, TypeInfo>?, declarationOwner: TypeInfo?): TypeInfo? {
         matching := new List<DeclaredMemberInfo>()
-        index := 0
-        while index < members.Length {
-            candidate := members[index]
+        for candidate in members {
             if candidate.Kind == DeclaredMemberKind.Function && candidate.Name == memberName {
                 matching.Add(candidate)
             }
-            index = index + 1
         }
 
         if matching.Count == 0 {
@@ -958,9 +938,7 @@ class AnalyzerMemberResolution {
         }
         while baseType != null {
             methods := baseType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
-            index := 0
-            while index < methods.Length {
-                candidate := methods[index]
+            for candidate in methods {
                 candidateReturn := candidate.get_ReturnType()
                 if candidate.get_Name() == "Finalize" && !candidate.get_IsStatic() && candidate.get_IsVirtual() && candidate.GetParameters().Length == 0 && candidateReturn != null && candidateReturn.get_FullName() == "System.Void" {
                     owner := candidate.get_DeclaringType()
@@ -969,7 +947,6 @@ class AnalyzerMemberResolution {
                     }
                     return ((int)candidate.get_Attributes() & newSlotFlag) == 0 && IsRuntimeFinalizerMethod(candidate)
                 }
-                index = index + 1
             }
             baseType = baseType.get_BaseType()
         }
@@ -1018,13 +995,10 @@ class AnalyzerMemberResolution {
 
         methods := objectType.GetMethods(methodFlags)
         matching := new List<MethodInfo>()
-        index := 0
-        while index < methods.Length {
-            method := methods[index]
+        for method in methods {
             if method.get_Name() == memberName && !method.get_IsSpecialName() && IsReachableReflectedMethod(method, inheritedProtectedAccess) {
                 matching.Add(method)
             }
-            index = index + 1
         }
 
         if matching.Count == 1 {

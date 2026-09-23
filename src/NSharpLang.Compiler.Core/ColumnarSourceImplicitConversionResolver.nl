@@ -304,13 +304,10 @@ class ColumnarSourceImplicitConversionResolver {
     }
 
     static func HasParameterModifiers(modifierKinds: int[]): bool {
-        index := 0
-        while index < modifierKinds.Length {
-            if modifierKinds[index] != 0 {
+        for modifierKind in modifierKinds {
+            if modifierKind != 0 {
                 return true
             }
-
-            index += 1
         }
 
         return false

@@ -187,14 +187,13 @@ class DocQueryTypeIndex {
     static func ResolveNestedTypeChain(reflectionType: Type, parts: string[]): Type? {
         publicOnly := BindingFlags.Public
         current := reflectionType
-        partIndex := 0
-        while partIndex < parts.Length {
+        for part in parts {
             nestedTypes := current.GetNestedTypes(publicOnly)
             next: Type? = null
             nestedIndex := 0
             while nestedIndex < nestedTypes.Length && next == null {
                 nestedType := nestedTypes[nestedIndex]
-                if DocQueryKernels.IsDocMemberNameMatch(nestedType.get_Name(), parts[partIndex]) {
+                if DocQueryKernels.IsDocMemberNameMatch(nestedType.get_Name(), part) {
                     next = nestedType
                 }
 
@@ -206,7 +205,6 @@ class DocQueryTypeIndex {
             }
 
             current = next
-            partIndex = partIndex + 1
         }
 
         return current

@@ -511,9 +511,7 @@ class ColumnarReadOnlySpanElementRead {
     // overload sets differ only in that, which is why one finder answers both.
     static func FindMarshalMethod(name: string, openSpanParameter: bool): MethodInfo? {
         candidates := typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static)
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate.get_Name() == name && candidate.get_IsGenericMethodDefinition() {
                 parameters := candidate.GetParameters()
                 if parameters.Length == 1 {
@@ -529,8 +527,6 @@ class ColumnarReadOnlySpanElementRead {
                     }
                 }
             }
-
-            index = index + 1
         }
 
         return null

@@ -153,12 +153,10 @@ class ColumnarScalarLiteralPlanner {
             return false
         }
 
-        index := 0
-        while index < text.Length {
-            if text[index] < '0' || text[index] > '9' {
+        for textItem in text {
+            if textItem < '0' || textItem > '9' {
                 return false
             }
-            index += 1
         }
 
         literalKind := 0

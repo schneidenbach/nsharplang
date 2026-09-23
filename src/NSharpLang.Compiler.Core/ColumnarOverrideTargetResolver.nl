@@ -106,9 +106,7 @@ class ColumnarBaseMethodMatch {
 
             while current != null && !matched {
                 candidates := DeclaredMethodsOrEmpty(current)
-                index := 0
-                while index < candidates.Length {
-                    candidate := candidates[index]
+                for candidate in candidates {
                     if IsOverridableTarget(candidate, name) {
                         candidateSignature := new ColumnarBaseMethodSignatureMatch(candidate, returnType, parameterTypes)
                         if candidateSignature.Matched {
@@ -119,7 +117,6 @@ class ColumnarBaseMethodMatch {
                             break
                         }
                     }
-                    index += 1
                 }
 
                 if !matched {
@@ -360,12 +357,10 @@ class ColumnarSourceBaseMethodMatch {
             return false
         }
         arguments := candidate.GetGenericArguments()
-        index := 0
-        while index < arguments.Length {
-            if IsBuilderBound(arguments[index]) {
+        for argument in arguments {
+            if IsBuilderBound(argument) {
                 return true
             }
-            index = index + 1
         }
         return false
     }

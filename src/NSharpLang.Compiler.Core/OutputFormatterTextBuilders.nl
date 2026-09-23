@@ -48,10 +48,8 @@ class OutputFormatterTextBuilders {
 
         builder.AppendLine()
 
-        index := 0
-        while index < result.Outline.Length {
-            AppendOutlineEntryText(builder, result.Outline[index], 0)
-            index = index + 1
+        for outlineItem2 in result.Outline {
+            AppendOutlineEntryText(builder, outlineItem2, 0)
         }
 
         return builder.ToString()
@@ -241,10 +239,8 @@ class OutputFormatterTextBuilders {
             builder.AppendLine()
             builder.AppendLine(OutputFormatterTextKernels.GetHoverDocumentationHeaderText())
             lines := documentation.Split('\n')
-            index := 0
-            while index < lines.Length {
-                builder.AppendLine(OutputFormatterTextKernels.GetHoverDocumentationLineText(lines[index]))
-                index = index + 1
+            for lineItem in lines {
+                builder.AppendLine(OutputFormatterTextKernels.GetHoverDocumentationLineText(lineItem))
             }
         }
 
@@ -477,10 +473,8 @@ class OutputFormatterTextBuilders {
         if symbol.Members != null {
             members := symbol.Members ?? new SymbolResult[](0)
             if members.Length > 0 {
-                index := 0
-                while index < members.Length {
-                    AppendSymbolText(builder, members[index], indent + 1)
-                    index = index + 1
+                for member in members {
+                    AppendSymbolText(builder, member, indent + 1)
                 }
             }
         }
@@ -492,10 +486,8 @@ class OutputFormatterTextBuilders {
         if entry.Children != null {
             children := entry.Children ?? new OutlineEntry[](0)
             if children.Length > 0 {
-                index := 0
-                while index < children.Length {
-                    AppendOutlineEntryText(builder, children[index], indent + 1)
-                    index = index + 1
+                for childrenItem in children {
+                    AppendOutlineEntryText(builder, childrenItem, indent + 1)
                 }
             }
         }

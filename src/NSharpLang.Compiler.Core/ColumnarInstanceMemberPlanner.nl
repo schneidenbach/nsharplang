@@ -965,12 +965,10 @@ class ColumnarInstanceMemberPlanner {
         }
 
         arguments := valueType.GetGenericArguments()
-        index := 0
-        while index < arguments.Length {
-            if ContainsOpenTypeParameters(arguments[index]) {
+        for argument in arguments {
+            if ContainsOpenTypeParameters(argument) {
                 return true
             }
-            index += 1
         }
         return false
     }

@@ -17,14 +17,10 @@ class SourceEventFacts {
     // backing delegate at all, which is why the "inside the declaring type the name IS the field" rule
     // has to ask: there is no field to be.
     static func IsAbstractDeclaredEvent(members: DeclaredMemberInfo[], name: string): bool {
-        index := 0
-        while index < members.Length {
-            member := members[index]
+        for member in members {
             if member.Name == name && member.Kind == DeclaredMemberKind.Event {
                 return (member.DeclaredModifiers & Convert.ToInt32(Modifiers.Abstract)) != 0
             }
-
-            index = index + 1
         }
 
         return false

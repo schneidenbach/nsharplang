@@ -860,9 +860,7 @@ class HotSummaryCatalog {
     static func GlobMatches(pattern: string, target: string): bool {
         parts := pattern.Split('*')
         position := 0
-        i := 0
-        while i < parts.Length {
-            part := parts[i]
+        for part in parts {
             if part.Length != 0 {
                 found := target.IndexOf(part, position, StringComparison.Ordinal)
                 if found < 0 {
@@ -875,8 +873,6 @@ class HotSummaryCatalog {
 
                 position = found + part.Length
             }
-
-            i = i + 1
         }
 
         if pattern.EndsWith("*", StringComparison.Ordinal) {

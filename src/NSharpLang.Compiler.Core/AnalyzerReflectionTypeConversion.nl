@@ -124,10 +124,8 @@ class AnalyzerReflectionTypeConversion {
             name := clrType.Name
             tick := name.IndexOf('`')
             convertedArguments := new List<TypeInfo>()
-            index := 0
-            while index < arguments.Length {
-                convertedArguments.Add(ConvertReflectionType(arguments[index]))
-                index = index + 1
+            for argument in arguments {
+                convertedArguments.Add(ConvertReflectionType(argument))
             }
 
             constructed: TypeInfo = ReflectionTypeInfoFactory.FromConstructedGeneric(name.Substring(0, tick), convertedArguments, clrType)
@@ -192,10 +190,8 @@ class AnalyzerReflectionTypeConversion {
             }
 
             convertedArguments := new List<TypeInfo>()
-            index := 0
-            while index < arguments.Length {
-                convertedArguments.Add(ConvertReflectionTypeWithOverrides(arguments[index], typeInfoOverrides, clrBindings))
-                index = index + 1
+            for argument in arguments {
+                convertedArguments.Add(ConvertReflectionTypeWithOverrides(argument, typeInfoOverrides, clrBindings))
             }
 
             constructed: TypeInfo = ReflectionTypeInfoFactory.FromConstructedGeneric(StripGenericArity(clrType.Name), convertedArguments, clrType)

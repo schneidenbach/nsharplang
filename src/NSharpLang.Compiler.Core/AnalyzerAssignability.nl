@@ -1019,14 +1019,11 @@ class AnalyzerAssignability {
 
         applicable := 0
         methods := reflectionGroup.Methods
-        index := 0
-        while index < methods.Length {
-            candidate := AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(methods[index])
+        for method in methods {
+            candidate := AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(method)
             if candidate != null && IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(candidate, delegateSignature) {
                 applicable = applicable + 1
             }
-
-            index = index + 1
         }
 
         return applicable == 1
@@ -1222,9 +1219,7 @@ class AnalyzerAssignability {
             return false
         }
 
-        index := 0
-        while index < ownerMembers.Length {
-            member := ownerMembers[index]
+        for member in ownerMembers {
             if IsImplicitConversionOperator(member) {
                 parameterTypes := member.ParameterTypes
                 parameterType := typeSubstitution.ResolveTypeForSourceOwner(parameterTypes[0], declarationOwner, substitution)
@@ -1238,8 +1233,6 @@ class AnalyzerAssignability {
                     }
                 }
             }
-
-            index = index + 1
         }
 
         return false
@@ -1432,14 +1425,11 @@ class AnalyzerAssignability {
     }
 
     func AnyInterfaceAssignable(interfaces: TypeReference[], owner: TypeInfo, substitution: Dictionary<string, TypeInfo>?, target: TypeInfo): bool {
-        index := 0
-        while index < interfaces.Length {
-            interfaceType := typeSubstitution.ResolveTypeForSourceOwner(interfaces[index], owner, substitution)
+        for interfaceItem in interfaces {
+            interfaceType := typeSubstitution.ResolveTypeForSourceOwner(interfaceItem, owner, substitution)
             if IsAssignable(target, interfaceType) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

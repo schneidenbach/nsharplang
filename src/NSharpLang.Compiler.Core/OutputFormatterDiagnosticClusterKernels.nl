@@ -125,10 +125,8 @@ class OutputFormatterDiagnosticClusterKernels {
     static func CreateDiagnosticClusterId(code: string, severity: string, category: string, sourceConstruct: string, recipe: string, messagePattern: string): string {
         key := code + "|" + severity + "|" + category + "|" + sourceConstruct + "|" + recipe + "|" + messagePattern
         hash := 17
-        index := 0
-        while index < key.Length {
-            hash = hash * 31 + Convert.ToInt32(key[index])
-            index = index + 1
+        for keyItem in key {
+            hash = hash * 31 + Convert.ToInt32(keyItem)
         }
 
         if hash < 0 {
@@ -482,13 +480,10 @@ class OutputFormatterDiagnosticClusterKernels {
             return "\"\""
         }
 
-        index := 0
-        while index < value.Length {
-            if !IsUnquotedCommandArgumentChar(value[index]) {
+        for valueItem in value {
+            if !IsUnquotedCommandArgumentChar(valueItem) {
                 return QuoteCommandArgument(value)
             }
-
-            index = index + 1
         }
 
         return value
@@ -498,9 +493,7 @@ class OutputFormatterDiagnosticClusterKernels {
         builder := new StringBuilder(value.Length + 2)
         builder.Append('"')
 
-        index := 0
-        while index < value.Length {
-            ch := value[index]
+        for ch in value {
             if ch == '\\' {
                 builder.Append('\\')
                 builder.Append('\\')
@@ -510,8 +503,6 @@ class OutputFormatterDiagnosticClusterKernels {
             } else {
                 builder.Append(ch)
             }
-
-            index = index + 1
         }
 
         builder.Append('"')

@@ -166,10 +166,8 @@ class AddCommand {
     static func ToLineList(lineArray: string[]): List<string> {
         lines := new List<string>()
 
-        i := 0
-        while i < lineArray.Length {
-            lines.Add(lineArray[i])
-            i = i + 1
+        for lineArrayItem in lineArray {
+            lines.Add(lineArrayItem)
         }
 
         return lines

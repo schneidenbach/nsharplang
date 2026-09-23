@@ -60,12 +60,10 @@ class ColumnarNodeTable {
     }
 
     func HasAdditionalRootBinding(name: string): bool {
-        index := 0
-        while index < additionalRootBindingNames.Length {
-            if additionalRootBindingNames[index] == name {
+        for additionalRootBindingName in additionalRootBindingNames {
+            if additionalRootBindingName == name {
                 return true
             }
-            index = index + 1
         }
         return false
     }

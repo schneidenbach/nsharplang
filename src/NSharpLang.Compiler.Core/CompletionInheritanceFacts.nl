@@ -174,13 +174,10 @@ class CompletionInheritanceFacts {
             return false
         }
 
-        nestedIndex := 0
-        while nestedIndex < nestedTypes.Length {
-            if TypeTreeContainsDeclaration(nestedTypes[nestedIndex].Type, declarationOwner, seen) {
+        for nestedType in nestedTypes {
+            if TypeTreeContainsDeclaration(nestedType.Type, declarationOwner, seen) {
                 return true
             }
-
-            nestedIndex = nestedIndex + 1
         }
 
         return false

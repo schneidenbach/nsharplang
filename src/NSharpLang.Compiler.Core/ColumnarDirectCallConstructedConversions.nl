@@ -223,9 +223,8 @@ class ColumnarDirectCallConstructedConversions {
             return false
         }
 
-        index := 0
-        while index < constructors.Length {
-            parameters := constructors[index].GetParameters()
+        for constructor in constructors {
+            parameters := constructor.GetParameters()
             if parameters.Length == 1 {
                 parameterType := parameters[0].get_ParameterType()
                 if parameterType.get_IsGenericParameter() {
@@ -237,8 +236,6 @@ class ColumnarDirectCallConstructedConversions {
                     }
                 }
             }
-
-            index += 1
         }
 
         return hasFirstArm && hasSecondArm
@@ -280,9 +277,7 @@ class ColumnarDirectCallConstructedConversions {
         definition := expectedType.GetGenericTypeDefinition()
         constructors := definition.GetConstructors()
 
-        index := 0
-        while index < constructors.Length {
-            candidate := constructors[index]
+        for candidate in constructors {
             parameters := candidate.GetParameters()
             if parameters.Length == 1 {
                 parameterType := parameters[0].get_ParameterType()
@@ -292,8 +287,6 @@ class ColumnarDirectCallConstructedConversions {
                     return constructorHandle != null
                 }
             }
-
-            index += 1
         }
 
         return false
@@ -308,11 +301,10 @@ class ColumnarDirectCallConstructedConversions {
         owners := new Type[](2)
         owners[0] = actualType
         owners[1] = expectedType
-        ownerIndex := 0
-        while ownerIndex < owners.Length {
+        for owner in owners {
             methods := new MethodInfo[](0)
             try {
-                methods = owners[ownerIndex].GetMethods()
+                methods = owner.GetMethods()
             } catch ex: NotSupportedException {
                 return false
             } catch ex: NotImplementedException {
@@ -322,7 +314,7 @@ class ColumnarDirectCallConstructedConversions {
             methodIndex := 0
             while methodIndex < methods.Length {
                 candidate := methods[methodIndex]
-                if IsExactSpanToReadOnlySpanMethod(candidate, owners[ownerIndex], expectedType, actualType) {
+                if IsExactSpanToReadOnlySpanMethod(candidate, owner, expectedType, actualType) {
                     if methodHandle != null {
                         return false
                     }
@@ -332,8 +324,6 @@ class ColumnarDirectCallConstructedConversions {
 
                 methodIndex += 1
             }
-
-            ownerIndex += 1
         }
 
         return methodHandle != null

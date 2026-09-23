@@ -476,14 +476,10 @@ class CodeIntelligenceTypeResolution {
 
             matching := new List<MethodInfo>()
             methods := clrType.GetMethods(flags)
-            index := 0
-            while index < methods.Length {
-                method := methods[index]
+            for method in methods {
                 if method.get_Name() == memberName && !method.get_IsSpecialName() {
                     matching.Add(method)
                 }
-
-                index = index + 1
             }
 
             if matching.Count > 0 {
@@ -527,16 +523,12 @@ class CodeIntelligenceTypeResolution {
 
         best := candidates[0]
         bestScore := -1
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             score := ScoreReflectedOverload(candidate, argumentTypes ?? new TypeInfo?[](0))
             if score > bestScore {
                 bestScore = score
                 best = candidate
             }
-
-            index = index + 1
         }
 
         return best

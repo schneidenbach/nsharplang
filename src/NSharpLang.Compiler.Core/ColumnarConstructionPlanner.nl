@@ -2308,9 +2308,7 @@ class ColumnarConstructionPlanner {
     // where the raw parameter types are still the definition's own type parameters -- so the
     // emittable-signature test must run on the substituted form, never on the open one.
     static func CollectApplicableRuntimeConstructors(candidates: ConstructorInfo[], closedArguments: Type[], argumentTypes: Type[], applicable: List<ConstructorInfo>, applicableParameters: List<Type[]>) {
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate != null && candidate.get_IsPublic() && !candidate.get_IsStatic() && !IsExpandedConstructorShape(candidate) {
                 parameters := candidate.GetParameters()
                 if parameters != null && parameters.Length == argumentTypes.Length {
@@ -2324,8 +2322,6 @@ class ColumnarConstructionPlanner {
                     }
                 }
             }
-
-            index = index + 1
         }
     }
 
@@ -2337,9 +2333,7 @@ class ColumnarConstructionPlanner {
     // came back empty, so no construction that already selected can change its answer — this tier can
     // only turn a decline into an emission.
     static func CollectOptionalFillRuntimeConstructors(candidates: ConstructorInfo[], closedArguments: Type[], argumentTypes: Type[], applicable: List<ConstructorInfo>, applicableParameters: List<Type[]>) {
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate != null && candidate.get_IsPublic() && !candidate.get_IsStatic() && !IsExpandedConstructorShape(candidate) {
                 parameters := candidate.GetParameters()
                 if parameters != null && parameters.Length > argumentTypes.Length {
@@ -2353,8 +2347,6 @@ class ColumnarConstructionPlanner {
                     }
                 }
             }
-
-            index = index + 1
         }
     }
 
@@ -2400,13 +2392,10 @@ class ColumnarConstructionPlanner {
     // `T`, which is exactly the type the caller has. A generic parameter the instantiation did not
     // substitute in is still open and still refused.
     static func HasUnsupportedConstructorSignature(parameterTypes: Type[], closedArguments: Type[]): bool {
-        index := 0
-        while index < parameterTypes.Length {
-            parameterType := parameterTypes[index]
+        for parameterType in parameterTypes {
             if parameterType == null || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedResolvedSignatureType(parameterType, closedArguments) {
                 return true
             }
-            index = index + 1
         }
         return false
     }
@@ -2494,9 +2483,7 @@ class ColumnarConstructionPlanner {
         applicableDeclared := new List<Type[]>()
         applicableExpanded := new List<Type[]>()
         applicableElements := new List<Type>()
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate != null && candidate.get_IsPublic() && !candidate.get_IsStatic() && !IsExpandedConstructorShape(candidate) {
                 parameters := candidate.GetParameters()
                 if parameters != null {
@@ -2514,8 +2501,6 @@ class ColumnarConstructionPlanner {
                     }
                 }
             }
-
-            index = index + 1
         }
 
         selectedIndex := BestSourceConstructorIndex(applicableExpanded, argumentTypes, argumentFacts)
@@ -2951,9 +2936,7 @@ class ColumnarConstructionPlanner {
     }
 
     static func VisibleTypeParameterRootIsInvalid(nodes: ColumnarNodeTable, canonical: string, bindings: ColumnarFragmentBindings, allowExactParameter: bool): bool {
-        index := 0
-        while index < nodes.VisibleTypeParameterNames.Length {
-            name := nodes.VisibleTypeParameterNames[index]
+        for name in nodes.VisibleTypeParameterNames {
             if canonical == name {
                 if !allowExactParameter {
                     return true
@@ -2964,7 +2947,6 @@ class ColumnarConstructionPlanner {
             if canonical.StartsWith(name + ".", StringComparison.Ordinal) {
                 return true
             }
-            index += 1
         }
         return false
     }

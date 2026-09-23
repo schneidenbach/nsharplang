@@ -207,13 +207,10 @@ class AnalyzerMetadataLoadPolicy {
 
         ordered := new List<string>()
         ordered.Add(projectTargetFramework ?? "")
-        index := 0
-        while index < fallbacks.Length {
-            if fallbacks[index] != (projectTargetFramework ?? "") {
-                ordered.Add(fallbacks[index])
+        for fallback in fallbacks {
+            if fallback != (projectTargetFramework ?? "") {
+                ordered.Add(fallback)
             }
-
-            index = index + 1
         }
 
         return ordered.ToArray()
@@ -346,9 +343,7 @@ class AnalyzerMetadataLoadPolicy {
         }
 
         accumulated := 0L
-        index := 0
-        while index < text.Length {
-            digit := text[index]
+        for digit in text {
             if digit < '0' || digit > '9' {
                 return false
             }
@@ -362,7 +357,6 @@ class AnalyzerMetadataLoadPolicy {
             }
 
             accumulated = accumulated * 10L + step
-            index = index + 1
         }
 
         value = accumulated

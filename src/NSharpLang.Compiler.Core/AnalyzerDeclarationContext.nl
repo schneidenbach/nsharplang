@@ -691,14 +691,10 @@ class AnalyzerDeclarationContext {
             return
         }
 
-        memberIndex := 0
-        while memberIndex < shape.DeclaredMembers.Length {
-            member := shape.DeclaredMembers[memberIndex]
+        for member in shape.DeclaredMembers {
             if member != null && (member.Kind == DeclaredMemberKind.Field || member.Kind == DeclaredMemberKind.Property) && (member.DeclaredModifiers & Convert.ToInt32(Modifiers.Required)) != 0 && !names.Contains(member.Name) {
                 names.Add(member.Name)
             }
-
-            memberIndex = memberIndex + 1
         }
 
         if shape.BaseType != null {
@@ -749,16 +745,14 @@ class AnalyzerDeclarationContext {
         resolved := ResolveAlias(importedType, new HashSet<string>(StringComparer.Ordinal))
         requireNestedExport := RequiresNestedExport(currentFilePath, selectedDeclaration.File)
         nestedPath := remainder.Substring(nestedSeparator + 1).Split('.')
-        nestedIndex := 0
-        while nestedIndex < nestedPath.Length {
+        for nestedPathItem in nestedPath {
             nested := BuiltInTypes.Unknown as TypeInfo
-            if !TryResolveNestedMember(resolved, nestedPath[nestedIndex], requireNestedExport, out nested) {
+            if !TryResolveNestedMember(resolved, nestedPathItem, requireNestedExport, out nested) {
                 typeInfo = BuiltInTypes.Unknown
                 declaration = null
                 return false
             }
             resolved = ResolveAlias(nested, new HashSet<string>(StringComparer.Ordinal))
-            nestedIndex = nestedIndex + 1
         }
         typeInfo = resolved
         return true
@@ -836,14 +830,11 @@ class AnalyzerDeclarationContext {
         }
 
         resolvedBases := new List<TypeInfo>()
-        index := 0
-        while index < references.Length {
+        for reference in references {
             resolved := BuiltInTypes.Unknown as TypeInfo
-            if TryResolveTypeForOwner(references[index], interfaceType, substitution, out resolved) && !BuiltInTypes.IsUnknown(resolved) {
+            if TryResolveTypeForOwner(reference, interfaceType, substitution, out resolved) && !BuiltInTypes.IsUnknown(resolved) {
                 resolvedBases.Add(resolved)
             }
-
-            index = index + 1
         }
 
         return resolvedBases.ToArray()
@@ -884,9 +875,7 @@ class AnalyzerDeclarationContext {
     // which of the two readings the position gets — the handler type inside the declaring type, the
     // event itself everywhere else — because only the caller knows where the name was written.
     func TryResolveDeclaredEventMember(owner: TypeInfo, members: DeclaredMemberInfo[], name: string, substitution: Dictionary<string, TypeInfo>?, out handlerType: TypeInfo): bool {
-        index := 0
-        while index < members.Length {
-            member := members[index]
+        for member in members {
             if member.Name == name && member.Kind == DeclaredMemberKind.Event {
                 declaredType := member.Type
                 if declaredType == null || !TryResolveTypeForOwner(declaredType, owner, substitution, out handlerType) {
@@ -895,8 +884,6 @@ class AnalyzerDeclarationContext {
 
                 return true
             }
-
-            index = index + 1
         }
 
         handlerType = BuiltInTypes.Unknown
@@ -904,9 +891,7 @@ class AnalyzerDeclarationContext {
     }
 
     func TryResolveDeclaredValueMember(owner: TypeInfo, members: DeclaredMemberInfo[], name: string, substitution: Dictionary<string, TypeInfo>?, out memberType: TypeInfo): bool {
-        index := 0
-        while index < members.Length {
-            member := members[index]
+        for member in members {
             if member.Name == name && (member.Kind == DeclaredMemberKind.Field || member.Kind == DeclaredMemberKind.Property) {
                 if member.Type == null {
                     memberType = BuiltInTypes.Unknown
@@ -918,16 +903,13 @@ class AnalyzerDeclarationContext {
                 memberType = BuiltInTypes.Unknown
                 return true
             }
-            index = index + 1
         }
         memberType = BuiltInTypes.Unknown
         return false
     }
 
     func TryResolvePrimaryParameter(owner: TypeInfo, parameters: ParameterDeclarationInfo[], name: string, substitution: Dictionary<string, TypeInfo>?, out memberType: TypeInfo): bool {
-        index := 0
-        while index < parameters.Length {
-            parameter := parameters[index]
+        for parameter in parameters {
             if parameter.Name == name {
                 if TryResolveTypeForOwner(parameter.Type, owner, substitution, out memberType) {
                     return true
@@ -935,7 +917,6 @@ class AnalyzerDeclarationContext {
                 memberType = BuiltInTypes.Unknown
                 return true
             }
-            index = index + 1
         }
         memberType = BuiltInTypes.Unknown
         return false
@@ -1082,10 +1063,8 @@ class AnalyzerDeclarationContext {
         methods := new List<MethodInfo>()
         seenMethods := new HashSet<MethodInfo>()
         AddRuntimeInterfaceMethods(interfaceType.GetMethods(), name, includeStaticMembers, seenMethods, methods)
-        interfaceIndex := 0
-        while interfaceIndex < inheritedInterfaces.Length {
-            AddRuntimeInterfaceMethods(inheritedInterfaces[interfaceIndex].GetMethods(), name, false, seenMethods, methods)
-            interfaceIndex = interfaceIndex + 1
+        for inheritedInterface in inheritedInterfaces {
+            AddRuntimeInterfaceMethods(inheritedInterface.GetMethods(), name, false, seenMethods, methods)
         }
         if methods.Count > 0 {
             memberType = new ReflectionMethodGroupInfo(methods.ToArray(), methods[0].get_Name() + "(...)")
@@ -1117,12 +1096,10 @@ class AnalyzerDeclarationContext {
         }
 
         inheritedInterfaces := receiverType.GetInterfaces()
-        interfaceIndex := 0
-        while interfaceIndex < inheritedInterfaces.Length {
-            if DeclaresRuntimeInstanceMethod(inheritedInterfaces[interfaceIndex], name) {
+        for inheritedInterface in inheritedInterfaces {
+            if DeclaresRuntimeInstanceMethod(inheritedInterface, name) {
                 return true
             }
-            interfaceIndex = interfaceIndex + 1
         }
 
         return false
@@ -1130,22 +1107,17 @@ class AnalyzerDeclarationContext {
 
     static func DeclaresRuntimeInstanceMethod(receiverType: Type, name: string): bool {
         candidates := receiverType.GetMethods()
-        candidateIndex := 0
-        while candidateIndex < candidates.Length {
-            candidate := candidates[candidateIndex]
+        for candidate in candidates {
             if candidate.get_Name() == name && !candidate.get_IsStatic() {
                 return true
             }
-            candidateIndex = candidateIndex + 1
         }
 
         return false
     }
 
     static func AddRuntimeInterfaceMethods(candidates: MethodInfo[], name: string, includeStaticMembers: bool, seenMethods: HashSet<MethodInfo>, methods: List<MethodInfo>) {
-        candidateIndex := 0
-        while candidateIndex < candidates.Length {
-            candidate := candidates[candidateIndex]
+        for candidate in candidates {
             if candidate.get_Name() == name {
                 admitted := includeStaticMembers
                 if !admitted {
@@ -1157,7 +1129,6 @@ class AnalyzerDeclarationContext {
                     }
                 }
             }
-            candidateIndex = candidateIndex + 1
         }
     }
 
@@ -1855,10 +1826,8 @@ class AnalyzerDeclarationContext {
         if nestedTypes == null {
             return
         }
-        nestedIndex := 0
-        while nestedIndex < nestedTypes.Length {
-            RegisterSourceType(nestedTypes[nestedIndex].Type, filePath, typeInfo)
-            nestedIndex = nestedIndex + 1
+        for nestedType in nestedTypes {
+            RegisterSourceType(nestedType.Type, filePath, typeInfo)
         }
     }
 
@@ -1882,14 +1851,12 @@ class AnalyzerDeclarationContext {
     func ResolveNestedPath(owner: TypeInfo, path: string, requireExported: bool, activeAliases: HashSet<string>): TypeInfo {
         resolved := ResolveAlias(owner, activeAliases)
         segments := path.Split('.')
-        segmentIndex := 0
-        while segmentIndex < segments.Length {
+        for segment in segments {
             nested := BuiltInTypes.Unknown as TypeInfo
-            if !TryResolveNestedMember(resolved, segments[segmentIndex], requireExported, out nested) {
+            if !TryResolveNestedMember(resolved, segment, requireExported, out nested) {
                 return BuiltInTypes.Unknown
             }
             resolved = ResolveAlias(nested, activeAliases)
-            segmentIndex = segmentIndex + 1
         }
         return resolved
     }
@@ -1921,14 +1888,11 @@ class AnalyzerDeclarationContext {
             nestedTypes = interfaceType.NestedTypes
         }
         if nestedTypes != null {
-            index := 0
-            while index < nestedTypes.Length {
-                nested := nestedTypes[index]
+            for nested in nestedTypes {
                 if nested.Name == name && (!requireExported || nested.IsExported) {
                     nestedType = nested.Type
                     return true
                 }
-                index = index + 1
             }
         }
         nestedType = BuiltInTypes.Unknown
@@ -2059,14 +2023,11 @@ class AnalyzerDeclarationContext {
 
         shape := new AnalyzerSourceMemberShape()
         if TryGetSourceMemberShape(owner, substitution, out shape) {
-            memberIndex := 0
-            while memberIndex < shape.DeclaredMembers.Length {
-                member := shape.DeclaredMembers[memberIndex]
+            for member in shape.DeclaredMembers {
                 if member.Name == name {
                     selection = new AnalyzerMemberSelection(shape.Owner, member, GetDeclarationFile(shape.Owner), member.Line, member.Column, DeclarationFacts.MemberKindName(shape.Owner, member.KindName, member.IsStatic), member.IsExported)
                     return true
                 }
-                memberIndex = memberIndex + 1
             }
             if shape.BaseType != null {
                 return TryFindMemberCore(shape.BaseType, name, substitution, visited, out selection)
@@ -2074,13 +2035,10 @@ class AnalyzerDeclarationContext {
 
             // A DERIVED INTERFACE'S BASES, in written order. First declaration wins, which is the
             // same rule the single-inheritance chain above follows; `visited` makes a diamond safe.
-            baseIndex := 0
-            while baseIndex < shape.BaseInterfaces.Length {
-                if TryFindMemberCore(shape.BaseInterfaces[baseIndex], name, substitution, visited, out selection) {
+            for baseInterface2 in shape.BaseInterfaces {
+                if TryFindMemberCore(baseInterface2, name, substitution, visited, out selection) {
                     return true
                 }
-
-                baseIndex = baseIndex + 1
             }
         }
 
@@ -2259,19 +2217,15 @@ class AnalyzerDeclarationContext {
                 memberIndex = memberIndex + 1
             }
             if shape.SupportsPrimaryParameters && !includeStaticMembers {
-                parameterIndex := 0
-                while parameterIndex < shape.PrimaryParameters.Length {
-                    result.Add(shape.PrimaryParameters[parameterIndex].Name)
-                    parameterIndex = parameterIndex + 1
+                for primaryParameter2 in shape.PrimaryParameters {
+                    result.Add(primaryParameter2.Name)
                 }
             }
             if shape.BaseType != null {
                 CollectAvailableSourceMemberNames(shape.BaseType, includeStaticMembers, substitution, visited, result)
             }
-            baseInterfaceIndex := 0
-            while baseInterfaceIndex < shape.BaseInterfaces.Length {
-                CollectAvailableSourceMemberNames(shape.BaseInterfaces[baseInterfaceIndex], includeStaticMembers, substitution, visited, result)
-                baseInterfaceIndex = baseInterfaceIndex + 1
+            for baseInterface2 in shape.BaseInterfaces {
+                CollectAvailableSourceMemberNames(baseInterface2, includeStaticMembers, substitution, visited, result)
             }
             return
         }

@@ -180,10 +180,8 @@ class UpdateCommand {
     static func WriteProjectLines(projectYml: string, lines: string[]) {
         builder := new StringBuilder()
 
-        i := 0
-        while i < lines.Length {
-            builder.AppendLine(lines[i])
-            i = i + 1
+        for line in lines {
+            builder.AppendLine(line)
         }
 
         File.WriteAllText(projectYml, builder.ToString())

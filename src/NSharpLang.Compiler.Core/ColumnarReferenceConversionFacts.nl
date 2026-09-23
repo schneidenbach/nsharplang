@@ -390,13 +390,10 @@ class ColumnarReferenceConversionFacts {
         }
 
         implemented := externalBase.GetInterfaces()
-        index := 0
-        while index < implemented.Length {
-            if RuntimeInterfaceEqualsOrExtends(implemented[index], target) {
+        for implementedItem in implemented {
+            if RuntimeInterfaceEqualsOrExtends(implementedItem, target) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

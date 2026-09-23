@@ -219,13 +219,10 @@ class AnalyzerPatternReachability {
     }
 
     static func HasConversionOperator(members: DeclaredMemberInfo[]): bool {
-        index := 0
-        while index < members.Length {
-            if members[index].IsConversionOperator {
+        for member in members {
+            if member.IsConversionOperator {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

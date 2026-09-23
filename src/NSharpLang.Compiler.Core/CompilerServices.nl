@@ -139,10 +139,8 @@ class MultiFileCompilerInputBuilder {
         }
 
         sourceFiles := config.GetSourceFiles(projectRoot, includeTests)
-        i := 0
-        while i < sourceFiles.Length {
-            result.Add(Path.GetFullPath(sourceFiles[i]))
-            i = i + 1
+        for sourceFile in sourceFiles {
+            result.Add(Path.GetFullPath(sourceFile))
         }
 
         return result
@@ -248,13 +246,10 @@ class ProjectSourceFileFilter {
     }
 
     static func ProjectSourceFilterIsExcluded(path: string, excludePatterns: string[]): bool {
-        j := 0
-        while j < excludePatterns.Length {
-            if ProjectSourceFilterMatchesPattern(path, excludePatterns[j]) {
+        for excludePattern in excludePatterns {
+            if ProjectSourceFilterMatchesPattern(path, excludePattern) {
                 return true
             }
-
-            j = j + 1
         }
 
         return false
@@ -436,9 +431,7 @@ class AssemblyVersionKernels {
         }
 
         parsed := 0
-        index := 0
-        while index < component.Length {
-            ch := component[index]
+        for ch in component {
             if ch < '0' || ch > '9' {
                 return false
             }
@@ -455,7 +448,6 @@ class AssemblyVersionKernels {
             }
 
             parsed = parsed * 10 + digit
-            index = index + 1
         }
 
         value = parsed

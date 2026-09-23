@@ -128,14 +128,10 @@ class DiagnosticColorPolicy {
         }
 
         found: string? = null
-        i := 0
-        while i < args.Length {
-            arg := args[i]
+        for arg in args {
             if IsColorOption(arg) {
                 found = arg
             }
-
-            i = i + 1
         }
 
         return found

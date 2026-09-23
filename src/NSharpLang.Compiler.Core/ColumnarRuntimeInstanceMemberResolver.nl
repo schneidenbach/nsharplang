@@ -597,13 +597,10 @@ class ColumnarRuntimeInstanceMemberResolver {
         }
 
         baseInterfaces := InheritedInterfaceSweep(lookupType)
-        index := 0
-        while index < baseInterfaces.Length {
-            if TryResolvePublicGetter(baseInterfaces[index], member, allowInheritedProtected, out getter, out declaringType, out resultType) {
+        for baseInterface in baseInterfaces {
+            if TryResolvePublicGetter(baseInterface, member, allowInheritedProtected, out getter, out declaringType, out resultType) {
                 return true
             }
-
-            index = index + 1
         }
 
         getter = null
@@ -800,13 +797,10 @@ class ColumnarRuntimeInstanceMemberResolver {
         // route is kept below for the collection wrappers it also names.
         if RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(declaringType) {
             implemented := InheritedInterfaceSweep(receiverType)
-            index := 0
-            while index < implemented.Length {
-                if RuntimeTypeShapeFacts.ExactTypeShapeMatches(implemented[index], declaringType) {
+            for implementedItem in implemented {
+                if RuntimeTypeShapeFacts.ExactTypeShapeMatches(implementedItem, declaringType) {
                     return true
                 }
-
-                index = index + 1
             }
 
             inheritedCountOwner := typeof(object)
@@ -1050,14 +1044,10 @@ class ColumnarRuntimeInstanceMemberResolver {
         }
 
         arguments := valueType.GetGenericArguments()
-        index := 0
-        while index < arguments.Length {
-            argument := arguments[index]
+        for argument in arguments {
             if RuntimeTypeShapeFacts.IsEnumType(argument) || argument is TypeBuilder || IsSourceBuilderShape(argument) || IsSupportedDelegateType(argument) || RuntimeTypeShapeFacts.ContainsBuilderBoundType(argument) || !IsAdmittedValueType(argument) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
@@ -1095,13 +1085,10 @@ class ColumnarRuntimeInstanceMemberResolver {
         }
 
         arguments := valueType.GetGenericArguments()
-        index := 0
-        while index < arguments.Length {
-            if ContainsOpenGenericParameters(arguments[index]) {
+        for argument in arguments {
+            if ContainsOpenGenericParameters(argument) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -1313,13 +1300,10 @@ class ColumnarRuntimeInstanceMemberResolver {
         }
 
         arguments := valueType.GetGenericArguments()
-        index := 0
-        while index < arguments.Length {
-            if !IsAdmittedValueType(arguments[index]) {
+        for argument in arguments {
+            if !IsAdmittedValueType(argument) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
@@ -1340,13 +1324,10 @@ class ColumnarRuntimeInstanceMemberResolver {
         }
 
         arguments := valueType.GetGenericArguments()
-        index := 0
-        while index < arguments.Length {
-            if !IsAdmittedValueType(arguments[index]) {
+        for argument in arguments {
+            if !IsAdmittedValueType(argument) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
