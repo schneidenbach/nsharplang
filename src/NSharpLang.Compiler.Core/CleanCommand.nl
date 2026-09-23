@@ -5,7 +5,6 @@ import System.Collections.Generic
 import System.IO
 import System.Text
 import NSharpLang.Cli
-import NSharpLang.Compiler.CodeIntelligence
 
 class CleanCommand {
     static func Execute(args: string[]): int {

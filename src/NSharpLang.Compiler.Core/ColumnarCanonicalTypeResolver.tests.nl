@@ -2,8 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
-import System.Reflection.Emit
-import System.Threading.Tasks
 
 
 // These tests stay at the resolver boundary: they build a real semantic catalog and call the

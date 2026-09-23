@@ -2,8 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
-import System.Reflection
-import System.Reflection.Emit
 
 
 // `015-A3` and `015-A4` make `ColumnarTypeOfPlanner` the compiler's SOLE owner of the two span HEADS

@@ -7,7 +7,6 @@ import System.Text
 import System.Text.Json
 import NSharpLang.Cli
 import NSharpLang.Compiler
-import NSharpLang.Compiler.CodeIntelligence
 
 class TreeReport {
     SchemaVersion: int

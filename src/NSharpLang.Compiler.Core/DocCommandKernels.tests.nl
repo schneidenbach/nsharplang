@@ -1,6 +1,5 @@
 namespace NSharpLang.Cli.Commands
 
-import System.Collections.Generic
 import NSharpLang.Compiler.CodeIntelligence
 
 // THE `nlc doc` OPTION, ORDERING, SLUG, SIGNATURE AND MESSAGE KERNELS.
