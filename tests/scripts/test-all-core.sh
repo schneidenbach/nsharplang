@@ -384,13 +384,21 @@ else
     # other class moved: NL905 424, NL202 352, NL002 239, NL010 165 (was 201 at the peak, 186
     # before), NL012 38, NL011 30, NL304 28.
     #
+    # 2026-09-23, PRs 5-7 of the same audit (the emit context, the loop sweep, the node kinds):
+    # 1,317, still carried by 279 files. Measured with the tip CLI against BOTH trees -- the base
+    # source reports 1,318 through the same front door, so the compiler changed no answer -- the
+    # diff is zero additions and one removal: the NL905 on `initCtor` in `ColumnarIlEmitter.nl`,
+    # whose `initCtor.Body.SourceFileId` was dereferenced twice by the hand-threaded sibling view
+    # and holder slot and is dereferenced once now that `ColumnarEmitContext.ForSourceFile` derives
+    # both from one file id. NL905 424 -> 423; no other class moved.
+    #
     # -1 means BLOCKED, not clean. `check` on a project that REFERENCES Compiler.Core builds that
     # reference first, and that build fails while Core's own front door is not clean -- so those two
     # produce an error envelope instead of a diagnostic list and there is nothing to count yet. The
     # step prints the reason and moves on; the day Core reaches 0 their ceilings become real numbers
     # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
     SELF_HOST_CEILINGS=(
-        1318
+        1317
         -1
         -1
         0

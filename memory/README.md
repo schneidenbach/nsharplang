@@ -110,6 +110,17 @@ between them when their builtin tables moved to `WellKnownTypeCatalog`. Removing
 twenty-two other unused imports already sitting in the same eighteen files, took the count from 1,340
 to 1,318, so the ceiling came down the way `c751edd7e` brought it to 1,340. No other class moved.
 
+**Measured 2026-09-23 at `d81168959`** (PRs 5-7 of the same campaign: the emit context, the loop
+idiom sweep, the node-kind ledgers): Core reports **1,317 diagnostics carried by 279 of the project's
+files**, and **the gate ceiling is now 1,317**. Measured with the tip CLI against BOTH trees the way
+`c751edd7e` established -- the base source (`9ef0f5b32`) reports 1,318 through the same front door,
+so the compiler changed no answer -- the diff over diagnostic identities is **zero additions and one
+removal**: the NL905 on `initCtor` in `ColumnarIlEmitter.nl`. Its `initCtor.Body.SourceFileId` used
+to be dereferenced twice, once for the file's sibling view and once for its holder slot, and
+`ColumnarEmitContext.ForSourceFile` now derives both from one file id. NL905 424 -> 423; NL202 352,
+NL002 239, NL010 165, NL012 38, NL011 30, NL304 28 all unmoved. A 2,500-line source reduction that
+neither adds nor hides a front-door diagnostic is the result this step exists to be able to state.
+
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
 
