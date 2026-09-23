@@ -2,23 +2,26 @@
 
 ## Census wave 18 — current status (2026-09-23)
 
-Wave 18 is integrated through **`bea64ac92`** on `census/merge`. **Twenty-six commits** sit between
+Wave 18 is integrated through **`738996c29`** on `census/merge`. **Thirty-four commits** sit between
 the wave-17 docs tip `59c965af0` and the tip (`git log 59c965af0..HEAD --stat`). The checkout is
 clean. **Two bootstrap seeds were published this wave**: `03f02b764` (packed source `eed29c71c`) and
-`bea64ac92` (packed source `9ef0f5b32`).
+`bea64ac92` (packed source `9ef0f5b32`). The lineage since the eighth seed is
+`bea64ac92` → `94142e947` (the wave-18 docs commit, and what was pushed) → `ea15221fd` … →
+`738996c29` (**compression PR B**, six commits).
 
 **This is not a completion record, and the overall migration is NOT finished.** The toolchain floor
 did not move: the CLI is still 25 lines of C#, Runtime still 861, Playground.Wasm still 71 — **957
 lines, unchanged** — and the **rendered visual IDE proof is still owed**, five waves running. What
-wave 18 did is four things that can each be stated plainly: **CI went green**, **the last C# test
-project was deleted**, **the gate got about a third faster**, and **six language slices the audit
-asked for landed**.
+wave 18 did is five things that can each be stated plainly: **CI went green**, **the last C# test
+project was deleted**, **the gate got about a third faster**, **six language slices the audit asked
+for landed**, and **compression PR B took `Compiler.Core` down another 2,506 lines**.
 
 **THE HEADLINE: GitHub Actions `Build` IS GREEN AGAIN.** Run **`35829299886`** at **`03f02b764`** is
 the first green since **`e9ca730b6` on 2026-09-11** — twelve days red. Run **`35843843835`** at
 **`9ef0f5b32`** is green, and so is the **push** run **`35843838914`** at the same sha. The step that
 had been failing, `Installed toolchain integration tests`, now runs
-`tests/native/installed-toolchain-integration` through `nlc test`.
+`tests/native/installed-toolchain-integration` through `nlc test`. **It has stayed green**: the push
+run **`35855288410`** and the PR run **`35855294276`**, both at **`94142e947`**, are green as well.
 
 ### Status of the required sequence at a glance (2026-09-23, wave 18)
 
@@ -42,7 +45,12 @@ had been failing, `Installed toolchain integration tests`, now runs
 | Gates at `9ef0f5b32` | **non-VS PASS first try (19m11s); VS PASS on the SECOND attempt (23m19s)** | `evidence/combined-9ef0f5b32/` |
 | **Actions `35843843835` + push `35843838914` at `9ef0f5b32`** | **both GREEN** | `gh run view 35843843835` |
 | Eighth real reseed, at packed source `9ef0f5b32` | **SUCCESS** | `evidence/reseed-9ef0f5b32/reseed.log` |
-| Gates on the seed commit `bea64ac92` | **PENDING — running now**, nothing is claimed for them | `evidence/seed-bea64ac92/` (partial) |
+| Gates on the seed commit `bea64ac92` | **first non-VS run FAILED throughput ONLY** under a concurrent build; **rerun both PASS** (non-VS **22m49s**, VS **20m37s**, 36 VS smoke rows) | `evidence/seed-bea64ac92/` (the failing log is kept) |
+| Push of the seed + wave-18 docs as `94142e947` | **DONE** | `git log -1 94142e947` |
+| **Actions push `35855288410` at `94142e947`** | **GREEN**; `unofficial-release` **skipped**, which is the designed push arm | `gh run view 35855288410` |
+| **Actions PR `35855294276` at `94142e947`** | **GREEN**; `unofficial-release` **ran**, which is the designed PR arm | `gh run view 35855294276` |
+| **Compression PR B — audit PRs 5–7** | **LANDED** on `systems-language` at `738996c29`, six commits, rebased | `git log 94142e947..738996c29 --stat` |
+| Gates at `738996c29` | **both PASS** (non-VS **18m28s**, VS **19m40s** — the fastest pair recorded in `evidence/`) | `evidence/combined-738996c29/` |
 | Extension reload | **STILL PRE-FLIP** — never re-run on the N# server | wave 16: `evidence/seed-2b9271828/reload-extension.log` |
 | Rendered visual IDE proof | **STILL OWED** | nothing rendered has ever been observed |
 
@@ -148,6 +156,14 @@ this box was building other lanes:
 | `345e7899a` non-VS | `{ 5.09 4.69 4.67 }` | 2 | `count-transitions` 64 **1.47×**, 4096 **1.40×** |
 | `9ef0f5b32` VS, 1st attempt | `{ 5.22 5.55 4.65 }` | 3 | `count-transitions` 4096 **1.44×**, 64 1.25×, `rolling-hash` 64 1.20× |
 | `9ef0f5b32` VS, rerun | `{ 3.08 4.06 5.81 }` | **0** | `count-transitions` 4096 **1.00×** |
+| `bea64ac92` non-VS, 1st attempt | `{ 5.77 4.67 4.99 }` | 4 | `min-max-delta` 64 **1.45×**, 4096 1.35×; `parse-eight-digits` 64 1.42×, 4096 1.25× |
+| `bea64ac92` non-VS, rerun | `{ 1.92 2.40 2.98 }` one-minute before the gate | **0** | — |
+
+**That is now three trips, all of them Step 2c and all of them under a concurrent build on this box,
+and the pattern is the instrument rather than the tree.** The fixed idle-M4 baseline is the thing
+that keeps tripping; **replacing it with a same-run control is PROPOSED and NOT DONE**, and it is an
+open user decision (see *Lanes in flight*). Note also that the rerun's own
+`load-before-gate-rerun.txt` reads **1.92** one-minute, so the trip is not reproducible at rest.
 
 The `345e7899a` trip was **not rerun on its own** — it was folded into the `9ef0f5b32` gate, which
 covers the same tree plus two commits. The VS rerun's `load-before-vscode-rerun.txt` reads **1.87**
@@ -169,6 +185,66 @@ before the gate is not the number the gate judged on.
 
 The PR was **closed with a landing note** recording the rebase-and-fast-forward and the gate it was
 verified under; the branch was retired after the push.
+
+### Compression PR B — audit PRs 5–7, landed at `738996c29`
+
+Six commits, rebased onto `94142e947`. `git log 94142e947..738996c29 --stat` is the receipt; the
+verdicts below are what the commit messages and the gate logs actually say, including where they
+**contradict the audit's estimates**.
+
+- **`ea15221fd` — the `ColumnarEmitContext` seam.** `ColumnarIlEmitter` was constructed **thirteen**
+  times and each call spelled the same **fourteen** arguments. One immutable environment is now built
+  in the assembly pass and derived (`ForSourceFile`, `WithTypeResolution`, `ForLambdaBody`, …) rather
+  than re-threaded; `EmitInlineInstanceInitializers` goes 14 parameters → 5, `TryEmitLocalFunctionBodies`
+  17 → 7. **The audit's −3,600 estimate did NOT survive measurement.** `ColumnarIlEmitter.nl` holds
+  **~1,040 argument-continuation lines in total** — the thirteen construction sites are 480 of them —
+  so the change removes 204 lines of threading and adds a 191-line owner. **It is close to
+  line-neutral and was landed for the seam, not the size.**
+- **`1dc98d69d` + `d4608620c` — the loop sweep, in two bisectable commits.** **842 loops converted**:
+  **340** array/string loops in 129 files, then **502** list and read-only-view loops. Split on
+  purpose — an array `for … in` lowers to the same index walk, while a list walks through
+  `GetEnumerator` and an `IReadOnlyList<T>` receiver reaches it through the interface, which is a
+  real difference in kind and belongs on its own side of a bisect. **Rejections are named, not
+  totalled**: 255 loops do arithmetic on the index, store it or return it; 32 write through
+  `xs[index]`; 52 share one index with a later `index = 0`; and 152 list loops still want their
+  index.
+- **`ff65e73e4` — named node kinds, and a statement ledger that did not exist.** **618** of 1,355
+  raw-literal kind comparisons now name what they mean — every one the sweep could prove reads a
+  **node** kind rather than a token kind; `tokens.Kinds[st.Pos] == 37` is a different integer space
+  and was left alone. Both ledgers moved into a new `ColumnarNodeKinds.nl` as `const int` members,
+  and `ColumnarStatementNodeKind` is new. **The `match` half of that PR was REFUSED and the refusal
+  is the finding**: `EmitExpressionCore`'s 3,183 lines are separate `if` statements that each
+  `return`, so there is **no `} else if … {` cascade to remove** and the audit's **−1,500** does not
+  exist; and no `match` with a statement-block arm exists anywhere in 300k lines of N#, so the shape
+  the rewrite needs is unproven in the seed.
+- **`cbbd2e96e` + `738996c29` — front door 1,318 → 1,317, and the ownership repin it forced.**
+  Measured with the tip CLI against both trees: the base (`9ef0f5b32`) reports 1,318 through the same
+  front door, so the compiler changed no answer. Over diagnostic identities the diff is **zero
+  additions and one removal** — the NL905 on `initCtor` in `ColumnarIlEmitter.nl`, because
+  `ColumnarEmitContext.ForSourceFile` leaves one dereference where there were two. **2,500 lines came
+  out of Core without adding a front-door diagnostic or hiding one.** Repinning the ceiling grew
+  `test-all-core.sh` (a reviewed DELIVERY row, no ceiling and no allowance), so its row and the head
+  fingerprint moved in **both** places that hold it — the manifest key and the policy constant in
+  `OwnershipAudit.nl` — to `head-v2:7dd64f554797cce6`; ownership audit **25/25**.
+
+**Measured, at `738996c29`:** `Compiler.Core` source **300,695 → 298,189 (−2,506)**, which the tree
+confirms independently (`git archive … | wc -l` over `src/NSharpLang.Compiler.Core`: **538,961 →
+536,455**, the same **−2,506**). Estate **9,621 rows / 0 failed**. Front door **1,317 (at the
+ceiling)**, Build.Tasks **0**. Step 3a **135 projects** (11 serial, then 124 under up to 6 workers);
+`tests/native` itself holds **129** project directories, which is the "129/129" the commit messages
+quote — *the combined gate's number is 135, and the two are not the same census.* IL verification
+**83 N# assemblies**, no new errors against the baseline. VS smoke **36 passing**.
+
+**Running total of the compression campaign: PR A −906, PR B −2,506.**
+
+**Two numbers that were circulating did NOT survive the evidence, and are corrected here.**
+(1) *"IL byte-identical over 120/140 corpus assemblies, with one non-identical."* The commit messages
+say the examples/`tests/native` corpus is **120 assemblies** and that **all 120** are byte-identical
+to their predecessors outside the PE timestamp and checksum. **There is no 140-assembly corpus and no
+recorded non-identical assembly** — the `140` that appears in the gate logs is a test-row count, not
+an assembly count. (2) *"842 of 2,019 index loops, 385 rejected."* **2,019** and **385** appear
+nowhere: the audit's W4 census is **1,787** loops, and the rejections the commits actually name are
+the 255 / 32 / 52 / 152 above.
 
 ### Language slices — six, under "no compatibility shims"
 
@@ -202,8 +278,12 @@ its own pass.**
 | `bea64ac92` (eighth) | `9ef0f5b32` | `d8b6e1c2…` | `32fa51c7…` | `head-v2:48628c3d8a182bcb` (25/25) |
 
 Full digests are in `bootstrap/SHA256SUMS` at each commit. The eighth carries explicit interface
-implementation and contextual `type`, **so `Compiler.Core` may now use both**. **Its gates are
-PENDING** — running now in an isolated copy; nothing is claimed for them here.
+implementation and contextual `type`, **so `Compiler.Core` may now use both**. **Its gates are now
+IN:** the first non-VS run **FAILED on throughput ONLY** (4 of 12 cells, load `{ 5.77 4.67 4.99 }`,
+a concurrent build on this box — the failing log is kept at
+`evidence/seed-bea64ac92/product-non-vscode.FAILED-throughput-under-load.log`), and the **rerun
+passed both**: non-VS **22m49s**, VS **20m37s**, with **36** VS smoke rows. The seed and the wave-18
+docs commit were then pushed as **`94142e947`**.
 
 **Measured at the `9ef0f5b32` combined gate**: estate **9,621 rows / 0 failed**; front door **1,318
 (at the ceiling)** with Build.Tasks **0**; Step 3a **135 projects** (11 serial, then 124 under up to
@@ -237,18 +317,36 @@ is noted here only so the next measurement is not surprised by it.)*
 
 ### Lanes in flight
 
-`census/core-b` — **audit PRs 5–7**: `ColumnarEmitContext`, the loop sweep, and node kinds + `match`.
+`census/core-b` is **DONE** — its PRs 5–7 are compression PR B above, landed at `738996c29`.
 
-### Still OWED at `bea64ac92`
+`census/core-c` — **audit PRs 8–10**: `get_X()` → property at **3,708** sites, per-type families
+collapsed to generics, and the `ColumnarParserKernels` split. **Building as this was written; nothing
+is claimed for it.**
+
+**Open user decision, PROPOSED AND NOT DONE.** Replace the throughput gate's **fixed idle-M4
+baseline** (2026-09-01, `8cf40128a`) with a **same-run control**, so Step 2c stops tripping whenever
+another lane is building on this box. Three trips this wave say the instrument is the problem; the
+change has not been made and needs the user's call.
+
+### Still OWED at `738996c29`
 
 1. **Rendered visual IDE verification** — unchanged, five waves old. The only successful extension
    reload remains the PRE-FLIP one at `2b9271828`, which built a **C#** language server.
-2. **Gates on the eighth seed commit `bea64ac92`** — in progress; this record claims nothing for them.
-3. **The rest of the `Compiler.Core` compression** — PRs 5–7 open, levers L5–L10 unstarted.
-4. **Runtime / Playground.Wasm / the Cli floor** — still open user decisions.
+2. **The rest of the `Compiler.Core` compression** — PRs 5–7 have landed as PR B; **PRs 8–10 are in
+   flight on `census/core-c`** and levers L5–L10 are unstarted. The `match` rewrite is **declined
+   with a reason**, not pending.
+3. **Runtime / Playground.Wasm / the Cli floor** — still open user decisions. **957 production lines,
+   still unchanged**, plus the 359 in `editors/visualstudio/` that have never been inside the 957 and
+   are the lowest priority of anything here.
+4. **The throughput gate's baseline** — an open user decision, proposed above and not done.
 
-**No completion claim.** What is now true that was not true at `59c965af0`: CI is green, `tests/`
-holds no C#, the gate runs in roughly two thirds of the time, and six language slices have landed.
+*(Item 2 of the previous list — gates on the eighth seed — is now DISCHARGED; see the reseeds section.)*
+
+**No completion claim.** What is now true that was not true at `59c965af0`: CI is green and has
+stayed green, `tests/` holds no C#, the gate runs in roughly half the time it used to (**18m28s /
+19m40s** at `738996c29`, against **42m40s / 37m58s** at `59c965af0`), six language slices have
+landed, and two compression PRs have taken **−3,412** lines out of `Compiler.Core`. **None of that
+moves the toolchain floor, and the visual IDE proof is still owed.**
 
 ## Census wave 17 — history (2026-09-22)
 

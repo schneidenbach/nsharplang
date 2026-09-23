@@ -33,10 +33,12 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ### Census wave 18 — current closeout cursor (2026-09-23)
 
-**Tip.** `bea64ac92` on `census/merge`. **Twenty-six commits** since the wave-17 docs tip
+**Tip.** `738996c29` on `census/merge`. **Thirty-four commits** since the wave-17 docs tip
 `59c965af0` (`git log 59c965af0..HEAD --stat`). The checkout is clean. **Two bootstrap seeds were
 published this wave** — the **seventh** (`03f02b764`, packed source `eed29c71c`) and the **eighth**
-(`bea64ac92`, packed source `9ef0f5b32`).
+(`bea64ac92`, packed source `9ef0f5b32`). Lineage since the eighth seed:
+`bea64ac92` → `94142e947` (the wave-18 docs commit, and what was pushed) → `ea15221fd` … →
+`738996c29` (**compression PR B**, six commits, rebased).
 
 **THE HEADLINE: GITHUB ACTIONS `Build` IS GREEN AGAIN, AND IT HAD BEEN RED SINCE `e9ca730b6` ON
 2026-09-11.** Run **`35829299886`** at **`03f02b764`** is the first green — twelve days and roughly
@@ -44,7 +46,9 @@ twenty red runs after the last one. Run **`35843843835`** at **`9ef0f5b32`** is 
 the **push** run **`35843838914`** at the same sha. The `Installed toolchain integration tests` step
 that had been failing NU5026 now runs `tests/native/installed-toolchain-integration` through
 `nlc test`, with `NSHARP_RUN_DOCKER_INTEGRATION=1` making the Docker rows REQUIRED rather than
-skippable.
+skippable. **It has stayed green**: push run **`35855288410`** and PR run **`35855294276`**, both at
+**`94142e947`**, are green too — with `unofficial-release` **skipped** on the push arm and **run** on
+the PR arm, which is exactly the split `345e7899a` designed.
 
 **Correction to a claim that was circulating.** `35843843835` is **not** "the first run on the new
 `systems-language` PR trigger". PR **#190's base is `main`**, so every PR run in the listing —
@@ -78,7 +82,11 @@ the push arm alone — **push runs publish only from `main`** — and leaves the
 | Gates at `9ef0f5b32` | **non-VS PASS first try (19m11s); VS PASS on the SECOND attempt (23m19s)** | `evidence/combined-9ef0f5b32/` |
 | Actions `35843843835` + push `35843838914` at `9ef0f5b32` | **both GREEN** | `gh run view 35843843835` |
 | Eighth reseed (packed source `9ef0f5b32`) | **SUCCESS** | `evidence/reseed-9ef0f5b32/reseed.log` |
-| Gates on seed commit `bea64ac92` | **PENDING — running now** | `evidence/seed-bea64ac92/` (partial) |
+| Gates on seed commit `bea64ac92` | **1st non-VS FAILED throughput ONLY** (concurrent build); **rerun both PASS** (non-VS 22m49s, VS 20m37s, 36 smoke) | `evidence/seed-bea64ac92/` |
+| Push of the seed + wave-18 docs as `94142e947` | **DONE** | `git log -1 94142e947` |
+| Actions push `35855288410` + PR `35855294276` at `94142e947` | **both GREEN**; release job skipped on push, run on PR — as designed | `gh run view 35855288410` |
+| **Compression PR B (audit PRs 5–7)** | **LANDED** on `systems-language` at `738996c29` — six commits, rebased | `git log 94142e947..738996c29 --stat` |
+| Gates at `738996c29` | **both PASS** (non-VS **18m28s**, VS **19m40s** — fastest pair in `evidence/`) | `evidence/combined-738996c29/` |
 | Rendered visual IDE proof | **STILL OWED** | never produced |
 
 **Compiler.Core cleanup A, `4098492f6..327b8ef03`.** `132 files changed, +2,013 / −2,797`, matching
@@ -89,6 +97,31 @@ across 116 captured runs; **estate selection FIXED** — the rows were namespace
 `dev.sh --estate Columnar` selects **3,142 rows instead of 53** (and `Analyzer` 3,079 instead of 38),
 which means every `--estate` run before this one was filtering against a name almost nothing carried;
 and the **front door 1,340 → 1,318**, ceiling ratcheted down the established way.
+
+**Compression PR B (audit PRs 5–7), `94142e947..738996c29`.** Six commits, rebased. Verdict and
+headline numbers only; the proofs are in the commit messages.
+
+| commit | what moved | verdict |
+|---|---|---|
+| `ea15221fd` | `ColumnarEmitContext` — 13 emitter construction sites stop re-threading 14 arguments; two helpers go 14→5 and 17→7 params | **Landed for the SEAM, not the size.** The audit's **−3,600 did NOT survive measurement**: `ColumnarIlEmitter.nl` holds ~**1,040** argument-continuation lines in total, so this is −204 / +191, near line-neutral |
+| `1dc98d69d` + `d4608620c` | index loops → `for … in`: **340** array/string, then **502** list/read-only-view, **842 total**, split bisectably because a list walks through `GetEnumerator` and an array does not | Rejections are **named, not totalled**: 255 use the index for more than `xs[index]`, 32 write through the element, 52 reuse the index after the loop, 152 list loops still want it |
+| `ff65e73e4` | **618** of 1,355 raw-literal kind comparisons named via a new `ColumnarNodeKinds.nl`; `ColumnarStatementNodeKind` is NEW — the statement ledger the compiler had been spelling in integers | **The `match` half was REFUSED, and the refusal is the finding.** `EmitExpressionCore`'s 3,183 lines are separate `if`s that each `return` — **no cascade to remove**, so the audit's −1,500 does not exist; and no `match` with a statement-block arm exists anywhere in 300k lines of N# |
+| `cbbd2e96e` + `738996c29` | front door **1,318 → 1,317**, then the ownership repin it forced | Zero diagnostic additions, **one removal** (NL905 on `initCtor`, a dereference the context made single). `test-all-core.sh` is a reviewed DELIVERY row, so its row AND the head moved in both keys → `head-v2:7dd64f554797cce6`; audit **25/25** |
+
+**Measured at `738996c29`.** `Compiler.Core` source **300,695 → 298,189 (−2,506)** — confirmed
+independently against the tree (`git archive` line count over `src/NSharpLang.Compiler.Core`:
+**538,961 → 536,455**, the same **−2,506**). Estate **9,621 / 0**. Front door **1,317 (at the
+ceiling)**, Build.Tasks **0**. Step 3a **135 projects** (11 serial, then 124 under up to 6 workers);
+`tests/native` holds **129** project directories, which is the "129/129" the commit messages quote —
+**the two censuses are not the same number.** IL verification **83 N# assemblies**. VS smoke **36**.
+**Running total of the compression campaign: PR A −906, PR B −2,506.**
+
+**Two circulating numbers did NOT survive the evidence.** (1) *"120/140 corpus assemblies
+byte-identical, one non-identical."* The commits say the corpus is **120 assemblies** and **all 120**
+are byte-identical outside the PE timestamp and checksum; **no 140-assembly corpus and no
+non-identical assembly is recorded anywhere** (the `140` in the gate logs is a test-row count).
+(2) *"842 of 2,019 loops, 385 rejected."* **2,019 and 385 appear nowhere** — the audit's W4 census is
+**1,787**, and the named rejections are the 255 / 32 / 52 / 152 above.
 
 **The five gate-speed levers, and what each one actually bought.** From
 `census-briefs/FABLE-TEST-SPEED-ANALYSIS.md`, in the order they landed:
@@ -132,6 +165,12 @@ measured **on an idle M4** and this box was building concurrently:
 | `345e7899a` non-VS | `{ 5.09 4.69 4.67 }` | 2 of 12 | `count-transitions` 64 **1.47×**, 4096 **1.40×** |
 | `9ef0f5b32` VS, 1st | `{ 5.22 5.55 4.65 }` | 3 of 12 | `count-transitions` 4096 **1.44×**, 64 1.25×, `rolling-hash` 64 1.20× |
 | `9ef0f5b32` VS, rerun | `{ 3.08 4.06 5.81 }` | **0 of 12** | `count-transitions` 4096 **1.00×** |
+| `bea64ac92` non-VS, 1st | `{ 5.77 4.67 4.99 }` | 4 of 12 | `min-max-delta` 64 **1.45×**, 4096 1.35×; `parse-eight-digits` 64 1.42×, 4096 1.25× |
+| `bea64ac92` non-VS, rerun | one-minute **1.92** before the gate | **0 of 12** | — |
+
+**Three trips now, all Step 2c, all under a concurrent build — the instrument is the thing that keeps
+failing, not the tree.** OPEN USER DECISION, **proposed and NOT done**: replace the fixed idle-M4
+baseline with a **same-run control**.
 
 The `345e7899a` trip was **not rerun on its own**; it was folded into the `9ef0f5b32` gate, which
 covers the same tree plus two commits. The VS rerun's own `load-before-vscode-rerun.txt` reads
@@ -217,18 +256,27 @@ NSharpEventSubscription 53. Wasm: PlaygroundExports 62 · Program 9. Cli: `Progr
 *(`editors/visualstudio/` holds a further 359 lines of C# across 4 files — a VS extension host, not
 part of the compiler or toolchain floor, and never counted in the 957.)*
 
-**Lanes in flight.** `census/core-b` — **audit PRs 5–7**: `ColumnarEmitContext`, the loop sweep, and
-node kinds + `match`.
+**Lanes in flight.** `census/core-b` is **DONE** — its PRs 5–7 are compression PR B above.
+`census/core-c` carries **audit PRs 8–10**: `get_X()` → property at **3,708** sites, per-type
+families collapsed to generics, and the `ColumnarParserKernels` split. **Building as this was
+written; nothing is claimed for it.**
 
-**Still OWED at `bea64ac92`.** (1) **Rendered visual IDE verification** — unchanged, five waves old;
+**Still OWED at `738996c29`.** (1) **Rendered visual IDE verification** — unchanged, five waves old;
 the only successful extension reload remains the PRE-FLIP one at `2b9271828`, which built a C#
-server. (2) **Gates on the eighth seed commit** — running now; this cursor records them as PENDING
-and claims nothing about them. (3) **The rest of the `Compiler.Core` compression** — PRs 5–7 open,
-L5–L10 unstarted. (4) **Runtime / Playground.Wasm / the Cli floor** — still open user decisions.
+server. (2) **The rest of the `Compiler.Core` compression** — PRs 5–7 have LANDED as PR B, **PRs
+8–10 are in flight**, L5–L10 unstarted; the `match` rewrite is **declined with a reason**, not
+pending. (3) **Runtime / Playground.Wasm / the Cli floor** — still open user decisions: **Cli 25,
+Runtime 861, Playground.Wasm 71** (957, unchanged), plus **`editors/visualstudio/` 359** across 4
+files, which has never been inside the 957 and is the **lowest priority of anything here**.
+(4) **The throughput gate's baseline** — same-run control PROPOSED, not done. *(The previous list's
+item 2, gates on the eighth seed, is DISCHARGED — see the table above.)*
 
 **Nothing in this wave completes the migration, and this cursor makes no such claim.** What is now
-true that was not true at `59c965af0`: CI is green, the last C# test project is gone, the gate is
-roughly a third faster, and six language slices the audit asked for have landed.
+true that was not true at `59c965af0`: CI is green and has stayed green, the last C# test project is
+gone, the gate runs in roughly half the time (**18m28s / 19m40s** against **42m40s / 37m58s**), six
+language slices the audit asked for have landed, and two compression PRs have taken **−3,412** lines
+out of `Compiler.Core`. **The toolchain floor has not moved and the visual IDE proof is still
+owed.**
 
 ### Census wave 17 — superseded cursor (2026-09-22)
 
