@@ -121,6 +121,21 @@ to be dereferenced twice, once for the file's sibling view and once for its hold
 NL002 239, NL010 165, NL012 38, NL011 30, NL304 28 all unmoved. A 2,500-line source reduction that
 neither adds nor hides a front-door diagnostic is the result this step exists to be able to state.
 
+**Measured 2026-09-23 at `3fc4585ea`** (PRs 8-10 of the same campaign: the accessor-to-property
+sweep, the per-type families, the parser-kernel split): Core reports **1,314 diagnostics carried by
+278 of the project's files**, and **the gate ceiling is now 1,314**. Measured with the tip CLI
+against BOTH trees the way `c751edd7e` established -- the base source (`738996c29`) reports 1,317
+through the same front door -- the diff over diagnostic identities is **zero additions and three
+removals**. Two are NL905 in `ColumnarIlEmitter.nl`, on `bclInitializerSetterForOpcode` and
+`bclMemberInitializerSetterForOpcode`. The source ALREADY guards `property.SetMethod == null`
+immediately above each one; written `property.get_SetMethod() == null` that guard narrowed nothing,
+because flow narrowing tracks a member read and cannot track a call that might answer differently
+next time -- so the accessor idiom was manufacturing two false positives. The third is the NL002 on
+the deleted `CompilerServices/ColumnarParserKernels.nl`, for a `List` used without the import that
+provides it: the old file's four imports did not include `System.Collections.Generic`, and the split
+gives each of the twelve new files the imports it actually uses. NL905 423 -> 421, NL002 239 -> 238;
+NL202 352, NL010 165, NL012 38, NL011 30 and NL304 28 all unmoved.
+
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
 

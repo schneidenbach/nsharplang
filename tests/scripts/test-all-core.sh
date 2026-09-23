@@ -396,13 +396,25 @@ else
     # and holder slot and is dereferenced once now that `ColumnarEmitContext.ForSourceFile` derives
     # both from one file id. NL905 424 -> 423; no other class moved.
     #
+    # 2026-09-23, PRs 8-10 of the same audit (the accessor-to-property sweep, the per-type families,
+    # the parser-kernel split): 1,314, carried by 278 of the project's files. Measured with the tip
+    # CLI against BOTH trees the way `c751edd7e` established -- the base source (`738996c29`)
+    # reports 1,317 through the same front door -- the diff is zero additions and three removals.
+    # Two are NL905 in `ColumnarIlEmitter.nl`, on `bclInitializerSetterForOpcode` and
+    # `bclMemberInitializerSetterForOpcode`: the source already guards `property.SetMethod == null`
+    # above each one, and written `property.get_SetMethod() == null` that guard narrowed nothing,
+    # because flow narrowing tracks a member read and cannot track a call. The third is the NL002 on
+    # the deleted `ColumnarParserKernels.nl` for a `List` used without the import that provides it --
+    # the split gives each of the twelve new files the imports it actually uses. NL905 423 -> 421,
+    # NL002 239 -> 238; NL202 352, NL010 165, NL012 38, NL011 30 and NL304 28 are all unmoved.
+    #
     # -1 means BLOCKED, not clean. `check` on a project that REFERENCES Compiler.Core builds that
     # reference first, and that build fails while Core's own front door is not clean -- so those two
     # produce an error envelope instead of a diagnostic list and there is nothing to count yet. The
     # step prints the reason and moves on; the day Core reaches 0 their ceilings become real numbers
     # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
     SELF_HOST_CEILINGS=(
-        1317
+        1314
         -1
         -1
         0
