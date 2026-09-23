@@ -13,11 +13,18 @@
 - Integration coverage
 
 ### Test Files
+
+**`tests/` holds NO C#.** The last C# assertion project in the repository —
+`tests/NSharpLang.IntegrationTests/` (576 lines: `ToolchainTests.cs` 337 with 12 `[DockerFact]` rows,
+`ToolchainFixture.cs` 170, `DockerFactAttribute.cs` 69) — is DELETED, and its rows are
+`tests/native/installed-toolchain-integration` (see "The Installed Toolchain" below). What remains is
+three directories:
+
 ```
 tests/
-├── IntegrationTests.cs          - End-to-end pipeline tests
-├── LanguageServerTests.cs       - LSP handler tests (completion, hover, definition, rename)
-└── CodeIntelligenceTests.cs     - the one culture-walled OutputFormatter case (see below)
+├── native/     - every N# native test project, one directory each, run by `nlc test`
+├── fixtures/   - inputs and goldens the estate and the native projects read
+└── scripts/    - the product gate itself, the installer smoke test and the release-workflow checks
 ```
 
 **PARSING has no C# assertion layer either, as of task 020 slice 22.** `tests/ParserTests.cs` is
@@ -1059,6 +1066,66 @@ another compiler build (for example a historical worktree) is measured over the 
 2026-09-01 numbers and their interpretation are in
 `systems-language-closeout/MEASUREMENT-VERDICT-2026-09.md`.
 
+### 9. The Installed Toolchain (`tests/native/installed-toolchain-integration`)
+
+**This is the only place anything asserts what a USER's first command does.** Every other project in
+the estate runs against this checkout's build output: a `Cli.dll` under `src/`, templates read out of
+`templates/`, references resolved from a feed the test packed. A reader who installs N# has none of
+that. So this project packs the checkout, publishes the toolset, stages both into a Docker image that
+holds only `mcr.microsoft.com/dotnet/sdk:10.0`, and then runs `dotnet new`, `nlc` and the launchers
+**inside** it.
+
+It replaces `tests/NSharpLang.IntegrationTests/` — the last C# assertion project in the repository.
+`Dockerfile.toolchain` is kept byte-for-byte and now lives beside the rows; the twelve `[DockerFact]`
+rows moved whole, and the fixture's pack-once contract moved with them.
+
+**Two halves, and only one of them needs a daemon.**
+
+| half | rows | what it proves |
+|---|---|---|
+| `InstalledToolchain.tests.nl` | 13, all `[DockerFact]` | the twelve ported rows — template listing, the canonical csproj-free shape, `nlc new`/`dotnet new` parity, console scaffold/build/run, library build, `nlc test` of the test template, the web API build, every `templates/README.md` quickstart replayed, `nlc --version`, and `nsharp-lsp` on PATH — plus the fixture's own pack-and-publish step, which needs no container and is what CI run 35806417973 failed |
+| `ToolchainCommandContracts.tests.nl` | 14, ungated | every `docker` argv, the six pack/build command lines, the `publish-toolset.sh` flags, the Dockerfile's description of the fresh machine, the quickstart document's parse and rewrites, and the gate's own three-state decision |
+
+**The conversion fixed a defect the C# fixture carried, and the fix is held by a row.** Direct N# IL
+emission writes no `.pdb`, the base SDK defaults `DebugType` to `portable`, and pack then demands the
+file — NU5026. `scripts/lib/packages.sh`, the release path CI's `pack-nuget.sh` runs, passes
+`-p:DebugSymbols=false -p:DebugType=None` for **both** compiler packages. `ToolchainFixture.cs` passed
+them for `NSharpLang.Compiler.Core` and **not** for `NSharpLang.Compiler`, which is the whole of CI run
+35806417973: `error NU5026 ... Compiler.pdb`, thrown before any row ran, taking all twelve with it. The
+N# fixture packs both the way the release path does, and the ungated row reads the predicate **out of
+`scripts/lib/packages.sh`** and requires the two sets to agree — so this fixture cannot drift from the
+packages users install the way the deleted one did. Nothing is hidden: `tests/native/sdk-pack-symbol-contract`
+still packs N#-SDK projects with a bare `dotnet pack`, and still holds the missing declaration.
+
+**The second half is why a skipped run is honest rather than empty.** A project whose whole content is
+skippable says nothing on most machines. Everything about the Docker half that is *not* the daemon —
+including the `-p:DebugSymbols=false -p:DebugType=None` repair, which exactly the two compiler
+packages get and the other three do not — is held to a row that runs everywhere.
+
+**The gate's three states** (`DockerGate.tests.nl`, a `Xunit.FactAttribute` subclass whose constructor
+sets `Skip`; see `memory/components/cli-toolchain.md`, "A `test` block may carry attributes"):
+
+- `NSHARP_RUN_DOCKER_INTEGRATION=1` (or `true`) ⇒ **required**. No skip is set, so a missing daemon is
+  a FAILURE. Both `.github/workflows/build.yml` and `publish.yml` set this on the
+  `Installed toolchain integration tests` step, which is what stops that step passing by skipping.
+- unset, and `docker info` answers within ten seconds ⇒ the rows run.
+- unset, and no daemon ⇒ each row is reported `skipped` with a reason naming which prerequisite was
+  missing and how to demand the row anyway. The skip is COUNTED in the `nlc test` summary and carried
+  in `results[].errorMessage`; it is never a silently absent row.
+
+**A developer with Docker running pays for these rows in the local gate.** That is the deleted
+attribute's semantics, unchanged, and it is deliberate: the alternative is evidence nobody ever sees
+outside CI. The project is in the native sweep's SERIAL group
+(`native_requires_serial_run` in `tests/scripts/test-all-core.sh`) because it packs into the shared
+`src/*/obj` and `src/*/bin` and binds one fixed container name.
+
+**The container reaps itself.** A `test` block has no per-project teardown hook, so there is no place
+to put the `IAsyncLifetime.DisposeAsync` the C# fixture used. The container is started
+`--detach --rm` with a bounded `sleep` instead, and the fixture force-removes a stale container of the
+same name before starting a new one — so a crashed run leaves at most one container that removes
+itself, and the next run reclaims the name regardless.
+
+
 ## Test Categories
 
 ### Lexer Tests
@@ -1326,7 +1393,7 @@ one, sweep the C# test estate for tests that actually need it. The sweep taken a
 | capability | C# tests that need it | measured runner state (probed against a freshly built tip CLI) |
 |---|---|---|
 | table-driven cases | shipped, consumed twice | live |
-| **skip** | **0** — no `[Fact(Skip=…)]`, no `SkipException`, no `[ConditionalFact]`, no trait filters anywhere. The only `Skip=` in the repo is `DockerFactAttribute`, in the Testcontainers `IntegrationTests` project the gate never runs. The 6 `if (!Directory.Exists(…)) return;` guards that used to live in `ExampleLintTests.cs` — the original finding here — **are gone: that file is deleted and its successor `ExampleProjectCorpus.tests.nl` REQUIRES all nineteen example directories, so an absent corpus now fails instead of silently passing** | **REFUSED BY NAME at the declaration**: `NL323` from `AnalyzerDeclarationWalkers.ReportUnsupportedSkipClause`, with the file, line, column and a suggestion. It used to decline the WHOLE FILE at `parse.declaration-scan` with no code, no line and no reason, taking every passing test in the file with it. **No consumer remains: the last runtime skip emulation in the estate was migrated away rather than expressed** |
+| **skip** | **0 in C#, and 13 rows in N#.** The sweep's finding stands for the C# estate: no `[Fact(Skip=…)]`, no `SkipException`, no `[ConditionalFact]`, no trait filters. The one `Skip=` it found — `DockerFactAttribute`, in the Testcontainers `IntegrationTests` project the gate never ran — is now `tests/native/installed-toolchain-integration/DockerGate.tests.nl`, an N# `FactAttribute` subclass whose constructor sets `Skip`, carried by 13 rows the gate DOES run. The 6 `if (!Directory.Exists(…)) return;` guards that used to live in `ExampleLintTests.cs` — the original finding here — **are gone: that file is deleted and its successor `ExampleProjectCorpus.tests.nl` REQUIRES all nineteen example directories, so an absent corpus now fails instead of silently passing** | **REFUSED BY NAME at the declaration**: `NL323` from `AnalyzerDeclarationWalkers.ReportUnsupportedSkipClause`, with the file, line, column and a suggestion. It used to decline the WHOLE FILE at `parse.declaration-scan` with no code, no line and no reason, taking every passing test in the file with it. **The `skip` CLAUSE still has no consumer and is still refused.** A conditional row is expressed the way the shipped compiler already supports it — a `[Fact]`-derived attribute that sets `Skip`, which xunit honors and `nlc test` reports as `skipped` with the reason in `results[].errorMessage` — never as a runtime emulation inside a test body |
 | setup/teardown | 3 classes with a real ctor+`IDisposable` pair, all LSP or Docker fixtures | fails EARLIER than skip, in the **analyser**: a `setup { seed := 7 }` binding is not visible to the test body, so `NL001 Variable 'seed' is declared but never read` |
 | **async `Task`** | **134** | **ALREADY SERVED.** A plain `test` body may `await`; an assertion that fails after an await FAILS, and an exception thrown inside awaited work is REPORTED with its message (probe: 3 declarations → 1 passed / 2 failed, each named). Only the `async test "…"` DECLARATION form is missing (`NL101`), and no C# test needs it |
 | async `ValueTask` | 0 | same path |

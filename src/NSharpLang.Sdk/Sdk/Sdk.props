@@ -44,8 +44,10 @@
        disk" - for a file the compiler never claimed to write. So `dotnet pack` of ANY N#-SDK
        project failed unless the CALLER repaired the project's own declaration from the command
        line: scripts/lib/packages.sh passes `-p:DebugSymbols=false -p:DebugType=None` for the two
-       compiler packages, and tests/NSharpLang.IntegrationTests packs Compiler.csproj with a plain
-       `dotnet pack`, which is exactly where CI failed.
+       compiler packages, and the integration fixture that packed Compiler.csproj with a plain
+       `dotnet pack` is exactly where CI failed. That fixture is now
+       tests/native/installed-toolchain-integration and follows packages.sh, but it is still a CALLER
+       repairing a declaration that belongs to the project.
 
        The project declares the truth here instead. `DebugType` is read during EVALUATION by
        Microsoft.NET.Sdk.props itself, so this cannot be a target, and it must precede the base SDK

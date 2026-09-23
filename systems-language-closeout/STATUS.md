@@ -141,13 +141,15 @@ NOT added**; **D11 camelCase TYPE names are package-private (the Go rule), emitt
 extractions, **net product N# −906 lines**, front door **1,340 → 1,318**, rows 9,584 → 9,591,
 **awaiting its gate**.
 
-**Remaining C#, and one project the docs have never counted.** Production is unchanged at **957
-lines** — Runtime 861, Playground.Wasm 71, Cli 25. Separately, the CI step `Installed toolchain
-integration tests` runs **`tests/NSharpLang.IntegrationTests/IntegrationTests.csproj`**, a **C#**
-xUnit project of **576 lines across 3 `.cs` files** (`ToolchainTests.cs` 337, `ToolchainFixture.cs`
-170, `DockerFactAttribute.cs` 69) plus `Dockerfile.toolchain`. It is assertion code, not production —
-but it is remaining C#, it is the step currently failing CI, and no tracked doc has named it before
-now.
+**Remaining C#, and the project the docs had never counted is GONE.** Production is unchanged at
+**957 lines** — Runtime 861, Playground.Wasm 71, Cli 25. The CI step `Installed toolchain integration
+tests` used to run **`tests/NSharpLang.IntegrationTests/IntegrationTests.csproj`**, a **C#** xUnit
+project of **576 lines across 3 `.cs` files** (`ToolchainTests.cs` 337 with 12 `[DockerFact]` rows,
+`ToolchainFixture.cs` 170, `DockerFactAttribute.cs` 69) plus `Dockerfile.toolchain`. That project is
+**deleted**, its sln entry with it, and both workflows now run
+**`tests/native/installed-toolchain-integration`** through `nlc test`. `tests/` holds **no C# at
+all**. The conversion also fixed the NU5026 this step was failing on: the C# fixture repaired only
+one of the two compiler packages, while `scripts/lib/packages.sh` repairs both.
 
 **Still OWED at `59c965af0`.** (1) **Rendered visual IDE verification** — unchanged, four waves old;
 the only successful reload was at `2b9271828`, which built a **C#** server. (2) **A green Actions

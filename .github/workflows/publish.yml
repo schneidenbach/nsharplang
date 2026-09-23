@@ -45,10 +45,14 @@ jobs:
     - name: Ownership audit
       run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll test --project tests/native/ownership-audit --no-cache
 
+    # The installed-toolchain rows are an N# native project (`tests/native/installed-toolchain-integration`),
+    # run by the CLI's own `nlc test` — the same Step-3a mechanism as the ownership audit above.
+    # NSHARP_RUN_DOCKER_INTEGRATION=1 makes the Docker rows REQUIRED: without it a runner with no
+    # daemon would report them skipped and this step would pass having proved nothing.
     - name: Installed toolchain integration tests
       env:
         NSHARP_RUN_DOCKER_INTEGRATION: '1'
-      run: dotnet test tests/NSharpLang.IntegrationTests/IntegrationTests.csproj -c Release --verbosity normal
+      run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll test --project tests/native/installed-toolchain-integration --no-cache
 
     - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
       with:

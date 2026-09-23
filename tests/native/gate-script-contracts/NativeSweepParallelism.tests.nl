@@ -68,6 +68,10 @@ test "a native project whose claim is about the machine, or that touches state o
     // `src/*/obj` and `src/*/bin`: run beside the sibling that packs the same two projects, one row
     // of its 28 failed with an MSBuild file lock.
     assert body.Contains("tests/native/sdk-project-reference-boundary)")
+    // Packs the whole checkout, publishes the toolset, builds a Docker image and drives a container
+    // under a FIXED name. The packs write the shared `src/*/obj` and `src/*/bin`, and two runs of it
+    // would fight over that one name.
+    assert body.Contains("tests/native/installed-toolchain-integration)")
     // Walks the whole working tree and counts what it finds there.
     assert body.Contains("tests/native/ownership-audit)")
 }

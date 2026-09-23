@@ -734,6 +734,10 @@ nlc test --verbose
   test "the container starts" { … }
   ```
 
+  This is shipped, not illustrative: `tests/native/installed-toolchain-integration` carries thirteen
+  rows under exactly this attribute, and it is how the installed-toolchain suite reports itself on a
+  machine with no Docker daemon. See `memory/testing.md`, "The Installed Toolchain".
+
 ### The test-framework reference set
 
 One owner — `TestFrameworkReferenceSet` — answers what a test framework's references ARE, and

@@ -245,12 +245,26 @@ row namespacing plus three owner extractions, **net product N# −906 lines**, s
 | `src/NSharpLang.Playground.Wasm` | **71** | open user decision |
 | `src/NSharpLang.Cli` | **25** | `Program.cs`; irreducible while `typeof(Program).Assembly` must name `Cli.dll` |
 
-**Plus assertion code the docs have not been counting.** The CI step `Installed toolchain integration
-tests` runs **`tests/NSharpLang.IntegrationTests/IntegrationTests.csproj`**, a **C#** xUnit project:
-**576 lines across 3 `.cs` files** — `ToolchainTests.cs` 337, `ToolchainFixture.cs` 170,
-`DockerFactAttribute.cs` 69 — plus `Dockerfile.toolchain` and the csproj. It is **not** production
-C# and does not belong in the 957, but it **is** remaining C# that asserts the product, it is the
-step currently failing CI, and it has never been named in a tracked doc.
+**The assertion code the docs had not been counting is GONE.** The CI step `Installed toolchain
+integration tests` used to run **`tests/NSharpLang.IntegrationTests/IntegrationTests.csproj`**, a
+**C#** xUnit project: **576 lines across 3 `.cs` files** — `ToolchainTests.cs` 337 with 12
+`[DockerFact]` rows, `ToolchainFixture.cs` 170, `DockerFactAttribute.cs` 69 — plus
+`Dockerfile.toolchain` and the csproj. That project is **DELETED**, its sln entry with it, and its
+rows are **`tests/native/installed-toolchain-integration`**: 13 gated rows carrying the same
+`[DockerFact]` decision expressed as an N# `FactAttribute` subclass, plus 13 ungated rows holding the
+`docker`/pack/publish argv and the quickstart parse that need no daemon. `Dockerfile.toolchain` is
+kept byte-for-byte beside them. Both workflows now run the project through `nlc test` with
+`NSHARP_RUN_DOCKER_INTEGRATION=1`, so **`tests/` contains no C# at all** and the remaining production
+C# is the 957 lines above and nothing else.
+
+**The conversion also fixed the NU5026.** `ToolchainFixture.cs` passed
+`-p:DebugSymbols=false -p:DebugType=None` for `NSharpLang.Compiler.Core` and **not** for
+`NSharpLang.Compiler`, while `scripts/lib/packages.sh` — the release path — passes them for both. Run
+35806417973 was that omission. The N# fixture follows the release path, and an ungated row reads the
+predicate out of `scripts/lib/packages.sh` and requires the two sets to agree. **Reproduced locally**
+(`nlc test --filter "the fixture packs this checkout"` with `NSHARP_RUN_DOCKER_INTEGRATION=1`, on a Mac
+with no Docker daemon at all) before and after the fix — the first time that CI failure has been
+observed outside CI.
 
 ### Still OWED at `59c965af0`
 

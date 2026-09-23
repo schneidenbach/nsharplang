@@ -563,6 +563,10 @@ else
             tests/native/reference-resolution) return 0 ;;
             tests/native/sdk-emit-path-parity) return 0 ;;
             tests/native/template-project-smoke) return 0 ;;
+            # Packs this whole checkout, runs `scripts/publish-toolset.sh`, then builds a Docker image
+            # and drives a container. The packs write the shared `src/*/obj` and `src/*/bin` the same
+            # way its neighbours' do, and the container it starts binds a FIXED name.
+            tests/native/installed-toolchain-integration) return 0 ;;
             # Walks the whole working tree and counts what it finds there.
             tests/native/ownership-audit) return 0 ;;
             *) return 1 ;;
