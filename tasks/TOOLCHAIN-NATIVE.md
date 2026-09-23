@@ -2,19 +2,23 @@
 
 ## Census wave 18 — current status (2026-09-23)
 
-Wave 18 is integrated through **`738996c29`** on `census/merge`. **Thirty-four commits** sit between
+Wave 18 is integrated through **`5a869e9db`** on `census/merge`. **Forty-one commits** sit between
 the wave-17 docs tip `59c965af0` and the tip (`git log 59c965af0..HEAD --stat`). The checkout is
 clean. **Two bootstrap seeds were published this wave**: `03f02b764` (packed source `eed29c71c`) and
 `bea64ac92` (packed source `9ef0f5b32`). The lineage since the eighth seed is
 `bea64ac92` → `94142e947` (the wave-18 docs commit, and what was pushed) → `ea15221fd` … →
-`738996c29` (**compression PR B**, six commits).
+`738996c29` (**compression PR B**, six commits) → `c44d6206e` (**the throughput gate's same-run
+control**, rebased) → `1f8ba2f3b` … → `5a869e9db` (**compression PR C**, five commits, rebased).
+**The gates at `5a869e9db` are IN PROGRESS as this is written, and nothing is claimed for them.**
 
 **This is not a completion record, and the overall migration is NOT finished.** The toolchain floor
 did not move: the CLI is still 25 lines of C#, Runtime still 861, Playground.Wasm still 71 — **957
 lines, unchanged** — and the **rendered visual IDE proof is still owed**, five waves running. What
-wave 18 did is five things that can each be stated plainly: **CI went green**, **the last C# test
+wave 18 did is seven things that can each be stated plainly: **CI went green**, **the last C# test
 project was deleted**, **the gate got about a third faster**, **six language slices the audit asked
-for landed**, and **compression PR B took `Compiler.Core` down another 2,506 lines**.
+for landed**, **compression PR B took `Compiler.Core` down another 2,506 lines**, **the throughput
+gate stopped depending on a quiet box**, and **compression PR C closed the mechanical half of the
+audit at a measured `−365`, which is what finally sized the campaign honestly**.
 
 **THE HEADLINE: GitHub Actions `Build` IS GREEN AGAIN.** Run **`35829299886`** at **`03f02b764`** is
 the first green since **`e9ca730b6` on 2026-09-11** — twelve days red. Run **`35843843835`** at
@@ -51,6 +55,10 @@ run **`35855288410`** and the PR run **`35855294276`**, both at **`94142e947`**,
 | **Actions PR `35855294276` at `94142e947`** | **GREEN**; `unofficial-release` **ran**, which is the designed PR arm | `gh run view 35855294276` |
 | **Compression PR B — audit PRs 5–7** | **LANDED** on `systems-language` at `738996c29`, six commits, rebased | `git log 94142e947..738996c29 --stat` |
 | Gates at `738996c29` | **both PASS** (non-VS **18m28s**, VS **19m40s** — the fastest pair recorded in `evidence/`) | `evidence/combined-738996c29/` |
+| **Throughput gate — same-run control** | **LANDED**, rebased as `c44d6206e`. Step 2c no longer needs a quiet box | `evidence/throughput-c44d6206e/` (9 logs) |
+| **Compression PR C — audit PRs 8–10** | **LANDED** on `census/merge` at `5a869e9db`, five commits, rebased | `git log c44d6206e..5a869e9db --stat` |
+| **Gates at `5a869e9db`** | **PENDING — running as this was written in an isolated copy; NOTHING is claimed** | none yet |
+| `Compiler.Core` split into S0–S7 | **DESIGNED AND MEASURED, NOT STARTED**; R1–R3 in flight on `census/sdk-incr` | `census-briefs/FABLE-CORE-SPLIT-DESIGN.md` (untracked) |
 | Extension reload | **STILL PRE-FLIP** — never re-run on the N# server | wave 16: `evidence/seed-2b9271828/reload-extension.log` |
 | Rendered visual IDE proof | **STILL OWED** | nothing rendered has ever been observed |
 
@@ -161,14 +169,72 @@ this box was building other lanes:
 
 **That is now three trips, all of them Step 2c and all of them under a concurrent build on this box,
 and the pattern is the instrument rather than the tree.** The fixed idle-M4 baseline is the thing
-that kept tripping; **it has since been replaced by a same-run control on `census/throughput`**
-(2026-09-23, see *Lanes in flight*), which is why this table is history rather than a standing risk. Note also that the rerun's own
+that kept tripping; **it has since been replaced by a same-run control, landed on this branch as
+`c44d6206e`** (next section), which is why this table is history rather than a standing risk. Note also that the rerun's own
 `load-before-gate-rerun.txt` reads **1.92** one-minute, so the trip is not reproducible at rest.
 
 The `345e7899a` trip was **not rerun on its own** — it was folded into the `9ef0f5b32` gate, which
 covers the same tree plus two commits. The VS rerun's `load-before-vscode-rerun.txt` reads **1.87**
 one-minute; Step 2c, minutes later, printed **3.08**. Both are recorded, because the number taken
 before the gate is not the number the gate judged on.
+
+### The throughput gate now measures its own control — `c44d6206e`
+
+**User-sanctioned, built on `census/throughput`, rebased onto `738996c29` and landed FIRST**, ahead of
+compression PR C, so that PR C's gates ran under the new rules. Step 2c's verdict used to be a median
+measured here divided by a number taken once, on 2026-09-01, on an idle Apple M4 (`8cf40128a`) — a
+measurement of one machine in one state, judged on whatever machine was free. What replaced it:
+
+- **`ControlKernels.nl`** — a **frozen N# transcription of the six kernels those medians were taken
+  from**. It is a transcription and not a reference to the original because **the C# ancestor no longer
+  exists**: it was deleted at `a50cb4000` ("Remove C# export command and transpiler"). The control is
+  therefore a pinned copy of the 2026-09-01 *shape*, kept alongside the live kernels on purpose.
+- **A `--paired` protocol.** Both sides settle the JIT together, alternating until **each** has had
+  **≥ 500 ms and ≥ 40 invocations**; then **31 repetitions** per cell, one trial of each side per
+  repetition, **live-first on even repetitions and control-first on odd ones**. The verdict is the
+  **median of the per-repetition `live / control` ratios** — the `ratio=` token the paired mode prints
+  on the live side — at the **unchanged 1.20x** tolerance. It is deliberately *not* the quotient of the
+  two medians, which under load drifts by up to 24% because a measured window is ~10 ms and a contended
+  machine costs whole windows. `compare` still mirrors the ports' 15 / 21 trials; only the gate takes 31.
+- **The stored 2026-09-01 numbers are demoted to an informational drift table**, printed after the
+  verdict and **never part of the exit status** — because a machine or toolchain moving under *both*
+  sides at once is the one thing a same-run ratio cannot see.
+- **A new `--il-shape` check, on both sides.** The other thing a ratio cannot see is a compiler that
+  stops vectorizing the shape both sides share — the 2x–6x regression this lane exists for. The gate
+  now reads back **out of the emitted IL** which `SimdReductions` helper each of the twelve kernels
+  calls and fails an answer `ExpectedSimdHelper` does not name. The paired mode also **refuses to
+  report any timing** if the two sides ever compute different answers.
+- **`tests/native/gate-script-contracts/SystemsThroughputGate.tests.nl`** (new, 182 lines) pins the
+  table's six columns, the paired verdict, the drift table's never-gating status, the IL-shape check
+  and the control's six kernels, reading the runner as text.
+- **A latent `RunProcess` pipe deadlock was fixed on the way.** It drained stdout to the end before
+  touching stderr, which deadlocks against a full 64 KiB pipe; the kernel project's systems-audit
+  warnings are **68 KiB**, and the gate hung until killed. stderr is now drained on a task started
+  before stdout is read.
+
+**Cell count, workloads, sizes and tolerance are unchanged.** The evidence is nine logs in
+`evidence/throughput-c44d6206e/`, and the numbers below are what those logs print:
+
+| run | Step 2c verdict | cell range | informational drift |
+|---|---|---|---|
+| `quiet-1/2/3` | **PASS**, 12 cells, 0 failed | **0.98x–1.02x** | median 0.95x–0.96x, range 0.71x–1.05x |
+| `loaded-1/2/3` (six bounded `yes` spinners) | **PASS**, 12 cells, 0 failed | **0.84x–1.08x** | median **1.33x–1.38x**, range 0.94x–1.57x |
+| `regression` (a deliberately slowed `parse-eight-digits`) | **FAIL**, 2 of 12 | the two slowed cells **6.52x** and **6.42x**, other ten 0.98x–1.01x | median 0.96x |
+| `product-non-vscode.PASSED.log` — the **full non-VS gate** | **PASS**, 25m10s total (Step 2c **2m11s**) | all twelve **0.95x–1.01x** at one-minute load **11.17** on 10 cores | median **1.98x**, range 0.87x–2.43x, never gating |
+
+**Two numbers written down here before the evidence landed do not match the logs, and are corrected.**
+The earlier *Lanes in flight* paragraph said the loaded runs were "every cell 0.95x-1.06x" and the
+drift row "moved to 2x-4x". The logs say **0.84x–1.08x** across the three spinner runs, whose drift
+**medians are 1.33x–1.38x** (worst single cell 1.57x); the only run whose drift approaches 2x is the
+**full gate at load 11.17**, at median **1.98x** and worst **2.43x** — and no log anywhere reaches 4x.
+Nothing about any verdict changes; the prose was tighter than the measurement, and that is the error
+not to repeat.
+
+**The consequence for process, which is the point of the whole change: gates no longer require pausing
+lanes.** The full non-VS gate above passed with every cell inside 0.95x–1.01x at a one-minute load of
+**11.17 on a 10-core box** — the gate log even prints a note saying the load exceeds the core count and
+the verdict is unaffected. The **one** remaining load-sensitive judgement is the **compile-time bench's
+TIMING verdict**, which still needs load < 2 to be judged and is informational when it is not.
 
 ### Compiler.Core cleanup A — PR #191, landed as `4098492f6..327b8ef03`
 
@@ -246,6 +312,189 @@ an assembly count. (2) *"842 of 2,019 index loops, 385 rejected."* **2,019** and
 nowhere: the audit's W4 census is **1,787** loops, and the rejections the commits actually name are
 the 255 / 32 / 52 / 152 above.
 
+### Compression PR C — audit PRs 8–10, landed at `5a869e9db`
+
+Five commits, rebased onto the throughput control `c44d6206e`. `git log c44d6206e..5a869e9db --stat`
+is the receipt. As with PR B, the verdicts below are what the commit messages and the measurements
+actually say, **including where they contradict the audit**.
+
+- **`1f8ba2f3b` — `get_X()` → property, and the assembly is byte-identical.** **3,658** reads of an
+  external member in Core's product source were written as the accessor the compiler emits for a
+  property; **3,544 now read the property.** The tell was that the tree already read the same members
+  both ways — `FullName` 125 accessor calls against 23 property reads, `ReturnType` 130 against 3 — while
+  the boolean family that resolved last (`IsGenericType` 308, `IsValueType` 215) had no property read
+  anywhere. **The diff is a pure substitution, re-derived line by line**: every one of the 2,674 changed
+  line pairs is its predecessor with `.get_X()` rewritten to `.X` and nothing else.
+  **`NSharpLang.Compiler.Core.dll` is BYTE-IDENTICAL** to the one built from the base source outside the
+  PE timestamp, checksum and MVID — **24 masked bytes in 4,473,856** — which is the measurement that
+  says a property read and its accessor call are the same `callvirt`, rather than the assumption.
+  **114 sites are KEPT, and each family filed a compiler gap rather than a workaround:**
+  **`CORE-C-1`** (a BLOCKER) — a property read whose owner is a **constructed generic struct over a type
+  this compilation is writing** declines at `emit.local.initializer`: `List<string>.Enumerator.Current`
+  emits and `List<SourceType>.Enumerator.Current` does not, while the accessor call emits for both;
+  **87 sites**, same family as the wave-12 `OfType`/`Cast` finding and `EXT-SOURCERECV`. **`CORE-C-2`**
+  (explicitly **not** a blocker, recorded so it is not re-derived) — a property read on a **value-type
+  receiver** takes a **defensive copy**: `entry.get_Key()` emits `ldloca.s 2; call`, `entry.Key` emits
+  `ldloc; stloc; ldloca.s; call`; **27 sites** (`get_Key` 7, `get_Value` 16, `get_IsNil` 4), and keeping
+  the accessor there is **what makes the byte-identity above true rather than nearly true**. Both are in
+  `census-briefs/CLI2-COMPILER-BLOCKERS.md`. **Core is 298,189 lines, unchanged** — a property read and
+  an accessor call are the same line. The **1,390** accessor calls in Core's own `*.tests.nl` estate are
+  deliberately untouched: the estate is the oracle this sweep is checked against.
+- **`61959279a` — the first generic functions this compiler has ever compiled.** `ColumnarCodePlan`
+  grew each of its sixteen columns through its own thirteen-line function (`GrowIntArray`,
+  `GrowShortArray`, … `GrowFieldArray`): **`GrowArray<T>` is those thirteen lines once, 16 → 1**.
+  `ColumnarInputs` appended six input lists through six copies of one three-line loop:
+  **`AddAll<T>`, 6 → 1**. **There were two generic classes in 298k lines and no generic function at
+  all**, so this shape had never been compiled through the pipeline it implements — it was therefore
+  **probed against the pinned seed BEFORE the sweep, not after** (`GrowArray<T>` instantiated at `int`,
+  `string`, `Type`, `Type[]`, `bool[]`, `MethodInfo?` and, by inference with no explicit argument, `long`;
+  `AddAll<T>` over `List<T>`/`IReadOnlyList<T>` both inferred and explicit; and a generic function at
+  file scope). A third family needed **no** type parameter, only an argument: eight copies of the same
+  twenty-five-line O(n²) span scan collapse to
+  `ParserDeclarationNameSpansDistinct(source, starts, lengths, count)`, and three **byte-identical**
+  twenty-line functions under three names become one. **Core 298,189 → 297,755, −434.**
+- **`46aa8e7c8` — the parser kernels go back to the twelve files they came from.**
+  `CompilerServices/ColumnarParserKernels.nl` was **16,902 lines** whose first 2,061 were fifteen files
+  **mechanically concatenated** behind `// ---- LexerTokenKindScanner.nl ----` and fourteen more markers —
+  every table hoisted to the top, every function left in a 14,800-line tail, every doc comment stranded
+  two thousand lines from what it describes. **A bootstrap artifact, not a design.** Twelve files now, by
+  concern, each its tables followed by the functions over them (`ColumnarLexerKernels` 1,548 …
+  `ColumnarParserColumnarNominalKernels` 1,013). **EVERY LINE IS A MOVE AND THAT IS CHECKED:** against the
+  old file's 16,896 body lines the twelve new bodies are the **same multiset** — zero lines invented, and
+  the only lines not carried are the fifteen concatenation markers and five blank lines the formatter
+  collapsed. Boundaries are **anchor strings, not line numbers**, so the split survived being written
+  against a tree PRs 8 and 9 had already edited. **The parser answers the same thing byte for byte:**
+  `nlc query ast --json` over **all 150 projects** under `examples/` and `tests/native/` produces
+  **51,237,009 bytes** of parse tree, identical before and after — not a sample, the whole corpus — and
+  the 116 runs of the `nlc` command corpus match too. **`ColumnarParserKernels.tests.nl` deliberately
+  keeps its name**: it is the estate file for these kernels as a *subsystem*, its rows name behaviours
+  rather than files, and splitting it is a test-estate change wanting its own commit. **Core 297,755 →
+  297,824, +69** — twelve file headers for one.
+- **`7b327f479` + `5a869e9db` — front door 1,317 → 1,314, and the repin it forced.** Measured with the
+  tip CLI against **both** trees the way `c751edd7e` established: the base (`738996c29`) reports **1,317**
+  through the same front door, so the compiler changed no answer. Over diagnostic identities the diff is
+  **zero additions and three removals**, and **two of the three were FALSE POSITIVES THE OLD IDIOM WAS
+  MANUFACTURING** — the NL905s on `bclInitializerSetterForOpcode` and
+  `bclMemberInitializerSetterForOpcode` sat under a guard the source already had
+  (`if property.SetMethod == null`, immediately above each), and written `property.get_SetMethod() == null`
+  **that guard narrowed nothing**: flow narrowing tracks a member read and cannot track a call that might
+  answer differently next time. Pinned in a probe against this CLI. The third removal is the NL002 on the
+  deleted `ColumnarParserKernels.nl` — a `List` used without the import providing it, which the twelve
+  replacement files supply by carrying only the imports they use. NL905 **423 → 421**, NL002 **239 → 238**;
+  NL202 352, NL010 165, NL012 38, NL011 30, NL304 28 **all unmoved**; **278** of the project's files carry
+  a diagnostic now, down from 279. The ceiling edit grew `test-all-core.sh` — a reviewed **DELIVERY** row,
+  no ceiling and no allowance — by twelve lines, so its row takes the observed snapshot (**1,262 lines,
+  1,147 non-blank, `text-v1:e55605418fbdf21b`**) and the head follows in **both** keys that hold it, the
+  manifest and the policy constant in `OwnershipAudit.nl`: **`head-v2:e160ad289069605b`**, audit **25/25**.
+  Both edits — `c44d6206e`'s four-line comment change above Step 2c and this PR's `SELF_HOST_CEILINGS`
+  edit in Step 2d — are **disjoint regions that both survive the rebase**, so the row was measured at this
+  tree rather than carried from either side.
+
+**Measured at `5a869e9db`:** `Compiler.Core` **298,189 → 297,824**, a net **−365** across the three PRs
+(−0 property sweep, −434 generics, +69 split). Front door **1,314**, three real removals, **strictly
+quieter without adding a diagnostic or hiding one**. Core is **576 files** (the split traded one file
+for twelve; the `+69` above is lines, not files). Estate
+**9,621 rows / 0 failed** and **129 native projects** as each commit reports them; `format --check` over
+Core clean. **The gates for `5a869e9db` are PENDING and none of the whole-gate numbers above (135
+projects, IL verification, VS smoke) have been re-measured at this tip.**
+
+**One number carried in this file needs correcting, and one now conflicts.** (1) *Lanes in flight* has
+said since wave 18 opened that PR C converts `get_X()` at **3,708** sites. **3,708 is the audit's W3
+census**; the sweep measured **3,658** reads and converted **3,544**, keeping 114. (2) The PR B record
+above states flatly that *"there is no 140-assembly corpus"* and that the `140` in the gate logs is a
+test-row count. **PR C's commits name 140:** `61959279a` says "the 140 assemblies of the examples and
+`tests/native` corpus are emitted byte for byte as before", and `46aa8e7c8` says "the 140 assemblies that
+corpus emits are byte-identical too" alongside the 150-project / 51,237,009-byte parse corpus. **Both
+cannot be right, and this was not resolved by rebuilding** (the tree is under gate). Treat the
+120-vs-140 question as **OPEN**: PR B's messages say 120, PR C's say 140 over 150 projects, and the next
+lane to touch the corpus should print the count rather than inherit either number.
+
+### The compression campaign, measured against what the audit estimated
+
+**Three PRs have landed and the campaign total is `−3,777` lines.**
+
+| PR | audit PRs | landed at | measured |
+|---|---|---|---:|
+| A | 1–4 | `4098492f6..327b8ef03` (#191) | **−906** |
+| B | 5–7 | `94142e947..738996c29` | **−2,506** |
+| C | 8–10 | `c44d6206e..5a869e9db` | **−365** |
+| **total** | 1–10 | | **−3,777** |
+
+**`FABLE-COMPILER-CORE-AUDIT.md` estimated `≈20,400–24,800` lines (9–11% of product code) for the whole
+classified list, and `~−18,000` for PRs 1–10 alone. The measured answer is `−3,777`. Record that plainly:
+the audit's line estimates were UPPER BOUNDS, sized from name shapes and census counts rather than from
+bodies.** Three of its estimates were re-measured and **refused with numbers** rather than attempted:
+
+- **W7 per-type families → generics, estimated −3,500 to −5,300.** Its 67 functions in 7,096 lines are
+  dominated by `ParseStructDeclarationCore` at **564 lines, which is not a copy of anything** — the
+  "family" is a **name** shape, not a **body** shape. Hashing every function body in Core with the
+  function name and every type token erased finds **1,689** redundant lines in groups of three or more,
+  and most of that is not generic-shaped either (`ParseColumnar{Enum,Interface,Struct,Union}InfoInto`
+  build four *different* table types from four different raw-array shapes; `Format{Class,Enum,…}` have
+  genuinely different bodies; `Exact{Interface,Struct,Union}TypeName` are three-line forwarders to three
+  different owners). **What a type parameter actually collapses is what PR C collapsed, and that is 434
+  lines.** The families that would collapse only under a language feature this seed lacks are filed in
+  `CLI2-COMPILER-BLOCKERS.md` rather than guessed at.
+- **W6 `Try…(out …)` → nullable/tuple, estimated ~−2,300**, and **W5 bidirectional tables written twice,
+  estimated ~−600** — both **unstarted**, and both now to be read as upper bounds of the same kind.
+- **The `match` rewrite (W1, −1,500)** was already **declined with a reason** in PR B: there is no
+  `} else if … {` cascade in `EmitExpressionCore` to remove, and no `match` with a statement-block arm
+  exists anywhere in 300k lines of N#.
+
+**What the idiom work DID buy is real and is not a line count:** properties instead of accessor calls
+(with a byte-identical assembly proving the equivalence, and two compiler gaps filed), the **first
+generic functions in the compiler's own source**, named node kinds where the source had been spelling
+integers, `for … in` over 842 hand-rolled index loops, and a parser front end that is twelve files by
+concern instead of one 16,902-line concatenation. **But the speed lever is the split, not the
+compression** — see the next section. PR C is where that stopped being an opinion and became arithmetic.
+
+### The `Compiler.Core` split — designed and measured, NOT started
+
+`census-briefs/FABLE-CORE-SPLIT-DESIGN.md` (untracked) is the design, and it is a **measured** document
+rather than a proposal: the dependency graph was extracted from the tree, not assumed.
+
+- **Eight slices, S0–S7**, with sizes: **S0** `Compiler.Model` 88 files / 23,492 lines · **S1** `.Syntax`
+  15 / 31,221 · **S2** `.Semantics` 144 / 79,062 · **S3** `.Backend.Plan` 112 / 75,962 · **S4**
+  `.Backend.Emit` 11 / 33,135 · **S5** `.CodeIntel` 76 / 20,631 · **S6** `.Tooling` 32 / 12,115 ·
+  **S7** `.Driver` 87 / 23,136. **S2 and S3 are still too big and must sub-split.**
+- **The audit's cycle claim is wrong as stated, and the correction is the finding.** The audit says *"the
+  only genuine cycle is emitter ↔ planners"*. Under its own bucketing, **fourteen of the fifteen
+  subsystems are ONE SCC today** — only `formatter` sits outside it. At file level there are 9
+  non-trivial SCCs, the largest **155 files / 129,989 lines (43.5% of Core)**.
+- **But a file cycle only blocks the split when it CROSSES a slice boundary.** Mapped 1:1 to S0–S7 the
+  audit's buckets leave **601 upward references (2.04%) in 110 pairs**; after **51 file re-bucketings**
+  that becomes **69 references (0.23%) in 33 pairs**, and a brute-force search over all 8! orderings
+  confirms S0 → … → S7 is the optimum. **The 33 residual pairs are listed individually with a fix each.**
+- **`internalsVisibleTo:` costs ZERO.** No slice needs it for any other slice.
+- **Predicted inner-loop cycles: ≈13–14 s for the four leaf slices (S4–S7) and ≈36–38 s for S2/S3,
+  against ~2m 35s today** (`STREAM-DEV-EVIDENCE.md:13`, a filter matching nothing — build only, zero rows
+  run). The single biggest win is that **`ColumnarIlEmitter.nl`, the heaviest file in the compiler at
+  30,528 lines, is in S4 — a leaf.**
+- **The L7 prerequisite was verified from the targets and the emit task, and it FAILS — twice.** The
+  speed analysis called *"whether the SDK's reference assembly is byte-stable for implementation-only
+  edits"* load-bearing and said to verify before committing. Answer: **(1)** a reference assembly *is*
+  produced but **is not one** — `EmitIlAssembly.SynchronizeReferenceAssembly` reads the *implementation*
+  assembly with Cecil and re-scopes its type references, **stripping no method bodies and removing no
+  non-visible members** (the 96 KB difference is the rewritten reference table, 2.2% of the file), and
+  degenerates to `File.Copy` when there are no reference owners; **(2)** even a perfect one would not
+  help, because **`Sdk.targets:172`'s `Inputs` uses `@(ReferencePath)`**, whose identity for a project
+  reference is the **implementation** assembly in `bin/` — the ref-substituted list
+  `@(ReferencePathWithRefAssemblies)` is what C#'s `CoreCompile` uses and the N# task does not. A third,
+  supporting finding: the **MVID is non-deterministic** (`ManagedPEBuilder(…, deterministicIdProvider:
+  null)`), so `CopyRefAssembly`'s MVID comparison has nothing stable to compare.
+- **The user therefore sanctioned R1–R3 FIRST**, and they are **in flight on `census/sdk-incr`**: **R1**
+  switch `Sdk.targets:172,184` to `@(ReferencePathWithRefAssemblies)` with
+  `DependsOnTargets="FindReferenceAssembliesForReferences"`; **R2** a deterministic MVID (which also makes
+  the seed reproducible); **R3** make `SynchronizeReferenceAssembly` write a *real* reference assembly.
+  Also sanctioned: **compress first, then split** (which is why PRs 1–10 ran ahead of any carving), and
+  **a slower COLD build is accepted** — serial full build **53.5 s → 81.8 s** because eight MSBuild floors
+  replace one, with parallel wall time roughly unchanged at ~60 s. **The split buys nothing on full
+  builds and everything on the inner loop.**
+- **TWO OPEN USER DECISIONS remain, and nothing should be carved before they are answered.** **D-A —
+  DocQuery and Linter: below or above CodeIntel?** (13 of the 33 residual references are this one
+  question.) **D-B — what the compile-time bench measures after the split**: keep a façade as the
+  subject, or repin the corpus onto a named slice.
+
 ### Language slices — six, under "no compatibility shims"
 
 | decision | spelling | commit |
@@ -319,40 +568,53 @@ is noted here only so the next measurement is not surprised by it.)*
 
 `census/core-b` is **DONE** — its PRs 5–7 are compression PR B above, landed at `738996c29`.
 
-`census/core-c` — **audit PRs 8–10**: `get_X()` → property at **3,708** sites, per-type families
-collapsed to generics, and the `ColumnarParserKernels` split. **Building as this was written; nothing
-is claimed for it.**
+`census/core-c` is **DONE** — its PRs 8–10 are compression PR C above, landed at `5a869e9db`.
+*(Superseded note, kept because the number travelled: this entry used to say "`get_X()` → property at
+**3,708** sites". 3,708 is the audit's census; the sweep measured 3,658 and converted 3,544.)*
 
-**User-sanctioned and DONE on `census/throughput` (2026-09-23).** The throughput gate's **fixed
-idle-M4 baseline** (2026-09-01, `8cf40128a`) is replaced by a **same-run control**: each of the
-twelve cells measures the live kernel and a frozen `ControlKernels.nl` transcription of the same six
-bodies, interleaved in one process, and gates on `live / control` at the unchanged 1.20x. Load
-multiplies both medians and divides out. The stored numbers stay as an informational drift table, and
-the vectorizer-fallback case the ratio cannot see — both sides share a compiler — is now checked
-directly out of the emitted IL (`--il-shape`) instead of statistically. Measured: three runs quiet
-and three under six spinning `yes` processes, all PASS with every cell 0.95x-1.06x, while the drift
-row moved to 2x-4x under the load; and a deliberately slowed kernel still FAILS its cell.
+`census/throughput` is **DONE** — the same-run control, landed first as `c44d6206e` so that PR C's
+gates ran under the new rules. *(Superseded note: this entry's first two measured claims —
+"every cell 0.95x-1.06x" and "the drift row moved to 2x-4x" — did not match the logs; the corrected
+figures are in* The throughput gate now measures its own control *above.)*
 
-### Still OWED at `738996c29`
+`census/sdk-incr` — **R1–R3 from `FABLE-CORE-SPLIT-DESIGN.md` §3.4**, the prerequisites the user
+sanctioned before any slice is carved: reference-assembly-aware `Inputs`, a deterministic MVID, and a
+real reference assembly. **Building as this was written; nothing is claimed for it.**
 
-1. **Rendered visual IDE verification** — unchanged, five waves old. The only successful extension
+**The gates for `5a869e9db` are RUNNING in an isolated copy as this is written. Nothing is claimed for
+them, and no row above should be read as if they had passed.**
+
+### Still OWED at `5a869e9db`
+
+1. **Gates at `5a869e9db`** — **PENDING**, running in an isolated copy as this was written. Until they
+   are in, PR C and the throughput control are *landed on the branch* and *not gate-verified together*.
+2. **Rendered visual IDE verification** — unchanged, five waves old. The only successful extension
    reload remains the PRE-FLIP one at `2b9271828`, which built a **C#** language server.
-2. **The rest of the `Compiler.Core` compression** — PRs 5–7 have landed as PR B; **PRs 8–10 are in
-   flight on `census/core-c`** and levers L5–L10 are unstarted. The `match` rewrite is **declined
-   with a reason**, not pending.
-3. **Runtime / Playground.Wasm / the Cli floor** — still open user decisions. **957 production lines,
+3. **The rest of the `Compiler.Core` compression** — PRs 1–10 have all landed (A, B, C) for a measured
+   **−3,777**; **W6 (`Try/out`) and W5 (bidirectional tables) are unstarted**, and levers L5–L10 with
+   them. The `match` rewrite is **declined with a reason**, not pending. **Read every remaining audit
+   line estimate as an upper bound** — that is what PRs A, B and C measured.
+4. **The `Compiler.Core` split** — designed and measured, **not started**. **R1–R3 are in flight on
+   `census/sdk-incr`** and must land first; **D-A and D-B are open user decisions** and nothing should
+   be carved before they are answered.
+5. **Runtime / Playground.Wasm / the Cli floor** — still open user decisions. **957 production lines,
    still unchanged**, plus the 359 in `editors/visualstudio/` that have never been inside the 957 and
    are the lowest priority of anything here.
-4. ~~**The throughput gate's baseline**~~ — DONE on `census/throughput` (2026-09-23); see *Lanes in
-   flight*.
+6. **The 120-vs-140 corpus-assembly count** — PR B's messages say 120 and PR C's say 140 over 150
+   projects. **OPEN**; print it, do not inherit it.
+7. ~~**The throughput gate's baseline**~~ — DONE, landed as `c44d6206e`; see *The throughput gate now
+   measures its own control*.
 
-*(Item 2 of the previous list — gates on the eighth seed — is now DISCHARGED; see the reseeds section.)*
+*(The previous list's item 2 — gates on the eighth seed — is DISCHARGED; see the reseeds section.)*
 
 **No completion claim.** What is now true that was not true at `59c965af0`: CI is green and has
 stayed green, `tests/` holds no C#, the gate runs in roughly half the time it used to (**18m28s /
 19m40s** at `738996c29`, against **42m40s / 37m58s** at `59c965af0`), six language slices have
-landed, and two compression PRs have taken **−3,412** lines out of `Compiler.Core`. **None of that
-moves the toolchain floor, and the visual IDE proof is still owed.**
+landed, **three compression PRs have taken a measured `−3,777` lines out of `Compiler.Core` and in
+doing so sized the audit's 20–25k estimate as an upper bound**, and **the throughput gate now measures
+its own control, so gates no longer require pausing lanes** — only the compile-time bench's timing
+verdict still needs load < 2 to be judged. **None of that moves the toolchain floor, the split has not
+started, the gates at this tip are still running, and the visual IDE proof is still owed.**
 
 ## Census wave 17 — history (2026-09-22)
 
