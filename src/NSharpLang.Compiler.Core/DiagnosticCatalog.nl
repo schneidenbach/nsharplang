@@ -166,6 +166,11 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.InterfaceValueMemberWrite)
         AddCompiler(descriptors, ErrorCode.InitOnlyMemberWrite)
         AddCompiler(descriptors, ErrorCode.RequiredMemberNotSet)
+        AddCompiler(descriptors, ErrorCode.ExplicitInterfaceNotImplemented)
+        AddCompiler(descriptors, ErrorCode.ExplicitInterfaceMemberNotFound)
+        AddCompiler(descriptors, ErrorCode.DuplicateExplicitInterfaceImplementation)
+        AddCompiler(descriptors, ErrorCode.ExplicitInterfaceImplementationModifier)
+        AddCompiler(descriptors, ErrorCode.ExplicitInterfaceQualifierNotClosed)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)

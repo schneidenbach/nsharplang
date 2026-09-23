@@ -131,6 +131,11 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL342`](./NL342.md) | A write to an interface's value member, which is a read slot. |
 | [`NL343`](./NL343.md) | A write to an `init` member after the object exists. |
 | [`NL344`](./NL344.md) | A creation that does not set a `required` member. |
+| [`NL345`](./NL345.md) | An explicit implementation of an interface the type does not implement. |
+| [`NL346`](./NL346.md) | An explicit implementation of a member the interface does not declare. |
+| [`NL347`](./NL347.md) | One interface slot implemented explicitly twice. |
+| [`NL348`](./NL348.md) | A modifier word on an explicit interface implementation. |
+| [`NL349`](./NL349.md) | A generic interface named without the arguments it is implemented with. |
 
 ## Calls — `NL4xx`
 

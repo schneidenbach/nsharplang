@@ -5221,6 +5221,13 @@ sealed class ColumnarIlEmitter {
             for mi := 0; mi < structs[s].Methods.Count; mi++ {
                 m := structs[s].Methods[mi]
                 if (m.IsStatic) {
+                    // A `static` MEMBER HAS NO SLOT TO FILL. An explicit interface implementation is a
+                    // MethodImpl row on a virtual slot, and a static method has none — so a qualified
+                    // name on one is refused here rather than emitted as a static method whose CLR name
+                    // happens to contain a dot.
+                    if (ExplicitInterfaceMemberFacts.IsExplicitMemberName(m.Name)) {
+                        return DeclineStatic("emit.declaration.explicit-interface-static", "a `static` member cannot implement an interface explicitly: '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                    }
                     staticMethodAttributes := (MethodAttributes)declarationPlan.Methods.StructMethodAttributeWords[s][mi]
                     // A GENERIC static method on a user type declares REAL CLR method type parameters:
                     // the builder and its `DefineGenericParameters` call must come BEFORE the signature
@@ -5392,6 +5399,14 @@ sealed class ColumnarIlEmitter {
                     if (m.IsAsync) {
                         return DeclineStatic("emit.declaration.method-return", "generic async method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                     }
+                    // A GENERIC slot's MethodImpl row is written from the name and arity BEFORE the
+                    // signature exists (see `DeclaresGenericMethodSlot`), and that decision cannot be
+                    // made from a qualified name — so an explicit implementation of a generic interface
+                    // METHOD declines rather than emitting a private method with no row, which is a type
+                    // the CLR refuses to load.
+                    if (ExplicitInterfaceMemberFacts.IsExplicitMemberName(m.Name)) {
+                        return DeclineStatic("emit.declaration.explicit-interface-generic", "a generic interface METHOD cannot be implemented explicitly yet: '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                    }
                     if (ColumnarFunctionInput.HasOverrideModifier(m.ModifierFlags)) {
                         return DeclineStatic("emit.declaration.method-generic", "generic method '" + structs[s].Name + "." + m.Name + "' cannot be declared 'override'", structs[s].Name, -1, 0)
                     }
@@ -5508,50 +5523,91 @@ sealed class ColumnarIlEmitter {
                 // `TypeLoadException: … tried to override method 'Describe' but does not implement
                 // or inherit that method.` The closed loop below is the owner of that target, and it
                 // produces the right one through `TypeBuilder.GetMethod(closed, open)`.
-                for implementedInterface in def.ImplementedInterfaces {
-                    implementedInterfaceBuilder: Type = implementedInterface.Builder
-                    if (implementedInterfaceBuilder.get_IsGenericTypeDefinition()) {
-                        continue
+                // AN EXPLICIT INTERFACE IMPLEMENTATION IS A STATEMENT ABOUT ONE INTERFACE, AND ITS CLR
+                // NAME IS NOT ITS DECLARED NAME.
+                //
+                // `func IEnumerable.GetEnumerator(): IEnumerator` fills `IEnumerable`'s slot and
+                // nothing else, so only THAT interface's slots are offered — feeding the whole
+                // implements list to the resolver would let it fill `IFoo.Ping` and `IBar.Ping` from
+                // one declaration, which is a different program from the one that was written. The
+                // slot is looked up under the member's SIMPLE name, because the qualification is the
+                // language's and not the interface's. And the name that reaches `DefineMethod` is the
+                // metadata name — `System.Collections.IEnumerable.GetEnumerator` — so a consumer in
+                // any .NET language finds the member where it expects to.
+                explicitInterfaceQualifier := ExplicitInterfaceMemberFacts.QualifierOf(m.Name)
+                methodSlotMemberName := ExplicitInterfaceMemberFacts.SimpleNameOf(m.Name)
+                methodDeclarationName := m.Name
+                if (explicitInterfaceQualifier != "") {
+                    let namedExplicitInterface: System.Type? = null
+                    if (!ColumnarExplicitInterfaceImplementation.TryResolveNamedInterface(explicitInterfaceQualifier, def, typeResolution, out namedExplicitInterface) || namedExplicitInterface == null) {
+                        return DeclineStatic("emit.declaration.explicit-interface", "'" + structs[s].Name + "' does not implement '" + explicitInterfaceQualifier + "', so it cannot implement '" + m.Name + "' explicitly", structs[s].Name, -1, 0)
                     }
-                    methodOverride.TryAddSourceInterfaceTarget(
-                        implementedInterface,
+                    methodDeclarationName = ExplicitInterfaceMemberFacts.MetadataName(ExplicitInterfaceMemberFacts.RuntimeInterfaceDisplayName(namedExplicitInterface), methodSlotMemberName)
+                    ColumnarExplicitInterfaceImplementation.AddNamedInterfaceTargets(
+                        methodOverride,
+                        def,
+                        namedExplicitInterface,
+                        methodSlotMemberName,
+                        mSignatureReturn,
+                        mParamTypes,
+                        typeResolution.Structs.StructuralTypeReferences
+                    )
+                    if (methodOverride.SourceTargetCount + methodOverride.ExternalTargetCount == 0) {
+                        return DeclineStatic("emit.declaration.explicit-interface-slot", "'" + explicitInterfaceQualifier + "' declares no member matching '" + methodSlotMemberName + "' with this signature", structs[s].Name, -1, 0)
+                    }
+                    // WHAT THIS DECLARATION FILLED, recorded for the completeness walk. That walk asks
+                    // the method table for the interface's member under its SIMPLE name, and an explicit
+                    // implementation is deliberately not there — so without this it would report every
+                    // explicitly implemented interface unsatisfied.
+                    if (!def.ExplicitInterfaceSlots.Add(methodDeclarationName)) {
+                        return DeclineStatic("emit.declaration.explicit-interface-duplicate", "'" + explicitInterfaceQualifier + "." + methodSlotMemberName + "' is implemented explicitly more than once", structs[s].Name, -1, 0)
+                    }
+                } else {
+                    for implementedInterface in def.ImplementedInterfaces {
+                        implementedInterfaceBuilder: Type = implementedInterface.Builder
+                        if (implementedInterfaceBuilder.get_IsGenericTypeDefinition()) {
+                            continue
+                        }
+                        methodOverride.TryAddSourceInterfaceTarget(
+                            implementedInterface,
+                            m.Name,
+                            mSignatureReturn,
+                            mParamTypes,
+                            typeResolution.Structs.StructuralTypeReferences
+                        )
+                    }
+                    for implementedInterfaceType in def.ImplementedInterfaceTypes {
+                        let implementedInterfaceDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                        implementedInterfaceTypeForGenericCheck := implementedInterfaceType
+                        if (!implementedInterfaceTypeForGenericCheck.get_IsGenericType()) {
+                            continue
+                        }
+                        implementedInterfaceTypeForDefinitionCheck := implementedInterfaceType
+                        if (implementedInterfaceTypeForDefinitionCheck.get_IsGenericTypeDefinition()) {
+                            continue
+                        }
+                        if (!ColumnarSourceDefinitionResolver.TryResolveInterface(implementedInterfaceType, typeResolution.Structs.Values, out implementedInterfaceDef)) {
+                            continue
+                        }
+                        methodOverride.TryAddClosedSourceInterfaceTarget(
+                            implementedInterfaceType,
+                            implementedInterfaceDef,
+                            m.Name,
+                            mSignatureReturn,
+                            mParamTypes,
+                            typeResolution.Structs.StructuralTypeReferences
+                        )
+                    }
+                    ColumnarExternalInterfaceMethodResolver.AddMatchingTargets(
+                        methodOverride,
+                        def.ExternalInterfaces,
                         m.Name,
                         mSignatureReturn,
                         mParamTypes,
                         typeResolution.Structs.StructuralTypeReferences
                     )
                 }
-                for implementedInterfaceType in def.ImplementedInterfaceTypes {
-                    let implementedInterfaceDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-                    implementedInterfaceTypeForGenericCheck := implementedInterfaceType
-                    if (!implementedInterfaceTypeForGenericCheck.get_IsGenericType()) {
-                        continue
-                    }
-                    implementedInterfaceTypeForDefinitionCheck := implementedInterfaceType
-                    if (implementedInterfaceTypeForDefinitionCheck.get_IsGenericTypeDefinition()) {
-                        continue
-                    }
-                    if (!ColumnarSourceDefinitionResolver.TryResolveInterface(implementedInterfaceType, typeResolution.Structs.Values, out implementedInterfaceDef)) {
-                        continue
-                    }
-                    methodOverride.TryAddClosedSourceInterfaceTarget(
-                        implementedInterfaceType,
-                        implementedInterfaceDef,
-                        m.Name,
-                        mSignatureReturn,
-                        mParamTypes,
-                        typeResolution.Structs.StructuralTypeReferences
-                    )
-                }
-                ColumnarExternalInterfaceMethodResolver.AddMatchingTargets(
-                    methodOverride,
-                    def.ExternalInterfaces,
-                    m.Name,
-                    mSignatureReturn,
-                    mParamTypes,
-                    typeResolution.Structs.StructuralTypeReferences
-                )
-                methodOverrideCompletion := methodOverride.Complete(def.ExactBaseType, def.BaseDef, m.Name, mSignatureReturn, mParamTypes, typeResolution.Structs.StructuralTypeReferences)
+                methodOverrideCompletion := methodOverride.Complete(def.ExactBaseType, def.BaseDef, methodDeclarationName, mSignatureReturn, mParamTypes, typeResolution.Structs.StructuralTypeReferences)
                 if (!methodOverrideCompletion.IsValid) {
                     return DeclineStatic(methodOverrideCompletion.DeclineCode, methodOverrideCompletion.DeclineMessage, methodOverrideCompletion.DeclineOwnerName, -1, 0)
                 }
@@ -5690,6 +5746,30 @@ sealed class ColumnarIlEmitter {
                     propertySetterName = declarationPlan.Properties.SetterNames[s][pi]
                 }
                 propertySetterAttributes := accessorAttributes
+                // AN EXPLICITLY IMPLEMENTED VALUE MEMBER. The plan built its accessor names from the
+                // DECLARED spelling, which is all it can know; metadata spells the interface fully
+                // qualified, so the resolved interface supplies the real names here and the property row
+                // below takes the same qualification. The accessors then need a MethodImpl row each,
+                // because `ILabeled.get_Label` does not bind `get_Label` by name the way an implicit
+                // accessor does — without the row the CLR refuses to LOAD the type.
+                explicitPropertyQualifier := ExplicitInterfaceMemberFacts.QualifierOf(prop.Name)
+                explicitPropertySimpleName := ExplicitInterfaceMemberFacts.SimpleNameOf(prop.Name)
+                propertyMetadataName := prop.Name
+                let namedPropertyInterface: System.Type? = null
+                if (explicitPropertyQualifier != "") {
+                    if (!ColumnarExplicitInterfaceImplementation.TryResolveNamedInterface(explicitPropertyQualifier, def, typeResolution, out namedPropertyInterface) || namedPropertyInterface == null) {
+                        return DeclineStatic("emit.declaration.explicit-interface", "'" + structs[s].Name + "' does not implement '" + explicitPropertyQualifier + "', so it cannot implement '" + prop.Name + "' explicitly", structs[s].Name, -1, 0)
+                    }
+                    explicitPropertyInterfaceDisplayName := ExplicitInterfaceMemberFacts.RuntimeInterfaceDisplayName(namedPropertyInterface)
+                    propertyMetadataName = ExplicitInterfaceMemberFacts.MetadataName(explicitPropertyInterfaceDisplayName, explicitPropertySimpleName)
+                    propertyGetterName = ExplicitInterfaceMemberFacts.MetadataAccessorName(explicitPropertyInterfaceDisplayName, "get_", explicitPropertySimpleName)
+                    if (propertySetterName != null) {
+                        propertySetterName = ExplicitInterfaceMemberFacts.MetadataAccessorName(explicitPropertyInterfaceDisplayName, "set_", explicitPropertySimpleName)
+                    }
+                    if (!def.ExplicitInterfaceSlots.Add(propertyMetadataName)) {
+                        return DeclineStatic("emit.declaration.explicit-interface-duplicate", "'" + explicitPropertyQualifier + "." + explicitPropertySimpleName + "' is implemented explicitly more than once", structs[s].Name, -1, 0)
+                    }
+                }
                 accessors := ColumnarPropertyDef.Define(
                     propertyOwner,
                     propertyGetterName,
@@ -5704,7 +5784,14 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
                 }
                 structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, getter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), false)))
-                property := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
+                if (namedPropertyInterface != null) {
+                    let explicitGetterSlot: System.Reflection.MethodInfo? = null
+                    if (!ColumnarExplicitInterfaceImplementation.TryResolveValueSlotAccessor(def, namedPropertyInterface, explicitPropertySimpleName, false, out explicitGetterSlot) || explicitGetterSlot == null) {
+                        return DeclineStatic("emit.declaration.explicit-interface-slot", "'" + explicitPropertyQualifier + "' declares no readable value member named '" + explicitPropertySimpleName + "'", structs[s].Name, -1, 0)
+                    }
+                    def.Builder.DefineMethodOverride(getter, explicitGetterSlot)
+                }
+                property := def.Builder.DefineProperty(propertyMetadataName, PropertyAttributes.None, propType, Type.EmptyTypes)
                 ColumnarSignatureMetadataEmitter.ApplyToProperty(property, propertyType, prop.TypeCanonical)
                 def.MemberLabeledCanonicals[prop.Name] = prop.TypeCanonical
                 // One writer, for the reason spelled out on the static property above.
@@ -5728,6 +5815,13 @@ sealed class ColumnarIlEmitter {
                     setParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
                     setParamTypes["value"] = propType
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Setter, exactSetter, ColumnarTypeOfPlanner.RequiredVoidType(), ColumnarTypeOfPlanner.RequiredVoidType(), null, setOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(setParamTypes, false)))
+                    if (namedPropertyInterface != null) {
+                        let explicitSetterSlot: System.Reflection.MethodInfo? = null
+                        if (!ColumnarExplicitInterfaceImplementation.TryResolveValueSlotAccessor(def, namedPropertyInterface, explicitPropertySimpleName, true, out explicitSetterSlot) || explicitSetterSlot == null) {
+                            return DeclineStatic("emit.declaration.explicit-interface-slot", "'" + explicitPropertyQualifier + "' declares no writable value member named '" + explicitPropertySimpleName + "'", structs[s].Name, -1, 0)
+                        }
+                        def.Builder.DefineMethodOverride(exactSetter, explicitSetterSlot)
+                    }
                     property.SetSetMethod(exactSetter)
                 }
                 def.Properties[prop.Name] = accessors

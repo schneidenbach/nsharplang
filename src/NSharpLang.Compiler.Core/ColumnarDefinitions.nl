@@ -524,6 +524,16 @@ class ColumnarStructDef {
     BaseDef: ColumnarStructDef?
     ExactBaseType: Type?
     Methods: Dictionary<string, ColumnarInstanceMethodDef>
+    // THE INTERFACE SLOTS THIS TYPE FILLED EXPLICITLY, by the slot's METADATA name —
+    // `System.Collections.IEnumerable.GetEnumerator`, which is both the CLR name of the member that
+    // fills it and a unique name for the slot itself.
+    //
+    // The completeness walk asks `Methods` for the interface's member by its SIMPLE name, and an
+    // explicit implementation is deliberately NOT there: its key is the qualified spelling, which is
+    // what makes it unreachable through the declaring type. Without this set the walk would report
+    // every explicitly implemented interface unsatisfied — so the declaration pass records what it
+    // filled, and the walk consults it before it fails.
+    ExplicitInterfaceSlots: HashSet<string>
     MethodOverloads: Dictionary<string, List<ColumnarInstanceMethodDef>>
     StaticMethods: Dictionary<string, List<ColumnarStaticMethodDef>>
     StaticFields: Dictionary<string, FieldBuilder>
@@ -588,6 +598,7 @@ class ColumnarStructDef {
         ExternalInterfaces = new List<Type>()
         DefaultInterfaceMethodNames = new HashSet<string>(StringComparer.Ordinal)
         Methods = new Dictionary<string, ColumnarInstanceMethodDef>(StringComparer.Ordinal)
+        ExplicitInterfaceSlots = new HashSet<string>(StringComparer.Ordinal)
         MethodOverloads = new Dictionary<string, List<ColumnarInstanceMethodDef>>(StringComparer.Ordinal)
         StaticMethods = new Dictionary<string, List<ColumnarStaticMethodDef>>(StringComparer.Ordinal)
         StaticFields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal)

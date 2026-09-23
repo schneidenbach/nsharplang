@@ -1931,7 +1931,20 @@ class ColumnarParserRecovery {
 
         // Stage N+1c tranche 11: an `<error>` field name is Parser.cs's OWN placeholder (ConsumeIdentifier
         // :6819) and it still builds the FieldDeclaration around it (:1782) — no decline.
+        nameTokenIndex := Position
         name := ConsumeIdentifier("Expected field name")
+
+        // A VALUE MEMBER'S NAME MAY BE QUALIFIED TOO — `IReadOnlyCollection<string>.Count: int => …` is
+        // the explicit interface implementation of a value member, and it reads through this same arm.
+        if name != "<error>" {
+            qualifiedValueNameEnd := ExplicitInterfaceMemberFacts.QualifiedMemberNameEnd(Tokens, nameTokenIndex)
+            if qualifiedValueNameEnd > Position {
+                name = ExplicitInterfaceMemberFacts.QualifiedMemberNameText(Tokens, nameTokenIndex, qualifiedValueNameEnd)
+                while Position < qualifiedValueNameEnd {
+                    Advance()
+                }
+            }
+        }
 
         // Type inference `Name := value` (Parser.cs :1681) — a NULL type + the inferred initializer
         // (:1686). FQN'd (a test-helper `class FieldDeclaration` collides under the tests build).
@@ -2409,8 +2422,21 @@ class ColumnarParserRecovery {
             } else {
                 nameLine := Current().Line
                 nameColumn := Current().Column
+                nameTokenIndex := Position
                 name = ConsumeDeclarationName("Expected function name", SpanFromToken(funcToken))
                 if name != "<error>" {
+                    // AN EXPLICIT INTERFACE IMPLEMENTATION'S NAME IS QUALIFIED —
+                    // `func IEnumerable.GetEnumerator(): IEnumerator` — and the whole qualified spelling
+                    // IS the member's name. A generic method's `<T>` carries no dot behind it, so the
+                    // shape owner answers -1 for one and the type-parameter list below still reads it.
+                    qualifiedNameEnd := ExplicitInterfaceMemberFacts.QualifiedMemberNameEnd(Tokens, nameTokenIndex)
+                    if qualifiedNameEnd > Position {
+                        name = ExplicitInterfaceMemberFacts.QualifiedMemberNameText(Tokens, nameTokenIndex, qualifiedNameEnd)
+                        while Position < qualifiedNameEnd {
+                            Advance()
+                        }
+                    }
+
                     markerName = name
                     markerLine = nameLine
                     markerColumn = nameColumn

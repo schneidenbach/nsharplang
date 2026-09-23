@@ -435,6 +435,10 @@ class AnalyzerTypeDeclarations {
         ValidateBaseClassEligibility(state)
         ValidateOverrideTargets(state)
         ValidateAbstractMemberImplementations(state)
+        // BEFORE the completeness walk, because an explicit implementation whose qualifier is wrong
+        // must say so about ITSELF rather than making the type look incomplete: the two reports are
+        // about different mistakes, and the specific one is the useful one.
+        ValidateExplicitInterfaceImplementations(state)
         ValidateInterfaceImplementations(state)
         state.OwnerType = OwnerTypeFor(state)
         DeclareNestedTypesInCurrentScope(state.OwnerType)
@@ -2335,6 +2339,18 @@ class AnalyzerTypeDeclarations {
     // N# HAS ONLY IMPLICIT IMPLEMENTATION. There is no explicit-interface-implementation syntax in the
     // grammar, in the parser or in the documentation, so a member satisfies an interface by NAME —
     // there is no second, differently-spelled way to satisfy one that this walk could miss.
+    // EXPLICIT INTERFACE IMPLEMENTATIONS. The rules live in their own owner because all five of them
+    // share one input — the written interface list resolved to its inherited closure — and because a
+    // qualified member name is a language surface of its own, not a case of the completeness walk.
+    func ValidateExplicitInterfaceImplementations(state: TypeDeclarationState) {
+        if state.Form == 3 {
+            return
+        }
+
+        validator := new AnalyzerExplicitInterfaceImplementation(diagnosticsValue, typeResolverValue)
+        validator.Validate(DeclaredTypeNameFor(state), TypeMembers(state), WrittenInterfaceReferences(state))
+    }
+
     func ValidateInterfaceImplementations(state: TypeDeclarationState) {
         if state.Form == 3 {
             return
@@ -2502,12 +2518,24 @@ class AnalyzerTypeDeclarations {
             function := member as FunctionDeclaration
             if function != null {
                 suppliedFunctions.Add(function.Name)
+                // AN EXPLICIT IMPLEMENTATION SUPPLIES THE SLOT IT NAMES, and its key is the QUALIFIED
+                // spelling — which is what keeps it off the type's own surface. The completeness walk
+                // asks by the interface member's own name, so the simple half is supplied as well or a
+                // correctly implemented interface would read as unimplemented.
+                if ExplicitInterfaceMemberFacts.IsExplicitMemberName(function.Name) {
+                    suppliedFunctions.Add(ExplicitInterfaceMemberFacts.SimpleNameOf(function.Name))
+                }
+
                 continue
             }
 
             property := member as PropertyDeclaration
             if property != null {
                 suppliedValues.Add(property.Name)
+                if ExplicitInterfaceMemberFacts.IsExplicitMemberName(property.Name) {
+                    suppliedValues.Add(ExplicitInterfaceMemberFacts.SimpleNameOf(property.Name))
+                }
+
                 continue
             }
 

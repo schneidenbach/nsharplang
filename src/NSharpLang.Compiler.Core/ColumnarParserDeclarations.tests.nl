@@ -176,6 +176,28 @@ test "020 s17 parser declarations: `file` IS AN ORDINARY IDENTIFIER — the file
     assert PdCensus("\n            file class Helper {\n            }\n        ") != ""
 }
 
+test "020 s17 parser declarations: an EXPLICIT INTERFACE IMPLEMENTATION is a qualified member name" {
+    // THE WHOLE QUALIFIED SPELLING IS THE MEMBER'S NAME, and the parser's job is to read it as one.
+    // A method, a value member, a namespace-qualified interface and a CLOSED generic one are the four
+    // shapes; the last is why the scan counts angle depth instead of stopping at the first dot.
+    method := "\n            class Bag: IEnumerable<string> {\n                func GetEnumerator(): IEnumerator<string> => null\n\n                func IEnumerable.GetEnumerator(): IEnumerator => null\n            }\n        "
+    assert PdCensus(method) == ""
+
+    valueMember := "\n            class Hidden: ILabeled {\n                ILabeled.Label: string => \"hidden\"\n            }\n        "
+    assert PdCensus(valueMember) == ""
+
+    namespaceQualified := "\n            class Bag: IEnumerable<string> {\n                func System.Collections.IEnumerable.GetEnumerator(): IEnumerator => null\n            }\n        "
+    assert PdCensus(namespaceQualified) == ""
+
+    closedGeneric := "\n            class Box: IBox<string> {\n                IBox<string>.Item: string => \"x\"\n\n                func IBox<string>.Unwrap(): string => \"y\"\n            }\n        "
+    assert PdCensus(closedGeneric) == ""
+
+    // AND A GENERIC METHOD IS STILL A GENERIC METHOD. `Compare<T>(` is an argument list with no dot
+    // behind it, so the qualified-name scan must leave it for the type-parameter list.
+    genericMethod := "\n            class Sorter {\n                func Compare<T>(left: T, right: T): int => 0\n            }\n        "
+    assert PdCensus(genericMethod) == ""
+}
+
 test "020 s17 parser declarations: `type` IS A CONTEXTUAL KEYWORD — an alias head, an identifier everywhere else" {
     // THE PRODUCTION THAT KEEPS THE WORD. A top-level `type Name = Underlying` head still declares an
     // alias, and its branded `newtype` form still declares a newtype; those two rows are the only

@@ -9432,19 +9432,28 @@ func ParsePropertyAccessorInfoCore(source: string, tokens: ParserDeclarationToke
         return -1
     }
 
-    if tokens.Kinds[propIndex] != 0 || tokens.Kinds[propIndex + 1] != 122 {
+    if tokens.Kinds[propIndex] != 0 {
         return -1
     }
 
+    // A VALUE MEMBER'S NAME MAY BE QUALIFIED (an explicit interface implementation), so the `:` and the
+    // type behind it are found past the WHOLE name and the recorded name span is the whole name.
+    nameEnd := ParseDeclarationMemberNameEnd(tokens, count, propIndex)
+    if nameEnd >= count || tokens.Kinds[nameEnd] != 122 {
+        return -1
+    }
+
+    nameLength := ParseDeclarationMemberNameSpanLength(tokens, propIndex, nameEnd)
+
     typeResult := new ParserDeclarationResultTable(new int[](2))
-    typeEnd := ParseDeclarationTypeSpanCore(tokens, count, propIndex + 2, typeResult)
+    typeEnd := ParseDeclarationTypeSpanCore(tokens, count, nameEnd + 1, typeResult)
     if typeEnd < 0 || typeEnd >= count {
         return -1
     }
 
     if tokens.Kinds[typeEnd] == 120 {
         result.Values[0] = tokens.Starts[propIndex]
-        result.Values[1] = tokens.ValueLengths[propIndex]
+        result.Values[1] = nameLength
         result.Values[2] = typeResult.Values[0]
         result.Values[3] = typeResult.Values[1]
         result.Values[4] = typeEnd
@@ -9472,7 +9481,7 @@ func ParsePropertyAccessorInfoCore(source: string, tokens: ParserDeclarationToke
     }
 
     result.Values[0] = tokens.Starts[propIndex]
-    result.Values[1] = tokens.ValueLengths[propIndex]
+    result.Values[1] = nameLength
     result.Values[2] = typeResult.Values[0]
     result.Values[3] = typeResult.Values[1]
     result.Values[4] = getBodyBrace
@@ -11022,6 +11031,121 @@ func ParserDeclarationCanonicalTypeText(source: string, start: int, length: int)
     return builder.ToString()
 }
 
+// A MEMBER NAME MAY BE QUALIFIED, AND THIS IS THE SHAPE OF THE QUALIFICATION.
+//
+// An EXPLICIT INTERFACE IMPLEMENTATION is spelled `Interface.Member` in the type body —
+// `func IEnumerable.GetEnumerator(): IEnumerator { … }`, `IReadOnlyCollection<string>.Count: int => …`
+// — and a generic interface is written CLOSED, exactly as the implements list writes it. The
+// qualifier may itself be dotted (`System.Collections.IEnumerable.GetEnumerator`), so the scan is a
+// LOOP and the member name is whatever follows the LAST dot.
+//
+// IT IS DECIDED PURELY BY TOKEN KIND, which is what lets the member scan, the signature kernel and
+// the property kernel all ask the same question of their own token columns. `start` is the index just
+// PAST the name's first identifier; the answer is the index just past the whole qualified name, or -1
+// when the name is an ordinary one-token name.
+//
+// -1 RATHER THAN `start` IS THE POINT. A generic METHOD is `Compare<T>(` — an argument list with no
+// dot after it — and a plain method is `Read(`. Both must leave the caller's cursor exactly where it
+// was, because the type-parameter list behind it is parsed by the owner that has always parsed it.
+func ExplicitInterfaceMemberNameEnd(kinds: int[], count: int, start: int): int {
+    pos := start
+    lastEnd := -1
+    scanning := true
+    while scanning {
+        if pos < count && kinds[pos] == 100 {
+            closed := ExplicitInterfaceQualifierArgumentListEnd(kinds, count, pos)
+            if closed < 0 {
+                return lastEnd
+            }
+
+            pos = closed
+        }
+
+        if pos + 1 < count && kinds[pos] == 124 && kinds[pos + 1] == 0 {
+            pos = pos + 2
+            lastEnd = pos
+        } else {
+            scanning = false
+        }
+    }
+
+    return lastEnd
+}
+
+// The `<` … `>` of a closed qualifier. `>>` is ONE token (RightShift, 112) and closes TWO levels,
+// which is the same rule every type scanner in this file applies. A brace, a newline or end of file
+// cannot appear inside a type-argument list, so meeting one means the `<` was a comparison and the
+// name is not qualified.
+func ExplicitInterfaceQualifierArgumentListEnd(kinds: int[], count: int, lessIndex: int): int {
+    depth := 0
+    pos := lessIndex
+    while pos < count {
+        kind := kinds[pos]
+        if kind == 100 {
+            depth = depth + 1
+        } else if kind == 102 {
+            depth = depth - 1
+            if depth <= 0 {
+                return pos + 1
+            }
+        } else if kind == 112 {
+            depth = depth - 2
+            if depth <= 0 {
+                return pos + 1
+            }
+        } else if kind == 129 || kind == 130 || kind == 135 || kind == 136 {
+            return -1
+        }
+
+        pos = pos + 1
+    }
+
+    return -1
+}
+
+// The token index just past a MEMBER's name, which is more than one token when the name is qualified.
+// Every walk that used to write `memberStart + 1` asks this instead, so the two readings of a type's
+// body cannot disagree about where a member's name ends.
+func ParseDeclarationMemberNameEnd(tokens: ParserDeclarationTokenTable, count: int, memberStart: int): int {
+    if memberStart < 0 || memberStart >= count || tokens.Kinds[memberStart] != 0 {
+        return memberStart
+    }
+
+    qualifiedEnd := ExplicitInterfaceMemberNameEnd(tokens.Kinds, count, memberStart + 1)
+    if qualifiedEnd > memberStart + 1 {
+        return qualifiedEnd
+    }
+
+    return memberStart + 1
+}
+
+// The source LENGTH of that name, from its first token through its last.
+func ParseDeclarationMemberNameSpanLength(tokens: ParserDeclarationTokenTable, memberStart: int, nameEnd: int): int {
+    return tokens.Starts[nameEnd - 1] + tokens.ValueLengths[nameEnd - 1] - tokens.Starts[memberStart]
+}
+
+// A MEMBER NAME'S TEXT. A qualified one may have been written with whitespace around its punctuation,
+// and a canonical name never contains a space — the same rule a composed TYPE text follows. An
+// ordinary one-token name carries no punctuation at all and is returned exactly as written, so
+// nothing on the hot path allocates that did not allocate before.
+func ParserDeclarationMemberNameText(source: string, start: int, length: int): string {
+    if start < 0 || length <= 0 || start + length > source.Length {
+        return ""
+    }
+
+    i := 0
+    while i < length {
+        ch := source[start + i]
+        if ch == '.' || ch == '<' {
+            return ParserDeclarationCanonicalDottedNameText(source, start, length)
+        }
+
+        i = i + 1
+    }
+
+    return source.Substring(start, length)
+}
+
 func ParserDeclarationCanonicalDottedNameText(source: string, start: int, length: int): string {
     if start < 0 || length <= 0 || start + length > source.Length {
         return ""
@@ -12271,9 +12395,13 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 return -1
             }
 
+            // A VALUE MEMBER'S NAME MAY BE QUALIFIED — `IReadOnlyCollection<string>.Count: int => …` is
+            // an explicit interface implementation of a value member — so the `:` is looked for past
+            // the whole name rather than one token in.
+            memberNameEnd := ParseDeclarationMemberNameEnd(tokens, count, memberStart)
             decl.FieldNameStarts[fieldCount] = tokens.Starts[memberStart]
-            decl.FieldNameLengths[fieldCount] = tokens.ValueLengths[memberStart]
-            pos = memberStart + 1
+            decl.FieldNameLengths[fieldCount] = ParseDeclarationMemberNameSpanLength(tokens, memberStart, memberNameEnd)
+            pos = memberNameEnd
 
             if pos >= count || tokens.Kinds[pos] != 122 {
                 return -1
@@ -12511,7 +12639,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
         } else if tokens.Kinds[memberStart] == 0 {
             // A FIELD, A PROPERTY OR A FIELD-LIKE EVENT — the first pass recorded it, so this one
             // only steps past it. `event <Name>: <Type>` puts an extra NAME token before the `:`.
-            storageTypePos := memberStart + 1
+            storageTypePos := ParseDeclarationMemberNameEnd(tokens, count, memberStart)
             if storageTypePos < count && tokens.Kinds[storageTypePos] == 0 && storageTypePos + 1 < count && tokens.Kinds[storageTypePos + 1] == 122 && ParserDeclarationTokenTextEquals(source, tokens.Starts[memberStart], tokens.ValueLengths[memberStart], "event") {
                 storageTypePos = storageTypePos + 1
             }
@@ -12958,7 +13086,7 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
     } else if funcIndex + 2 < count && tokens.Kinds[funcIndex + 1] == 75 {
         functionName = FunctionSignatureOperatorClrName(tokens.Kinds[funcIndex + 2], paramCount)
     } else {
-        functionName = FunctionSignatureSpanText(source, signatureResult.Values[3], signatureResult.Values[4])
+        functionName = ParserDeclarationMemberNameText(source, signatureResult.Values[3], signatureResult.Values[4])
     }
 
     if functionName == "" {
@@ -13754,6 +13882,15 @@ func ParseFunctionSignatureCore(tokens: ParserTokenTable, count: int, funcIndex:
         funcNameStart = tokens.Starts[i]
         funcNameLength = tokens.ValueLengths[i]
         i = i + 1
+        // AN EXPLICIT INTERFACE IMPLEMENTATION'S NAME IS QUALIFIED — `func IEnumerable.GetEnumerator()`
+        // — and the whole qualified spelling IS the member's name. A generic METHOD's `<T>` is not part
+        // of a name and is left for the type-parameter list below, which is why the scan answers -1
+        // unless a DOT really follows.
+        qualifiedNameEnd := ExplicitInterfaceMemberNameEnd(tokens.Kinds, count, i)
+        if qualifiedNameEnd > i {
+            funcNameLength = tokens.Starts[qualifiedNameEnd - 1] + tokens.ValueLengths[qualifiedNameEnd - 1] - funcNameStart
+            i = qualifiedNameEnd
+        }
     }
 
     // Optional generic TYPE-PARAMETER list `<T, U>`: bare comma-separated Identifiers only, with lifetime
@@ -15067,6 +15204,13 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
             return -1
         }
 
+        // A VALUE MEMBER'S NAME MAY BE QUALIFIED. `IReadOnlyCollection<string>.Count: int => …` is an
+        // explicit interface implementation, and THIS IS THE THIRD WALK OF A TYPE'S BODY — the
+        // synthesized instance-initializer constructor's — so it has to agree with the other two about
+        // where a member's name ends. It used to read the `:` one token in, so a qualified value member
+        // matched no arm at all and the WHOLE declaration declined at `parse.struct`.
+        storageNameEnd := ParseDeclarationMemberNameEnd(declarationTokens, tokens.Count, memberStart)
+
         if tokens.Kinds[memberStart] == 7 || tokens.Kinds[memberStart] == 85 || tokens.Kinds[memberStart] == 86 {
             methodSignatureEnd := ParseDeclarationFunctionSignatureEndCore(source, declarationTokens, tokens.Count, memberStart)
             if methodSignatureEnd < 0 || methodSignatureEnd >= tokens.Count {
@@ -15097,10 +15241,10 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
             if scan < 0 {
                 return -1
             }
-        } else if tokens.Kinds[memberStart] == 0 && memberStart + 1 < tokens.Count && tokens.Kinds[memberStart + 1] == 122 {
+        } else if tokens.Kinds[memberStart] == 0 && storageNameEnd < tokens.Count && tokens.Kinds[storageNameEnd] == 122 {
             fieldNameStart := tokens.Starts[memberStart]
-            fieldNameLength := tokens.ValueLengths[memberStart]
-            scan = memberStart + 2
+            fieldNameLength := ParseDeclarationMemberNameSpanLength(declarationTokens, memberStart, storageNameEnd)
+            scan = storageNameEnd + 1
             scan = ParseDeclarationTypeSpanCore(declarationTokens, tokens.Count, scan, typeResult)
             if scan < 0 {
                 return -1
@@ -16088,6 +16232,14 @@ func ColumnarStructMethodMemberNameText(source: string, tokens: ColumnarStructTo
     }
 
     if tokens.Kinds[methodNameIndex] == 0 {
+        // AN EXPLICIT INTERFACE IMPLEMENTATION'S NAME IS THE WHOLE QUALIFIED SPELLING, and it is the
+        // key every member table stores the member under — which is what makes it unreachable through
+        // the declaring type while an implicit member of the same simple name keeps its own key.
+        qualifiedNameEnd := ExplicitInterfaceMemberNameEnd(tokens.Kinds, tokens.Count, methodNameIndex + 1)
+        if qualifiedNameEnd > methodNameIndex + 1 {
+            return ParserDeclarationMemberNameText(source, tokens.Starts[methodNameIndex], tokens.Starts[qualifiedNameEnd - 1] + tokens.ValueLengths[qualifiedNameEnd - 1] - tokens.Starts[methodNameIndex])
+        }
+
         return ParserDeclarationSpanText(source, tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex])
     }
 
@@ -16101,6 +16253,19 @@ func ColumnarStructMethodMemberNameText(source: string, tokens: ColumnarStructTo
     }
 
     return ""
+}
+
+// A VALUE MEMBER'S NAME AS DECLARED, qualified when it is an explicit interface implementation. The
+// twin of `ColumnarStructMethodMemberNameText`, and for the same reason: the name is stored as a
+// token INDEX, so every reader has to recompute the same extent.
+func ColumnarStructPropertyMemberNameText(source: string, tokens: ColumnarStructTokenTable, propNameIndex: int): string {
+    if propNameIndex < 0 || propNameIndex >= tokens.Count || tokens.Kinds[propNameIndex] != 0 {
+        return ""
+    }
+
+    declarationTokens := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    nameEnd := ParseDeclarationMemberNameEnd(declarationTokens, tokens.Count, propNameIndex)
+    return ParserDeclarationMemberNameText(source, tokens.Starts[propNameIndex], ParseDeclarationMemberNameSpanLength(declarationTokens, propNameIndex, nameEnd))
 }
 
 func ColumnarStructMethodFlagIsStatic(flags: int): bool {
@@ -16188,7 +16353,7 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: ColumnarS
             return 0
         }
 
-        propName := ParserDeclarationSpanText(source, tokens.Starts[propNameIndex], tokens.ValueLengths[propNameIndex])
+        propName := ColumnarStructPropertyMemberNameText(source, tokens, propNameIndex)
         if propName == "" {
             return 0
         }
@@ -16198,8 +16363,18 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: ColumnarS
             return 0
         }
 
-        getAccessorName := "get_" + propName
-        setAccessorName := "set_" + propName
+        // AN EXPLICIT VALUE MEMBER'S ACCESSORS CARRY THE QUALIFICATION TOO — the BCL spells them
+        // `System.Collections.IList.get_Item` beside `System.Collections.IList.Item` — so the prefix
+        // goes on the SIMPLE name, inside the qualification. Building `get_Interface.Member` would
+        // compare against a name no member can have, and the collision would go unseen.
+        propQualifier := ExplicitInterfaceMemberFacts.QualifierOf(propName)
+        propSimpleName := ExplicitInterfaceMemberFacts.SimpleNameOf(propName)
+        getAccessorName := "get_" + propSimpleName
+        setAccessorName := "set_" + propSimpleName
+        if propQualifier != "" {
+            getAccessorName = ExplicitInterfaceMemberFacts.MetadataAccessorName(propQualifier, "get_", propSimpleName)
+            setAccessorName = ExplicitInterfaceMemberFacts.MetadataAccessorName(propQualifier, "set_", propSimpleName)
+        }
 
         f := 0
         while f < fieldCount {
@@ -16207,7 +16382,7 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: ColumnarS
                 return 0
             }
 
-            if ParserDeclarationSourceSpansEqual(source, tokens.Starts[propNameIndex], tokens.ValueLengths[propNameIndex], scratch.FieldNameStarts[f], scratch.FieldNameLengths[f]) {
+            if propName == ParserDeclarationMemberNameText(source, scratch.FieldNameStarts[f], scratch.FieldNameLengths[f]) {
                 return 0
             }
 
@@ -16243,7 +16418,7 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: ColumnarS
                 return 0
             }
 
-            if ParserDeclarationSourceSpansEqual(source, tokens.Starts[propNameIndex], tokens.ValueLengths[propNameIndex], tokens.Starts[otherPropNameIndex], tokens.ValueLengths[otherPropNameIndex]) {
+            if propName == ColumnarStructPropertyMemberNameText(source, tokens, otherPropNameIndex) {
                 return 0
             }
 
@@ -16973,7 +17148,7 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: ColumnarPropertyToken
         return -1
     }
 
-    nameText := ParserDeclarationSpanText(source, propertyResult.Values[0], propertyResult.Values[1])
+    nameText := ParserDeclarationMemberNameText(source, propertyResult.Values[0], propertyResult.Values[1])
     if nameText == "" {
         return -1
     }

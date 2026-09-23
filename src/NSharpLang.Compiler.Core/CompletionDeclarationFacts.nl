@@ -499,6 +499,15 @@ class CompletionDeclarationFacts {
         index := 0
         while index < members.Length {
             member := members[index]
+            // AN EXPLICIT INTERFACE IMPLEMENTATION IS NOT A MEMBER OF THE TYPE, so it is not offered
+            // on one. `bag.` offers `GetEnumerator`; `IEnumerable.GetEnumerator` is reachable only
+            // through the interface, and putting it in this list would offer a spelling that is not a
+            // legal member access — `bag.IEnumerable.GetEnumerator()` names nothing.
+            if ExplicitInterfaceMemberFacts.IsExplicitMemberName(member.Name) {
+                index = index + 1
+                continue
+            }
+
             if CompletionVisibilityFacts.IsOfferableAcrossPackages(member.IsExported, declaringNamespace, requestingNamespace) && CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(member.DeclaredModifiers, canReachProtected, isInsideDeclaringType) {
                 item := DeclaredMemberToCompletionItem(member, true, semanticModels, typeInfo, substitution)
                 if item != null && CompletionInheritanceFacts.MemberMatchesFilter(item, filter) {

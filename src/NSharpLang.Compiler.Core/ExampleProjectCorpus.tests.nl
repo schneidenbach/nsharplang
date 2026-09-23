@@ -131,10 +131,10 @@ test "every single-directory example discovers its sources, parses clean and lin
 }
 
 test "11-advanced-features, THE ONE EXAMPLE THE PRODUCT GATE'S OWN FILTER SKIPS" {
-    // Ten sources in ten sub-directories, no top-level `.nl` and no `project.yml`, so the gate's
-    // `nlc check` sweep drops it and the deleted `[Theory]` row was the only thing that looked at
-    // it. The recursive walk finds all ten.
-    assert EpcProjectReport("11-advanced-features") == "files=10 parseErrors=0 lint="
+    // Eleven sources in eleven sub-directories, no top-level `.nl` and no `project.yml`, so the
+    // gate's `nlc check` sweep drops it and the deleted `[Theory]` row was the only thing that
+    // looked at it. The recursive walk finds all eleven.
+    assert EpcProjectReport("11-advanced-features") == "files=11 parseErrors=0 lint="
 }
 
 // ── the six multi-file examples ───────────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ test "THE CORPUS IS NINETEEN DIRECTORIES AND EVERY ONE OF THEM IS REQUIRED TO BE
     }
 }
 
-test "the whole corpus is 79 discovered files, zero parse errors and zero lint diagnostics" {
+test "the whole corpus is 80 discovered files, zero parse errors and zero lint diagnostics" {
     // The sum is what catches a project that silently stops discovering: nineteen per-project
     // equalities can all be updated one at a time, and this row makes that a visible arithmetic
     // change rather than a quiet one.
@@ -223,7 +223,7 @@ test "the whole corpus is 79 discovered files, zero parse errors and zero lint d
         }
     }
 
-    assert totalFiles == 79
+    assert totalFiles == 80
     assert totalParseErrors == 0
     assert census == ""
 }

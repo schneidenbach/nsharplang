@@ -5229,3 +5229,85 @@ handler only resolves the resulting call and renders the selected signature. Exp
 receiver spellings such as `Catalog.Box<int>.Map<string>(value: ...)` retain the complete receiver
 for semantic value lookup. Source declaration lookup removes type arguments only after that lookup,
 while preserving namespace and enclosing-type identity.
+
+## An explicit interface implementation names its own slot (census 2026-09-23, D1)
+
+`func IEnumerable.GetEnumerator(): IEnumerator { … }` inside a type body fills the interface's slot and
+nothing else. It exists because `IEnumerable<T>` inherits the non-generic `IEnumerable` and their two
+`GetEnumerator` slots differ **only in return type** — so an ordinary member fills one of them and
+nothing else in the language could fill the other. Before this, no N# type could implement
+`IEnumerable<T>` at all.
+
+**THE DECLARED SPELLING IS THE MEMBER TABLE'S KEY, AND THAT IS THE WHOLE DESIGN.** Round 7 filed this
+feature as expensive because `ColumnarStructDef.Methods` is keyed by the plain member name and "every
+lookup in the backend, the analyzer's member binding, the completeness walk, the editor projections
+and `nlc query` read that key". Keying the explicit member by its QUALIFIED spelling turns that from a
+cost into the mechanism: an ordinary lookup for `GetEnumerator` does not find it, which is exactly the
+reachability rule the feature is for, and no lookup had to learn a new rule to get it. Overload
+resolution over the simple name is untouched, and an implicit `GetEnumerator` beside an explicit
+`IEnumerable.GetEnumerator` is two keys rather than a collision.
+
+**THREE STRINGS, AND THEY ARE NOT THE SAME STRING** (`ExplicitInterfaceMemberFacts`):
+
+* the DECLARED spelling — `IEnumerable.GetEnumerator` — the member table's key and what hover,
+  completion, rename, find-references, signature help and document symbols all show;
+* the SIMPLE name — `GetEnumerator` — what the interface declares its slot under and what the slot
+  match is made on; the qualification is the language's, not the interface's;
+* the METADATA name — `System.Collections.IEnumerable.GetEnumerator` — what the CLR carries. It was
+  MEASURED against the BCL's own assemblies rather than assumed: `List<T>` carries exactly that, and
+  `Dictionary<TKey, TValue>` carries
+  `System.Collections.Generic.ICollection<System.Collections.Generic.KeyValuePair<TKey,TValue>>.Add` —
+  type arguments fully qualified, no space after the comma, a type PARAMETER by its bare name. A value
+  member's accessor puts the prefix INSIDE the qualification (`…IList.get_Item`), which is also
+  measured.
+
+**THE COMPLETENESS WALK HAD TO BE TOLD.** It asks the method table for the interface's member under the
+slot's own name, and the explicit member is deliberately not there — so without a second source of
+truth every explicitly implemented interface read as unsatisfied. `ColumnarStructDef.ExplicitInterfaceSlots`
+is that source: the declaration pass records the METADATA name of each slot it filled, and the three
+walks that could fail (`ColumnarExternalInterfaceMethodResolver.InterfacesSatisfied`,
+`ColumnarInterfaceRealization.RequiredInterfaceMembersSatisfied`,
+`ColumnarClosedGenericMemberResolver.SourceInterfaceMembersSatisfied`) consult it **on the failure path
+only**, so a type with no explicit implementations pays nothing. The analyzer's own supply set does the
+same thing one level up: `AddDeclaredMemberNames` adds the SIMPLE half of a qualified name beside the
+qualified one, so `NL325` does not fire on a correctly implemented interface.
+
+**ONLY THE NAMED INTERFACE'S SLOTS ARE OFFERED**, and the qualifier is RESOLVED AS A TYPE rather than
+matched as a string. `ColumnarExplicitInterfaceImplementation.TryResolveNamedInterface` runs the
+qualifier through `ColumnarCanonicalTypeResolver` — the same resolver every annotation goes through, so
+a closed generic's arguments resolve by the compilation's own rules, including arguments that are
+SOURCE types — and compares the answer to the implements closure by TYPE IDENTITY. Feeding the whole
+implements list to the target resolver would let `func IFoo.Ping()` fill `IBar`'s `Ping` slot too,
+which is a different program from the one that was written.
+
+**FIVE DIAGNOSTICS, AND THEY ARE ANALYZER DIAGNOSTICS RATHER THAN EMIT DECLINES.** The backend refuses
+all five as well — it has to, because a MethodImpl row naming a method the type does not implement
+emits an assembly the CLR rejects at LOAD — but a decline says "the columnar backend declined" at no
+position. `AnalyzerExplicitInterfaceImplementation` owns the five because they share one input, the
+written interface list resolved to its inherited closure: `NL345` (an interface this type does not
+implement), `NL346` (a member the interface does not declare), `NL347` (one slot claimed twice),
+`NL348` (a modifier word — accessibility, `static`, `virtual`, `override`, `abstract` or `sealed` — on a
+member that is `private final virtual newslot` by construction), `NL349` (a generic interface named
+without the arguments the implements list writes). `NL347` deliberately does NOT fire on two members of
+the SAME name, because that is already `NL306`; what it catches is two DIFFERENT spellings of one slot
+(`IPing.Ping` and `Sample.IPing.Ping`), which nothing else can see.
+
+**WHAT THIS SLICE DOES NOT REACH, refused rather than mis-emitted:**
+
+* a GENERIC interface METHOD (`func ILogger.Log<TState>(…)`). A generic slot's MethodImpl row is
+  decided from the name and arity BEFORE the signature exists (`DeclaresGenericMethodSlot`), and that
+  decision cannot be made from a qualified name. `emit.declaration.explicit-interface-generic`.
+* an EXPLICIT EVENT. The grammar has no `add`/`remove` accessor syntax — a field-like event is
+  `event Name: Delegate` — so there is no explicit spelling to give one.
+* a `static` member, which occupies no virtual slot. `emit.declaration.explicit-interface-static`.
+
+**THE NEXT DEFECT THIS FEATURE MADE REACHABLE, and it is a separate slice.** An EXTENSION-METHOD call
+whose receiver is a SOURCE type — `bag.Count()`, `bag.Select(…)` — does not bind, while the static
+spelling (`Enumerable.Count<string>(bag)`) does and is what the tests and the example use.
+`ColumnarContextualExtensionInference.FindClosedImplementation` reads the receiver's interface list by
+reflection, a `TypeBuilder` answers nothing before `CreateType`, and the source definition that DOES
+know is not reachable from the extension resolver (`ColumnarExtensionMethodResolver.Resolve` takes only
+types). `List<Row>` works because it is a builder-bound CONSTRUCTION and reaches its interfaces through
+its generic DEFINITION; a non-generic source type has no definition to go through. It is the same
+family as the wave-12 `OfType`/`Cast` finding and needs the registry threaded into the resolver, which
+is its own pass.

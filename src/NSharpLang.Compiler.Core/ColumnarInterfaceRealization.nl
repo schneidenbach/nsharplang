@@ -253,6 +253,12 @@ class ColumnarInterfaceRealization {
 
                 implementation: ColumnarInstanceMethodDef = null
                 if !definition.Methods.TryGetValue(memberName, out implementation) || implementation.ReturnType != member.ReturnType || !ParamTypesMatch(member.ParamTypes, implementation.ParamTypes) {
+                    // AN EXPLICIT IMPLEMENTATION IS NOT IN THE METHOD TABLE UNDER THE SLOT'S OWN NAME —
+                    // its key is the qualified spelling, which is what makes it unreachable through the
+                    // declaring type. The declaration pass recorded the slot it filled; ask that.
+                    if ColumnarExternalInterfaceMethodResolver.ExplicitlyImplemented(definition, requiredInterface.Builder, memberName) {
+                        continue
+                    }
                     return false
                 }
             }

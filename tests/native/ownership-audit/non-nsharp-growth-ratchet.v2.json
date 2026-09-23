@@ -4,7 +4,7 @@
   "codeEpochFileCount": 223,
   "codeEpochPathFingerprint": "pathset-v2:fbda7fc3d5053525",
   "codeEpochFactFingerprint": "epochfacts-v2:05f608333cab8ef7",
-  "reviewedHeadFingerprint": "head-v2:22bf34fb2cf1d13b",
+  "reviewedHeadFingerprint": "head-v2:52e18e3153abe88f",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":190,"currentNonBlankLines":164,"currentBytes":0,"currentFingerprint":"text-v1:3a65c0407cf192e9"},
@@ -100,6 +100,8 @@
     {"path":"examples/11-advanced-features/ConversionOperators/global.json","language":"json-config","surface":"examples","campaignScope":"closeout","state":"reviewed","currentLines":9,"currentNonBlankLines":9,"currentBytes":0,"currentFingerprint":"text-v1:224b2c9ed64bcc89"},
     {"path":"examples/11-advanced-features/ExceptionFilters/NuGet.config","language":"product-config","surface":"examples","campaignScope":"closeout","state":"reviewed","currentLines":8,"currentNonBlankLines":8,"currentBytes":0,"currentFingerprint":"text-v1:6a3458345e83c274"},
     {"path":"examples/11-advanced-features/ExceptionFilters/global.json","language":"json-config","surface":"examples","campaignScope":"closeout","state":"reviewed","currentLines":9,"currentNonBlankLines":9,"currentBytes":0,"currentFingerprint":"text-v1:224b2c9ed64bcc89"},
+    {"path":"examples/11-advanced-features/ExplicitInterfaceImplementation/NuGet.config","language":"product-config","surface":"examples","campaignScope":"closeout","state":"reviewed","currentLines":8,"currentNonBlankLines":8,"currentBytes":0,"currentFingerprint":"text-v1:6a3458345e83c274"},
+    {"path":"examples/11-advanced-features/ExplicitInterfaceImplementation/global.json","language":"json-config","surface":"examples","campaignScope":"closeout","state":"reviewed","currentLines":9,"currentNonBlankLines":9,"currentBytes":0,"currentFingerprint":"text-v1:224b2c9ed64bcc89"},
     {"path":"examples/11-advanced-features/FileScopedSimple/NuGet.config","language":"product-config","surface":"examples","campaignScope":"closeout","state":"removed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
     {"path":"examples/11-advanced-features/FileScopedSimple/global.json","language":"json-config","surface":"examples","campaignScope":"closeout","state":"removed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},
     {"path":"examples/11-advanced-features/FileScopedTypes/NuGet.config","language":"product-config","surface":"examples","campaignScope":"closeout","state":"removed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:removed"},

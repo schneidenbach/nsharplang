@@ -1232,12 +1232,32 @@ class ColumnarDeclarationPlanner {
 
     // The CLR spells a property's accessors `get_<Name>` and `set_<Name>`. Four call sites built
     // these by concatenation; the names are metadata, so they are planned.
+    //
+    // AN EXPLICIT INTERFACE IMPLEMENTATION PUTS THE PREFIX INSIDE THE QUALIFICATION, and this is
+    // measured rather than assumed: the BCL's own `List<T>` carries
+    // `System.Collections.IList.get_Item` beside `System.Collections.IList.Item`. Writing
+    // `get_System.Collections.IList.Item` would be a name no consumer looks for.
     static func PropertyGetterName(propertyName: string): string {
-        return "get_" + propertyName
+        return ExplicitInterfaceAccessorName("get_", propertyName)
     }
 
     static func PropertySetterName(propertyName: string): string {
-        return "set_" + propertyName
+        return ExplicitInterfaceAccessorName("set_", propertyName)
+    }
+
+    static func ExplicitInterfaceAccessorName(prefix: string, propertyName: string): string {
+        qualifier := ExplicitInterfaceMemberFacts.QualifierOf(propertyName)
+        if qualifier == "" {
+            return prefix + propertyName
+        }
+
+        return ExplicitInterfaceMemberFacts.MetadataAccessorName(qualifier, prefix, ExplicitInterfaceMemberFacts.SimpleNameOf(propertyName))
+    }
+
+    // AN EXPLICIT VALUE MEMBER'S ACCESSORS ARE PRIVATE, FINAL, VIRTUAL AND NEWSLOT, for exactly the
+    // reasons its method twin's are — plus `SpecialName`, which every accessor carries.
+    static func ExplicitInterfaceAccessorAttributes(): int {
+        return PrivateFieldAttribute() | HideBySigMethodAttribute() | SpecialNameMethodAttribute() | FinalMethodAttribute() | VirtualMethodAttribute() | NewSlotMethodAttribute()
     }
 
     // A setter's `value` IS its parameter zero, so its ordinal is the ordinary parameter rule -- 0 on
@@ -1274,6 +1294,8 @@ class ColumnarDeclarationPlanner {
                 property := properties[member]
                 if property.IsStatic {
                     propertyWords[member] = StaticAccessorAttributes()
+                } else if ExplicitInterfaceMemberFacts.IsExplicitMemberName(property.Name) {
+                    propertyWords[member] = ExplicitInterfaceAccessorAttributes()
                 } else {
                     propertyWords[member] = InstanceAccessorAttributes()
                 }
@@ -1413,6 +1435,15 @@ class ColumnarDeclarationPlanner {
     }
 
     static func StructInstanceMethodAttributes(name: string, modifierFlags: int): int {
+        // AN EXPLICIT INTERFACE IMPLEMENTATION IS PRIVATE BY CONSTRUCTION, and the casing convention
+        // does not apply to it: a member with no accessibility to decide has nothing for a capital
+        // letter to say. `private final hidebysig newslot virtual` (481) is what C# emits and what the
+        // reachability rule needs — private so the declaring TYPE does not expose it, final+newslot so
+        // the slot is this type's own and closed, virtual so the MethodImpl row can name it.
+        if ExplicitInterfaceMemberFacts.IsExplicitMemberName(name) {
+            return PrivateFieldAttribute() | HideBySigMethodAttribute() | FinalMethodAttribute() | VirtualMethodAttribute() | NewSlotMethodAttribute()
+        }
+
         bits := MethodVisibilityAttributes(name, modifierFlags) | HideBySigMethodAttribute()
 
         // `abstract` and `virtual` each OPEN a slot, so both take `Virtual|NewSlot`; `abstract` adds

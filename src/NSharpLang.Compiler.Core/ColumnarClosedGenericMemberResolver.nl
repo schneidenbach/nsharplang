@@ -218,6 +218,12 @@ class ColumnarClosedGenericMemberResolver {
                 }
                 implementation: ColumnarInstanceMethodDef = null
                 if !implementer.Methods.TryGetValue(memberName, out implementation) {
+                    // AN EXPLICIT IMPLEMENTATION FILLS THE SLOT UNDER ITS QUALIFIED KEY, so the method
+                    // table does not hold it under the slot's own name. The declaration pass recorded
+                    // the slot; ask that before declaring the interface unsatisfied.
+                    if ColumnarExternalInterfaceMethodResolver.ExplicitlyImplemented(implementer, closedInterfaceType, memberName) {
+                        continue
+                    }
                     return false
                 }
                 implementationObject: object? = implementation
@@ -229,6 +235,9 @@ class ColumnarClosedGenericMemberResolver {
                     actualImplementation.ParamTypes
                 )
                 if !comparison.Matched {
+                    if ColumnarExternalInterfaceMethodResolver.ExplicitlyImplemented(implementer, closedInterfaceType, memberName) {
+                        continue
+                    }
                     return false
                 }
             }

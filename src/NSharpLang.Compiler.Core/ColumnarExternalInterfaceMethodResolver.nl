@@ -961,6 +961,9 @@ class ColumnarExternalInterfaceMethodResolver {
                         if PropertyAccessorSatisfied(implementer, externalMethod, externalName, builderBound, closedArguments) {
                             continue
                         }
+                        if ExplicitlyImplemented(implementer, externalInterface, externalName) {
+                            continue
+                        }
                         unsatisfiedMember = UnsatisfiedMemberName(externalInterface, externalName)
                         return false
                     }
@@ -975,6 +978,9 @@ class ColumnarExternalInterfaceMethodResolver {
                             actualImplementation.ReturnType,
                             actualImplementation.ParamTypes
                         ) {
+                            if ExplicitlyImplemented(implementer, externalInterface, externalName) {
+                                continue
+                            }
                             unsatisfiedMember = UnsatisfiedMemberName(externalInterface, externalName)
                             return false
                         }
@@ -988,6 +994,14 @@ class ColumnarExternalInterfaceMethodResolver {
                         implementationTypeParameters
                     )
                     if !matchedSignature.Matched {
+                        // THE IMPLICIT MEMBER OF THE SAME SIMPLE NAME DOES NOT FIT, AND THAT IS THE WHOLE
+                        // POINT OF THE FEATURE. `IEnumerable<T>` and `IEnumerable` both declare
+                        // `GetEnumerator` and they differ ONLY in return type, so a type that implements
+                        // both has one implicit member that fits one slot and an EXPLICIT member that
+                        // fits the other.
+                        if ExplicitlyImplemented(implementer, externalInterface, externalName) {
+                            continue
+                        }
                         unsatisfiedMember = UnsatisfiedMemberName(externalInterface, externalName)
                         return false
                     }
@@ -995,6 +1009,17 @@ class ColumnarExternalInterfaceMethodResolver {
             }
         }
         return true
+    }
+
+    // WHETHER THIS TYPE FILLED THAT SLOT WITH AN EXPLICIT IMPLEMENTATION. The slot's identity is its
+    // METADATA name — the interface spelled the way metadata spells it, plus the member's own name —
+    // which is exactly the name the declaration pass gave the member that fills it. Asked only on the
+    // failure path, so a type with no explicit implementations pays nothing for the question.
+    static func ExplicitlyImplemented(implementer: ColumnarStructDef, externalInterface: Type, memberName: string): bool {
+        if implementer.ExplicitInterfaceSlots.Count == 0 {
+            return false
+        }
+        return implementer.ExplicitInterfaceSlots.Contains(ExplicitInterfaceMemberFacts.MetadataName(ExplicitInterfaceMemberFacts.RuntimeInterfaceDisplayName(externalInterface), memberName))
     }
 
     // THE TYPE PARAMETERS A DECLARATION WROTE, or the empty list. `Generics` is null for every

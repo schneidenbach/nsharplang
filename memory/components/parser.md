@@ -389,6 +389,40 @@ refused the whole FUNCTION — while the same spelling in a parameter or a retur
 kernel scans rather than this walk, parsed. Any future multi-character token that contains a bracket
 or a paren has to be added to both walks.
 
+### A MEMBER NAME MAY BE QUALIFIED, AND THREE WALKS OF A TYPE'S BODY HAVE TO AGREE ABOUT IT
+
+An EXPLICIT INTERFACE IMPLEMENTATION is spelled `Interface.Member` in a type body —
+`func IEnumerable.GetEnumerator(): IEnumerator { … }`, `IReadOnlyCollection<string>.Count: int => …`.
+The qualifier may itself be dotted (`System.Collections.IEnumerable.GetEnumerator`) and a generic
+interface is written CLOSED, so the shape is a LOOP and the member's own name is whatever follows the
+LAST dot. `ExplicitInterfaceMemberNameEnd` answers the extent PURELY BY TOKEN KIND, which is what lets
+the member scan, the signature kernel and the property kernel all ask it of their own token columns.
+
+**IT ANSWERS -1 RATHER THAN `start` WHEN THE NAME IS AN ORDINARY ONE, and that is load-bearing.** A
+generic METHOD is `Compare<T>(` — an argument list with no dot behind it — so the scan consumes the
+`<T>` while looking for a dot, finds none, and reports that it consumed NOTHING. The type-parameter
+list behind it is then parsed by the owner that has always parsed it.
+
+**A TYPE'S BODY IS READ THREE TIMES, NOT TWICE.** The two passes of `ParseStructDeclarationCore` are
+documented above; the third is the SYNTHESIZED INSTANCE-INITIALIZER CONSTRUCTOR's own walk, which
+collects field initializers. All three used to find a storage member's `:` at `memberStart + 1`, and
+all three now ask `ParseDeclarationMemberNameEnd`. The third one is the one that bit: a qualified value
+member matched no arm in it at all, so the whole declaration declined at `parse.struct` — and only
+when the type ALSO had a field with an initializer, because that is what makes the synthesized
+constructor exist. A walk that disagrees with the record shifts every member after it.
+
+The name TEXT is canonicalised the way a composed type text is (`ParserDeclarationMemberNameText`): a
+canonical name never contains a space, so `IEnumerable < string > . GetEnumerator` and
+`IEnumerable<string>.GetEnumerator` are one name. An ordinary one-token name carries no punctuation at
+all and is returned exactly as written, so nothing on the hot path allocates that did not before.
+
+The recovery parser reads the same shape over its `List<Token>` through
+`ExplicitInterfaceMemberFacts.QualifiedMemberNameEnd`, which mirrors the columnar scan token for
+token, and builds the text from the tokens' own values — so the two pipelines produce the SAME string
+for the same declaration. Both the method arm (`ParseMethodMember`) and the value-member arm
+(`ParseFieldMember`) consume the tail after their ordinary `ConsumeIdentifier`/`ConsumeDeclarationName`
+call, so an `<error>` name still reports what it reported before.
+
 ### `type` IS A CONTEXTUAL KEYWORD, AND ONE OWNER SAYS WHAT ITS HEAD LOOKS LIKE
 
 `type` was a HARD keyword, so no N# type could expose a member named `type` — which is the name

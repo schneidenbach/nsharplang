@@ -1335,6 +1335,77 @@ class UserRepository : IRepository<User> {
 }
 ```
 
+### Explicit Interface Implementation
+
+A member may name the interface whose slot it fills:
+
+```n#
+import System.Collections
+import System.Collections.Generic
+
+class Bag: IEnumerable<string> {
+    items: List<string> = new List<string>()
+
+    func Add(value: string) {
+        items.Add(value)
+    }
+
+    func GetEnumerator(): IEnumerator<string> {
+        generic: IEnumerable<string> = items
+        return generic.GetEnumerator()
+    }
+
+    func IEnumerable.GetEnumerator(): IEnumerator {
+        untyped: IEnumerable = items
+        return untyped.GetEnumerator()
+    }
+}
+```
+
+**This is what makes `IEnumerable<T>` implementable at all.** Its two `GetEnumerator` slots differ
+*only* in return type, so an ordinary member can fill one of them and nothing else could fill the
+other.
+
+The rules, which are C#'s:
+
+- **It is reachable only through the interface.** `bag.GetEnumerator()` binds the ordinary member and
+  returns `IEnumerator<string>`; `(bag as IEnumerable).GetEnumerator()` reaches the explicit one. The
+  explicit member is not offered in completion on `bag`, and `bag.IEnumerable.GetEnumerator()` names
+  nothing.
+- **It takes no modifier word.** It is `private final virtual newslot` by construction, so there is no
+  accessibility to state and nothing for `static`, `virtual`, `override`, `abstract` or `sealed` to
+  change — [`NL348`](./errors/NL348.md). The casing convention does not apply to it either.
+- **A generic interface is written closed**, exactly as the implements list writes it
+  (`IEnumerable<string>.GetEnumerator`) — [`NL349`](./errors/NL349.md). An interface inherited into the
+  list may be named too, which is how the non-generic `IEnumerable` above is reached.
+- **An implicit member of the same simple name may sit beside it**, which is the whole shape above.
+
+A **value member** takes the same qualifier:
+
+```n#
+interface ILabeled {
+    Label: string
+}
+
+class Hidden: ILabeled {
+    ILabeled.Label: string => "hidden"
+}
+```
+
+**The emitted CLR name is the interface spelled out**, with its type arguments spelled out too — the
+member above is `System.Collections.IEnumerable.GetEnumerator` in metadata, and a value member's
+accessor is `Namespace.ILabeled.get_Label`. That is what a C# compiler emits, so a C# `foreach` over
+your `Bag`, and any other .NET consumer, finds the member where it expects to.
+
+Diagnostics: [`NL345`](./errors/NL345.md) (an interface the type does not implement),
+[`NL346`](./errors/NL346.md) (a member the interface does not declare),
+[`NL347`](./errors/NL347.md) (one slot claimed twice), [`NL348`](./errors/NL348.md) (a modifier word)
+and [`NL349`](./errors/NL349.md) (a generic interface named bare).
+
+**Not yet supported, and refused rather than mis-emitted:** an explicit implementation of a GENERIC
+interface *method* (`func ILogger.Log<TState>(…)`), and an explicit *event*. N# has no `add`/`remove`
+accessor syntax, so a field-like event has no explicit spelling to give.
+
 ## Generics
 
 ### Generic Classes

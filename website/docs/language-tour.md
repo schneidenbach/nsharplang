@@ -727,6 +727,58 @@ func main() {
 }
 ```
 
+### Explicit Interface Implementation
+
+A member may name the interface whose slot it fills. This is what lets one type implement two
+interfaces that declare the same member — and it is the only way to implement `IEnumerable<T>`, whose
+two `GetEnumerator` slots differ *only* in return type:
+
+```n#
+import System.Collections
+import System.Collections.Generic
+
+class Bag: IEnumerable<string> {
+    items: List<string> = new List<string>()
+
+    func Add(value: string) {
+        items.Add(value)
+    }
+
+    func GetEnumerator(): IEnumerator<string> {
+        generic: IEnumerable<string> = items
+        return generic.GetEnumerator()
+    }
+
+    func IEnumerable.GetEnumerator(): IEnumerator {
+        untyped: IEnumerable = items
+        return untyped.GetEnumerator()
+    }
+}
+
+func main() {
+    bag := new Bag()
+    bag.Add("a")
+    bag.Add("bb")
+
+    for item in bag {                 // the generic slot
+        print item
+    }
+
+    untyped: IEnumerable = bag
+    e := untyped.GetEnumerator()      // the explicit one
+    while e.MoveNext() {
+        print e.Current
+    }
+}
+```
+
+An explicit implementation is reached **only** through the interface: `bag.GetEnumerator()` binds the
+ordinary member, completion on `bag.` does not offer the explicit one, and it carries no modifier word
+because it is private, final and virtual by construction. A value member takes the same qualifier
+(`ILabeled.Label: string => "hidden"`), and a generic interface is written closed, exactly as the
+implements list writes it. See the [Types guide](types.md#explicit-interface-implementation) for the
+whole rule and its five diagnostics.
+
 ## Enums
 
 ### String Enums
