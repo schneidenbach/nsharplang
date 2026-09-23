@@ -533,6 +533,19 @@ set +e
 CORE_EXIT=$?
 set -e
 
+# THE RECORDS THE GATE LEAVES BEHIND, CARRIED OUT OF THE COPY IT DELETES. Step 3a writes
+# `artifacts/native-sweep/<UTC time>.json` and the compile-time bench writes
+# `artifacts/compile-time/last-gate-run.txt`, both under the ISOLATED copy's root, which
+# `cleanup_run` removes on exit. Carried back on a failing run too: what a red sweep cost is the
+# record most worth keeping. `artifacts/` is gitignored and never part of any input set.
+for gate_record in native-sweep compile-time; do
+    if [ -d "$RUN_REPO/artifacts/$gate_record" ]; then
+        mkdir -p "$SOURCE_ROOT/artifacts/$gate_record" \
+            && cp -R "$RUN_REPO/artifacts/$gate_record/." "$SOURCE_ROOT/artifacts/$gate_record/" \
+            || echo "Could not carry artifacts/$gate_record back to $SOURCE_ROOT; the gate's verdict is unaffected." >&2
+    fi
+done
+
 END_TIME="$(date +%s)"
 DURATION=$((END_TIME - START_TIME))
 

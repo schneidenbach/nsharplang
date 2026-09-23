@@ -1,5 +1,6 @@
 namespace NSharpLang.GateScriptContracts.Tests
 
+import System.IO
 import System.Text.RegularExpressions
 
 // ─── STEP 3a's NATIVE SWEEP: WHAT MAY RUN BESIDE WHAT ─────────────────────────────────────────
@@ -158,4 +159,81 @@ test "the parallel sweep's per-project JSON validator is the one that guarded th
     assert worker.Contains("python3 \"$reader\" \"$native_output\"")
     assert worker.Contains("native_status=OK")
     assert Regex.Matches(worker, "native_status=OK").Count == 1, "There must be exactly one place a project is recorded as passing."
+}
+
+// THE SWEEP'S DURABLE RECORD, RUN RATHER THAN READ. The recorder is the script's own embedded python,
+// extracted and executed over a fabricated results directory holding the three shapes a worker can
+// leave behind: a passing project whose envelope carries `timings`, a failing one whose envelope is
+// not JSON at all, and one whose worker wrote nothing. The file it writes is the claim: every project
+// in discovery order, the build/run split `nlc test --timings` reported, and totals that reconcile
+// with the rows. A record that dropped the failing projects, or that summed a missing split as
+// anything but zero, would be exactly the silently-optimistic evidence this step exists to refuse.
+test "the sweep records every project's build and run split, in discovery order, and the isolated driver carries the record back" {
+    coreScript := SweepScript()
+    worker := RequireMatch(coreScript, "NATIVE_WORKER='(?<body>.*?)'\\s*\\n", "Could not find the native sweep's worker in tests/scripts/test-all-core.sh.").Groups["body"].Value
+    assert worker.Contains("--no-cache --json --timings"), "The worker must ask `nlc test` for the timings the record is made of."
+
+    recorder := RequireMatch(
+        coreScript,
+        "NATIVE_RECORD_SWEEP='(?<body>.*?)'\\s*\\n",
+        "Could not find the native sweep's recorder in tests/scripts/test-all-core.sh."
+    ).Groups["body"].Value
+    assert coreScript.Contains("python3 \"$NATIVE_RECORDER\" \"$NATIVE_RESULTS_DIR\" \"$NATIVE_LIST\" \"$REPO_ROOT/artifacts\""), "The parent must run the recorder over the discovery-ordered list, into the repository's artifacts directory."
+    recordIndex := coreScript.IndexOf("python3 \"$NATIVE_RECORDER\"")
+    cleanupIndex := coreScript.IndexOf("rm -rf \"$NATIVE_RESULTS_DIR\"")
+    assert recordIndex >= 0 && recordIndex < cleanupIndex, "The record must be written BEFORE the results directory it reads is deleted."
+
+    directory := NewTempDirectory("native-sweep-record")
+    try {
+        results := Path.Combine(directory, "results")
+        Directory.CreateDirectory(results)
+        File.WriteAllText(Path.Combine(directory, "record-sweep.py"), recorder)
+        File.WriteAllText(Path.Combine(results, "items.txt"), "0001|tests/native/alpha\n0002|tests/native/beta\n0003|tests/native/gamma\n")
+        File.WriteAllText(Path.Combine(results, "0001.result"), "OK|12\n")
+        File.WriteAllText(
+            Path.Combine(results, "0001.json"),
+            "{\"schemaVersion\":1,\"command\":\"test\",\"ok\":true,\"summary\":{\"total\":3,\"passed\":2,\"failed\":0,\"skipped\":1},\"timings\":{\"buildMs\":9000,\"runMs\":2000,\"totalMs\":11500},\"results\":[]}"
+        )
+        File.WriteAllText(Path.Combine(results, "0002.result"), "FAIL|4\n")
+        File.WriteAllText(Path.Combine(results, "0002.json"), "Unhandled exception, not an envelope")
+
+        launch := new ProcessLaunch("python3", directory, 60000)
+        launch.Arguments.Add("record-sweep.py")
+        launch.Arguments.Add(results)
+        launch.Arguments.Add(Path.Combine(results, "items.txt"))
+        launch.Arguments.Add(Path.Combine(directory, "artifacts"))
+        run := Run(launch)
+        assert run.ExitCode == 0, run.Report()
+        assert run.Stdout.Contains("3 projects (2 failed), 3 tests (Passed: 2, Failed: 0, Skipped: 1), build 9000 ms, run 2000 ms"), run.Report()
+
+        written := Directory.GetFiles(Path.Combine(Path.Combine(directory, "artifacts"), "native-sweep"), "*.json")
+        assert written.Length == 1, run.Report()
+        assert Regex.IsMatch(Path.GetFileName(written[0]), "^\\d{8}T\\d{6}Z\\.json$"), written[0]
+        recordText := File.ReadAllText(written[0])
+        assert recordText.Contains("\"schemaVersion\": 1"), recordText
+        assert recordText.Contains("\"projects\": 3,"), recordText
+        assert recordText.Contains("\"failedProjects\": 2,"), recordText
+        assert recordText.Contains("\"wallSeconds\": 16"), recordText
+
+        alpha := recordText.IndexOf("\"project\": \"tests/native/alpha\"")
+        beta := recordText.IndexOf("\"project\": \"tests/native/beta\"")
+        gamma := recordText.IndexOf("\"project\": \"tests/native/gamma\"")
+        assert alpha >= 0 && alpha < beta && beta < gamma, "The record must list every project, in discovery order: " + recordText
+        assert recordText.Substring(alpha, beta - alpha).Contains("\"buildMs\": 9000,"), recordText
+        assert recordText.Substring(alpha, beta - alpha).Contains("\"runMs\": 2000,"), recordText
+        assert recordText.Substring(beta, gamma - beta).Contains("\"status\": \"failed\""), recordText
+        assert recordText.Substring(beta, gamma - beta).Contains("\"buildMs\": null,"), recordText
+        assert recordText.Substring(gamma).Contains("\"status\": \"missing\""), recordText
+    } finally {
+        DeleteTempDirectory(directory)
+    }
+
+    // The isolated gate deletes its copy on exit, so the record must be carried back out of it -
+    // on a failing run as well, which is why the copy sits BEFORE the exit-code check.
+    driver := ReadGateScript("test-all.sh")
+    carry := driver.IndexOf("for gate_record in native-sweep compile-time; do")
+    exitCheck := driver.IndexOf("if [ \"$CORE_EXIT\" -ne 0 ]; then")
+    assert carry >= 0, "tests/scripts/test-all.sh must carry the gate's records back to the source tree."
+    assert driver.Contains("cp -R \"$RUN_REPO/artifacts/$gate_record/.\" \"$SOURCE_ROOT/artifacts/$gate_record/\"")
+    assert exitCheck >= 0 && carry < exitCheck, "The records must be carried back before a failing run exits."
 }

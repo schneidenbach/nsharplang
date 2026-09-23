@@ -1071,12 +1071,18 @@ about the machine (`compile-time-bench`), that own state outside their own direc
 sockets, the installers, the whole-tree walk of `ownership-audit`) or that drive real `dotnet`
 restores and builds against the package cache. The serial group running first also warms that cache
 before anything runs concurrently. The parent replays every project in DISCOVERY order, so a
-parallel log reads like a serial one, and prints one `project=<dir> seconds=<n>` line per project —
-the only durable record of what the step spends, since the per-project JSON goes to a temporary file
-the step deletes. Measured on the 10-core M4: ~14m18s serial against 5m39s–8m06s parallel over three
+parallel log reads like a serial one, and prints one `project=<dir> seconds=<n>` line per project.
+Each worker runs `nlc test --json --timings`, whose envelope then carries a `timings` object
+(`buildMs`, `runMs`, `totalMs`), and after the replay the step writes every project's split, outcome
+and row counts to `artifacts/native-sweep/<UTC time>.json` (schemaVersion 1, discovery order, a
+`summary` whose totals reconcile with the per-project `Passed:` lines, and a closing
+`Native sweep record: …` log line). The isolated driver copies `artifacts/native-sweep/` and
+`artifacts/compile-time/` back to the source tree before it deletes its copy, on a red run too, so
+the record outlives the run that made it. Measured on the 10-core M4: ~14m18s serial against 5m39s–8m06s parallel over three
 runs, with identical counts (4,775 passed / 0 failed / 1 skipped). The predicate that decides which
-group a project runs in, the discovery-order replay and every clause of the JSON validator are
-pinned by `tests/native/gate-script-contracts/NativeSweepParallelism.tests.nl`.
+group a project runs in, the discovery-order replay, every clause of the JSON validator and the
+sweep record (its embedded recorder is run over a fabricated results directory) are pinned by
+`tests/native/gate-script-contracts/NativeSweepParallelism.tests.nl`.
 
 A native test must write nothing to stdout or stderr: Step 3a captures both streams into one file
 and `json.load`s the whole thing, so a single printed line turns a passing test document into a red step.

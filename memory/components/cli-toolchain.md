@@ -130,6 +130,7 @@ At a position on a member that METADATA declares and the project does not — `l
 | `nlc test` | Run .tests.nl files with the xUnit-backed N# test runner | `nlc test` |
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
 | `nlc test --verbose` | Show individual test results | `nlc test --verbose` |
+| `nlc test --timings` | Report build, run and total time (stderr, or a `timings` object in `--json`) | `nlc test --json --timings` |
 | `nlc test --coverage` | Unsupported/planned native coverage; exits 1 with text or JSON guidance | `nlc test --coverage --json` |
 
 ### Project Management

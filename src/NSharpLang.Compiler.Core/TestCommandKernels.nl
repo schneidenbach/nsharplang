@@ -96,6 +96,22 @@ class NativeTestSummary {
     }
 }
 
+// WHERE ONE `nlc test` RUN SPENT ITS TIME, reported only when `--timings` asks. The build is the
+// incremental IL build of the project with its tests; the run is the chosen runner over the
+// emitted assembly; the total is the whole command, so it also covers reading project.yml and
+// discovering the test files, and is never less than the other two together.
+class NativeTestTimings {
+    BuildMilliseconds: long
+    RunMilliseconds: long
+    TotalMilliseconds: long
+
+    constructor(buildMilliseconds: long, runMilliseconds: long, totalMilliseconds: long) {
+        BuildMilliseconds = buildMilliseconds
+        RunMilliseconds = runMilliseconds
+        TotalMilliseconds = totalMilliseconds
+    }
+}
+
 class TestOptionSummary {
     projectOptionValue: string?
     backendOptionValue: string?
@@ -106,6 +122,7 @@ class TestOptionSummary {
     coverageReportValue: bool
     collectCoverageValue: bool
     noCacheValue: bool
+    timingsValue: bool
     showHelpValue: bool
 
     ProjectOption: string? => projectOptionValue
@@ -117,9 +134,10 @@ class TestOptionSummary {
     CoverageReport: bool => coverageReportValue
     CollectCoverage: bool => collectCoverageValue
     NoCache: bool => noCacheValue
+    Timings: bool => timingsValue
     ShowHelp: bool => showHelpValue
 
-    constructor(projectOption: string?, backendOption: string?, filter: string?, timeout: string?, verbose: bool, jsonOutput: bool, coverageReport: bool, collectCoverage: bool, noCache: bool, showHelp: bool) {
+    constructor(projectOption: string?, backendOption: string?, filter: string?, timeout: string?, verbose: bool, jsonOutput: bool, coverageReport: bool, collectCoverage: bool, noCache: bool, timings: bool, showHelp: bool) {
         projectOptionValue = projectOption
         backendOptionValue = backendOption
         filterValue = filter
@@ -129,6 +147,7 @@ class TestOptionSummary {
         coverageReportValue = coverageReport
         collectCoverageValue = collectCoverage
         noCacheValue = noCache
+        timingsValue = timings
         showHelpValue = showHelp
     }
 }
@@ -316,6 +335,13 @@ class TestCommandKernels {
     }
 
     static func NativeTestJson(projectRoot: string, ok: bool, testResults: IReadOnlyList<NativeTestResult>, errorMessage: string?, summary: NativeTestSummary): string {
+        return NativeTestJson(projectRoot, ok, testResults, errorMessage, summary, null)
+    }
+
+    // `timings` is present only when `--timings` asked for it, so the envelope a caller already
+    // reads is byte-for-byte what it was: the field is additive and opt-in, and schemaVersion 1
+    // still describes every document without it.
+    static func NativeTestJson(projectRoot: string, ok: bool, testResults: IReadOnlyList<NativeTestResult>, errorMessage: string?, summary: NativeTestSummary, timings: NativeTestTimings?): string {
         envelope := new Dictionary<string, object>()
         envelope["schemaVersion"] = 1
         envelope["command"] = "test"
@@ -327,8 +353,24 @@ class TestCommandKernels {
         }
 
         envelope["summary"] = BuildNativeTestSummary(summary)
+        if timings != null {
+            envelope["timings"] = BuildNativeTestTimings(timings)
+        }
+
         envelope["results"] = BuildNativeTestResults(testResults)
         return JsonSerializer.Serialize(envelope, CommandOutputKernels.CreateWriteIndentedOptions())
+    }
+
+    static func BuildNativeTestTimings(timings: NativeTestTimings): Dictionary<string, object> {
+        payload := new Dictionary<string, object>()
+        payload["buildMs"] = timings.BuildMilliseconds
+        payload["runMs"] = timings.RunMilliseconds
+        payload["totalMs"] = timings.TotalMilliseconds
+        return payload
+    }
+
+    static func GetTimingsMessage(buildElapsed: string, runElapsed: string, totalElapsed: string): string {
+        return "Test timings:\n" + "  Build:      " + buildElapsed + "\n" + "  Run:        " + runElapsed + "\n" + "  Total:      " + totalElapsed
     }
 
     static func BuildNativeTestSummary(summary: NativeTestSummary): Dictionary<string, object> {
@@ -378,6 +420,7 @@ class TestCommandKernels {
         coverageReport := false
         collectCoverage := false
         noCache := false
+        timings := false
         showHelp := false
 
         i := 0
@@ -420,6 +463,8 @@ class TestCommandKernels {
                 collectCoverage = true
             } else if arg == "--no-cache" {
                 noCache = true
+            } else if arg == "--timings" {
+                timings = true
             }
 
             i = i + 1
@@ -427,7 +472,7 @@ class TestCommandKernels {
 
         collectCoverage = collectCoverage || coverageReport
 
-        return new TestOptionSummary(project, backend, filter, timeout, verbose, json, coverageReport, collectCoverage, noCache, showHelp)
+        return new TestOptionSummary(project, backend, filter, timeout, verbose, json, coverageReport, collectCoverage, noCache, timings, showHelp)
     }
 
     static func GetDurationMilliseconds(duration: string): int? {
@@ -519,6 +564,7 @@ class TestCommandKernels {
         CommandOutputKernels.AppendLine(builder, "  --json                Output results as structured JSON (schemaVersion 1 envelope)")
         CommandOutputKernels.AppendLine(builder, "  --timeout <duration>  Test timeout per assembly (e.g., 30s, 5m, 1h). Default: no timeout")
         CommandOutputKernels.AppendLine(builder, "  --no-cache            Force clean rebuild before running tests (bypass incremental build)")
+        CommandOutputKernels.AppendLine(builder, "  --timings             Report the build, run and total time (stderr, or `timings` in --json)")
         CommandOutputKernels.AppendLine(builder, "  --coverage            Planned; currently exits with unsupported-feature guidance")
         CommandOutputKernels.AppendLine(builder, "  --coverage-report     Planned; currently exits with unsupported-feature guidance")
         CommandOutputKernels.AppendLine(builder, "  --help, -h            Show this help text")
@@ -536,6 +582,7 @@ class TestCommandKernels {
         CommandOutputKernels.AppendLine(builder, "  nlc test --filter AddPerson")
         CommandOutputKernels.AppendLine(builder, "  nlc test --project examples/16-task-cli --verbose")
         CommandOutputKernels.AppendLine(builder, "  nlc test --json")
+        CommandOutputKernels.AppendLine(builder, "  nlc test --json --timings")
         CommandOutputKernels.AppendLine(builder, "")
         CommandOutputKernels.AppendLine(builder, "Exit codes:")
         CommandOutputKernels.AppendLine(builder, "  0  Tests passed")

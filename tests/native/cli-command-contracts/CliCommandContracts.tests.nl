@@ -4162,6 +4162,58 @@ test "verbose narration reaches stdout in text mode and stderr in JSON mode, lea
     }
 }
 
+// `--timings` SAYS WHERE A RUN SPENT ITS TIME, AND ONLY WHEN ASKED.
+//
+// The gate's native sweep records each project's build and run split from this object, so its
+// shape is a contract: three non-negative integer milliseconds, a total that covers the other two,
+// in the envelope on the JSON route and on STDERR on the text route - exactly where
+// `nlc build --timings` puts its own block. Without the flag neither appears, so every envelope a
+// caller already reads is unchanged: the anti-vacuity control is the same run minus the flag.
+test "--timings reports the build, run and total time in the JSON envelope and on stderr, and nothing without it" {
+    directory := NewTempDirectory("nlc-test-timings")
+    try {
+        WriteProjectYml(directory, "name: TimingsFixture\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Suite.tests.nl"),
+            "namespace TimingsFixture\n\ntest \"alpha is timed\" {\n    assert 1 == 1\n}\n"
+        )
+
+        timed := NlcIn(directory, "test --no-cache --json --timings")
+        assert timed.ExitCode == 0, timed.Stdout + timed.Stderr
+        timedDocument := JsonDocument.Parse(timed.Stdout)
+        timings := timedDocument.RootElement.GetProperty("timings")
+        buildMs := timings.GetProperty("buildMs").GetInt64()
+        runMs := timings.GetProperty("runMs").GetInt64()
+        totalMs := timings.GetProperty("totalMs").GetInt64()
+        assert buildMs > 0, timed.Stdout
+        assert runMs >= 0, timed.Stdout
+        assert totalMs >= buildMs + runMs, timed.Stdout
+        assert timedDocument.RootElement.GetProperty("summary").GetProperty("passed").GetInt32() == 1, timed.Stdout
+        timedDocument.Dispose()
+        assert !timed.Stderr.Contains("Test timings:"), timed.Stderr
+
+        untimed := NlcIn(directory, "test --no-cache --json")
+        assert untimed.ExitCode == 0, untimed.Stdout + untimed.Stderr
+        untimedDocument := JsonDocument.Parse(untimed.Stdout)
+        timingsElement := new JsonElement()
+        assert !untimedDocument.RootElement.TryGetProperty("timings", out timingsElement), untimed.Stdout
+        untimedDocument.Dispose()
+
+        text := NlcIn(directory, "test --no-cache --timings")
+        assert text.ExitCode == 0, text.Stdout + text.Stderr
+        assert text.Stderr.Contains("Test timings:\n  Build:      "), text.Stderr
+        assert text.Stderr.Contains("\n  Run:        "), text.Stderr
+        assert text.Stderr.Contains("\n  Total:      "), text.Stderr
+        assert !text.Stdout.Contains("Test timings:"), text.Stdout
+
+        plain := NlcIn(directory, "test --no-cache")
+        assert plain.ExitCode == 0, plain.Stdout + plain.Stderr
+        assert !plain.Stderr.Contains("Test timings:"), plain.Stderr
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
 // `--no-cache` IS THE WHOLE CACHE STORY, AND A WARM RUN MUST STILL REPORT THE SAME RESULTS.
 //
 // The flag deletes `<root>/bin/Debug/<tfm>/tests` so the incremental IL build cannot reuse it.

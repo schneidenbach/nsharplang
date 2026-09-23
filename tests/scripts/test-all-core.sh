@@ -649,6 +649,97 @@ if not valid:
 print(f"Passed: {passed}, Failed: {failed}, Skipped: {skipped}, Total: {total}")
 '
 
+    # THE SWEEP'S DURABLE RECORD. The `project=<dir> seconds=<n>` lines are the only per-project cost
+    # the log keeps, and a wall-clock second cannot say whether a project spent it compiling or
+    # running. `nlc test --timings` splits the two, and this reader - a string for the same reason
+    # `NATIVE_READ_SUMMARY` is one - writes the split, the outcome and the row counts of every project to
+    # `artifacts/native-sweep/<UTC time>.json`, then prints the totals so the file reconciles
+    # against the per-project summary lines above it. `artifacts/` is gitignored and excluded from the
+    # isolated copy; `tests/scripts/test-all.sh` carries the record back to the source tree. Best
+    # effort by construction: a record that cannot be written is reported, never a failed step.
+    NATIVE_RECORD_SWEEP='
+import datetime
+import json
+import os
+import sys
+
+results_dir, list_path, artifacts_root = sys.argv[1], sys.argv[2], sys.argv[3]
+
+def read_envelope(path):
+    try:
+        with open(path, encoding="utf-8") as stream:
+            payload = json.load(stream)
+        return payload if isinstance(payload, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+def non_negative_int(value):
+    return value if type(value) is int and value >= 0 else None
+
+projects = []
+with open(list_path, encoding="utf-8") as listing:
+    for line in listing:
+        line = line.strip()
+        if not line:
+            continue
+        index, project = line.split("|", 1)
+        status, seconds = "missing", None
+        try:
+            with open(os.path.join(results_dir, index + ".result"), encoding="utf-8") as result:
+                recorded_status, recorded_seconds = result.read().strip().split("|", 1)
+            status = "passed" if recorded_status == "OK" else "failed"
+            seconds = int(recorded_seconds)
+        except (OSError, ValueError):
+            pass
+        envelope = read_envelope(os.path.join(results_dir, index + ".json"))
+        summary = envelope.get("summary") if isinstance(envelope.get("summary"), dict) else {}
+        timings = envelope.get("timings") if isinstance(envelope.get("timings"), dict) else {}
+        projects.append({
+            "project": project,
+            "status": status,
+            "wallSeconds": seconds,
+            "buildMs": non_negative_int(timings.get("buildMs")),
+            "runMs": non_negative_int(timings.get("runMs")),
+            "totalMs": non_negative_int(timings.get("totalMs")),
+            "tests": non_negative_int(summary.get("total")),
+            "passed": non_negative_int(summary.get("passed")),
+            "failed": non_negative_int(summary.get("failed")),
+            "skipped": non_negative_int(summary.get("skipped")),
+        })
+
+def total(key):
+    return sum(project[key] or 0 for project in projects)
+
+recorded_at = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+record = {
+    "schemaVersion": 1,
+    "recordedAtUtc": recorded_at.isoformat().replace("+00:00", "Z"),
+    "summary": {
+        "projects": len(projects),
+        "passedProjects": sum(1 for project in projects if project["status"] == "passed"),
+        "failedProjects": sum(1 for project in projects if project["status"] != "passed"),
+        "tests": total("tests"),
+        "passed": total("passed"),
+        "failed": total("failed"),
+        "skipped": total("skipped"),
+        "buildMs": total("buildMs"),
+        "runMs": total("runMs"),
+        "wallSeconds": total("wallSeconds"),
+    },
+    "projects": projects,
+}
+
+directory = os.path.join(artifacts_root, "native-sweep")
+path = os.path.join(directory, recorded_at.strftime("%Y%m%dT%H%M%SZ") + ".json")
+os.makedirs(directory, exist_ok=True)
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(record, stream, indent=2)
+    stream.write("\n")
+
+totals = record["summary"]
+print("Native sweep record: {path} - {projects} projects ({failedProjects} failed), {tests} tests (Passed: {passed}, Failed: {failed}, Skipped: {skipped}), build {buildMs} ms, run {runMs} ms".format(path=os.path.relpath(path), **totals))
+'
+
     NATIVE_WORKER='
 entry="$1"
 results_dir="$2"
@@ -662,7 +753,8 @@ native_stderr="$results_dir/$idx.err"
 native_summary="$results_dir/$idx.summary"
 native_status=FAIL
 # --json is a stdout contract: warnings and progress go to stderr and must not reach the parser.
-if dotnet "$cli_dll" test --project "$native_dir" --no-cache --json \
+# --timings adds the `timings` object (build, run, total) to the envelope; the sweep record reads it.
+if dotnet "$cli_dll" test --project "$native_dir" --no-cache --json --timings \
         > "$native_output" 2> "$native_stderr" \
     && python3 "$reader" "$native_output" > "$native_summary" 2>&1; then
     native_status=OK
@@ -791,6 +883,13 @@ printf "%s|%s\n" "$native_status" "$(($(date +%s) - native_start))" > "$results_
                 NATIVE_STEP_OK=0
             fi
         done < "$NATIVE_LIST"
+
+        NATIVE_RECORDER="$NATIVE_RESULTS_DIR/record-sweep.py"
+        printf '%s\n' "$NATIVE_RECORD_SWEEP" > "$NATIVE_RECORDER"
+        echo
+        if ! python3 "$NATIVE_RECORDER" "$NATIVE_RESULTS_DIR" "$NATIVE_LIST" "$REPO_ROOT/artifacts"; then
+            echo -e "${YELLOW}The native sweep record could not be written; the sweep's verdict is unaffected.${NC}"
+        fi
 
         rm -rf "$NATIVE_RESULTS_DIR"
     fi

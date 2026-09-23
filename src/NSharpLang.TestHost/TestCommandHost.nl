@@ -88,6 +88,7 @@ static class TestCommandHost {
                 testOptions.NoCache,
                 testOptions.CollectCoverage,
                 testOptions.CoverageReport,
+                testOptions.Timings,
                 stopwatch
             )
         } catch commandError: Exception {
@@ -112,6 +113,7 @@ static class TestCommandHost {
         noCache: bool,
         collectCoverage: bool,
         coverageReport: bool,
+        timings: bool,
         stopwatch: Stopwatch
     ): int {
         projectYmlPath := TestCommandKernels.GetProjectYmlPath(projectRoot)
@@ -145,6 +147,7 @@ static class TestCommandHost {
         }
 
         try {
+            buildStarted := stopwatch.ElapsedMilliseconds
             outputPath := CliIlBackend.BuildProjectWithIlBackendForCommand(
                 projectRoot,
                 resolvedConfig,
@@ -153,25 +156,31 @@ static class TestCommandHost {
                 true,
                 verbose
             )
+            buildMilliseconds := stopwatch.ElapsedMilliseconds - buildStarted
 
             if outputPath == null {
                 buildFailedMessage := TestCommandKernels.GetBuildFailedMessage()
+                buildFailedTimings := RequestedTimings(timings, buildMilliseconds, 0, stopwatch)
                 if TestCommandKernels.IsJsonOutputMode(outputMode) {
-                    OutputNativeTestJson(projectRoot, false, new NativeTestResult[](0), NativeTestSummary.EmptyFailure, buildFailedMessage)
+                    OutputNativeTestJson(projectRoot, false, new NativeTestResult[](0), NativeTestSummary.EmptyFailure, buildFailedMessage, buildFailedTimings)
                     return TestCommandKernels.GetExitCode(false)
                 }
 
+                ReportTimings(buildFailedTimings)
                 return CliError.Report(buildFailedMessage)
             }
 
+            runStarted := stopwatch.ElapsedMilliseconds
             testRun := RunSelectedRunner(resolvedConfig, outputPath, filter, verbose, outputMode, timeoutMs)
             summary := TestCommandKernels.SummarizeNativeTestRun(testRun)
+            runTimings := RequestedTimings(timings, buildMilliseconds, stopwatch.ElapsedMilliseconds - runStarted, stopwatch)
 
             if TestCommandKernels.IsJsonOutputMode(outputMode) {
-                OutputNativeTestJson(projectRoot, summary.Ok, testRun.Results, summary, null)
+                OutputNativeTestJson(projectRoot, summary.Ok, testRun.Results, summary, null, runTimings)
             } else {
                 Console.WriteLine(TestCommandKernels.GetSummaryMessage(summary.Passed, summary.Failed, summary.Skipped, summary.Total))
                 Console.WriteLine(TestCommandKernels.GetCompletedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(stopwatch.ElapsedMilliseconds)))
+                ReportTimings(runTimings)
             }
 
             return TestCommandKernels.GetExitCode(summary.Ok)
@@ -225,6 +234,41 @@ static class TestCommandHost {
         summary: NativeTestSummary,
         errorMessage: string?
     ) {
-        Console.WriteLine(TestCommandKernels.NativeTestJson(projectRoot, ok, testResults, errorMessage, summary))
+        OutputNativeTestJson(projectRoot, ok, testResults, summary, errorMessage, null)
+    }
+
+    static func OutputNativeTestJson(
+        projectRoot: string,
+        ok: bool,
+        testResults: IReadOnlyList<NativeTestResult>,
+        summary: NativeTestSummary,
+        errorMessage: string?,
+        timings: NativeTestTimings?
+    ) {
+        Console.WriteLine(TestCommandKernels.NativeTestJson(projectRoot, ok, testResults, errorMessage, summary, timings))
+    }
+
+    // `--timings` is the only thing that makes these exist, so a run that did not ask pays nothing
+    // and prints nothing new.
+    static func RequestedTimings(requested: bool, buildMilliseconds: long, runMilliseconds: long, stopwatch: Stopwatch): NativeTestTimings? {
+        if !requested {
+            return null
+        }
+
+        return new NativeTestTimings(buildMilliseconds, runMilliseconds, stopwatch.ElapsedMilliseconds)
+    }
+
+    // Text mode puts the block on STDERR, exactly where `nlc build --timings` puts its own, so the
+    // run's stdout reads the same with or without the flag.
+    static func ReportTimings(timings: NativeTestTimings?) {
+        if timings == null {
+            return
+        }
+
+        Console.Error.WriteLine(TestCommandKernels.GetTimingsMessage(
+            ProgramCommandKernels.FormatElapsedMilliseconds(timings.BuildMilliseconds),
+            ProgramCommandKernels.FormatElapsedMilliseconds(timings.RunMilliseconds),
+            ProgramCommandKernels.FormatElapsedMilliseconds(timings.TotalMilliseconds)
+        ))
     }
 }
