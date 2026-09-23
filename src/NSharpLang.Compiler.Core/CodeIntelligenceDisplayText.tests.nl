@@ -190,7 +190,7 @@ test "(b) every chip in one mask, in the printed order" {
 }
 
 test "a modifier the chip list does not name contributes nothing" {
-    // Partial (256), Const (1024), Generator (4096), Required (8192), Init (16384) and File (32768)
+    // Partial (256), Const (1024), Generator (4096), Required (8192) and Init (16384)
     // have no chip. A mask of ONLY those is not None, and still answers null.
     assert CodeIntelligenceDisplayText.FormatModifiers(Modifiers.Partial) == null
     assert CidtChips(Modifiers.Partial | Modifiers.Public) == "pub"

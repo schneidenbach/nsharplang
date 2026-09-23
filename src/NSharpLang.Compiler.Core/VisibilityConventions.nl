@@ -23,7 +23,7 @@ class VisibilityConventions {
             return true
         }
 
-        if VisibilityHasFlag(modifierValue, 2) || VisibilityHasFlag(modifierValue, 8) || VisibilityHasFlag(modifierValue, 4) || VisibilityHasFlag(modifierValue, 32768) {
+        if VisibilityHasFlag(modifierValue, 2) || VisibilityHasFlag(modifierValue, 8) || VisibilityHasFlag(modifierValue, 4) {
             return false
         }
 
@@ -32,7 +32,7 @@ class VisibilityConventions {
 
     static func HasExplicitVisibility(modifiers: object): bool {
         modifierValue := VisibilityModifierValue(modifiers)
-        return VisibilityHasFlag(modifierValue, 1) || VisibilityHasFlag(modifierValue, 2) || VisibilityHasFlag(modifierValue, 8) || VisibilityHasFlag(modifierValue, 4) || VisibilityHasFlag(modifierValue, 32768)
+        return VisibilityHasFlag(modifierValue, 1) || VisibilityHasFlag(modifierValue, 2) || VisibilityHasFlag(modifierValue, 8) || VisibilityHasFlag(modifierValue, 4)
     }
 
     static func VisibilityModifierValue(modifiers: object): int {

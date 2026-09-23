@@ -346,7 +346,6 @@ func LexerContractKeywordTexts(): string[] {
         "ref",
         "out",
         "lock",
-        "file",
         "params",
         "checked",
         "unchecked",
@@ -437,7 +436,6 @@ func LexerContractKeywordTypes(): TokenType[] {
         TokenType.Ref,
         TokenType.Out,
         TokenType.Lock,
-        TokenType.File,
         TokenType.Params,
         TokenType.Checked,
         TokenType.Unchecked,
@@ -466,6 +464,7 @@ func LexerContractNonKeywordTypes(): TokenType[] {
         TokenType.TripleQuoteStringLiteral,
         TokenType.InterpolatedRawStringLiteral,
         TokenType.Test,
+        TokenType.File,
         TokenType.Plus,
         TokenType.Minus,
         TokenType.Star,
@@ -1502,9 +1501,12 @@ test "lexer keyword tables partition the whole token type enum" {
     keywords := LexerContractKeywordTypes()
     others := LexerContractNonKeywordTypes()
 
-    assert LexerContractKeywordTexts().Length == 85
-    assert keywords.Length == 85
-    assert others.Length == 63
+    // 84 AND 64, NOT 85 AND 63: `file` was a keyword and is not one any more. `TokenType.File` stays in
+    // the enum because every ordinal above it is the columnar pipeline's token-kind currency, so it moved
+    // into the NON-keyword table beside `Test` rather than out of the enum.
+    assert LexerContractKeywordTexts().Length == 84
+    assert keywords.Length == 84
+    assert others.Length == 64
     assert LexerContractAllTokenTypes().Length == 148
     assert LexerContractTablesAreDisjoint(keywords, others)
     assert LexerContractTablesCoverEveryTokenType(keywords, others)

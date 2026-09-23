@@ -606,23 +606,25 @@ written through unchanged; the comparison still uses only the simple name in fro
 that names no assembly is a project-file error, and repeating the same simple name writes one row,
 not two.
 
-**What a grant exposes out of an N# assembly is narrower than you may expect**, because N# has no
-member-level `internal` of its own. Measured on an emitted assembly:
+**What a grant exposes out of an N# assembly is exactly what that assembly did not export.** The
+casing rule reaches CLR metadata, so a camelCase name is `internal` there and a friend grant is what
+lifts it. Measured on an emitted assembly:
 
 | N# declaration | CLR accessibility emitted |
 | --- | --- |
-| `class Ledger` / `class ledger` | `public` — casing decides *package* export, which the CLR knows nothing about |
+| `class Ledger` (PascalCase) | `public` |
+| `class ledger` (camelCase) | `assembly` — another assembly cannot name it without a grant |
+| a NESTED type, by its own casing | `NestedPublic` / `NestedPrivate` — narrower than a top-level one |
 | `func Exported()` (PascalCase) | `public` |
-| `func unexported()` (camelCase) | `internal` |
+| `func unexported()` (camelCase) | `assembly` |
+| an `enum`, `struct`, `record` or `union`, by its own casing | `public` / `assembly` |
 | a field, whatever its casing | `public` |
-| an enum, struct, record or its members | `public` |
 
-So the members an `internalsVisibleTo:` grant admits out of an N# library are exactly its
-**unexported (camelCase) functions and methods**. Types and fields are already public in metadata,
-and N#'s package rule — which is what actually hides a camelCase name from another namespace — is
-enforced by the compiler in every assembly and is not lifted by a friend grant. Write the grant
-when a consumer needs those unexported methods (a test project is the usual case); a consumer that
-only needs exported names never needs one.
+So an `internalsVisibleTo:` grant admits a library's **camelCase types, functions and methods**. A
+FIELD is still emitted `public`, so a grant exposes nothing extra at one — reaching a camelCase field
+from another namespace is refused by the compiler's package rule, which every assembly enforces and
+which a friend grant does not lift. Write the grant when a consumer needs the unexported surface (a
+test project is the usual case); a consumer that only needs exported names never needs one.
 
 Those `protected virtual` members are extension points, so you may **override** them, and the same
 three levels are the ones you may take the slot of:

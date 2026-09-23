@@ -3331,10 +3331,6 @@ func KeywordKind(source: string, start: int, length: int): int {
             if source[start + 1] == 'u' && source[start + 2] == 'n' && source[start + 3] == 'c' {
                 return 7
             }
-
-            if source[start + 1] == 'i' && source[start + 2] == 'l' && source[start + 3] == 'e' {
-                return 81
-            }
         }
 
         if ch0 == 'd' && source[start + 1] == 'u' && source[start + 2] == 'c' && source[start + 3] == 'k' {
@@ -8206,10 +8202,6 @@ func ModifierFlag(kind: int): int {
         return 2048
     }
 
-    if kind == 81 {
-        return 32768
-    }
-
     if kind == 59 {
         return 65536
     }
@@ -8555,11 +8547,11 @@ func ColumnarStructDeclarationMetadataModifierFlagsAt(tokenKinds: int[], declara
     flags := 0
     while modifierIndex >= 0 && ParserDeclarationMemberModifierKind(tokenKinds[modifierIndex]) != 0 {
         modifierFlag := ParserDeclarationMemberModifierFlag(tokenKinds[modifierIndex])
-        // The words that reach METADATA: the four visibility words, `sealed` (128), `abstract` (64),
-        // `readonly` (512) and `partial` (32768). `abstract` is here because `abstract class C` is a
+        // The words that reach METADATA: the four visibility words, `sealed` (128), `abstract` (64)
+        // and `readonly` (512). `abstract` is here because `abstract class C` is a
         // TypeAttributes bit the CLR itself enforces — it refuses to load a type that declares an
         // abstract method without it — not merely a source-level promise the analyzer checks.
-        if modifierFlag == 1 || modifierFlag == 2 || modifierFlag == 4 || modifierFlag == 8 || modifierFlag == 64 || modifierFlag == 128 || modifierFlag == 512 || modifierFlag == 32768 {
+        if modifierFlag == 1 || modifierFlag == 2 || modifierFlag == 4 || modifierFlag == 8 || modifierFlag == 64 || modifierFlag == 128 || modifierFlag == 512 {
             flags = flags | modifierFlag
         }
         modifierIndex = modifierIndex - 1

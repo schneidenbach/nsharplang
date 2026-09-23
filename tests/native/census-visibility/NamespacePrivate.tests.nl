@@ -141,3 +141,25 @@ test "namespace-private is a LANGUAGE rule: the emitted method is still assembly
     // difference between them.
     assert VisibilityMethodDeclaringTypeName("formatTypeRef") == VisibilityMethodDeclaringTypeName("FormatExported")
 }
+
+test "THE TYPE HALF OF THE SAME RULE REACHES METADATA TOO — a camelCase type is emitted assembly" {
+    // The FUNCTION half above has always been in metadata. The TYPE half was a compiler-only rule: a
+    // camelCase top-level type was emitted CLR `public`, so another ASSEMBLY could name what this
+    // package never exported. It cannot now. `helperBox` is declared in `NamespacePrivateHelpers.nl`
+    // and is used from this file and from two others of the same namespace, which is the language half
+    // of the rule and is unchanged.
+    hidden := typeof(helperBox)
+    assert hidden.IsNotPublic
+    assert !hidden.IsPublic
+    assert !hidden.IsVisible
+
+    // The exported twin, without which "not public" would be a claim about the emitter rather than
+    // about the casing.
+    exported := typeof(HelperBoxReader)
+    assert exported.IsPublic
+    assert exported.IsVisible
+
+    // And the package-private type is still perfectly usable from inside its own package.
+    box := new helperBox("string")
+    assert box.Describe() == "<string>"
+}

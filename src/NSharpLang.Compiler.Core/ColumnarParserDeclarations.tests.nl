@@ -156,54 +156,24 @@ test "020 s17 parser declarations: a `static` class carries Static on itself and
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "020 s17 parser declarations: `file class` sets Modifiers.File (was ParserTests.TestFileClassModifier)" {
-    source := "\n            file class InternalHelper {\n                Name: string\n            }\n        "
+test "020 s17 parser declarations: `file` IS AN ORDINARY IDENTIFIER — the file-private modifier is gone" {
+    // FOUR ROWS USED TO LIVE HERE, one per `file class` / `file struct` / `file record` /
+    // `file interface`, each asserting `Modifiers.File`. The modifier no longer exists: N#'s unit of
+    // privacy is the NAMESPACE, and a camelCase type name already says "not exported". So the claim
+    // worth pinning is the opposite one — `file` lexes as an identifier and may be a type NAME, a
+    // MEMBER name, a PARAMETER name and a LOOP variable, which is what the old keyword blocked.
+    source := "\n            class file {\n                file: string\n            }\n        "
     assert PdCensus(source) == ""
-    actual := PdAst(source)
-    decls1 := new List<Declaration>()
-    members2 := new List<Declaration>()
-    members2.Add(Golden.FieldF("Name", Golden.SimpleT("string", 3, 23, 29), null, Modifiers.None, PropertyModifier.None, 3, 17))
-    decls1.Add(Golden.ClassF("InternalHelper", null, null, Golden.NoTypeRefs(), members2, null, Modifiers.File, 2, 18))
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 2, 13)
-    assert AstEq.Diff(expected, actual, "unit") == ""
-}
 
-test "020 s17 parser declarations: `file struct` sets Modifiers.File (was ParserTests.TestFileStructModifier)" {
-    source := "\n            file struct Point {\n                X: double\n                Y: double\n            }\n        "
-    assert PdCensus(source) == ""
-    actual := PdAst(source)
-    decls1 := new List<Declaration>()
-    members2 := new List<Declaration>()
-    members2.Add(Golden.FieldF("X", Golden.SimpleT("double", 3, 20, 26), null, Modifiers.None, PropertyModifier.None, 3, 17))
-    members2.Add(Golden.FieldF("Y", Golden.SimpleT("double", 4, 20, 26), null, Modifiers.None, PropertyModifier.None, 4, 17))
-    decls1.Add(Golden.StructF("Point", null, Golden.NoTypeRefs(), members2, null, Modifiers.File, false, 2, 18))
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 2, 13)
-    assert AstEq.Diff(expected, actual, "unit") == ""
-}
+    member := "\n            class Row {\n                file: string\n\n                func Read(file: string): string {\n                    return file\n                }\n            }\n        "
+    assert PdCensus(member) == ""
 
-test "020 s17 parser declarations: `file record` sets Modifiers.File (was ParserTests.TestFileRecordModifier)" {
-    source := "\n            file record Person {\n                Name: string\n                Age: int\n            }\n        "
-    assert PdCensus(source) == ""
-    actual := PdAst(source)
-    decls1 := new List<Declaration>()
-    members2 := new List<Declaration>()
-    members2.Add(Golden.FieldF("Name", Golden.SimpleT("string", 3, 23, 29), null, Modifiers.None, PropertyModifier.None, 3, 17))
-    members2.Add(Golden.FieldF("Age", Golden.SimpleT("int", 4, 22, 25), null, Modifiers.None, PropertyModifier.None, 4, 17))
-    decls1.Add(Golden.RecordF("Person", null, Golden.NoTypeRefs(), members2, null, false, Modifiers.File, 2, 18))
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 2, 13)
-    assert AstEq.Diff(expected, actual, "unit") == ""
-}
+    loopVariable := "\n            func Walk(paths: string[]) {\n                for file in paths {\n                    print file\n                }\n            }\n        "
+    assert PdCensus(loopVariable) == ""
 
-test "020 s17 parser declarations: `file interface` sets Modifiers.File (was ParserTests.TestFileInterfaceModifier)" {
-    source := "\n            file interface IHelper {\n                func DoWork(): void\n            }\n        "
-    assert PdCensus(source) == ""
-    actual := PdAst(source)
-    decls1 := new List<Declaration>()
-    members2 := new List<Declaration>()
-    members2.Add(Golden.Func("DoWork", Golden.NoParams(), Golden.SimpleT("void", 3, 32, 36), null, null, null, Golden.NoConstraints(), Modifiers.None, 3, 17))
-    decls1.Add(Golden.InterfaceF("IHelper", null, Golden.NoTypeRefs(), members2, Modifiers.File, false, 2, 18))
-    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 2, 13)
-    assert AstEq.Diff(expected, actual, "unit") == ""
+    // And `file class Helper {}` is no longer a declaration: `file` is read as the type NAME of a
+    // `class` that then has no name, so it reports rather than silently meaning something.
+    assert PdCensus("\n            file class Helper {\n            }\n        ") != ""
 }
 
 test "020 s17 parser declarations: `record struct` sets IsStruct=true and anchors on the `record` keyword (was ParserTests.TestRecordStruct)" {

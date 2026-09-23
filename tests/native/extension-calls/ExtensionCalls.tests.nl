@@ -1020,15 +1020,15 @@ test "interface method returning a user struct compiles and executes" {
     AssertGenericCallProgram(
         "InterfaceUserStructProject",
         """
-file struct ValidationResult {
+struct ValidationResult {
     IsValid: bool
 }
 
-file interface IValidator {
+interface IValidator {
     func Validate(input: string): ValidationResult
 }
 
-file class UsernameValidator: IValidator {
+class UsernameValidator: IValidator {
     func Validate(input: string): ValidationResult {
         if input.Length > 0 {
             return new ValidationResult { IsValid: true }

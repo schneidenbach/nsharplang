@@ -4979,14 +4979,28 @@ which references befriend it — and its own friend declarations are the other h
 opened and closed by the same owner (`MultiFileCompiler.RunColumnarEmissionOnCurrentThread`). A
 planner test that emits with no scope open declares no grants and gets no attribute.
 
-**What a grant EXPOSES out of an N# assembly, measured by reflection on an emitted dll:** N# emits
-every TYPE as CLR `public` (casing decides PACKAGE export, which the CLR knows nothing about) and
-every FIELD as `public`; a camelCase — unexported — FUNCTION or METHOD is emitted as CLR `assembly`.
-So the grant admits exactly the unexported functions and methods, and nothing else. The package rule
-itself is not lifted by a grant: it is the compiler's, enforced in every assembly, so a consumer in
-another namespace still cannot name an unexported FREE function of a referenced N# assembly at all
-(free functions of a reference are unreachable regardless of casing — a separate gap, not this
-rule's). `website/docs/types.md` carries the table for readers.
+**What a grant EXPOSES out of an N# assembly, measured by reflection on an emitted dll:** a camelCase
+— unexported — FUNCTION, METHOD **or TOP-LEVEL TYPE** is emitted as CLR `assembly`; a PascalCase one is
+`public`; a NESTED type answers its own casing as `NestedAssembly`/`NestedPublic`, which it always did;
+and every FIELD is `public` whatever its casing. So a grant admits the unexported types, functions and
+methods, and adds nothing at a field.
+
+**THE TYPE ROW CHANGED, AND IT USED TO BE THE ODD ONE OUT.** A top-level type was emitted CLR `public`
+whatever its name, so "casing decides PACKAGE export, which the CLR knows nothing about" was true for
+types alone while the rule reached metadata for every member, every free function and every NESTED
+type. It no longer is: `ColumnarStructInput.TopLevelVisibilityFor` answers the same
+`VisibilityConventions` question `NestedVisibilityFor` already answered, and
+`ColumnarDeclarationPlanner`'s struct/interface/enum attribute composers plus the union arm in
+`ColumnarIlEmitter` take its answer instead of a hard `Public`. So another ASSEMBLY can no longer name
+a type its package never exported — which it silently could before, producing a dll the CLR would
+refuse at load rather than a diagnostic.
+
+The package rule itself is still not lifted by a grant: it is the compiler's, enforced in every
+assembly, so a consumer in another namespace of the SAME assembly still cannot name an unexported name
+(and an unexported FREE function of a referenced N# assembly is unreachable regardless of casing — a
+separate gap, not this rule's). `website/docs/types.md` carries the table for readers, and
+`tests/native/census-package-private-types` pins the per-kind metadata rows against their PascalCase
+twins.
 
 **The qualified spelling is refused where the simple one is, and the back end was left alone.** The
 fix is in the ANALYZER, not in `ExternalAssemblyScan` — the six-project collateral above stands as

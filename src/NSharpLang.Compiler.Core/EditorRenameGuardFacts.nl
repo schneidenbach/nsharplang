@@ -49,7 +49,7 @@ class EditorRenameGuardFacts {
             return true
         }
 
-        if word == "const" || word == "file" || word == "duck" || word == "public" || word == "private" {
+        if word == "const" || word == "duck" || word == "public" || word == "private" {
             return true
         }
 

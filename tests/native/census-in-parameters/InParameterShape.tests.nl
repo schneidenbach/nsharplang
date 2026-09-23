@@ -11,7 +11,6 @@ import System.Reflection
 // would leave C# and F# treating the parameter as a writable `ref` — which is why both are asserted,
 // against a `ref` control that must carry neither.
 class InParameterShapeFacts {
-
     static func FirstParameter(methodName: string): ParameterInfo {
         holder := typeof(InParameters)
         method := must holder.GetMethod(methodName)

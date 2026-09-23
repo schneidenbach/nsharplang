@@ -1140,10 +1140,20 @@ class ColumnarDeclarationPlanner {
         return 32
     }
 
-    // An interface is Public|Interface|Abstract; a top-level record is Class|Public (Class is zero);
-    // a top-level struct is Sealed|Public.
+    // An interface is <visibility>|Interface|Abstract; a top-level record is Class|<visibility> (Class
+    // is zero); a top-level struct is Sealed|<visibility>.
+    //
+    // <visibility> IS NOT ALWAYS `Public`. A camelCase type name is not exported from its package, and
+    // such a type is emitted `NotPublic` — which the CLR reads as assembly-only — exactly as a camelCase
+    // member is emitted `assembly` and a camelCase NESTED type has been emitted `NestedAssembly` all
+    // along. The no-argument forms below keep answering `Public` because a caller with no name to ask
+    // about cannot be answered any other way.
     static func InterfaceTypeAttributes(): int {
-        return PublicTypeAttribute() | InterfaceTypeAttribute() | AbstractTypeAttribute()
+        return InterfaceTypeAttributes(PublicTypeAttribute())
+    }
+
+    static func InterfaceTypeAttributes(visibilityAttribute: int): int {
+        return visibilityAttribute | InterfaceTypeAttribute() | AbstractTypeAttribute()
     }
 
     // THE NESTED ASYMMETRY IS LOAD-BEARING AND IS REPRODUCED EXACTLY. A TOP-LEVEL type ORs `Public`;
@@ -1154,6 +1164,10 @@ class ColumnarDeclarationPlanner {
     }
 
     static func StructTypeAttributesFor(isReference: bool, isSealed: bool, isAbstract: bool, isNested: bool, nestedVisibilityAttributes: int): int {
+        return StructTypeAttributesFor(isReference, isSealed, isAbstract, isNested, nestedVisibilityAttributes, PublicTypeAttribute())
+    }
+
+    static func StructTypeAttributesFor(isReference: bool, isSealed: bool, isAbstract: bool, isNested: bool, nestedVisibilityAttributes: int, topLevelVisibilityAttributes: int): int {
         bits := BeforeFieldInitTypeAttribute()
         if !isReference || isSealed {
             bits = bits | SealedTypeAttribute()
@@ -1169,18 +1183,26 @@ class ColumnarDeclarationPlanner {
         if isNested {
             return bits | nestedVisibilityAttributes
         }
-        return bits | PublicTypeAttribute()
+        return bits | topLevelVisibilityAttributes
     }
 
     // A STRING-BACKED enum is not a CLR enum at all — it is an `abstract sealed` class of literal
     // string fields, because the CLR has no string-underlying enum. An INT-backed one is published as
     // the VISIBILITY alone; the emitter ORs `Sealed` on and names `System.Enum` as the base.
     static func StringBackedEnumTypeAttributes(): int {
-        return PublicTypeAttribute() | AbstractTypeAttribute() | SealedTypeAttribute()
+        return StringBackedEnumTypeAttributes(PublicTypeAttribute())
+    }
+
+    static func StringBackedEnumTypeAttributes(visibilityAttribute: int): int {
+        return visibilityAttribute | AbstractTypeAttribute() | SealedTypeAttribute()
     }
 
     static func IntBackedEnumTypeAttributes(): int {
         return PublicTypeAttribute()
+    }
+
+    static func IntBackedEnumTypeAttributes(visibilityAttribute: int): int {
+        return visibilityAttribute
     }
 
     // A string-backed member whose value was not spelled takes its own NAME as the value. The rule
@@ -1374,7 +1396,7 @@ class ColumnarDeclarationPlanner {
         if (modifierFlags & 8) != 0 {
             return FamilyMethodAttribute()
         }
-        if (modifierFlags & 4) != 0 || (modifierFlags & 32768) != 0 {
+        if (modifierFlags & 4) != 0 {
             return AssemblyMethodAttribute()
         }
         if name != null && name.Length > 0 && char.IsUpper(name[0]) {
@@ -1451,7 +1473,7 @@ class ColumnarDeclarationPlanner {
             return PublicFieldAttribute()
         }
 
-        if (modifierFlags & 2) != 0 || (modifierFlags & 4) != 0 || (modifierFlags & 8) != 0 || (modifierFlags & 32768) != 0 {
+        if (modifierFlags & 2) != 0 || (modifierFlags & 4) != 0 || (modifierFlags & 8) != 0 {
             return AssemblyMethodAttribute()
         }
 
@@ -1583,11 +1605,13 @@ class ColumnarDeclarationPlanner {
         return new ColumnarMethodOverrideRows(rows)
     }
 
-    // The modifier bits `MethodVisibilityAttributes` reads: `public` 1, `private` 2, `internal` 4,
-    // `protected` 8, and the package-private marker 32768. Any one of them is a written statement
-    // about accessibility; none of them means the casing convention decides.
+    // The modifier bits `MethodVisibilityAttributes` reads: `public` 1, `private` 2, `internal` 4 and
+    // `protected` 8. Any one of them is a written statement about accessibility; none of them means the
+    // casing convention decides. 32768 was `file` and is no longer a word the language has, so the mask
+    // is 15 rather than 32783 — and a bit that cannot be set must not be read, or the next feature to
+    // claim 32768 inherits a meaning nobody gave it.
     static func DeclaresAccessibilityWord(modifierFlags: int): bool {
-        return (modifierFlags & 32783) != 0
+        return (modifierFlags & 15) != 0
     }
 
     static func PublicFieldAttribute(): int {
@@ -1786,7 +1810,9 @@ class ColumnarDeclarationPlanner {
         while index < interfaceCount {
             iface := interfaces[index]
             interfaceNames[index] = program.ExactInterfaceTypeName(iface)
-            interfaceAttributes[index] = InterfaceTypeAttributes()
+            // The SIMPLE name decides, not the namespace-qualified one: a package's own name is not part
+            // of the question "did this package export this".
+            interfaceAttributes[index] = InterfaceTypeAttributes(ColumnarStructInput.TopLevelVisibilityFor(iface.Name, 0))
             index = index + 1
         }
 
@@ -1807,7 +1833,7 @@ class ColumnarDeclarationPlanner {
             } else {
                 structEnclosing[index] = ""
             }
-            structAttributes[index] = StructTypeAttributesFor(input.IsReference, input.IsSealed, input.IsAbstract, isNested, input.NestedVisibilityAttributes)
+            structAttributes[index] = StructTypeAttributesFor(input.IsReference, input.IsSealed, input.IsAbstract, isNested, input.NestedVisibilityAttributes, input.TopLevelVisibilityAttributes)
             index = index + 1
         }
 
@@ -1844,10 +1870,11 @@ class ColumnarDeclarationPlanner {
             input := enums[index]
             exactNames[index] = program.ExactTypeNameForFile(input.Name, input.SourceFileId)
             isStringBacked[index] = input.IsStringBacked
+            enumVisibility := ColumnarStructInput.TopLevelVisibilityFor(input.Name, 0)
             if input.IsStringBacked {
-                typeAttributes[index] = StringBackedEnumTypeAttributes()
+                typeAttributes[index] = StringBackedEnumTypeAttributes(enumVisibility)
             } else {
-                typeAttributes[index] = IntBackedEnumTypeAttributes()
+                typeAttributes[index] = IntBackedEnumTypeAttributes(enumVisibility)
             }
 
             memberCount := input.MemberNames.Length

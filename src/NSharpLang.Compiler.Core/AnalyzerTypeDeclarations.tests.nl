@@ -2291,7 +2291,6 @@ test "THE ACCESSIBILITY LADDER IS THE CLR'S, AND AN UNANNOTATED MEMBER IS READ F
     assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Protected) | Convert.ToInt32(Modifiers.Internal)) == 5
     assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Protected)) == 4
     assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Internal)) == 3
-    assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.File)) == 3
     assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Protected) | Convert.ToInt32(Modifiers.Private)) == 2
     assert AnalyzerTypeDeclarations.DeclaredAccessibilityLevel("Speak", Convert.ToInt32(Modifiers.Private)) == 1
 

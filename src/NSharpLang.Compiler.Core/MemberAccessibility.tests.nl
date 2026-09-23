@@ -39,7 +39,9 @@ test "a written accessibility word decides the level, and no word means public a
     assert MemberAccessibility.LevelOfDeclaredModifiers(8) == MemberAccessibility.Family
     assert MemberAccessibility.LevelOfDeclaredModifiers(12) == MemberAccessibility.FamilyOrAssembly
     assert MemberAccessibility.LevelOfDeclaredModifiers(10) == MemberAccessibility.PrivateProtected
-    assert MemberAccessibility.LevelOfDeclaredModifiers(32768) == MemberAccessibility.Assembly
+    // 32768 was `file`. With the word gone the bit is unallocated, so it sets no level and the
+    // function's own no-word fall-through answers — which is what it answers for 0.
+    assert MemberAccessibility.LevelOfDeclaredModifiers(32768) == MemberAccessibility.LevelOfDeclaredModifiers(0)
 
     // `public` wins a malformed combination, exactly as the emitted metadata word does.
     assert MemberAccessibility.LevelOfDeclaredModifiers(15) == MemberAccessibility.Public

@@ -2691,20 +2691,29 @@ func main() {
 }
 ```
 
-## File-Scoped Types
+## Package-Private Types
 
-Mark a type `file` to keep it visible only within the file that declares it — useful for
-internal helpers that should never leak into the public surface.
+N# has **no file-private tier**. The unit of privacy is the namespace: a namespace spread over several
+files is one package, and its halves have to be able to see each other's helpers.
+
+An internal helper type is spelled the way an internal helper *member* is — with a **camelCase name**,
+which is not exported from its package:
 
 ```n#
-file class Helper {
+class helper {
     func Shout(s: string): string => s + "!"
 }
 
 func main() {
-    print new Helper().Shout("hi")   // hi!
+    print new helper().Shout("hi")   // hi!
 }
 ```
+
+`helper` is visible to every file that declares this namespace and to nothing outside it. In CLR
+metadata it is emitted `assembly` (internal), so another assembly cannot name it even by accident —
+unless you made that assembly a friend with `internalsVisibleTo:`. Rename it `Helper` to publish it.
+See [Visibility](#visibility) for the whole rule, which is the same one members and free functions
+follow.
 
 ## Systems N#
 
@@ -3157,10 +3166,18 @@ printing the simple name twice would produce.
 
 N# uses Go-style naming conventions for visibility — do not write `public`/`private` keywords for ordinary code. The formatter removes redundant `public`/`private` when casing already expresses the same visibility.
 
-| Convention | Visibility |
-|------------|-----------|
-| `PascalCase` | exported/public |
-| `camelCase` | namespace-private |
+| Convention | Visibility | Emitted as |
+|------------|-----------|-----------|
+| `PascalCase` | exported/public | `public` |
+| `camelCase` | namespace-private | `assembly` (internal) |
+
+The rule covers **every** declaration — a type, a type member, a top-level function, an enum. There is
+no separate spelling for a file-private helper, because the unit of privacy is the namespace; see
+[Package-Private Types](#package-private-types).
+
+The emitted column above is for a **top-level** declaration. A **nested** type is narrower: a
+camelCase one is emitted `NestedPrivate`, reachable only from the type that declares it. Lift it out
+of the type if you want the whole package to see it.
 
 ```n#
 class Account {
@@ -3203,9 +3220,21 @@ func Render(refs: List<TypeReference>): List<string> {
 Reaching `formatTypeRef` from a *different* namespace is [NL308](errors/NL308.md) — an `import`
 does not buy access to what a namespace did not export. Rename it to `FormatTypeRef` to publish it.
 
-In CLR metadata a `camelCase` top-level function is emitted `assembly` (internal) and a
-`PascalCase` one `public`. The namespace boundary is a *language* rule enforced by the compiler, in
-the same way C#'s `private` is a language rule inside one assembly.
+In CLR metadata a `camelCase` top-level declaration — a function **or a type** — is emitted
+`assembly` (internal) and a `PascalCase` one `public`. A nested type has always followed the same rule
+(`NestedAssembly` versus `NestedPublic`). So the package boundary is enforced twice over: by the
+compiler, which reports [NL308](errors/NL308.md) when another namespace names what a package did not
+export, and by the CLR itself, which will not let another *assembly* name it at all.
+
+```n#
+namespace Weather.Internals
+
+class Station { }          // exported:        CLR `public`
+class stationCache { }     // package-private: CLR `assembly`
+```
+
+The one way another assembly reaches `stationCache` is the CLR's own friend rule — see
+[`internalsVisibleTo:`](#a-referenced-assemblys-internals-internalsvisibleto) below.
 
 ### One type name per namespace, however many files it is spread over
 
@@ -3335,10 +3364,10 @@ internalsVisibleTo:
   - MyLibrary.Tests
 ```
 
-Each entry becomes an `[assembly: InternalsVisibleTo("…")]` row on the assembly you build. What it
-exposes is narrower than C#'s, because N# emits every type and field as CLR `public`: the members a
-grant admits out of an N# library are its **unexported (camelCase) functions and methods**, which
-are the only ones emitted as CLR `internal`. See
+Each entry becomes an `[assembly: InternalsVisibleTo("…")]` row on the assembly you build. What a
+grant admits out of an N# library is everything the library did not export — its **camelCase types**,
+functions and methods, which are the ones emitted as CLR `internal`. (Fields are still emitted
+`public`, so a grant exposes nothing extra at a field.) See
 [Reaching a reference's internals](types.md#reaching-a-references-internals) in the types guide for
 the full table.
 

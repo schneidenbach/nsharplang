@@ -89,7 +89,10 @@ test "the written accessibility word is told apart from the casing default" {
     assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(2)
     assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(4)
     assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(8)
-    assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(32768)
+
+    // 32768 WAS `file` AND IS NOW UNALLOCATED. A bit no word can set must not read as a word, or the
+    // next feature to claim it inherits an accessibility meaning nobody gave it.
+    assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(32768) == false
 
     // `override`, `virtual`, `abstract` and `sealed` are not accessibility words.
     assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(16) == false

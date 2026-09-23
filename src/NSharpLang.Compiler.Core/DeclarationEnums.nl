@@ -48,6 +48,10 @@ enum Modifiers {
     Generator = 4096,
     Required = 8192,
     Init = 16384,
-    File = 32768,
     Override = 65536
 }
+// 32768 WAS `file`, THE FILE-PRIVATE TYPE MODIFIER, AND IS NOW UNALLOCATED. N#'s unit of privacy is
+// the NAMESPACE, not the file — a namespace spread over several files is the ordinary way to write
+// one, so the two halves of it must be able to see each other's helpers. A file-private tier
+// contradicted that, and a camelCase type name already says "not exported from this package". The
+// bit is left unallocated rather than reused, so no old modifier word can be mistaken for a new one.

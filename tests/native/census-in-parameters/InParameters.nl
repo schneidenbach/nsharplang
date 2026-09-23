@@ -38,7 +38,6 @@ struct Big {
 }
 
 class InParameters {
-
     static func SumIn(in value: Big): long {
         return value.A + value.B + value.C + value.D
     }

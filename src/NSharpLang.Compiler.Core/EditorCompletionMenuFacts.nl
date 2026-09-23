@@ -549,7 +549,6 @@ class EditorCompletionMenuFacts {
             "partial",
             "readonly",
             "const",
-            "file",
             "duck",
             "public",
             "private",

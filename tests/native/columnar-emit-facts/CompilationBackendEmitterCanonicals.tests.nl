@@ -489,11 +489,11 @@ func main() {
     )
 }
 
-test "MultiFileCompiler_EmitsFileScopedRecordWithDateTimeField" {
+test "MultiFileCompiler_EmitsRecordWithDateTimeField" {
     EmitterCanonicalAssertProgramTrimmed(
-        "FileScopedDateTimeProject",
+        "RecordDateTimeProject",
         """
-file record Stamp {
+record Stamp {
     When: DateTime
 }
 

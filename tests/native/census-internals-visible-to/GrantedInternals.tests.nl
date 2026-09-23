@@ -123,14 +123,18 @@ test "the reached member is CLR assembly on a public type, and its assembly name
     assert grants == 1, "the referenced LanguageServer assembly must declare InternalsVisibleTo(\"Tests\")"
 }
 
-// WHAT THE FLIP CHANGED, MEASURED RATHER THAN REMEMBERED. The C# language server withheld TYPES
-// and FIELDS as well, and three of this file's blocks used to stand on that. N# does not: casing
-// decides PACKAGE export, which is invisible to the CLR, so every type and every field it emits is
-// CLR public and an `internalsVisibleTo:` grant adds nothing at either. This block is the reason
-// the subjects above are METHODS and nothing else.
-test "the granting assembly emits its types and fields public, so only its unexported methods are withheld" {
+// WHAT THE FLIP CHANGED, MEASURED RATHER THAN REMEMBERED. The C# language server withheld the TYPE
+// as well — `internal static class LspDiagnosticConverter` — and three of this file's blocks used to
+// stand on that. Its N# replacement is PascalCase, so it is exported from its package and emitted CLR
+// `public`; the withholding is at its unexported METHODS, which is why the subjects above are methods.
+//
+// The casing rule DOES reach a type: a camelCase type is emitted `assembly` and a grant admits it.
+// `tests/native/census-package-private-types` and `SourceGrants.tests.nl` own that pair. What stays
+// unaffected is a FIELD, which N# emits `public` whatever its casing — so a grant adds nothing there,
+// and this block still says so.
+test "a PascalCase type and every field are emitted public, so only unexported METHODS are withheld" {
     converterType := typeof(LspDiagnosticConverter)
-    assert converterType.IsPublic, "N# emits a type as CLR public; the C# `internal static class` is gone"
+    assert converterType.IsPublic, "a PascalCase type is exported from its package, so the CLR gets `public`"
     assert converterType.IsVisible
 
     legendField := typeof(SemanticTokensHandler).GetField("TokenTypes", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)

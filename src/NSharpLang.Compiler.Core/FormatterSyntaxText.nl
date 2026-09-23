@@ -261,10 +261,6 @@ class FormatterSyntaxText {
             parts.Add("async")
         }
 
-        if HasModifier(bits, 32768) {
-            parts.Add("file")
-        }
-
         // `required` AND `init` COME LAST BECAUSE THAT IS WHERE THEY PARSE. The member scan reads the
         // declaration words first and stops at the first word it does not know; `required`, `init` and
         // `readonly` are then read by the field/property scan behind it. Printing either of these two

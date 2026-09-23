@@ -1,5 +1,5 @@
-name: FileScopedTypes
+name: PackagePrivateTypes
 version: 1.0.0
 targetFramework: net10.0
 outputType: exe
-entry: FileScopedTypes.nl
+entry: PackagePrivateTypes.nl

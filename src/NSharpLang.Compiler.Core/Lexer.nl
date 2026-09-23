@@ -1226,9 +1226,6 @@ class Lexer {
         if value == "lock" {
             return TokenType.Lock
         }
-        if value == "file" {
-            return TokenType.File
-        }
         if value == "params" {
             return TokenType.Params
         }
@@ -1484,9 +1481,6 @@ class Lexer {
         }
         if tokenType == TokenType.Lock {
             return "lock"
-        }
-        if tokenType == TokenType.File {
-            return "file"
         }
         if tokenType == TokenType.Params {
             return "params"

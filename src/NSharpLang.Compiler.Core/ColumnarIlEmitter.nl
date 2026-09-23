@@ -4809,10 +4809,15 @@ sealed class ColumnarIlEmitter {
             un := unions[u]
             exactUnionName := program.ExactUnionTypeName(un)
             unionExactNames[u] = exactUnionName
+            // A UNION'S VISIBILITY IS ITS NAME'S, like every other top-level type: a camelCase union is
+            // not exported from its package and is emitted `NotPublic`. Its CASES stay `NestedPublic`,
+            // because a case is reachable exactly as far as the union that declares it — nesting inside
+            // a non-public type already limits them.
+            unionVisibility := (TypeAttributes)ColumnarStructInput.TopLevelVisibilityFor(un.Name, 0)
             if (un.IsValueStruct) {
                 structTb := module.DefineType(
                     exactUnionName,
-                    TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.SequentialLayout,
+                    unionVisibility | TypeAttributes.Sealed | TypeAttributes.SequentialLayout,
                     typeof(ValueType)
                 )
                 valueStructDefValue := new ColumnarUnionDef(
@@ -4828,7 +4833,7 @@ sealed class ColumnarIlEmitter {
                 continue
             }
 
-            baseTb := module.DefineType(exactUnionName, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract, typeof(object))
+            baseTb := module.DefineType(exactUnionName, unionVisibility | TypeAttributes.Class | TypeAttributes.Abstract, typeof(object))
             if (un.TypeParamNames.Length > 0) {
                 baseTb.DefineGenericParameters(un.TypeParamNames)
             }

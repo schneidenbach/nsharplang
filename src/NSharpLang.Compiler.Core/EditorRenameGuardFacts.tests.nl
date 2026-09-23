@@ -11,7 +11,9 @@ test "the rename guard refuses the language's own words" {
     assert EditorRenameGuardFacts.IsKeyword("assert")
     assert EditorRenameGuardFacts.IsKeyword("explicit")
     assert EditorRenameGuardFacts.IsKeyword("duck")
-    assert EditorRenameGuardFacts.IsKeyword("file")
+    // `file` IS NO LONGER ONE. The file-private type modifier left the language, so `file` is an
+    // ordinary identifier and renaming something to it is legal.
+    assert !EditorRenameGuardFacts.IsKeyword("file")
     // `in` IS one, and was missing from this guard while it was only the `for x in xs` keyword: it is
     // now also the read-only by-reference parameter modifier, and a rename to a reserved word cannot be
     // applied either way.

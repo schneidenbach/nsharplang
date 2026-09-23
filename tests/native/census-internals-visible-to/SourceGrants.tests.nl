@@ -34,11 +34,15 @@ func SourceGrantRoot(tag: string): string {
     return root
 }
 
-// The helper library: one public type with a PascalCase method and a camelCase one, plus a
-// namespace-private free function. The grant is written into `project.yml`, which is the whole
-// point of the fixture.
+// The helper library: one EXPORTED type with a PascalCase method and a camelCase one, one
+// PACKAGE-PRIVATE type beside it, plus an exported and an unexported free function. The grant is
+// written into `project.yml`, which is the whole point of the fixture.
+//
+// `ledgerNote` IS WHAT THE PAIR OF TYPES EXISTS FOR. A camelCase type is emitted CLR `assembly`, so
+// what a grant admits out of an N# library is a TYPE as well as a method — and the `Ledger`/`ledgerNote`
+// pair is how "camelCase is internal" is told apart from "everything is internal".
 func SourceGrantHelperSource(): string {
-    return "namespace Granting\n\nclass Ledger {\n    Seed: int\n\n    constructor(seed: int) {\n        Seed = seed\n    }\n\n    func Exported(): int => Seed * 2\n\n    func unexported(): int => Seed * 3\n}\n\nfunc ExportedFree(value: int): int => value + 1\n\nfunc unexportedFree(value: int): int => value + 2\n"
+    return "namespace Granting\n\nclass Ledger {\n    Seed: int\n\n    constructor(seed: int) {\n        Seed = seed\n    }\n\n    func Exported(): int => Seed * 2\n\n    func unexported(): int => Seed * 3\n}\n\nclass ledgerNote {\n    Text: string\n\n    constructor(text: string) {\n        Text = text\n    }\n\n    func Read(): string => Text\n}\n\nfunc ExportedFree(value: int): int => value + 1\n\nfunc unexportedFree(value: int): int => value + 2\n"
 }
 
 func SourceGrantHelperProject(assemblyName: string, grantedTo: string?): string {
@@ -214,15 +218,24 @@ func SourceGrantInvoke(assembly: Assembly, typeName: string, methodName: string,
 
 // ── what N# emits, and therefore what a grant can expose ──────────────────────────────────────
 
-test "an N# assembly emits only its unexported FUNCTIONS as CLR internal, and its types as public" {
+test "an N# assembly emits everything it did not export as CLR internal — types included" {
     root := SourceGrantRoot("shape")
     helperPath := SourceGrantBuildHelper(root, SourceGrantUniqueName("GrantShape"), "Reader")
     helper := Assembly.LoadFrom(helperPath)
 
     ledger := helper.GetType("Granting.Ledger")
     assert ledger != null
-    assert ledger.IsPublic, "N# emits a type as CLR public; casing decides PACKAGE export, not CLR accessibility"
+    assert ledger.IsPublic, "a PascalCase type is exported from its package, and CLR `public` is how that is said"
     assert ledger.IsVisible
+
+    // THE TWIN, AND THE CLAIM THIS ROW WAS STRENGTHENED TO MAKE. A camelCase type is emitted
+    // `NotPublic`: another assembly cannot name it at all without a friend grant, where before the
+    // casing rule stopped at the compiler and metadata said `public`.
+    note := helper.GetType("Granting.ledgerNote")
+    assert note != null
+    assert note.IsNotPublic, "a camelCase type is NOT exported, and CLR `assembly` is how that is said"
+    assert !note.IsPublic
+    assert !note.IsVisible
 
     exported := ledger.GetMethod("Exported", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
     assert exported != null
@@ -295,6 +308,46 @@ test "a consumer the N# source grant names reaches the unexported member; a stra
     // THE ONLY DIFFERENCE BETWEEN THE TWO ARMS IS `name:`, so the refusal is the rule and not the
     // source: the public member of the same type compiles under either name.
     assert SourceGrantCodes(stranger).IndexOf("ReachPublic", StringComparison.Ordinal) < 0, SourceGrantCodes(stranger)
+}
+
+// A SECOND CONSUMER, reaching the helper's camelCase TYPE rather than its camelCase method. It is a
+// separate source because the two refusals come from different owners: a member's is the accessibility
+// relation, a type's is name RESOLUTION — an unexported type of a reference is not a name a stranger
+// can spell at all.
+func SourceGrantTypeConsumerSource(): string {
+    return "namespace Consuming\n\nimport Granting\n\nfunc ReachHiddenType(): string {\n    note := new ledgerNote(\"kept\")\n    return note.Read()\n}\n"
+}
+
+func SourceGrantCompileTypeConsumer(root: string, helperPath: string, assemblyName: string): IReadOnlyList<CompilerError> {
+    consumerRoot := Path.Combine(root, "type-" + assemblyName)
+    Directory.CreateDirectory(consumerRoot)
+    File.WriteAllText(
+        Path.Combine(consumerRoot, "project.yml"),
+        "name: " + assemblyName + "\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n\ndependencies:\n  - dll: " + helperPath + "\n"
+    )
+    File.WriteAllText(Path.Combine(consumerRoot, "Consumer.nl"), SourceGrantTypeConsumerSource())
+
+    config := ProjectFileParser.Parse(Path.Combine(consumerRoot, "project.yml"))
+    compiler := new MultiFileCompiler(consumerRoot, config)
+    // The output lands BESIDE the helper so the default loader finds the reference by simple name,
+    // which is the same placement `SourceGrantCompileConsumer` uses and the reason the path is a local.
+    outputPath := Path.Combine(Path.GetDirectoryName(helperPath) ?? consumerRoot, assemblyName + ".dll")
+    result := compiler.CompileToIlAssembly(assemblyName, outputPath)
+    return SourceGrantList(result.Errors)
+}
+
+test "a camelCase TYPE of a reference is unreachable to a stranger and reachable to a friend" {
+    // THE CROSS-ASSEMBLY HALF OF THE TYPE RULE. Before a camelCase type was emitted `assembly`, this
+    // stranger COMPILED — into a dll the CLR refuses at load, with no diagnostic, because metadata said
+    // the type was public. The grant is the only thing that separates the two arms.
+    root := SourceGrantRoot("hidden-type")
+    helperPath := SourceGrantBuildHelper(root, SourceGrantUniqueName("GrantHiddenType"), "Reader")
+
+    stranger := SourceGrantCompileTypeConsumer(root, helperPath, "Stranger")
+    assert stranger.Count > 0, "a project the grant does not name must not compile against an unexported TYPE"
+
+    granted := SourceGrantCompileTypeConsumer(root, helperPath, "Reader")
+    assert granted.Count == 0, SourceGrantCodes(granted)
 }
 
 // ── and the CLR agrees, at load ───────────────────────────────────────────────────────────────

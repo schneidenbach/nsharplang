@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 class ColumnarEnumInput {
@@ -349,6 +350,10 @@ class ColumnarStructInput {
     SourceFileId: int
     EnclosingTypeName: string
     NestedVisibilityAttributes: int
+    // THE SAME QUESTION FOR A TOP-LEVEL TYPE. A nested type has answered it by casing since
+    // `NestedVisibilityFor` existed; a top-level one was hard-coded `Public`, which made the casing rule
+    // stop at the namespace boundary for types alone while it held for every member and free function.
+    TopLevelVisibilityAttributes: int
 
     constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null, fieldConstFlags: bool[]? = null, fieldVisibilityFlags: int[]? = null, fieldEventFlags: bool[]? = null, fieldVirtualFlags: bool[]? = null, fieldAbstractFlags: bool[]? = null, fieldOverrideFlags: bool[]? = null, fieldRequiredFlags: bool[]? = null, fieldInitOnlyFlags: bool[]? = null) {
         Name = name
@@ -384,6 +389,7 @@ class ColumnarStructInput {
         SourceFileId = sourceFileId
         EnclosingTypeName = enclosingTypeName ?? ""
         NestedVisibilityAttributes = NestedVisibilityFor(name, visibilityModifierFlags)
+        TopLevelVisibilityAttributes = TopLevelVisibilityFor(name, visibilityModifierFlags)
         FieldPrivateFlags = fieldPrivateFlags ?? new bool[](fieldNames.Length)
         FieldVisibilityFlags = fieldVisibilityFlags ?? new int[](fieldNames.Length)
         FieldThreadStaticFlags = fieldThreadStaticFlags ?? new bool[](fieldNames.Length)
@@ -413,11 +419,54 @@ class ColumnarStructInput {
         return "<StaticInitialize>$"
     }
 
+    // A TOP-LEVEL TYPE'S `TypeAttributes` VISIBILITY WORD: `Public` (1) when the type is exported from
+    // its package, and `NotPublic` (0) — which the CLR reads as assembly-only — when it is not. The
+    // rule is `VisibilityConventions`', so a written `public`/`internal`/`private`/`protected` word wins
+    // and the CASING decides when none was written. This is the Go rule applied to types: a lowercase
+    // identifier is unexported, and a type is an identifier like any other.
+    static func TopLevelVisibilityFor(name: string, flags: int): int {
+        if VisibilityConventions.IsExportedIdentifierWithFlags(DeclaredSimpleName(name), flags) {
+            return 1
+        }
+
+        return 0
+    }
+
+    // THE CASING RULE ASKS ABOUT THE DECLARED NAME, NOT THE EMITTED ONE. A struct input carries its
+    // simple name, but an interface, enum or union input can reach a caller already qualified
+    // (`App.Models.iValidator`) — and the first letter of a NAMESPACE says nothing about whether the
+    // package exported the type. Reading the whole string made every qualified declaration look
+    // exported, which is a silent wrong answer rather than a loud one, so the trim happens here where
+    // every caller gets it. A generic arity suffix is dropped for the same reason: `box`1` is `box`.
+    static func DeclaredSimpleName(name: string): string {
+        if name == null || name.Length == 0 {
+            return ""
+        }
+
+        simple := name
+        lastDot := simple.LastIndexOf('.')
+        if lastDot >= 0 && lastDot + 1 < simple.Length {
+            simple = simple.Substring(lastDot + 1)
+        }
+
+        lastPlus := simple.LastIndexOf('+')
+        if lastPlus >= 0 && lastPlus + 1 < simple.Length {
+            simple = simple.Substring(lastPlus + 1)
+        }
+
+        tick := simple.IndexOf('`')
+        if tick > 0 {
+            simple = simple.Substring(0, tick)
+        }
+
+        return simple
+    }
+
     static func NestedVisibilityFor(name: string, flags: int): int {
         if (flags & 1) != 0 {
             return 2
         }
-        if (flags & 2) != 0 || (flags & 32768) != 0 {
+        if (flags & 2) != 0 {
             return 3
         }
         if (flags & 4) != 0 {

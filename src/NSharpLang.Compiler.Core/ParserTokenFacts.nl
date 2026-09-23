@@ -455,9 +455,6 @@ class ParserTokenFacts {
         if tokenType == TokenType.Async {
             return true
         }
-        if tokenType == TokenType.File {
-            return true
-        }
         return false
     }
 

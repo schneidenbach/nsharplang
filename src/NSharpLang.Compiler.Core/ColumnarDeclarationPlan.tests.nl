@@ -547,13 +547,14 @@ test "the method rows publish every base MethodAttributes word, and a free funct
 
 test "method visibility preserves explicit CLR access and the package casing convention" {
     // Explicit modifiers win casing. Public wins malformed combinations; protected+internal is
-    // the one supported combined accessibility; file is assembly visibility for a member.
+    // the one supported combined accessibility. 32768 was `file` and is now unallocated, so it is no
+    // longer a word at all and the casing decides.
     assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("visible", 1) == 6
     assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 2) == 1
     assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 4) == 3
     assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 8) == 4
     assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 12) == 5
-    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 32768) == 3
+    assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 32768) == 6
     assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 15) == 6
 
     assert ColumnarDeclarationPlanner.MethodVisibilityAttributes("Visible", 0) == 6
@@ -577,7 +578,7 @@ test "method visibility preserves explicit CLR access and the package casing con
     assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 4) == 19
     assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 8) == 19
     assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 12) == 19
-    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 32768) == 19
+    assert ColumnarDeclarationPlanner.FreeFunctionAttributes("Visible", 32768) == 22
     // `public` wins a malformed combination exactly as it does for a type member.
     assert ColumnarDeclarationPlanner.FreeFunctionAttributes("visible", 15) == 22
     assert ColumnarDeclarationPlanner.FreeFunctionAttributes("", 0) == 19

@@ -1123,9 +1123,6 @@ class ColumnarParserRecovery {
         if t == TokenType.Async {
             return System.Convert.ToInt32(Modifiers.Async)
         }
-        if t == TokenType.File {
-            return System.Convert.ToInt32(Modifiers.File)
-        }
         return 0
     }
 

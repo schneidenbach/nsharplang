@@ -1843,7 +1843,7 @@ class AnalyzerTypeDeclarations {
             return 4
         }
 
-        if (modifierBits & Convert.ToInt32(Modifiers.Internal)) != 0 || (modifierBits & Convert.ToInt32(Modifiers.File)) != 0 {
+        if (modifierBits & Convert.ToInt32(Modifiers.Internal)) != 0 {
             return 3
         }
 

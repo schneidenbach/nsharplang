@@ -25,7 +25,18 @@ func shoutTypeRef(t: string): string {
     return t.ToUpperInvariant()
 }
 
-// The TYPE half of the same rule, which already held before the function half did.
+// The EXPORTED twin of the type below, so a metadata claim about one can be read against the other.
+// Without it, "camelCase is emitted assembly" would be a claim about the emitter rather than about the
+// casing.
+class HelperBoxReader {
+    static func Read(box: helperBox): string {
+        return box.Describe()
+    }
+}
+
+// The TYPE half of the same rule, which already held before the function half did — in the LANGUAGE.
+// It reaches CLR metadata as well now: a camelCase top-level type is emitted `NotPublic`, so another
+// assembly cannot name it even by accident.
 class helperBox {
     Value: string
 

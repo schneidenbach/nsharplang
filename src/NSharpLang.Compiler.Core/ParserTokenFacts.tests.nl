@@ -372,8 +372,7 @@ func ParserTokenIsModifierKeywordSet(): TokenType[] {
         TokenType.Sealed,
         TokenType.Readonly,
         TokenType.Partial,
-        TokenType.Async,
-        TokenType.File
+        TokenType.Async
     ]
 }
 
@@ -765,6 +764,7 @@ func ParserTokenNonCodeSet(): TokenType[] {
         TokenType.TripleQuoteStringLiteral,
         TokenType.InterpolatedRawStringLiteral,
         TokenType.Test,
+        TokenType.File,
         TokenType.Colon,
         TokenType.DoubleColon,
         TokenType.Dot,
@@ -816,8 +816,10 @@ test "parser token facts keep the symbolic operators out of the keyword table" {
     }
 }
 
-// THE PARTITION. 85 keywords + 36 symbolic operators + 27 non-code = 148, and every token lands in
-// exactly one bucket. A `TokenType` member added to the enum and forgotten by all three fails here
+// THE PARTITION. 84 keywords + 36 symbolic operators + 28 non-code = 148, and every token lands in
+// exactly one bucket. `file` was a keyword until the file-private type modifier left the language;
+// `TokenType.File` stays in the enum (its ordinal is the columnar pipeline's currency) and is now
+// non-code, the bucket `Test` has always been in. A `TokenType` member added to the enum and forgotten by all three fails here
 // before any consumer notices it going unclassified.
 test "parser token facts partition every token type" {
     all := ParserTokenAllTokenTypes()
@@ -826,7 +828,7 @@ test "parser token facts partition every token type" {
 
     assert all.Length == 148
     assert operators.Length == 36
-    assert nonCode.Length == 27
+    assert nonCode.Length == 28
 
     keywordCount := 0
     index := 0
@@ -852,7 +854,7 @@ test "parser token facts partition every token type" {
         index = index + 1
     }
 
-    assert keywordCount == 85
+    assert keywordCount == 84
 }
 
 // THE CONTAINMENT, WHICH THE OWNER GUARANTEES BY CONSTRUCTION RATHER THAN BY COPYING. `IsOperator`

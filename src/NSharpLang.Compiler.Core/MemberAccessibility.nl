@@ -80,7 +80,7 @@ class MemberAccessibility {
             return Family
         }
 
-        if (modifierFlags & 4) != 0 || (modifierFlags & 32768) != 0 {
+        if (modifierFlags & 4) != 0 {
             return Assembly
         }
 
