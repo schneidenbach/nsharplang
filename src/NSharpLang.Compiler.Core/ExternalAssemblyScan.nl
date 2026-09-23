@@ -845,6 +845,38 @@ class ExternalAssemblyScan {
         }
     }
 
+    // THE "SAME BYTES, KEEP WHAT THE HOST ALREADY HAS" SHORTCUT MAY NOT STAND IN FOR THE COMPILER
+    // ITSELF.
+    //
+    // Two builds of one unchanged source now carry the same module version id -- that is what
+    // `ColumnarDeterministicPeIdentity` is for -- so the seed's `tools/NSharpLang.Compiler.Core.dll`
+    // and the copy on a project's reference path became byte-identical, and the two module-version-id
+    // shortcuts below began answering a project's reference path with the HOST's build of the
+    // compiler. Under MSBuild the host's build is the TASK's, in MSBuild's plugin context, while the
+    // rest of that project's closure lands in the owned context -- which is exactly the split
+    // `TryLoadExactIdentityAssembly` is written about, and the sentence it ends with: the context the
+    // host is NOT allowed to stand in for is the compiler's own. `NSharpLang.TestHost`,
+    // `LanguageServer` and `NSharpLang.Playground` all began declining calls into the compiler they
+    // reference, and only a republished seed could see it.
+    //
+    // The two compiler assemblies are named rather than inferred, deliberately: every OTHER identity
+    // the host carries -- `YamlDotNet`, `Mono.Cecil`, `Microsoft.Build.*` -- is the same FILE the
+    // project resolves, and for those the shortcut is not an optimization but the thing that keeps
+    // one identity from being loaded into two contexts. Only the compiler ships a second, separately
+    // built copy of itself.
+    static func IsCompilerProductAssembly(assembly: Assembly?): bool {
+        if assembly == null {
+            return false
+        }
+
+        try {
+            name := assembly.GetName().Name ?? ""
+            return name == "NSharpLang.Compiler.Core" || name == "Compiler"
+        } catch {
+            return false
+        }
+    }
+
     static func IsReferenceAssemblyPath(path: string): bool {
         if path == null || path.Length == 0 {
             return false
@@ -1234,7 +1266,7 @@ class ExternalAssemblyScan {
             loadedAssemblies := Loaded()
             for loaded in loadedAssemblies {
                 if RuntimeAssemblyHasIdentity(loaded, identity) && RuntimeAssemblyPathMatches(loaded, path) {
-                    if selectedModuleVersionId.Length > 0 && RuntimeAssemblyModuleVersionId(loaded) == selectedModuleVersionId {
+                    if !IsCompilerProductAssembly(selected) && selectedModuleVersionId.Length > 0 && RuntimeAssemblyModuleVersionId(loaded) == selectedModuleVersionId {
                         return selected
                     }
 
@@ -1266,7 +1298,7 @@ class ExternalAssemblyScan {
 
             exactLoaded := TryLoadExactIdentityAssembly(path, identity)
             if exactLoaded != null {
-                if selectedModuleVersionId.Length > 0 && RuntimeAssemblyModuleVersionId(exactLoaded) == selectedModuleVersionId {
+                if !IsCompilerProductAssembly(selected) && selectedModuleVersionId.Length > 0 && RuntimeAssemblyModuleVersionId(exactLoaded) == selectedModuleVersionId {
                     return selected
                 }
 

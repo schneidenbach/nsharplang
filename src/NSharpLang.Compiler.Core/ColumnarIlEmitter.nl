@@ -7421,6 +7421,17 @@ sealed class ColumnarIlEmitter {
             }
             return TryEmitColumnarAssemblyPass(assemblyName, typeName, program, isExecutable, out assembly, assemblyVersion, referenceAssemblyPaths, discovered)
         }
+        // THE LAST TWENTY BYTES, AND THE ONLY ONES THAT WERE NOT ABOUT THE PROGRAM. `ManagedPEBuilder`
+        // is handed no `deterministicIdProvider` above, so `PEBuilder` falls back to the time-based
+        // one and stamps the COFF header with the second the build happened; `PersistedAssemblyBuilder`
+        // stamps the module row with a fresh `Guid`. Two builds of one unchanged source differed in
+        // exactly those twenty bytes, which was enough to make the seed irreproducible and to force
+        // every IL-identity check in the tree to mask the module version id before comparing anything.
+        // Both are derived from the finished image's own content here, the way Roslyn's
+        // `/deterministic` derives them. The image is FINAL at this point: the modified-member-reference
+        // repair's discovery pass re-enters this function and throws its image away, so normalizing
+        // earlier would normalize an image nobody keeps.
+        ColumnarDeterministicPeIdentity.Apply(assembly)
         return true
     }
 
