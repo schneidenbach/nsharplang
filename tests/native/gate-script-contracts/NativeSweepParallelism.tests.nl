@@ -18,7 +18,6 @@ import System.Text.RegularExpressions
 //     one and a diff between two runs is meaningful;
 //   * the per-project JSON validator is the same one that guarded the sequential loop. A parallel
 //     sweep that accepted a weaker envelope would be faster and worthless.
-
 func SweepScript(): string {
     return ReadGateScript("test-all-core.sh")
 }
@@ -68,6 +67,9 @@ test "a native project whose claim is about the machine, or that touches state o
     // `src/*/obj` and `src/*/bin`: run beside the sibling that packs the same two projects, one row
     // of its 28 failed with an MSBuild file lock.
     assert body.Contains("tests/native/sdk-project-reference-boundary)")
+    // Builds one two-project MSBuild tree four times over and judges which emit targets RAN. A
+    // sibling writing the shared `src/*/obj` under it would change that answer.
+    assert body.Contains("tests/native/sdk-reference-incrementality)")
     // Packs the whole checkout, publishes the toolset, builds a Docker image and drives a container
     // under a FIXED name. The packs write the shared `src/*/obj` and `src/*/bin`, and two runs of it
     // would fight over that one name.

@@ -133,12 +133,13 @@ test "the SDK emit task has one N# production owner and its exact MSBuild surfac
 test "all reference mutation and Cecil mechanics stay private to the N# task" {
     owner := EmitTaskOwnerType()
     privateMethods := owner.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
-    expected := new string[](5)
+    expected := new string[](6)
     expected[0] = "AddResolvedDllReferences"
     expected[1] = "IsOwnOutput"
     expected[2] = "SynchronizeReferenceAssembly"
-    expected[3] = "LogCompilerDiagnostics"
-    expected[4] = "LogCompilerDiagnostic"
+    expected[3] = "CopyReferenceAssemblyIfChanged"
+    expected[4] = "LogCompilerDiagnostics"
+    expected[5] = "LogCompilerDiagnostic"
     expectedIndex := 0
     while expectedIndex < expected.Length {
         matches := 0

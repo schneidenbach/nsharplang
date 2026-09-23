@@ -216,6 +216,28 @@ class SdkEmitTaskKernels {
         return string.Equals(existingVersion, ownerVersion, StringComparison.Ordinal)
     }
 
+    // Two reference assemblies are the same reference assembly when their bytes match. There is no
+    // cheaper honest comparison available: the module version id lives in the `#GUID` heap, and
+    // `CopyRefAssembly`'s own reader looks for a `.mvid` PE section that only Roslyn's `/refout`
+    // writes, so a producer that is not Roslyn has to compare the file.
+    static func ReferenceAssembliesAreIdentical(left: byte[], right: byte[]): bool {
+        if left == null || right == null {
+            return false
+        }
+        if left.Length != right.Length {
+            return false
+        }
+
+        index := 0
+        while index < left.Length {
+            if left[index] != right[index] {
+                return false
+            }
+            index = index + 1
+        }
+        return true
+    }
+
     // Once every type reference has moved, the implementation core library is a reference to an
     // assembly the module no longer mentions. It goes.
     static func ShouldRemoveCoreLibraryReference(hasCoreLibraryTypeReference: bool): bool {

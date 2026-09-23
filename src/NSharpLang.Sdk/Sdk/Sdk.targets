@@ -166,10 +166,21 @@
     </ReadLinesFromFile>
     <Delete Files="$(_NSharpEmitStamp)" Condition="Exists('$(_NSharpEmitStamp)') And '@(_NSharpEmitPrevId)' != '$(_NSharpEmitId)'" />
   </Target>
+  <!-- THE UP-TO-DATE CHECK READS THE REFERENCE ASSEMBLIES; THE COMPILER STILL READS THE IMPLEMENTATIONS.
+       `@(ReferencePath)`'s identity for a project reference is that project's `$(TargetPath)`: the
+       implementation in `bin/`, which `CopyFilesToOutputDirectory` rewrites on every emit, so a dependent
+       project was out of date whenever a project it references was BUILT, whatever changed in it.
+       `@(ReferencePathWithRefAssemblies)` substitutes `%(ReferencePath.ReferenceAssembly)` where one exists,
+       and `CopyRefAssembly` leaves that file's timestamp alone when the module version ids match, which they
+       now do for an implementation-only edit. `FindReferenceAssembliesForReferences` is what populates the
+       item, and MSBuild evaluates `Inputs` after `DependsOnTargets` has run.
+       `References=` deliberately stays `@(ReferencePath)`: the columnar back end binds against runtime
+       `Type` objects and the CLR refuses to load an assembly carrying `[ReferenceAssembly]` for execution. -->
   <Target Name="EmitNSharpIlAssembly"
           AfterTargets="CoreCompile"
           BeforeTargets="CopyFilesToOutputDirectory"
-          Inputs="@(NSharpCompile);@(NSharpTestFiles);$(NSharpProjectFile);@(ReferencePath);$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll;$(MSBuildThisFileDirectory)../tools/Compiler.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Core.dll"
+          DependsOnTargets="FindReferenceAssembliesForReferences"
+          Inputs="@(NSharpCompile);@(NSharpTestFiles);$(NSharpProjectFile);@(ReferencePathWithRefAssemblies);$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll;$(MSBuildThisFileDirectory)../tools/Compiler.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Core.dll"
           Outputs="$(_NSharpEmitStamp);@(IntermediateAssembly)"
           Condition="'$(EnableNSharpCompilation)' == 'true' And ('@(NSharpCompile)' != '' Or '@(NSharpTestFiles)' != '')">
     <ItemGroup>

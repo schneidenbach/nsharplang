@@ -583,6 +583,9 @@ else
             # serial slot stays. With it here, nothing left in the parallel group packs an in-repo
             # project even when the shared feed is unavailable.
             tests/native/sdk-project-reference-boundary) return 0 ;;
+            # Builds a two-project MSBuild tree twice over against the same private feed and judges
+            # which emits RAN: a sibling writing `src/*/obj` under it would change that answer.
+            tests/native/sdk-reference-incrementality) return 0 ;;
             tests/native/nuget-resolution-fidelity) return 0 ;;
             tests/native/reference-resolution) return 0 ;;
             tests/native/sdk-emit-path-parity) return 0 ;;
@@ -669,10 +672,11 @@ printf "%s|%s\n" "$native_status" "$(($(date +%s) - native_start))" > "$results_
 
     # ONE PRIVATE SDK FEED FOR THE WHOLE SWEEP, PACKED BEFORE THE FIRST PROJECT RUNS.
     #
-    # `tests/native/sdk-project-reference-boundary`, `tests/native/sdk-pack-symbol-contract` and
-    # `tests/native/sdk-emit-path-parity` each need a private feed holding this tree's
-    # `NSharpLang.Sdk` and `NSharpLang.Runtime`, and each builds one by running `dotnet pack` over
-    # the two in-repo projects. All three read `NSHARP_SDK_PROJECT_REFERENCE_FEED` and
+    # `tests/native/sdk-project-reference-boundary`, `tests/native/sdk-pack-symbol-contract`,
+    # `tests/native/sdk-emit-path-parity` and `tests/native/sdk-reference-incrementality` each need a
+    # private feed holding this tree's `NSharpLang.Sdk` and `NSharpLang.Runtime`, and each builds one
+    # by running `dotnet pack` over the two in-repo projects. All four read
+    # `NSHARP_SDK_PROJECT_REFERENCE_FEED` and
     # `NSHARP_SDK_PROJECT_REFERENCE_VERSION` FIRST, exactly so a runner that already packed one can
     # hand it over - their fixtures say so in as many words.
     #

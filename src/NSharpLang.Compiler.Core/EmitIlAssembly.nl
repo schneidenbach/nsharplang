@@ -232,11 +232,35 @@ class EmitIlAssembly: Microsoft.Build.Utilities.Task {
         if !File.Exists(emittedReferenceAssembly) {
             // Nothing to copy means the compiler declined to write a surface; the implementation is
             // the only honest answer, and it is what this task produced before this change.
-            File.Copy(assemblyPath, referenceAssemblyPath, true)
+            CopyReferenceAssemblyIfChanged(assemblyPath, referenceAssemblyPath)
             return
         }
 
-        File.Copy(emittedReferenceAssembly, referenceAssemblyPath, true)
+        CopyReferenceAssemblyIfChanged(emittedReferenceAssembly, referenceAssemblyPath)
+    }
+
+    // THE COPY IS SKIPPED WHEN THE SURFACE IS THE SAME SURFACE, AND THAT SKIP IS THE WHOLE OF THE
+    // INCREMENTALITY.
+    //
+    // `Sdk.targets` feeds the emit target's up-to-date check `@(ReferencePathWithRefAssemblies)`,
+    // which for a project reference is that project's `obj/…/ref/<Asm>.dll`. MSBuild compares
+    // TIMESTAMPS, so that file must not be rewritten when nothing about the surface changed.
+    // `CopyFilesToOutputDirectory` gets it there by running Roslyn's `CopyRefAssembly` from
+    // `refint/` — and that task is not the guard it looks like: its `MvidReader` reads the module
+    // version id out of a dedicated `.mvid` PE SECTION that only Roslyn's `/refout` emits, so for
+    // any other producer it logs "Could not extract the MVID" and copies unconditionally. What it
+    // does do is `File.Copy`, which preserves the source's last-write time. So leaving `refint`
+    // alone leaves `ref` alone, and the dependent stays up to date.
+    private func CopyReferenceAssemblyIfChanged(sourcePath: string, destinationPath: string) {
+        if File.Exists(destinationPath) {
+            existing := File.ReadAllBytes(destinationPath)
+            candidate := File.ReadAllBytes(sourcePath)
+            if SdkEmitTaskKernels.ReferenceAssembliesAreIdentical(existing, candidate) {
+                return
+            }
+        }
+
+        File.Copy(sourcePath, destinationPath, true)
     }
 
     private func LogCompilerDiagnostics(errors: IEnumerable<CompilerError>) {
