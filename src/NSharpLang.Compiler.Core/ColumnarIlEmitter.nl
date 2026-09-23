@@ -24,6 +24,11 @@ type ColumnarTypeParameterDictionary = Dictionary<string, Type>
 /// production columnar backend; unsupported shapes return false (a precise decline — never a silent fallback).
 /// </summary>
 sealed class ColumnarIlEmitter {
+
+    // THE EMIT SESSION'S AMBIENT ENVIRONMENT. Everything below that is not about THIS body is read
+    // from here, and a sub-emitter for a lambda, a local function or an iterator is handed a
+    // derivation of it instead of fourteen re-threaded arguments. See `ColumnarEmitContext`.
+    private readonly _context: ColumnarEmitContext
     private _nodes: ColumnarNodeTable
     private _source: string
     private readonly _paramOrdinals: Dictionary<string, int>
@@ -515,7 +520,7 @@ sealed class ColumnarIlEmitter {
     // generated assignments are `Field = parameter`; when the field and parameter share a name, the left side
     // must bind to the field even though ordinary explicit-constructor assignments keep parameter shadowing.
 
-    private constructor(nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>, unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, programHolder: ColumnarFreeFunctionHolderSlot? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, siblingReturnLabeledCanonicals: IReadOnlyDictionary<string, string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>? = null, typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>? = null, typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null, genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger? = null) {
+    private constructor(context: ColumnarEmitContext, nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, typeParameters: IReadOnlyDictionary<string, Type>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null, genericLocalFuncs: Dictionary<string, ColumnarSiblingMethodDefinition>? = null) {
         // CLR object storage starts zeroed before instance field initializers run. Spell the non-nullable
         // fields explicitly so N# constructor validation sees the same initial state on every path.
         _protectedDone = new Label()
@@ -570,7 +575,7 @@ sealed class ColumnarIlEmitter {
         _paramOrdinals = paramOrdinals
         _paramTypes = paramTypes
         _returnType = returnType
-        _siblingReturnLabeledCanonicals = siblingReturnLabeledCanonicals
+        _siblingReturnLabeledCanonicals = context.SiblingReturnLabeledCanonicals
         if (paramLabeledTypes != null) {
             for columnarKeyValuePair0 in paramLabeledTypes {
                 tupleParamName := columnarKeyValuePair0.Key
@@ -583,25 +588,30 @@ sealed class ColumnarIlEmitter {
             }
         }
         _il = il
-        _modifiedMemberReferences = modifiedMemberReferences ?? new ColumnarModifiedMemberReferenceLedger()
-        _siblings = siblings
-        _genericInterfaceConstraints = genericInterfaceConstraints ?? s_noGenericInterfaceConstraints
-        _enumRegistry = enumRegistry
-        _structRegistry = structRegistry
-        _unionRegistry = unionRegistry
-        _typeResolutionEnums = typeResolutionEnums
+        _modifiedMemberReferences = context.ModifiedMemberReferences ?? new ColumnarModifiedMemberReferenceLedger()
+        _siblings = context.Siblings
+        _genericInterfaceConstraints = context.GenericInterfaceConstraints ?? s_noGenericInterfaceConstraints
+        // THE DEFAULTS THIS BODY RESOLVED ARE WHAT A SUB-EMITTER INHERITS. Both fields below fall back
+        // to a shared value when the context carries none, and every construction site used to hand
+        // the RESOLVED field down rather than the original null — so the derived context carries the
+        // resolved one too, and a lambda body still shares its parent's repair ledger.
+        _context = context.WithModifiedMemberReferences(_modifiedMemberReferences).WithGenericInterfaceConstraints(_genericInterfaceConstraints)
+        _enumRegistry = context.Enums
+        _structRegistry = context.Structs
+        _unionRegistry = context.Unions
+        _typeResolutionEnums = context.TypeResolutionEnums
         if _typeResolutionEnums == null {
-            throw new ArgumentNullException(nameof(typeResolutionEnums))
+            throw new ArgumentNullException(nameof(context))
         }
-        _typeResolutionStructs = typeResolutionStructs
+        _typeResolutionStructs = context.TypeResolutionStructs
         if _typeResolutionStructs == null {
-            throw new ArgumentNullException(nameof(typeResolutionStructs))
+            throw new ArgumentNullException(nameof(context))
         }
-        _typeResolutionUnions = typeResolutionUnions
+        _typeResolutionUnions = context.TypeResolutionUnions
         if _typeResolutionUnions == null {
-            throw new ArgumentNullException(nameof(typeResolutionUnions))
+            throw new ArgumentNullException(nameof(context))
         }
-        _unionCaseRegistry = unionCaseRegistry
+        _unionCaseRegistry = context.UnionCases
         let selectedTypeParameters: Dictionary<string, Type>? = typeParameters as ColumnarTypeParameterDictionary
         if (selectedTypeParameters == null) {
             if (typeParameters == null) {
@@ -611,12 +621,12 @@ sealed class ColumnarIlEmitter {
             }
         }
         _typeParameters = selectedTypeParameters
-        _referenceAssemblyPaths = referenceAssemblyPaths
+        _referenceAssemblyPaths = context.ReferenceAssemblyPaths
         _currentStruct = currentStruct
         _enclosingType = enclosingType ?? currentStruct
-        _programHolder = programHolder
-        _lambdaCounter = lambdaCounter
-        _displayClasses = displayClasses
+        _programHolder = context.ProgramHolder
+        _lambdaCounter = context.LambdaCounter
+        _displayClasses = context.DisplayClasses
         _boxedCaptures = boxedCaptures
         _localFuncs = localFuncs
         _genericLocalFuncs = genericLocalFuncs
@@ -1564,25 +1574,17 @@ sealed class ColumnarIlEmitter {
                 }
             }
             subEmitter := new ColumnarIlEmitter(
+                _context.ForLambdaBody(placement.OwnerTypeForBody),
                 _nodes,
                 _source,
                 bodyOrdinals,
                 paramTypeMap,
                 bodyReturnType,
                 bodyIl,
-                _siblings,
-                _enumRegistry,
-                _structRegistry,
-                _unionRegistry,
-                _unionCaseRegistry,
                 placement.CurrentStructForBody,
                 _enclosingType,
                 false,
                 false,
-                _programHolder,
-                _lambdaCounter,
-                _displayClasses,
-                null,
                 null,
                 null,
                 null,
@@ -1591,15 +1593,9 @@ sealed class ColumnarIlEmitter {
                 ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
                 asyncReturnType,
                 false,
-                _referenceAssemblyPaths,
-                _genericInterfaceConstraints,
                 placement.TypeParametersForBody,
-                _typeResolutionEnums.ForSynthesizedMethod(placement.OwnerTypeForBody),
-                _typeResolutionStructs.ForSynthesizedMethod(placement.OwnerTypeForBody),
-                _typeResolutionUnions.ForSynthesizedMethod(placement.OwnerTypeForBody),
                 null,
-                null,
-                _modifiedMemberReferences
+                null
             )
             if (!subEmitter.EmitLambdaBody(bodyIl, bodyNode, bodyReturnType)) {
                 return DeclineMember("emit.body", "lambda body emission declined", bodyNode, "lambda")
@@ -1665,26 +1661,18 @@ sealed class ColumnarIlEmitter {
         closureBoxedCaptures := displayBuild.BoxedCapturesOrNull()
         closureEnclosingType := LambdaBodyEnclosingType(displayBuild.CapturesEnclosingThis)
         closureEmitter := new ColumnarIlEmitter(
+            _context.ForLambdaBody(display),
             _nodes,
             _source,
             shiftedOrdinals,
             paramTypeMap,
             bodyReturnType,
             closureIl,
-            _siblings,
-            _enumRegistry,
-            _structRegistry,
-            _unionRegistry,
-            _unionCaseRegistry,
             displayBuild.DisplayDef,
             closureEnclosingType,
             false,
             false,
-            _programHolder,
-            _lambdaCounter,
-            _displayClasses,
             closureBoxedCaptures,
-            null,
             null,
             null,
             null,
@@ -1692,15 +1680,9 @@ sealed class ColumnarIlEmitter {
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             asyncReturnType,
             false,
-            _referenceAssemblyPaths,
-            _genericInterfaceConstraints,
-            null,
-            _typeResolutionEnums.ForSynthesizedMethod(display),
-            _typeResolutionStructs.ForSynthesizedMethod(display),
-            _typeResolutionUnions.ForSynthesizedMethod(display),
             null,
             null,
-            _modifiedMemberReferences
+            null
         )
         if (!closureEmitter.EmitLambdaBody(closureIl, bodyNode, bodyReturnType)) {
             return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda")
@@ -1763,26 +1745,18 @@ sealed class ColumnarIlEmitter {
         closureIl := closureMethod.GetILGenerator()
         closureEnclosingType := LambdaBodyEnclosingType(displayBuild.CapturesEnclosingThis)
         closureEmitter := new ColumnarIlEmitter(
+            _context.ForLambdaBody(display),
             _nodes,
             _source,
             new Dictionary<string, int>(StringComparer.Ordinal),
             new Dictionary<string, Type>(StringComparer.Ordinal),
             ColumnarTypeOfPlanner.RequiredVoidType(),
             closureIl,
-            _siblings,
-            _enumRegistry,
-            _structRegistry,
-            _unionRegistry,
-            _unionCaseRegistry,
             displayBuild.DisplayDef,
             closureEnclosingType,
             false,
             false,
-            _programHolder,
-            _lambdaCounter,
-            _displayClasses,
             displayBuild.BoxedCapturesOrNull(),
-            null,
             null,
             null,
             null,
@@ -1790,15 +1764,9 @@ sealed class ColumnarIlEmitter {
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,
             false,
-            _referenceAssemblyPaths,
-            _genericInterfaceConstraints,
-            null,
-            _typeResolutionEnums.ForSynthesizedMethod(display),
-            _typeResolutionStructs.ForSynthesizedMethod(display),
-            _typeResolutionUnions.ForSynthesizedMethod(display),
             null,
             null,
-            _modifiedMemberReferences
+            null
         )
         let bodyType: System.Type? = null
         if (!closureEmitter.EmitExpression(bodyNode, out bodyType)) {
@@ -2391,25 +2359,17 @@ sealed class ColumnarIlEmitter {
             }
         }
         subEmitter := new ColumnarIlEmitter(
+            _context.ForLambdaBody(placement.OwnerTypeForBody),
             _nodes,
             _source,
             bodyOrdinals,
             lambdaSignature.ParameterTypesByName,
             ColumnarTypeOfPlanner.RequiredVoidType(),
             lambdaIl,
-            _siblings,
-            _enumRegistry,
-            _structRegistry,
-            _unionRegistry,
-            _unionCaseRegistry,
             placement.CurrentStructForBody,
             _enclosingType,
             false,
             false,
-            _programHolder,
-            _lambdaCounter,
-            _displayClasses,
-            null,
             null,
             null,
             null,
@@ -2418,15 +2378,9 @@ sealed class ColumnarIlEmitter {
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,
             false,
-            _referenceAssemblyPaths,
-            _genericInterfaceConstraints,
             placement.TypeParametersForBody,
-            _typeResolutionEnums.ForSynthesizedMethod(placement.OwnerTypeForBody),
-            _typeResolutionStructs.ForSynthesizedMethod(placement.OwnerTypeForBody),
-            _typeResolutionUnions.ForSynthesizedMethod(placement.OwnerTypeForBody),
             null,
-            null,
-            _modifiedMemberReferences
+            null
         )
         let bodyType: System.Type? = null
         if (!subEmitter.EmitExpression(inferredBodyNode, out bodyType)) {
@@ -4453,7 +4407,7 @@ sealed class ColumnarIlEmitter {
         return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember, -1, 0)
     }
 
-    private static func EmitInlineInstanceInitializers(constructorIl: ILGenerator, def: ColumnarStructDef, program: ColumnarProgramInput, typeResolutionCatalog: ColumnarSemanticTypeResolutionCatalog, freeFunctionScope: ColumnarFreeFunctionScope, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: Dictionary<string, ColumnarStructDef>, unionRegistry: Dictionary<string, ColumnarUnionDef>, unionCaseRegistry: Dictionary<string, ColumnarUnionCaseDef>, holders: ColumnarFreeFunctionHolders, lambdaCounter: int[], displayClasses: List<TypeBuilder>, referenceAssemblyPaths: IReadOnlyList<string>?, modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger): bool {
+    private static func EmitInlineInstanceInitializers(context: ColumnarEmitContext, constructorIl: ILGenerator, def: ColumnarStructDef, program: ColumnarProgramInput, typeResolutionCatalog: ColumnarSemanticTypeResolutionCatalog): bool {
         inlinePlan := def.InstanceInitializerPlan
         if (inlinePlan == null || inlinePlan.InlineOrdinals.Length == 0) {
             return true
@@ -4466,25 +4420,17 @@ sealed class ColumnarIlEmitter {
             def.DeclaredTypeName
         )
         inlineEmitter := new ColumnarIlEmitter(
+            context.ForSourceFile(initCtor.Body.SourceFileId).WithTypeResolution(initTypeResolution),
             initCtor.Body.BodyNodes,
             initSource,
             new Dictionary<string, int>(StringComparer.Ordinal),
             new Dictionary<string, Type>(StringComparer.Ordinal),
             ColumnarTypeOfPlanner.RequiredVoidType(),
             constructorIl,
-            freeFunctionScope.ViewFor(initCtor.Body.SourceFileId),
-            enumRegistry,
-            structRegistry,
-            unionRegistry,
-            unionCaseRegistry,
             def,
             null,
             false,
             true,
-            new ColumnarFreeFunctionHolderSlot(holders, initCtor.Body.SourceFileId),
-            lambdaCounter,
-            displayClasses,
-            null,
             null,
             null,
             null,
@@ -4493,15 +4439,9 @@ sealed class ColumnarIlEmitter {
             null,
             null,
             false,
-            referenceAssemblyPaths,
-            null,
             def.GenericParameters,
-            initTypeResolution.Enums,
-            initTypeResolution.Structs,
-            initTypeResolution.Unions,
             null,
-            null,
-            modifiedMemberReferences
+            null
         )
         ColumnarDeclineTrace.SetSourceFileId(initCtor.Body.SourceFileId, def.DeclaredTypeName)
         inlineResult := false
@@ -6597,6 +6537,9 @@ sealed class ColumnarIlEmitter {
         // DefineMethod and forward ldftn both bake at Save, spike-proven).
         lambdaCounter := new int[1]
         displayClasses := new List<TypeBuilder>()
+        // THE EMIT SESSION'S ENVIRONMENT, BUILT ONCE. Every body emitter below is handed a derivation
+        // of this instead of the fourteen arguments each construction site used to spell by hand.
+        emitContext := new ColumnarEmitContext(enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, freeFunctionScope, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, null, modifiedMemberReferences)
         for f := 0; f < funcs.Count; f++ {
             fn := funcs[f]
             typeResolution := typeResolutionsByFunc[f]
@@ -6698,29 +6641,21 @@ sealed class ColumnarIlEmitter {
                 }
             }
             emitter := new ColumnarIlEmitter(
+                emitContext.ForSourceFileBody(fn.SourceFileId).WithTypeResolution(typeResolution).WithGenericInterfaceConstraints(genericInterfaceConstraintMap),
                 fn.BodyNodes,
                 functionSource,
                 ordinalsByFunc[f],
                 paramTypesByFunc[f],
                 bodyReturnType,
                 il,
-                freeFunctionScope.ViewFor(fn.SourceFileId),
-                enumRegistry,
-                structRegistry,
-                unionRegistry,
-                unionCaseRegistry,
                 null,
                 null,
                 false,
                 false,
-                new ColumnarFreeFunctionHolderSlot(holders, fn.SourceFileId),
-                lambdaCounter,
-                displayClasses,
                 null,
                 localFuncs,
                 declaredLocalFuncNodes,
                 visibleLocalFuncNames,
-                freeFunctionScope.ReturnLabeledCanonicalsFor(fn.SourceFileId),
                 fnParamTupleNames,
                 null,
                 asyncWrappedByFunc[f],
@@ -6729,15 +6664,9 @@ sealed class ColumnarIlEmitter {
                     "ValueTask" => true,
                     _ => false
                 },
-                referenceAssemblyPaths,
-                genericInterfaceConstraintMap,
                 bodyTypeParamMap,
-                typeResolution.Enums,
-                typeResolution.Structs,
-                typeResolution.Unions,
                 localFunctionDisplay,
-                genericLocalFuncs,
-                modifiedMemberReferences
+                genericLocalFuncs
             )
             ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId, fn.Name)
             try {
@@ -6750,22 +6679,13 @@ sealed class ColumnarIlEmitter {
             if (localFunctionLowering != null) {
                 freeFunctionBodyEnclosingDefinition: ColumnarStructDef? = null
                 if (!TryEmitLocalFunctionBodies(
+                    emitContext.ForSourceFile(fn.SourceFileId).WithTypeResolution(typeResolution),
                     localFunctionLowering,
                     fn,
                     program,
-                    freeFunctionScope.ViewFor(fn.SourceFileId),
-                    enumRegistry,
-                    structRegistry,
-                    unionRegistry,
-                    unionCaseRegistry,
                     freeFunctionBodyEnclosingDefinition,
-                    new ColumnarFreeFunctionHolderSlot(holders, fn.SourceFileId),
-                    lambdaCounter,
-                    displayClasses,
-                    referenceAssemblyPaths,
                     typeResolution,
-                    holders.ForFile(fn.SourceFileId),
-                    modifiedMemberReferences
+                    holders.ForFile(fn.SourceFileId)
                 )) {
                     return false
                 }
@@ -6784,25 +6704,17 @@ sealed class ColumnarIlEmitter {
                 job.Item1.DeclaredTypeName
             )
             emitter := new ColumnarIlEmitter(
+                emitContext.ForSourceFile(job.Item2.SourceFileId).WithTypeResolution(bodyTypeResolution),
                 job.Item2.BodyNodes,
                 methodSource,
                 job.Item5,
                 job.Item6,
                 job.Item4,
                 mil,
-                freeFunctionScope.ViewFor(job.Item2.SourceFileId),
-                enumRegistry,
-                structRegistry,
-                unionRegistry,
-                unionCaseRegistry,
                 job.Item1,
                 job.Item1,
                 false,
                 false,
-                new ColumnarFreeFunctionHolderSlot(holders, job.Item2.SourceFileId),
-                lambdaCounter,
-                displayClasses,
-                null,
                 null,
                 null,
                 null,
@@ -6811,15 +6723,9 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 false,
-                referenceAssemblyPaths,
-                null,
                 job.Item1.GenericParameters,
-                bodyTypeResolution.Enums,
-                bodyTypeResolution.Structs,
-                bodyTypeResolution.Unions,
                 null,
-                null,
-                modifiedMemberReferences
+                null
             )
             ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId, job.Item2.Name)
             try {
@@ -6969,30 +6875,23 @@ sealed class ColumnarIlEmitter {
                 memberVisibleLocalFuncNames = memberLocalFunctionLowering.VisibleNames
                 memberLocalFunctionClosure = memberLocalFunctionLowering.Closure
             }
+            memberBodyContext := emitContext.WithRegistries(methodJobEnumRegistry, methodJobStructRegistry, methodJobUnionRegistry, methodJobUnionCaseRegistry).WithSiblings(methodJobSiblings, freeFunctionScope.ReturnLabeledCanonicalsFor(job.Item2.SourceFileId)).WithProgramHolder(new ColumnarFreeFunctionHolderSlot(holders, job.Item2.SourceFileId)).WithTypeResolution(bodyTypeResolution).WithGenericInterfaceConstraints(memberGenericInterfaceConstraints)
             emitter := new ColumnarIlEmitter(
+                memberBodyContext,
                 methodJobNodes,
                 methodJobSource,
                 methodJobOrdinals,
                 methodJobParamTypes,
                 methodJobBodyReturnType,
                 methodJobIl,
-                methodJobSiblings,
-                methodJobEnumRegistry,
-                methodJobStructRegistry,
-                methodJobUnionRegistry,
-                methodJobUnionCaseRegistry,
                 methodJobCurrentStruct,
                 job.Item1,
                 false,
                 false,
-                new ColumnarFreeFunctionHolderSlot(holders, job.Item2.SourceFileId),
-                lambdaCounter,
-                displayClasses,
                 null,
                 memberLocalFuncs,
                 memberDeclaredLocalFuncNodes,
                 memberVisibleLocalFuncNames,
-                freeFunctionScope.ReturnLabeledCanonicalsFor(job.Item2.SourceFileId),
                 methodJobParamTupleNames,
                 null,
                 job.Item6,
@@ -7001,15 +6900,9 @@ sealed class ColumnarIlEmitter {
                     "ValueTask" => true,
                     _ => false
                 },
-                referenceAssemblyPaths,
-                memberGenericInterfaceConstraints,
                 memberBodyTypeParameters,
-                bodyTypeResolution.Enums,
-                bodyTypeResolution.Structs,
-                bodyTypeResolution.Unions,
                 memberLocalFunctionClosure,
-                memberGenericLocalFuncs,
-                modifiedMemberReferences
+                memberGenericLocalFuncs
             )
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
             // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
@@ -7030,22 +6923,13 @@ sealed class ColumnarIlEmitter {
             }
             if (memberLocalFunctionLowering != null) {
                 if (!TryEmitLocalFunctionBodies(
+                    emitContext.ForSourceFile(job.Item2.SourceFileId).WithTypeResolution(bodyTypeResolution),
                     memberLocalFunctionLowering,
                     job.Item2,
                     program,
-                    freeFunctionScope.ViewFor(job.Item2.SourceFileId),
-                    enumRegistry,
-                    structRegistry,
-                    unionRegistry,
-                    unionCaseRegistry,
                     methodJobCurrentStruct,
-                    new ColumnarFreeFunctionHolderSlot(holders, job.Item2.SourceFileId),
-                    lambdaCounter,
-                    displayClasses,
-                    referenceAssemblyPaths,
                     bodyTypeResolution,
-                    job.Item1.Builder,
-                    modifiedMemberReferences
+                    job.Item1.Builder
                 )) {
                     return false
                 }
@@ -7072,42 +6956,28 @@ sealed class ColumnarIlEmitter {
                 staticInitializerDef.DeclaredTypeName
             )
             staticInitializerEmitter := new ColumnarIlEmitter(
+                emitContext.ForSourceFileBody(staticInitializer.SourceFileId).WithTypeResolution(staticInitializerTypeResolution),
                 staticInitializer.BodyNodes,
                 staticInitializerSource,
                 new Dictionary<string, int>(StringComparer.Ordinal),
                 new Dictionary<string, Type>(StringComparer.Ordinal),
                 ColumnarTypeOfPlanner.RequiredVoidType(),
                 staticInitializerIl,
-                freeFunctionScope.ViewFor(staticInitializer.SourceFileId),
-                enumRegistry,
-                structRegistry,
-                unionRegistry,
-                unionCaseRegistry,
                 null,
                 staticInitializerDef,
                 false,
                 false,
-                new ColumnarFreeFunctionHolderSlot(holders, staticInitializer.SourceFileId),
-                lambdaCounter,
-                displayClasses,
                 null,
                 null,
                 null,
                 null,
-                freeFunctionScope.ReturnLabeledCanonicalsFor(staticInitializer.SourceFileId),
                 null,
                 null,
                 null,
                 false,
-                referenceAssemblyPaths,
-                null,
                 staticInitializerDef.GenericParameters,
-                staticInitializerTypeResolution.Enums,
-                staticInitializerTypeResolution.Structs,
-                staticInitializerTypeResolution.Unions,
                 null,
-                null,
-                modifiedMemberReferences
+                null
             )
             ColumnarDeclineTrace.SetSourceFileId(staticInitializer.SourceFileId, staticInitializer.Name)
             try {
@@ -7129,7 +6999,7 @@ sealed class ColumnarIlEmitter {
         // runs inline readonly initializers, then calls the mutable-field helper when one exists.
         for job in structDefaultCtorJobs {
             dcil := job.Builder.GetILGenerator()
-            if (!EmitInlineInstanceInitializers(dcil, job.Struct, program, typeResolutionCatalog, freeFunctionScope, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, modifiedMemberReferences)) {
+            if (!EmitInlineInstanceInitializers(emitContext, dcil, job.Struct, program, typeResolutionCatalog)) {
                 defaultCtorDeclineStruct := job.Struct
                 defaultCtorDeclineBuilder := defaultCtorDeclineStruct.Builder
                 defaultCtorDeclineBuilderName := defaultCtorDeclineBuilder.get_Name()
@@ -7156,42 +7026,28 @@ sealed class ColumnarIlEmitter {
             // visible from a constructor body exactly as they are from any other body.
             ctorJobParamTupleNames := ColumnarTupleElementNames.ParameterLabeledMap(job.Ctor.Body.ParamNames, job.Ctor.Body.ParamLabeledCanonicals)
             emitter := new ColumnarIlEmitter(
+                emitContext.ForSourceFileBody(job.Ctor.Body.SourceFileId).WithTypeResolution(bodyTypeResolution),
                 job.Ctor.Body.BodyNodes,
                 ctorSource,
                 job.Ordinals,
                 job.ParamTypes,
                 ColumnarTypeOfPlanner.RequiredVoidType(),
                 cil,
-                freeFunctionScope.ViewFor(job.Ctor.Body.SourceFileId),
-                enumRegistry,
-                structRegistry,
-                unionRegistry,
-                unionCaseRegistry,
                 job.Struct,
                 null,
                 true,
                 job.Ctor.IsSynthesizedInitializer,
-                new ColumnarFreeFunctionHolderSlot(holders, job.Ctor.Body.SourceFileId),
-                lambdaCounter,
-                displayClasses,
                 null,
                 null,
                 null,
                 null,
-                freeFunctionScope.ReturnLabeledCanonicalsFor(job.Ctor.Body.SourceFileId),
                 ctorJobParamTupleNames,
                 null,
                 null,
                 false,
-                referenceAssemblyPaths,
-                null,
                 job.Struct.GenericParameters,
-                bodyTypeResolution.Enums,
-                bodyTypeResolution.Structs,
-                bodyTypeResolution.Unions,
                 null,
-                null,
-                modifiedMemberReferences
+                null
             )
             ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId, job.Struct.DeclaredTypeName)
             try {
@@ -7208,7 +7064,7 @@ sealed class ColumnarIlEmitter {
                     // base constructor that reaches a derived override sees the initialized values — the C#
                     // order. A `: this(...)` ctor runs none: the delegated-to ctor already ran them.
                     if (job.Ctor.ChainInitKind == 2) {
-                        if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, freeFunctionScope, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, modifiedMemberReferences)) {
+                        if (!EmitInlineInstanceInitializers(emitContext, cil, job.Struct, program, typeResolutionCatalog)) {
                             chainedCtorDeclineStruct := job.Struct
                             chainedCtorDeclineBuilder := chainedCtorDeclineStruct.Builder
                             chainedCtorDeclineBuilderName := chainedCtorDeclineBuilder.get_Name()
@@ -7243,7 +7099,7 @@ sealed class ColumnarIlEmitter {
                         }
                         // base has only parameterized ctors — `: base(...)` is required.
                         // Field initializers run inline, ahead of the implicit base call, in C# order.
-                        if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, freeFunctionScope, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, modifiedMemberReferences)) {
+                        if (!EmitInlineInstanceInitializers(emitContext, cil, job.Struct, program, typeResolutionCatalog)) {
                             implicitCtorDeclineStruct := job.Struct
                             implicitCtorDeclineBuilder := implicitCtorDeclineStruct.Builder
                             implicitCtorDeclineBuilderName := implicitCtorDeclineBuilder.get_Name()
@@ -7260,7 +7116,7 @@ sealed class ColumnarIlEmitter {
                         }
                         // A struct's field initializers run at the start of each declared constructor,
                         // the same placement a class's take — there is simply no base call to precede.
-                        if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, freeFunctionScope, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, holders, lambdaCounter, displayClasses, referenceAssemblyPaths, modifiedMemberReferences)) {
+                        if (!EmitInlineInstanceInitializers(emitContext, cil, job.Struct, program, typeResolutionCatalog)) {
                             valueCtorDeclineStruct := job.Struct
                             valueCtorDeclineBuilder := valueCtorDeclineStruct.Builder
                             valueCtorDeclineBuilderName := valueCtorDeclineBuilder.get_Name()
@@ -7439,42 +7295,28 @@ sealed class ColumnarIlEmitter {
                 ColumnarAttributeBlobs.ApplyToTestMethod(testMethod, traitCtor, factCtor, declarationPlan.CustomAttributes.TestConstructorSlots, declarationPlan.CustomAttributes.TestBlobs[testIndex], !writesOwnFact)
                 sourceAttributeQueue.QueueMethod(testMethod, testInput.SourceAttributes, testTypeResolution)
                 testEmitter := new ColumnarIlEmitter(
+                    emitContext.ForSourceFileBody(testBody.SourceFileId).WithTypeResolution(testTypeResolution),
                     testBody.BodyNodes,
                     testSource,
                     new Dictionary<string, int>(StringComparer.Ordinal),
                     new Dictionary<string, Type>(StringComparer.Ordinal),
                     ColumnarTypeOfPlanner.RequiredVoidType(),
                     testIl,
-                    freeFunctionScope.ViewFor(testBody.SourceFileId),
-                    enumRegistry,
-                    structRegistry,
-                    unionRegistry,
-                    unionCaseRegistry,
                     null,
                     null,
                     false,
                     false,
-                    new ColumnarFreeFunctionHolderSlot(holders, testBody.SourceFileId),
-                    lambdaCounter,
-                    displayClasses,
                     null,
                     null,
                     null,
                     null,
-                    freeFunctionScope.ReturnLabeledCanonicalsFor(testBody.SourceFileId),
                     null,
                     null,
                     null,
                     false,
-                    referenceAssemblyPaths,
                     null,
                     null,
-                    testTypeResolution.Enums,
-                    testTypeResolution.Structs,
-                    testTypeResolution.Unions,
-                    null,
-                    null,
-                    modifiedMemberReferences
+                    null
                 )
                 ColumnarDeclineTrace.SetSourceFileId(testBody.SourceFileId, "test " + testInput.Description)
                 try {
@@ -7968,22 +7810,13 @@ sealed class ColumnarIlEmitter {
     // reads its captures through the display's box fields; one placed on the enclosing type runs with
     // that type as its own `this`, so bare member access inside it needs no indirection at all.
     private static func TryEmitLocalFunctionBodies(
+        context: ColumnarEmitContext,
         lowering: ColumnarLocalFunctionLowering,
         fn: ColumnarFunctionInput,
         program: ColumnarProgramInput,
-        siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>,
-        enumRegistry: Dictionary<string, ColumnarEnumDef>,
-        structRegistry: Dictionary<string, ColumnarStructDef>,
-        unionRegistry: Dictionary<string, ColumnarUnionDef>,
-        unionCaseRegistry: Dictionary<string, ColumnarUnionCaseDef>,
         enclosingDefinition: ColumnarStructDef?,
-        programHolder: ColumnarFreeFunctionHolderSlot,
-        lambdaCounter: int[],
-        displayClasses: List<TypeBuilder>,
-        referenceAssemblyPaths: IReadOnlyList<string>?,
         typeResolution: ColumnarSemanticTypeResolution,
-        synthesizedMethodOwner: TypeBuilder,
-        modifiedMemberReferences: ColumnarModifiedMemberReferenceLedger
+        synthesizedMethodOwner: TypeBuilder
     ): bool {
         closure := lowering.Closure
         if (closure != null) {
@@ -8081,29 +7914,21 @@ sealed class ColumnarIlEmitter {
                 localAsyncReturn = localAsyncWrapped
             }
             localEmitter := new ColumnarIlEmitter(
+                context.ForSynthesizedMethod(localSynthesizedMethodOwner),
                 localFn.BodyNodes,
                 localFunctionSource,
                 localOrdinals,
                 localParamTypes,
                 localBodyReturn,
                 localIl,
-                siblings,
-                enumRegistry,
-                structRegistry,
-                unionRegistry,
-                unionCaseRegistry,
                 localCurrentStruct,
                 enclosingDefinition,
                 false,
                 false,
-                programHolder,
-                lambdaCounter,
-                displayClasses,
                 localBoxedCaptures,
                 lowering.LocalFuncs,
                 null,
                 lowering.VisibleNames,
-                null,
                 null,
                 declaringScopeBindings,
                 localAsyncReturn,
@@ -8112,15 +7937,9 @@ sealed class ColumnarIlEmitter {
                     "ValueTask" => true,
                     _ => false
                 },
-                referenceAssemblyPaths,
-                null,
                 localTypeParamMap,
-                typeResolution.Enums.ForSynthesizedMethod(localSynthesizedMethodOwner),
-                typeResolution.Structs.ForSynthesizedMethod(localSynthesizedMethodOwner),
-                typeResolution.Unions.ForSynthesizedMethod(localSynthesizedMethodOwner),
                 localClosureView,
-                lowering.GenericLocalFuncs,
-                modifiedMemberReferences
+                lowering.GenericLocalFuncs
             )
             ColumnarDeclineTrace.SetSourceFileId(localFn.SourceFileId, fn.Name + "." + localFn.Name)
             try {
@@ -24117,42 +23936,28 @@ sealed class ColumnarIlEmitter {
             inferenceParamTypes[pair.Key] = pair.Value
         }
         subEmitter := new ColumnarIlEmitter(
+            _context,
             _nodes,
             _source,
             inferenceOrdinals,
             inferenceParamTypes,
             ColumnarTypeOfPlanner.RequiredVoidType(),
             _il,
-            _siblings,
-            _enumRegistry,
-            _structRegistry,
-            _unionRegistry,
-            _unionCaseRegistry,
             _currentStruct,
             _enclosingType,
             false,
             false,
-            _programHolder,
-            _lambdaCounter,
-            _displayClasses,
             _boxedCaptures,
             _localFuncs,
             _declaredLocalFuncNodes,
             _visibleLocalFuncs,
-            _siblingReturnLabeledCanonicals,
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,
             false,
-            _referenceAssemblyPaths,
-            _genericInterfaceConstraints,
             _typeParameters,
-            _typeResolutionEnums,
-            _typeResolutionStructs,
-            _typeResolutionUnions,
             null,
-            null,
-            _modifiedMemberReferences
+            null
         )
         // THE ENCLOSING FRAME'S LOCALS, for the same reason its parameters are there: a lambda body
         // may read one, and this is the only place a preflight can learn its type. The slots are the
