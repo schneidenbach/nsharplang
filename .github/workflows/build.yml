@@ -127,14 +127,27 @@ jobs:
     - name: IL verification gate
       run: scripts/ilverify.sh
 
-  # NOTE, and it is a consequence of the trigger above rather than a change here: `channel` below is
-  # derived from the PR number and falls back to `main` for ANY push, so a push to `systems-language`
-  # now publishes an `unofficial-main-*` release titled "Unofficial main". The steps are unchanged;
-  # deciding whether that channel should be derived from the ref is a separate call.
+  # THE ONLY JOB THAT PUBLISHES ANYTHING. Two run shapes may publish, and no third.
+  #
+  # A same-repo PULL REQUEST publishes its `pr-<n>` pre-release, which is the behaviour this campaign
+  # has relied on since 2026-09-10 and is deliberately kept: `channel` below reads `PR_NUMBER`, so the
+  # release is titled "Unofficial pr-<n>" and names the run it came from. A fork PR is still refused,
+  # for the reason it always was — it has no write token.
+  #
+  # A PUSH publishes only from `main`. `channel` falls back to `main` for ANY push, so once
+  # `systems-language` became a trigger a push to it would have created an `unofficial-main-*`
+  # release titled "Unofficial main" — a release named for a branch it did not come from. The ref
+  # check therefore guards the PUSH arm alone and leaves the PR arm untouched: a `systems-language`
+  # push gets build + tests + ilverify and publishes nothing, while PRs targeting it still get their
+  # own `pr-<n>` pre-release.
+  #
+  # `Upload release artifacts` in the `build` job is deliberately NOT guarded: it is a 14-day workflow
+  # artifact, not a release, it is what forks get instead of a release, and this job downloads it.
   unofficial-release:
     needs: [build, ilverify]
-    # Forks get the same tests and downloadable artifacts, without a write token.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Same-repo PRs publish `pr-<n>`; pushes publish only from `main`. Forks get the same tests and
+    # downloadable artifacts, without a write token.
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     permissions:
       contents: write
