@@ -3,8 +3,8 @@ namespace NSharpLang.TemplateProjectSmoke.Tests
 import System
 import System.Collections.Generic
 import System.IO
-import NSharpLang.Compiler
 import NSharpLang.Cli
+import NSharpLang.Compiler
 
 
 // THE TEMPLATES, BUILT WHERE THE INNER LOOP CAN SEE THEM.

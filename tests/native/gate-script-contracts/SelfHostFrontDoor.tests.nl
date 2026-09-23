@@ -20,7 +20,6 @@ import System.Text.RegularExpressions
 // while Core's count in the SAME run is a number above zero. These rows pin that guard in both
 // directions: the work is skipped only when it is provably unreachable, and nothing about the
 // ceilings, the ratchet comparisons or Core's own check moved.
-
 func CoreScript(): string {
     return ReadGateScript("test-all-core.sh")
 }

@@ -18,7 +18,6 @@ import System.IO
 // With `NSharpExcludeTests=false` pointed at its own intermediate root, the product build and the
 // tests build leave two distinct assemblies under two distinct stamps and neither can satisfy the
 // other's — by path AND by content identity.
-
 func ReadSdkFile(name: string): string {
     return File.ReadAllText(Path.Combine(RepositoryRoot(), "src", "NSharpLang.Sdk", "Sdk", name))
 }
