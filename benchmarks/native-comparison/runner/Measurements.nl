@@ -25,6 +25,11 @@ import System.Globalization
 //     rolling-hash        rolling-hash size=<n> median= min= iqr=[q1,q3] ns/op (iters=, trials=)
 //     parse-eight-digits  <key> <n> median= min= iqr=[q1,q3] ns/op                 (no iters/trials)
 //
+// A seventh shape joined them in 2026-09: the paired gate mode prints the same live line with one
+// extra `ratio=` token — the median of that cell's per-repetition live-over-control ratios, which is
+// the gate's verdict statistic — and the control's line with a `control ` prefix. Both fall out of
+// the same tolerant scan without a special case.
+//
 // So the stderr reader is a TOLERANT key=value scan rather than a positional one: it strips the
 // `(`, `)` and `,` that wrap tokens in three of those shapes, understands both the scalar `iqr=`
 // and the bracketed `iqr=[q1,q3]` spelling, and leaves any field the port did not print at the
@@ -44,6 +49,7 @@ class Measurement {
     Q3Ns: double
     Iters: long
     Trials: int
+    PairedRatio: double
 
     constructor(workload: string, size: int, language: string, medianNs: double) {
         Workload = workload
@@ -55,6 +61,7 @@ class Measurement {
         Q3Ns = MissingNumber()
         Iters = MissingCount()
         Trials = MissingCount()
+        PairedRatio = MissingNumber()
     }
 }
 
@@ -112,6 +119,53 @@ func IsWorkloadKey(candidate: string): bool {
 
 func SplitLines(text: string): string[] {
     return text.Replace("\r\n", "\n").Split('\n')
+}
+
+// THE CONTROL SIDE OF A PAIRED RUN, AND HOW IT IS KEPT OUT OF EVERY OLD READER'S WAY.
+//
+// Under `--paired` the kernel program prints TWO cells per (workload, size): the live one on the
+// historical `<workload> <size> <ns>` line, and the frozen control's on the same line with a
+// `control ` prefix. A prefixed line is four tokens, and every parser in this file requires exactly
+// three (or exactly two, for `--il-shape`), so `compare` and every other existing reader ignore the
+// control lines by construction rather than by a flag.
+//
+// The gate does the opposite: it splits the two streams apart with the two functions below and hands
+// each half to the SAME parsers, under a different language key. One parser, two languages, no
+// second implementation of the tolerant stderr scan to keep in step with the first.
+func ControlLanguageKey(): string {
+    return "nsharp-control"
+}
+
+func ControlLinePrefix(): string {
+    return "control "
+}
+
+// The `control `-prefixed lines, with the prefix removed, as one text.
+func TakeControlLines(text: string): string {
+    kept := new List<string>()
+    lines := SplitLines(text)
+    prefix := ControlLinePrefix()
+    for i := 0; i < lines.Length; i++ {
+        if lines[i].StartsWith(prefix) {
+            kept.Add(lines[i].Substring(prefix.Length))
+        }
+    }
+
+    return string.Join("\n", kept)
+}
+
+// Everything that is not a `control ` line, unchanged.
+func DropControlLines(text: string): string {
+    kept := new List<string>()
+    lines := SplitLines(text)
+    prefix := ControlLinePrefix()
+    for i := 0; i < lines.Length; i++ {
+        if !lines[i].StartsWith(prefix) {
+            kept.Add(lines[i])
+        }
+    }
+
+    return string.Join("\n", kept)
 }
 
 // Strip the wrappers three of the stderr shapes put around a `key=value` token: `(q1=4.150` and
@@ -215,6 +269,7 @@ func ApplyOneStabilityLine(measurements: List<Measurement>, language: string, li
     bracketQ3 := MissingNumber()
     iters := MissingNumber()
     trials := MissingCount()
+    pairedRatio := MissingNumber()
 
     for i := 0; i < tokens.Count; i++ {
         token := StripWrappers(tokens[i])
@@ -246,6 +301,10 @@ func ApplyOneStabilityLine(measurements: List<Measurement>, language: string, li
             iters = ParseDoubleOrMissing(value)
         } else if key == "trials" {
             trials = ParseIntOrMissing(value)
+        } else if key == "ratio" {
+            // Only the paired mode prints this, and only on the live side: the median of that cell's
+            // per-repetition live-over-control ratios, which is the gate's verdict statistic.
+            pairedRatio = ParseDoubleOrMissing(value)
         } else if key == "iqr" && value.StartsWith("[") && value.EndsWith("]") {
             halves := value.Substring(1, value.Length - 2).Split(',')
             if halves.Length == 2 {
@@ -287,6 +346,9 @@ func ApplyOneStabilityLine(measurements: List<Measurement>, language: string, li
     }
     if entry.Trials < 0 {
         entry.Trials = trials
+    }
+    if entry.PairedRatio < 0.0 {
+        entry.PairedRatio = pairedRatio
     }
 }
 

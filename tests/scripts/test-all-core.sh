@@ -321,9 +321,13 @@ else
 fi
 rm -f "$FORMAT_OUTPUT"
 
-# The throughput baseline is calibrated on an idle host. Measure immediately after build/format and
-# before prolonged self-host/test phases can precondition the machine; this also exposes a benchmark
-# failure early.
+# The throughput gate measures its own reference. Each of the twelve cells runs the live kernel and a
+# frozen control interleaved in one process, and gates on their ratio, so the verdict no longer
+# depends on this host resembling the idle Apple M4 that a stored baseline was taken on -- which it
+# repeatedly did not, failing cells at 1.2x-4.0x whenever another build was running. The step still
+# runs immediately after build/format, before prolonged self-host/test phases: the gate also prints
+# an INFORMATIONAL drift row against those 2026-09-01 numbers, which is only interesting on a
+# machine this gate has not yet preconditioned, and an early benchmark failure is cheap.
 section "Step 2c: Systems Throughput Gate"
 if [ "${SYSTEMS_BENCH:-}" = "skip" ]; then
     echo -e "${YELLOW}Skipping systems throughput gate (SYSTEMS_BENCH=skip)${NC}"

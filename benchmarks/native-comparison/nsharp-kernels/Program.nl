@@ -17,6 +17,14 @@ import System.Globalization
 // `sink <value>` line — that is what a runner parses. Everything a human wants (median, min, IQR, the
 // quartiles, the iteration and trial counts) goes to stderr, so stdout stays machine-readable.
 //
+// `--paired` ADDS A SECOND MEASUREMENT PER CELL AND CHANGES NOTHING ABOUT THE FIRST. It is what the
+// throughput gate runs: every cell is measured twice, interleaved, once as the kernels above and
+// once as the frozen `ControlKernels`, so the gate can divide one by the other instead of by a
+// number stored from a different machine on a different day. The control's lines are the same
+// protocol with a `control ` prefix, which makes them four tokens where the contract is three — so
+// every reader that already parses this program ignores them without being taught to. See
+// `ReportPairedTimings` for the protocol and `ControlKernels.nl` for what the control is.
+//
 // WHY SIX NEAR-IDENTICAL TIMED-LOOP FUNCTIONS INSTEAD OF ONE PARAMETERISED BY WORKLOAD. Each port owns
 // its own timed loop and calls its one kernel directly; a shared loop that selected the kernel per
 // iteration would put an if-chain of up to five compare+branch pairs INSIDE the measured region. On the
@@ -184,6 +192,32 @@ func RunWorkload(workload: int, values: int[]): int {
     return Kernels.ParseEightDigits(values)
 }
 
+// The control's answer to the same question, for the equality check `--paired` runs before it
+// measures anything. Never reached from a timed region.
+func RunControlWorkload(workload: int, values: int[]): int {
+    if workload == 0 {
+        return ControlKernels.Checksum(values)
+    }
+
+    if workload == 1 {
+        return ControlKernels.CountAscii(values)
+    }
+
+    if workload == 2 {
+        return ControlKernels.CountTransitions(values)
+    }
+
+    if workload == 3 {
+        return ControlKernels.RollingHash(values)
+    }
+
+    if workload == 4 {
+        return ControlKernels.MinMaxDelta(values)
+    }
+
+    return ControlKernels.ParseEightDigits(values)
+}
+
 [boundary]
 func ElapsedMilliseconds(start: long, stop: long): double {
     return Stopwatch.GetElapsedTime(start, stop).TotalMilliseconds
@@ -192,6 +226,49 @@ func ElapsedMilliseconds(start: long, stop: long): double {
 [boundary]
 func SettleMilliseconds(): double {
     return 500.0
+}
+
+// THE PAIRED SETTLE: BOTH SIDES BROUGHT TO STEADY STATE TOGETHER, NOT ONE AND THEN THE OTHER.
+//
+// Settling live for 500 ms and then control for 500 ms looks symmetric and is not: the first side
+// settles into a colder process than the second, and the asymmetry lands entirely on the side that
+// went first. Measured before this was fixed, `checksum-sum` 64 — the FIRST cell of the first
+// process — reported its live side 1.23x its control under load while all eleven other cells sat
+// between 0.91x and 1.01x. So the two settles alternate, each invocation going to whichever side has
+// accumulated less settle time, until BOTH have had at least 500 ms and at least 40 invocations of
+// the wrapper their trials will use. Neither side is ever the cold one.
+//
+// The 500 ms / 40 minima, the 100/1000 iteration counts and the discarded samples are unchanged from
+// `SettleJit`; only the interleaving is new. Results stay folded into the same sink.
+[boundary]
+func SettlePairJit(workload: int, values: int[]): long {
+    folded: long = 0
+    settleWarmup := 100
+    settleMeasured := 1000
+    minimumWrapperCalls := 40
+    budget := SettleMilliseconds()
+    settleSample := 0.0
+    liveCalls := 0
+    controlCalls := 0
+    liveElapsed := 0.0
+    controlElapsed := 0.0
+    while liveElapsed < budget || controlElapsed < budget || liveCalls < minimumWrapperCalls || controlCalls < minimumWrapperCalls {
+        if liveElapsed <= controlElapsed {
+            liveStart := Stopwatch.GetTimestamp()
+            liveSink := RunTrial(workload, values, settleWarmup, settleMeasured, out settleSample)
+            folded = folded ^ liveSink
+            liveElapsed = liveElapsed + ElapsedMilliseconds(liveStart, Stopwatch.GetTimestamp())
+            liveCalls = liveCalls + 1
+        } else {
+            controlStart := Stopwatch.GetTimestamp()
+            controlSink := RunControlTrial(workload, values, settleWarmup, settleMeasured, out settleSample)
+            folded = folded ^ controlSink
+            controlElapsed = controlElapsed + ElapsedMilliseconds(controlStart, Stopwatch.GetTimestamp())
+            controlCalls = controlCalls + 1
+        }
+    }
+
+    return folded
 }
 
 [boundary]
@@ -359,6 +436,143 @@ func RunTrial(workload: int, values: int[], warmup: int, iterations: int, out na
     return TimeParseEightDigits(values, warmup, iterations, out nanosecondsPerOp)
 }
 
+// ---- the six CONTROL timed loops -------------------------------------------------------------
+//
+// Six more near-identical functions, for the same reason the six above are near-identical: each
+// timed loop's body must be a DIRECT static call to one kernel, with no dispatch inside the measured
+// region. A `control: bool` parameter threaded down to the loop body would put a compare-and-branch
+// in every iteration of a loop whose whole answer is single-digit nanoseconds, and it would put it
+// on only one of the two sides being compared — which is precisely the bias a paired measurement
+// exists to remove.
+
+[boundary]
+func TimeControlChecksum(values: int[], warmup: int, iterations: int, out nanosecondsPerOp: double): long {
+    folded: long = 0
+    for i := 0; i < warmup; i++ {
+        folded = folded ^ (long)ControlKernels.Checksum(values)
+    }
+
+    start := Stopwatch.GetTimestamp()
+    for i := 0; i < iterations; i++ {
+        folded = folded ^ (long)ControlKernels.Checksum(values)
+    }
+
+    stop := Stopwatch.GetTimestamp()
+    nanosecondsPerOp = ElapsedNanosecondsPerOp(start, stop, iterations)
+    return folded
+}
+
+[boundary]
+func TimeControlCountAscii(values: int[], warmup: int, iterations: int, out nanosecondsPerOp: double): long {
+    folded: long = 0
+    for i := 0; i < warmup; i++ {
+        folded = folded ^ (long)ControlKernels.CountAscii(values)
+    }
+
+    start := Stopwatch.GetTimestamp()
+    for i := 0; i < iterations; i++ {
+        folded = folded ^ (long)ControlKernels.CountAscii(values)
+    }
+
+    stop := Stopwatch.GetTimestamp()
+    nanosecondsPerOp = ElapsedNanosecondsPerOp(start, stop, iterations)
+    return folded
+}
+
+[boundary]
+func TimeControlCountTransitions(values: int[], warmup: int, iterations: int, out nanosecondsPerOp: double): long {
+    folded: long = 0
+    for i := 0; i < warmup; i++ {
+        folded = folded ^ (long)ControlKernels.CountTransitions(values)
+    }
+
+    start := Stopwatch.GetTimestamp()
+    for i := 0; i < iterations; i++ {
+        folded = folded ^ (long)ControlKernels.CountTransitions(values)
+    }
+
+    stop := Stopwatch.GetTimestamp()
+    nanosecondsPerOp = ElapsedNanosecondsPerOp(start, stop, iterations)
+    return folded
+}
+
+[boundary]
+func TimeControlRollingHash(values: int[], warmup: int, iterations: int, out nanosecondsPerOp: double): long {
+    folded: long = 0
+    for i := 0; i < warmup; i++ {
+        folded = folded ^ (long)ControlKernels.RollingHash(values)
+    }
+
+    start := Stopwatch.GetTimestamp()
+    for i := 0; i < iterations; i++ {
+        folded = folded ^ (long)ControlKernels.RollingHash(values)
+    }
+
+    stop := Stopwatch.GetTimestamp()
+    nanosecondsPerOp = ElapsedNanosecondsPerOp(start, stop, iterations)
+    return folded
+}
+
+[boundary]
+func TimeControlMinMaxDelta(values: int[], warmup: int, iterations: int, out nanosecondsPerOp: double): long {
+    folded: long = 0
+    for i := 0; i < warmup; i++ {
+        folded = folded ^ (long)ControlKernels.MinMaxDelta(values)
+    }
+
+    start := Stopwatch.GetTimestamp()
+    for i := 0; i < iterations; i++ {
+        folded = folded ^ (long)ControlKernels.MinMaxDelta(values)
+    }
+
+    stop := Stopwatch.GetTimestamp()
+    nanosecondsPerOp = ElapsedNanosecondsPerOp(start, stop, iterations)
+    return folded
+}
+
+[boundary]
+func TimeControlParseEightDigits(values: int[], warmup: int, iterations: int, out nanosecondsPerOp: double): long {
+    folded: long = 0
+    for i := 0; i < warmup; i++ {
+        folded = folded ^ (long)ControlKernels.ParseEightDigits(values)
+    }
+
+    start := Stopwatch.GetTimestamp()
+    for i := 0; i < iterations; i++ {
+        folded = folded ^ (long)ControlKernels.ParseEightDigits(values)
+    }
+
+    stop := Stopwatch.GetTimestamp()
+    nanosecondsPerOp = ElapsedNanosecondsPerOp(start, stop, iterations)
+    return folded
+}
+
+[boundary]
+func RunControlTrial(workload: int, values: int[], warmup: int, iterations: int, out nanosecondsPerOp: double): long {
+    // The control's one dispatch, taken once per trial, exactly where `RunTrial` takes its own.
+    if workload == 0 {
+        return TimeControlChecksum(values, warmup, iterations, out nanosecondsPerOp)
+    }
+
+    if workload == 1 {
+        return TimeControlCountAscii(values, warmup, iterations, out nanosecondsPerOp)
+    }
+
+    if workload == 2 {
+        return TimeControlCountTransitions(values, warmup, iterations, out nanosecondsPerOp)
+    }
+
+    if workload == 3 {
+        return TimeControlRollingHash(values, warmup, iterations, out nanosecondsPerOp)
+    }
+
+    if workload == 4 {
+        return TimeControlMinMaxDelta(values, warmup, iterations, out nanosecondsPerOp)
+    }
+
+    return TimeControlParseEightDigits(values, warmup, iterations, out nanosecondsPerOp)
+}
+
 // The ports' quantile convention: the nearest sample by `round((n - 1) * p)`, rounding halves away
 // from zero. `Math.Round` is banker's rounding by default, so the index is computed directly.
 func Percentile(sorted: double[], fraction: double): double {
@@ -427,13 +641,147 @@ func ReportVerify(only: int): int {
 
 [boundary]
 func ReportIlShape(only: int): int {
+    // Two lines per workload. `<workload> simd=<...>` is the historical contract every reader of this
+    // program already parses; `control <workload> simd=<...>` is the frozen control's answer to the
+    // same question, on a four-token line the two-token readers ignore by construction.
     keys := WorkloadKeys()
     names := KernelNames()
     for workload := FirstWorkload(only); workload <= LastWorkload(only); workload++ {
-        Console.WriteLine(keys[workload] + " simd=" + IlShape.SimdHelpersFor(names[workload]))
+        Console.WriteLine(keys[workload] + " simd=" + IlShape.SimdHelpersFor(typeof(Kernels), names[workload]))
+        Console.WriteLine("control " + keys[workload] + " simd=" + IlShape.SimdHelpersFor(typeof(ControlKernels), names[workload]))
     }
 
     return 0
+}
+
+// THE PAIRED, INTERLEAVED MEASUREMENT THE THROUGHPUT GATE RUNS.
+//
+// `ReportTimings` below measures the live kernels alone and reports nanoseconds; that is what the
+// `compare` report wants, because a report is read beside an environment header that says what the
+// machine was doing. A GATE cannot be read that way — it has to decide — and a nanosecond measured
+// on a machine running three other builds is not comparable with one measured on an idle laptop.
+// This mode measures the frozen `ControlKernels` in the SAME PROCESS, on the same input array, with
+// the same warmup, the same iteration count and the same trial count, strictly interleaved
+// A/B/A/B... so that the two medians are drawn from the same minutes of the same machine. The gate's
+// verdict is their RATIO, and whatever the load did to one side it did to the other.
+//
+// THE ORDER WITHIN A REPETITION ALTERNATES, AND THE FIRST VERSION OF THIS FILE PROVED WHY. It ran
+// live then control every time, on the argument that both sides are settled and warmed so there is
+// no first-position penalty to cancel. There is: under an artificial six-core load, the first cell
+// of the first process — `checksum-sum` 64 — reported 1.23x while the other eleven cells sat between
+// 0.91x and 1.01x, because whatever the machine was still doing to that process fell on whichever
+// side went first. So repetition `t` runs live-then-control when `t` is even and control-then-live
+// when it is odd, which cancels a systematic first-position penalty to within one repetition, and
+// the paired settle above removes the same asymmetry from the settle phase.
+//
+// THE VERDICT STATISTIC IS THE MEDIAN OF THE PER-REPETITION RATIOS, NOT THE RATIO OF THE TWO
+// MEDIANS, AND THE DIFFERENCE IS THE WHOLE REASON THIS MODE EXISTS. On a quiet box the two agree to
+// within a percent. On a busy one they do not: a size-64 cell's measured window is about ten
+// milliseconds, which is the same order as a scheduler quantum, so a single preemption inside a
+// window inflates that ONE sample by tens of percent. Taking each side's median independently leaves
+// the verdict to how many windows each side happened to lose — measured under a six-core artificial
+// load, that produced live-over-control medians of 1.11x-1.24x on cells whose paired samples were
+// within a percent of each other. Dividing each repetition's live sample by the control sample
+// measured beside it cancels the contention the two shared, and the median of those per-repetition
+// ratios is what the gate judges. Both medians are still REPORTED, in the table's two nanosecond
+// columns, because they are what a reader wants to see.
+//
+// THE EQUALITY CHECK RUNS FIRST, AND IT IS NOT DECORATION. Control and live are supposed to be the
+// same computation. If they ever stop agreeing on a result, the ratio between their timings is
+// meaningless — one of them is doing different work — and this mode refuses to print a number rather
+// than let a gate pass or fail on it.
+[boundary]
+func ReportPairedTimings(only: int, requestedTrials: int): int {
+    keys := WorkloadKeys()
+    sizes := Sizes()
+    inputs := new int[][](2)
+    inputs[0] = BuildInput(sizes[0])
+    inputs[1] = BuildInput(sizes[1])
+
+    for workload := FirstWorkload(only); workload <= LastWorkload(only); workload++ {
+        for s := 0; s < sizes.Length; s++ {
+            live := RunWorkload(workload, inputs[s])
+            control := RunControlWorkload(workload, inputs[s])
+            if live != control {
+                Console.Error.WriteLine("control mismatch: " + keys[workload] + " " + sizes[s].ToString(CultureInfo.InvariantCulture) + " live=" + live.ToString(CultureInfo.InvariantCulture) + " control=" + control.ToString(CultureInfo.InvariantCulture) + "; the control and the measured kernel must compute the same answer or their timings cannot be compared.")
+                return 3
+            }
+        }
+    }
+
+    sink: long = 0
+    for workload := FirstWorkload(only); workload <= LastWorkload(only); workload++ {
+        trials := TrialsFor(workload, requestedTrials)
+        warmup := WarmupIterations(workload)
+        for s := 0; s < sizes.Length; s++ {
+            iterations := MeasuredIterations(workload, sizes[s])
+            settleSink := SettlePairJit(workload, inputs[s])
+            sink = sink ^ settleSink
+            liveSamples := new double[](trials)
+            controlSamples := new double[](trials)
+            for t := 0; t < trials; t++ {
+                liveSample := 0.0
+                controlSample := 0.0
+                if t % 2 == 0 {
+                    liveTrialSink := RunTrial(workload, inputs[s], warmup, iterations, out liveSample)
+                    sink = sink ^ liveTrialSink
+                    controlTrialSink := RunControlTrial(workload, inputs[s], warmup, iterations, out controlSample)
+                    sink = sink ^ controlTrialSink
+                } else {
+                    controlTrialSink := RunControlTrial(workload, inputs[s], warmup, iterations, out controlSample)
+                    sink = sink ^ controlTrialSink
+                    liveTrialSink := RunTrial(workload, inputs[s], warmup, iterations, out liveSample)
+                    sink = sink ^ liveTrialSink
+                }
+
+                liveSamples[t] = liveSample
+                controlSamples[t] = controlSample
+            }
+
+            // The paired ratios are taken BEFORE either array is sorted, because the pairing is the
+            // point: `liveSamples[t]` and `controlSamples[t]` were measured milliseconds apart in the
+            // same repetition, so whatever the machine was doing to one it was mostly doing to the
+            // other. Sorting first would pair the fastest live trial with the fastest control trial,
+            // which are not the same experiment.
+            pairedRatios := new double[](trials)
+            for t := 0; t < trials; t++ {
+                pairedRatios[t] = PairedRatio(liveSamples[t], controlSamples[t])
+            }
+
+            Array.Sort(pairedRatios)
+            Array.Sort(liveSamples)
+            Array.Sort(controlSamples)
+            sizeText := sizes[s].ToString(CultureInfo.InvariantCulture)
+            WritePairedCell("", keys[workload], sizeText, liveSamples, iterations, trials, " ratio=" + Format(Percentile(pairedRatios, 0.5)))
+            WritePairedCell("control ", keys[workload], sizeText, controlSamples, iterations, trials, "")
+        }
+    }
+
+    Console.WriteLine("sink " + sink.ToString(CultureInfo.InvariantCulture))
+    return 0
+}
+
+// A single repetition's live-over-control ratio. A control sample of zero cannot happen — the clock
+// would have to report a zero-nanosecond loop — but a gate must not divide by one if it ever did.
+func PairedRatio(liveSample: double, controlSample: double): double {
+    if controlSample <= 0.0 {
+        return -1.0
+    }
+
+    return liveSample / controlSample
+}
+
+// One cell's two output lines, for whichever side `prefix` names. The live side keeps the historical
+// three-token stdout contract exactly; the control side wears a `control ` prefix on both streams, so
+// every existing reader of this program sees precisely what it saw before. `extra` carries the live
+// side's `ratio=` token, which is the gate's verdict statistic.
+[boundary]
+func WritePairedCell(prefix: string, key: string, sizeText: string, sorted: double[], iterations: int, trials: int, extra: string) {
+    median := Percentile(sorted, 0.5)
+    q1 := Percentile(sorted, 0.25)
+    q3 := Percentile(sorted, 0.75)
+    Console.WriteLine(prefix + key + " " + sizeText + " " + Format(median))
+    Console.Error.WriteLine(prefix + key + " " + sizeText + " median=" + Format(median) + " min=" + Format(sorted[0]) + " iqr=" + Format(q3 - q1) + " (q1=" + Format(q1) + " q3=" + Format(q3) + ") ns/op iters=" + iterations.ToString(CultureInfo.InvariantCulture) + " trials=" + trials.ToString(CultureInfo.InvariantCulture) + extra)
 }
 
 [boundary]
@@ -479,6 +827,7 @@ func Main(args: string[]): int {
     only := -1
     verify := false
     ilShape := false
+    paired := false
     index := 0
     while index < args.Length {
         argument := args[index]
@@ -512,8 +861,10 @@ func Main(args: string[]): int {
             verify = true
         } else if argument == "--il-shape" {
             ilShape = true
+        } else if argument == "--paired" {
+            paired = true
         } else {
-            Console.Error.WriteLine("unknown argument '" + argument + "'; expected --trials, --only, --verify or --il-shape")
+            Console.Error.WriteLine("unknown argument '" + argument + "'; expected --trials, --only, --verify, --il-shape or --paired")
             return 2
         }
 
@@ -526,6 +877,10 @@ func Main(args: string[]): int {
 
     if verify {
         return ReportVerify(only)
+    }
+
+    if paired {
+        return ReportPairedTimings(only, requestedTrials)
     }
 
     return ReportTimings(only, requestedTrials)

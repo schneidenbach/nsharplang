@@ -483,11 +483,25 @@ vectorizer should measure. The **historical** N#/C# column (C# 3.9-5.9× slower 
 vectorized kernels, a tie elsewhere) has no lane today: its BenchmarkDotNet harness was deleted
 with the C# export tooling and is not restored.
 
-The product gate holds these medians: Step 2c of `scripts/test-all.sh` runs the same six
-kernels and fails any cell that regresses more than 20% against
-`benchmarks/native-comparison/runner/SystemsThroughputBaseline.nl` (`SYSTEMS_BENCH=skip` skips it
-on a loaded machine). The compiler-owned evidence is the IL shape, pinned by
-`tests/native/systems-vectorization-facts` for every accepted shape and every guard.
+The product gate holds these kernels to a reference it measures ITSELF. Step 2c of
+`scripts/test-all.sh` runs each of the twelve cells twice in one process, strictly interleaved: once
+as the live kernel and once as `ControlKernels.nl`, a frozen transcription of the same six bodies —
+the reference the medians above were taken from. A cell fails when `live / control` exceeds 1.20.
+The earlier form compared each measured median against the stored numbers above, which made the
+verdict depend on the gate's machine resembling the idle M4 they were taken on; it did not, and
+cells failed at 1.2x-4.0x under a concurrent build with nothing regressed. Two medians taken seconds
+apart on one machine share whatever that machine is doing, so load divides out of their ratio.
+
+The stored numbers above remain the gate's DRIFT reference: it prints this run's control against
+them, informationally, so a machine or toolchain moving under both sides at once — the one thing a
+same-run ratio cannot see — stays visible without failing a build.
+
+Because both sides are compiled by the same `nlc`, the ratio cannot see a compiler change that
+de-vectorizes the shape they share. That is checked directly instead: the gate reads back out of the
+emitted IL which `SimdReductions` helper each kernel calls, on both sides, and fails any kernel whose
+answer is not the one the `vectorized` column above records. The compiler-owned evidence is the same
+IL shape, pinned by `tests/native/systems-vectorization-facts` for every accepted shape and every
+guard. `SYSTEMS_BENCH=skip` still skips the step, now only to save its runtime.
 
 > **Honest scope.** Vectorization is narrow on purpose, with a single uniform-stride index
 > and exactly the four shapes above. Counted **reductions** cover `int`/`long`/`uint`/`ulong`

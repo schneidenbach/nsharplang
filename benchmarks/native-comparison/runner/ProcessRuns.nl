@@ -8,10 +8,18 @@ import System.Diagnostics
 // `rustc`, `clang`, `git`, `sysctl`, `uname` — is reached through `RunProcess` and nothing else.
 //
 // The shape is copied from `tests/native/systems-proof-corpus/SystemsProofCorpus.tests.nl`: one
-// `ProcessStartInfo`, one `Process`, `Start`, both pipes drained with `ReadToEnd`, `WaitForExit`,
-// `ExitCode`, `Dispose`. Draining BEFORE waiting is what keeps a chatty child (a `--trials 15`
-// kernel run emits twelve stdout lines and twelve stderr lines) from deadlocking against a full
+// `ProcessStartInfo`, one `Process`, `Start`, both pipes drained, `WaitForExit`, `ExitCode`,
+// `Dispose`. Draining BEFORE waiting is what keeps a chatty child from deadlocking against a full
 // pipe buffer, and the `Dispose` is what guarantees this runner leaves no orphan behind.
+//
+// THE TWO PIPES ARE DRAINED CONCURRENTLY, AND THAT IS NOT A STYLE CHOICE. Reading one to the end
+// and then the other deadlocks the moment the child fills the OTHER pipe's buffer: the child blocks
+// writing to the pipe nobody is reading, the parent blocks reading the pipe nobody is writing, and
+// neither ever moves. The buffer is 64 KiB on this platform, which sounds generous until a child is
+// `nlc build` on the kernel project — its NSYS120/NSYS060 systems-audit warnings for two classes of
+// six `[hot]` kernels are 68 KiB of stderr, and the gate hung for as long as it was left running.
+// So stderr is read on a task started BEFORE stdout is read on this thread, and both are complete
+// before `WaitForExit`.
 //
 // A process that cannot be STARTED at all (a missing `rustc`, a repository without `git`) is
 // reported as a `SpawnError` string rather than an exception, because every caller here has to
@@ -56,8 +64,9 @@ func RunProcess(fileName: string, arguments: string, workingDirectory: string): 
     try {
         process := new Process { StartInfo: startInfo }
         process.Start()
+        stderrReader := process.StandardError.ReadToEndAsync()
         stdout := process.StandardOutput.ReadToEnd()
-        stderr := process.StandardError.ReadToEnd()
+        stderr := stderrReader.Result
         process.WaitForExit()
         exitCode := process.ExitCode
         process.Dispose()

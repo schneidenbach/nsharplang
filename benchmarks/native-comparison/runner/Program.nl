@@ -16,10 +16,23 @@ import System.Text
 //       the plumbing worked: a regression against June is INFORMATION here, not a verdict.
 //
 //   gate --cli <Cli.dll> --repo <root> [--tolerance 0.20] [--trials <n>] [--print-baseline]
-//       Builds and runs the N# kernel program only, compares its twelve medians with
-//       `SystemsThroughputBaseline`, and exits 1 if any cell exceeds the tolerance. This is the
-//       shape the product gate calls (`tests/scripts/test-all-core.sh`, step 3c), which skips it
-//       entirely when `SYSTEMS_BENCH=skip` is set.
+//       Builds and runs the N# kernel program only, in its PAIRED mode: each of the twelve cells is
+//       measured twice in one process, interleaved, once as the live kernel and once as the frozen
+//       `ControlKernels` reference, and the cell's verdict is `live / control` against the same
+//       tolerance. It also reads the emitted IL back (`--il-shape`) and fails a kernel that no
+//       longer lowers to the `SimdReductions` helper it must. This is the shape the product gate
+//       calls (`tests/scripts/test-all-core.sh`, step 2c), which skips it entirely when
+//       `SYSTEMS_BENCH=skip` is set.
+//
+// WHY THE GATE STOPPED COMPARING AGAINST STORED NANOSECONDS. It used to divide each measured median
+// by a number measured once, on 2026-09-01, on an idle Apple M4. That is a measurement of ONE
+// machine in ONE state, and the gate runs on whatever machine is free: `count-transitions` tripped
+// at 1.20x-1.75x under a concurrent build and passed at 0.95x-1.06x on a quiet box, and a run under
+// load average 25 failed all twelve cells at 1.63x-4.04x with nothing regressed. The fix is not a
+// wider tolerance — that trades false alarms for blindness — but a reference measured on the SAME
+// machine in the SAME minutes: load multiplies both sides of `live / control` and divides out of it.
+// The stored numbers stay, demoted to the informational drift table, because the one thing a
+// same-run ratio cannot see is the machine and toolchain moving underneath both sides at once.
 //
 // WHY THIS IS AN N# PROGRAM AND NOT A SHELL SCRIPT. The obvious spelling of all this is a
 // `scripts/bench-native-comparison.sh` beside a `scripts/systems-throughput-baseline.json`. The
@@ -688,7 +701,8 @@ func BuildGateContext(
     postRunLoad: string,
     runtimePath: string,
     kernelAssemblyPath: string,
-    kernelCommand: string
+    kernelCommand: string,
+    protocol: string
 ): string {
     builder := new StringBuilder()
     builder.AppendLine("# systems throughput gate context")
@@ -700,10 +714,56 @@ func BuildGateContext(
     builder.AppendLine("- Runtime: `" + runtimePath + "`")
     builder.AppendLine("- Kernel assembly: `" + kernelAssemblyPath + "`")
     builder.AppendLine("- Kernel command: `" + kernelCommand + "`")
+    builder.AppendLine("- Protocol: " + protocol)
     return builder.ToString()
 }
 
+// The three lines the gate prints before it measures anything: the machine, the protocol, and a
+// warning when the machine is too busy for the DRIFT row to mean much. Note what is NOT here any
+// more — a warning that the VERDICT may be inflated. It cannot be: both medians in every ratio come
+// from the same machine in the same minutes.
+func GateProtocolLine(options: RunnerOptions): string {
+    text := "systems throughput gate: paired A/B, live kernel and frozen control interleaved with"
+    text = text + " alternating order per repetition, " + GateRepetitionsLabel(options)
+    text = text + " repetitions per cell, per-trial warm-up on both sides, interleaved JIT settle to"
+    text = text + " >= 500 ms and >= 40 invocations per side, medians compared; IL shape read back"
+    text = text + " from the emitted assembly."
+    return text
+}
+
+func GateRepetitionsLabel(options: RunnerOptions): string {
+    return options.Trials.ToString()
+}
+
+// HOW MANY REPETITIONS THE GATE TAKES, AND WHY IT IS NOT THE PORTS' COUNT.
+//
+// `compare` mirrors each port's own trial count — 15, or 21 for `rolling-hash` and `min-max-delta` —
+// because its question is "how many nanoseconds, beside the same experiment in Rust and C", and the
+// two sides of that comparison have to be the same experiment. The gate's question is a RATIO of two
+// N# medians, so the ports' counts bind nothing here, and the only thing that matters is how much
+// noise survives into the verdict.
+//
+// Measured under a six-core artificial load: at 15 repetitions the paired-ratio medians spanned
+// 0.89x-1.24x across cells and tripped the 1.20x tolerance on about one run in three; at 31 they
+// spanned 0.95x-1.06x on two consecutive runs. A size-64 cell's measured window is about ten
+// milliseconds — the same order as a scheduler quantum — so a contended machine costs a handful of
+// windows outright, and the cure is more windows rather than a wider tolerance. The price is roughly
+// 40 seconds on a step that runs once per gate.
+func GateRepetitions(): int {
+    return 31
+}
+
+// The flag that puts the kernel program in its paired mode. Named once, because the gate passes it
+// to the measurement run and records it in the context file, and those two must not drift apart.
+func PairedFlag(): string {
+    return "--paired"
+}
+
 func RunGate(options: RunnerOptions): int {
+    if options.Trials <= 0 {
+        options.Trials = GateRepetitions()
+    }
+
     // Read before the runtime build, so the figure describes the machine the medians were taken on
     // rather than the machine after this runner has finished loading it.
     loadAverage := LoadAverageText()
@@ -718,6 +778,7 @@ func RunGate(options: RunnerOptions): int {
     header := "systems throughput gate: load average " + loadAverage
     header = header + ", " + coreCount + " cores, runtime " + runtime.Path
     print header
+    print GateProtocolLine(options)
     WarnOnLoad(loadAverage, coreCount)
 
     buildFailure := PrepareKernelProgram(options, runtime.Path)
@@ -728,14 +789,20 @@ func RunGate(options: RunnerOptions): int {
 
     measurementStartUtc := UtcTimestamp()
     preRunLoad := LoadAverageText()
-    run := RunKernelProgram(options, "", true)
+    run := RunKernelProgram(options, PairedFlag(), true)
     measurementEndUtc := UtcTimestamp()
     postRunLoad := LoadAverageText()
+
+    // The IL inspection runs AFTER the medians, never before: it is reflection over the kernel
+    // assembly, and doing it first would leave the JIT and the file cache in a state the measured
+    // run did not choose for itself.
+    shapeRun := RunKernelProgram(options, "--il-shape", false)
 
     outputDirectory := GateOutputDirectory(options)
     Directory.CreateDirectory(outputDirectory)
     captures := new List<RunCapture>()
     captures.Add(new RunCapture(NsharpLanguageKey(), "gate", run.Stdout, run.Stderr))
+    captures.Add(new RunCapture(NsharpLanguageKey(), "gate-il-shape", shapeRun.Stdout, shapeRun.Stderr))
     rawStdoutPath := Path.Combine(outputDirectory, "gate-raw-stdout.log")
     rawStderrPath := Path.Combine(outputDirectory, "gate-raw-stderr.log")
     contextPath := Path.Combine(outputDirectory, "gate-context.md")
@@ -751,7 +818,8 @@ func RunGate(options: RunnerOptions): int {
             postRunLoad,
             runtime.Path,
             KernelAssemblyPath(options.RepoRoot),
-            KernelRunCommand(options, "", true)
+            KernelRunCommand(options, PairedFlag(), true),
+            GateProtocolLine(options)
         )
     )
 
@@ -761,21 +829,35 @@ func RunGate(options: RunnerOptions): int {
     print "Gate artifacts: " + contextPath
 
     if !run.Succeeded() {
-        reason := KernelRunCommand(options, "", true) + " failed: " + run.FailureReason()
+        reason := KernelRunCommand(options, PairedFlag(), true) + " failed: " + run.FailureReason()
         Console.Error.WriteLine(AppendOutput(reason, run.Stderr))
         return 1
     }
 
-    measurements := ParseMeasurementLines(NsharpLanguageKey(), run.Stdout)
-    ApplyStabilityLines(measurements, NsharpLanguageKey(), run.Stderr)
-    return ReportGate(options, measurements)
+    if !shapeRun.Succeeded() {
+        reason := KernelRunCommand(options, "--il-shape", false) + " failed: " + shapeRun.FailureReason()
+        Console.Error.WriteLine(AppendOutput(reason, shapeRun.Stderr))
+        return 1
+    }
+
+    // One pair of parsers, two languages. The control's lines wear a `control ` prefix on both
+    // streams; splitting them apart here is the whole of the difference between the two sides.
+    liveMeasurements := ParseMeasurementLines(NsharpLanguageKey(), DropControlLines(run.Stdout))
+    ApplyStabilityLines(liveMeasurements, NsharpLanguageKey(), DropControlLines(run.Stderr))
+    controlMeasurements := ParseMeasurementLines(ControlLanguageKey(), TakeControlLines(run.Stdout))
+    ApplyStabilityLines(controlMeasurements, ControlLanguageKey(), TakeControlLines(run.Stderr))
+
+    liveShapes := ParseIlShapeLines(DropControlLines(shapeRun.Stdout))
+    controlShapes := ParseIlShapeLines(TakeControlLines(shapeRun.Stdout))
+
+    return ReportGate(options, liveMeasurements, controlMeasurements, liveShapes, controlShapes)
 }
 
 func WarnOnLoad(loadAverage: string, coreCount: string) {
     oneMinuteLoad := ParseOneMinuteLoad(loadAverage)
     cores := ParseDoubleOrMissing(coreCount)
     if oneMinuteLoad >= 0.0 && cores > 0.0 && oneMinuteLoad > cores {
-        print "warning: the one-minute load average exceeds the core count; medians may be inflated."
+        print "note: the one-minute load average exceeds the core count. The verdict is unaffected — every ratio below divides two medians taken on this machine in these minutes — but the informational drift row will report the load."
     }
 }
 
@@ -810,7 +892,19 @@ func GateRow(workload: string, size: int, baseline: string, measured: string, ra
     return MarkdownRow(cells)
 }
 
-func ReportGate(options: RunnerOptions, measurements: List<Measurement>): int {
+// THE TABLE KEEPS ITS SIX COLUMNS AND ITS COLUMN NAMES; `baseline ns` CHANGED MEANING.
+//
+// It is no longer the 2026-09-01 stored median but the frozen control's median FROM THIS RUN, and
+// `ratio` is `measured / control` rather than `measured / stored`. The column name stays because it
+// still names the thing the cell is held to, and because every reader and pinned contract that
+// consumes this table reads it positionally.
+func ReportGate(
+    options: RunnerOptions,
+    liveMeasurements: List<Measurement>,
+    controlMeasurements: List<Measurement>,
+    liveShapes: List<IlShapeAnswer>,
+    controlShapes: List<IlShapeAnswer>
+): int {
     baseline := ThroughputBaselineRows()
     failures := 0
     cells := 0
@@ -821,30 +915,52 @@ func ReportGate(options: RunnerOptions, measurements: List<Measurement>): int {
     for i := 0; i < baseline.Count; i++ {
         row := baseline[i]
         cells = cells + 1
-        index := IndexOfMeasurement(measurements, row.Workload, row.Size, NsharpLanguageKey())
-        if index < 0 {
+        liveIndex := IndexOfMeasurement(liveMeasurements, row.Workload, row.Size, NsharpLanguageKey())
+        controlIndex := IndexOfMeasurement(controlMeasurements, row.Workload, row.Size, ControlLanguageKey())
+
+        if controlIndex < 0 {
+            // A missing CONTROL is a failure for the same reason a missing measurement is: the twelve
+            // rows are a contract, and a cell with no control has not been held to anything.
             failures = failures + 1
-            baselineNs := FormatNanoseconds(row.MedianNs)
-            print GateRow(row.Workload, row.Size, baselineNs, "n/a", "n/a", "MISSING MEASUREMENT")
+            measuredText := "n/a"
+            if liveIndex >= 0 {
+                measuredText = FormatNanoseconds(liveMeasurements[liveIndex].MedianNs)
+            }
+            print GateRow(row.Workload, row.Size, "n/a", measuredText, "n/a", "MISSING CONTROL")
             continue
         }
 
-        measured := measurements[index].MedianNs
-        ratio := SafeRatio(measured, row.MedianNs)
+        controlNs := controlMeasurements[controlIndex].MedianNs
+        if liveIndex < 0 {
+            failures = failures + 1
+            print GateRow(row.Workload, row.Size, FormatNanoseconds(controlNs), "n/a", "n/a", "MISSING MEASUREMENT")
+            continue
+        }
+
+        // THE VERDICT IS THE PAIRED RATIO, NOT THE QUOTIENT OF THE TWO MEDIANS. Each repetition
+        // measured its live and control samples seconds apart, so dividing them cancels the
+        // contention the two shared; the median of those per-repetition ratios is what survives a
+        // busy machine. The quotient of the independent medians does not — measured under
+        // a six-core artificial load it reached 1.11x-1.24x on cells whose paired samples agreed to
+        // within a percent — and it is the fallback only for a kernel program too old to print
+        // `ratio=`, where it is still better than nothing.
+        measured := liveMeasurements[liveIndex].MedianNs
+        ratio := liveMeasurements[liveIndex].PairedRatio
+        if ratio < 0.0 {
+            ratio = SafeRatio(measured, controlNs)
+        }
         status := "ok"
         if ratio < 0.0 || ratio > 1.0 + options.Tolerance {
             status = "FAIL"
             failures = failures + 1
         }
-        baselineNs := FormatNanoseconds(row.MedianNs)
-        measuredNs := FormatNanoseconds(measured)
-        print GateRow(row.Workload, row.Size, baselineNs, measuredNs, FormatRatio(ratio), status)
+        print GateRow(row.Workload, row.Size, FormatNanoseconds(controlNs), FormatNanoseconds(measured), FormatRatio(ratio), status)
     }
 
-    // A measured cell the baseline does not name is a failure too: the twelve rows are a contract,
-    // and a workload that appears without a baseline has never been held to one.
-    for i := 0; i < measurements.Count; i++ {
-        entry := measurements[i]
+    // A measured cell the twelve rows do not name is a failure too: a workload that appears without a
+    // row has never been held to one.
+    for i := 0; i < liveMeasurements.Count; i++ {
+        entry := liveMeasurements[i]
         if IndexOfThroughputBaselineRow(baseline, entry.Workload, entry.Size) < 0 {
             cells = cells + 1
             failures = failures + 1
@@ -853,20 +969,128 @@ func ReportGate(options: RunnerOptions, measurements: List<Measurement>): int {
         }
     }
 
+    PrintDriftTable(controlMeasurements, baseline)
+    shapeFailures := PrintIlShapeVerdict(liveShapes, controlShapes)
+
     print ""
     PrintGateSummary(options, cells, failures)
 
     if options.PrintBaseline {
         print ""
-        print "Paste-ready SystemsThroughputBaseline.nl rows for this run:"
+        print "Paste-ready SystemsThroughputBaseline.nl rows for THIS RUN'S CONTROL (the drift reference, not a verdict):"
         print ""
-        print BuildBaselineBlock(measurements).TrimEnd()
+        print BuildBaselineBlock(controlMeasurements).TrimEnd()
     }
 
-    if failures > 0 {
+    if failures > 0 || shapeFailures > 0 {
         return 1
     }
     return 0
+}
+
+// ─── THE DRIFT TABLE: INFORMATIONAL, NEVER GATING ─────────────────────────────────────────────
+//
+// The same-run ratio is immune to load, and that immunity costs exactly one thing: a machine or a
+// toolchain that moves under BOTH sides at once moves neither ratio nor verdict. That is the change
+// worth seeing but not worth failing a build over, so it is reported here and nowhere else. On a
+// quiet box these numbers sit near 1.0x; under a concurrent build they rise to 2x-4x, and that is
+// the load being reported, not a regression.
+func DriftTableHeader(): string {
+    names := new List<string>()
+    names.Add("workload")
+    names.Add("size")
+    names.Add("control ns")
+    names.Add("2026-09-01 ns")
+    names.Add("drift")
+    names.Add("gating")
+
+    alignments := new List<string>()
+    alignments.Add("---")
+    alignments.Add("---:")
+    alignments.Add("---:")
+    alignments.Add("---:")
+    alignments.Add("---:")
+    alignments.Add("---")
+
+    return MarkdownRow(names) + "\n" + MarkdownRow(alignments)
+}
+
+func PrintDriftTable(controlMeasurements: List<Measurement>, baseline: List<ThroughputBaselineRow>) {
+    print ""
+    print "drift (informational): this run's control against the stored " + ThroughputBaselineOrigin() + "."
+    print ""
+    print DriftTableHeader()
+
+    ratios := new List<double>()
+    for i := 0; i < baseline.Count; i++ {
+        row := baseline[i]
+        index := IndexOfMeasurement(controlMeasurements, row.Workload, row.Size, ControlLanguageKey())
+        if index < 0 {
+            print GateRow(row.Workload, row.Size, "n/a", FormatNanoseconds(row.MedianNs), "n/a", "no")
+            continue
+        }
+
+        controlNs := controlMeasurements[index].MedianNs
+        ratio := SafeRatio(controlNs, row.MedianNs)
+        if ratio >= 0.0 {
+            ratios.Add(ratio)
+        }
+        print GateRow(row.Workload, row.Size, FormatNanoseconds(controlNs), FormatNanoseconds(row.MedianNs), FormatRatio(ratio), "no")
+    }
+
+    print ""
+    print BuildDriftSummary(ratios)
+}
+
+func BuildDriftSummary(ratios: List<double>): string {
+    if ratios.Count == 0 {
+        return "DRIFT (informational, never gating): no control medians to compare, baseline " + ThroughputBaselineOrigin() + "."
+    }
+
+    sorted := new double[](ratios.Count)
+    for i := 0; i < ratios.Count; i++ {
+        sorted[i] = ratios[i]
+    }
+    Array.Sort(sorted)
+
+    median := sorted[sorted.Length / 2]
+    summary := "DRIFT (informational, never gating): " + ratios.Count.ToString() + " cells, median "
+    summary = summary + FormatRatio(median) + ", range " + FormatRatio(sorted[0]) + "-"
+    summary = summary + FormatRatio(sorted[sorted.Length - 1])
+    summary = summary + ", control over baseline " + ThroughputBaselineOrigin() + "."
+    return summary
+}
+
+// ─── THE IL-SHAPE CHECK: THE PART A SAME-RUN RATIO CANNOT DO ──────────────────────────────────
+//
+// Control and live are compiled by the same `nlc`, so a compiler change that de-vectorizes the
+// shape they share slows both equally and the ratio does not move. That is the 2x-6x regression this
+// lane exists for, so it is checked directly: every kernel, on both sides, must still call the
+// `SimdReductions` helper `ExpectedSimdHelper` names — or `none` where none is expected. This is a
+// fact about the emitted IL, so it needs no quiet machine and admits no tolerance.
+func PrintIlShapeVerdict(liveShapes: List<IlShapeAnswer>, controlShapes: List<IlShapeAnswer>): int {
+    print ""
+    unexpected := 0
+    workloads := WorkloadKeys()
+    for i := 0; i < workloads.Length; i++ {
+        expected := ExpectedSimdHelper(workloads[i])
+        unexpected = unexpected + ReportIlShapeSide(liveShapes, "live", workloads[i], expected)
+        unexpected = unexpected + ReportIlShapeSide(controlShapes, "control", workloads[i], expected)
+    }
+
+    verdict := "IL SHAPE: 12 kernels, " + unexpected.ToString() + " unexpected (6 live, 6 control; expected helpers from ExpectedSimdHelper)."
+    print verdict
+    return unexpected
+}
+
+func ReportIlShapeSide(shapes: List<IlShapeAnswer>, side: string, workload: string, expected: string): int {
+    actual := IlShapeFor(shapes, workload)
+    if actual == expected {
+        return 0
+    }
+
+    print "IL SHAPE FAIL: " + side + " " + workload + " lowers to simd=" + actual + ", expected simd=" + expected + "."
+    return 1
 }
 
 func PrintGateSummary(options: RunnerOptions, cells: int, failures: int) {
@@ -876,12 +1100,13 @@ func PrintGateSummary(options: RunnerOptions, cells: int, failures: int) {
     }
     summary := verdict + ": " + cells.ToString() + " cells, " + failures.ToString() + " failed"
     summary = summary + ", tolerance " + FormatRatio(1.0 + options.Tolerance)
-    summary = summary + ", baseline " + ThroughputBaselineOrigin() + "."
+    summary = summary + ", control " + ThroughputControlOrigin() + "."
     print summary
 }
 
 // The measured medians as the exact `rows.Add(...)` lines of `SystemsThroughputBaseline.nl`, so
-// refreshing the baseline is a paste rather than twelve hand edits.
+// refreshing the drift reference is a paste rather than twelve hand edits. It is handed the CONTROL
+// measurements, because the control is what those rows are the historical value of.
 func BuildBaselineBlock(measurements: List<Measurement>): string {
     builder := new StringBuilder()
     workloads := WorkloadKeys()
@@ -889,7 +1114,7 @@ func BuildBaselineBlock(measurements: List<Measurement>): string {
 
     for w := 0; w < workloads.Length; w++ {
         for s := 0; s < sizes.Length; s++ {
-            index := IndexOfMeasurement(measurements, workloads[w], sizes[s], NsharpLanguageKey())
+            index := IndexOfMeasurement(measurements, workloads[w], sizes[s], ControlLanguageKey())
             if index < 0 {
                 continue
             }

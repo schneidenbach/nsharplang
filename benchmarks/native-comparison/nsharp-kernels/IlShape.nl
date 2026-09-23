@@ -37,12 +37,18 @@ import System.Reflection.Emit
 class IlShape {
 
     // The helpers one kernel calls, comma-separated in first-call order, or `none`.
+    //
+    // `owner` is the class the kernel lives on: `Kernels` for the live kernels the gate measures, and
+    // `ControlKernels` for the frozen 2026-09-01 control it measures them against. The gate reads
+    // BOTH, because the whole force of a `live / control` ratio rests on the two sides lowering to
+    // the same shape — a control that quietly stopped vectorizing would make a de-vectorized live
+    // kernel look fine.
     [boundary]
-    static func SimdHelpersFor(kernelName: string): string {
-        kernel := must typeof(Kernels).GetMethod(kernelName)
+    static func SimdHelpersFor(owner: Type, kernelName: string): string {
+        kernel := must owner.GetMethod(kernelName)
         il := KernelIl(kernel)
         operandKinds := OperandKindTable()
-        moduleValue := typeof(Kernels).get_Module()
+        moduleValue := owner.get_Module()
         resolve := must typeof(Module).GetMethod("ResolveMethod", Int32Types())
 
         names := ""

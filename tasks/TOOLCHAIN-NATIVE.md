@@ -161,8 +161,8 @@ this box was building other lanes:
 
 **That is now three trips, all of them Step 2c and all of them under a concurrent build on this box,
 and the pattern is the instrument rather than the tree.** The fixed idle-M4 baseline is the thing
-that keeps tripping; **replacing it with a same-run control is PROPOSED and NOT DONE**, and it is an
-open user decision (see *Lanes in flight*). Note also that the rerun's own
+that kept tripping; **it has since been replaced by a same-run control on `census/throughput`**
+(2026-09-23, see *Lanes in flight*), which is why this table is history rather than a standing risk. Note also that the rerun's own
 `load-before-gate-rerun.txt` reads **1.92** one-minute, so the trip is not reproducible at rest.
 
 The `345e7899a` trip was **not rerun on its own** — it was folded into the `9ef0f5b32` gate, which
@@ -323,10 +323,15 @@ is noted here only so the next measurement is not surprised by it.)*
 collapsed to generics, and the `ColumnarParserKernels` split. **Building as this was written; nothing
 is claimed for it.**
 
-**Open user decision, PROPOSED AND NOT DONE.** Replace the throughput gate's **fixed idle-M4
-baseline** (2026-09-01, `8cf40128a`) with a **same-run control**, so Step 2c stops tripping whenever
-another lane is building on this box. Three trips this wave say the instrument is the problem; the
-change has not been made and needs the user's call.
+**User-sanctioned and DONE on `census/throughput` (2026-09-23).** The throughput gate's **fixed
+idle-M4 baseline** (2026-09-01, `8cf40128a`) is replaced by a **same-run control**: each of the
+twelve cells measures the live kernel and a frozen `ControlKernels.nl` transcription of the same six
+bodies, interleaved in one process, and gates on `live / control` at the unchanged 1.20x. Load
+multiplies both medians and divides out. The stored numbers stay as an informational drift table, and
+the vectorizer-fallback case the ratio cannot see — both sides share a compiler — is now checked
+directly out of the emitted IL (`--il-shape`) instead of statistically. Measured: three runs quiet
+and three under six spinning `yes` processes, all PASS with every cell 0.95x-1.06x, while the drift
+row moved to 2x-4x under the load; and a deliberately slowed kernel still FAILS its cell.
 
 ### Still OWED at `738996c29`
 
@@ -338,7 +343,8 @@ change has not been made and needs the user's call.
 3. **Runtime / Playground.Wasm / the Cli floor** — still open user decisions. **957 production lines,
    still unchanged**, plus the 359 in `editors/visualstudio/` that have never been inside the 957 and
    are the lowest priority of anything here.
-4. **The throughput gate's baseline** — an open user decision, proposed above and not done.
+4. ~~**The throughput gate's baseline**~~ — DONE on `census/throughput` (2026-09-23); see *Lanes in
+   flight*.
 
 *(Item 2 of the previous list — gates on the eighth seed — is now DISCHARGED; see the reseeds section.)*
 

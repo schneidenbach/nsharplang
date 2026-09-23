@@ -879,34 +879,69 @@ sync between the two scripts, and the hash-step behavior itself.
 
 ### 6. Step 2c: The Systems Throughput Gate
 Step 2c runs immediately after compiler build and formatting, before the prolonged self-host, native
-N#, and VS Code phases. That placement avoids the benchmark being preconditioned by that later gate
-work; build and format necessarily run first, and this is not a substitute for an idle host. Step 2c
-builds the N#-owned native-comparison runner
+N#, and VS Code phases. Step 2c builds the N#-owned native-comparison runner
 (`dotnet "$CLI_DLL" build --project benchmarks/native-comparison/runner`) and runs it in `gate`
-mode against the repo root. The runner executes the six systems kernels at both sizes (64 and 4096)
-and compares the MEDIAN of the source-default trials—15 for four kernels and 21 for rolling hash and
-min-max delta—per (kernel, size) against
-`benchmarks/native-comparison/runner/SystemsThroughputBaseline.nl` at a 20 percent tolerance: a cell
-fails when `measured / baseline > 1.20`, and any failing cell fails the step.
+mode against the repo root.
 
-Median, not mean, because the old BenchmarkDotNet gate compared means and flaked under thermal load
-— a handful of throttled iterations drags a mean up while the median holds. 20 percent because it is
-wide enough to absorb run-to-run noise on an idle Apple M4 (the June 2026 run's IQRs were a few
-percent) and tight enough to catch the regression the lane exists for: the vectorizer silently
-falling back to scalar, which costs 2-6x.
+**The gate measures its own reference (changed 2026-09-23).** Every one of the twelve cells (six
+kernels x sizes 64 and 4096) is measured TWICE in one process, interleaved: once as the live kernel
+in `benchmarks/native-comparison/nsharp-kernels/Kernels.nl`, and once as `ControlKernels.nl` — a
+frozen transcription of the same six bodies, the reference the 2026-09-01 medians were taken from.
+The two settle the JIT together, alternating until each has had >=500 ms and >=40 invocations; both
+carry the same per-trial warmup and the same port-matched iteration count; each repetition runs one
+trial of each, live-first on even repetitions and control-first on odd ones. The gate takes **31
+repetitions per side** (`--trials` overrides), not the ports' 15/21 — `compare` mirrors the ports
+because its question is nanoseconds beside Rust and C; the gate's question is a ratio, and 31 is what
+kept the noise out of it. The cell's verdict is the **median of the per-repetition ratios**, not the
+quotient of the two medians: a measured window is ~10 ms, the same order as a scheduler quantum, so a
+contended machine costs whole windows and two independently-taken medians drift apart by up to 24%
+with nothing regressed, while samples measured milliseconds apart share the contention that then
+cancels. A cell fails above 1.20x, and any failing cell fails the step. The step costs ~105 s.
 
-`SYSTEMS_BENCH=skip` skips the step on a hot or loaded machine. A skip is neither a pass nor a
-failure — it stores no step-cache marker, so the next unskipped run still has to earn one — and
-`SYSTEMS_BENCH` salts every step key and the whole-gate signature, so a skipped run can never
-satisfy an unskipped one. Refresh the baseline by running `gate --print-baseline` on an idle machine
-and pasting the printed block into `SystemsThroughputBaseline.nl`. Before trusting ANY number from
-this lane, baseline or failure, confirm the machine is idle:
+**Why it stopped comparing stored nanoseconds.** The old form divided each measured median by a
+number taken once, on 2026-09-01, on an idle Apple M4 — a measurement of one machine in one state,
+asked to judge whatever machine was free. `count-transitions` failed at 1.20x-1.75x whenever another
+build was running and passed at 0.95x-1.06x on a quiet box; one run under load average 25 failed all
+twelve cells at 1.63x-4.04x with nothing regressed. That was the single largest source of false gate
+failures in this campaign. Widening the tolerance would have traded false alarms for blindness;
+measuring the reference in the same minutes on the same machine removes the variable, because load
+multiplies both medians and divides out of their ratio. **Step 2c is no longer a reason to pause
+other lanes, and a busy box is no longer a reason to doubt its verdict.** Measured immunity
+(2026-09-23, this change's own evidence) is recorded with the change itself; the short form is that
+three runs on a quiet box and three under six spinning `yes` processes all PASSed with every cell
+inside noise, while the informational drift row rose under the load.
 
-```bash
-pgrep -fl 'test-all-core|dotnet build|dotnet test|MSBuild|rustc|clang|code'
-```
+**What the control cannot see.** Control and live are compiled by the same `nlc`, so a compiler
+change that de-vectorizes the shape they share slows both equally and the ratio does not move. That
+is the 2-6x regression this lane exists for, so the gate now checks it DIRECTLY: a second run with
+`--il-shape` reads out of the emitted IL which `SimdReductions` helper each kernel calls, on both
+sides, and fails any answer that is not the one `ExpectedSimdHelper` names in
+`SystemsThroughputBaseline.nl`. That is a fact, not a statistic — it needs no quiet machine and
+admits no tolerance. The paired mode also refuses to report timings at all if the control and the
+live kernel ever compute different answers.
 
-It must print nothing. A timing taken beside another agent's build is not a measurement.
+**The drift table is informational and never gates.** After the verdict table the gate prints this
+run's control median over the stored 2026-09-01 median, per cell, plus a
+`DRIFT (informational, never gating)` summary. It is the one thing a same-run ratio cannot see — the
+machine and the toolchain moving under both sides at once. Near 1.0x on a quiet box; 2x-4x under a
+concurrent build, which is the load reporting itself. It never touches the exit status. Reset its
+origin (optional housekeeping, changes no verdict) with `gate --print-baseline` on an idle machine,
+pasting the printed CONTROL block into `SystemsThroughputBaseline.nl`.
+
+Median, not mean, on both sides, because the old BenchmarkDotNet gate compared means and flaked under
+thermal load — a handful of throttled iterations drags a mean up while the median holds. 20 percent
+because it is wide enough to absorb the run-to-run spread between two interleaved medians and tight
+enough to catch a kernel that got materially slower than the reference it is supposed to match.
+
+`SYSTEMS_BENCH=skip` still skips the step. A skip is neither a pass nor a failure — it stores no
+step-cache marker, so the next unskipped run still has to earn one — and `SYSTEMS_BENCH` salts every
+step key and the whole-gate signature, so a skipped run can never satisfy an unskipped one. Reach for
+it now only to save the ~100 s the step costs, not to dodge a load-related failure.
+
+The shape of what this step prints — the six-column table, the `live / control` ratio, the drift
+summary, the IL-shape verdict, the cell-count verdict line — is pinned by
+`tests/native/gate-script-contracts/SystemsThroughputGate.tests.nl`, which reads the runner as text
+and never runs the gate.
 
 ### 7. Gate Profiling And Slicing Guidance
 Current gate profiling must be refreshed: the old BenchmarkDotNet wall-clock
@@ -1486,8 +1521,9 @@ non-VS-Code product gate:
 VSCODE_TESTS=skip ./scripts/test-all.sh --commit
 ```
 
-Add `SYSTEMS_BENCH=skip` to that line when the machine is hot or busy: it skips the Step 2c
-throughput gate, whose timings are meaningless under load (section 6).
+Add `SYSTEMS_BENCH=skip` to that line only to save the ~100 s the Step 2c throughput gate costs. Since
+2026-09-23 it measures its own reference in the same run and its verdict is load-immune, so a busy
+machine is no longer a reason to skip it (section 6).
 
 For Language Server, LSP, extension, or other IDE-affecting work, do not skip VS Code tests:
 

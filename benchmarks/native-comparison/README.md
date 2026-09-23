@@ -14,8 +14,11 @@ anti-dead-code-elimination sink that is printed (so `-O3` cannot elide the work)
 Two N# projects sit beside them:
 
 - `nsharp-kernels/` — the six `[hot]` kernels and the measurement harness, with the same input fill,
-  warmup, fixed-iteration and sink discipline as the ports. It also answers `--verify` (kernel
-  results) and `--il-shape` (which `SimdReductions` helpers each emitted kernel actually calls).
+  warmup, fixed-iteration and sink discipline as the ports. Beside them, `ControlKernels.nl` holds a
+  frozen copy of the same six bodies: the throughput gate's same-run control, described below. It
+  also answers `--verify` (kernel results), `--il-shape` (which `SimdReductions` helpers each emitted
+  kernel actually calls, for the live kernels and the control) and `--paired` (the gate's interleaved
+  live-against-control measurement).
   It is named `nsharp-kernels` rather than `nsharp` because the product gate's isolated copy of the
   tree excludes every directory named `nsharp/`, which would have hidden it from the gate that runs it.
 - `runner/` — the comparison runner and the throughput gate, described below.
@@ -116,22 +119,73 @@ the 2026-06-07 N# median, `today/June N#` (flagged `**REGRESSED**` above 1.15x),
 `gate` is the pass/fail form, and it is what the product gate runs (`tests/scripts/test-all-core.sh`,
 step 2c, skipped when `SYSTEMS_BENCH=skip` is set). The gate runs it immediately after compiler build
 and formatting, before prolonged self-host, native, and VS Code phases; that avoids preconditioning
-from later gate work, though build and format necessarily run first and an idle host is still required.
-It builds the Release runtime, builds and
-runs the N# kernel program against it, and compares its twelve medians with
-`runner/SystemsThroughputBaseline.nl`. It runs no native compilers and no `git`, because the gate
-executes from a copy of the tree without `.git/`. Its header line names the runtime it used.
+from later gate work. It builds the Release runtime, builds the N# kernel program against it, and
+runs it in its PAIRED mode. It runs no native compilers and no `git`, because the gate executes from
+a copy of the tree without `.git/`. Its first line names the runtime it used, its second the protocol.
 
 ```bash
 dotnet benchmarks/native-comparison/runner/bin/Debug/net10.0/NSharpLang.NativeComparisonRunner.dll \
     gate --cli "$CLI" --repo "$PWD"
 ```
 
-A cell fails when `measured / baseline` exceeds `1 + tolerance` (default `--tolerance 0.20`); a
-baseline row with no measurement, or a measurement with no baseline row, also fails, because the
-twelve rows are a contract. `gate --print-baseline` prints the measured medians as the exact N# rows
-of `SystemsThroughputBaseline.nl`, so refreshing the baseline on an idle machine is a paste rather
-than twelve hand edits.
+### The gate measures its own reference
+
+Each of the twelve cells is measured TWICE in one process, interleaved: once as the live kernel from
+`Kernels.nl`, and once as `ControlKernels.nl` — the frozen transcription of the kernels the
+2026-09-01 medians were taken from. The two sides settle the JIT together, alternating until each has
+had >= 500 ms and >= 40 invocations, so neither is the one that settled into a colder process. Both
+carry the same per-trial warmup and the same port-matched iteration count, and each repetition runs
+one trial of each, live-first on even repetitions and control-first on odd ones.
+
+The gate takes **31 repetitions per side**, not the ports' 15 and 21. `compare` mirrors each port's
+own trial count because its question is "how many nanoseconds, beside the same experiment in Rust and
+C". The gate's question is a ratio of two N# measurements, so the ports' counts bind nothing, and
+what matters is how much noise reaches the verdict: under a six-core artificial load, 15 repetitions
+gave paired ratios spanning 0.89x-1.24x and tripped about one run in three, while 31 gave
+0.95x-1.06x. `--trials <n>` overrides it.
+
+The cell's verdict is the **median of the per-repetition ratios** — each repetition's live sample
+divided by the control sample measured beside it — and it fails above `1 + tolerance` (default
+`--tolerance 0.20`). It is deliberately not the quotient of the two medians: a size-64 cell's
+measured window is about ten milliseconds, the same order as a scheduler quantum, so a contended
+machine costs a handful of windows outright and the two independently-taken medians drift apart by up
+to 24% with nothing regressed. Dividing samples that were measured milliseconds apart cancels the
+contention they shared. Both medians are still reported, in the table's two nanosecond columns.
+
+This replaced a comparison against stored nanoseconds, and the reason is recorded rather than
+asserted. The old gate divided each measured median by a number taken once, on 2026-09-01, on an idle
+Apple M4. That is a measurement of one machine in one state, and the gate runs on whatever machine is
+free: `count-transitions` failed at 1.20x-1.75x whenever another build was running and passed at
+0.95x-1.06x on a quiet box, and one run under load average 25 failed all twelve cells at 1.63x-4.04x
+with nothing regressed. Widening the tolerance would have traded those false alarms for blindness.
+Measuring the reference in the same minutes on the same machine removes the variable instead: load
+multiplies both medians and divides out of their ratio.
+
+A row with no measurement, a measurement with no row, and a row whose CONTROL did not report all
+fail, because the twelve rows are a contract.
+
+### What the control cannot see, and what covers it
+
+Control and live are compiled by the same `nlc`, so a compiler change that de-vectorizes the shape
+they share slows both sides equally and the ratio does not move. That is the 2x-6x regression this
+lane exists for, so the gate checks it directly rather than statistically: it runs the kernel program
+a second time with `--il-shape`, reads out of the emitted IL which `SimdReductions` helper each
+kernel actually calls, on BOTH sides, and fails when an answer is not the one
+`SystemsThroughputBaseline.nl`'s `ExpectedSimdHelper` names. An IL fact needs no quiet machine and
+admits no tolerance. The paired mode also refuses to report any timing at all if the control and the
+live kernel ever compute different answers.
+
+### The drift table
+
+The gate then prints a second, clearly informational table: this run's control median over the stored
+2026-09-01 median, per cell, plus a `DRIFT (informational, never gating)` summary. This is the one
+thing a same-run ratio deliberately cannot see — the machine and the toolchain moving under both
+sides at once. On a quiet box it sits near 1.0x; under a concurrent build it rises to 2x-4x, which is
+the load being reported rather than a regression. It never contributes to the exit status.
+
+`gate --print-baseline` prints this run's CONTROL medians as the exact N# rows of
+`SystemsThroughputBaseline.nl`, so resetting the drift reference on an idle machine is a paste rather
+than twelve hand edits. Refreshing it changes no verdict.
 
 Every gate run also writes its raw kernel stdout/stderr and a context record to
 `artifacts/native-comparison/<date>/gate-<UTC-timestamp>/`; `compare` itself still uses the parent
@@ -141,11 +195,12 @@ paths. This is observability only and does not change the timing protocol, toler
 status. An isolated product-gate copy is deleted after the run unless `NSHARP_TEST_KEEP_RUN=1`
 retains it, so copy those artifacts out of the retained tree when diagnosing an isolated failure.
 
-It compares MEDIANS, not means: the BenchmarkDotNet gate this replaces compared means and flaked
-under load, because a handful of thermally-throttled iterations move a mean and do not move the
-median of 15 trials. 20 percent is wide enough to absorb run-to-run noise on an idle Apple M4 (the
-June run's IQRs were a few percent) and tight enough to catch what this gate exists to catch — the
-vectorizer silently falling back to scalar, which is a 2-6x regression.
+It compares MEDIANS, not means, on both sides of every ratio: the BenchmarkDotNet gate this replaces
+compared means and flaked under load, because a handful of thermally-throttled iterations move a mean
+and do not move the median of 15 trials. 20 percent is wide enough to absorb the run-to-run spread
+between two interleaved medians — a few percent on a quiet box and, because the two sides share the
+machine, still a few percent under load — and tight enough to catch a kernel that got materially
+slower than the reference it is supposed to match.
 
 ## Why the runner is N# and not a shell script
 
