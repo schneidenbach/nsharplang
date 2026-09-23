@@ -1,6 +1,256 @@
 # Managed toolchain conversion and census closeout
 
-## Census wave 17 — current status (2026-09-22)
+## Census wave 18 — current status (2026-09-23)
+
+Wave 18 is integrated through **`bea64ac92`** on `census/merge`. **Twenty-six commits** sit between
+the wave-17 docs tip `59c965af0` and the tip (`git log 59c965af0..HEAD --stat`). The checkout is
+clean. **Two bootstrap seeds were published this wave**: `03f02b764` (packed source `eed29c71c`) and
+`bea64ac92` (packed source `9ef0f5b32`).
+
+**This is not a completion record, and the overall migration is NOT finished.** The toolchain floor
+did not move: the CLI is still 25 lines of C#, Runtime still 861, Playground.Wasm still 71 — **957
+lines, unchanged** — and the **rendered visual IDE proof is still owed**, five waves running. What
+wave 18 did is four things that can each be stated plainly: **CI went green**, **the last C# test
+project was deleted**, **the gate got about a third faster**, and **six language slices the audit
+asked for landed**.
+
+**THE HEADLINE: GitHub Actions `Build` IS GREEN AGAIN.** Run **`35829299886`** at **`03f02b764`** is
+the first green since **`e9ca730b6` on 2026-09-11** — twelve days red. Run **`35843843835`** at
+**`9ef0f5b32`** is green, and so is the **push** run **`35843838914`** at the same sha. The step that
+had been failing, `Installed toolchain integration tests`, now runs
+`tests/native/installed-toolchain-integration` through `nlc test`.
+
+### Status of the required sequence at a glance (2026-09-23, wave 18)
+
+| Step | State | Where the receipt is |
+|---|---|---|
+| CLI owner conversion | **UNCHANGED — COMPLETE to its floor**, 1 file / 25 lines | wave 15: `c1edbad92`, `dc3085766` |
+| TestHost | **UNCHANGED — COMPLETE**, 6 `.nl` / 1,184 lines / 0 C# | wave 15: `c1edbad92` |
+| LanguageServer conversion | **UNCHANGED — COMPLETE**, N#-SDK with ZERO C# | wave 16: `0ddb69807` |
+| Playground / Runtime / Wasm-hosting | **STILL NOT STARTED**; open user decision | `census-briefs/FABLE-REMAINING-OWNERS-ASSESSMENT.md` (untracked) |
+| **Last C# assertion project** | **DELETED** — 576 `.cs` lines → an N# native project; `tests/` holds no C# at all | `f8deff31a` |
+| NU5026 (the CI blocker) | **ROOT-CAUSED, both halves FIXED** | `e85a4fc2d` (SDK default), `f8deff31a` (fixture) |
+| CI on `systems-language` itself | **LANDED** — push **and** PR both listed | `dc2c7cdd1`, `345e7899a` |
+| Compiler.Core cleanup A (PR #191) | **LANDED** by rebase + fast-forward `4098492f6..327b8ef03`; PR closed with a landing note | `gh pr view 191` |
+| Gate-speed levers L11, L1, L2, L4, L3 | **ALL FIVE LANDED** | `37115240` … `6e40ac705`, `94c7f4953` |
+| Language slices (user decisions 2026-09-22) | **SIX LANDED** | `c308ef4a4`, `f661a127a`, `129430505`, `e86630495`, `9ef0f5b32` |
+| Gates at `eed29c71c` | **both PASS**, first try (non-VS **21m48s**, VS **24m45s**) | `evidence/combined-eed29c71c/` |
+| Seventh real reseed, at packed source `eed29c71c` | **SUCCESS** | `evidence/reseed-eed29c71c/reseed.log` |
+| Gates on the seed commit `03f02b764` | **both PASS** (non-VS 22m44s, VS 22m04s); pushed | `evidence/seed-03f02b764/` |
+| **Actions `35829299886` at `03f02b764`** | **GREEN — the first green since 2026-09-11** | `gh run view 35829299886` |
+| Gate at `345e7899a`, non-VS | **FAILED — throughput ONLY**, load 5.09; folded into the next gate | `evidence/combined-345e7899a/product-non-vscode.FAILED-throughput-under-load.log` |
+| Gates at `9ef0f5b32` | **non-VS PASS first try (19m11s); VS PASS on the SECOND attempt (23m19s)** | `evidence/combined-9ef0f5b32/` |
+| **Actions `35843843835` + push `35843838914` at `9ef0f5b32`** | **both GREEN** | `gh run view 35843843835` |
+| Eighth real reseed, at packed source `9ef0f5b32` | **SUCCESS** | `evidence/reseed-9ef0f5b32/reseed.log` |
+| Gates on the seed commit `bea64ac92` | **PENDING — running now**, nothing is claimed for them | `evidence/seed-bea64ac92/` (partial) |
+| Extension reload | **STILL PRE-FLIP** — never re-run on the N# server | wave 16: `evidence/seed-2b9271828/reload-extension.log` |
+| Rendered visual IDE proof | **STILL OWED** | nothing rendered has ever been observed |
+
+### CI is green — and one claim about WHY needs correcting
+
+Both green PR runs are runs of **PR #190, whose base is `main`**. That matters, because a claim was
+circulating that `35843843835` is "the first run on the new `systems-language` PR trigger". It is
+not. Under the old `main`-only filter every run in the listing was already PR #190 — including
+`35829299886`, the first green, which predates `dc2c7cdd1` entirely. What `dc2c7cdd1` added is
+coverage for **pushes to `systems-language`** and for **PRs whose base is `systems-language`** (the
+split lanes, e.g. #191), which is the gap that let #191 merge on local gates alone. The first run
+under the genuinely new trigger is therefore the **push** run **`35843838914`**.
+
+The Docker-gated integration rows that were the failing step now run from
+`tests/native/installed-toolchain-integration`, and the workflow sets
+`NSHARP_RUN_DOCKER_INTEGRATION=1` so they are **REQUIRED**: without it a runner with no daemon would
+report them skipped and the step would pass having proved nothing.
+
+**The release job's per-PR pre-release is PRE-EXISTING and was deliberately KEPT.** A same-repo PR
+still publishes `Unofficial pr-190 (<sha>)`, the behaviour the campaign has relied on since
+2026-09-10. `345e7899a` changed the PUSH arm only: `channel` falls back to `main` for any push, so
+once `systems-language` became a push trigger a push to it would have created an `unofficial-main-*`
+release *named for a branch it did not come from*. The ref check guards the push arm alone — **push
+runs publish only from `main`** — and a `systems-language` push gets build + tests + ilverify and
+publishes nothing.
+
+### NU5026 had TWO causes, and both are fixed
+
+**(1) The SDK's own default.** `EmitNSharpIlAssembly` writes the assembly with the compiler's own IL
+emitter, which has no symbol writer, so an N#-SDK project's output directory holds a `.dll` and
+**no `.pdb`**. Nothing in the base SDK knows that: `Microsoft.NET.Sdk.props` defaults `DebugType` to
+`portable`, the common targets put the `.pdb` into `@(DebugSymbolsProjectOutputGroupOutput)`, and
+NuGet's pack targets hand it to `PackTask`, which fails for a file the compiler never claimed to
+write. **`dotnet pack` of ANY N#-SDK project therefore worked only when the CALLER repaired the
+project's own declaration from the command line.** `e85a4fc2d` (equivalent to `census/ci2`'s
+`46f8644e9`) makes the project declare the truth instead: `DebugType` is read during EVALUATION by
+`Microsoft.NET.Sdk.props` itself, so it cannot be a target — it is set in `Sdk.props` **before** the
+base SDK import, with a `debugType:` key in `project.yml` overriding it for the day the emitter gains
+a symbol writer.
+
+**(2) The C# fixture.** `scripts/lib/packages.sh` passes `-p:DebugSymbols=false -p:DebugType=None`
+for **both** compiler packages; `tests/NSharpLang.IntegrationTests` passed them for
+`NSharpLang.Compiler.Core` and **not** for `NSharpLang.Compiler`, and that one plain `dotnet pack` is
+where CI stopped.
+
+### The last C# assertion project is gone — `f8deff31a`
+
+`tests/NSharpLang.IntegrationTests/` was the last C# assertion project in the repository: **576 lines
+across 3 `.cs` files** — `ToolchainTests.cs` 337, `ToolchainFixture.cs` 170,
+`DockerFactAttribute.cs` 69 — plus `Dockerfile.toolchain`. It is deleted, its `NSharpLang.sln` entry
+with it, and `tests/native/installed-toolchain-integration` replaces it whole. Both `build.yml` and
+`publish.yml` now run it through `nlc test`. **`tests/` holds no C# at all.**
+
+**Its row split, MEASURED, because the figure in circulation was the OLD project's.** The gate prints
+`Passed: 14, Failed: 0, Skipped: 13, Total: 27`. That is **27 rows = 13 Docker-gated + 14 ungated**,
+**not** "12 Docker rows + 15 ungated": the deleted `ToolchainTests.cs` carried **12** `[DockerFact]`
+rows, and `InstalledToolchain.tests.nl` carries **13**. The other file,
+`ToolchainCommandContracts.tests.nl`, holds **14 ungated** rows that pin everything about the Docker
+half which is *not* the daemon — the argv of every `docker` invocation, the pack/publish command
+lines, and the Dockerfile's own staging — so a machine with no daemon still proves those.
+
+### The gate is about a third faster — five levers, with the caveat on one
+
+From `census-briefs/FABLE-TEST-SPEED-ANALYSIS.md`, in landing order:
+
+- **L11** (`37115240`) — per-project timings in Step 3a. Free, and the prerequisite for judging L3.
+- **L1** (`5438bde28`) — the compile-time bench paid for **three** `nlc build`s of Compiler.Core
+  (**382,887 ms** in the last recorded in-gate run) to produce a median the same block then
+  **refused to read**, because Step 3a's own load had already declined the judgement.
+  `BenchGateRunCount` turns that one load reading into the run count: three when the timing half
+  will be judged, **one** when it will not.
+- **L2** (`c74158fa3`) — Step 2d was **fully front-end compiling all 551 Core files, twice** (about
+  **4m14s of an 11m50s step**) for `src/NSharpLang.Compiler` and `src/NSharpLang.Playground`, two
+  projects that carry the ceiling `-1` and whose builds **cannot succeed** while Core's front door
+  reports 1,318. The block is now read off Core's own count in the same run and **no doomed build is
+  started**; the day Core reaches 0 the guard stops firing on its own.
+- **L4** (`1428e94b5`) — product-only and tests-included builds shared one `obj`, so each one's emit
+  stamp evicted the other's and every flip cost a full re-emit (**133.07 s and 273.27 s**, where a
+  rebuild that finds its own stamp costs **0.58 s**). `NSharpExcludeTests=false` now writes to
+  `obj/tests-included/`. **CAVEAT, carried from `643717ef0`: the gate and `dev.sh` build Core through
+  the SEED SDK from `bootstrap/`, so this bought nothing until the seventh reseed shipped it.**
+- **L3** (`6e40ac705`, hardened by `94c7f4953`) — Step 3a ran ~129 whole `nlc test` processes
+  strictly one at a time. They now run under capped workers with a **pinned serial group first**,
+  each member for a named reason, and the parent replays every project in **discovery order** so two
+  runs still diff cleanly. Measured on the 10-core M4 (`9c0a12082`): **three parallel sweeps at
+  339 s, 377 s and 486 s against a ~14m18s serial native half**, all three with identical counts.
+  `94c7f4953` is the flake this exposed — `sdk-project-reference-boundary` failed **27/28** because
+  its per-row `dotnet pack` writes the SHARED `src/*/obj` and `src/*/bin`, and three sweep projects
+  pack the same two projects; the feed is now packed **once per run, in the parent, before any worker
+  exists**.
+
+**Measured totals**, both gate scopes, both tips: at `eed29c71c` **21m48s / 24m45s**; at `9ef0f5b32`
+**19m11s / 23m19s**. Against **~33m / ~34m** before. Step 2d fell from about 10m to **7m45s**, Step
+3a to **8m30s**.
+
+### Gate history, honestly — including two throughput trips under concurrent builds
+
+Step 2c compares against a baseline measured **on an idle Apple M4** (2026-09-01, `8cf40128a`), and
+this box was building other lanes:
+
+| gate | load at Step 2c | cells failed of 12 | worst |
+|---|---|---|---|
+| `345e7899a` non-VS | `{ 5.09 4.69 4.67 }` | 2 | `count-transitions` 64 **1.47×**, 4096 **1.40×** |
+| `9ef0f5b32` VS, 1st attempt | `{ 5.22 5.55 4.65 }` | 3 | `count-transitions` 4096 **1.44×**, 64 1.25×, `rolling-hash` 64 1.20× |
+| `9ef0f5b32` VS, rerun | `{ 3.08 4.06 5.81 }` | **0** | `count-transitions` 4096 **1.00×** |
+
+The `345e7899a` trip was **not rerun on its own** — it was folded into the `9ef0f5b32` gate, which
+covers the same tree plus two commits. The VS rerun's `load-before-vscode-rerun.txt` reads **1.87**
+one-minute; Step 2c, minutes later, printed **3.08**. Both are recorded, because the number taken
+before the gate is not the number the gate judged on.
+
+### Compiler.Core cleanup A — PR #191, landed as `4098492f6..327b8ef03`
+
+**132 files, +2,013 / −2,797**, matching `gh pr view 191` exactly. Three results, each measured:
+
+- **Net product N# −906 lines**, from extracting `CommandOutputKernels` (−580),
+  `ColumnarPlannerSupport` (−275) and `RuntimeTypeShapeFacts` + `WellKnownTypeCatalog` (−165). CLI
+  output **byte-identical across 116 captured runs**.
+- **Estate selection FIXED.** The estate rows were namespaced, so `dev.sh --estate Columnar` selects
+  **3,142 rows instead of 53** (and `Analyzer` **3,079 instead of 38**) — which means every
+  `--estate` run before this one was filtering against a name almost nothing carried.
+- **Front door 1,340 → 1,318**, ceiling ratcheted down the established way; ownership rows and head
+  repinned 25/25.
+
+The PR was **closed with a landing note** recording the rebase-and-fast-forward and the gate it was
+verified under; the branch was retired after the push.
+
+### Language slices — six, under "no compatibility shims"
+
+| decision | spelling | commit |
+|---|---|---|
+| D5 exception filters | `catch e: T when cond` — a **real CLR filter**, so the guard runs before the stack unwinds | `c308ef4a4` |
+| D3 `in` parameters | a large struct passed by read-only reference instead of copied | `f661a127a` |
+| `file` REMOVED | gone from the lexer in **both** directions; `Modifiers.File` (32768) **deleted**, not left set by nothing | `129430505` |
+| D11 camelCase types package-private | a **top-level** camelCase type is now emitted `assembly`, as nested types and members already were | `129430505` |
+| `type` demoted to CONTEXTUAL | a keyword at exactly one production (`type Name = Underlying`), an ordinary identifier everywhere else — member, parameter, local, loop variable, `x.type` | `e86630495` |
+| D1 explicit interface implementation | `func IEnumerable.GetEnumerator(): IEnumerator`; **NL345–NL349**; diagnostic catalog 108 → 113 codes | `9ef0f5b32` |
+
+**What is still REFUSED, each with a named decline rather than a mis-emit:** a **generic interface
+METHOD** (a generic slot's MethodImpl bits are decided from name and arity before the signature
+exists), an **explicit EVENT** (the grammar has no `add`/`remove` accessors), and a **`static`
+member** (no virtual slot to name).
+
+**And one defect the D1 work makes reachable, filed not papered over — `EXT-SOURCERECV`.** An
+extension-method call whose receiver is a **source** type — `bag.Count()` — does not bind; the static
+spelling `Enumerable.Count<string>(bag)` does, and is what the census rows and the example use.
+`FindClosedImplementation` reads the receiver's interfaces by reflection, and a `TypeBuilder` answers
+nothing before `CreateType`. Same family as the wave-12 `OfType`/`Cast` finding. Recorded in
+`census-briefs/CLI2-COMPILER-BLOCKERS.md` with the measured declines and a minimal repro; **it needs
+its own pass.**
+
+### The seventh and eighth reseeds
+
+| seed commit | packed source | Sdk | Runtime | ownership head |
+|---|---|---|---|---|
+| `03f02b764` (seventh) | `eed29c71c` | `39e0ecd0…` | `a8d30e07…` | 25/25 |
+| `bea64ac92` (eighth) | `9ef0f5b32` | `d8b6e1c2…` | `32fa51c7…` | `head-v2:48628c3d8a182bcb` (25/25) |
+
+Full digests are in `bootstrap/SHA256SUMS` at each commit. The eighth carries explicit interface
+implementation and contextual `type`, **so `Compiler.Core` may now use both**. **Its gates are
+PENDING** — running now in an isolated copy; nothing is claimed for them here.
+
+**Measured at the `9ef0f5b32` combined gate**: estate **9,621 rows / 0 failed**; front door **1,318
+(at the ceiling)** with Build.Tasks **0**; Step 3a **135 projects** (11 serial, then 124 under up to
+6 workers) / **4,867 rows** (4,853 passed, 0 failed, 14 skipped — 13 of them the Docker rows); IL
+verification **83 N# assemblies**, no new errors against the baseline. *(The `9ef0f5b32` commit
+message's "129 projects / 4,821 rows" and "ilverify 107 assemblies" were measured at that lane's own
+base, not on this combined tree.)*
+
+### Remaining production C#, measured at `bea64ac92`
+
+`find <project> -name '*.cs' -not -path '*/obj/*' -not -path '*/bin/*' | xargs wc -l`, in this
+worktree:
+
+| Project | C# lines | Files |
+|---|---:|---:|
+| `src/NSharpLang.Runtime` | 861 | 4 |
+| `src/NSharpLang.Playground.Wasm` | 71 | 2 |
+| `src/NSharpLang.Cli` | 25 | 1 |
+| `src/NSharpLang.TestHost` | **0** | **0** |
+| `src/NSharpLang.LanguageServer` | **0** | **0** |
+| `tests/` (whole tree) | **0** | **0** |
+| **total** | **957** | **7** |
+
+**Unchanged at 957.** Runtime: SimdReductions 472 · Result 187 · Union 149 ·
+NSharpEventSubscription 53. Wasm: PlaygroundExports 62 · Program 9. Cli: `Program.cs` alone. Each of
+the three surviving corpora is blocked on a **user decision**, not on the compiler.
+
+*(Separately, `editors/visualstudio/` holds **359 lines of C# across 4 files** — a Visual Studio
+extension host, not part of the compiler or the toolchain floor. It has never been inside the 957 and
+is noted here only so the next measurement is not surprised by it.)*
+
+### Lanes in flight
+
+`census/core-b` — **audit PRs 5–7**: `ColumnarEmitContext`, the loop sweep, and node kinds + `match`.
+
+### Still OWED at `bea64ac92`
+
+1. **Rendered visual IDE verification** — unchanged, five waves old. The only successful extension
+   reload remains the PRE-FLIP one at `2b9271828`, which built a **C#** language server.
+2. **Gates on the eighth seed commit `bea64ac92`** — in progress; this record claims nothing for them.
+3. **The rest of the `Compiler.Core` compression** — PRs 5–7 open, levers L5–L10 unstarted.
+4. **Runtime / Playground.Wasm / the Cli floor** — still open user decisions.
+
+**No completion claim.** What is now true that was not true at `59c965af0`: CI is green, `tests/`
+holds no C#, the gate runs in roughly two thirds of the time, and six language slices have landed.
+
+## Census wave 17 — history (2026-09-22)
 
 Wave 17 is integrated, **pushed, gated and reseeded twice** through `59c965af0` on `census/merge`,
 which equals `origin/systems-language`. **Nine commits** sit between the wave-16 docs tip
