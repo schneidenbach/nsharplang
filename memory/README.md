@@ -101,6 +101,15 @@ NL201 on the compiler's own IL back end, and the `import` that supplies it was t
 `AnalyzerMetadataLoadPolicy.tests.nl`) resolves it and also cleared the pre-existing NL201 in
 `ColumnarIlEmitter.nl`: zero additions and two removals against the 1,342 baseline.
 
+**Measured 2026-09-22 at `5de55561b`** (the Compiler.Core compression campaign, PRs 1-4 of the Fable
+audit, rebased onto the sixth seed): Core reports **1,318 diagnostics carried by 279 of the project's
+files** (1,302 errors and 16 warnings), and **the gate ceiling is now 1,318**. The four PRs had ADDED
+fourteen NL010s — deleting a duplicated function leaves the import that served it unused, and
+`ColumnarCanonicalTypeResolver` and `ColumnarTypeOfPlanner` lost six and three imports' worth of work
+between them when their builtin tables moved to `WellKnownTypeCatalog`. Removing those, plus the
+twenty-two other unused imports already sitting in the same eighteen files, took the count from 1,340
+to 1,318, so the ceiling came down the way `c751edd7e` brought it to 1,340. No other class moved.
+
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
 
@@ -111,9 +120,10 @@ nothing to count. The original SELFHOST measurement found zero diagnostics in th
 through `--text`; that observation does not make their blocked project checks clean. When Core reaches
 0 their ceilings become real numbers.
 
-The remaining backlog includes NL905 (429 possible null dereferences), NL202 (351 argument type
-mismatches), NL002 (239 missing imports), NL010 (186 unused imports), and 96 NL012/NL011/NL304 findings
-(unused parameters, empty catches and definite-assignment holes). The source cleanup campaign remains
+The remaining backlog, measured at `5de55561b`, is NL905 (424 possible null dereferences), NL202 (352
+argument type mismatches), NL002 (239 missing imports), NL010 (165 unused imports), and 96
+NL012/NL011/NL304 findings (unused parameters, empty catches and definite-assignment holes), with 42
+NL907/NL001/NL209/NL303/NL301/NL402 behind them. The source cleanup campaign remains
 open; a successful seed build through the emit-only path does not prove that this front door is clean.
 
 ### Republishing the seed
