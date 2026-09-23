@@ -4,7 +4,7 @@
   "codeEpochFileCount": 223,
   "codeEpochPathFingerprint": "pathset-v2:fbda7fc3d5053525",
   "codeEpochFactFingerprint": "epochfacts-v2:05f608333cab8ef7",
-  "reviewedHeadFingerprint": "head-v2:187c0177491458ad",
+  "reviewedHeadFingerprint": "head-v2:22bf34fb2cf1d13b",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":190,"currentNonBlankLines":164,"currentBytes":0,"currentFingerprint":"text-v1:3a65c0407cf192e9"},
@@ -67,7 +67,7 @@
     {"path":"editors/vscode/src/testController.ts","language":"typescript","surface":"editor","campaignScope":"closeout","state":"existing-debt","epochLines":165,"currentLines":165,"epochNonBlankLines":141,"currentNonBlankLines":141,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:b13c8206d8aba4e3"},
     {"path":"editors/vscode/src/testRunner.ts","language":"typescript","surface":"editor","campaignScope":"closeout","state":"existing-debt","epochLines":338,"currentLines":338,"epochNonBlankLines":292,"currentNonBlankLines":292,"epochAssertionMarkers":4,"currentAssertionMarkers":4,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:a89166bac154315c"},
     {"path":"editors/vscode/src/toolchain.ts","language":"typescript","surface":"editor","campaignScope":"closeout","state":"existing-debt","epochLines":212,"currentLines":212,"epochNonBlankLines":173,"currentNonBlankLines":173,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:23eb47082358dd77"},
-    {"path":"editors/vscode/syntaxes/nsharp.tmLanguage.json","language":"json-config","surface":"editor","campaignScope":"closeout","state":"reviewed","currentLines":382,"currentNonBlankLines":382,"currentBytes":0,"currentFingerprint":"text-v1:3f478abe55ebb4bf"},
+    {"path":"editors/vscode/syntaxes/nsharp.tmLanguage.json","language":"json-config","surface":"editor","campaignScope":"closeout","state":"reviewed","currentLines":382,"currentNonBlankLines":382,"currentBytes":0,"currentFingerprint":"text-v1:f9cc74aa50b71ef1"},
     {"path":"editors/vscode/test-server.sh","language":"shell","surface":"editor","campaignScope":"closeout","state":"reviewed","currentLines":52,"currentNonBlankLines":43,"currentBytes":0,"currentFingerprint":"text-v1:550cf383338a6b44"},
     {"path":"editors/vscode/test/runTest.ts","language":"typescript","surface":"editor","campaignScope":"closeout","state":"existing-debt","epochLines":139,"currentLines":139,"epochNonBlankLines":125,"currentNonBlankLines":125,"epochAssertionMarkers":1,"currentAssertionMarkers":1,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:664b88470f55635b"},
     {"path":"editors/vscode/test/suite/codeAction.test.ts","language":"typescript","surface":"editor","campaignScope":"closeout","state":"existing-debt","epochLines":171,"currentLines":171,"epochNonBlankLines":145,"currentNonBlankLines":145,"epochAssertionMarkers":5,"currentAssertionMarkers":5,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:7555a45733c72874"},

@@ -49,7 +49,7 @@ class LinterExportedSymbolExtractor {
                 continue
             }
 
-            if braceDepth == 0 && IsDeclarationKeyword(token.Type) {
+            if braceDepth == 0 && (IsDeclarationKeyword(token.Type) || TypeAliasKeywordFacts.IsAliasDeclarationHead(tokens, index)) {
                 nameIndex := FindDeclaredNameIndex(tokens, index)
                 if nameIndex >= 0 {
                     AddIfDistinct(symbols, tokens[nameIndex].Value)
@@ -64,8 +64,10 @@ class LinterExportedSymbolExtractor {
         return symbols
     }
 
+    // `type` IS ABSENT ON PURPOSE: it is a contextual keyword, so a type ALIAS head is recognized by
+    // `TypeAliasKeywordFacts.IsAliasDeclarationHead` beside this test rather than by a token kind.
     static func IsDeclarationKeyword(tokenType: TokenType): bool {
-        return tokenType == TokenType.Class || tokenType == TokenType.Struct || tokenType == TokenType.Record || tokenType == TokenType.Interface || tokenType == TokenType.Enum || tokenType == TokenType.Union || tokenType == TokenType.Func || tokenType == TokenType.Type
+        return tokenType == TokenType.Class || tokenType == TokenType.Struct || tokenType == TokenType.Record || tokenType == TokenType.Interface || tokenType == TokenType.Enum || tokenType == TokenType.Union || tokenType == TokenType.Func
     }
 
     static func FindDeclaredNameIndex(tokens: List<Token>, declarationIndex: int): int {

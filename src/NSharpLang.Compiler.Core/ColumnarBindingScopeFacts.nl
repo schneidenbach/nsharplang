@@ -2516,7 +2516,7 @@ class ColumnarBindingScopeFacts {
                 inWhereClause = true
             } else if atTopLevel && kind == 120 {
                 inWhereClause = false
-            } else if !inWhereClause && IsTypeDeclarationKeyword(kind) && !IsRecordStructTailToken(compactKinds, index) {
+            } else if !inWhereClause && TypeDeclarationHeadKind(source, compactKinds, compactStarts, compactLengths, compactCount, index) != 0 && !IsRecordStructTailToken(compactKinds, index) {
                 nameIndex := index + 1
                 if kind == 13 && nameIndex < compactCount && compactKinds[nameIndex] == 9 {
                     nameIndex = nameIndex + 1
@@ -2529,7 +2529,7 @@ class ColumnarBindingScopeFacts {
                         // `Subscription` and `Subscription<T>` written in one file are two entries.
                         // A type alias has no type parameters and keeps its bare name.
                         declarationKey := TypeArityNames.Key(declarationName, DeclarationGenericArity(compactKinds, compactCount, nameIndex))
-                        isTypeKeyword := kind == Convert.ToInt32(TokenType.Type)
+                        isTypeKeyword := TypeDeclarationHeadKind(source, compactKinds, compactStarts, compactLengths, compactCount, index) == Convert.ToInt32(TokenType.Type)
                         if isTypeKeyword && !IsNewtypeDeclaration(compactKinds, compactCount, nameIndex) {
                             declarationKey = declarationName
                             if !CollectTypeAliasFact(source, compactKinds, compactStarts, compactLengths, compactCount, nameIndex, declarationName, fileFacts) {
@@ -2907,8 +2907,26 @@ class ColumnarBindingScopeFacts {
         return Path.GetFullPath(".")
     }
 
+    // `type` (72) IS NOT HERE: it is a CONTEXTUAL keyword and the columnar lexer writes an ordinary
+    // identifier for it, so no token kind names a type alias on its own.
     static func IsTypeDeclarationKeyword(kind: int): bool {
-        return kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14 || kind == 72
+        return kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14
+    }
+
+    // The declaration KIND of a type-declaration head, or 0 when the token opens none. A type ALIAS
+    // answers 72 — the ordinal this walker's alias arm already reads — although its token is an
+    // identifier, so the contextual reading enters this walker in exactly one place.
+    static func TypeDeclarationHeadKind(source: string, kinds: int[], starts: int[], lengths: int[], count: int, index: int): int {
+        kind := kinds[index]
+        if IsTypeDeclarationKeyword(kind) {
+            return kind
+        }
+
+        if TypeAliasKeywordFacts.IsAliasDeclarationHeadAt(source, kinds, starts, lengths, count, index) {
+            return 72
+        }
+
+        return 0
     }
 
     // THE ONE BIT SPACE IS `Modifiers` (DeclarationEnums.nl): Public 1, Private 2, Internal 4,

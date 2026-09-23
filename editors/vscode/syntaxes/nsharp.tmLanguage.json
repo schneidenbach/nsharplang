@@ -151,7 +151,7 @@
         },
         {
           "name": "storage.type.nsharp",
-          "match": "\\b(let|const|type|out|ref|params)\\b"
+          "match": "\\b(let|const|out|ref|params)\\b"
         },
         {
           "name": "constant.language.nsharp",

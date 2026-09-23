@@ -176,6 +176,36 @@ test "020 s17 parser declarations: `file` IS AN ORDINARY IDENTIFIER — the file
     assert PdCensus("\n            file class Helper {\n            }\n        ") != ""
 }
 
+test "020 s17 parser declarations: `type` IS A CONTEXTUAL KEYWORD — an alias head, an identifier everywhere else" {
+    // THE PRODUCTION THAT KEEPS THE WORD. A top-level `type Name = Underlying` head still declares an
+    // alias, and its branded `newtype` form still declares a newtype; those two rows are the only
+    // reason `type` is spelled anywhere in the grammar.
+    assert PdCensus("\n            type UserId = int\n        ") == ""
+    assert PdCensus("\n            type Email = newtype string\n        ") == ""
+
+    // EVERY OTHER POSITION IS AN ORDINARY IDENTIFIER, and this is what the hard keyword blocked: no
+    // N# type could expose a member named `type`, which is the name `nlc query type` wanted.
+    typeName := "\n            class type {\n                type: string\n            }\n        "
+    assert PdCensus(typeName) == ""
+
+    member := "\n            class Row {\n                type: string\n\n                func Read(type: string): string {\n                    return type\n                }\n            }\n        "
+    assert PdCensus(member) == ""
+
+    loopVariable := "\n            func Walk(kinds: string[]) {\n                for type in kinds {\n                    print type\n                }\n            }\n        "
+    assert PdCensus(loopVariable) == ""
+
+    memberAccess := "\n            func Read(row: Row): string {\n                return row.type\n            }\n        "
+    assert PdCensus(memberAccess) == ""
+
+    local := "\n            func Walk() {\n                type := 5\n                print type\n            }\n        "
+    assert PdCensus(local) == ""
+
+    // AND THE HEAD IS STILL THREE TOKENS. A local ASSIGNMENT to a variable called `type` is not an
+    // alias declaration, and reading it as one would silently swallow the statement.
+    assignment := "\n            func Walk() {\n                type := 5\n                type = 6\n                print type\n            }\n        "
+    assert PdCensus(assignment) == ""
+}
+
 test "020 s17 parser declarations: `record struct` sets IsStruct=true and anchors on the `record` keyword (was ParserTests.TestRecordStruct)" {
     source := "\n            record struct Point {\n                X: double\n                Y: double\n            }\n        "
     assert PdCensus(source) == ""

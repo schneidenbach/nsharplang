@@ -57,9 +57,15 @@ class EditorRenameGuardFacts {
             return true
         }
 
-        if word == "type" || word == "out" || word == "ref" || word == "params" || word == "true" {
+        if word == "out" || word == "ref" || word == "params" || word == "true" {
             return true
         }
+
+        // `type` IS NOT GUARDED, because it is a CONTEXTUAL keyword and every position a rename can
+        // write is a position where it is an ordinary identifier — a member, a parameter, a local, a
+        // loop variable, a declaration name. The one production that reads the word
+        // (`type Name = Underlying`, a top-level declaration head) is not reachable by renaming a
+        // symbol: no top-level shape puts two identifiers and an `=` where a rename would land.
 
         // `in` is the `for x in xs` keyword AND the read-only by-reference parameter modifier. It was
         // missing from this guard while it was only the former, which was already wrong: a rename to a

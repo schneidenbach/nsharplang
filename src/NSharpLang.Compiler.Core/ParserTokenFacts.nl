@@ -374,6 +374,11 @@ class ParserTokenFacts {
         return false
     }
 
+    // `type` IS NOT IN THIS SET, and its absence is the whole of what makes it contextual. A type
+    // ALIAS still opens a declaration, but it opens with an ordinary identifier whose text is `type`
+    // — so the question "does this token start a type declaration" cannot be answered from the token
+    // KIND alone, and the callers that need the alias answer ask `IsTypeAliasDeclarationStart`
+    // (ColumnarParserRecovery) or `ColumnarTypeAliasHeadFacts` (the columnar walkers) instead.
     static func IsTypeDeclarationKeyword(tokenType: TokenType): bool {
         if tokenType == TokenType.Class {
             return true
@@ -391,9 +396,6 @@ class ParserTokenFacts {
             return true
         }
         if tokenType == TokenType.Enum {
-            return true
-        }
-        if tokenType == TokenType.Type {
             return true
         }
         return false

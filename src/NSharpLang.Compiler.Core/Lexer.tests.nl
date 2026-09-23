@@ -269,7 +269,7 @@ func LexerContractTablesCoverEveryTokenType(left: TokenType[], right: TokenType[
 
 // ---- Tables ------------------------------------------------------------------------------------
 
-// The 85 keyword texts of `Lexer.KeywordTypeForText`, in its own arm order.
+// The 83 keyword texts of `Lexer.KeywordTypeForText`, in its own arm order.
 
 func LexerContractKeywordTexts(): string[] {
     return [
@@ -338,7 +338,6 @@ func LexerContractKeywordTexts(): string[] {
         "await",
         "immutable",
         "with",
-        "type",
         "assert",
         "operator",
         "required",
@@ -360,7 +359,7 @@ func LexerContractKeywordTexts(): string[] {
     ]
 }
 
-// The 85 keyword token types of `Lexer.KeywordTextForType`, in the same order.
+// The 83 keyword token types of `Lexer.KeywordTextForType`, in the same order.
 func LexerContractKeywordTypes(): TokenType[] {
     return [
         TokenType.Func,
@@ -428,7 +427,6 @@ func LexerContractKeywordTypes(): TokenType[] {
         TokenType.Await,
         TokenType.Immutable,
         TokenType.With,
-        TokenType.Type,
         TokenType.Assert,
         TokenType.Operator,
         TokenType.Required,
@@ -463,6 +461,7 @@ func LexerContractNonKeywordTypes(): TokenType[] {
         TokenType.StringLiteral,
         TokenType.TripleQuoteStringLiteral,
         TokenType.InterpolatedRawStringLiteral,
+        TokenType.Type,
         TokenType.Test,
         TokenType.File,
         TokenType.Plus,
@@ -1467,7 +1466,7 @@ test "lexer lexes a keyword lookalike as an identifier" {
     }
 }
 
-// NOT IN THE DELETED FILE. The two keyword tables are each other's inverse, all 85 rows of it.
+// NOT IN THE DELETED FILE. The two keyword tables are each other's inverse, all 83 rows of it.
 test "lexer maps every keyword text to its token type and back" {
     texts := LexerContractKeywordTexts()
     kinds := LexerContractKeywordTypes()
@@ -1481,7 +1480,7 @@ test "lexer maps every keyword text to its token type and back" {
     }
 }
 
-// NOT IN THE DELETED FILE. The other 63 `TokenType` members are reserved by NOTHING -- so a new
+// NOT IN THE DELETED FILE. The other 65 `TokenType` members are reserved by NOTHING -- so a new
 // keyword cannot be added to one table and forgotten in the other without failing here.
 test "lexer reserves no token type outside the keyword table" {
     others := LexerContractNonKeywordTypes()
@@ -1501,12 +1500,15 @@ test "lexer keyword tables partition the whole token type enum" {
     keywords := LexerContractKeywordTypes()
     others := LexerContractNonKeywordTypes()
 
-    // 84 AND 64, NOT 85 AND 63: `file` was a keyword and is not one any more. `TokenType.File` stays in
-    // the enum because every ordinal above it is the columnar pipeline's token-kind currency, so it moved
-    // into the NON-keyword table beside `Test` rather than out of the enum.
-    assert LexerContractKeywordTexts().Length == 84
-    assert keywords.Length == 84
-    assert others.Length == 64
+    // 83 AND 65, NOT 85 AND 63: `file` was a keyword and is not one any more, and `type` is now a
+    // CONTEXTUAL one — the lexer writes an ordinary identifier for it and the one production that
+    // reads the word (`type Name = Underlying`) recognizes it by its text (TypeAliasKeywordFacts).
+    // `TokenType.Type` and `TokenType.File` both stay in the enum because every ordinal above them is
+    // the columnar pipeline's token-kind currency, so each moved into the NON-keyword table beside
+    // `Test` rather than out of the enum.
+    assert LexerContractKeywordTexts().Length == 83
+    assert keywords.Length == 83
+    assert others.Length == 65
     assert LexerContractAllTokenTypes().Length == 148
     assert LexerContractTablesAreDisjoint(keywords, others)
     assert LexerContractTablesCoverEveryTokenType(keywords, others)

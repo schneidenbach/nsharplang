@@ -338,8 +338,7 @@ func ParserTokenIsTypeDeclarationKeywordSet(): TokenType[] {
         TokenType.Record,
         TokenType.Interface,
         TokenType.Union,
-        TokenType.Enum,
-        TokenType.Type
+        TokenType.Enum
     ]
 }
 
@@ -352,7 +351,6 @@ func ParserTokenIsDeclarationKeywordSet(): TokenType[] {
         TokenType.Interface,
         TokenType.Union,
         TokenType.Enum,
-        TokenType.Type,
         TokenType.Test,
         TokenType.Implicit,
         TokenType.Explicit,
@@ -763,6 +761,7 @@ func ParserTokenNonCodeSet(): TokenType[] {
         TokenType.StringLiteral,
         TokenType.TripleQuoteStringLiteral,
         TokenType.InterpolatedRawStringLiteral,
+        TokenType.Type,
         TokenType.Test,
         TokenType.File,
         TokenType.Colon,
@@ -816,11 +815,14 @@ test "parser token facts keep the symbolic operators out of the keyword table" {
     }
 }
 
-// THE PARTITION. 84 keywords + 36 symbolic operators + 28 non-code = 148, and every token lands in
-// exactly one bucket. `file` was a keyword until the file-private type modifier left the language;
-// `TokenType.File` stays in the enum (its ordinal is the columnar pipeline's currency) and is now
-// non-code, the bucket `Test` has always been in. A `TokenType` member added to the enum and forgotten by all three fails here
-// before any consumer notices it going unclassified.
+// THE PARTITION. 83 keywords + 36 symbolic operators + 29 non-code = 148, and every token lands in
+// exactly one bucket. `file` was a keyword until the file-private type modifier left the language,
+// and `type` stopped being one when it became CONTEXTUAL — the lexer writes an ordinary identifier
+// for it and `TypeAliasKeywordFacts` reads the word at the one production that expects it.
+// `TokenType.Type` and `TokenType.File` both stay in the enum (their ordinals are the columnar
+// pipeline's currency) and are now non-code, the bucket `Test` has always been in. A `TokenType`
+// member added to the enum and forgotten by all three fails here before any consumer notices it
+// going unclassified.
 test "parser token facts partition every token type" {
     all := ParserTokenAllTokenTypes()
     operators := ParserTokenIsOperatorSet()
@@ -828,7 +830,7 @@ test "parser token facts partition every token type" {
 
     assert all.Length == 148
     assert operators.Length == 36
-    assert nonCode.Length == 28
+    assert nonCode.Length == 29
 
     keywordCount := 0
     index := 0
@@ -854,7 +856,7 @@ test "parser token facts partition every token type" {
         index = index + 1
     }
 
-    assert keywordCount == 84
+    assert keywordCount == 83
 }
 
 // THE CONTAINMENT, WHICH THE OWNER GUARANTEES BY CONSTRUCTION RATHER THAN BY COPYING. `IsOperator`

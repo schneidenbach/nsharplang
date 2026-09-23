@@ -1876,6 +1876,36 @@ N# also has `newtype` for *distinct* branded types that are **not** interchangea
 their underlying type (`type Email = newtype string`) — see the
 [Types guide](types.md#newtypes-branded-types).
 
+### `type` is a contextual keyword
+
+`type` is a keyword **only** at the head of a declaration like the ones above. Everywhere else it is
+an ordinary identifier, so a member, a property, a parameter, a local, a loop variable and even a
+declaration may be called `type`:
+
+```n#
+class Row {
+    type: string = "row"
+
+    Kind: string => type
+
+    func Describe(type: string): string => type + "/" + Kind
+}
+
+func main() {
+    row := new Row()
+    print row.type              // row
+    kinds: string[] = ["a", "b"]
+    for type in kinds {
+        print type
+    }
+}
+```
+
+The head is three tokens — the word, a name, and `=` — which is what tells a declaration from a use:
+`type = 6` assigns to a local called `type` and `type: string` declares a member of that name.
+[`NL109`](./errors/NL109.md) does not fire on any of them, and still fires for every word that *is*
+reserved.
+
 ## Subscribing to .NET Events
 
 Subscribe to a .NET event with `on` and detach with `off`. `on` returns a subscription handle

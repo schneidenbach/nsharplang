@@ -2,10 +2,13 @@ namespace NSharpLang.Compiler
 
 import System
 
-// `File` AND `Test` NAME NO KEYWORD. `file` was the file-private type modifier and the language does
-// not have one any more; `test` has always been contextual. Both members stay because every ordinal
-// ABOVE them is the columnar pipeline's token-kind currency (see ColumnarTokenKindFacts) and removing
-// one would renumber them all. What makes each an ordinary identifier is that
+// `Type`, `File` AND `Test` NAME NO KEYWORD. `file` was the file-private type modifier and the
+// language does not have one any more; `test` has always been contextual; `type` is CONTEXTUAL, read
+// by its text at the one production that expects it (`type Name = Underlying`, a top-level
+// declaration head) and an ordinary identifier everywhere else — a member, a parameter, a local, a
+// `for type in …` loop variable and the `type` of `x.type`. All three members stay because every
+// ordinal ABOVE them is the columnar pipeline's token-kind currency (see ColumnarTokenKindFacts) and
+// removing one would renumber them all. What makes each an ordinary identifier is that
 // `Lexer.KeywordTextForType` has no arm for it — `Lexer.IsReservedKeyword` is defined as "that table
 // answers", so a member with no arm is not reserved however the enum reads.
 enum TokenType {

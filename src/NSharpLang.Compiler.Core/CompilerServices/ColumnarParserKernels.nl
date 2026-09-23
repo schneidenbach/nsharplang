@@ -3355,10 +3355,6 @@ func KeywordKind(source: string, start: int, length: int): int {
             if source[start + 1] == 'h' && source[start + 2] == 'i' && source[start + 3] == 's' {
                 return 42
             }
-
-            if source[start + 1] == 'y' && source[start + 2] == 'p' && source[start + 3] == 'e' {
-                return 72
-            }
         }
 
         if ch0 == 'b' && source[start + 1] == 'a' && source[start + 2] == 's' && source[start + 3] == 'e' {
@@ -8219,7 +8215,7 @@ func ModifierFlag(kind: int): int {
     return 0
 }
 
-func TopLevelDeclarationModifiersCore(tokens: ParserDeclarationKindStream, count: int, decls: TopLevelDeclarationModifierTable): int {
+func TopLevelDeclarationModifiersCore(source: string, tokens: ParserDeclarationTokenTable, count: int, decls: TopLevelDeclarationModifierTable): int {
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -8265,11 +8261,15 @@ func TopLevelDeclarationModifiersCore(tokens: ParserDeclarationKindStream, count
             if kind == 53 {
                 inWhereClause = true
             } else if !inWhereClause {
+                // ASKED ONCE, AT DEPTH ZERO ONLY. A type ALIAS head is an identifier plus two more
+                // tokens, so the question cannot be answered from `kind` alone; reading it here keeps
+                // the cost off every token inside a declaration body.
+                headKind := TopLevelDeclarationHeadKind(source, tokens, count, i)
                 flag := ModifierFlag(kind)
                 if flag != 0 {
                     pending = pending | flag
-                } else if IsTopLevelDeclarationKeyword(kind) && !IsRecordStructTailToken(tokens.Kinds, i) {
-                    decls.Kinds[outCount] = kind
+                } else if headKind != 0 && !IsRecordStructTailToken(tokens.Kinds, i) {
+                    decls.Kinds[outCount] = headKind
                     decls.Modifiers[outCount] = pending
                     outCount = outCount + 1
                     pending = 0
@@ -8294,8 +8294,30 @@ func TopLevelDeclarationModifiersCore(tokens: ParserDeclarationKindStream, count
     return outCount
 }
 
+// `type` (72) IS NOT HERE, because `type` is a CONTEXTUAL keyword: the columnar lexer writes an
+// ordinary identifier (0) for it, so no token KIND says "type alias" on its own. Ask
+// `TopLevelDeclarationHeadKind` instead — it answers the alias by its three-token head and still
+// reports 72 as the declaration KIND, which is the value every downstream walker and whitelist in
+// this file already speaks.
 func IsTopLevelDeclarationKeyword(kind: int): bool {
-    return kind == 7 || kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14 || kind == 72 || kind == 73
+    return kind == 7 || kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14 || kind == 73
+}
+
+// THE DECLARATION KIND OF A TOP-LEVEL DECLARATION HEAD, or 0 (Identifier) when the token at `index`
+// opens no declaration. A type ALIAS answers 72 although its token is an identifier; that is the one
+// and only place the contextual reading enters the columnar declaration walkers, so all three of
+// them agree about where a declaration begins by construction.
+func TopLevelDeclarationHeadKind(source: string, tokens: ParserDeclarationTokenTable, count: int, index: int): int {
+    kind := tokens.Kinds[index]
+    if IsTopLevelDeclarationKeyword(kind) {
+        return kind
+    }
+
+    if TypeAliasKeywordFacts.IsAliasDeclarationHeadAt(source, tokens.Kinds, tokens.Starts, tokens.ValueLengths, count, index) {
+        return 72
+    }
+
+    return 0
 }
 
 // `record struct` is ONE declaration: the Struct(9) token directly after a Record(13) token is
@@ -8305,7 +8327,7 @@ func IsRecordStructTailToken(kinds: int[], index: int): bool {
     return kinds[index] == 9 && index > 0 && kinds[index - 1] == 13
 }
 
-func TopLevelDeclarationNameSpansCore(tokens: ParserDeclarationTokenTable, count: int, decls: TopLevelDeclarationNameTable): int {
+func TopLevelDeclarationNameSpansCore(source: string, tokens: ParserDeclarationTokenTable, count: int, decls: TopLevelDeclarationNameTable): int {
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -8349,7 +8371,11 @@ func TopLevelDeclarationNameSpansCore(tokens: ParserDeclarationTokenTable, count
 
             if kind == 53 {
                 inWhereClause = true
-            } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) && !IsRecordStructTailToken(tokens.Kinds, i) {
+            } else if !inWhereClause && TopLevelDeclarationHeadKind(source, tokens, count, i) != 0 && !IsRecordStructTailToken(tokens.Kinds, i) {
+                // A type ALIAS reports the declaration KIND `TokenType.Type` (72) although its token
+                // is an ordinary identifier, which is what lets the name read below and every
+                // downstream whitelist stay exactly as they were.
+                kind = TopLevelDeclarationHeadKind(source, tokens, count, i)
                 decls.Kinds[outCount] = kind
                 decls.Indices[outCount] = i
                 nameIndex := i + 1
@@ -8380,7 +8406,7 @@ func TopLevelDeclarationNameSpansCore(tokens: ParserDeclarationTokenTable, count
     return outCount
 }
 
-func TopLevelDeclarationKindsCore(tokens: ParserDeclarationKindStream, count: int, decls: TopLevelDeclarationKindTable): int {
+func TopLevelDeclarationKindsCore(source: string, tokens: ParserDeclarationTokenTable, count: int, decls: TopLevelDeclarationKindTable): int {
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -8424,8 +8450,8 @@ func TopLevelDeclarationKindsCore(tokens: ParserDeclarationKindStream, count: in
 
             if kind == 53 {
                 inWhereClause = true
-            } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) && !IsRecordStructTailToken(tokens.Kinds, i) {
-                decls.Kinds[outCount] = kind
+            } else if !inWhereClause && TopLevelDeclarationHeadKind(source, tokens, count, i) != 0 && !IsRecordStructTailToken(tokens.Kinds, i) {
+                decls.Kinds[outCount] = TopLevelDeclarationHeadKind(source, tokens, count, i)
                 outCount = outCount + 1
             }
         }
@@ -8745,7 +8771,7 @@ func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: Pa
     }
 
     names := new TopLevelDeclarationNameTable(new int[](rawCount + 1), new int[](rawCount + 1), new int[](rawCount + 1), new int[](rawCount + 1))
-    nameCount := TopLevelDeclarationNameSpansCore(rawTokens, rawCount, names)
+    nameCount := TopLevelDeclarationNameSpansCore(source, rawTokens, rawCount, names)
     if nameCount != functionResult.Values[0] {
         return -3
     }
@@ -8956,8 +8982,7 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: P
     }
 
     decls := new TopLevelDeclarationKindTable(new int[](rawCount + 1))
-    rawKindStream := new ParserDeclarationKindStream(rawTokens.Kinds)
-    declCount := TopLevelDeclarationKindsCore(rawKindStream, rawCount, decls)
+    declCount := TopLevelDeclarationKindsCore(source, rawTokens, rawCount, decls)
     if declCount < 0 {
         return -1
     }
@@ -8987,7 +9012,7 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: P
     }
 
     names := new TopLevelDeclarationNameTable(new int[](rawCount + 1), new int[](rawCount + 1), new int[](rawCount + 1), new int[](rawCount + 1))
-    nameCount := TopLevelDeclarationNameSpansCore(rawTokens, rawCount, names)
+    nameCount := TopLevelDeclarationNameSpansCore(source, rawTokens, rawCount, names)
     if nameCount != declCount {
         return -1
     }
@@ -8997,7 +9022,7 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: P
     }
 
     modifiers := new TopLevelDeclarationModifierTable(new int[](rawCount + 1), new int[](rawCount + 1))
-    modifierCount := TopLevelDeclarationModifiersCore(rawKindStream, rawCount, modifiers)
+    modifierCount := TopLevelDeclarationModifiersCore(source, rawTokens, rawCount, modifiers)
     if modifierCount != declCount {
         return -1
     }
@@ -9245,11 +9270,11 @@ func TopLevelFunctionPreamblesAreValidCore(source: string, tokens: ParserDeclara
             }
 
             aliasWalk := preceding
-            while aliasWalk >= 0 && !IsTopLevelDeclarationKeyword(tokens.Kinds[aliasWalk]) && tokens.Kinds[aliasWalk] != 15 && tokens.Kinds[aliasWalk] != 17 && tokens.Kinds[aliasWalk] != 18 {
+            while aliasWalk >= 0 && TopLevelDeclarationHeadKind(source, tokens, count, aliasWalk) == 0 && tokens.Kinds[aliasWalk] != 15 && tokens.Kinds[aliasWalk] != 17 && tokens.Kinds[aliasWalk] != 18 {
                 aliasWalk = aliasWalk - 1
             }
 
-            if aliasWalk >= 0 && tokens.Kinds[aliasWalk] == 72 {
+            if aliasWalk >= 0 && TopLevelDeclarationHeadKind(source, tokens, count, aliasWalk) == 72 {
                 i = i + 1
                 continue
             }
@@ -9806,7 +9831,7 @@ func TestTableParameterSpansInto(tokens: ParserDeclarationTokenTable, count: int
 // Newtype 87, ONE simple underlying type token). Records the Type token index plus the name and
 // underlying-type token spans. A composed underlying type (generics, arrays) is unmodeled and
 // fails the scan (-1) so the host declines with a reason instead of mis-synthesizing.
-func TopLevelColumnarNewtypeDeclarationIndicesInto(_source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outIndices: int[], outNameStarts: int[], outNameLengths: int[], outTypeStarts: int[], outTypeLengths: int[], outResult: int[]): int {
+func TopLevelColumnarNewtypeDeclarationIndicesInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outIndices: int[], outNameStarts: int[], outNameLengths: int[], outTypeStarts: int[], outTypeLengths: int[], outResult: int[]): int {
     if count < 0 || count > tokenKinds.Length || outIndices.Length < count + 1 || outResult.Length < 1 {
         return -1
     }
@@ -9823,7 +9848,7 @@ func TopLevelColumnarNewtypeDeclarationIndicesInto(_source: string, tokenKinds: 
             if braceDepth < 0 {
                 braceDepth = 0
             }
-        } else if braceDepth == 0 && kind == 72 && i + 3 < count && tokenKinds[i + 1] == 0 && tokenKinds[i + 2] == 93 && tokenKinds[i + 3] == 87 {
+        } else if braceDepth == 0 && tokenKinds[i] == 0 && TypeAliasKeywordFacts.SpanNamesAliasKeyword(source, tokenStarts[i], tokenValueLengths[i]) && i + 3 < count && tokenKinds[i + 1] == 0 && tokenKinds[i + 2] == 93 && tokenKinds[i + 3] == 87 {
             if i + 4 >= count || tokenKinds[i + 4] != 0 {
                 return -1
             }

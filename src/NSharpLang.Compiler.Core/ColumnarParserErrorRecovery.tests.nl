@@ -1630,31 +1630,47 @@ test "a deconstruction records its operator and whether its targets were parenth
 
 // A RESERVED KEYWORD WHERE THE `for … in` LOOP VARIABLE GOES.
 //
-// `foreach type in values` has always said the right thing, because its variable goes through
+// `foreach lock in values` has always said the right thing, because its variable goes through
 // `ConsumeIdentifier`, which asks `Lexer.IsReservedKeyword` and reports NL109 naming the keyword.
 // `for`'s three foreach arms each tested `TokenType.Identifier`, so a keyword matched none of them
-// and the header fell through to the C-STYLE arm: `type` read as a modifier, `in` as an expression
-// that was not there, and the loop BODY re-read as a type declaration — NL101, NL109 and an NL102
-// (`Expected ':' or ':=' after field name. Got '.'`) pointing at the COLLECTION rather than at the
-// name, cascading to the end of the file. Fifteen diagnostics for one refused name.
+// and the header fell through to the C-STYLE arm: the keyword read as a modifier, `in` as an
+// expression that was not there, and the loop BODY re-read as a type declaration — NL101, NL109 and
+// an NL102 (`Expected ':' or ':=' after field name. Got '.'`) pointing at the COLLECTION rather than
+// at the name, cascading to the end of the file. Fifteen diagnostics for one refused name.
 //
 // The census is now ONE diagnostic, at the keyword, and the loop is parsed to completion under the
 // same `<error>` recovery name every other refused name gets — so the rest of the file is read as
 // written.
-test "020 slice 16: `for type in values` names the reserved keyword and keeps the loop" {
-    assert PeCensus("func test() {\n    for type in values {\n        print values\n    }\n}") == "NL109@2:9+4;", PeCensus("func test() {\n    for type in values {\n        print values\n    }\n}")
-    assert PeRow("func test() {\n    for type in values {\n        print values\n    }\n}", 0) == "NL109@2:9+4|Expected variable name. Got the reserved keyword 'type'|    for type in values {|'type' is a reserved keyword in N#, so it can't be used as a name here.|Choose a name that isn't a reserved keyword (for example 'typeValue' or '_type').|{Rename it to 'typeValue' or '_type'}{Pick any name that isn't a reserved N# keyword}|https://schneidenbach.github.io/nsharplang/docs/errors/NL109", PeRow("func test() {\n    for type in values {\n        print values\n    }\n}", 0)
-    assert PeDecls("func test() {\n    for type in values {\n        print values\n    }\n}") == "FunctionDeclaration[test/s1]", PeDecls("func test() {\n    for type in values {\n        print values\n    }\n}")
-    assert PeStmts("func test() {\n    for type in values {\n        print values\n    }\n}") == "ForStatement(ForeachStatement);", PeStmts("func test() {\n    for type in values {\n        print values\n    }\n}")
+//
+// WRITTEN WITH `lock` RATHER THAN `type`, AND THAT SUBSTITUTION IS THE POINT OF THE ROW BELOW IT:
+// `type` is a CONTEXTUAL keyword now, so it is a perfectly ordinary loop variable and this report
+// must NOT fire on it. `lock` is the same four characters, so the anchor and length assertions are
+// the ones this row has always made.
+test "020 slice 16: `for lock in values` names the reserved keyword and keeps the loop" {
+    assert PeCensus("func test() {\n    for lock in values {\n        print values\n    }\n}") == "NL109@2:9+4;", PeCensus("func test() {\n    for lock in values {\n        print values\n    }\n}")
+    assert PeRow("func test() {\n    for lock in values {\n        print values\n    }\n}", 0) == "NL109@2:9+4|Expected variable name. Got the reserved keyword 'lock'|    for lock in values {|'lock' is a reserved keyword in N#, so it can't be used as a name here.|Choose a name that isn't a reserved keyword (for example 'lockValue' or '_lock').|{Rename it to 'lockValue' or '_lock'}{Pick any name that isn't a reserved N# keyword}|https://schneidenbach.github.io/nsharplang/docs/errors/NL109", PeRow("func test() {\n    for lock in values {\n        print values\n    }\n}", 0)
+    assert PeDecls("func test() {\n    for lock in values {\n        print values\n    }\n}") == "FunctionDeclaration[test/s1]", PeDecls("func test() {\n    for lock in values {\n        print values\n    }\n}")
+    assert PeStmts("func test() {\n    for lock in values {\n        print values\n    }\n}") == "ForStatement(ForeachStatement);", PeStmts("func test() {\n    for lock in values {\n        print values\n    }\n}")
 }
 
 // THE ANNOTATED FORM IS THE SAME RULE, admitted under the SAME bounded scan the annotated
 // identifier arm uses — so the claim is made only when `<keyword> : <Type> in` really is what was
 // written, and a C-style header whose initializer merely starts with a keyword still reaches its
 // own diagnostics.
-test "020 slice 16: `for type: string in values` names the reserved keyword and keeps the annotation" {
-    assert PeCensus("func test() {\n    for type: string in values {\n        print values\n    }\n}") == "NL109@2:9+4;", PeCensus("func test() {\n    for type: string in values {\n        print values\n    }\n}")
-    assert PeStmts("func test() {\n    for type: string in values {\n        print values\n    }\n}") == "ForStatement(ForeachStatement);", PeStmts("func test() {\n    for type: string in values {\n        print values\n    }\n}")
+test "020 slice 16: `for lock: string in values` names the reserved keyword and keeps the annotation" {
+    assert PeCensus("func test() {\n    for lock: string in values {\n        print values\n    }\n}") == "NL109@2:9+4;", PeCensus("func test() {\n    for lock: string in values {\n        print values\n    }\n}")
+    assert PeStmts("func test() {\n    for lock: string in values {\n        print values\n    }\n}") == "ForStatement(ForeachStatement);", PeStmts("func test() {\n    for lock: string in values {\n        print values\n    }\n}")
+}
+
+// `type` IS NOT A RESERVED KEYWORD, so the report above must not fire on it — in EITHER for-in form.
+// This is the other half of the substitution: the report is proved to still fire (`lock`, above) and
+// proved not to fire here, so a regression in either direction is visible. Both headers parse to a
+// real `ForeachStatement` with `type` as the loop variable and no diagnostic at all.
+test "020 slice 16: `for type in values` is an ordinary loop over a variable named `type`" {
+    assert PeCensus("func test() {\n    for type in values {\n        print type\n    }\n}") == "", PeCensus("func test() {\n    for type in values {\n        print type\n    }\n}")
+    assert PeStmts("func test() {\n    for type in values {\n        print type\n    }\n}") == "ForStatement(ForeachStatement);", PeStmts("func test() {\n    for type in values {\n        print type\n    }\n}")
+    assert PeCensus("func test() {\n    for type: string in values {\n        print type\n    }\n}") == "", PeCensus("func test() {\n    for type: string in values {\n        print type\n    }\n}")
+    assert PeStmts("func test() {\n    for type: string in values {\n        print type\n    }\n}") == "ForStatement(ForeachStatement);", PeStmts("func test() {\n    for type: string in values {\n        print type\n    }\n}")
 }
 
 // THE C-STYLE HEADER IS UNTOUCHED: `for` followed by a reserved keyword that is NOT a for-in shape

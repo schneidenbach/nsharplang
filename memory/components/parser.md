@@ -389,6 +389,49 @@ refused the whole FUNCTION — while the same spelling in a parameter or a retur
 kernel scans rather than this walk, parsed. Any future multi-character token that contains a bracket
 or a paren has to be added to both walks.
 
+### `type` IS A CONTEXTUAL KEYWORD, AND ONE OWNER SAYS WHAT ITS HEAD LOOKS LIKE
+
+`type` was a HARD keyword, so no N# type could expose a member named `type` — which is the name
+`nlc query type` and a converted `QueryCommand` both wanted (`FABLE-COMPILER-CORE-AUDIT` D2). It now
+opens exactly one production, a TOP-LEVEL type-alias declaration head, and is an ordinary identifier
+everywhere else: a member, a property, a parameter, a local, a `for type in …` loop variable, the
+member of `x.type`, and a declaration's own name.
+
+The demotion is the same one `file` had: `Lexer.KeywordTextForType` has no arm for `TokenType.Type`,
+and `Lexer.IsReservedKeyword` is DEFINED as "that table answers", so NL109 and the round-13
+`for <keyword> in` report both stop firing on it while still firing for every word that is reserved.
+`TokenType.Type` stays in the enum because every ordinal above it is the columnar pipeline's
+token-kind currency; it moved into the NON-keyword table beside `Test` and `File`.
+
+**THE HEAD IS THREE TOKENS — the word, a NAME, and `=` — and two of them are what tells a declaration
+from a use.** `type = 6` assigns to a local of that name and `type: string` declares a member of it;
+reading either as a declaration head would silently swallow the statement. `TypeAliasKeywordFacts`
+owns that rule ONCE, in two readings, because the two pipelines carry tokens differently and a word
+that is a keyword in one reading and an identifier in the other is exactly the drift worth preventing:
+
+* `IsAliasDeclarationHead(tokens, index)` for the tree parsers' `List<Token>`;
+* `IsAliasDeclarationHeadAt(source, kinds, starts, lengths, count, index)` for the columnar walkers,
+  which carry token KINDS as bare ints beside the source text.
+
+**THE COLUMNAR WALKERS STILL SPEAK KIND 72.** `IsTopLevelDeclarationKeyword` lost its `72` arm —
+no token kind names an alias any more — and `TopLevelDeclarationHeadKind` answers beside it: it
+returns the token's own kind for a real declaration keyword, `72` for an alias head, and `0`
+otherwise. That keeps `TopLevelDeclarationKindsCore`, `TopLevelDeclarationNameSpansCore`,
+`TopLevelDeclarationModifiersCore` and every downstream whitelist (`kind != 72` among them) exactly
+as they were, and it is the ONE place the contextual reading enters them, so all three cannot drift
+into disagreeing about where a declaration begins. `ColumnarBindingScopeFacts.TypeDeclarationHeadKind`
+is the same shape for the binding-scope walker. The three walkers took a `source` parameter and a
+`ParserDeclarationTokenTable` in place of the kinds-only `ParserDeclarationKindStream` for this: the
+question genuinely needs the text.
+
+The recovery parser's TOP-LEVEL dispatch uses the LOOSE reading — the word alone, not the whole head
+— on purpose. The identifier-led declarations it could be confused with (`soa record`, `test "…"`)
+are tried above it, nothing else at that position begins with a bare identifier, and a MALFORMED
+alias must still reach `ParseTypeAliasName` so `type`, `type class` and `type 5` keep reporting the
+alias-name diagnostics they report today. Every other site — `IsBlockClosingDeclarationStart`,
+`SynchronizeToNextStatement`, `IsTypeLevelReadonlyModifierAhead` — uses the strict head, because in
+those positions `type` really can be a local.
+
 ### Nested Type Support
 `ParseMemberDeclaration` handles nested types (classes, structs, records inside other types).
 

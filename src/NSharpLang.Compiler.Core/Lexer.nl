@@ -1202,9 +1202,6 @@ class Lexer {
         if value == "with" {
             return TokenType.With
         }
-        if value == "type" {
-            return TokenType.Type
-        }
         if value == "assert" {
             return TokenType.Assert
         }
@@ -1457,9 +1454,6 @@ class Lexer {
         }
         if tokenType == TokenType.With {
             return "with"
-        }
-        if tokenType == TokenType.Type {
-            return "type"
         }
         if tokenType == TokenType.Assert {
             return "assert"

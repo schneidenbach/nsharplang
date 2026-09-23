@@ -2618,6 +2618,11 @@ type Callback = Func<void>
 
 Type aliases are compile-time only — they do not create a distinct runtime type.
 
+`type` is a **contextual** keyword: it is a keyword only at the head of one of these declarations —
+the word, a name, and `=` — and an ordinary identifier everywhere else, so a member, a parameter, a
+local, a loop variable and a declaration may all be named `type`. See
+[`type` is a contextual keyword](language-tour.md#type-is-a-contextual-keyword).
+
 ## Newtypes (Branded Types)
 
 Create **distinct wrapper types** that prevent accidental type confusion:

@@ -1040,7 +1040,15 @@ class ColumnarParserRecovery {
             ParseEnumName(modifiers, attributes, attrsOk)
             return
         }
-        if Check(TokenType.Type) {
+        // A TYPE ALIAS OPENS WITH AN ORDINARY IDENTIFIER whose text is `type`, because `type` is a
+        // contextual keyword (TypeAliasKeywordFacts). The LOOSE reading — the word alone, not the
+        // whole `type Name =` head — is what belongs at a TOP-LEVEL declaration position: the
+        // identifier-led declarations that could be confused with it (`soa record`, `test "…"`) have
+        // already been tried above, nothing else at this position begins with a bare identifier, and
+        // a MALFORMED alias must still reach `ParseTypeAliasName` so `type`, `type class` and
+        // `type 5` keep reporting the alias-name diagnostics they report today rather than degrading
+        // to "Unexpected token 'type'".
+        if Check(TokenType.Identifier) && TypeAliasKeywordFacts.NamesAliasKeyword(Current().Value) {
             ParseTypeAliasName()
             return
         }
@@ -1173,6 +1181,9 @@ class ColumnarParserRecovery {
         if ParserTokenFacts.IsTypeDeclarationKeyword(Tokens[Position + ahead].Type) {
             return true
         }
+        if TypeAliasKeywordFacts.IsAliasDeclarationHead(Tokens, Position + ahead) {
+            return true
+        }
         if Tokens[Position + ahead].Type == TokenType.Duck && Position + ahead + 1 < Tokens.Count && Tokens[Position + ahead + 1].Type == TokenType.Interface {
             return true
         }
@@ -1235,7 +1246,7 @@ class ColumnarParserRecovery {
         if Check(TokenType.Duck) && LookAhead(1).Type == TokenType.Interface {
             return "duck interface"
         }
-        if Check(TokenType.Type) {
+        if TypeAliasKeywordFacts.IsAliasDeclarationHead(Tokens, Position) {
             return "type alias"
         }
         return Current().Value
@@ -4520,6 +4531,12 @@ class ColumnarParserRecovery {
         if ParserTokenFacts.IsTypeDeclarationKeyword(Current().Type) {
             return true
         }
+        // A type ALIAS closes a block too, and here the WHOLE `type Name =` head is required: inside
+        // a block `type` is an ordinary identifier, and `type = 5` is an assignment to a local of
+        // that name, not a declaration.
+        if TypeAliasKeywordFacts.IsAliasDeclarationHead(Tokens, Position) {
+            return true
+        }
         if Current().Type == TokenType.Ref && LookAhead(1).Type == TokenType.Struct {
             return true
         }
@@ -4542,7 +4559,7 @@ class ColumnarParserRecovery {
                 ahead = ahead + 1
             }
             if Position + ahead < Tokens.Count {
-                if ParserTokenFacts.IsTypeDeclarationKeyword(Tokens[Position + ahead].Type) || IsSoaRecordDeclarationStartAtOffset(ahead) {
+                if ParserTokenFacts.IsTypeDeclarationKeyword(Tokens[Position + ahead].Type) || IsSoaRecordDeclarationStartAtOffset(ahead) || TypeAliasKeywordFacts.IsAliasDeclarationHead(Tokens, Position + ahead) {
                     return true
                 }
             }
@@ -4565,7 +4582,7 @@ class ColumnarParserRecovery {
                 ahead = ahead + 1
             }
             if Position + ahead < Tokens.Count {
-                if ParserTokenFacts.IsTypeDeclarationKeyword(Tokens[Position + ahead].Type) || IsSoaRecordDeclarationStartAtOffset(ahead) {
+                if ParserTokenFacts.IsTypeDeclarationKeyword(Tokens[Position + ahead].Type) || IsSoaRecordDeclarationStartAtOffset(ahead) || TypeAliasKeywordFacts.IsAliasDeclarationHead(Tokens, Position + ahead) {
                     return true
                 }
             }
@@ -4594,6 +4611,9 @@ class ColumnarParserRecovery {
                 return
             }
             if ParserTokenFacts.IsTypeDeclarationKeyword(Current().Type) {
+                return
+            }
+            if TypeAliasKeywordFacts.IsAliasDeclarationHead(Tokens, Position) {
                 return
             }
             Advance()
