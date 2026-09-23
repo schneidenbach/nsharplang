@@ -33,6 +33,41 @@
     <OutputType Condition="'$(_NSharpDeclaredOutputType)' == 'exe'">Exe</OutputType>
   </PropertyGroup>
 
+  <!-- AN N# PROJECT PRODUCES NO SYMBOL FILE, AND THE PACK PATH READS THAT FACT DURING EVALUATION.
+       `EmitNSharpIlAssembly` writes the assembly with the compiler's own IL emitter, which has no
+       symbol writer, so an N#-SDK project's output directory holds a `.dll` and NO `.pdb`. The base
+       SDK assumes the opposite and nothing downstream ever rechecks: Microsoft.NET.Sdk.props
+       defaults `DebugType` to `portable`, the common targets then put
+       `$(IntermediateOutputPath)$(TargetName).pdb` into `@(DebugSymbolsProjectOutputGroupOutput)`,
+       and NuGet.Build.Tasks.Pack.targets turns that item into `@(_TargetPathsToSymbolsWithTfm)` and
+       hands it to `PackTask`, which fails NU5026 - "the file ... to be packed was not found on
+       disk" - for a file the compiler never claimed to write. So `dotnet pack` of ANY N#-SDK
+       project failed unless the CALLER repaired the project's own declaration from the command
+       line: scripts/lib/packages.sh passes `-p:DebugSymbols=false -p:DebugType=None` for the two
+       compiler packages, and tests/NSharpLang.IntegrationTests packs Compiler.csproj with a plain
+       `dotnet pack`, which is exactly where CI failed.
+
+       The project declares the truth here instead. `DebugType` is read during EVALUATION by
+       Microsoft.NET.Sdk.props itself, so this cannot be a target, and it must precede the base SDK
+       import below - whose own default is conditioned on the property being empty, so setting it
+       first wins without overriding an explicit caller value.
+
+       project.yml's `debugType:` key overrides it, for the day the emitter gains a symbol writer:
+
+         debugType: portable    # none (the default) | portable | embedded | full | pdbonly
+
+       That key is read the way `outputType` is above - by regex, at evaluation time - because only
+       `nlc restore` writes obj/project.g.props and pack must be correct on a clean checkout.
+       ProjectFileParser ignores unmatched project.yml properties, so the key is inert in the real
+       parser until symbol emission exists to honor it; anything but the five recognized values
+       keeps the truthful `none`. -->
+  <PropertyGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(DebugType)' == '' And '$(DebugSymbols)' == ''">
+    <_NSharpDeclaredDebugType Condition="Exists('$(NSharpProjectFile)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText($(NSharpProjectFile))), '(?m)^debugType[ \t]*:[ \t]*[&quot;%27]?(none|portable|embedded|full|pdbonly)[&quot;%27]?(?:[ \t]+#[^\r\n]*)?[ \t]*\r?$').Groups.get_Item(1).Value)</_NSharpDeclaredDebugType>
+    <DebugType Condition="'$(_NSharpDeclaredDebugType)' != ''">$(_NSharpDeclaredDebugType)</DebugType>
+    <DebugType Condition="'$(DebugType)' == ''">none</DebugType>
+    <DebugSymbols Condition="'$(DebugType)' == 'none'">false</DebugSymbols>
+  </PropertyGroup>
+
   <!-- Minimum defaults so MSBuild evaluation doesn't crash when project.g.props
        is missing. The validation target in Sdk.targets will emit a clear error
        at build time if project.yml exists but project.g.props does not. -->
