@@ -1,11 +1,17 @@
 name: Build
 
+# `systems-language` is the campaign's integration branch, and the split lane PRs target it rather
+# than `main` (e.g. #191). Under a `main`-only trigger those PRs got NO CI at all and merged on local
+# gates alone, so both events list it.
 on:
   push:
-    branches: [ main ]
+    branches: [ main, systems-language ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, systems-language ]
 
+# A PR run groups by its PR NUMBER, so a new push to a PR cancels that PR's previous run and no
+# other; a branch push groups by its own `refs/heads/...`. Both keys are already independent of the
+# base branch, so adding a second base adds no collisions.
 concurrency:
   group: build-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -121,6 +127,10 @@ jobs:
     - name: IL verification gate
       run: scripts/ilverify.sh
 
+  # NOTE, and it is a consequence of the trigger above rather than a change here: `channel` below is
+  # derived from the PR number and falls back to `main` for ANY push, so a push to `systems-language`
+  # now publishes an `unofficial-main-*` release titled "Unofficial main". The steps are unchanged;
+  # deciding whether that channel should be derived from the ref is a separate call.
   unofficial-release:
     needs: [build, ilverify]
     # Forks get the same tests and downloadable artifacts, without a write token.
