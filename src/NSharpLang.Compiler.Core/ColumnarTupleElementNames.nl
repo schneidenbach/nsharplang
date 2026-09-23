@@ -55,13 +55,10 @@ class ColumnarTupleElementNames {
         collected := new List<string>()
         Append(labeledCanonical, collected)
 
-        index := 0
-        while index < collected.Count {
-            if collected[index].Length > 0 {
+        for collectedItem in collected {
+            if collectedItem.Length > 0 {
                 return collected.ToArray()
             }
-
-            index = index + 1
         }
 
         return null
@@ -310,10 +307,8 @@ class ColumnarTupleElementNames {
 
         if text.Length >= 2 && text[0] == '(' && text[text.Length - 1] == ')' {
             elements := ColumnarTypeCanonicalizer.SplitTopLevelCommas(text.Substring(1, text.Length - 2))
-            index := 0
-            while index < elements.Count {
-                CollectSubtrees(ElementTypeText(elements[index]), collected)
-                index = index + 1
+            for element in elements {
+                CollectSubtrees(ElementTypeText(element), collected)
             }
 
             return
@@ -325,10 +320,8 @@ class ColumnarTupleElementNames {
         }
 
         arguments := ColumnarTypeCanonicalizer.SplitTopLevelCommas(text.Substring(open + 1, text.Length - open - 2))
-        argumentIndex := 0
-        while argumentIndex < arguments.Count {
-            CollectSubtrees(arguments[argumentIndex], collected)
-            argumentIndex = argumentIndex + 1
+        for argument in arguments {
+            CollectSubtrees(argument, collected)
         }
     }
 
@@ -349,10 +342,8 @@ class ColumnarTupleElementNames {
         }
 
         arguments := ColumnarTypeCanonicalizer.SplitTopLevelCommas(text.Substring(open + 1, text.Length - open - 2))
-        argumentIndex := 0
-        while argumentIndex < arguments.Count {
-            Append(arguments[argumentIndex], collected)
-            argumentIndex = argumentIndex + 1
+        for argument in arguments {
+            Append(argument, collected)
         }
     }
 
@@ -362,9 +353,7 @@ class ColumnarTupleElementNames {
         elements := ColumnarTypeCanonicalizer.SplitTopLevelCommas(text.Substring(1, text.Length - 2))
         names := new List<string>()
         types := new List<string>()
-        index := 0
-        while index < elements.Count {
-            element := elements[index]
+        for element in elements {
             colon := element.IndexOf(':')
             if colon > 0 && ColumnarTypeCanonicalizer.IsBareIdentifier(element.Substring(0, colon)) {
                 names.Add(element.Substring(0, colon))
@@ -373,14 +362,10 @@ class ColumnarTupleElementNames {
                 names.Add("")
                 types.Add(element)
             }
-
-            index = index + 1
         }
 
-        nameIndex := 0
-        while nameIndex < names.Count {
-            collected.Add(names[nameIndex])
-            nameIndex = nameIndex + 1
+        for name in names {
+            collected.Add(name)
         }
 
         AppendUnderlyingArguments(types, 0, collected)

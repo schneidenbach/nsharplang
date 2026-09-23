@@ -79,13 +79,10 @@ class DiagnosticPlaceholderGuard {
         // `?? new List<string>()` rather than a null guard: a nullable PROPERTY is not narrowed by a
         // preceding test, and an empty list answers the same way a null one does.
         suggestions := error.Suggestions ?? new List<string>()
-        index := 0
-        while index < suggestions.Count {
-            if TextCarriesPlaceholder(suggestions[index]) {
+        for suggestion in suggestions {
+            if TextCarriesPlaceholder(suggestion) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

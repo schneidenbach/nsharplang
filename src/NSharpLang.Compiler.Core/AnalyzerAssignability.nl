@@ -978,13 +978,10 @@ class AnalyzerAssignability {
 
         candidates := NSharpMethodGroupInfoFactory.GetFunctions(group)
         applicable := 0
-        index := 0
-        while index < candidates.Count {
-            if IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(candidates[index], delegateSignature) {
+        for candidate in candidates {
+            if IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(candidate, delegateSignature) {
                 applicable = applicable + 1
             }
-
-            index = index + 1
         }
 
         return applicable == 1
@@ -1384,13 +1381,10 @@ class AnalyzerAssignability {
 
     func EveryArmAcceptedBySomeArm(targetUnion: AnonymousUnionTypeInfo, sourceUnion: AnonymousUnionTypeInfo): bool {
         sourceArms := sourceUnion.Arms
-        index := 0
-        while index < sourceArms.Count {
-            if !SomeArmAccepts(targetUnion, sourceArms[index]) {
+        for sourceArm in sourceArms {
+            if !SomeArmAccepts(targetUnion, sourceArm) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
@@ -1398,13 +1392,10 @@ class AnalyzerAssignability {
 
     func SomeArmAccepts(targetUnion: AnonymousUnionTypeInfo, source: TypeInfo): bool {
         targetArms := targetUnion.Arms
-        index := 0
-        while index < targetArms.Count {
-            if IsAssignable(targetArms[index], source) {
+        for targetArm in targetArms {
+            if IsAssignable(targetArm, source) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -1412,13 +1403,10 @@ class AnalyzerAssignability {
 
     func EveryArmAssignableTo(target: TypeInfo, sourceUnion: AnonymousUnionTypeInfo): bool {
         sourceArms := sourceUnion.Arms
-        index := 0
-        while index < sourceArms.Count {
-            if !IsAssignable(target, sourceArms[index]) {
+        for sourceArm in sourceArms {
+            if !IsAssignable(target, sourceArm) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true

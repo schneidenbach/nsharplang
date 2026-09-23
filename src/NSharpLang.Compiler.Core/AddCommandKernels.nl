@@ -102,9 +102,7 @@ class AddCommandKernels {
     }
 
     static func PackageOrFrameworkDependencyExists(dependencies: IReadOnlyList<Reference>, packageName: string): bool {
-        index := 0
-        while index < dependencies.Count {
-            dependency := dependencies[index]
+        for dependency in dependencies {
             nuget := dependency.Nuget
             if nuget != null && StringEqualsAsciiIgnoreCase(nuget, packageName) {
                 return true
@@ -114,22 +112,17 @@ class AddCommandKernels {
             if framework != null && StringEqualsAsciiIgnoreCase(framework, packageName) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
     }
 
     static func ProjectDependencyExists(dependencies: IReadOnlyList<Reference>, localPath: string): bool {
-        index := 0
-        while index < dependencies.Count {
-            project := dependencies[index].Project
+        for dependency in dependencies {
+            project := dependency.Project
             if project != null && StringEqualsAsciiIgnoreCase(project, localPath) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

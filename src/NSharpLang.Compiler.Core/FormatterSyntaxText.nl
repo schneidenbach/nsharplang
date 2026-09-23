@@ -354,10 +354,8 @@ class FormatterSyntaxText {
     // the test is `IsNullOrWhiteSpace` and not a null check.
     static func FormatAllowArguments(allowStatement: AllowStatement): string {
         args := new List<string>()
-        index := 0
-        while index < allowStatement.Effects.Count {
-            args.Add(FormatAllowEffect(allowStatement.Effects[index]))
-            index = index + 1
+        for effect2 in allowStatement.Effects {
+            args.Add(FormatAllowEffect(effect2))
         }
 
         reason := allowStatement.Reason

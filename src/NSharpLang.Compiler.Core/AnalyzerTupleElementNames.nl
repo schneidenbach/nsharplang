@@ -182,10 +182,8 @@ class AnalyzerTupleElementNames {
                 collected.Add(tuple)
             }
 
-            elementIndex := 0
-            while elementIndex < tuple.Elements.Count {
-                CollectNamedTuples(tuple.Elements[elementIndex].Type, collected)
-                elementIndex = elementIndex + 1
+            for element2 in tuple.Elements {
+                CollectNamedTuples(element2.Type, collected)
             }
 
             return
@@ -193,23 +191,18 @@ class AnalyzerTupleElementNames {
 
         generic := typeInfo as GenericTypeInfo
         if generic != null {
-            argumentIndex := 0
-            while argumentIndex < generic.TypeArguments.Count {
-                CollectNamedTuples(generic.TypeArguments[argumentIndex], collected)
-                argumentIndex = argumentIndex + 1
+            for typeArgument2 in generic.TypeArguments {
+                CollectNamedTuples(typeArgument2, collected)
             }
         }
     }
 
     static func HasDeclaredName(tuple: TupleTypeInfo): bool {
-        index := 0
-        while index < tuple.Elements.Count {
-            elementName := tuple.Elements[index].Name
+        for element2 in tuple.Elements {
+            elementName := element2.Name
             if elementName != null && elementName.Length > 0 {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -245,11 +238,8 @@ class AnalyzerTupleElementNames {
             }
 
             elements := new List<TupleTypeElementInfo>()
-            elementIndex := 0
-            while elementIndex < tuple.Elements.Count {
-                element := tuple.Elements[elementIndex]
+            for element in tuple.Elements {
                 elements.Add(new TupleTypeElementInfo(element.Name, GraftInto(element.Type, named)))
-                elementIndex = elementIndex + 1
             }
 
             graftedTuple: TypeInfo = new TupleTypeInfo(elements)
@@ -259,10 +249,8 @@ class AnalyzerTupleElementNames {
         generic := typeInfo as GenericTypeInfo
         if generic != null {
             arguments := new List<TypeInfo>()
-            argumentIndex := 0
-            while argumentIndex < generic.TypeArguments.Count {
-                arguments.Add(GraftInto(generic.TypeArguments[argumentIndex], named))
-                argumentIndex = argumentIndex + 1
+            for typeArgument2 in generic.TypeArguments {
+                arguments.Add(GraftInto(typeArgument2, named))
             }
 
             graftedGeneric: TypeInfo = new GenericTypeInfo(generic.Name, arguments, generic.GenericDefinition)
@@ -284,15 +272,11 @@ class AnalyzerTupleElementNames {
     static func TryUniqueNamedMatch(tuple: TupleTypeInfo, named: List<TupleTypeInfo>, out matched: TupleTypeInfo): bool {
         matched = null
         found := 0
-        index := 0
-        while index < named.Count {
-            candidate := named[index]
+        for candidate in named {
             if TypeInfoIdentityFacts.AreEqual(candidate, tuple) {
                 found = found + 1
                 matched = candidate
             }
-
-            index = index + 1
         }
 
         if found != 1 {
@@ -319,10 +303,8 @@ class AnalyzerTupleElementNames {
         tuple := typeInfo as TupleTypeInfo
         if tuple != null {
             elements := new List<TypeInfo>()
-            elementIndex := 0
-            while elementIndex < tuple.Elements.Count {
-                elements.Add(tuple.Elements[elementIndex].Type)
-                elementIndex = elementIndex + 1
+            for element2 in tuple.Elements {
+                elements.Add(element2.Type)
             }
 
             return RewriteTuple(elements, names, cursor)
@@ -335,10 +317,8 @@ class AnalyzerTupleElementNames {
             }
 
             arguments := new List<TypeInfo>()
-            argumentIndex := 0
-            while argumentIndex < generic.TypeArguments.Count {
-                arguments.Add(Rewrite(generic.TypeArguments[argumentIndex], names, cursor))
-                argumentIndex = argumentIndex + 1
+            for typeArgument2 in generic.TypeArguments {
+                arguments.Add(Rewrite(typeArgument2, names, cursor))
             }
 
             rewrittenGeneric: TypeInfo = new GenericTypeInfo(generic.Name, arguments, generic.GenericDefinition)

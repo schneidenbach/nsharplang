@@ -56,10 +56,8 @@ class CodeIntelligenceQueries {
 
             relativeFile := CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, entry.Key)
             projected := CodeIntelligenceDeclarationProjection.Symbols(entry.Value.Declarations, relativeFile)
-            projectedIndex := 0
-            while projectedIndex < projected.Count {
-                results.Add(projected[projectedIndex])
-                projectedIndex = projectedIndex + 1
+            for projectedItem in projected {
+                results.Add(projectedItem)
             }
         }
 

@@ -148,10 +148,9 @@ class EditorTypeCatalog {
     // case-sensitive read, so a case-flipped spelling answers a different type or none — which is a
     // property of the read rather than a curation choice this owner gets to make.
     func ResolveByFullName(fullName: string): Type? {
-        index := 0
-        while index < assemblies.Count {
+        for assembly in assemblies {
             try {
-                found := assemblies[index].GetType(fullName)
+                found := assembly.GetType(fullName)
                 // `Assembly.GetType` answers for internal types too; only a nameable one is a type
                 // the editing project could have written.
                 if found != null && IsNameable(found) {
@@ -159,8 +158,6 @@ class EditorTypeCatalog {
                 }
             } catch lookupError: Exception {
             }
-
-            index = index + 1
         }
 
         return null
@@ -412,17 +409,14 @@ class EditorTypeCatalog {
         parentNamespace := EditorTypeCatalogFacts.NamespacePrefixParent(prefix)
         segmentPrefix := EditorTypeCatalogFacts.NamespacePrefixSegment(prefix)
 
-        index := 0
-        while index < namespaces.Count {
-            nextSegment := EditorTypeCatalogFacts.NextNamespaceSegment(namespaces[index], parentNamespace)
+        for namespaceItem in namespaces {
+            nextSegment := EditorTypeCatalogFacts.NextNamespaceSegment(namespaceItem, parentNamespace)
             if nextSegment.Length > 0 && EditorTypeCatalogFacts.MatchesNamespaceSegmentPrefix(nextSegment, segmentPrefix) {
                 if !seen.Contains(nextSegment) {
                     seen.Add(nextSegment)
                     results.Add(nextSegment)
                 }
             }
-
-            index = index + 1
         }
 
         SortSegments(results)

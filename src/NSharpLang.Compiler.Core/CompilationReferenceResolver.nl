@@ -62,16 +62,13 @@ sealed class CompilationReferenceResolver {
         AddImplicitNSharpRuntimeAsset(result)
 
         frameworkDirectories := ResolveFrameworkReferenceDirectories(projectRoot, config)
-        frameworkIndex := 0
-        while frameworkIndex < frameworkDirectories.Count {
-            frameworkDirectory := frameworkDirectories[frameworkIndex]
+        for frameworkDirectory in frameworkDirectories {
             assemblyPaths := Directory.GetFiles(frameworkDirectory, "*.dll", SearchOption.TopDirectoryOnly)
             assemblyIndex := 0
             while assemblyIndex < assemblyPaths.Length {
                 AddDllReference(config, assemblyPaths[assemblyIndex])
                 assemblyIndex = assemblyIndex + 1
             }
-            frameworkIndex = frameworkIndex + 1
         }
 
         packageReferences := CompilationReferenceResolverKernels.GetNuGetReferences(
@@ -85,9 +82,7 @@ sealed class CompilationReferenceResolver {
         // selection is a level-order pass of its own and the asset walk below reads its result.
         selectedVersions := SelectNuGetPackageVersions(packageReferences, config.TargetFramework)
 
-        packageIndex := 0
-        while packageIndex < packageReferences.Count {
-            packageReference := packageReferences[packageIndex]
+        for packageReference in packageReferences {
             packageAssets := ResolveNuGetPackage(
                 packageReference.Nuget,
                 packageReference.Version,
@@ -104,7 +99,6 @@ sealed class CompilationReferenceResolver {
                 AddDllReference(config, runtimeAsset)
                 result.AddRuntimeAsset(runtimeAsset)
             }
-            packageIndex = packageIndex + 1
         }
 
         projectReferences := CompilationReferenceResolverKernels.FilterReferencesByType(
@@ -346,15 +340,11 @@ sealed class CompilationReferenceResolver {
         selectedDirect := new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
         pending := new List<PackageResolutionNode>()
 
-        rootIndex := 0
-        while rootIndex < packageReferences.Count {
-            rootReference := packageReferences[rootIndex]
+        for rootReference in packageReferences {
             rootName := rootReference.Nuget
             if rootName != null {
                 pending.Add(new PackageResolutionNode(rootName, rootReference.Version, 0))
             }
-
-            rootIndex = rootIndex + 1
         }
 
         cursor := 0
@@ -443,9 +433,7 @@ sealed class CompilationReferenceResolver {
         context.PackageAssets[key] = assets
 
         dependencies := ReadPackageDependencies(versionDirectory, targetFramework)
-        dependencyIndex := 0
-        while dependencyIndex < dependencies.Count {
-            dependency := dependencies[dependencyIndex]
+        for dependency in dependencies {
             dependencyAssets := ResolveNuGetPackage(
                 dependency.Id,
                 dependency.Version,
@@ -454,14 +442,11 @@ sealed class CompilationReferenceResolver {
                 selectedVersions
             )
             assets.Add(dependencyAssets)
-            dependencyIndex = dependencyIndex + 1
         }
 
         compileAssemblies := SelectBestAssetAssemblies(versionDirectory, "ref", targetFramework)
-        compileIndex := 0
-        while compileIndex < compileAssemblies.Count {
-            assets.CompileAssemblies.Add(compileAssemblies[compileIndex])
-            compileIndex = compileIndex + 1
+        for compileAssembly in compileAssemblies {
+            assets.CompileAssemblies.Add(compileAssembly)
         }
 
         runtimeAssemblies := SelectBestAssetAssemblies(versionDirectory, "lib", targetFramework)

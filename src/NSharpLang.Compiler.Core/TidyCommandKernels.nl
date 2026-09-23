@@ -118,16 +118,13 @@ class TidyCommandKernels {
         possiblyUnusedCount := 0
         unknownCount := 0
 
-        i := 0
-        while i < statuses.Count {
-            rank := StatusRank(statuses[i])
+        for statuse in statuses {
+            rank := StatusRank(statuse)
             if rank == 1 {
                 possiblyUnusedCount = possiblyUnusedCount + 1
             } else if rank == 3 {
                 unknownCount = unknownCount + 1
             }
-
-            i = i + 1
         }
 
         return new TidyDependencyStatusSummary(possiblyUnusedCount, unknownCount)
@@ -354,9 +351,7 @@ class TidyCommandKernels {
     }
 
     static func RemovalLineStartsWithAnyPackage(lineValue: string, packageStart: int, packageNames: IReadOnlyList<string>): bool {
-        i := 0
-        while i < packageNames.Count {
-            packageName := packageNames[i]
+        for packageName in packageNames {
             if packageName == null {
                 throw new InvalidOperationException("N# tidy dependency removal kernel received a null package name.")
             }
@@ -364,8 +359,6 @@ class TidyCommandKernels {
             if RemovalLineStartsWithPackage(lineValue, packageStart, packageName) {
                 return true
             }
-
-            i = i + 1
         }
 
         return false

@@ -80,10 +80,8 @@ class ValueTupleTypeFacts {
         }
 
         elements := new List<TupleTypeElementInfo>()
-        index := 0
-        while index < flattened.Count {
-            elements.Add(new TupleTypeElementInfo(null, flattened[index]))
-            index = index + 1
+        for flattenedItem in flattened {
+            elements.Add(new TupleTypeElementInfo(null, flattenedItem))
         }
 
         tuple: TypeInfo = new TupleTypeInfo(elements)
@@ -119,10 +117,8 @@ class ValueTupleTypeFacts {
             return false
         }
 
-        restIndex := 0
-        while restIndex < rest.Elements.Count {
-            flattened.Add(rest.Elements[restIndex].Type)
-            restIndex = restIndex + 1
+        for element2 in rest.Elements {
+            flattened.Add(element2.Type)
         }
 
         return true

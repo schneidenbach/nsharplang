@@ -139,13 +139,10 @@ class FileParseAst {
                 return false
             }
 
-            index := 0
-            while index < Errors.Count {
-                if Errors[index].Severity == ErrorSeverity.Error {
+            for error2 in Errors {
+                if error2.Severity == ErrorSeverity.Error {
                     return false
                 }
-
-                index = index + 1
             }
 
             return true
@@ -353,13 +350,10 @@ class ColumnarParserRecovery {
         // Inlined rather than routed through the out-parameter API, which the columnar backend
         // does not yet emit for a reference-typed out argument.
         compacted := new List<Token>()
-        i := 0
-        while i < rawTokens.Count {
-            token := rawTokens[i]
+        for token in rawTokens {
             if token.Type != TokenType.Newline {
                 compacted.Add(token)
             }
-            i = i + 1
         }
         Tokens = compacted
     }
@@ -433,10 +427,8 @@ class ColumnarParserRecovery {
             i = i + 1
         }
         sorted := new List<CompilerError>()
-        m := 0
-        while m < indices.Count {
-            sorted.Add(errors[indices[m]])
-            m = m + 1
+        for indice in indices {
+            sorted.Add(errors[indice])
         }
         return sorted
     }
@@ -5880,10 +5872,8 @@ class ColumnarParserRecovery {
                     if caseBlock == null {
                         declined = true
                     } else {
-                        flattenIndex := 0
-                        while flattenIndex < caseBlock.Statements.Count {
-                            caseStatements.Add(caseBlock.Statements[flattenIndex])
-                            flattenIndex = flattenIndex + 1
+                        for statement2 in caseBlock.Statements {
+                            caseStatements.Add(statement2)
                         }
                     }
                 } else {
@@ -8786,9 +8776,7 @@ class ColumnarParserRecovery {
         // column (a later-line token already begins at column 1 in both frames). Then drop Newline tokens exactly
         // as the Parser constructor's compaction does.
         subTokens := new List<Token>()
-        t := 0
-        while t < subRaw.Count {
-            tok := subRaw[t]
+        for tok in subRaw {
             adjustedLine := tok.Line + exprStartLine - 1
             adjustedColumn := tok.Column
             if tok.Line == 1 {
@@ -8797,7 +8785,6 @@ class ColumnarParserRecovery {
             if tok.Type != TokenType.Newline {
                 subTokens.Add(new Token(tok.Type, tok.Value, adjustedLine, adjustedColumn, tok.FileName, tok.IsTerminated))
             }
-            t = t + 1
         }
 
         savedTokens := Tokens

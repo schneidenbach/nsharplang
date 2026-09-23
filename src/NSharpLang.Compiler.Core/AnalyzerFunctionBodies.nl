@@ -431,12 +431,9 @@ class AnalyzerFunctionBodies {
         declaration := state.Declaration
         typeParameters := declaration.TypeParameters
         if typeParameters != null {
-            index := 0
-            while index < typeParameters.Count {
-                typeParameter := typeParameters[index]
+            for typeParameter in typeParameters {
                 ReportShadowedTypeParameter(typeParameter.Name, state)
                 scopesValue.DeclareTypeParameter(typeParameter.Name)
-                index = index + 1
             }
         }
 
@@ -462,9 +459,7 @@ class AnalyzerFunctionBodies {
             return
         }
 
-        index := 0
-        while index < constraints.Count {
-            constraint := constraints[index]
+        for constraint in constraints {
             references := constraint.Constraints
             resolved := new List<TypeInfo>()
             if references != null {
@@ -486,8 +481,6 @@ class AnalyzerFunctionBodies {
             if NullabilityGenericSubstitution.IsStructConstrained(constraint) {
                 scopesValue.DeclareStructConstrainedTypeParameter(constraint.TypeParameter)
             }
-
-            index = index + 1
         }
     }
 
@@ -747,12 +740,9 @@ class AnalyzerFunctionBodies {
         declaration := state.Declaration
         typeParameters := declaration.TypeParameters
         if typeParameters != null {
-            index := 0
-            while index < typeParameters.Count {
-                typeParameter := typeParameters[index]
+            for typeParameter in typeParameters {
                 ReportShadowedTypeParameter(typeParameter.Name, state)
                 scopesValue.DeclareTypeParameter(typeParameter.Name)
-                index = index + 1
             }
         }
 
@@ -1079,12 +1069,9 @@ class AnalyzerFunctionBodies {
 
         names := new List<string>()
         successors := new List<List<int>>()
-        index := 0
-        while index < typeParameters.Count {
-            typeParameter := typeParameters[index]
+        for typeParameter in typeParameters {
             names.Add(typeParameter.Name)
             successors.Add(new List<int>())
-            index = index + 1
         }
 
         CollectConstraintEdges(names, successors, constraints)

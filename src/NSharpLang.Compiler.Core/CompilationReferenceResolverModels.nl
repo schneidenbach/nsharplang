@@ -83,10 +83,8 @@ class ReferenceResolutionResult {
         result := new ReferenceResolutionResult()
         paths := ExternalAssemblyScan.ResolveRuntimeAssetPaths(projectRoot, dependencies)
 
-        index := 0
-        while index < paths.Count {
-            result.AddRuntimeAsset(paths[index])
-            index = index + 1
+        for path in paths {
+            result.AddRuntimeAsset(path)
         }
 
         return result

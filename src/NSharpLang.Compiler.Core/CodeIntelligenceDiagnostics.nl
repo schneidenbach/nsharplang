@@ -34,14 +34,11 @@ class CodeIntelligenceDiagnostics {
         results := new List<DiagnosticResult>()
         filesWithCompilerShadowingErrors := CompilerShadowingErrorFiles(allErrors, projectRoot)
 
-        errorIndex := 0
-        while errorIndex < allErrors.Count {
-            error := allErrors[errorIndex]
+        for error in allErrors {
             errorFile := error.FileName ?? "unknown"
             if fileFilter == null || CodeIntelligenceResultKernels.MatchesFilePath(errorFile, fileFilter) {
                 results.Add(FromProjectError(error, projectRoot, errorFile, sourceTexts))
             }
-            errorIndex = errorIndex + 1
         }
 
         lintDiagnostics := LintDiagnostics(projectRoot, sourceFiles, compilationUnits, sourceTexts, fileFilter)
@@ -49,10 +46,8 @@ class CodeIntelligenceDiagnostics {
             lintDiagnostics = CodeIntelligenceResultKernels.SuppressLintShadowingDiagnosticResults(lintDiagnostics, filesWithCompilerShadowingErrors)
         }
 
-        resultIndex := 0
-        while resultIndex < lintDiagnostics.Count {
-            results.Add(lintDiagnostics[resultIndex])
-            resultIndex = resultIndex + 1
+        for lintDiagnostic in lintDiagnostics {
+            results.Add(lintDiagnostic)
         }
 
         return CodeIntelligenceResultKernels.DeduplicateDiagnosticsPreservingOrderResults(results)
@@ -63,14 +58,11 @@ class CodeIntelligenceDiagnostics {
     static func CompilerShadowingErrorFiles(allErrors: IReadOnlyList<CompilerError>, projectRoot: string): List<string> {
         files := new List<string>()
 
-        errorIndex := 0
-        while errorIndex < allErrors.Count {
-            error := allErrors[errorIndex]
+        for error in allErrors {
             errorFileName := error.FileName
             if error.Code == ErrorCode.ShadowedDeclaration && errorFileName != null && !String.IsNullOrWhiteSpace(errorFileName) {
                 files.Add(CodeIntelligenceSourceDoor.RelativePath(projectRoot, errorFileName))
             }
-            errorIndex = errorIndex + 1
         }
 
         return files

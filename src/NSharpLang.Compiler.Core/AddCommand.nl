@@ -187,10 +187,8 @@ class AddCommand {
     static func WriteProjectLines(projectYml: string, lines: List<string>) {
         builder := new StringBuilder()
 
-        i := 0
-        while i < lines.Count {
-            builder.AppendLine(lines[i])
-            i = i + 1
+        for line in lines {
+            builder.AppendLine(line)
         }
 
         File.WriteAllText(projectYml, builder.ToString())

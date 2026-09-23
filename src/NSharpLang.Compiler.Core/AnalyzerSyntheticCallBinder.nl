@@ -435,13 +435,10 @@ class AnalyzerSyntheticCallFacts {
 
         generic := candidate as GenericTypeInfo
         if generic != null {
-            index := 0
-            while index < generic.TypeArguments.Count {
-                if MentionsTypeParameter(generic.TypeArguments[index], typeParameters) {
+            for typeArgument2 in generic.TypeArguments {
+                if MentionsTypeParameter(typeArgument2, typeParameters) {
                     return true
                 }
-
-                index = index + 1
             }
 
             return false
@@ -471,13 +468,10 @@ class AnalyzerSyntheticCallFacts {
     }
 
     static func NamesTypeParameter(name: string, typeParameters: List<TypeParameter>): bool {
-        index := 0
-        while index < typeParameters.Count {
-            if typeParameters[index].Name == name {
+        for typeParameter in typeParameters {
+            if typeParameter.Name == name {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -511,11 +505,8 @@ class AnalyzerSyntheticCallFacts {
         generic := candidate as GenericTypeInfo
         if generic != null {
             substituted := new List<TypeInfo>()
-            index := 0
-            while index < generic.TypeArguments.Count {
-                argument := generic.TypeArguments[index]
+            for argument in generic.TypeArguments {
                 substituted.Add(ApplyGenericBindings(argument, bindings, liftedTypeParameters))
-                index = index + 1
             }
 
             return new GenericTypeInfo(generic.Name, substituted, generic.GenericDefinition)
@@ -556,11 +547,8 @@ class AnalyzerSyntheticCallFacts {
         tupleCandidate := candidate as TupleTypeInfo
         if tupleCandidate != null {
             substitutedElements := new List<TupleTypeElementInfo>()
-            elementIndex := 0
-            while elementIndex < tupleCandidate.Elements.Count {
-                element := tupleCandidate.Elements[elementIndex]
+            for element in tupleCandidate.Elements {
                 substitutedElements.Add(new TupleTypeElementInfo(element.Name, ApplyGenericBindings(element.Type, bindings, liftedTypeParameters)))
-                elementIndex = elementIndex + 1
             }
 
             return new TupleTypeInfo(substitutedElements)
@@ -574,10 +562,8 @@ class AnalyzerSyntheticCallFacts {
         anonymousUnion := candidate as AnonymousUnionTypeInfo
         if anonymousUnion != null {
             substitutedArms := new List<TypeInfo>()
-            armIndex := 0
-            while armIndex < anonymousUnion.Arms.Count {
-                substitutedArms.Add(ApplyGenericBindings(anonymousUnion.Arms[armIndex], bindings, liftedTypeParameters))
-                armIndex = armIndex + 1
+            for arm2 in anonymousUnion.Arms {
+                substitutedArms.Add(ApplyGenericBindings(arm2, bindings, liftedTypeParameters))
             }
 
             return new AnonymousUnionTypeInfo(substitutedArms)
@@ -621,10 +607,8 @@ class AnalyzerSyntheticCallFacts {
         parameterTypes := functionType.ParameterTypes
         if parameterTypes != null {
             substitutedParameterTypes = new List<TypeInfo>()
-            index := 0
-            while index < parameterTypes.Count {
-                substitutedParameterTypes.Add(ApplyGenericBindings(parameterTypes[index], effectiveBindings, lifted))
-                index = index + 1
+            for parameterType in parameterTypes {
+                substitutedParameterTypes.Add(ApplyGenericBindings(parameterType, effectiveBindings, lifted))
             }
         }
 
@@ -646,10 +630,8 @@ class AnalyzerSyntheticCallFacts {
         }
 
         shadowed := new HashSet<string>(StringComparer.Ordinal)
-        index := 0
-        while index < typeParameters.Count {
-            shadowed.Add(typeParameters[index].Name)
-            index = index + 1
+        for typeParameter in typeParameters {
+            shadowed.Add(typeParameter.Name)
         }
 
         remaining := new Dictionary<string, TypeInfo>()
@@ -672,9 +654,8 @@ class AnalyzerSyntheticCallFacts {
     // bound may be written in source and another read from metadata for the same parameter.
     static func TryComputeNumericLub(types: List<TypeInfo>): TypeInfo? {
         maxIndex := -1
-        index := 0
-        while index < types.Count {
-            typeObject := types[index] as object
+        for typeItem in types {
+            typeObject := typeItem as object
             rendered := typeObject.ToString()
             if rendered == null {
                 return null
@@ -688,8 +669,6 @@ class AnalyzerSyntheticCallFacts {
             if order > maxIndex {
                 maxIndex = order
             }
-
-            index = index + 1
         }
 
         if maxIndex < 0 {
@@ -874,14 +853,10 @@ class AnalyzerSyntheticCallBinder {
             return first
         }
 
-        candidateIndex := 0
-        while candidateIndex < types.Count {
-            candidate := types[candidateIndex]
+        for candidate in types {
             if AllConvertibleTo(types, candidate) {
                 return candidate
             }
-
-            candidateIndex = candidateIndex + 1
         }
 
         numericLub := AnalyzerSyntheticCallFacts.TryComputeNumericLub(types)
@@ -893,27 +868,20 @@ class AnalyzerSyntheticCallBinder {
     }
 
     static func AllEqualTo(types: List<TypeInfo>, candidate: TypeInfo): bool {
-        index := 0
-        while index < types.Count {
-            if !TypeInfoIdentityFacts.AreEqual(types[index], candidate) {
+        for typeItem in types {
+            if !TypeInfoIdentityFacts.AreEqual(typeItem, candidate) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
     }
 
     func AllConvertibleTo(types: List<TypeInfo>, candidate: TypeInfo): bool {
-        index := 0
-        while index < types.Count {
-            current := types[index]
+        for current in types {
             if !TypeInfoIdentityFacts.AreEqual(current, candidate) && !assignability.IsAssignable(candidate, current) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
@@ -946,14 +914,11 @@ class AnalyzerSyntheticCallBinder {
 
         simple := parameterTypeReference as SimpleTypeReference
         if simple != null {
-            index := 0
-            while index < typeParameters.Count {
-                if typeParameters[index].Name == simple.Name {
+            for typeParameter in typeParameters {
+                if typeParameter.Name == simple.Name {
                     allBounds[simple.Name].Add(argumentType)
                     return
                 }
-
-                index = index + 1
             }
 
             return
@@ -1181,16 +1146,12 @@ class AnalyzerSyntheticCallReporter {
             return binding.Success
         }
 
-        index := 0
-        while index < binding.Failures.Count {
-            failure := binding.Failures[index]
+        for failure in binding.Failures {
             if failure.ArgumentIndex >= 0 {
                 ReportArgumentBindingError(functionType, functionName, call.Arguments[failure.ArgumentIndex], failure.Message, parameterStartIndex)
             } else {
                 ReportMissingArgumentBindingError(functionType, functionName, call, failure.Message, parameterStartIndex)
             }
-
-            index = index + 1
         }
 
         return binding.Success

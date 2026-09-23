@@ -105,43 +105,31 @@ class ProjectFileParser {
         // A FRIEND DECLARATION THAT NAMES NOTHING IS A CONFIGURATION MISTAKE, not a silent no-op.
         // An entry with no simple name in front of its comma would emit a metadata row no reader
         // can ever match, so the project file is refused with the entry's own spelling quoted.
-        grantIndex := 0
-        while grantIndex < config.InternalsVisibleTo.Count {
-            declaredGrant := config.InternalsVisibleTo[grantIndex]
+        for declaredGrant in config.InternalsVisibleTo {
             if !ColumnarInternalsVisibleToEmitter.IsUsableDeclaredName(declaredGrant) {
                 throw new InvalidOperationException("Invalid internalsVisibleTo entry: '" + (declaredGrant ?? "") + "'. Each entry must be an assembly name.")
             }
-
-            grantIndex = grantIndex + 1
         }
 
         config.Dependencies = FilterReferences(config.Dependencies)
         config.TestDependencies = FilterReferences(config.TestDependencies)
 
-        i := 0
-        while i < config.Dependencies.Count {
-            reference := config.Dependencies[i]
+        for reference in config.Dependencies {
             referenceType := reference.Type
             if referenceType == ReferenceType.Dll || referenceType == ReferenceType.Project {
                 reference.Validate(projectDirectory)
             }
-
-            i = i + 1
         }
     }
 
     static func FilterReferences(references: List<Reference>): List<Reference> {
         filtered := new List<Reference>()
-        i := 0
-        while i < references.Count {
-            reference := references[i]
+        for reference in references {
             if reference != null {
                 if reference.HasValue {
                     filtered.Add(reference)
                 }
             }
-
-            i = i + 1
         }
 
         return filtered

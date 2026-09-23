@@ -258,13 +258,10 @@ class SignatureHelpArgumentFacts {
         lexer := new Lexer("__signature(" + argumentText, "<signature-help>")
         raw := lexer.Tokenize()
         tokens := new List<Token>()
-        index := 0
-        while index < raw.Count {
-            token := raw[index]
+        for token in raw {
             if token.Type != TokenType.Newline && token.Type != TokenType.Eof {
                 tokens.Add(token)
             }
-            index += 1
         }
         return tokens
     }

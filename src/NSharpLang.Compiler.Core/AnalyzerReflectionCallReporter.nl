@@ -172,11 +172,9 @@ class AnalyzerReflectionCallReporter {
         span := spans.GetCallDiagnosticSpan(call, functionName)
 
         argumentTypes := new List<string>()
-        typeIndex := 0
-        while typeIndex < argTypes.Count {
-            argumentTypeObject := argTypes[typeIndex] as object
+        for argType in argTypes {
+            argumentTypeObject := argType as object
             argumentTypes.Add(argumentTypeObject.ToString())
-            typeIndex = typeIndex + 1
         }
 
         candidateSignatures := new List<string>()

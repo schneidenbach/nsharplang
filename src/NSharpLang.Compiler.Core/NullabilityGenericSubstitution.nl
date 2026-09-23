@@ -68,10 +68,8 @@ class NullabilityGenericSubstitution {
         }
 
         names: HashSet<string>? = null
-        index := 0
-        while index < constraints.Count {
-            names = AddLiftedTypeParameter(names, constraints[index])
-            index = index + 1
+        for constraint in constraints {
+            names = AddLiftedTypeParameter(names, constraint)
         }
 
         return names

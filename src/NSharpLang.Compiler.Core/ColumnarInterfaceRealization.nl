@@ -520,9 +520,7 @@ class ColumnarInterfaceRealization {
             fieldIndex = fieldIndex + 1
         }
 
-        propertyIndex := 0
-        while propertyIndex < source.Properties.Count {
-            property := source.Properties[propertyIndex]
+        for property in source.Properties {
             if property.Name == name && !property.IsStatic {
                 candidate: Type = null
                 if ColumnarCanonicalTypeResolver.TryResolveMemberType(
@@ -536,8 +534,6 @@ class ColumnarInterfaceRealization {
                     return true
                 }
             }
-
-            propertyIndex = propertyIndex + 1
         }
 
         return false

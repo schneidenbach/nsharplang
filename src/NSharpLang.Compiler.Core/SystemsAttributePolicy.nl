@@ -70,14 +70,10 @@ class SystemsAttributeSet {
     // The FIRST attribute with this name; a declaration that writes `[allow]` twice is read by `Get`
     // as its first one and by `GetAll` as both.
     func Get(name: string): AttributeNode? {
-        index := 0
-        while index < attributesValue.Count {
-            candidate := attributesValue[index]
+        for candidate in attributesValue {
             if AttributeNameEquals(candidate.Name, name) {
                 return candidate
             }
-
-            index = index + 1
         }
 
         return null
@@ -86,14 +82,10 @@ class SystemsAttributeSet {
     // In declaration order, which is the order the waiver findings are reported in.
     func GetAll(name: string): List<AttributeNode> {
         matched := new List<AttributeNode>()
-        index := 0
-        while index < attributesValue.Count {
-            candidate := attributesValue[index]
+        for candidate in attributesValue {
             if AttributeNameEquals(candidate.Name, name) {
                 matched.Add(candidate)
             }
-
-            index = index + 1
         }
 
         return matched
@@ -108,14 +100,11 @@ class SystemsAttributeSet {
             return false
         }
 
-        index := 0
-        while index < attribute.Arguments.Count {
-            identifier := attribute.Arguments[index].Value as IdentifierExpression
+        for argument2 in attribute.Arguments {
+            identifier := argument2.Value as IdentifierExpression
             if identifier != null && string.Equals(identifier.Name, argumentName, StringComparison.OrdinalIgnoreCase) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -132,10 +121,8 @@ class SystemsAttributeSet {
     func AllowEffects(): HashSet<string> {
         result := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         allows := GetAll("allow")
-        allowIndex := 0
-        while allowIndex < allows.Count {
-            AddAllowEffects(allows[allowIndex], result)
-            allowIndex = allowIndex + 1
+        for allowItem in allows {
+            AddAllowEffects(allowItem, result)
         }
 
         return result
@@ -172,9 +159,7 @@ class SystemsAttributeSet {
     // is why this is written as a search that STOPS rather than one that keeps looking:
     // `[allow(reason: bare, reason: "real")]` has no reason.
     static func AttributeString(attribute: AttributeNode, name: string): string? {
-        index := 0
-        while index < attribute.Arguments.Count {
-            argument := attribute.Arguments[index]
+        for argument in attribute.Arguments {
             if string.Equals(argument.Name, name, StringComparison.OrdinalIgnoreCase) {
                 literal := argument.Value as StringLiteralExpression
                 if literal == null {
@@ -183,8 +168,6 @@ class SystemsAttributeSet {
 
                 return Unquote(literal.Value)
             }
-
-            index = index + 1
         }
 
         return null
@@ -255,10 +238,8 @@ class SystemsAllowStack {
     // and nothing else.
     func Push(effects: List<string>) {
         pushed := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        index := 0
-        while index < effects.Count {
-            pushed.Add(effects[index])
-            index = index + 1
+        for effect in effects {
+            pushed.Add(effect)
         }
 
         blockAllowsValue.Add(pushed)
@@ -280,13 +261,10 @@ class SystemsAllowStack {
             return true
         }
 
-        index := 0
-        while index < blockAllowsValue.Count {
-            if ContainsEffect(blockAllowsValue[index], effect) {
+        for blockAllowsValueItem in blockAllowsValue {
+            if ContainsEffect(blockAllowsValueItem, effect) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -333,9 +311,7 @@ class SystemsAttributePolicy {
         allows := attributes.GetAll("allow")
         length := Math.Max(1, function.Name.Length)
         isPublicApi := IsPublicApi(function)
-        index := 0
-        while index < allows.Count {
-            allowAttribute := allows[index]
+        for allowAttribute in allows {
             reason := SystemsAttributeSet.AttributeString(allowAttribute, "reason")
             owner := SystemsAttributeSet.AttributeString(allowAttribute, "owner")
             if string.IsNullOrWhiteSpace(reason) {
@@ -345,8 +321,6 @@ class SystemsAttributePolicy {
             if isPublicApi && string.IsNullOrWhiteSpace(owner) {
                 sinkValue.AddForFunction("NSYS180", "effectPolicy", "public function-level [allow] requires an owner", function.Line, function.Column, length, filePath, functionName, isHot, isBoundary, ErrorSeverity.Error, "Add owner: \"team-or-person\" so public systems waivers are auditable.")
             }
-
-            index = index + 1
         }
     }
 

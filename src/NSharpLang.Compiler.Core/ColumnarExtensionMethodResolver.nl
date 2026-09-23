@@ -435,9 +435,7 @@ class ColumnarExtensionMethodResolver {
         bestIsGeneric := false
         bestCount := 0
         selected: ColumnarExtensionMethodCandidate? = null
-        candidateIndex := 0
-        while candidateIndex < candidates.Count {
-            indexed := candidates[candidateIndex]
+        for indexed in candidates {
             candidate: ColumnarExtensionMethodCandidate? = null
             if indexed != null {
                 candidate = ResolveCandidateShape(indexed, receiverType, argumentTypes, explicitCount)
@@ -463,8 +461,6 @@ class ColumnarExtensionMethodResolver {
                     }
                 }
             }
-
-            candidateIndex = candidateIndex + 1
         }
 
         if bestCount == 0 {
@@ -498,9 +494,7 @@ class ColumnarExtensionMethodResolver {
         bestCount := 0
         bestElementType: Type? = null
         selected: ColumnarExtensionMethodCandidate? = null
-        candidateIndex := 0
-        while candidateIndex < candidates.Count {
-            candidate := candidates[candidateIndex]
+        for candidate in candidates {
             if candidate != null && !candidate.Method.get_IsGenericMethodDefinition() && CandidateAppliesToReceiver(candidate, receiverType) {
                 parameters := ParametersOrNull(candidate.Method)
                 if parameters != null {
@@ -523,8 +517,6 @@ class ColumnarExtensionMethodResolver {
                     }
                 }
             }
-
-            candidateIndex = candidateIndex + 1
         }
 
         if bestCount != 1 || selected == null || bestElementType == null {
@@ -564,9 +556,7 @@ class ColumnarExtensionMethodResolver {
             return false
         }
 
-        candidateIndex := 0
-        while candidateIndex < candidates.Count {
-            indexed := candidates[candidateIndex]
+        for indexed in candidates {
             if indexed != null && indexed.Method.get_IsGenericMethodDefinition() && indexed.Method.GetGenericArguments().Length == typeArguments.Length && indexed.ParameterTypes.Length - 1 >= argumentCount {
                 closedMethod := ColumnarRuntimeGenericMethodResolver.CloseOrNull(indexed.Method, typeArguments)
                 closedParameterTypes := ColumnarRuntimeGenericMethodResolver.ClosedParameterTypesOrNull(indexed.Method, typeArguments)
@@ -575,8 +565,6 @@ class ColumnarExtensionMethodResolver {
                     selected.Add(new ColumnarExtensionMethodCandidate(closedMethod, indexed.DeclaringType, closedParameterTypes, closedReturnType))
                 }
             }
-
-            candidateIndex = candidateIndex + 1
         }
 
         return selected.Count > 0

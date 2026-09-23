@@ -645,13 +645,10 @@ class AnalyzerMetadataLoadPolicy {
             return false
         }
 
-        index := 0
-        while index < existingDirectories.Count {
-            if existingDirectories[index] == directory {
+        for existingDirectory in existingDirectories {
+            if existingDirectory == directory {
                 return false
             }
-
-            index = index + 1
         }
 
         return true

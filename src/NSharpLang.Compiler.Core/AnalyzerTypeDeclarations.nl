@@ -2001,9 +2001,7 @@ class AnalyzerTypeDeclarations {
         }
 
         firstName := ""
-        index := 0
-        while index < written.Count {
-            reference := written[index]
+        for reference in written {
             resolved := typeResolverValue.ResolveType(reference)
             if IsBaseClassShape(resolved) {
                 name := BaseReferenceName(reference)
@@ -2017,8 +2015,6 @@ class AnalyzerTypeDeclarations {
 
                 firstName = name
             }
-
-            index = index + 1
         }
     }
 
@@ -2362,13 +2358,10 @@ class AnalyzerTypeDeclarations {
         }
 
         missing := new List<string>()
-        index := 0
-        while index < declaredInterfaces.Count {
-            if !CollectUnimplementedInterfaceMembers(declaredInterfaces[index], suppliedFunctions, suppliedValues, missing, 0) {
+        for declaredInterface in declaredInterfaces {
+            if !CollectUnimplementedInterfaceMembers(declaredInterface, suppliedFunctions, suppliedValues, missing, 0) {
                 return
             }
-
-            index = index + 1
         }
 
         if missing.Count == 0 {

@@ -289,14 +289,11 @@ class CodeIntelligenceNavigation {
         }
 
         declarations := currentUnit.Declarations
-        index := 0
-        while index < declarations.Count {
-            result := CodeIntelligenceTypeResolution.DeclaredNameTypeInDeclaration(snapshot.ProjectRoot, snapshot.CompilationUnits, filePath, declarations[index], selectedWord, line)
+        for declaration in declarations {
+            result := CodeIntelligenceTypeResolution.DeclaredNameTypeInDeclaration(snapshot.ProjectRoot, snapshot.CompilationUnits, filePath, declaration, selectedWord, line)
             if result != null {
                 return result
             }
-
-            index = index + 1
         }
 
         return null
@@ -314,16 +311,12 @@ class CodeIntelligenceNavigation {
             return fromExpression
         }
 
-        index := 0
-        while index < candidateNames.Count {
-            candidateName := candidateNames[index]
+        for candidateName in candidateNames {
             typeInfo := CodeIntelligenceTypeResolution.TypeInfoByName(candidateName, semanticModel, snapshot.CompilationUnits, currentUnit)
             if typeInfo != null {
                 resolvedName = candidateName
                 return typeInfo
             }
-
-            index = index + 1
         }
 
         return null
@@ -351,14 +344,11 @@ class CodeIntelligenceNavigation {
     static func FindDefinitionLocation(snapshot: ProjectSnapshot, name: string): LocationResult? {
         for entry in snapshot.CompilationUnits {
             declarations := entry.Value.Declarations
-            index := 0
-            while index < declarations.Count {
-                location := FindDefinitionLocationInDeclaration(snapshot, entry.Key, declarations[index], name)
+            for declaration in declarations {
+                location := FindDefinitionLocationInDeclaration(snapshot, entry.Key, declaration, name)
                 if location != null {
                     return location
                 }
-
-                index = index + 1
             }
         }
 
@@ -372,43 +362,34 @@ class CodeIntelligenceNavigation {
 
         members := DeclarationFacts.GetDeclarationMembers(decl)
         if members != null {
-            index := 0
-            while index < members.Count {
-                member := members[index] as Declaration
+            for memberItem in members {
+                member := memberItem as Declaration
                 if member != null {
                     location := FindDefinitionLocationInDeclaration(snapshot, filePath, member, name)
                     if location != null {
                         return location
                     }
                 }
-
-                index = index + 1
             }
         }
 
         enumDecl := decl as EnumDeclaration
         if enumDecl != null {
             enumMembers := enumDecl.Members
-            enumIndex := 0
-            while enumIndex < enumMembers.Count {
-                if enumMembers[enumIndex].Name == name {
+            for enumMember in enumMembers {
+                if enumMember.Name == name {
                     return new LocationResult(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath), enumDecl.Line, enumDecl.Column)
                 }
-
-                enumIndex = enumIndex + 1
             }
         }
 
         unionDecl := decl as UnionDeclaration
         if unionDecl != null {
             cases := unionDecl.Cases
-            caseIndex := 0
-            while caseIndex < cases.Count {
-                if cases[caseIndex].Name == name {
+            for caseItem in cases {
+                if caseItem.Name == name {
                     return new LocationResult(CodeIntelligenceSourceDoor.RelativePath(snapshot.ProjectRoot, filePath), unionDecl.Line, unionDecl.Column)
                 }
-
-                caseIndex = caseIndex + 1
             }
         }
 

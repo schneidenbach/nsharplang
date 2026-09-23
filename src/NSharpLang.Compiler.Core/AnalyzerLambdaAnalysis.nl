@@ -252,10 +252,8 @@ class AnalyzerLambdaAnalysis {
     // when it is one of these and a captured variable when it is not.
     static func LambdaParameterNames(lambda: LambdaExpression): HashSet<string> {
         names := new HashSet<string>(StringComparer.Ordinal)
-        index := 0
-        while index < lambda.Parameters.Count {
-            names.Add(lambda.Parameters[index].Name)
-            index = index + 1
+        for parameter2 in lambda.Parameters {
+            names.Add(parameter2.Name)
         }
 
         return names

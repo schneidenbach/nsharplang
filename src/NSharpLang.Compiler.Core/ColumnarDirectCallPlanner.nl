@@ -3947,13 +3947,10 @@ class ColumnarDirectCallPlanner {
         }
 
         if current.IsInterface {
-            baseIndex := 0
-            while baseIndex < current.InterfaceBases.Count {
-                if TryClassifyExcludedInstanceOwner(current.InterfaceBases[baseIndex], memberName, argumentCount, out hasExcluded) {
+            for interfaceBase2 in current.InterfaceBases {
+                if TryClassifyExcludedInstanceOwner(interfaceBase2, memberName, argumentCount, out hasExcluded) {
                     return true
                 }
-
-                baseIndex += 1
             }
         }
 
@@ -3978,9 +3975,7 @@ class ColumnarDirectCallPlanner {
         }
 
         hasRawArity := false
-        index := 0
-        while index < overloads.Count {
-            candidate := overloads[index]
+        for candidate in overloads {
             if candidate.ParamTypes.Length == argumentCount {
                 hasRawArity = true
             }
@@ -3988,8 +3983,6 @@ class ColumnarDirectCallPlanner {
             if ColumnarSourceDirectCallResolver.ExcludedInstanceDefinitionCanOwnArity(candidate, argumentCount) {
                 hasExcluded = true
             }
-
-            index += 1
         }
 
         return hasRawArity || hasExcluded
@@ -4013,9 +4006,7 @@ class ColumnarDirectCallPlanner {
             }
 
             hasRawArity := false
-            index := 0
-            while index < overloads.Count {
-                candidate := overloads[index]
+            for candidate in overloads {
                 if candidate.ParamTypes.Length == argumentCount {
                     hasRawArity = true
                 }
@@ -4023,8 +4014,6 @@ class ColumnarDirectCallPlanner {
                 if ColumnarSourceDirectCallResolver.ExcludedStaticDefinitionCanOwnArity(candidate, argumentCount) {
                     hasExcluded = true
                 }
-
-                index += 1
             }
 
             if hasRawArity || hasExcluded {

@@ -157,10 +157,8 @@ class AnalyzerTypeResolver {
     }
 
     func ResolveTypeReferences(typeReferences: List<TypeReference>) {
-        index := 0
-        while index < typeReferences.Count {
-            ResolveDeclaredType(typeReferences[index])
-            index = index + 1
+        for typeReference in typeReferences {
+            ResolveDeclaredType(typeReference)
         }
     }
 
@@ -169,10 +167,8 @@ class AnalyzerTypeResolver {
             return
         }
 
-        index := 0
-        while index < constraints.Count {
-            ResolveTypeReferences(constraints[index].Constraints)
-            index = index + 1
+        for constraint in constraints {
+            ResolveTypeReferences(constraint.Constraints)
         }
     }
 
@@ -205,11 +201,8 @@ class AnalyzerTypeResolver {
         tuple := typeRef as TupleTypeReference
         if tuple != null {
             elements := new List<TupleTypeElementInfo>()
-            elementIndex := 0
-            while elementIndex < tuple.Elements.Count {
-                element := tuple.Elements[elementIndex]
+            for element in tuple.Elements {
                 elements.Add(new TupleTypeElementInfo(element.Name, ResolveType(element.Type)))
-                elementIndex = elementIndex + 1
             }
             return new TupleTypeInfo(elements)
         }
@@ -217,10 +210,8 @@ class AnalyzerTypeResolver {
         functionReference := typeRef as FunctionTypeReference
         if functionReference != null {
             parameterTypes := new List<TypeInfo>()
-            parameterIndex := 0
-            while parameterIndex < functionReference.ParameterTypes.Count {
-                parameterTypes.Add(ResolveType(functionReference.ParameterTypes[parameterIndex]))
-                parameterIndex = parameterIndex + 1
+            for parameterType2 in functionReference.ParameterTypes {
+                parameterTypes.Add(ResolveType(parameterType2))
             }
 
             functionType := new FunctionTypeInfo()
@@ -268,10 +259,8 @@ class AnalyzerTypeResolver {
         }
 
         typeArguments := new List<TypeInfo>()
-        argumentIndex := 0
-        while argumentIndex < generic.TypeArguments.Count {
-            typeArguments.Add(ResolveType(generic.TypeArguments[argumentIndex]))
-            argumentIndex = argumentIndex + 1
+        for typeArgument2 in generic.TypeArguments {
+            typeArguments.Add(ResolveType(typeArgument2))
         }
 
         genericDefinition: TypeInfo? = null
@@ -436,10 +425,8 @@ class AnalyzerTypeResolver {
         generic := typeReference as GenericTypeReference
         if generic != null {
             ReportSoaRowTypeReferenceIfNeeded(generic.Name, generic.Line, generic.Column)
-            argumentIndex := 0
-            while argumentIndex < generic.TypeArguments.Count {
-                ReportSoaRowTypeReferencesIn(generic.TypeArguments[argumentIndex])
-                argumentIndex = argumentIndex + 1
+            for typeArgument2 in generic.TypeArguments {
+                ReportSoaRowTypeReferencesIn(typeArgument2)
             }
 
             return
@@ -459,10 +446,8 @@ class AnalyzerTypeResolver {
 
         unionReference := typeReference as UnionTypeReference
         if unionReference != null {
-            armIndex := 0
-            while armIndex < unionReference.Arms.Count {
-                ReportSoaRowTypeReferencesIn(unionReference.Arms[armIndex])
-                armIndex = armIndex + 1
+            for arm2 in unionReference.Arms {
+                ReportSoaRowTypeReferencesIn(arm2)
             }
 
             return
@@ -470,10 +455,8 @@ class AnalyzerTypeResolver {
 
         tuple := typeReference as TupleTypeReference
         if tuple != null {
-            elementIndex := 0
-            while elementIndex < tuple.Elements.Count {
-                ReportSoaRowTypeReferencesIn(tuple.Elements[elementIndex].Type)
-                elementIndex = elementIndex + 1
+            for element2 in tuple.Elements {
+                ReportSoaRowTypeReferencesIn(element2.Type)
             }
 
             return
@@ -481,10 +464,8 @@ class AnalyzerTypeResolver {
 
         functionReference := typeReference as FunctionTypeReference
         if functionReference != null {
-            parameterIndex := 0
-            while parameterIndex < functionReference.ParameterTypes.Count {
-                ReportSoaRowTypeReferencesIn(functionReference.ParameterTypes[parameterIndex])
-                parameterIndex = parameterIndex + 1
+            for parameterType2 in functionReference.ParameterTypes {
+                ReportSoaRowTypeReferencesIn(parameterType2)
             }
 
             ReportSoaRowTypeReferencesIn(functionReference.ReturnType)
@@ -502,9 +483,8 @@ class AnalyzerTypeResolver {
     // Both reports point at the union's own start span, which is its first arm.
     func ResolveAnonymousUnionType(unionReference: UnionTypeReference): TypeInfo {
         resolvedArms := new List<TypeInfo>()
-        armIndex := 0
-        while armIndex < unionReference.Arms.Count {
-            arm := ResolveType(unionReference.Arms[armIndex])
+        for arm2 in unionReference.Arms {
+            arm := ResolveType(arm2)
             nested := arm as AnonymousUnionTypeInfo
             if nested != null {
                 nestedIndex := 0
@@ -515,7 +495,6 @@ class AnalyzerTypeResolver {
             } else {
                 resolvedArms.Add(arm)
             }
-            armIndex = armIndex + 1
         }
 
         uniqueArms := new List<TypeInfo>()
@@ -889,12 +868,10 @@ class AnalyzerTypeResolver {
     }
 
     static func ContainsArm(arms: List<TypeInfo>, candidate: TypeInfo): bool {
-        index := 0
-        while index < arms.Count {
-            if TypeInfoIdentityFacts.AreEqual(arms[index], candidate) {
+        for arm in arms {
+            if TypeInfoIdentityFacts.AreEqual(arm, candidate) {
                 return true
             }
-            index = index + 1
         }
 
         return false

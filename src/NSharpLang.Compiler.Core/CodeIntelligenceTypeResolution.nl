@@ -68,17 +68,14 @@ class CodeIntelligenceTypeResolution {
 
         members := DeclarationFacts.GetDeclarationMembers(declaration)
         if members != null {
-            index := 0
-            while index < members.Count {
-                member := members[index] as Declaration
+            for memberItem in members {
+                member := memberItem as Declaration
                 if member != null {
                     memberResult := DeclaredNameTypeInDeclaration(projectRoot, compilationUnits, filePath, member, selectedName, line)
                     if memberResult != null {
                         return memberResult
                     }
                 }
-
-                index = index + 1
             }
         }
 
@@ -732,10 +729,8 @@ class CodeIntelligenceTypeResolution {
 
         importedNamespaces := new HashSet<string>(StringComparer.Ordinal)
         imports := currentUnit.Imports
-        importIndex := 0
-        while importIndex < imports.Count {
-            importedNamespaces.Add(imports[importIndex].Namespace)
-            importIndex = importIndex + 1
+        for importItem in imports {
+            importedNamespaces.Add(importItem.Namespace)
         }
 
         for entry in compilationUnits {
@@ -754,14 +749,11 @@ class CodeIntelligenceTypeResolution {
 
             if visible {
                 declarations := unit.Declarations
-                declarationIndex := 0
-                while declarationIndex < declarations.Count {
-                    typeInfo := FindTypeInfoInDeclaration(declarations[declarationIndex], name, compilationUnits)
+                for declaration in declarations {
+                    typeInfo := FindTypeInfoInDeclaration(declaration, name, compilationUnits)
                     if typeInfo != null {
                         return typeInfo
                     }
-
-                    declarationIndex = declarationIndex + 1
                 }
             }
         }
@@ -780,17 +772,14 @@ class CodeIntelligenceTypeResolution {
 
         members := DeclarationFacts.GetDeclarationMembers(decl)
         if members != null {
-            index := 0
-            while index < members.Count {
-                member := members[index] as Declaration
+            for memberItem in members {
+                member := memberItem as Declaration
                 if member != null {
                     memberMatch := FindTypeInfoInDeclaration(member, name, compilationUnits)
                     if memberMatch != null {
                         return memberMatch
                     }
                 }
-
-                index = index + 1
             }
         }
 
@@ -799,28 +788,20 @@ class CodeIntelligenceTypeResolution {
         enumDeclaration := decl as EnumDeclaration
         if enumDeclaration != null {
             enumMembers := enumDeclaration.Members
-            enumMemberIndex := 0
-            while enumMemberIndex < enumMembers.Count {
-                enumMember := enumMembers[enumMemberIndex]
+            for enumMember in enumMembers {
                 if enumMember.Name == name {
                     return EnumTypeInfoFactory.FromDeclaration(enumDeclaration)
                 }
-
-                enumMemberIndex = enumMemberIndex + 1
             }
         }
 
         unionDeclaration := decl as UnionDeclaration
         if unionDeclaration != null {
             unionCases := unionDeclaration.Cases
-            caseIndex := 0
-            while caseIndex < unionCases.Count {
-                unionCase := unionCases[caseIndex]
+            for unionCase in unionCases {
                 if unionCase.Name == name {
                     return UnionTypeInfoFactory.FromDeclaration(unionDeclaration)
                 }
-
-                caseIndex = caseIndex + 1
             }
         }
 
@@ -984,10 +965,8 @@ class CodeIntelligenceTypeResolution {
         if genericReference != null {
             typeArguments := genericReference.TypeArguments
             resolvedArguments := new List<TypeInfo>()
-            argumentIndex := 0
-            while argumentIndex < typeArguments.Count {
-                resolvedArguments.Add(TypeReferenceToTypeInfo(typeArguments[argumentIndex], compilationUnits))
-                argumentIndex = argumentIndex + 1
+            for typeArgument in typeArguments {
+                resolvedArguments.Add(TypeReferenceToTypeInfo(typeArgument, compilationUnits))
             }
 
             return new GenericTypeInfo(genericReference.Name, resolvedArguments)
@@ -1009,10 +988,8 @@ class CodeIntelligenceTypeResolution {
         if unionReference != null {
             flattened := FlattenUnionTypeReference(typeRef)
             resolvedArms := new List<TypeInfo>()
-            armIndex := 0
-            while armIndex < flattened.Count {
-                resolvedArms.Add(TypeReferenceToTypeInfo(flattened[armIndex], compilationUnits))
-                armIndex = armIndex + 1
+            for flattenedItem in flattened {
+                resolvedArms.Add(TypeReferenceToTypeInfo(flattenedItem, compilationUnits))
             }
 
             return new AnonymousUnionTypeInfo(resolvedArms)
@@ -1039,16 +1016,13 @@ class CodeIntelligenceTypeResolution {
         }
 
         arms := unionReference.Arms
-        armIndex := 0
-        while armIndex < arms.Count {
-            nested := FlattenUnionTypeReference(arms[armIndex])
+        for arm in arms {
+            nested := FlattenUnionTypeReference(arm)
             nestedIndex := 0
             while nestedIndex < nested.Count {
                 flattened.Add(nested[nestedIndex])
                 nestedIndex = nestedIndex + 1
             }
-
-            armIndex = armIndex + 1
         }
 
         return flattened
@@ -1062,14 +1036,11 @@ class CodeIntelligenceTypeResolution {
         for entry in compilationUnits {
             unit := entry.Value
             declarations := unit.Declarations
-            declarationIndex := 0
-            while declarationIndex < declarations.Count {
-                typeInfo := NamedTypeInfoFromDeclaration(declarations[declarationIndex], name, compilationUnits)
+            for declaration in declarations {
+                typeInfo := NamedTypeInfoFromDeclaration(declaration, name, compilationUnits)
                 if typeInfo != null {
                     return typeInfo
                 }
-
-                declarationIndex = declarationIndex + 1
             }
         }
 

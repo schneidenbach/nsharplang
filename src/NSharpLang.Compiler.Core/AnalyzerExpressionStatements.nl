@@ -941,14 +941,10 @@ class AnalyzerExpressionStatements {
             return null
         }
 
-        index := 0
-        while index < functions.Count {
-            candidate := functions[index]
+        for candidate in functions {
             if !candidate.HasMustUseAttribute {
                 return null
             }
-
-            index = index + 1
         }
 
         first := functions[0]

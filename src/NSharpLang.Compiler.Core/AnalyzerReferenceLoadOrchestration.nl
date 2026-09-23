@@ -324,10 +324,8 @@ class AnalyzerReferenceLoadOrchestration {
         }
 
         requests := PlanRequests(config, projectDirectory, HasTestSources(projectDirectory))
-        index := 0
-        while index < requests.Count {
-            Perform(requests[index], projectDirectory, config.TargetFramework)
-            index = index + 1
+        for request in requests {
+            Perform(request, projectDirectory, config.TargetFramework)
         }
     }
 

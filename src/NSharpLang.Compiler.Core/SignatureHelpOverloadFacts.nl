@@ -157,15 +157,12 @@ class SignatureHelpOverloadFacts {
             return
         }
 
-        index := 0
-        while index < members.Count {
-            constructor := members[index] as ConstructorDeclaration
+        for member in members {
+            constructor := member as ConstructorDeclaration
             if constructor != null {
                 parameterLabels := ParameterLabels(constructor.Parameters)
                 overloads.Add(new SignatureHelpOverload(FormatLabel(typeName, parameterLabels, "void"), LeadingDocumentation(sourceUnit, constructor.Line), parameterLabels))
             }
-
-            index = index + 1
         }
     }
 
@@ -245,9 +242,7 @@ class SignatureHelpOverloadFacts {
             return
         }
 
-        index := 0
-        while index < members.Count {
-            member := members[index]
+        for member in members {
             function := member as FunctionDeclaration
             if function != null && function.Name == methodName {
                 overloads.Add(FunctionOverload(function, function.Name, sourceUnit))
@@ -260,8 +255,6 @@ class SignatureHelpOverloadFacts {
                 parameterLabels := ParameterLabels(constructor.Parameters)
                 overloads.Add(new SignatureHelpOverload(FormatLabel(typeName, parameterLabels, "void"), LeadingDocumentation(sourceUnit, constructor.Line), parameterLabels))
             }
-
-            index = index + 1
         }
     }
 

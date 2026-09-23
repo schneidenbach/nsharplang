@@ -284,14 +284,10 @@ class DocCommandKernels {
 
     static func OrderEntriesForGeneration(symbols: IReadOnlyList<SymbolResult>, includeAllKinds: bool): List<SymbolResult> {
         ordered := new List<SymbolResult>()
-        index := 0
-        while index < symbols.Count {
-            symbol := symbols[index]
+        for symbol in symbols {
             if includeAllKinds || IsDocumentedSymbolKind(symbol.Kind) {
                 InsertOrdered(ordered, symbol)
             }
-
-            index = index + 1
         }
 
         return ordered
@@ -490,10 +486,8 @@ class DocCommandKernels {
 
     static func BuildPages(pages: IReadOnlyList<DocPage>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        i := 0
-        while i < pages.Count {
-            payload.Add(BuildPage(pages[i]))
-            i = i + 1
+        for page in pages {
+            payload.Add(BuildPage(page))
         }
 
         return payload
@@ -643,11 +637,8 @@ class DocCommandKernels {
         CommandOutputKernels.AppendLine(builder, "  <h2>Members</h2>")
         CommandOutputKernels.AppendLine(builder, "  <ul class=\"member-list\">")
 
-        i := 0
-        while i < orderedMembers.Count {
-            member := orderedMembers[i]
+        for member in orderedMembers {
             CommandOutputKernels.AppendLine(builder, "    <li><code>" + HtmlEncode(FormatSignature(member)) + "</code></li>")
-            i = i + 1
         }
 
         CommandOutputKernels.AppendLine(builder, "  </ul>")

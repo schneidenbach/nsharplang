@@ -439,15 +439,12 @@ class ColumnarSourceDirectCallResolver {
         }
 
         if current.IsInterface {
-            baseIndex := 0
-            while baseIndex < current.InterfaceBases.Count {
-                inherited := SelectInstanceChain(root, current.InterfaceBases[baseIndex], receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
+            for interfaceBase2 in current.InterfaceBases {
+                inherited := SelectInstanceChain(root, interfaceBase2, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
 
                 if inherited.Status != ColumnarSourceDirectCallStatus.NotSourceType {
                     return inherited
                 }
-
-                baseIndex += 1
             }
         }
 
@@ -477,9 +474,7 @@ class ColumnarSourceDirectCallResolver {
         selectedParameters := new Type[](0)
         tiedInstanceCandidates := new List<ColumnarInstanceMethodDef>()
         tiedParameters := new List<Type[]>()
-        index := 0
-        while index < overloads.Count {
-            candidate := overloads[index]
+        for candidate in overloads {
             ValidateInstanceMethodFact(owner, memberName, candidate)
             if IsExcludedInstanceMethod(candidate) && ExcludedShapeCanOwnArity(candidate.Builder, candidate.ParamTypes, candidate.ParamModifierKinds, argumentTypes.Length) {
                 hadExcludedShape = true
@@ -507,8 +502,6 @@ class ColumnarSourceDirectCallResolver {
                     }
                 }
             }
-
-            index += 1
         }
 
         // THE SCORE LADDER RATES TWO CANDIDATES THE SAME WHENEVER NEITHER IS THE ARGUMENT'S OWN TYPE,
@@ -580,9 +573,7 @@ class ColumnarSourceDirectCallResolver {
         selectedParameters := new Type[](0)
         tiedStaticCandidates := new List<ColumnarStaticMethodDef>()
         tiedParameters := new List<Type[]>()
-        index := 0
-        while index < overloads.Count {
-            candidate := overloads[index]
+        for candidate in overloads {
             ValidateStaticMethodFact(owner, memberName, candidate)
             if IsExcludedStaticMethod(candidate) && ExcludedShapeCanOwnArity(candidate.Builder, candidate.ParamTypes, candidate.ParamModifierKinds, argumentTypes.Length) {
                 hadExcludedShape = true
@@ -610,8 +601,6 @@ class ColumnarSourceDirectCallResolver {
                     }
                 }
             }
-
-            index += 1
         }
 
         // The same specificity tie-break the instance selector applies, for the same reason.
@@ -814,26 +803,19 @@ class ColumnarSourceDirectCallResolver {
                 throw new InvalidOperationException("Source instance-method overload facts cannot be null.")
             }
 
-            index := 0
-            while index < overloads.Count {
-                candidate := overloads[index]
+            for candidate in overloads {
                 ValidateInstanceMethodFact(current, memberName, candidate)
                 if candidate.ParamTypes.Length == argumentCount {
                     return true
                 }
-
-                index += 1
             }
         }
 
         if current.IsInterface {
-            baseIndex := 0
-            while baseIndex < current.InterfaceBases.Count {
-                if HasInstanceDeclarationInChain(current.InterfaceBases[baseIndex], memberName, argumentCount) {
+            for interfaceBase2 in current.InterfaceBases {
+                if HasInstanceDeclarationInChain(interfaceBase2, memberName, argumentCount) {
                     return true
                 }
-
-                baseIndex += 1
             }
         }
 
@@ -852,10 +834,8 @@ class ColumnarSourceDirectCallResolver {
                 throw new InvalidOperationException("Source instance-method overload facts cannot be null.")
             }
 
-            index := 0
-            while index < overloads.Count {
-                ValidateInstanceMethodFact(current, memberName, overloads[index])
-                index += 1
+            for overloadItem in overloads {
+                ValidateInstanceMethodFact(current, memberName, overloadItem)
             }
 
             if overloads.Count != 0 {
@@ -864,13 +844,10 @@ class ColumnarSourceDirectCallResolver {
         }
 
         if current.IsInterface {
-            baseIndex := 0
-            while baseIndex < current.InterfaceBases.Count {
-                if HasInstanceDeclarationInChain(current.InterfaceBases[baseIndex], memberName) {
+            for interfaceBase2 in current.InterfaceBases {
+                if HasInstanceDeclarationInChain(interfaceBase2, memberName) {
                     return true
                 }
-
-                baseIndex += 1
             }
         }
 
@@ -889,15 +866,11 @@ class ColumnarSourceDirectCallResolver {
                 throw new InvalidOperationException("Source static-method overload facts cannot be null.")
             }
 
-            index := 0
-            while index < overloads.Count {
-                candidate := overloads[index]
+            for candidate in overloads {
                 ValidateStaticMethodFact(current, memberName, candidate)
                 if candidate.ParamTypes.Length == argumentCount {
                     return true
                 }
-
-                index += 1
             }
         }
 
@@ -916,26 +889,19 @@ class ColumnarSourceDirectCallResolver {
                 throw new InvalidOperationException("Source instance-method overload facts cannot be null.")
             }
 
-            index := 0
-            while index < overloads.Count {
-                candidate := overloads[index]
+            for candidate in overloads {
                 ValidateInstanceMethodFact(current, memberName, candidate)
                 if IsExcludedInstanceMethod(candidate) {
                     return true
                 }
-
-                index += 1
             }
         }
 
         if current.IsInterface {
-            baseIndex := 0
-            while baseIndex < current.InterfaceBases.Count {
-                if HasExcludedInstanceDeclarationInChain(current.InterfaceBases[baseIndex], memberName) {
+            for interfaceBase2 in current.InterfaceBases {
+                if HasExcludedInstanceDeclarationInChain(interfaceBase2, memberName) {
                     return true
                 }
-
-                baseIndex += 1
             }
         }
 
@@ -954,15 +920,11 @@ class ColumnarSourceDirectCallResolver {
                 throw new InvalidOperationException("Source static-method overload facts cannot be null.")
             }
 
-            index := 0
-            while index < overloads.Count {
-                candidate := overloads[index]
+            for candidate in overloads {
                 ValidateStaticMethodFact(current, memberName, candidate)
                 if IsExcludedStaticMethod(candidate) {
                     return true
                 }
-
-                index += 1
             }
         }
 
@@ -1750,15 +1712,12 @@ class ColumnarSourceDirectCallResolver {
             VisitDefinition(baseDefinition, active, complete)
         }
 
-        interfaceIndex := 0
-        while interfaceIndex < definition.InterfaceBases.Count {
-            interfaceBase := definition.InterfaceBases[interfaceIndex]
+        for interfaceBase in definition.InterfaceBases {
             if interfaceBase == null || !interfaceBase.IsInterface {
                 throw new InvalidOperationException("Source direct-call interface-base facts are invalid.")
             }
 
             VisitDefinition(interfaceBase, active, complete)
-            interfaceIndex += 1
         }
 
         active.Remove(definition)

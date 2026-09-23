@@ -10,13 +10,10 @@ class AnalyzerOverloadSignatureFacts {
     }
 
     static func HasDistinctParameterSignature(newFunction: FunctionTypeInfo, existingFunctions: IReadOnlyList<FunctionTypeInfo>): bool {
-        index := 0
-        while index < existingFunctions.Count {
-            if ParameterSignaturesMatch(newFunction, existingFunctions[index]) {
+        for existingFunction in existingFunctions {
+            if ParameterSignaturesMatch(newFunction, existingFunction) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true

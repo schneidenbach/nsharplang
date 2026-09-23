@@ -111,13 +111,10 @@ class Formatter {
     // FAILURE: the recovery parser reports plenty, and rejecting on them would refuse to format
     // most real files.
     static func HasReparseError(errors: List<CompilerError>): bool {
-        index := 0
-        while index < errors.Count {
-            if errors[index].Severity == ErrorSeverity.Error {
+        for error in errors {
+            if error.Severity == ErrorSeverity.Error {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -129,9 +126,7 @@ class Formatter {
     static func JoinErrorMessages(errors: List<CompilerError>): string {
         builder := new StringBuilder()
         written := 0
-        index := 0
-        while index < errors.Count {
-            error := errors[index]
+        for error in errors {
             if error.Severity == ErrorSeverity.Error {
                 if written > 0 {
                     builder.Append("; ")
@@ -140,8 +135,6 @@ class Formatter {
                 builder.Append(error.Message)
                 written = written + 1
             }
-
-            index = index + 1
         }
 
         return builder.ToString()
@@ -494,10 +487,8 @@ class Formatter {
             bases.Add(baseClass)
         }
 
-        index := 0
-        while index < classDeclaration.Interfaces.Count {
-            bases.Add(classDeclaration.Interfaces[index])
-            index = index + 1
+        for interface2 in classDeclaration.Interfaces {
+            bases.Add(interface2)
         }
 
         AppendBaseList(bases, builder)
@@ -553,15 +544,12 @@ class Formatter {
         builder.Append(soaRecordDeclaration.Name)
         builder.AppendLine(" {")
         state.Push()
-        index := 0
-        while index < soaRecordDeclaration.Columns.Count {
-            column := soaRecordDeclaration.Columns[index]
+        for column in soaRecordDeclaration.Columns {
             state.Indent(builder)
             builder.Append(column.Name)
             builder.Append(": ")
             builder.Append(FormatterSyntaxText.FormatTypeReference(column.Type))
             builder.AppendLine()
-            index = index + 1
         }
 
         state.Pop()
@@ -601,9 +589,7 @@ class Formatter {
         builder.AppendLine(" {")
 
         state.Push()
-        index := 0
-        while index < unionDeclaration.Cases.Count {
-            unionCase := unionDeclaration.Cases[index]
+        for unionCase in unionDeclaration.Cases {
             state.Indent(builder)
             builder.Append(unionCase.Name)
 
@@ -627,7 +613,6 @@ class Formatter {
             }
 
             builder.AppendLine()
-            index = index + 1
         }
 
         state.Pop()

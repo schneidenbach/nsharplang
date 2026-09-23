@@ -541,14 +541,10 @@ class AnalyzerPatternAnalysis {
     }
 
     func FindCaseProperty(caseProperties: List<UnionCaseProperty>, name: string): UnionCaseProperty? {
-        index := 0
-        while index < caseProperties.Count {
-            candidate := caseProperties[index]
+        for candidate in caseProperties {
             if candidate.Name == name {
                 return candidate
             }
-
-            index = index + 1
         }
 
         return null

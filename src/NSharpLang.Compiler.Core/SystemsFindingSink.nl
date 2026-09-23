@@ -197,13 +197,10 @@ class SystemsFindingSink {
 
     func CountWithSeverity(severity: string): int {
         matched := 0
-        index := 0
-        while index < findingsValue.Count {
-            if findingsValue[index].Severity == severity {
+        for findingsValueItem in findingsValue {
+            if findingsValueItem.Severity == severity {
                 matched = matched + 1
             }
-
-            index = index + 1
         }
 
         return matched
@@ -213,14 +210,10 @@ class SystemsFindingSink {
     // boundary or by audit mode — does NOT fail the AOT verdict, which is why this reads the emitted
     // severity rather than asking whether an NSYS060 was reported at all.
     func AotAnalysis(): string {
-        index := 0
-        while index < findingsValue.Count {
-            finding := findingsValue[index]
+        for finding in findingsValue {
             if finding.Code == "NSYS060" && finding.Severity == "error" {
                 return "fail"
             }
-
-            index = index + 1
         }
 
         return "pass"

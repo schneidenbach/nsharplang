@@ -58,14 +58,11 @@ class CodeIntelligenceSignatureKernels {
 
         sourceText := CodeIntelligenceSourceDoor.SourceText(snapshot.SourceTexts, unitMatch.FilePath)
         declarations := unit.Declarations
-        index := 0
-        while index < declarations.Count {
-            signature := SourceMemberSignatureInDeclaration(declarations[index], declaration, resolvedType, false, sourceText)
+        for declarationItem in declarations {
+            signature := SourceMemberSignatureInDeclaration(declarationItem, declaration, resolvedType, false, sourceText)
             if signature != null {
                 return signature
             }
-
-            index = index + 1
         }
 
         return null
@@ -94,17 +91,14 @@ class CodeIntelligenceSignatureKernels {
 
         candidateIsInterface := candidate as InterfaceDeclaration
         childOwnerIsInterface := candidateIsInterface != null
-        memberIndex := 0
-        while memberIndex < members.Count {
-            member := members[memberIndex] as Declaration
+        for memberItem in members {
+            member := memberItem as Declaration
             if member != null {
                 signature := SourceMemberSignatureInDeclaration(member, declaration, resolvedType, childOwnerIsInterface, sourceText)
                 if signature != null {
                     return signature
                 }
             }
-
-            memberIndex = memberIndex + 1
         }
 
         return null

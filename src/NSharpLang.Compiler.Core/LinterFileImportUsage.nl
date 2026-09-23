@@ -22,13 +22,10 @@ class LinterFileImportUsage {
             if resolvedPath != null {
                 exportedSymbols := LinterExportedSymbolExtractor.Extract(resolvedPath)
                 if exportedSymbols.Count > 0 {
-                    index := 0
-                    while index < exportedSymbols.Count {
-                        if codeIdentifiers.Contains(exportedSymbols[index]) {
+                    for exportedSymbol in exportedSymbols {
+                        if codeIdentifiers.Contains(exportedSymbol) {
                             return true
                         }
-
-                        index = index + 1
                     }
 
                     return false

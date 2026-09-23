@@ -19,14 +19,10 @@ class AstChildrenCore {
 
         if typeName == "InterpolatedStringExpression" {
             parts := GetRequiredList(expression, "Parts")
-            index := 0
-            while index < parts.Count {
-                part := parts[index]
+            for part in parts {
                 if part != null && part.GetType().Name == "InterpolatedStringHole" {
                     AddRequiredProperty(result, part, "Expression")
                 }
-
-                index = index + 1
             }
             return result
         }
@@ -191,64 +187,44 @@ class AstChildrenCore {
     }
 
     static func AddArgumentValues(result: List<object>, arguments: IList) {
-        index := 0
-        while index < arguments.Count {
-            argument := arguments[index]
+        for argument in arguments {
             if argument != null {
                 AddRequiredProperty(result, argument, "Value")
             }
-
-            index = index + 1
         }
     }
 
     static func AddTupleElementValues(result: List<object>, elements: IList) {
-        index := 0
-        while index < elements.Count {
-            element := elements[index]
+        for element in elements {
             if element != null {
                 AddRequiredProperty(result, element, "Value")
             }
-
-            index = index + 1
         }
     }
 
     static func AddPropertyInitializerValues(result: List<object>, properties: IList) {
-        index := 0
-        while index < properties.Count {
-            property := properties[index]
+        for property in properties {
             if property != null {
                 AddOptionalProperty(result, property, "IndexExpression")
                 AddRequiredProperty(result, property, "Value")
             }
-
-            index = index + 1
         }
     }
 
     static func AddMatchCaseValues(result: List<object>, cases: IList) {
-        index := 0
-        while index < cases.Count {
-            matchCase := cases[index]
+        for matchCase in cases {
             if matchCase != null {
                 AddOptionalProperty(result, matchCase, "Guard")
                 AddRequiredProperty(result, matchCase, "Expression")
             }
-
-            index = index + 1
         }
     }
 
     static func AddListItems(result: List<object>, values: IList) {
-        index := 0
-        while index < values.Count {
-            value := values[index]
+        for value in values {
             if value != null {
                 result.Add(value)
             }
-
-            index = index + 1
         }
     }
 

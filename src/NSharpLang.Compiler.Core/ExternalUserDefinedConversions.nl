@@ -368,14 +368,10 @@ class ExternalUserDefinedConversions {
     // a MetadataLoadContext hands back a fresh `MethodInfo` for every query, so the comparison is on
     // the signature the operator IS rather than on the handle it arrived in.
     static func AlreadyPresent(candidates: List<MethodInfo>, method: MethodInfo): bool {
-        index := 0
-        while index < candidates.Count {
-            existing := candidates[index]
+        for existing in candidates {
             if existing.get_Name() == method.get_Name() && SameDeclaration(existing, method) {
                 return true
             }
-
-            index += 1
         }
 
         return false
@@ -527,9 +523,7 @@ class ExternalUserDefinedConversions {
         }
 
         winner: Type? = null
-        index := 0
-        while index < types.Count {
-            candidate := types[index]
+        for candidate in types {
             wins := true
             other := 0
             while other < types.Count {
@@ -552,8 +546,6 @@ class ExternalUserDefinedConversions {
 
                 winner = candidate
             }
-
-            index += 1
         }
 
         if winner == null {

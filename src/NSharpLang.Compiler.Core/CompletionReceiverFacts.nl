@@ -48,10 +48,7 @@ class CompletionReceiverFacts {
     static func FindMemberAccessAtPosition(unit: CompilationUnit, line: int, column: int): MemberAccessExpression? {
         candidates := NearbyColumns(column, 3)
 
-        index := 0
-        while index < candidates.Count {
-            candidateColumn := candidates[index]
-
+        for candidateColumn in candidates {
             expression := AstNodeFinderCore.FindExpressionAtPosition(unit, line - 1, candidateColumn - 1) as Expression
             if expression == null {
                 expression = AstNodeFinderCore.FindExpressionAtPosition(unit, line, candidateColumn) as Expression
@@ -69,8 +66,6 @@ class CompletionReceiverFacts {
                     return calleeMemberAccess
                 }
             }
-
-            index = index + 1
         }
 
         return null
@@ -197,10 +192,7 @@ class CompletionReceiverFacts {
         builder := new StringBuilder()
         parts := expression.Parts
 
-        index := 0
-        while index < parts.Count {
-            part := parts[index]
-
+        for part in parts {
             text := part as InterpolatedStringText
             if text != null {
                 builder.Append(text.Text)
@@ -210,8 +202,6 @@ class CompletionReceiverFacts {
                     builder.Append("{...}")
                 }
             }
-
-            index = index + 1
         }
 
         body := builder.ToString()
@@ -506,10 +496,8 @@ class CompletionReceiverFacts {
             }
 
             nextDeclarationPath := new List<TypeInfo>()
-            pathIndex := 0
-            while pathIndex < declarationPath.Count {
-                nextDeclarationPath.Add(declarationPath[pathIndex])
-                pathIndex = pathIndex + 1
+            for declarationPathItem in declarationPath {
+                nextDeclarationPath.Add(declarationPathItem)
             }
             nextDeclarationPath.Add(declaration)
 
@@ -547,20 +535,14 @@ class CompletionReceiverFacts {
 
     static func AppendNewMemberItems(items: List<CompletionItem>, candidates: List<CompletionItem>) {
         seen := new HashSet<string>(StringComparer.Ordinal)
-        existingIndex := 0
-        while existingIndex < items.Count {
-            seen.Add(items[existingIndex].Name)
-            existingIndex = existingIndex + 1
+        for item in items {
+            seen.Add(item.Name)
         }
 
-        candidateIndex := 0
-        while candidateIndex < candidates.Count {
-            candidate := candidates[candidateIndex]
+        for candidate in candidates {
             if !seen.Contains(candidate.Name) {
                 items.Add(candidate)
             }
-
-            candidateIndex = candidateIndex + 1
         }
     }
 

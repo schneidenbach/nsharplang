@@ -141,12 +141,11 @@ class CompletionVisibilityFacts {
         for unit in compilationUnits {
             if unit != null {
                 declarations := unit.Declarations
-                index := 0
-                while index < declarations.Count {
-                    declaredName := TypeDeclarationName(declarations[index])
+                for declaration in declarations {
+                    declaredName := TypeDeclarationName(declaration)
                     if declaredName != null && declaredName == simpleName {
                         unitNamespace := UnitNamespaceName(unit)
-                        if line > 0 && declarations[index].Line == line && declarations[index].Column == column {
+                        if line > 0 && declaration.Line == line && declaration.Column == column {
                             return unitNamespace
                         }
 
@@ -156,8 +155,6 @@ class CompletionVisibilityFacts {
                             ambiguous = true
                         }
                     }
-
-                    index = index + 1
                 }
             }
         }
@@ -199,14 +196,10 @@ class CompletionVisibilityFacts {
 
         best: Declaration? = null
         declarations := unit.Declarations
-        index := 0
-        while index < declarations.Count {
-            candidate := declarations[index]
+        for candidate in declarations {
             if candidate.Line <= line && (best == null || candidate.Line > best.Line) {
                 best = candidate
             }
-
-            index = index + 1
         }
 
         if best == null {
@@ -249,9 +242,8 @@ class CompletionVisibilityFacts {
         for unit in compilationUnits {
             if unit != null {
                 declarations := unit.Declarations
-                index := 0
-                while index < declarations.Count {
-                    classDeclaration := declarations[index] as ClassDeclaration
+                for declaration in declarations {
+                    classDeclaration := declaration as ClassDeclaration
                     if classDeclaration != null && classDeclaration.Name == typeName && classDeclaration.BaseClass != null {
                         baseName := TypeReferenceName(classDeclaration.BaseClass)
                         if baseName == null {
@@ -260,8 +252,6 @@ class CompletionVisibilityFacts {
 
                         return SimpleTypeName(baseName)
                     }
-
-                    index = index + 1
                 }
             }
         }

@@ -53,14 +53,11 @@ class OutputFormatterAstJsonKernels {
 
     static func AstToJson(units: IReadOnlyList<AstJsonUnit>): string {
         files := new List<object?>()
-        index := 0
-        while index < units.Count {
-            unit := units[index]
+        for unit in units {
             entry := new Dictionary<string, object?>()
             entry["file"] = OutputFormatterNormalizationKernels.NormalizePath(unit.File)
             entry["ast"] = AstValueToJson(unit.Unit)
             files.Add(entry)
-            index = index + 1
         }
 
         envelope := new Dictionary<string, object?>()

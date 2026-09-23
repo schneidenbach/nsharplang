@@ -179,10 +179,8 @@ class ColumnarAttributeBlobs {
 
         bytes := Utf8Bytes(value)
         WriteCompressedUInt32(blob, bytes.Count)
-        index := 0
-        while index < bytes.Count {
-            blob.Add(bytes[index])
-            index = index + 1
+        for byteItem in bytes {
+            blob.Add(byteItem)
         }
     }
 

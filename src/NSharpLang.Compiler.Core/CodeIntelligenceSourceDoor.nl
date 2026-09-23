@@ -215,13 +215,10 @@ class CodeIntelligenceSourceDoor {
             return
         }
 
-        index := 0
-        while index < names.Count {
-            if String.Equals(names[index], name, StringComparison.Ordinal) {
+        for nameItem in names {
+            if String.Equals(nameItem, name, StringComparison.Ordinal) {
                 return
             }
-
-            index = index + 1
         }
 
         names.Add(name)

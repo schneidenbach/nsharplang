@@ -75,13 +75,10 @@ class ColumnarNullableMetadata {
     // True when at least one node said something other than "oblivious". C# omits the attribute
     // entirely otherwise, and so does this owner.
     static func HasAnnotatableFlag(flags: List<int>): bool {
-        index := 0
-        while index < flags.Count {
-            if flags[index] != ColumnarNullableMetadata.Oblivious {
+        for flag in flags {
+            if flag != ColumnarNullableMetadata.Oblivious {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -239,10 +236,8 @@ class ColumnarNullableMetadata {
             }
 
             stripped := new List<string>()
-            index := 0
-            while index < elements.Count {
-                stripped.Add(ColumnarTupleElementNames.ElementTypeText(elements[index]))
-                index = index + 1
+            for element in elements {
+                stripped.Add(ColumnarTupleElementNames.ElementTypeText(element))
             }
 
             return stripped

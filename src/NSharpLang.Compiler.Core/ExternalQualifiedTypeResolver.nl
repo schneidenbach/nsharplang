@@ -69,10 +69,9 @@ class ExternalQualifiedTypeResolver {
 
     static func TryResolveBareName(assemblies: IReadOnlyList<Assembly>, name: string, grants: InternalsVisibleToGrants?, out runtimeType: Type): bool {
         runtimeType = typeof(object)
-        assemblyIndex := 0
-        while assemblyIndex < assemblies.Count {
+        for assembly in assemblies {
             try {
-                scanned := NameableTypes(assemblies[assemblyIndex], grants)
+                scanned := NameableTypes(assembly, grants)
                 typeIndex := 0
                 while typeIndex < scanned.Length {
                     candidate := scanned[typeIndex]
@@ -85,8 +84,6 @@ class ExternalQualifiedTypeResolver {
             } catch {
             }
             // A hostile metadata slot cannot replace an exact type from a later slot.
-
-            assemblyIndex = assemblyIndex + 1
         }
         return false
     }

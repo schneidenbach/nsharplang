@@ -102,9 +102,8 @@ class AnalyzerExternalTypeProbe {
             return false
         }
 
-        assemblyIndex := 0
-        while assemblyIndex < assemblies.Count {
-            candidate := assemblies[assemblyIndex].GetType(fullName)
+        for assemblyItem in assemblies {
+            candidate := assemblyItem.GetType(fullName)
             // `Assembly.GetType` answers for INTERNAL types too (`System.TokenType` lives in
             // System.Private.CoreLib); only a NAMEABLE type is a name this program can spell, so an
             // unnameable one is no rival for NL209 and no answer for a qualified spelling — the rule
@@ -115,7 +114,6 @@ class AnalyzerExternalTypeProbe {
                 resolved = candidate
                 return true
             }
-            assemblyIndex = assemblyIndex + 1
         }
 
         missedFullNames[fullName] = assemblies.Count
@@ -162,11 +160,10 @@ class AnalyzerExternalTypeProbe {
     }
 
     private func DeclaredButUnnameable(fullName: string): bool {
-        assemblyIndex := 0
-        while assemblyIndex < assemblies.Count {
+        for assembly in assemblies {
             declared: Type? = null
             try {
-                declared = assemblies[assemblyIndex].GetType(fullName)
+                declared = assembly.GetType(fullName)
             } catch {
                 declared = null
             }
@@ -174,8 +171,6 @@ class AnalyzerExternalTypeProbe {
             if declared != null && !grants.IsNameableType(declared) {
                 return true
             }
-
-            assemblyIndex = assemblyIndex + 1
         }
 
         return false
@@ -194,9 +189,7 @@ class AnalyzerExternalTypeProbe {
             return imported
         }
 
-        bareIndex := 0
-        while bareIndex < assemblies.Count {
-            assembly := assemblies[bareIndex]
+        for assembly in assemblies {
             // THE SCAN'S SURFACE IS THE NAMEABLE SURFACE. `GetExportedTypes()` is the public one and
             // stays the answer for an ordinary reference; a reference that made this compilation a
             // friend also offers its internals, and `GetTypes()` is the only reader that returns them.
@@ -216,7 +209,6 @@ class AnalyzerExternalTypeProbe {
                 }
                 exportedIndex = exportedIndex + 1
             }
-            bareIndex = bareIndex + 1
         }
 
         return null
@@ -232,14 +224,11 @@ class AnalyzerExternalTypeProbe {
     // remembered only against the assembly count that proved it, so a namespace whose assembly loads
     // later is genuinely retried.
     func ResolveImportedExternalType(name: string): TypeInfo? {
-        namespaceIndex := 0
-        while namespaceIndex < usingNamespaces.Count {
+        for usingNamespace in usingNamespaces {
             resolved := typeof(object)
-            if TryResolveFullName(usingNamespaces[namespaceIndex] + "." + name, out resolved) {
+            if TryResolveFullName(usingNamespace + "." + name, out resolved) {
                 return new ReflectionTypeInfo(resolved)
             }
-
-            namespaceIndex = namespaceIndex + 1
         }
 
         return null

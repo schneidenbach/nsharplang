@@ -214,12 +214,10 @@ class AnalyzerAttributeValidator {
             // AN ENUM MEMBER IS A LITERAL FIELD, so its attributes answer to `AttributeTargets.Field`
             // — the same question a `name: int` field answers. `AttributeTargets.Enum` belongs to the
             // declaration above them and says nothing about a member.
-            memberIndex := 0
-            while memberIndex < enumDecl.Members.Count {
-                memberAttributes := enumDecl.Members[memberIndex].Attributes
+            for member2 in enumDecl.Members {
+                memberAttributes := member2.Attributes
                 ValidateAttributeArgumentsOn(memberAttributes, AnalyzerAttributeUsageFacts.FieldTarget)
                 ReportMethodImplOnNonCarrier(memberAttributes, "an enum member")
-                memberIndex = memberIndex + 1
             }
 
             return
@@ -1726,10 +1724,9 @@ class AnalyzerAttributeValidator {
 
         claimed := new bool[](parameterTypes.Length)
         nextPositional := 0
-        index := 0
-        while index < positionalArguments.Count {
-            parameterIndex := AttributeConstructorParameterSlot(parameterNames, claimed, positionalArguments[index].Name, nextPositional)
-            if positionalArguments[index].Name == null {
+        for positionalArgument in positionalArguments {
+            parameterIndex := AttributeConstructorParameterSlot(parameterNames, claimed, positionalArgument.Name, nextPositional)
+            if positionalArgument.Name == null {
                 nextPositional = parameterIndex + 1
             }
             if parameterIndex < 0 || parameterIndex >= parameterTypes.Length || claimed[parameterIndex] {
@@ -1741,11 +1738,9 @@ class AnalyzerAttributeValidator {
                 return AnalyzerAttributeValidator.SourceMemberUndecidable
             }
 
-            if !IsAttributeArgumentCompatibleValue(parameterClrType, positionalArguments[index]) {
+            if !IsAttributeArgumentCompatibleValue(parameterClrType, positionalArgument) {
                 return AnalyzerAttributeValidator.SourceMemberNotFound
             }
-
-            index = index + 1
         }
         requiredIndex := 0
         while requiredIndex < requiredCount {
@@ -1874,9 +1869,7 @@ class AnalyzerAttributeValidator {
                 nameIndex += 1
             }
             nextPositional := 0
-            index := 0
-            while index < positionalArguments.Count {
-                argumentInfo := positionalArguments[index]
+            for argumentInfo in positionalArguments {
                 parameterIndex := AttributeConstructorParameterSlot(names, claimed, argumentInfo.Name, nextPositional)
                 if argumentInfo.Name == null {
                     nextPositional = parameterIndex + 1
@@ -1891,8 +1884,6 @@ class AnalyzerAttributeValidator {
                     matches = false
                     break
                 }
-
-                index = index + 1
             }
 
             requiredIndex := 0

@@ -104,17 +104,13 @@ class AstPositionVisitor {
             return
         }
 
-        index := 0
-        while index < declarations.Count {
-            declaration := declarations[index]
+        for declaration in declarations {
             if declaration != null {
                 VisitDeclaration(declaration)
                 if foundExpressionValue != null {
                     return
                 }
             }
-
-            index = index + 1
         }
     }
 
@@ -135,17 +131,13 @@ class AstPositionVisitor {
                 return
             }
 
-            index := 0
-            while index < members.Count {
-                member := members[index]
+            for member in members {
                 if member != null {
                     VisitDeclaration(member)
                     if foundExpressionValue != null {
                         return
                     }
                 }
-
-                index = index + 1
             }
         }
     }
@@ -155,17 +147,13 @@ class AstPositionVisitor {
 
         if typeName == "BlockStatement" {
             statements := GetRequiredList(statement, "Statements")
-            index := 0
-            while index < statements.Count {
-                child := statements[index]
+            for child in statements {
                 if child != null {
                     VisitStatement(child)
                     if foundExpressionValue != null {
                         return
                     }
                 }
-
-                index = index + 1
             }
             return
         }

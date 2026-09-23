@@ -35,10 +35,8 @@ class CleanCommand {
                 print CleanCommandKernels.GetNoArtifactsFoundMessage(projectRoot)
             } else {
                 print CleanCommandKernels.GetRemovedArtifactsHeader(removed.Count)
-                i := 0
-                while i < removed.Count {
-                    print CleanCommandKernels.GetRemovedArtifactLine(removed[i])
-                    i = i + 1
+                for removedItem in removed {
+                    print CleanCommandKernels.GetRemovedArtifactLine(removedItem)
                 }
             }
 

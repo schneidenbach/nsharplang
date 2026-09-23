@@ -13,15 +13,11 @@ class DiagnosticCatalog {
         descriptor = EmptyDescriptor()
 
         descriptors := BuildDescriptors()
-        i := 0
-        while i < descriptors.Count {
-            current := descriptors[i]
+        for current in descriptors {
             if String.Compare(current.Code, code, StringComparison.Ordinal) == 0 {
                 descriptor = current
                 return true
             }
-
-            i = i + 1
         }
 
         return false
@@ -54,10 +50,8 @@ class DiagnosticCatalog {
     static func AllCodes(): List<string> {
         codes := new List<string>()
         descriptors := BuildDescriptors()
-        i := 0
-        while i < descriptors.Count {
-            codes.Add(descriptors[i].Code)
-            i = i + 1
+        for descriptor in descriptors {
+            codes.Add(descriptor.Code)
         }
 
         codes.Sort()
@@ -75,28 +69,20 @@ class DiagnosticCatalog {
         allDescriptors := BuildDescriptors()
         linterDescriptors := new List<DiagnosticDescriptor>()
 
-        i := 0
-        while i < allDescriptors.Count {
-            descriptor := allDescriptors[i]
+        for descriptor in allDescriptors {
             if descriptor.Source == DiagnosticSource.Linter {
                 linterDescriptors.Add(descriptor)
             }
-
-            i = i + 1
         }
 
         return linterDescriptors
     }
 
     static func AddDescriptor(descriptors: List<DiagnosticDescriptor>, descriptor: DiagnosticDescriptor) {
-        i := 0
-        while i < descriptors.Count {
-            existing := descriptors[i]
+        for existing in descriptors {
             if String.Compare(existing.Code, descriptor.Code, StringComparison.Ordinal) == 0 {
                 throw new InvalidOperationException("Duplicate diagnostic code '" + descriptor.Code + "' in diagnostic catalog.")
             }
-
-            i = i + 1
         }
 
         descriptors.Add(descriptor)

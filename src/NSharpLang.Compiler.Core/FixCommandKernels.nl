@@ -261,10 +261,8 @@ class FixCommandKernels {
         payload := new List<Dictionary<string, object>>()
         items := FixEntryList(entries)
 
-        i := 0
-        while i < items.Count {
-            payload.Add(BuildJsonEntry(items[i]))
-            i = i + 1
+        for item in items {
+            payload.Add(BuildJsonEntry(item))
         }
 
         return payload
@@ -282,10 +280,8 @@ class FixCommandKernels {
 
     static func BuildJsonEdits(edits: IReadOnlyList<TextEdit>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        i := 0
-        while i < edits.Count {
-            payload.Add(BuildJsonEdit(edits[i]))
-            i = i + 1
+        for edit in edits {
+            payload.Add(BuildJsonEdit(edit))
         }
 
         return payload

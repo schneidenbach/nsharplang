@@ -184,12 +184,9 @@ class AnalyzerMemberResolution {
                 wrapParameterNames := new List<string>()
                 wrapParameterTypes := new List<TypeInfo>()
                 wrapColumns := soaRecordType.Declaration.Columns
-                wrapIndex := 0
-                while wrapIndex < wrapColumns.Count {
-                    wrapColumn := wrapColumns[wrapIndex]
+                for wrapColumn in wrapColumns {
                     wrapParameterNames.Add(wrapColumn.Name)
                     wrapParameterTypes.Add(new ArrayTypeInfo(typeSubstitution.ResolveTypeForSourceOwner(wrapColumn.Type, soaRecordType, null)))
-                    wrapIndex = wrapIndex + 1
                 }
 
                 wrapParameterNames.Add("length")
@@ -451,12 +448,10 @@ class AnalyzerMemberResolution {
         if enumType != null {
             if includeStaticMembers {
                 enumMembers := enumType.Declaration.Members
-                enumIndex := 0
-                while enumIndex < enumMembers.Count {
-                    if enumMembers[enumIndex].Name == memberName {
+                for enumMember in enumMembers {
+                    if enumMember.Name == memberName {
                         return current
                     }
-                    enumIndex = enumIndex + 1
                 }
             }
 
@@ -856,19 +851,15 @@ class AnalyzerMemberResolution {
             return null
         }
 
-        resolvableIndex := 0
-        while resolvableIndex < matching.Count {
-            if !CanResolveFunctionMemberFromTypeInfo(matching[resolvableIndex]) {
+        for matchingItem in matching {
+            if !CanResolveFunctionMemberFromTypeInfo(matchingItem) {
                 return null
             }
-            resolvableIndex = resolvableIndex + 1
         }
 
         functionTypes := new List<FunctionTypeInfo>()
-        buildIndex := 0
-        while buildIndex < matching.Count {
-            functionTypes.Add(functionTypeFactory.CreateFromDeclaredMember(matching[buildIndex], substitution, declarationOwner))
-            buildIndex = buildIndex + 1
+        for matchingValue in matching {
+            functionTypes.Add(functionTypeFactory.CreateFromDeclaredMember(matchingValue, substitution, declarationOwner))
         }
 
         if functionTypes.Count == 1 {
@@ -1019,13 +1010,10 @@ class AnalyzerMemberResolution {
     // Which COLUMN a name denotes on a SoA record, or nothing. Column names are matched exactly:
     // a table's columns are its declared fields and nothing else answers for them.
     static func TryGetSoaColumn(declaration: SoaRecordDeclarationInfo, name: string): SoaColumnInfo? {
-        index := 0
-        while index < declaration.Columns.Count {
-            column := declaration.Columns[index]
+        for column in declaration.Columns {
             if column.Name == name {
                 return column
             }
-            index = index + 1
         }
 
         return null

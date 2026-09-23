@@ -19,13 +19,10 @@ class AnalysisResult {
     }
 
     static func HasErrorDiagnostics(errors: List<CompilerError>): bool {
-        i := 0
-        while i < errors.Count {
-            if errors[i].Severity == ErrorSeverity.Error {
+        for error in errors {
+            if error.Severity == ErrorSeverity.Error {
                 return true
             }
-
-            i = i + 1
         }
 
         return false

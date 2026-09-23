@@ -306,10 +306,8 @@ class TreeCommand {
     }
 
     static func AddProjectYmlDependencies(references: List<Reference>, result: List<TreeDependency>) {
-        i := 0
-        while i < references.Count {
-            result.Add(ToProjectYmlDependency(references[i]))
-            i = i + 1
+        for reference in references {
+            result.Add(ToProjectYmlDependency(reference))
         }
     }
 

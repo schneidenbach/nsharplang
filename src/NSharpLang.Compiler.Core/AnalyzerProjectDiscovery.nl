@@ -206,15 +206,11 @@ class AnalyzerProjectSourceProvider {
     // what makes the context's own "first file wins" agree with this file's walks.
     func AddProjectUnitsTo(context: AnalyzerDeclarationContext) {
         paths := SourceFilePaths()
-        index := 0
-        while index < paths.Count {
-            filePath := paths[index]
+        for filePath in paths {
             unit := GetProjectCompilationUnit(filePath)
             if unit != null {
                 context.AddCompilationUnit(filePath, unit)
             }
-
-            index = index + 1
         }
     }
 
@@ -342,9 +338,8 @@ class AnalyzerProjectTypeDiscovery {
     func ResolveVisibleProjectType(name: string, currentNamespace: string?, probeInaccessible: bool, out typeInfo: TypeInfo, out declaration: SymbolDeclaration?, out inaccessibleFilePath: string?): bool {
         inaccessibleFilePath = null
         visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
-        index := 0
-        while index < visible.Count {
-            if TryResolveProjectTypeInNamespace(name, visible[index], currentNamespace, out typeInfo, out declaration) {
+        for visibleItem in visible {
+            if TryResolveProjectTypeInNamespace(name, visibleItem, currentNamespace, out typeInfo, out declaration) {
                 RecordDeclarationFile(name, declaration)
                 // NL010: THE NAMESPACE THAT ANSWERED IS THE IMPORT THAT SUPPLIED THE NAME. The
                 // sweep walks the file's own namespace, its enclosing ones and its imports in
@@ -353,13 +348,11 @@ class AnalyzerProjectTypeDiscovery {
                 // though the project-wide fallback below would also have found the type.
                 credit := importUsageCredit
                 if credit != null {
-                    credit.CreditNamespaceSupplier(visible[index])
+                    credit.CreditNamespaceSupplier(visibleItem)
                 }
 
                 return true
             }
-
-            index = index + 1
         }
 
         // The guard is a nested `if` rather than `probeInaccessible && Try…(out …)`: an `out`
@@ -427,14 +420,12 @@ class AnalyzerProjectTypeDiscovery {
         writtenName := TypeArityNames.Display(name)
 
         lexical := SimpleNamePrecedence.LexicalNamespaces(currentNamespace)
-        lexicalIndex := 0
-        while lexicalIndex < lexical.Count {
+        for lexicalItem in lexical {
             lexicalType: TypeInfo = BuiltInTypes.Unknown
             lexicalDeclaration: SymbolDeclaration? = null
-            if TryResolveProjectTypeInNamespace(name, lexical[lexicalIndex], currentNamespace, out lexicalType, out lexicalDeclaration) {
+            if TryResolveProjectTypeInNamespace(name, lexicalItem, currentNamespace, out lexicalType, out lexicalDeclaration) {
                 return false
             }
-            lexicalIndex = lexicalIndex + 1
         }
 
         matchedNamespace: string? = null
@@ -586,9 +577,7 @@ class AnalyzerProjectTypeDiscovery {
     func TryResolveVisibleProjectFunction(name: string, currentNamespace: string?, out filePath: string?, out functionDeclaration: FunctionDeclaration?, out declaration: SymbolDeclaration?): bool {
         visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
         paths := sources.SourceFilePaths()
-        namespaceIndex := 0
-        while namespaceIndex < visible.Count {
-            visibleNamespace := visible[namespaceIndex]
+        for visibleNamespace in visible {
             requireExported := SimpleNamePrecedence.RequiresExport(currentNamespace, visibleNamespace)
             fileIndex := 0
             while fileIndex < paths.Count {
@@ -620,8 +609,6 @@ class AnalyzerProjectTypeDiscovery {
 
                 fileIndex = fileIndex + 1
             }
-
-            namespaceIndex = namespaceIndex + 1
         }
 
         filePath = null
@@ -645,12 +632,10 @@ class AnalyzerProjectTypeDiscovery {
         secondCandidate = ""
 
         lexical := SimpleNamePrecedence.LexicalNamespaces(currentNamespace)
-        lexicalIndex := 0
-        while lexicalIndex < lexical.Count {
-            if HasExportedFunctionInNamespace(name, lexical[lexicalIndex]) {
+        for lexicalItem in lexical {
+            if HasExportedFunctionInNamespace(name, lexicalItem) {
                 return false
             }
-            lexicalIndex = lexicalIndex + 1
         }
 
         matched := false
@@ -682,9 +667,7 @@ class AnalyzerProjectTypeDiscovery {
     // One namespace's answer to "does an exported top-level function of this name live here?".
     func HasExportedFunctionInNamespace(name: string, namespaceName: string?): bool {
         paths := sources.SourceFilePaths()
-        fileIndex := 0
-        while fileIndex < paths.Count {
-            candidatePath := paths[fileIndex]
+        for candidatePath in paths {
             unit := sources.GetProjectCompilationUnit(candidatePath)
             if unit != null && string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit), namespaceName, StringComparison.Ordinal) {
                 declarations := unit.Declarations
@@ -696,8 +679,6 @@ class AnalyzerProjectTypeDiscovery {
                     declarationIndex = declarationIndex + 1
                 }
             }
-
-            fileIndex = fileIndex + 1
         }
 
         return false
@@ -720,9 +701,7 @@ class AnalyzerProjectTypeDiscovery {
     func TryFindInaccessibleVisibleDeclaration(name: string, currentNamespace: string?, wantFunctions: bool, out filePath: string?): bool {
         visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
         paths := sources.SourceFilePaths()
-        namespaceIndex := 0
-        while namespaceIndex < visible.Count {
-            visibleNamespace := visible[namespaceIndex]
+        for visibleNamespace in visible {
             if !SimpleNamePrecedence.IsLexicalNamespace(currentNamespace, visibleNamespace) {
                 fileIndex := 0
                 while fileIndex < paths.Count {
@@ -745,8 +724,6 @@ class AnalyzerProjectTypeDiscovery {
                     fileIndex = fileIndex + 1
                 }
             }
-
-            namespaceIndex = namespaceIndex + 1
         }
 
         filePath = null

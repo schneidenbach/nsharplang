@@ -298,32 +298,23 @@ class AnalyzerExpressionTreeValidator {
             return new UnsupportedExpressionTreeFinding(call, "generic method call")
         }
 
-        argumentIndex := 0
-        while argumentIndex < call.Arguments.Count {
-            if call.Arguments[argumentIndex].Modifier != ArgumentModifier.None {
+        for argument2 in call.Arguments {
+            if argument2.Modifier != ArgumentModifier.None {
                 return new UnsupportedExpressionTreeFinding(call, "ref/out method argument")
             }
-
-            argumentIndex = argumentIndex + 1
         }
 
-        namedIndex := 0
-        while namedIndex < call.Arguments.Count {
-            if call.Arguments[namedIndex].Name != null {
+        for argument2 in call.Arguments {
+            if argument2.Name != null {
                 return new UnsupportedExpressionTreeFinding(call, "named method argument")
             }
-
-            namedIndex = namedIndex + 1
         }
 
-        valueIndex := 0
-        while valueIndex < call.Arguments.Count {
-            inArgument := FindUnsupportedExpression(call.Arguments[valueIndex].Value, parameterNames)
+        for argument2 in call.Arguments {
+            inArgument := FindUnsupportedExpression(argument2.Value, parameterNames)
             if inArgument != null {
                 return inArgument
             }
-
-            valueIndex = valueIndex + 1
         }
 
         if IsStaticCallReceiver(memberCall.Object, parameterNames) {
@@ -345,14 +336,11 @@ class AnalyzerExpressionTreeValidator {
             return new UnsupportedExpressionTreeFinding(newExpression, "object construction")
         }
 
-        propertyIndex := 0
-        while propertyIndex < initializer.Properties.Count {
-            inProperty := FindUnsupportedExpression(initializer.Properties[propertyIndex].Value, parameterNames)
+        for property2 in initializer.Properties {
+            inProperty := FindUnsupportedExpression(property2.Value, parameterNames)
             if inProperty != null {
                 return inProperty
             }
-
-            propertyIndex = propertyIndex + 1
         }
 
         return null
@@ -428,14 +416,10 @@ class AnalyzerExpressionTreeValidator {
             return false
         }
 
-        index := 0
-        while index < initializer.Properties.Count {
-            property := initializer.Properties[index]
+        for property in initializer.Properties {
             if property.Name == null || property.IndexExpression != null {
                 return false
             }
-
-            index = index + 1
         }
 
         return true

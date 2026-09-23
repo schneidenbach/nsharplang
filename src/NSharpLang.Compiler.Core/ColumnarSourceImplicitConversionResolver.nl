@@ -98,9 +98,7 @@ class ColumnarSourceImplicitConversionResolver {
 
         selected: ColumnarStaticMethodDef? = null
         selectedMethods := new List<MethodInfo>()
-        index := 0
-        while index < overloads.Count {
-            candidate := overloads[index]
+        for candidate in overloads {
             ValidateOperatorFact(sourceDefinition, candidate)
             if IsExactCallableOperator(candidate, sourceType, targetType) {
                 candidateMethod: MethodInfo = candidate.Builder
@@ -121,8 +119,6 @@ class ColumnarSourceImplicitConversionResolver {
                     }
                 }
             }
-
-            index += 1
         }
 
         if selectedMethods.Count == 0 || selected == null {

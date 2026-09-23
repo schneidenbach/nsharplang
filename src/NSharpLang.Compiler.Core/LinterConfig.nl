@@ -198,13 +198,10 @@ class LinterConfig {
 
     func HasDisabledRule(ruleCode: string): bool {
         normalizedRuleCode := NormalizeRuleCode(ruleCode)
-        i := 0
-        while i < DisabledRules.Count {
-            if String.Compare(DisabledRules[i], normalizedRuleCode, StringComparison.OrdinalIgnoreCase) == 0 {
+        for disabledRule2 in DisabledRules {
+            if String.Compare(disabledRule2, normalizedRuleCode, StringComparison.OrdinalIgnoreCase) == 0 {
                 return true
             }
-
-            i = i + 1
         }
 
         return false

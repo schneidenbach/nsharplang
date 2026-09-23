@@ -69,14 +69,10 @@ class BindingLookupKernels {
 
     static func FindDeclarationAt(bindingMap: BindingMap, filePathValue: string?, line: int, column: int): SymbolDeclaration? {
         values := bindingMap.DeclarationEntries.Values
-        i := 0
-        while i < values.Count {
-            declaration := values[i]
+        for declaration in values {
             if declaration.Line == line && declaration.Column == column && FilesEqualExact(declaration.File, filePathValue) {
                 return declaration
             }
-
-            i = i + 1
         }
 
         return null
@@ -177,13 +173,10 @@ class BindingLookupKernels {
     }
 
     static func AppendDistinct(results: List<int>, candidate: int) {
-        i := 0
-        while i < results.Count {
-            if results[i] == candidate {
+        for result in results {
+            if result == candidate {
                 return
             }
-
-            i = i + 1
         }
 
         results.Add(candidate)

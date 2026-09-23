@@ -138,14 +138,10 @@ class AnalyzerDiagnosticSink {
     // one. The scan is linear over an already-short list and runs only when a report is about to be
     // made — never on the silent path.
     func HasReported(code: ErrorCode, message: string, line: int, column: int): bool {
-        index := 0
-        while index < errorsValue.Count {
-            reported := errorsValue[index]
+        for reported in errorsValue {
             if reported.Code == code && reported.Line == line && reported.Column == column && reported.Message == message {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -161,17 +157,13 @@ class AnalyzerDiagnosticSink {
     // `AnalyzerReferenceLoadReport`, which asks once, at the end of an analysis, and only when it
     // already holds at least one load failure worth reporting.
     func HasUnresolvedTypeError(): bool {
-        index := 0
-        while index < errorsValue.Count {
-            reported := errorsValue[index]
+        for reported in errorsValue {
             if reported.Severity == ErrorSeverity.Error {
                 code := reported.Code
                 if code == ErrorCode.TypeNotFound || code == ErrorCode.UndefinedVariable {
                     return true
                 }
             }
-
-            index = index + 1
         }
 
         return false

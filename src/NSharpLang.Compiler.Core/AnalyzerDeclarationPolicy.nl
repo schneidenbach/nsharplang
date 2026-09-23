@@ -266,13 +266,10 @@ class AnalyzerDeclarationPolicy {
     }
 
     func AllHaveSourceParameterSignature(functions: List<FunctionTypeInfo>): bool {
-        index := 0
-        while index < functions.Count {
-            if !AnalyzerOverloadSignatureFacts.HasSourceParameterSignature(functions[index]) {
+        for function in functions {
+            if !AnalyzerOverloadSignatureFacts.HasSourceParameterSignature(function) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
@@ -443,13 +440,10 @@ class AnalyzerDeclarationPolicy {
     static func DuplicateTypeSuggestion(scope: Scope, name: string, arity: int): string? {
         others := new List<int>()
         declared := scope.AritiesFor(name)
-        index := 0
-        while index < declared.Count {
-            if declared[index] != arity {
-                others.Add(declared[index])
+        for declaredItem in declared {
+            if declaredItem != arity {
+                others.Add(declaredItem)
             }
-
-            index = index + 1
         }
 
         if others.Count == 0 {
@@ -512,14 +506,10 @@ class AnalyzerDeclarationPolicy {
     func ValidatePackageName(declaration: PackageDeclaration) {
         segments := declaration.Segments
         if segments != null {
-            segmentIndex := 0
-            while segmentIndex < segments.Count {
-                segment := segments[segmentIndex]
+            for segment in segments {
                 if segment.Text != "<error>" && !IdentifierText.IsValid(segment.Text) {
                     diagnostics.Report(ErrorCode.InvalidSyntax, PackageNameReport(segment.Text), segment.Line, segment.Column, null, segment.Length)
                 }
-
-                segmentIndex = segmentIndex + 1
             }
 
             return
@@ -705,13 +695,10 @@ class AnalyzerDeclarationPolicy {
 
     func AllElementsAreValidDefaults(arrayLiteral: ArrayLiteralExpression, expectedType: TypeReference): bool {
         elements := arrayLiteral.Elements
-        index := 0
-        while index < elements.Count {
-            if !IsValidDefaultValue(elements[index], expectedType) {
+        for element in elements {
+            if !IsValidDefaultValue(element, expectedType) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true

@@ -69,9 +69,7 @@ class SimpleNamePrecedence {
         sawGlobal := false
 
         lexical := LexicalNamespaces(currentNamespace)
-        lexicalIndex := 0
-        while lexicalIndex < lexical.Count {
-            lexicalNamespace := lexical[lexicalIndex]
+        for lexicalNamespace in lexical {
             if lexicalNamespace == null {
                 if !sawGlobal {
                     sawGlobal = true
@@ -80,16 +78,12 @@ class SimpleNamePrecedence {
             } else if seen.Add(lexicalNamespace) {
                 candidates.Add(lexicalNamespace)
             }
-            lexicalIndex = lexicalIndex + 1
         }
 
-        importIndex := 0
-        while importIndex < importedNamespaces.Count {
-            importedNamespace := importedNamespaces[importIndex]
+        for importedNamespace in importedNamespaces {
             if seen.Add(importedNamespace) {
                 candidates.Add(importedNamespace)
             }
-            importIndex = importIndex + 1
         }
 
         return candidates
@@ -100,12 +94,10 @@ class SimpleNamePrecedence {
     // arbitrates between. An `import` that names an enclosing namespace is redundant, not a rival.
     static func IsLexicalNamespace(currentNamespace: string?, candidateNamespace: string?): bool {
         lexical := LexicalNamespaces(currentNamespace)
-        index := 0
-        while index < lexical.Count {
-            if string.Equals(lexical[index], candidateNamespace, StringComparison.Ordinal) {
+        for lexicalItem in lexical {
+            if string.Equals(lexicalItem, candidateNamespace, StringComparison.Ordinal) {
                 return true
             }
-            index = index + 1
         }
         return false
     }
@@ -133,14 +125,11 @@ class SimpleNamePrecedence {
 
         seen := new HashSet<string>(StringComparer.Ordinal)
         lexical := LexicalNamespaces(currentNamespace)
-        index := 0
-        while index < lexical.Count {
-            lexicalNamespace := lexical[index]
+        for lexicalNamespace in lexical {
             candidate := lexicalNamespace == null || lexicalNamespace.Length == 0 ? writtenQualifier : lexicalNamespace + "." + writtenQualifier
             if seen.Add(candidate) {
                 candidates.Add(candidate)
             }
-            index = index + 1
         }
 
         return candidates

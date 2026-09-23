@@ -187,13 +187,10 @@ class AnalyzerOverloadFacts {
             }
 
             catchClauses := tryStatement.CatchClauses
-            catchIndex := 0
-            while catchIndex < catchClauses.Count {
-                if StatementReturnsValue(catchClauses[catchIndex].Block) {
+            for catchClause in catchClauses {
+                if StatementReturnsValue(catchClause.Block) {
                     return true
                 }
-
-                catchIndex = catchIndex + 1
             }
 
             return StatementReturnsValue(tryStatement.FinallyBlock)
@@ -212,13 +209,10 @@ class AnalyzerOverloadFacts {
         switchStatement := statement as SwitchStatement
         if switchStatement != null {
             cases := switchStatement.Cases
-            caseIndex := 0
-            while caseIndex < cases.Count {
-                if StatementsReturnValue(cases[caseIndex].Statements) {
+            for caseItem in cases {
+                if StatementsReturnValue(caseItem.Statements) {
                     return true
                 }
-
-                caseIndex = caseIndex + 1
             }
 
             return false
@@ -228,13 +222,10 @@ class AnalyzerOverloadFacts {
     }
 
     static func StatementsReturnValue(statements: List<Statement>): bool {
-        index := 0
-        while index < statements.Count {
-            if StatementReturnsValue(statements[index]) {
+        for statement in statements {
+            if StatementReturnsValue(statement) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -691,13 +682,10 @@ class AnalyzerOverloadFacts {
             return false
         }
 
-        index := 0
-        while index < typeParameters.Count {
-            if typeParameters[index].Name == simple.Name {
+        for typeParameter in typeParameters {
+            if typeParameter.Name == simple.Name {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -1084,9 +1072,8 @@ class AnalyzerOverloadScoring {
             return false
         }
 
-        index := 0
-        while index < lambda.Parameters.Count {
-            parameterTypeReference: TypeReference? = lambda.Parameters[index].Type
+        for parameter2 in lambda.Parameters {
+            parameterTypeReference: TypeReference? = parameter2.Type
             if parameterTypeReference == null {
                 return false
             }
@@ -1095,8 +1082,6 @@ class AnalyzerOverloadScoring {
             if simple != null && simple.Name == "var" {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
@@ -1111,11 +1096,9 @@ class AnalyzerOverloadScoring {
 
         parameterTypes := new List<TypeInfo>()
         parameterModifiers := new List<Ast.ParameterModifier>()
-        index := 0
-        while index < lambda.Parameters.Count {
-            parameterTypes.Add(typeResolver.ResolveType(lambda.Parameters[index].Type))
+        for parameter2 in lambda.Parameters {
+            parameterTypes.Add(typeResolver.ResolveType(parameter2.Type))
             parameterModifiers.Add(Ast.ParameterModifier.None)
-            index = index + 1
         }
 
         signature := new FunctionTypeInfo()

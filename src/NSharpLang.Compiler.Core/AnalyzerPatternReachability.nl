@@ -385,15 +385,11 @@ class AnalyzerParserErrorPlaceholders {
         interpolatedString := expression as InterpolatedStringExpression
         if interpolatedString != null {
             parts := interpolatedString.Parts
-            partIndex := 0
-            while partIndex < parts.Count {
-                part := parts[partIndex]
+            for part in parts {
                 hole := part as InterpolatedStringHole
                 if hole != null && ContainsInExpression(hole.Expression) {
                     return true
                 }
-
-                partIndex = partIndex + 1
             }
 
             return false
@@ -503,14 +499,10 @@ class AnalyzerParserErrorPlaceholders {
         array := expression as ArrayLiteralExpression
         if array != null {
             elements := array.Elements
-            elementIndex := 0
-            while elementIndex < elements.Count {
-                element := elements[elementIndex]
+            for element in elements {
                 if ContainsInExpression(element) {
                     return true
                 }
-
-                elementIndex = elementIndex + 1
             }
 
             return false
@@ -519,14 +511,10 @@ class AnalyzerParserErrorPlaceholders {
         tuple := expression as TupleExpression
         if tuple != null {
             tupleElements := tuple.Elements
-            tupleIndex := 0
-            while tupleIndex < tupleElements.Count {
-                tupleElement := tupleElements[tupleIndex]
+            for tupleElement in tupleElements {
                 if ContainsInExpression(tupleElement.Value) {
                     return true
                 }
-
-                tupleIndex = tupleIndex + 1
             }
 
             return false
@@ -573,9 +561,7 @@ class AnalyzerParserErrorPlaceholders {
             }
 
             cases := matchExpression.Cases
-            caseIndex := 0
-            while caseIndex < cases.Count {
-                matchCase := cases[caseIndex]
+            for matchCase in cases {
                 if ContainsInPattern(matchCase.Pattern) {
                     return true
                 }
@@ -588,8 +574,6 @@ class AnalyzerParserErrorPlaceholders {
                 if ContainsInExpression(matchCase.Expression) {
                     return true
                 }
-
-                caseIndex = caseIndex + 1
             }
 
             return false
@@ -635,14 +619,10 @@ class AnalyzerParserErrorPlaceholders {
         listPattern := pattern as ListPattern
         if listPattern != null {
             elements := listPattern.Elements
-            elementIndex := 0
-            while elementIndex < elements.Count {
-                element := elements[elementIndex]
+            for element in elements {
                 if ContainsInPattern(element) {
                     return true
                 }
-
-                elementIndex = elementIndex + 1
             }
 
             return false
@@ -666,14 +646,10 @@ class AnalyzerParserErrorPlaceholders {
         positional := pattern as PositionalPattern
         if positional != null {
             positionalPatterns := positional.Patterns
-            positionalIndex := 0
-            while positionalIndex < positionalPatterns.Count {
-                nested := positionalPatterns[positionalIndex]
+            for nested in positionalPatterns {
                 if ContainsInPattern(nested) {
                     return true
                 }
-
-                positionalIndex = positionalIndex + 1
             }
 
             return false
@@ -689,23 +665,17 @@ class AnalyzerParserErrorPlaceholders {
     }
 
     static func ContainsInArguments(arguments: List<Argument>): bool {
-        index := 0
-        while index < arguments.Count {
-            argument := arguments[index]
+        for argument in arguments {
             if ContainsInExpression(argument.Value) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
     }
 
     static func ContainsInPropertyInitializers(properties: List<PropertyInitializer>): bool {
-        index := 0
-        while index < properties.Count {
-            property := properties[index]
+        for property in properties {
             indexExpression := property.IndexExpression
             if indexExpression != null && ContainsInExpression(indexExpression) {
                 return true
@@ -714,22 +684,16 @@ class AnalyzerParserErrorPlaceholders {
             if ContainsInExpression(property.Value) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
     }
 
     static func ContainsInPropertyPatterns(properties: List<PropertyPattern>): bool {
-        index := 0
-        while index < properties.Count {
-            property := properties[index]
+        for property in properties {
             if ContainsInPropertyPattern(property) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

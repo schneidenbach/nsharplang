@@ -268,9 +268,7 @@ class ColumnarSourceBaseMethodMatch {
             while current != null && !matched && guard <= 64 {
                 overloads: List<ColumnarInstanceMethodDef>? = null
                 if current.MethodOverloads.TryGetValue(name, out overloads) && overloads != null {
-                    index := 0
-                    while index < overloads.Count {
-                        candidate := overloads[index]
+                    for candidate in overloads {
                         foundName = true
                         if IsOverridableSourceTarget(candidate) && SameSignature(candidate, returnType, parameterTypes) {
                             target = candidate.Builder
@@ -278,7 +276,6 @@ class ColumnarSourceBaseMethodMatch {
                             matched = true
                             break
                         }
-                        index = index + 1
                     }
                 }
 

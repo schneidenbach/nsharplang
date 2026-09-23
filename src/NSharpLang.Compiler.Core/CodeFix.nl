@@ -34,10 +34,8 @@ class CodeFixService {
     }
 
     static func AddActions(target: List<CodeAction>, source: List<CodeAction>) {
-        i := 0
-        while i < source.Count {
-            target.Add(source[i])
-            i = i + 1
+        for sourceItem in source {
+            target.Add(sourceItem)
         }
     }
 }

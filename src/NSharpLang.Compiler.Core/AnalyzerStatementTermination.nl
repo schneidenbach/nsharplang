@@ -375,13 +375,10 @@ class AnalyzerStatementTermination {
     }
 
     static func AnyStatementLeaves(statements: List<Statement>, breakLeaves: bool, continueLeaves: bool, terminatingCalls: AnalyzerTerminatingCalls?): bool {
-        index := 0
-        while index < statements.Count {
-            if Walk(statements[index], breakLeaves, continueLeaves, terminatingCalls) {
+        for statement in statements {
+            if Walk(statement, breakLeaves, continueLeaves, terminatingCalls) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -408,26 +405,20 @@ class AnalyzerStatementTermination {
             return false
         }
 
-        index := 0
-        while index < cases.Count {
-            if !AnyStatementLeaves(cases[index].Statements, false, continueLeaves, terminatingCalls) {
+        for caseItem in cases {
+            if !AnyStatementLeaves(caseItem.Statements, false, continueLeaves, terminatingCalls) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
     }
 
     static func HasDefaultCase(cases: List<SwitchCase>): bool {
-        index := 0
-        while index < cases.Count {
-            if cases[index].Pattern == null {
+        for caseItem in cases {
+            if caseItem.Pattern == null {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -466,13 +457,10 @@ class AnalyzerStatementTermination {
         }
 
         catchClauses := tryStatement.CatchClauses
-        index := 0
-        while index < catchClauses.Count {
-            if !Walk(catchClauses[index].Block, breakLeaves, continueLeaves, terminatingCalls) {
+        for catchClause in catchClauses {
+            if !Walk(catchClause.Block, breakLeaves, continueLeaves, terminatingCalls) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true

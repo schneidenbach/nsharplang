@@ -657,9 +657,7 @@ class AnalyzerReflectionArgumentBinder {
             ambiguous := false
             bestFunctionType: FunctionTypeInfo? = null
             candidates := NSharpMethodGroupInfoFactory.GetFunctions(methodGroup)
-            candidateIndex := 0
-            while candidateIndex < candidates.Count {
-                candidateType := candidates[candidateIndex]
+            for candidateType in candidates {
                 candidateScore := 0
                 if TryGetMethodGroupMatchScore(candidateType, expectedSignature, out candidateScore) {
                     scoreWithConversion := 4 + candidateScore
@@ -671,8 +669,6 @@ class AnalyzerReflectionArgumentBinder {
                         ambiguous = true
                     }
                 }
-
-                candidateIndex = candidateIndex + 1
             }
 
             if bestFunctionType == null || bestScore < 0 || ambiguous {
@@ -750,9 +746,7 @@ class AnalyzerReflectionArgumentBinder {
     // elements. The elements were materialized when the tail was bound, so this is a read.
     func EnumerateSuppliedReflectionArguments(boundArguments: List<ReflectionBoundArgument>): List<SuppliedReflectionBoundArgument> {
         flattened := new List<SuppliedReflectionBoundArgument>()
-        index := 0
-        while index < boundArguments.Count {
-            boundArgument := boundArguments[index]
+        for boundArgument in boundArguments {
             supplied := boundArgument as SuppliedReflectionBoundArgument
             paramsBound := boundArgument as ParamsReflectionBoundArgument
             if supplied != null {
@@ -765,8 +759,6 @@ class AnalyzerReflectionArgumentBinder {
                     elementIndex = elementIndex + 1
                 }
             }
-
-            index = index + 1
         }
 
         return flattened
@@ -1925,9 +1917,8 @@ class AnalyzerReflectionArgumentBinder {
             return false
         }
 
-        index := 0
-        while index < literal.Elements.Count {
-            constant := ConstantOperandFacts.FromExpression(literal.Elements[index])
+        for element2 in literal.Elements {
+            constant := ConstantOperandFacts.FromExpression(element2)
             if !constant.HasIntegerLiteral {
                 return false
             }
@@ -1935,8 +1926,6 @@ class AnalyzerReflectionArgumentBinder {
             if !ConstantConversionFacts.AcceptsIntegerConstant(parameterElement, constant.LiteralText, constant.IsNegative) {
                 return false
             }
-
-            index = index + 1
         }
 
         return true

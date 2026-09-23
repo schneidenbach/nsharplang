@@ -130,13 +130,10 @@ class AnalyzerOpenTypeSpecificity {
             return false
         }
 
-        index := 0
-        while index < typeParameters.Count {
-            if typeParameters[index].Name == simple.Name {
+        for typeParameter in typeParameters {
+            if typeParameter.Name == simple.Name {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

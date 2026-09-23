@@ -38,14 +38,11 @@ class AnalyzerLocalFunctionCaptures {
     // recorded too and outlive it — harmless, because a call to one from outside the block is a name
     // error before this walk is consulted at all.
     static func Collect(statements: List<Statement>, state: DefiniteAssignmentState) {
-        index := 0
-        while index < statements.Count {
-            localFunction := statements[index] as LocalFunctionStatement
+        for statement in statements {
+            localFunction := statement as LocalFunctionStatement
             if localFunction != null {
                 state.LocalFunctions[localFunction.Function.Name] = localFunction
             }
-
-            index = index + 1
         }
     }
 
@@ -111,10 +108,8 @@ class AnalyzerLocalFunctionCaptures {
         }
 
         unassigned.Sort()
-        index := 0
-        while index < unassigned.Count {
-            Report(diagnostics, unassigned[index], calleeName, callee, state)
-            index = index + 1
+        for unassignedItem in unassigned {
+            Report(diagnostics, unassignedItem, calleeName, callee, state)
         }
     }
 

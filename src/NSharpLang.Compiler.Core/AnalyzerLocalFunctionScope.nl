@@ -57,16 +57,13 @@ class AnalyzerLocalFunctionScope {
             return hoisted
         }
 
-        index := 0
-        while index < statements.Count {
-            localFunction := statements[index] as LocalFunctionStatement
+        for statement in statements {
+            localFunction := statement as LocalFunctionStatement
             if localFunction != null {
                 declaration := localFunction.Function
                 signature: TypeInfo = functionTypeFactory.CreateFromDeclaration(declaration, containingType)
                 hoisted.Add(new AnalyzerHoistedLocalFunction(declaration.Name, signature, localFunction.Line, localFunction.Column))
             }
-
-            index = index + 1
         }
 
         return hoisted

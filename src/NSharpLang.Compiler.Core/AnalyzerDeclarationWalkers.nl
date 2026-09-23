@@ -226,9 +226,7 @@ class AnalyzerDeclarationWalkers {
         setupSymbols = new List<SetupSymbol>()
         foundSetup := false
         foundTeardown := false
-        index := 0
-        while index < declarations.Count {
-            declaration := declarations[index]
+        for declaration in declarations {
             setup := declaration as SetupDeclaration
             if setup != null {
                 if foundSetup {
@@ -247,8 +245,6 @@ class AnalyzerDeclarationWalkers {
                     foundTeardown = true
                 }
             }
-
-            index = index + 1
         }
     }
 

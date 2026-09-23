@@ -521,9 +521,7 @@ class CompletionReflectionFacts {
 
         interfaces := DirectReflectionInterfaces(clrType)
         filter := ReflectionFilterFromFlags(flags)
-        index := 0
-        while index < interfaces.Count {
-            baseInterface := interfaces[index]
+        for baseInterface in interfaces {
             baseFriendAdmits := friendAdmits
             if friendGrants != null {
                 baseFriendAdmits = FriendAdmits(friendGrants, baseInterface)
@@ -531,7 +529,6 @@ class CompletionReflectionFacts {
 
             baseFlags := GetReflectionBindingFlags(filter, inheritedProtected, baseFriendAdmits)
             AppendReflectionInterfaceClosure(baseInterface, baseFlags, inheritedProtected, baseFriendAdmits, friendGrants, items, seen)
-            index = index + 1
         }
     }
 
@@ -586,13 +583,10 @@ class CompletionReflectionFacts {
     }
 
     static func ContainsExactReflectionType(seen: List<Type>, candidate: Type): bool {
-        index := 0
-        while index < seen.Count {
-            if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(seen[index], candidate) {
+        for seenItem in seen {
+            if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(seenItem, candidate) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -617,20 +611,14 @@ class CompletionReflectionFacts {
     // accounting remains the direct reader's existing responsibility.
     static func AppendNewReflectionMemberItems(items: List<CompletionItem>, candidates: List<CompletionItem>) {
         seen := new HashSet<string>(StringComparer.Ordinal)
-        existingIndex := 0
-        while existingIndex < items.Count {
-            seen.Add(items[existingIndex].Name)
-            existingIndex = existingIndex + 1
+        for item in items {
+            seen.Add(item.Name)
         }
 
-        candidateIndex := 0
-        while candidateIndex < candidates.Count {
-            candidate := candidates[candidateIndex]
+        for candidate in candidates {
             if !seen.Contains(candidate.Name) {
                 items.Add(candidate)
             }
-
-            candidateIndex = candidateIndex + 1
         }
     }
 

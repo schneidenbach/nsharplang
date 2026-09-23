@@ -321,9 +321,7 @@ class AnalyzerFunctionTypeFactory {
         parameterReachabilityFacts := new List<int>()
         declaresReachabilityFacts := false
         requiredParameterCount := 0
-        index := 0
-        while index < parameters.Count {
-            parameter := parameters[index]
+        for parameter in parameters {
             parameterNames.Add(parameter.Name)
             parameterTypes.Add(ResolveDeclarationReference(parameter.Type, methodSubstitution, declarationFile))
             sourceParameterTypes.Add(parameter.Type)
@@ -343,8 +341,6 @@ class AnalyzerFunctionTypeFactory {
             if parameter.Modifier != Ast.ParameterModifier.Params && parameter.DefaultValue == null {
                 requiredParameterCount = requiredParameterCount + 1
             }
-
-            index = index + 1
         }
 
         hasParamsParameter := false
@@ -821,9 +817,7 @@ class AnalyzerFunctionTypeFactory {
         }
 
         grouped := new Dictionary<string, List<TypeInfo>>(StringComparer.Ordinal)
-        index := 0
-        while index < constraints.Count {
-            constraint := constraints[index]
+        for constraint in constraints {
             bucket := GetConstraintBucket(grouped, constraint.TypeParameter)
             inner := constraint.Constraints
             innerIndex := 0
@@ -831,8 +825,6 @@ class AnalyzerFunctionTypeFactory {
                 bucket.Add(ResolveDeclarationReference(inner[innerIndex], methodSubstitution, declarationFile))
                 innerIndex = innerIndex + 1
             }
-
-            index = index + 1
         }
 
         return grouped
@@ -851,10 +843,8 @@ class AnalyzerFunctionTypeFactory {
         for constraint in constraints {
             bucket := GetConstraintBucket(grouped, constraint.TypeParameter)
             inner := constraint.Constraints
-            innerIndex := 0
-            while innerIndex < inner.Count {
-                bucket.Add(ResolveMemberReference(inner[innerIndex], declarationOwner, substitution))
-                innerIndex = innerIndex + 1
+            for innerItem in inner {
+                bucket.Add(ResolveMemberReference(innerItem, declarationOwner, substitution))
             }
         }
 
@@ -881,12 +871,9 @@ class AnalyzerFunctionTypeFactory {
             return substitution
         }
 
-        index := 0
-        while index < typeParameters.Count {
-            typeParameter := typeParameters[index]
+        for typeParameter in typeParameters {
             shadowed: TypeInfo = new SimpleTypeInfo(typeParameter.Name)
             substitution[typeParameter.Name] = shadowed
-            index = index + 1
         }
 
         return substitution
@@ -902,14 +889,10 @@ class AnalyzerFunctionTypeFactory {
     }
 
     static func HasMustUseAttribute(attributes: List<AttributeNode>): bool {
-        index := 0
-        while index < attributes.Count {
-            attribute := attributes[index]
+        for attribute in attributes {
             if NominalTypeInfoFactory.IsMustUseAttributeName(attribute.Name) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

@@ -882,28 +882,22 @@ class AnalyzerWriteTargets {
     }
 
     static func MemberCarriesRequiredMemberAttribute(attributes: IList<CustomAttributeData>): bool {
-        index := 0
-        while index < attributes.Count {
-            attributeType := attributes[index].get_AttributeType()
+        for attribute in attributes {
+            attributeType := attribute.get_AttributeType()
             if attributeType.FullName == "System.Runtime.CompilerServices.RequiredMemberAttribute" {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
     }
 
     static func ConstructorCarriesSetsRequiredMembers(attributes: IList<CustomAttributeData>): bool {
-        index := 0
-        while index < attributes.Count {
-            attributeType := attributes[index].get_AttributeType()
+        for attribute in attributes {
+            attributeType := attribute.get_AttributeType()
             if attributeType.FullName == "System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute" {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

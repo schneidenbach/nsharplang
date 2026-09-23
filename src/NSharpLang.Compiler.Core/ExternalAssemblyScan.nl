@@ -420,17 +420,13 @@ class ExternalAssemblyScan {
         }
 
         if referenceAssemblyPaths != null {
-            pathIndex := 0
-            while pathIndex < referenceAssemblyPaths.Count {
-                path := referenceAssemblyPaths[pathIndex]
+            for path in referenceAssemblyPaths {
                 if path != null && path.Length > 0 {
                     directory := Path.GetDirectoryName(path) ?? ""
                     if directory.Length > 0 {
                         AddUniquePath(directories, seen, directory)
                     }
                 }
-
-                pathIndex = pathIndex + 1
             }
         }
 
@@ -465,9 +461,7 @@ class ExternalAssemblyScan {
         configuredPaths := ResolveConfiguredDllPaths(projectRoot, dependencies)
         runtimePaths := new List<string>()
         seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        index := 0
-        while index < configuredPaths.Count {
-            path := configuredPaths[index]
+        for path in configuredPaths {
             runtimePath := GetRuntimePathCandidate(path)
             if runtimePath.Length > 0 {
                 if IsExactAssemblyPair(path, runtimePath) {
@@ -476,8 +470,6 @@ class ExternalAssemblyScan {
             } else if File.Exists(path) {
                 AddUniquePath(runtimePaths, seen, path)
             }
-
-            index = index + 1
         }
 
         return runtimePaths
@@ -490,9 +482,7 @@ class ExternalAssemblyScan {
         }
 
         normalizedProjectRoot := Path.GetFullPath(projectRoot)
-        index := 0
-        while index < dependencies.Count {
-            dependency := dependencies[index]
+        for dependency in dependencies {
             if dependency != null && dependency.Type == ReferenceType.Dll && !string.IsNullOrWhiteSpace(dependency.Dll ?? "") {
                 path := dependency.Dll ?? ""
                 if !Path.IsPathRooted(path) {
@@ -501,8 +491,6 @@ class ExternalAssemblyScan {
 
                 normalizedPaths.Add(Path.GetFullPath(path))
             }
-
-            index = index + 1
         }
 
         return normalizedPaths
@@ -540,15 +528,11 @@ class ExternalAssemblyScan {
     }
 
     static func FindReferencePathForRuntime(paths: List<string>, runtimePath: string): string {
-        index := 0
-        while index < paths.Count {
-            referencePath := paths[index]
+        for referencePath in paths {
             candidate := GetRuntimePathCandidate(referencePath)
             if candidate.Length > 0 && string.Equals(candidate, runtimePath, StringComparison.OrdinalIgnoreCase) && IsExactAssemblyPair(referencePath, runtimePath) {
                 return referencePath
             }
-
-            index = index + 1
         }
 
         return ""
@@ -620,17 +604,13 @@ class ExternalAssemblyScan {
     }
 
     static func ReconcileRuntimeAssemblies(entries: List<ExternalAssemblyCatalogEntry>, runtimeAssemblies: Dictionary<string, Assembly>) {
-        index := 0
-        while index < entries.Count {
-            entry := entries[index]
+        for entry in entries {
             if entry != null && entry.IsInspectable && entry.MetadataAssembly != null {
                 if !RuntimeAssemblyMatchesSelectedMetadata(entry) {
                     replacement := SelectRuntimeAssemblyForMetadata(runtimeAssemblies, entry.MetadataAssembly, entry.Identity, entry.MetadataPath)
                     entry.AttachRuntimeAssembly(replacement)
                 }
             }
-
-            index = index + 1
         }
     }
 
@@ -819,13 +799,10 @@ class ExternalAssemblyScan {
     }
 
     static func ContainsAssemblyReference(assemblies: List<Assembly>, candidate: Assembly): bool {
-        index := 0
-        while index < assemblies.Count {
-            if Object.ReferenceEquals(assemblies[index], candidate) {
+        for assembly in assemblies {
+            if Object.ReferenceEquals(assembly, candidate) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

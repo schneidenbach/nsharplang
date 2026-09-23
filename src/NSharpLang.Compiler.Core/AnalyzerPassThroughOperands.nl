@@ -662,14 +662,10 @@ class AnalyzerPassThroughOperands {
 
         element := tupleNode.Elements[elementIndex]
         if element.Name != null {
-            index := 0
-            while index < expectedTuple.Elements.Count {
-                expectedElement := expectedTuple.Elements[index]
+            for expectedElement in expectedTuple.Elements {
                 if expectedElement.Name == element.Name {
                     return expectedElement.Type
                 }
-
-                index = index + 1
             }
         }
 

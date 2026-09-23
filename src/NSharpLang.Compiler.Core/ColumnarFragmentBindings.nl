@@ -294,13 +294,10 @@ class ColumnarFragmentBindings {
     }
 
     static func AddDistinctSourceTypeCandidate(identity: object, candidateType: Type, identities: List<object>, types: List<Type>) {
-        index := 0
-        while index < identities.Count {
-            if Object.ReferenceEquals(identities[index], identity) {
+        for identityItem in identities {
+            if Object.ReferenceEquals(identityItem, identity) {
                 return
             }
-
-            index = index + 1
         }
 
         identities.Add(identity)

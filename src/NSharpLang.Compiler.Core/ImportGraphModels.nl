@@ -59,9 +59,7 @@ class ImportGraphBuilder {
         resolvedDiagnosticKeys := new List<string>()
         sourceFileByFullPath := BuildSourceFileMap(sourceFiles)
 
-        i := 0
-        while i < fileImports.Count {
-            fileImport := fileImports[i]
+        for fileImport in fileImports {
             resolver := new FileResolver(projectRoot, fileImport.SourceFile)
             resolvedPath := ResolveImportedCompilationUnitPath(resolver, fileImport.ImportPath, sourceFileByFullPath)
             if resolvedPath != null {
@@ -74,8 +72,6 @@ class ImportGraphBuilder {
                 resolvedDiagnosticKeys.Add(BuildFileImportDiagnosticKey(fileImport.SourceFile, fileImport.Line, fileImport.Column))
                 edges.Add(new ImportEdge(fileImport.SourceFile, resolvedPath, fileImport.ImportPath, fileImport.Line, fileImport.Column, fileImport.Length))
             }
-
-            i = i + 1
         }
 
         return new ImportGraphBuildResult(graph, resolvedDiagnosticKeys)
@@ -84,15 +80,12 @@ class ImportGraphBuilder {
     static func BuildSourceFileMap(sourceFiles: List<string>): Dictionary<string, string> {
         sourceFileByFullPath := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 
-        i := 0
-        while i < sourceFiles.Count {
-            fullPath := Path.GetFullPath(sourceFiles[i])
+        for sourceFile in sourceFiles {
+            fullPath := Path.GetFullPath(sourceFile)
             existing := ""
             if !sourceFileByFullPath.TryGetValue(fullPath, out existing) {
-                sourceFileByFullPath[fullPath] = sourceFiles[i]
+                sourceFileByFullPath[fullPath] = sourceFile
             }
-
-            i = i + 1
         }
 
         return sourceFileByFullPath
@@ -174,13 +167,10 @@ class ImportCycleDiagnosticReporter {
 
     static func CountCircularImportErrors(errors: List<CompilerError>): int {
         count := 0
-        i := 0
-        while i < errors.Count {
-            if errors[i].Code == ErrorCode.CircularImport {
+        for error in errors {
+            if error.Code == ErrorCode.CircularImport {
                 count = count + 1
             }
-
-            i = i + 1
         }
 
         return count
@@ -220,10 +210,8 @@ class ImportGraphCycleDetector {
         cycles := new List<ImportCycle>()
         reportedCycleKeys := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 
-        i := 0
-        while i < orderedSourceFiles.Count {
-            VisitImportGraph(orderedSourceFiles[i], edgesByFile, projectRoot, maxDisplayedNodes, visitState, cycles, reportedCycleKeys)
-            i = i + 1
+        for orderedSourceFile in orderedSourceFiles {
+            VisitImportGraph(orderedSourceFile, edgesByFile, projectRoot, maxDisplayedNodes, visitState, cycles, reportedCycleKeys)
         }
 
         return cycles
@@ -283,10 +271,8 @@ class ImportGraphCycleDetector {
         }
 
         result := new List<ImportEdge>(sourceEdges.Count)
-        i := 0
-        while i < sourceEdges.Count {
-            result.Add(sourceEdges[i])
-            i = i + 1
+        for sourceEdge in sourceEdges {
+            result.Add(sourceEdge)
         }
 
         SortEdgesByTargetFile(result)
@@ -398,10 +384,8 @@ class ImportGraphCycleDetector {
 
     static func CopySortedStrings(sourceFiles: List<string>): List<string> {
         result := new List<string>(sourceFiles.Count)
-        i := 0
-        while i < sourceFiles.Count {
-            result.Add(sourceFiles[i])
-            i = i + 1
+        for sourceFile in sourceFiles {
+            result.Add(sourceFile)
         }
 
         SortStringsOrdinalIgnoreCase(result)

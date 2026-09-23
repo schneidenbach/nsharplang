@@ -77,13 +77,10 @@ class ReachabilityFlowFacts {
             return None()
         }
 
-        index := 0
-        while index < attributes.Count {
-            if IsDoesNotReturnName(attributes[index].Name) {
+        for attribute in attributes {
+            if IsDoesNotReturnName(attribute.Name) {
                 return DoesNotReturn()
             }
-
-            index = index + 1
         }
 
         return None()

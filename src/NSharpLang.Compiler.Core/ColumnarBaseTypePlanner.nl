@@ -66,12 +66,10 @@ class ColumnarBaseTypePlanner {
 
     func ApplyUserInterface(implementedInterfaceDef: ColumnarStructDef, resolvedBaseType: Type): ColumnarBaseTypeApplyOutcome {
         duplicateInterface := false
-        interfaceIndex := 0
-        while interfaceIndex < def.ImplementedInterfaceTypes.Count {
-            if SameInterfaceType(def.ImplementedInterfaceTypes[interfaceIndex], resolvedBaseType) {
+        for implementedInterfaceType2 in def.ImplementedInterfaceTypes {
+            if SameInterfaceType(implementedInterfaceType2, resolvedBaseType) {
                 duplicateInterface = true
             }
-            interfaceIndex = interfaceIndex + 1
         }
         if duplicateInterface {
             return ColumnarBaseTypeApplyOutcome.Applied
@@ -88,13 +86,10 @@ class ColumnarBaseTypePlanner {
         if Object.ReferenceEquals(resolvedBaseType, implementedInterfaceDef.Builder) {
             transitive := new List<ColumnarStructDef>()
             EnumerateInterfaceAndBases(implementedInterfaceDef, transitive)
-            transitiveIndex := 0
-            while transitiveIndex < transitive.Count {
-                implemented := transitive[transitiveIndex]
+            for implemented in transitive {
                 if !Object.ReferenceEquals(implemented, implementedInterfaceDef) && seenImplementedInterfaces.Add(implemented.Builder) {
                     def.Builder.AddInterfaceImplementation(implemented.Builder)
                 }
-                transitiveIndex = transitiveIndex + 1
             }
         }
         return ColumnarBaseTypeApplyOutcome.Applied
@@ -170,13 +165,10 @@ class ColumnarBaseTypePlanner {
     // The builder handle is compared by reference — the emitted source definitions carry their own
     // live TypeBuilder, and the resolver returns that exact handle for a source spelling.
     func FindDefByBuilder(builderType: Type): ColumnarStructDef? {
-        index := 0
-        while index < userStructDefs.Count {
-            candidate := userStructDefs[index]
+        for candidate in userStructDefs {
             if Object.ReferenceEquals(candidate.Builder, builderType) {
                 return candidate
             }
-            index = index + 1
         }
         return null
     }
@@ -197,10 +189,8 @@ class ColumnarBaseTypePlanner {
 
     static func EnumerateInterfaceAndBases(interfaceDef: ColumnarStructDef, output: List<ColumnarStructDef>) {
         output.Add(interfaceDef)
-        index := 0
-        while index < interfaceDef.InterfaceBases.Count {
-            EnumerateInterfaceAndBases(interfaceDef.InterfaceBases[index], output)
-            index = index + 1
+        for interfaceBase2 in interfaceDef.InterfaceBases {
+            EnumerateInterfaceAndBases(interfaceBase2, output)
         }
     }
 

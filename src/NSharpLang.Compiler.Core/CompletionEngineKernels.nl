@@ -92,9 +92,7 @@ class CompletionEngineKernels {
         indexByName := new Dictionary<string, int>(StringComparer.Ordinal)
         seenSignatures := new HashSet<string>()
 
-        i := 0
-        while i < items.Count {
-            item := items[i]
+        for item in items {
             signature := CompletionItemSignatureKey(item)
             existingIndex := 0
             if indexByName.TryGetValue(item.Name, out existingIndex) {
@@ -108,8 +106,6 @@ class CompletionEngineKernels {
                 indexByName.Add(item.Name, collapsed.Count)
                 collapsed.Add(item)
             }
-
-            i = i + 1
         }
 
         return OrderCompletionItems(collapsed)
@@ -127,9 +123,7 @@ class CompletionEngineKernels {
     static func OrderCompletionItems(items: List<CompletionItem>): List<CompletionItem> {
         ordered := new List<CompletionItem>()
 
-        i := 0
-        while i < items.Count {
-            item := items[i]
+        for item in items {
             position := ordered.Count
             j := 0
             while j < ordered.Count {
@@ -142,7 +136,6 @@ class CompletionEngineKernels {
             }
 
             ordered.Insert(position, item)
-            i = i + 1
         }
 
         return ordered
@@ -164,10 +157,8 @@ class CompletionEngineKernels {
         flattened := new List<CompletionItem>()
         for pair in completions {
             group := pair.Value
-            index := 0
-            while index < group.Count {
-                flattened.Add(group[index])
-                index = index + 1
+            for groupItem in group {
+                flattened.Add(groupItem)
             }
         }
 
@@ -186,9 +177,7 @@ class CompletionEngineKernels {
         order := new List<string>()
         groups := new Dictionary<string, List<CompletionItem>>(StringComparer.Ordinal)
 
-        i := 0
-        while i < items.Count {
-            item := items[i]
+        for item in items {
             key := PluralizeCompletionKind(item.Kind)
             group := new List<CompletionItem>()
             if !groups.TryGetValue(key, out group) {
@@ -198,12 +187,9 @@ class CompletionEngineKernels {
             }
 
             group.Add(item)
-            i = i + 1
         }
 
-        j := 0
-        while j < order.Count {
-            key := order[j]
+        for key in order {
             group := new List<CompletionItem>()
             groups.TryGetValue(key, out group)
             if completions.ContainsKey(key) {
@@ -211,7 +197,6 @@ class CompletionEngineKernels {
                 completions.Remove(key, out removed)
             }
             completions.Add(key, group)
-            j = j + 1
         }
     }
 
@@ -989,14 +974,11 @@ class CompletionEngineKernels {
         items := new List<CompletionItem>()
         declarations := unit.Declarations
 
-        index := 0
-        while index < declarations.Count {
-            item := CompletionDeclarationFacts.ToCompletionItem(declarations[index])
+        for declaration in declarations {
+            item := CompletionDeclarationFacts.ToCompletionItem(declaration)
             if item != null {
                 items.Add(item)
             }
-
-            index = index + 1
         }
 
         return items

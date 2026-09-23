@@ -145,10 +145,8 @@ class BatchQueryOutputKernels {
 
     static func BuildResultItems(items: IReadOnlyList<BatchQueryOutputItem>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        i := 0
-        while i < items.Count {
-            payload.Add(BuildResultItem(items[i]))
-            i = i + 1
+        for item in items {
+            payload.Add(BuildResultItem(item))
         }
 
         return payload

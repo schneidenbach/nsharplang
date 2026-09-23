@@ -14,9 +14,7 @@ class AnalyzerDiagnostics {
         bestCandidate: string? = null
         bestDistance := 2147483647
 
-        index := 0
-        while index < candidates.Count {
-            candidate := candidates[index]
+        for candidate in candidates {
             if candidate.Length >= 3 && candidate != name {
                 distance := ErrorSuggestions.LevenshteinDistance(name.ToLowerInvariant(), candidate.ToLowerInvariant())
                 if distance < bestDistance {
@@ -24,7 +22,6 @@ class AnalyzerDiagnostics {
                     bestCandidate = candidate
                 }
             }
-            index = index + 1
         }
 
         if bestCandidate != null && bestDistance <= 2 {

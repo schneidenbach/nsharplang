@@ -154,9 +154,7 @@ class AnalyzerMatchExhaustiveness {
     func CheckArmReachability(matchExpression: MatchExpression) {
         dominatingLine := 0
         dominatingText := ""
-        index := 0
-        while index < matchExpression.Cases.Count {
-            matchCase := matchExpression.Cases[index]
+        for matchCase in matchExpression.Cases {
             pattern := matchCase.Pattern
             if dominatingLine > 0 {
                 message := "This arm can never be reached — the '" + dominatingText + "' arm on line " + dominatingLine.ToString() + " already matches every value"
@@ -171,8 +169,6 @@ class AnalyzerMatchExhaustiveness {
                     }
                 }
             }
-
-            index = index + 1
         }
     }
 

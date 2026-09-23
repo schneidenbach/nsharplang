@@ -163,13 +163,11 @@ class ColumnarSourceOperatorResolver {
             }
 
             duplicate := false
-            index := 0
-            while index < candidates.Count {
-                if ColumnarConstructionPlanner.SameObject(candidates[index].Definition, candidate) {
+            for candidateItem in candidates {
+                if ColumnarConstructionPlanner.SameObject(candidateItem.Definition, candidate) {
                     duplicate = true
                     break
                 }
-                index += 1
             }
             if !duplicate {
                 candidates.Add(new ColumnarSourceOperatorCandidate(owner, ownerType, closed, candidate))

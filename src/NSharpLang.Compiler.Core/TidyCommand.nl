@@ -297,10 +297,8 @@ class TidyCommand {
 
     static func NamesToList(results: List<TidyDependencyStatus>): List<string> {
         names := new List<string>()
-        i := 0
-        while i < results.Count {
-            names.Add(results[i].Name)
-            i = i + 1
+        for result in results {
+            names.Add(result.Name)
         }
 
         return names

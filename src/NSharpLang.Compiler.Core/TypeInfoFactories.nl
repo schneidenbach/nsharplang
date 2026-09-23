@@ -409,9 +409,7 @@ class NominalTypeInfoFactory {
         }
 
         count := 0
-        index := 0
-        while index < source.Count {
-            item := source[index]
+        for item in source {
             if item == null {
                 throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' entries to be parameters.")
             }
@@ -419,8 +417,6 @@ class NominalTypeInfoFactory {
             if GetParameterModifier(item) != ParameterModifier.Params && TypeInfoFactoryReflection.GetOptionalProperty(item, "DefaultValue") == null {
                 count = count + 1
             }
-
-            index = index + 1
         }
 
         return count
@@ -437,9 +433,7 @@ class NominalTypeInfoFactory {
             throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' to be a list.")
         }
 
-        index := 0
-        while index < source.Count {
-            item := source[index]
+        for item in source {
             if item == null {
                 throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' entries to be parameters.")
             }
@@ -447,8 +441,6 @@ class NominalTypeInfoFactory {
             if GetParameterModifier(item) == ParameterModifier.Params {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -491,9 +483,7 @@ class NominalTypeInfoFactory {
             throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Attributes' to be a list.")
         }
 
-        index := 0
-        while index < source.Count {
-            item := source[index]
+        for item in source {
             if item == null {
                 throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Attributes' entries to be attributes.")
             }
@@ -502,8 +492,6 @@ class NominalTypeInfoFactory {
             if IsSetsRequiredMembersAttributeName(name) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -524,9 +512,7 @@ class NominalTypeInfoFactory {
             throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Attributes' to be a list.")
         }
 
-        index := 0
-        while index < source.Count {
-            item := source[index]
+        for item in source {
             if item == null {
                 throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Attributes' entries to be attributes.")
             }
@@ -535,8 +521,6 @@ class NominalTypeInfoFactory {
             if IsMustUseAttributeName(name) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -966,14 +950,10 @@ class SoaTypeInfoFactory {
         columns := new List<SoaColumnInfo>()
         sourceColumns := GetRequiredList(declaration, "Columns")
 
-        index := 0
-        while index < sourceColumns.Count {
-            column := sourceColumns[index]
+        for column in sourceColumns {
             if column != null {
                 columns.Add(new SoaColumnInfo(GetRequiredString(column, "Name"), GetRequiredTypeReference(column, "Type"), GetRequiredInt(column, "Line"), GetRequiredInt(column, "Column")))
             }
-
-            index = index + 1
         }
 
         return new SoaRecordDeclarationInfo(GetRequiredString(declaration, "Name"), columns, GetRequiredInt(declaration, "Line"), GetRequiredInt(declaration, "Column"))
@@ -1022,16 +1002,13 @@ class UnionTypeInfoFactory {
         }
 
         result := new List<TypeParameter>()
-        index := 0
-        while index < source.Count {
-            item := source[index]
+        for item in source {
             typeParameter := item as TypeParameter
             if typeParameter == null {
                 throw new InvalidOperationException("Expected union type parameter entries to be TypeParameter values.")
             }
 
             result.Add(typeParameter)
-            index = index + 1
         }
 
         return result
@@ -1039,16 +1016,13 @@ class UnionTypeInfoFactory {
 
     static func CreateUnionCaseList(source: IList): List<UnionCase> {
         result := new List<UnionCase>()
-        index := 0
-        while index < source.Count {
-            item := source[index]
+        for item in source {
             unionCase := item as UnionCase
             if unionCase == null {
                 throw new InvalidOperationException("Expected union case entries to be UnionCase values.")
             }
 
             result.Add(unionCase)
-            index = index + 1
         }
 
         return result
@@ -1060,14 +1034,10 @@ class EnumTypeInfoFactory {
         members := new List<EnumMemberInfo>()
         sourceMembers := TypeInfoFactoryReflection.GetRequiredList(declaration, "Members")
 
-        index := 0
-        while index < sourceMembers.Count {
-            member := sourceMembers[index]
+        for member in sourceMembers {
             if member != null {
                 members.Add(CreateMemberInfo(member))
             }
-
-            index = index + 1
         }
 
         return new EnumTypeInfo(new EnumDeclarationInfo(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), members, GetRequiredEnumType(declaration, "Type"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Line"), TypeInfoFactoryReflection.GetRequiredInt(declaration, "Column")))

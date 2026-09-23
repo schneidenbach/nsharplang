@@ -77,12 +77,10 @@ class CodeIntelligenceImplementors {
             return false
         }
 
-        index := 0
-        while index < interfaces.Count {
-            if CodeIntelligenceDisplayText.InterfaceNameMatches(interfaces[index], interfaceName) {
+        for interfaceItem in interfaces {
+            if CodeIntelligenceDisplayText.InterfaceNameMatches(interfaceItem, interfaceName) {
                 return true
             }
-            index = index + 1
         }
 
         return false

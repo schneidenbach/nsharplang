@@ -218,10 +218,8 @@ class BindingDeclarationEntryCollection {
     constructor(sourceValues: List<SymbolDeclaration>) {
         values = new List<SymbolDeclaration>()
 
-        i := 0
-        while i < sourceValues.Count {
-            values.Add(sourceValues[i])
-            i = i + 1
+        for sourceValue in sourceValues {
+            values.Add(sourceValue)
         }
     }
 }
@@ -446,14 +444,10 @@ class BindingMap {
             return null
         }
 
-        i := 0
-        while i < declarations.Count {
-            candidate := declarations[i]
+        for candidate in declarations {
             if candidate.Name == declaration.Name && candidate.Line == declaration.Line && candidate.Column == declaration.Column && FilesMatch(candidate.File, declaration.File) {
                 return candidate
             }
-
-            i = i + 1
         }
 
         return null

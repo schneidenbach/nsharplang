@@ -600,10 +600,8 @@ class OutputFormatterDiagnosticClusterBuilder {
 
     static func BuildDiagnosticClusterFiles(ordered: List<DiagnosticResult>): string[] {
         values := new List<object>(ordered.Count)
-        i := 0
-        while i < ordered.Count {
-            values.Add(ordered[i])
-            i = i + 1
+        for orderedItem in ordered {
+            values.Add(orderedItem)
         }
 
         return OutputFormatterReferenceFileKernels.BuildDiagnosticClusterFiles(values)

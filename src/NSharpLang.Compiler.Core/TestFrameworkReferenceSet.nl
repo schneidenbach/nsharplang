@@ -164,13 +164,10 @@ class TestFrameworkReferenceSet {
     }
 
     static func MatchesAnyRow(rows: List<TestFrameworkAssemblyRow>, assemblySimpleName: string): bool {
-        index := 0
-        while index < rows.Count {
-            if string.Equals(rows[index].AssemblyName, assemblySimpleName, StringComparison.OrdinalIgnoreCase) {
+        for row in rows {
+            if string.Equals(row.AssemblyName, assemblySimpleName, StringComparison.OrdinalIgnoreCase) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

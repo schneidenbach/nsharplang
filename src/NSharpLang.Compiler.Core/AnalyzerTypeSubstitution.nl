@@ -141,11 +141,8 @@ class AnalyzerTypeSubstitution {
         if tupleReference != null {
             typeResolverValue.ResolveType(typeReference)
             elements := new List<TupleTypeElementInfo>()
-            elementIndex := 0
-            while elementIndex < tupleReference.Elements.Count {
-                element := tupleReference.Elements[elementIndex]
+            for element in tupleReference.Elements {
                 elements.Add(new TupleTypeElementInfo(element.Name, ResolveTypeWithSubstitution(element.Type, substitution)))
-                elementIndex = elementIndex + 1
             }
 
             return new TupleTypeInfo(elements)
@@ -156,11 +153,9 @@ class AnalyzerTypeSubstitution {
             typeResolverValue.ResolveType(typeReference)
             parameterTypes := new List<TypeInfo>()
             parameterModifiers := new List<ParameterModifier>()
-            parameterIndex := 0
-            while parameterIndex < functionReference.ParameterTypes.Count {
-                parameterTypes.Add(ResolveTypeWithSubstitution(functionReference.ParameterTypes[parameterIndex], substitution))
+            for parameterType2 in functionReference.ParameterTypes {
+                parameterTypes.Add(ResolveTypeWithSubstitution(parameterType2, substitution))
                 parameterModifiers.Add(ParameterModifier.None)
-                parameterIndex = parameterIndex + 1
             }
 
             signature := new FunctionTypeInfo()
@@ -174,10 +169,8 @@ class AnalyzerTypeSubstitution {
         if unionReference != null {
             typeResolverValue.ResolveType(typeReference)
             arms := new List<TypeInfo>()
-            armIndex := 0
-            while armIndex < unionReference.Arms.Count {
-                arms.Add(ResolveTypeWithSubstitution(unionReference.Arms[armIndex], substitution))
-                armIndex = armIndex + 1
+            for arm2 in unionReference.Arms {
+                arms.Add(ResolveTypeWithSubstitution(arm2, substitution))
             }
 
             return new AnonymousUnionTypeInfo(arms)
@@ -207,10 +200,8 @@ class AnalyzerTypeSubstitution {
         }
 
         typeArguments := new List<TypeInfo>()
-        index := 0
-        while index < generic.TypeArguments.Count {
-            typeArguments.Add(ResolveTypeWithSubstitution(generic.TypeArguments[index], substitution))
-            index = index + 1
+        for typeArgument2 in generic.TypeArguments {
+            typeArguments.Add(ResolveTypeWithSubstitution(typeArgument2, substitution))
         }
 
         // The rebuild goes through the SAME normalisation the plain walk applied.

@@ -128,13 +128,10 @@ class ColumnarInitRequiredMemberEmitter {
             }
         }
 
-        propertyIndex := 0
-        while propertyIndex < input.Properties.Count {
-            if input.Properties[propertyIndex].IsRequired {
+        for property2 in input.Properties {
+            if property2.IsRequired {
                 return true
             }
-
-            propertyIndex = propertyIndex + 1
         }
 
         return false

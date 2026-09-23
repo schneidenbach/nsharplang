@@ -222,14 +222,11 @@ class AnalyzerMetadataLoadSurface {
     }
 
     func IsIdentityLoaded(identity: AssemblyName): bool {
-        index := 0
-        while index < assemblies.Count {
-            loadedName := assemblies[index].GetName()
+        for assembly in assemblies {
+            loadedName := assembly.GetName()
             if AssemblyName.ReferenceMatchesDefinition(loadedName, identity) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -239,14 +236,11 @@ class AnalyzerMetadataLoadSurface {
     // "System.Text.Json" is asking for whatever version this analysis resolved, so any loaded
     // assembly with that simple name answers.
     func IsSimpleNameLoaded(simpleName: string): bool {
-        index := 0
-        while index < assemblies.Count {
-            loadedName := assemblies[index].GetName()
+        for assembly in assemblies {
+            loadedName := assembly.GetName()
             if AnalyzerMetadataLoadPolicy.IsSameSimpleName(loadedName.get_Name(), simpleName) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -254,14 +248,11 @@ class AnalyzerMetadataLoadSurface {
 
     func IsPathLoaded(assemblyPath: string): bool {
         normalizedPath := Path.GetFullPath(assemblyPath)
-        index := 0
-        while index < assemblies.Count {
-            location := assemblies[index].get_Location()
+        for assembly in assemblies {
+            location := assembly.get_Location()
             if AnalyzerMetadataLoadPolicy.IsSameAssemblyPath(Path.GetFullPath(location), normalizedPath) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

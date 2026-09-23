@@ -11,14 +11,10 @@ class CompilationUnitFacts {
     }
 
     static func ContainsSoaRecordDeclarationInList(declarations: IList): bool {
-        index := 0
-        while index < declarations.Count {
-            declaration := declarations[index]
+        for declaration in declarations {
             if declaration != null && ContainsSoaRecordDeclarationInDeclaration(declaration) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

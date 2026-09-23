@@ -42,9 +42,8 @@ class CodeIntelligenceCallGraph {
         callers := new List<CallSiteResult>()
         truncated := false
 
-        orderIndex := 0
-        while orderIndex < callerOrder.Count {
-            bucket := callSites[callerOrder[orderIndex]]
+        for callerOrderItem in callerOrder {
+            bucket := callSites[callerOrderItem]
             edgeIndex := 0
             while edgeIndex < bucket.Count {
                 if callees.Count >= limit {
@@ -59,8 +58,6 @@ class CodeIntelligenceCallGraph {
             if truncated {
                 break
             }
-
-            orderIndex = orderIndex + 1
         }
 
         return new CallGraphResult(null, callers, callees, truncated)
@@ -73,17 +70,13 @@ class CodeIntelligenceCallGraph {
         callees := new List<CallSiteResult>()
         direct: List<CallSiteResult>? = null
         if callSites.TryGetValue(functionName, out direct) && direct != null {
-            index := 0
-            while index < direct.Count {
-                callees.Add(direct[index])
-                index = index + 1
+            for directItem in direct {
+                callees.Add(directItem)
             }
         }
 
         callers := new List<CallSiteResult>()
-        orderIndex := 0
-        while orderIndex < callerOrder.Count {
-            callerName := callerOrder[orderIndex]
+        for callerName in callerOrder {
             bucket := callSites[callerName]
             edgeIndex := 0
             while edgeIndex < bucket.Count {
@@ -94,8 +87,6 @@ class CodeIntelligenceCallGraph {
 
                 edgeIndex = edgeIndex + 1
             }
-
-            orderIndex = orderIndex + 1
         }
 
         truncated := callees.Count + callers.Count > limit
@@ -120,10 +111,8 @@ class CodeIntelligenceCallGraph {
 
     // ── The walk ────────────────────────────────────────────────────────
     static func CollectUnit(unit: CompilationUnit, relativeFile: string, callSites: Dictionary<string, List<CallSiteResult>>, callerOrder: List<string>) {
-        index := 0
-        while index < unit.Declarations.Count {
-            CollectDeclaration(unit.Declarations[index], null, relativeFile, callSites, callerOrder)
-            index = index + 1
+        for declaration2 in unit.Declarations {
+            CollectDeclaration(declaration2, null, relativeFile, callSites, callerOrder)
         }
     }
 
@@ -179,10 +168,8 @@ class CodeIntelligenceCallGraph {
     }
 
     static func CollectMembers(members: List<Declaration>, ownerName: string, relativeFile: string, callSites: Dictionary<string, List<CallSiteResult>>, callerOrder: List<string>) {
-        index := 0
-        while index < members.Count {
-            CollectDeclaration(members[index], ownerName, relativeFile, callSites, callerOrder)
-            index = index + 1
+        for member in members {
+            CollectDeclaration(member, ownerName, relativeFile, callSites, callerOrder)
         }
     }
 
@@ -192,10 +179,8 @@ class CodeIntelligenceCallGraph {
     static func CollectStatement(statement: Statement, callerName: string, relativeFile: string, callSites: Dictionary<string, List<CallSiteResult>>) {
         block := statement as BlockStatement
         if block != null {
-            index := 0
-            while index < block.Statements.Count {
-                CollectStatement(block.Statements[index], callerName, relativeFile, callSites)
-                index = index + 1
+            for statement2 in block.Statements {
+                CollectStatement(statement2, callerName, relativeFile, callSites)
             }
 
             return
@@ -260,10 +245,8 @@ class CodeIntelligenceCallGraph {
                 callSites[callerName].Add(new CallSiteResult(calleeName, relativeFile, call.Line, call.Column))
             }
 
-            argumentIndex := 0
-            while argumentIndex < call.Arguments.Count {
-                CollectExpression(call.Arguments[argumentIndex].Value, callerName, relativeFile, callSites)
-                argumentIndex = argumentIndex + 1
+            for argument2 in call.Arguments {
+                CollectExpression(argument2.Value, callerName, relativeFile, callSites)
             }
 
             CollectExpression(call.Callee, callerName, relativeFile, callSites)
@@ -292,14 +275,11 @@ class CodeIntelligenceCallGraph {
 
         interpolated := expression as InterpolatedStringExpression
         if interpolated != null {
-            partIndex := 0
-            while partIndex < interpolated.Parts.Count {
-                hole := interpolated.Parts[partIndex] as InterpolatedStringHole
+            for part2 in interpolated.Parts {
+                hole := part2 as InterpolatedStringHole
                 if hole != null {
                     CollectExpression(hole.Expression, callerName, relativeFile, callSites)
                 }
-
-                partIndex = partIndex + 1
             }
         }
     }

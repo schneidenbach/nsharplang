@@ -267,13 +267,10 @@ class DoctorCommand {
     }
 
     static func AllRequiredChecksPassed(checks: List<DoctorCheck>): bool {
-        i := 0
-        while i < checks.Count {
-            if checks[i].Status == "fail" {
+        for check in checks {
+            if check.Status == "fail" {
                 return false
             }
-
-            i = i + 1
         }
 
         return true
@@ -284,12 +281,9 @@ class DoctorCommand {
         print DoctorCommandKernels.GetStatusLine(ok)
         print ""
 
-        i := 0
-        while i < checks.Count {
-            check := checks[i]
+        for check in checks {
             marker := DoctorCommandKernels.GetCheckMarker(check.Status)
             print DoctorCommandKernels.GetCheckLine(marker, check.Name, check.Detail)
-            i = i + 1
         }
     }
 

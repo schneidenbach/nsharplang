@@ -57,14 +57,11 @@ class DeclarationFacts {
             return start
         }
 
-        index := 0
-        while index < list.Count {
-            attribute := list[index] as AttributeNode
+        for listItem in list {
+            attribute := listItem as AttributeNode
             if attribute != null && attribute.Line > 0 && attribute.Line < start {
                 start = attribute.Line
             }
-
-            index = index + 1
         }
 
         return start
@@ -227,9 +224,7 @@ class DeclarationFacts {
 
     static func MaxItemLine(items: IList): int {
         maxLine := 0
-        index := 0
-        while index < items.Count {
-            item := items[index]
+        for item in items {
             if item != null {
                 lineValue := TypeInfoFactoryReflection.GetOptionalProperty(item, "Line")
                 if lineValue != null {
@@ -239,8 +234,6 @@ class DeclarationFacts {
                     }
                 }
             }
-
-            index = index + 1
         }
 
         return maxLine

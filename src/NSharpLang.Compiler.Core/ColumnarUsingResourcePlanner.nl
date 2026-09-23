@@ -189,13 +189,10 @@ class ColumnarUsingResourcePlanner {
         wantedName := MemberNameFor(isAsync)
         overloads: List<ColumnarInstanceMethodDef>? = null
         if definition.MethodOverloads.TryGetValue(wantedName, out overloads) && overloads != null {
-            index := 0
-            while index < overloads.Count {
-                if overloads[index].ParamTypes.Length == 0 {
-                    return overloads[index].Builder
+            for overload in overloads {
+                if overload.ParamTypes.Length == 0 {
+                    return overload.Builder
                 }
-
-                index = index + 1
             }
         }
 
@@ -208,13 +205,10 @@ class ColumnarUsingResourcePlanner {
     }
 
     static func DefinitionNamesInterface(definition: ColumnarStructDef, interfaceName: string): bool {
-        index := 0
-        while index < definition.ExternalInterfaces.Count {
-            if definition.ExternalInterfaces[index].FullName == interfaceName {
+        for externalInterface2 in definition.ExternalInterfaces {
+            if externalInterface2.FullName == interfaceName {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

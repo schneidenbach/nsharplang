@@ -260,14 +260,10 @@ class TreeCommandKernels {
     }
 
     static func ContainsDependency(dependencies: List<TreeDependency>, dependency: TreeDependency): bool {
-        i := 0
-        while i < dependencies.Count {
-            current := dependencies[i]
+        for current in dependencies {
             if String.Compare(current.Kind, dependency.Kind, StringComparison.Ordinal) == 0 && String.Compare(current.Name, dependency.Name, StringComparison.OrdinalIgnoreCase) == 0 {
                 return true
             }
-
-            i = i + 1
         }
 
         return false
@@ -292,13 +288,10 @@ class TreeCommandKernels {
     }
 
     static func ContainsTargetFramework(targetFrameworks: List<string>, targetFramework: string): bool {
-        i := 0
-        while i < targetFrameworks.Count {
-            if String.Compare(targetFrameworks[i], targetFramework, StringComparison.OrdinalIgnoreCase) == 0 {
+        for targetFrameworkItem in targetFrameworks {
+            if String.Compare(targetFrameworkItem, targetFramework, StringComparison.OrdinalIgnoreCase) == 0 {
                 return true
             }
-
-            i = i + 1
         }
 
         return false

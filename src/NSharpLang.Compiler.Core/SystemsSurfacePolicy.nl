@@ -64,15 +64,11 @@ class SystemsSurfacePolicy {
         // WIDTH — so a signature with three hostile parameters produces three findings, not one about
         // the function.
         parameters := function.Parameters
-        index := 0
-        while index < parameters.Count {
-            parameter := parameters[index]
+        for parameter in parameters {
             reason := typePolicyValue.HostileSurfaceReason(parameter.Type, isHot, function.Constraints)
             if reason != null {
                 sinkValue.AddForFunction("NSYS070", "boundaryLeak", SurfacePrefix(isHot) + " parameter '" + parameter.Name + "' exposes a systems-hostile type: " + reason, parameter.Line, parameter.Column, Math.Max(1, parameter.Name.Length), filePath, functionName, isHot, isBoundary, SurfaceSeverity(isHot), "Use primitives, spans, readonly/ref structs, Result<T,E>, or an explicit boundary adapter type.")
             }
-
-            index = index + 1
         }
 
         returnType := function.ReturnType

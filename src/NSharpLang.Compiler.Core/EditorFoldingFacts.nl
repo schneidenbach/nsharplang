@@ -84,14 +84,11 @@ class EditorFoldingFacts {
 
         members := DeclarationFacts.GetDeclarationMembers(declaration)
         if members != null {
-            index := 0
-            while index < members.Count {
-                member := members[index] as Declaration
+            for memberItem in members {
+                member := memberItem as Declaration
                 if member != null {
                     AppendDeclarationRows(member, sourceLines, rows)
                 }
-
-                index = index + 1
             }
         }
 

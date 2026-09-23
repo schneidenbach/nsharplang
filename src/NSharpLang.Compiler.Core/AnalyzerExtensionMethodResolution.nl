@@ -63,13 +63,10 @@ class AnalyzerExtensionMethodResolution {
     // and rejects the receiver falls through to the external scan exactly as an unnamed one does.
     func TryResolveExtensionMethod(targetType: TypeInfo, methodName: string, currentTypeName: string?): TypeInfo {
         matchingExtensions := new List<FunctionDeclaration>()
-        matchIndex := 0
-        while matchIndex < extensionMethods.Count {
-            candidate := extensionMethods[matchIndex]
+        for candidate in extensionMethods {
             if candidate.Name == methodName {
                 matchingExtensions.Add(candidate)
             }
-            matchIndex = matchIndex + 1
         }
 
         if matchingExtensions.Count == 0 {
@@ -77,13 +74,10 @@ class AnalyzerExtensionMethodResolution {
         }
 
         applicableExtensions := new List<FunctionDeclaration>()
-        applicableIndex := 0
-        while applicableIndex < matchingExtensions.Count {
-            candidate := matchingExtensions[applicableIndex]
+        for candidate in matchingExtensions {
             if candidate.Parameters.Count > 0 && IsExtensionReceiverApplicable(candidate, targetType) {
                 applicableExtensions.Add(candidate)
             }
-            applicableIndex = applicableIndex + 1
         }
 
         if applicableExtensions.Count == 0 {
@@ -96,10 +90,8 @@ class AnalyzerExtensionMethodResolution {
 
         // Several source extensions claim the name; overload resolution picks between them later.
         functionTypes := new List<FunctionTypeInfo>()
-        functionIndex := 0
-        while functionIndex < applicableExtensions.Count {
-            functionTypes.Add(functionTypeFactory.CreateFromDeclaration(applicableExtensions[functionIndex], currentTypeName))
-            functionIndex = functionIndex + 1
+        for applicableExtension in applicableExtensions {
+            functionTypes.Add(functionTypeFactory.CreateFromDeclaration(applicableExtension, currentTypeName))
         }
 
         return NSharpMethodGroupInfoFactory.FromFunctions(functionTypes)
@@ -141,12 +133,10 @@ class AnalyzerExtensionMethodResolution {
             return false
         }
 
-        index := 0
-        while index < typeParameters.Count {
-            if typeParameters[index].Name == name {
+        for typeParameter in typeParameters {
+            if typeParameter.Name == name {
                 return true
             }
-            index = index + 1
         }
 
         return false
@@ -176,10 +166,8 @@ class AnalyzerExtensionMethodResolution {
 
         if externalExtensions.Count > 1 {
             first := externalExtensions[0]
-            candidateIndex := 0
-            while candidateIndex < externalExtensions.Count {
-                CreditExtensionNamespace(externalExtensions[candidateIndex])
-                candidateIndex = candidateIndex + 1
+            for externalExtension in externalExtensions {
+                CreditExtensionNamespace(externalExtension)
             }
 
             return new ReflectionMethodGroupInfo(externalExtensions.ToArray(), first.get_Name() + "(...)")
@@ -236,9 +224,8 @@ class AnalyzerExtensionMethodResolution {
     func ScanExternalExtensionMethods(targetClrType: Type, methodName: string): List<MethodInfo> {
         methods := new List<MethodInfo>()
 
-        assemblyIndex := 0
-        while assemblyIndex < assemblies.Count {
-            assemblyTypes := AnalyzerReflectionMemberProbe.TypesOrEmpty(assemblies[assemblyIndex])
+        for assembly in assemblies {
+            assemblyTypes := AnalyzerReflectionMemberProbe.TypesOrEmpty(assembly)
             typeIndex := 0
             while typeIndex < assemblyTypes.Length {
                 hostType := assemblyTypes[typeIndex]
@@ -249,7 +236,6 @@ class AnalyzerExtensionMethodResolution {
                 }
                 typeIndex = typeIndex + 1
             }
-            assemblyIndex = assemblyIndex + 1
         }
 
         return methods

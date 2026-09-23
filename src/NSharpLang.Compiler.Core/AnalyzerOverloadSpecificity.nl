@@ -106,16 +106,12 @@ class AnalyzerOverloadSpecificity {
     static func FoldArgumentVerdicts(verdicts: IReadOnlyList<int>): int {
         sawLeft := false
         sawRight := false
-        index := 0
-        while index < verdicts.Count {
-            verdict := verdicts[index]
+        for verdict in verdicts {
             if verdict == LeftIsBetter {
                 sawLeft = true
             } else if verdict == RightIsBetter {
                 sawRight = true
             }
-
-            index = index + 1
         }
 
         if sawLeft == sawRight {

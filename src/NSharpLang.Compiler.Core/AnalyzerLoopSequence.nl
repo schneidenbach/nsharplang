@@ -1270,10 +1270,8 @@ class AnalyzerLoopSequence {
     func JoinLoopBackEdge(body: Statement?, iterator: Expression?) {
         writtenPaths := new List<string>()
         AnalyzerLoopCarriedNullFacts.CollectWrittenPaths(body, iterator, writtenPaths)
-        index := 0
-        while index < writtenPaths.Count {
-            scopesValue.InvalidateNullFactsForAssignment(writtenPaths[index])
-            index = index + 1
+        for writtenPath in writtenPaths {
+            scopesValue.InvalidateNullFactsForAssignment(writtenPath)
         }
     }
 

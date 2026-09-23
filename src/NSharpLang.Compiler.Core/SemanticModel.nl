@@ -234,9 +234,7 @@ class SemanticModel {
         best: TypeInfo? = null
         bestDepth := -1
 
-        i := 0
-        while i < scopesValue.Count {
-            scope := scopesValue[i]
+        for scope in scopesValue {
             if scope.ContainsPosition(line, column) {
                 depth := GetScopeDepth(scope.Id)
                 if depth > bestDepth {
@@ -250,8 +248,6 @@ class SemanticModel {
                     }
                 }
             }
-
-            i = i + 1
         }
 
         return best

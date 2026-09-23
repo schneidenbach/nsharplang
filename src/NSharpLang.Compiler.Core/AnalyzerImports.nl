@@ -447,9 +447,7 @@ class AnalyzerImports {
         }
 
         seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        index := 0
-        while index < mlcAssemblies.Count {
-            assembly := mlcAssemblies[index]
+        for assembly in mlcAssemblies {
             assemblyName := assembly.get_FullName()
             if assemblyName == null {
                 identity := assembly.GetName()
@@ -464,8 +462,6 @@ class AnalyzerImports {
                     }
                 }
             }
-
-            index = index + 1
         }
 
         externalNamespaceCache[namespaceName] = false
@@ -584,11 +580,8 @@ class AnalyzerImports {
             importedUnit = parseResult.CompilationUnit
 
             parseErrors := parseResult.Errors
-            errorIndex := 0
-            while errorIndex < parseErrors.Count {
-                parseError := parseErrors[errorIndex]
+            for parseError in parseErrors {
                 diagnostics.Report(ErrorCode.InvalidSyntax, "The imported file '" + fileImport.Path + "' has a syntax error — " + parseError.Message, fileImport.Line, fileImport.DiagnosticColumn, null, fileImport.DiagnosticLength)
-                errorIndex = errorIndex + 1
             }
 
             if importedUnit == null {
@@ -641,9 +634,7 @@ class AnalyzerImports {
 
         currentNormalized := Path.GetFullPath(currentFilePath)
         importedFileResolver := new FileResolver(projectRoot, resolvedPath)
-        index := 0
-        while index < importedUnit.FileImports.Count {
-            nestedStatement := importedUnit.FileImports[index]
+        for nestedStatement in importedUnit.FileImports {
             nestedFileImport := nestedStatement as FileImport
             if nestedFileImport != null {
                 nestedError: string? = null
@@ -655,8 +646,6 @@ class AnalyzerImports {
                     }
                 }
             }
-
-            index = index + 1
         }
 
         return false
@@ -897,14 +886,11 @@ class AnalyzerImports {
     static func FormatImportCollisionSources(references: List<ImportedSymbolReference>): string {
         seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         ordered := new List<string>()
-        index := 0
-        while index < references.Count {
-            quoted := "\"" + references[index].ImportPath + "\""
+        for reference in references {
+            quoted := "\"" + reference.ImportPath + "\""
             if seen.Add(quoted) {
                 ordered.Add(quoted)
             }
-
-            index = index + 1
         }
 
         return string.Join(", ", ordered)

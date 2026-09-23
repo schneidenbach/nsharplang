@@ -243,13 +243,10 @@ class HotSummaryEntry {
             return true
         }
 
-        i := 0
-        while i < targets.Count {
-            if string.Equals(targets[i], target, StringComparison.OrdinalIgnoreCase) {
+        for targetItem in targets {
+            if string.Equals(targetItem, target, StringComparison.OrdinalIgnoreCase) {
                 return true
             }
-
-            i = i + 1
         }
 
         return false
@@ -554,16 +551,12 @@ class HotSummaryCatalog {
     static func Load(projectRoot: string, config: ProjectConfig): HotSummaryCatalog {
         entries := new List<HotSummaryEntry>()
         bclEntries := BclHotSummaryPack.Create(config.TargetFramework)
-        i := 0
-        while i < bclEntries.Count {
-            entries.Add(bclEntries[i])
-            i = i + 1
+        for bclEntry in bclEntries {
+            entries.Add(bclEntry)
         }
 
         sidecars := config.Language.Systems.HotSummaryFiles
-        sidecarIndex := 0
-        while sidecarIndex < sidecars.Count {
-            sidecar := sidecars[sidecarIndex]
+        for sidecar in sidecars {
             path := sidecar
             if !Path.IsPathRooted(sidecar) {
                 path = Path.Combine(projectRoot, sidecar)
@@ -574,25 +567,19 @@ class HotSummaryCatalog {
                 AddSidecarEntries(entries, document.RootElement, config.TargetFramework)
                 document.Dispose()
             }
-
-            sidecarIndex = sidecarIndex + 1
         }
 
         return new HotSummaryCatalog(entries)
     }
 
     func TryResolve(target: string, targetFramework: string, out entry: HotSummaryEntry): bool {
-        i := 0
-        while i < entriesValue.Count {
-            candidate := entriesValue[i]
+        for candidate in entriesValue {
             if TargetFrameworkMatches(candidate.TargetFramework, targetFramework) {
                 if MethodMatches(candidate.Method, target) {
                     entry = candidate
                     return true
                 }
             }
-
-            i = i + 1
         }
 
         entry = HotSummaryEntry.None
@@ -600,9 +587,7 @@ class HotSummaryCatalog {
     }
 
     func HasReceiverSummary(receiver: string, targetFramework: string): bool {
-        i := 0
-        while i < entriesValue.Count {
-            entry := entriesValue[i]
+        for entry in entriesValue {
             if TargetFrameworkMatches(entry.TargetFramework, targetFramework) {
                 method := entry.Method
                 if method.StartsWith(receiver + ".", StringComparison.Ordinal) {
@@ -617,8 +602,6 @@ class HotSummaryCatalog {
                     return true
                 }
             }
-
-            i = i + 1
         }
 
         return false

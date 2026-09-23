@@ -154,15 +154,12 @@ class AnalyzerDeclarationFileFacts {
     static func ReadNamespaceImports(unit: object): List<AnalyzerNamespaceImportFacts> {
         result := new List<AnalyzerNamespaceImportFacts>()
         imports := TypeInfoFactoryReflection.GetRequiredList(unit, "Imports")
-        index := 0
-        while index < imports.Count {
-            importValue := imports[index]
+        for importValue in imports {
             if importValue != null {
                 namespaceName := TypeInfoFactoryReflection.GetRequiredString(importValue, "Namespace")
                 aliasValue := TypeInfoFactoryReflection.GetOptionalProperty(importValue, "Alias")
                 result.Add(new AnalyzerNamespaceImportFacts(namespaceName, aliasValue as string))
             }
-            index = index + 1
         }
         return result
     }
@@ -170,15 +167,12 @@ class AnalyzerDeclarationFileFacts {
     static func ReadFileImports(unit: object): List<AnalyzerFileImportFacts> {
         result := new List<AnalyzerFileImportFacts>()
         imports := TypeInfoFactoryReflection.GetRequiredList(unit, "FileImports")
-        index := 0
-        while index < imports.Count {
-            importValue := imports[index]
+        for importValue in imports {
             if importValue != null && importValue.GetType().Name == "FileImport" {
                 path := TypeInfoFactoryReflection.GetRequiredString(importValue, "Path")
                 aliasValue := TypeInfoFactoryReflection.GetOptionalProperty(importValue, "Alias")
                 result.Add(new AnalyzerFileImportFacts(path, aliasValue as string))
             }
-            index = index + 1
         }
         return result
     }
@@ -247,9 +241,8 @@ class AnalyzerDeclarationContext {
         cached := declaredTypeNames
         if cached == null {
             built := new HashSet<string>(StringComparer.Ordinal)
-            fileIndex := 0
-            while fileIndex < files.Count {
-                declarations := files[fileIndex].Declarations
+            for fileItem in files {
+                declarations := fileItem.Declarations
                 index := 0
                 while index < declarations.Count {
                     candidate := declarations[index]
@@ -262,8 +255,6 @@ class AnalyzerDeclarationContext {
 
                     index = index + 1
                 }
-
-                fileIndex = fileIndex + 1
             }
 
             declaredTypeNames = built
@@ -541,9 +532,7 @@ class AnalyzerDeclarationContext {
     func TryFindFirstDeclaringFile(namespaceName: string?, arityName: string, out declaringFile: string, out declaringLine: int): bool {
         firstFile := ""
         firstLine := 0
-        fileIndex := 0
-        while fileIndex < files.Count {
-            facts := files[fileIndex]
+        for facts in files {
             if string.Equals(facts.NamespaceName, namespaceName, StringComparison.Ordinal) {
                 foundLine := 0
                 if TryFindDeclarationLine(facts, arityName, out foundLine) {
@@ -553,7 +542,6 @@ class AnalyzerDeclarationContext {
                     }
                 }
             }
-            fileIndex = fileIndex + 1
         }
 
         declaringFile = firstFile
@@ -563,9 +551,7 @@ class AnalyzerDeclarationContext {
 
     // The first line in one file that declares `arityName` as a top-level type.
     func TryFindDeclarationLine(facts: AnalyzerDeclarationFileFacts, arityName: string, out declaringLine: int): bool {
-        index := 0
-        while index < facts.Declarations.Count {
-            candidate := facts.Declarations[index]
+        for candidate in facts.Declarations {
             if candidate != null && IsTopLevelTypeDeclaration(candidate) {
                 candidateName := DeclarationFacts.GetDeclarationArityName(candidate)
                 if candidateName != null && string.Equals(candidateName, arityName, StringComparison.Ordinal) {
@@ -573,7 +559,6 @@ class AnalyzerDeclarationContext {
                     return true
                 }
             }
-            index = index + 1
         }
         declaringLine = 0
         return false
@@ -1204,10 +1189,8 @@ class AnalyzerDeclarationContext {
         unionReference := typeReference as UnionTypeReference
         if unionReference != null {
             arms := new List<TypeInfo>()
-            armIndex := 0
-            while armIndex < unionReference.Arms.Count {
-                arms.Add(ResolveTypeReferenceCore(unionReference.Arms[armIndex], facts, activeAliases, substitution, lexicalOwner))
-                armIndex = armIndex + 1
+            for arm2 in unionReference.Arms {
+                arms.Add(ResolveTypeReferenceCore(arm2, facts, activeAliases, substitution, lexicalOwner))
             }
             return new AnonymousUnionTypeInfo(arms)
         }
@@ -1215,11 +1198,8 @@ class AnalyzerDeclarationContext {
         tuple := typeReference as TupleTypeReference
         if tuple != null {
             elements := new List<TupleTypeElementInfo>()
-            elementIndex := 0
-            while elementIndex < tuple.Elements.Count {
-                element := tuple.Elements[elementIndex]
+            for element in tuple.Elements {
                 elements.Add(new TupleTypeElementInfo(element.Name, ResolveTypeReferenceCore(element.Type, facts, activeAliases, substitution, lexicalOwner)))
-                elementIndex = elementIndex + 1
             }
             return new TupleTypeInfo(elements)
         }
@@ -1227,10 +1207,8 @@ class AnalyzerDeclarationContext {
         function := typeReference as FunctionTypeReference
         if function != null {
             parameters := new List<TypeInfo>()
-            parameterIndex := 0
-            while parameterIndex < function.ParameterTypes.Count {
-                parameters.Add(ResolveTypeReferenceCore(function.ParameterTypes[parameterIndex], facts, activeAliases, substitution, lexicalOwner))
-                parameterIndex = parameterIndex + 1
+            for parameterType2 in function.ParameterTypes {
+                parameters.Add(ResolveTypeReferenceCore(parameterType2, facts, activeAliases, substitution, lexicalOwner))
             }
             result := new FunctionTypeInfo()
             result.ParameterTypes = parameters
@@ -1275,10 +1253,8 @@ class AnalyzerDeclarationContext {
 
     func ResolveGenericType(generic: GenericTypeReference, facts: AnalyzerDeclarationFileFacts, activeAliases: HashSet<string>, substitution: Dictionary<string, TypeInfo>?, lexicalOwner: TypeInfo?): TypeInfo {
         arguments := new List<TypeInfo>()
-        argumentIndex := 0
-        while argumentIndex < generic.TypeArguments.Count {
-            arguments.Add(ResolveTypeReferenceCore(generic.TypeArguments[argumentIndex], facts, activeAliases, substitution, lexicalOwner))
-            argumentIndex = argumentIndex + 1
+        for typeArgument2 in generic.TypeArguments {
+            arguments.Add(ResolveTypeReferenceCore(typeArgument2, facts, activeAliases, substitution, lexicalOwner))
         }
 
         definition := BuiltInTypes.Unknown as TypeInfo
@@ -1394,9 +1370,7 @@ class AnalyzerDeclarationContext {
                 }
             }
 
-            fileImportIndex := 0
-            while fileImportIndex < facts.FileImports.Count {
-                fileImport := facts.FileImports[fileImportIndex]
+            for fileImport in facts.FileImports {
                 importedFacts := ResolveImportedFile(facts, fileImport)
                 if fileImport.Alias == null && importedFacts != null {
                     importedType := BuiltInTypes.Unknown as TypeInfo
@@ -1411,7 +1385,6 @@ class AnalyzerDeclarationContext {
                         return BuiltInTypes.Unknown
                     }
                 }
-                fileImportIndex = fileImportIndex + 1
             }
 
             importedProjectType := BuiltInTypes.Unknown as TypeInfo
@@ -1436,9 +1409,7 @@ class AnalyzerDeclarationContext {
                 return BuiltInTypes.Unknown
             }
 
-            importIndex := 0
-            while importIndex < facts.NamespaceImports.Count {
-                importFacts := facts.NamespaceImports[importIndex]
+            for importFacts in facts.NamespaceImports {
                 if importFacts.Alias == null {
                     runtimeType := BuiltInTypes.Unknown as TypeInfo
                     if TryResolveExternal(importFacts.Namespace + "." + name, out runtimeType) {
@@ -1446,7 +1417,6 @@ class AnalyzerDeclarationContext {
                         return runtimeType
                     }
                 }
-                importIndex = importIndex + 1
             }
             runtimeType := BuiltInTypes.Unknown as TypeInfo
             if TryResolveExternal(name, out runtimeType) {
@@ -1543,11 +1513,10 @@ class AnalyzerDeclarationContext {
         // absolute qualifier still resolves. This walk resolves a declaration's types against the
         // file that WROTE them, so the chain is that file's and not the reader's.
         qualifierCandidates := SimpleNamePrecedence.QualifierNamespaces(facts.NamespaceName, name)
-        qualifierIndex := 0
-        while qualifierIndex < qualifierCandidates.Count {
+        for qualifierCandidate in qualifierCandidates {
             qualifiedType := BuiltInTypes.Unknown as TypeInfo
             qualifiedClaimed := false
-            if TryResolveQualifiedProjectType(qualifierCandidates[qualifierIndex], facts.NamespaceName, activeAliases, out qualifiedType, out qualifiedClaimed) {
+            if TryResolveQualifiedProjectType(qualifierCandidate, facts.NamespaceName, activeAliases, out qualifiedType, out qualifiedClaimed) {
                 claimed = true
                 return qualifiedType
             }
@@ -1555,7 +1524,6 @@ class AnalyzerDeclarationContext {
                 claimed = true
                 return BuiltInTypes.Unknown
             }
-            qualifierIndex = qualifierIndex + 1
         }
         runtimeType := BuiltInTypes.Unknown as TypeInfo
         if TryResolveExternal(name, out runtimeType) {
@@ -1567,9 +1535,7 @@ class AnalyzerDeclarationContext {
     }
 
     func TryResolveDeclarationInFile(facts: AnalyzerDeclarationFileFacts, name: string, requireExported: bool, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out declaration: object?, out claimed: bool): bool {
-        index := 0
-        while index < facts.Declarations.Count {
-            candidate := facts.Declarations[index]
+        for candidate in facts.Declarations {
             if candidate != null && IsTopLevelTypeDeclaration(candidate) {
                 // MATCHED BY IDENTITY, NOT BY NAME: `name` is an arity key (`Subscription` or
                 // `Subscription``1), so a generic declaration and a non-generic one of the same name
@@ -1586,7 +1552,6 @@ class AnalyzerDeclarationContext {
                     return !BuiltInTypes.IsUnknown(typeInfo)
                 }
             }
-            index = index + 1
         }
         typeInfo = BuiltInTypes.Unknown
         declaration = null
@@ -1597,9 +1562,7 @@ class AnalyzerDeclarationContext {
     func TryResolveDeclarationInNamespace(name: string, namespaceName: string?, requireExported: bool, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
         matchedType: TypeInfo? = null
         claimed = false
-        fileIndex := 0
-        while fileIndex < files.Count {
-            facts := files[fileIndex]
+        for facts in files {
             if string.Equals(facts.NamespaceName, namespaceName, StringComparison.Ordinal) {
                 candidate := BuiltInTypes.Unknown as TypeInfo
                 declaration: object? = null
@@ -1614,7 +1577,6 @@ class AnalyzerDeclarationContext {
                     matchedType = candidate
                 }
             }
-            fileIndex = fileIndex + 1
         }
         if matchedType == null {
             typeInfo = BuiltInTypes.Unknown
@@ -1638,9 +1600,7 @@ class AnalyzerDeclarationContext {
         matchedType: TypeInfo? = null
         sawClaim := false
         visitedNamespaces := new HashSet<string>(StringComparer.Ordinal)
-        importIndex := 0
-        while importIndex < facts.NamespaceImports.Count {
-            importFacts := facts.NamespaceImports[importIndex]
+        for importFacts in facts.NamespaceImports {
             if importFacts.Alias == null && visitedNamespaces.Add(importFacts.Namespace) {
                 candidate := BuiltInTypes.Unknown as TypeInfo
                 unitClaimed := false
@@ -1657,7 +1617,6 @@ class AnalyzerDeclarationContext {
                     sawClaim = true
                 }
             }
-            importIndex = importIndex + 1
         }
         if matchedType == null {
             typeInfo = BuiltInTypes.Unknown
@@ -1672,12 +1631,11 @@ class AnalyzerDeclarationContext {
     func TryResolveUniqueExported(name: string, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
         matchedType: TypeInfo? = null
         claimed = false
-        fileIndex := 0
-        while fileIndex < files.Count {
+        for fileItem in files {
             candidate := BuiltInTypes.Unknown as TypeInfo
             declaration: object? = null
             unitClaimed := false
-            if TryResolveDeclarationInFile(files[fileIndex], name, true, activeAliases, out candidate, out declaration, out unitClaimed) {
+            if TryResolveDeclarationInFile(fileItem, name, true, activeAliases, out candidate, out declaration, out unitClaimed) {
                 claimed = true
                 if matchedType != null {
                     typeInfo = BuiltInTypes.Unknown
@@ -1689,7 +1647,6 @@ class AnalyzerDeclarationContext {
                 typeInfo = BuiltInTypes.Unknown
                 return false
             }
-            fileIndex = fileIndex + 1
         }
         if matchedType == null {
             typeInfo = BuiltInTypes.Unknown
@@ -1703,13 +1660,11 @@ class AnalyzerDeclarationContext {
 
     func TryResolveQualifiedProjectType(qualifiedName: string, declarationNamespace: string?, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
         selectedNamespace: string? = null
-        fileIndex := 0
-        while fileIndex < files.Count {
-            namespaceName := files[fileIndex].NamespaceName
+        for fileItem in files {
+            namespaceName := fileItem.NamespaceName
             if namespaceName != null && qualifiedName.StartsWith(namespaceName + ".", StringComparison.Ordinal) && (selectedNamespace == null || namespaceName.Length > selectedNamespace.Length) {
                 selectedNamespace = namespaceName
             }
-            fileIndex = fileIndex + 1
         }
         if selectedNamespace == null {
             typeInfo = BuiltInTypes.Unknown
@@ -1936,13 +1891,10 @@ class AnalyzerDeclarationContext {
     }
 
     func FindNamespaceAlias(facts: AnalyzerDeclarationFileFacts, alias: string): AnalyzerNamespaceImportFacts? {
-        index := 0
-        while index < facts.NamespaceImports.Count {
-            candidate := facts.NamespaceImports[index]
+        for candidate in facts.NamespaceImports {
             if candidate.Alias != null && string.Equals(candidate.Alias, alias, StringComparison.Ordinal) {
                 return candidate
             }
-            index = index + 1
         }
         return null
     }
@@ -1952,13 +1904,10 @@ class AnalyzerDeclarationContext {
     }
 
     func FindFileAlias(facts: AnalyzerDeclarationFileFacts, alias: string): AnalyzerFileImportFacts? {
-        index := 0
-        while index < facts.FileImports.Count {
-            candidate := facts.FileImports[index]
+        for candidate in facts.FileImports {
             if candidate.Alias != null && string.Equals(candidate.Alias, alias, StringComparison.Ordinal) {
                 return candidate
             }
-            index = index + 1
         }
         return null
     }
@@ -1982,13 +1931,10 @@ class AnalyzerDeclarationContext {
             return null
         }
         name := TypeArityNames.Key(TypeName(typeInfo), AnalyzerTypeReferenceFacts.GenericHeadArity(typeInfo))
-        index := 0
-        while index < facts.Declarations.Count {
-            declaration := facts.Declarations[index]
+        for declaration in facts.Declarations {
             if declaration != null && string.Equals(DeclarationFacts.GetDeclarationArityName(declaration), name, StringComparison.Ordinal) {
                 return declaration
             }
-            index = index + 1
         }
         return null
     }
@@ -2312,9 +2258,7 @@ class AnalyzerDeclarationContext {
     }
 
     func SelectionForNamedDeclaration(typeInfo: TypeInfo, name: string, namespaceName: string?, filterNamespace: bool, requireExported: bool, claimed: bool): AnalyzerSourceTypeSelection {
-        fileIndex := 0
-        while fileIndex < files.Count {
-            facts := files[fileIndex]
+        for facts in files {
             if !filterNamespace || string.Equals(facts.NamespaceName, namespaceName, StringComparison.Ordinal) {
                 declarationIndex := 0
                 while declarationIndex < facts.Declarations.Count {
@@ -2325,7 +2269,6 @@ class AnalyzerDeclarationContext {
                     declarationIndex = declarationIndex + 1
                 }
             }
-            fileIndex = fileIndex + 1
         }
         return SelectionFor(typeInfo, claimed)
     }

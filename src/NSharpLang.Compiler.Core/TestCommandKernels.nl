@@ -343,10 +343,8 @@ class TestCommandKernels {
 
     static func BuildNativeTestResults(testResults: IReadOnlyList<NativeTestResult>): List<Dictionary<string, object>> {
         payload := new List<Dictionary<string, object>>()
-        i := 0
-        while i < testResults.Count {
-            payload.Add(BuildNativeTestResult(testResults[i]))
-            i = i + 1
+        for testResult in testResults {
+            payload.Add(BuildNativeTestResult(testResult))
         }
 
         return payload

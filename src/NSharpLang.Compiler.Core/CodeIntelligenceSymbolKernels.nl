@@ -6,14 +6,10 @@ class CodeIntelligenceSymbolKernels {
     static func FilterSymbolsByKind(symbols: List<SymbolResult>, targetKind: SymbolKind): List<SymbolResult> {
         results := new List<SymbolResult>()
 
-        i := 0
-        while i < symbols.Count {
-            symbol := symbols[i]
+        for symbol in symbols {
             if symbol.Kind == targetKind {
                 results.Add(symbol)
             }
-
-            i = i + 1
         }
 
         return results

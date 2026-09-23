@@ -139,13 +139,10 @@ class SystemsTypePolicy {
         generic := typeReference as GenericTypeReference
         if generic != null {
             typeArguments := generic.TypeArguments
-            argumentIndex := 0
-            while argumentIndex < typeArguments.Count {
-                if ContainsRefLikeType(typeArguments[argumentIndex]) {
+            for typeArgument in typeArguments {
+                if ContainsRefLikeType(typeArgument) {
                     return true
                 }
-
-                argumentIndex = argumentIndex + 1
             }
 
             return false
@@ -164,13 +161,10 @@ class SystemsTypePolicy {
         unionType := typeReference as UnionTypeReference
         if unionType != null {
             arms := unionType.Arms
-            armIndex := 0
-            while armIndex < arms.Count {
-                if ContainsRefLikeType(arms[armIndex]) {
+            for arm in arms {
+                if ContainsRefLikeType(arm) {
                     return true
                 }
-
-                armIndex = armIndex + 1
             }
 
             return false
@@ -362,14 +356,11 @@ class SystemsTypePolicy {
         unionType := typeReference as UnionTypeReference
         if unionType != null {
             arms := unionType.Arms
-            armIndex := 0
-            while armIndex < arms.Count {
-                armReason := HostileSurfaceReason(arms[armIndex], hotStrict, constraints)
+            for arm in arms {
+                armReason := HostileSurfaceReason(arm, hotStrict, constraints)
                 if armReason != null {
                     return armReason
                 }
-
-                armIndex = armIndex + 1
             }
 
             return null
@@ -396,14 +387,11 @@ class SystemsTypePolicy {
         name := SystemsTypeNames.SimpleName(generic.Name)
         if name == "Result" {
             typeArguments := generic.TypeArguments
-            argumentIndex := 0
-            while argumentIndex < typeArguments.Count {
-                argumentReason := HostileSurfaceReason(typeArguments[argumentIndex], hotStrict, constraints)
+            for typeArgument in typeArguments {
+                argumentReason := HostileSurfaceReason(typeArgument, hotStrict, constraints)
                 if argumentReason != null {
                     return argumentReason
                 }
-
-                argumentIndex = argumentIndex + 1
             }
 
             return null
@@ -468,14 +456,10 @@ class SystemsTypePolicy {
         }
 
         structBit := Convert.ToInt32(SpecialConstraintKind.Struct)
-        index := 0
-        while index < constraints.Count {
-            constraint := constraints[index]
+        for constraint in constraints {
             if constraint.TypeParameter == name && (Convert.ToInt32(constraint.SpecialConstraints) & structBit) == structBit {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

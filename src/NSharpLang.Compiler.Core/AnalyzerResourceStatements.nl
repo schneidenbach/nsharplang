@@ -750,15 +750,11 @@ class AnalyzerResourceStatements {
         }
 
         constraintReferences := constraint.Constraints
-        index := 0
-        while index < constraintReferences.Count {
-            constraintReference := constraintReferences[index]
+        for constraintReference in constraintReferences {
             constraintType := declarationContextValue.ResolveDeclaredAlias(typeResolverValue.ResolveType(constraintReference))
             if IsReferenceConstraintType(constraintType) {
                 return 2
             }
-
-            index = index + 1
         }
 
         return 1
@@ -785,14 +781,10 @@ class AnalyzerResourceStatements {
             return false
         }
 
-        index := 0
-        while index < typeParameters.Count {
-            candidate := typeParameters[index]
+        for candidate in typeParameters {
             if candidate.Name == name {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -804,14 +796,10 @@ class AnalyzerResourceStatements {
             return null
         }
 
-        index := 0
-        while index < constraints.Count {
-            candidate := constraints[index]
+        for candidate in constraints {
             if candidate.TypeParameter == name {
                 return candidate
             }
-
-            index = index + 1
         }
 
         return null

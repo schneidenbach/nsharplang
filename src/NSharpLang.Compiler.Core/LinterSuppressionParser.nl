@@ -181,18 +181,14 @@ class LinterSuppressionParser {
     }
 
     static func CopyCodes(destination: List<string>, source: List<string>) {
-        index := 0
-        while index < source.Count {
-            destination.Add(source[index])
-            index = index + 1
+        for sourceItem in source {
+            destination.Add(sourceItem)
         }
     }
 
     static func AddSuppression(suppressions: LinterSuppressionSet, line: int, codes: List<string>) {
-        index := 0
-        while index < codes.Count {
-            suppressions.Add(line, codes[index])
-            index = index + 1
+        for code in codes {
+            suppressions.Add(line, code)
         }
     }
 }

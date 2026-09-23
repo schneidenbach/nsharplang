@@ -60,16 +60,13 @@ class SystemsReportOrder {
     // the ROOTS of that traversal; the traversal decides the rest.
     static func OrderedFiles(files: IReadOnlyList<string>): string[] {
         sorted := new List<string>()
-        outer := 0
-        while outer < files.Count {
-            candidate := files[outer]
+        for candidate in files {
             position := sorted.Count
             while position > 0 && CompareOrdinalIgnoreCase(sorted[position - 1], candidate) > 0 {
                 position = position - 1
             }
 
             sorted.Insert(position, candidate)
-            outer = outer + 1
         }
 
         return sorted.ToArray()
@@ -79,16 +76,13 @@ class SystemsReportOrder {
     // `SystemsFindingSink.Ordered()`, which owns the list; this owns the order.
     static func OrderedFindings(findings: IReadOnlyList<SystemsFinding>): SystemsFinding[] {
         sorted := new List<SystemsFinding>()
-        outer := 0
-        while outer < findings.Count {
-            candidate := findings[outer]
+        for candidate in findings {
             position := sorted.Count
             while position > 0 && CompareFindingPosition(sorted[position - 1], candidate) > 0 {
                 position = position - 1
             }
 
             sorted.Insert(position, candidate)
-            outer = outer + 1
         }
 
         return sorted.ToArray()
@@ -98,16 +92,13 @@ class SystemsReportOrder {
     // that somehow share a position keep the order the walk met them in.
     static func OrderedTrustedSites(sites: IReadOnlyList<SystemsTrustedSite>): SystemsTrustedSite[] {
         sorted := new List<SystemsTrustedSite>()
-        outer := 0
-        while outer < sites.Count {
-            candidate := sites[outer]
+        for candidate in sites {
             position := sorted.Count
             while position > 0 && CompareTrustedSitePosition(sorted[position - 1], candidate) > 0 {
                 position = position - 1
             }
 
             sorted.Insert(position, candidate)
-            outer = outer + 1
         }
 
         return sorted.ToArray()
@@ -119,9 +110,7 @@ class SystemsReportOrder {
     // in different orders report the same list.
     static func OrderedCalls(calls: IReadOnlyList<string>): string[] {
         distinct := new List<string>()
-        index := 0
-        while index < calls.Count {
-            candidate := calls[index]
+        for candidate in calls {
             seen := false
             scan := 0
             while scan < distinct.Count {
@@ -136,21 +125,16 @@ class SystemsReportOrder {
             if !seen {
                 distinct.Add(candidate)
             }
-
-            index = index + 1
         }
 
         sorted := new List<string>()
-        outer := 0
-        while outer < distinct.Count {
-            candidate := distinct[outer]
+        for candidate in distinct {
             position := sorted.Count
             while position > 0 && CompareOrdinal(sorted[position - 1], candidate) > 0 {
                 position = position - 1
             }
 
             sorted.Insert(position, candidate)
-            outer = outer + 1
         }
 
         return sorted.ToArray()

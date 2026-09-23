@@ -21,17 +21,13 @@ class CodeIntelligenceDeclarationProjection {
     // the projection's own and the caller only concatenates.
     static func Symbols(declarations: List<Declaration>, fileValue: string): List<SymbolResult> {
         results := new List<SymbolResult>()
-        index := 0
-        while index < declarations.Count {
-            declaration := declarations[index]
+        for declaration in declarations {
             if DeclarationFacts.IsPublicSurfaceDeclaration(declaration) {
                 symbol := SymbolFor(declaration, fileValue)
                 if symbol != null {
                     results.Add(symbol)
                 }
             }
-
-            index = index + 1
         }
 
         return results
@@ -41,14 +37,11 @@ class CodeIntelligenceDeclarationProjection {
     // Spelled once here; the two C# callers had carried identical copies of this chain.
     static func OutlineEntries(declarations: List<Declaration>): OutlineEntry[] {
         results := new List<OutlineEntry>()
-        index := 0
-        while index < declarations.Count {
-            entry := OutlineFor(declarations[index])
+        for declaration in declarations {
+            entry := OutlineFor(declaration)
             if entry != null {
                 results.Add(entry)
             }
-
-            index = index + 1
         }
 
         return results.ToArray()
@@ -224,17 +217,14 @@ class CodeIntelligenceDeclarationProjection {
             return results.ToArray()
         }
 
-        index := 0
-        while index < members.Count {
-            member := members[index] as Declaration
+        for memberItem in members {
+            member := memberItem as Declaration
             if member != null && DeclarationFacts.IsPublicSurfaceDeclaration(member) {
                 symbol := SymbolFor(member, fileValue)
                 if symbol != null {
                     results.Add(symbol)
                 }
             }
-
-            index = index + 1
         }
 
         return results.ToArray()
@@ -247,17 +237,14 @@ class CodeIntelligenceDeclarationProjection {
             return results.ToArray()
         }
 
-        index := 0
-        while index < members.Count {
-            member := members[index] as Declaration
+        for memberItem in members {
+            member := memberItem as Declaration
             if member != null {
                 entry := OutlineFor(member)
                 if entry != null {
                     results.Add(entry)
                 }
             }
-
-            index = index + 1
         }
 
         return results.ToArray()
@@ -265,11 +252,8 @@ class CodeIntelligenceDeclarationProjection {
 
     static func ColumnSymbols(columns: List<SoaColumnDeclaration>, fileValue: string): SymbolResult[] {
         results := new List<SymbolResult>()
-        index := 0
-        while index < columns.Count {
-            column := columns[index]
+        for column in columns {
             results.Add(new SymbolResult(column.Name, SymbolKind.Field, fileValue, column.Line, column.Column, CodeIntelligenceDisplayText.FormatTypeReference(column.Type), null, null, null))
-            index = index + 1
         }
 
         return results.ToArray()
@@ -277,11 +261,8 @@ class CodeIntelligenceDeclarationProjection {
 
     static func ColumnOutlineEntries(columns: List<SoaColumnDeclaration>): OutlineEntry[] {
         results := new List<OutlineEntry>()
-        index := 0
-        while index < columns.Count {
-            column := columns[index]
+        for column in columns {
             results.Add(new OutlineEntry(column.Name, SymbolKind.Field, column.Line, column.Line, null, CodeIntelligenceDisplayText.FormatTypeReference(column.Type), null))
-            index = index + 1
         }
 
         return results.ToArray()
@@ -291,10 +272,8 @@ class CodeIntelligenceDeclarationProjection {
     // answer even though the AST node has one.
     static func EnumMemberSymbols(members: List<EnumMember>, fileValue: string): SymbolResult[] {
         results := new List<SymbolResult>()
-        index := 0
-        while index < members.Count {
-            results.Add(new SymbolResult(members[index].Name, SymbolKind.EnumMember, fileValue, 0, 0, null, null, null, null))
-            index = index + 1
+        for member in members {
+            results.Add(new SymbolResult(member.Name, SymbolKind.EnumMember, fileValue, 0, 0, null, null, null, null))
         }
 
         return results.ToArray()
@@ -304,14 +283,10 @@ class CodeIntelligenceDeclarationProjection {
     // own, so a lowercase case is private to the file and never appears in `query symbols`.
     static func UnionCaseSymbols(cases: List<UnionCase>, fileValue: string): SymbolResult[] {
         results := new List<SymbolResult>()
-        index := 0
-        while index < cases.Count {
-            unionCase := cases[index]
+        for unionCase in cases {
             if VisibilityConventions.IsExportedIdentifier(unionCase.Name, Modifiers.None) {
                 results.Add(new SymbolResult(unionCase.Name, SymbolKind.EnumMember, fileValue, 0, 0, null, null, null, null))
             }
-
-            index = index + 1
         }
 
         return results.ToArray()
@@ -320,16 +295,13 @@ class CodeIntelligenceDeclarationProjection {
     // `withDefaultText` is the whole difference between a function's parameters and a constructor's.
     static func ParameterResults(parameters: List<Parameter>, withDefaultText: bool): ParameterResult[] {
         results := new List<ParameterResult>()
-        index := 0
-        while index < parameters.Count {
-            parameter := parameters[index]
+        for parameter in parameters {
             defaultText: string? = null
             if withDefaultText && parameter.DefaultValue != null {
                 defaultText = DefaultValueText(parameter.DefaultValue)
             }
 
             results.Add(new ParameterResult(parameter.Name, CodeIntelligenceDisplayText.FormatTypeReference(parameter.Type), parameter.DefaultValue != null, defaultText))
-            index = index + 1
         }
 
         return results.ToArray()

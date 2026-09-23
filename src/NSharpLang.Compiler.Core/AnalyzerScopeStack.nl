@@ -665,10 +665,8 @@ class AnalyzerScopeStack {
                 }
             }
 
-            removalIndex := 0
-            while removalIndex < removals.Count {
-                scope.NullStates.Remove(removals[removalIndex])
-                removalIndex = removalIndex + 1
+            for removal in removals {
+                scope.NullStates.Remove(removal)
             }
 
             index = index - 1
@@ -934,22 +932,16 @@ class AnalyzerScopeStack {
             index = index - 1
         }
 
-        extensionIndex := 0
-        while extensionIndex < extensionMethodNames.Count {
-            candidates.Add(extensionMethodNames[extensionIndex])
-            extensionIndex = extensionIndex + 1
+        for extensionMethodName in extensionMethodNames {
+            candidates.Add(extensionMethodName)
         }
 
         distinct := new List<string>()
         seen := new HashSet<string>(StringComparer.Ordinal)
-        candidateIndex := 0
-        while candidateIndex < candidates.Count {
-            candidate := candidates[candidateIndex]
+        for candidate in candidates {
             if seen.Add(candidate) {
                 distinct.Add(candidate)
             }
-
-            candidateIndex = candidateIndex + 1
         }
 
         suggester := new SmartSuggester(distinct)

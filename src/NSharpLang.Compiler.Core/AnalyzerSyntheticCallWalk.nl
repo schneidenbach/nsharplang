@@ -88,17 +88,13 @@ class AnalyzerSyntheticCallWalk {
     // there, so asking `NeedsReceiverType` alone would over-answer and analyse a receiver the
     // current walk never touches.
     func AnyCandidateNeedsReceiverType(candidates: IReadOnlyList<FunctionTypeInfo>, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>): bool {
-        index := 0
-        while index < candidates.Count {
-            candidate := candidates[index]
+        for candidate in candidates {
             placement: int[] = new int[0]
             if TryGetScoringPlacement(candidate, call, argTypes, out placement) {
                 if NeedsReceiverType(candidate, call) {
                     return true
                 }
             }
-
-            index = index + 1
         }
 
         return false
@@ -458,10 +454,8 @@ class AnalyzerSyntheticCallWalk {
 
         bindings := new Dictionary<string, TypeInfo>()
         allBounds := new Dictionary<string, List<TypeInfo>>()
-        boundsIndex := 0
-        while boundsIndex < typeParameters.Count {
-            allBounds[typeParameters[boundsIndex].Name] = new List<TypeInfo>()
-            boundsIndex = boundsIndex + 1
+        for typeParameter in typeParameters {
+            allBounds[typeParameter.Name] = new List<TypeInfo>()
         }
 
         typeArguments := call.TypeArguments

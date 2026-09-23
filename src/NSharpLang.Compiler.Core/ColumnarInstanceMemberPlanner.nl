@@ -822,9 +822,7 @@ class ColumnarInstanceMemberPlanner {
             return false
         }
 
-        index := 0
-        while index < owner.InterfaceBases.Count {
-            baseInterface := owner.InterfaceBases[index]
+        for baseInterface in owner.InterfaceBases {
             if baseInterface.Properties.ContainsKey(memberName) {
                 found = baseInterface
                 return true
@@ -833,8 +831,6 @@ class ColumnarInstanceMemberPlanner {
             if TryFindInterfaceBasePropertyCore(baseInterface, memberName, depth + 1, out found) {
                 return true
             }
-
-            index += 1
         }
 
         found = null

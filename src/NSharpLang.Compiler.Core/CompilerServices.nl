@@ -7,14 +7,10 @@ import System.IO
 class ParserTokenCompactor {
     static func TryCompact(tokens: List<Token>, out compactedTokens: List<Token>): bool {
         compactedTokens = new List<Token>()
-        i := 0
-        while i < tokens.Count {
-            token := tokens[i]
+        for token in tokens {
             if token.Type != TokenType.Newline {
                 compactedTokens.Add(token)
             }
-
-            i = i + 1
         }
 
         return true
@@ -24,9 +20,7 @@ class ParserTokenCompactor {
 class SourceFileDeduplicator {
     static func TryDeduplicateOrdinalIgnoreCase(sourceFiles: IReadOnlyList<string>, out deduplicatedSourceFiles: List<string>): bool {
         deduplicatedSourceFiles = new List<string>()
-        i := 0
-        while i < sourceFiles.Count {
-            sourceFile := sourceFiles[i]
+        for sourceFile in sourceFiles {
             if sourceFile == null {
                 deduplicatedSourceFiles = new List<string>()
                 return false
@@ -35,21 +29,16 @@ class SourceFileDeduplicator {
             if !ContainsOrdinalIgnoreCase(deduplicatedSourceFiles, sourceFile) {
                 deduplicatedSourceFiles.Add(sourceFile)
             }
-
-            i = i + 1
         }
 
         return true
     }
 
     static func ContainsOrdinalIgnoreCase(files: List<string>, value: string): bool {
-        i := 0
-        while i < files.Count {
-            if String.Compare(files[i], value, StringComparison.OrdinalIgnoreCase) == 0 {
+        for fileItem in files {
+            if String.Compare(fileItem, value, StringComparison.OrdinalIgnoreCase) == 0 {
                 return true
             }
-
-            i = i + 1
         }
 
         return false
@@ -116,14 +105,10 @@ class MultiFileCompilerInputBuilder {
 
     static func BuildPreprocessorSymbols(config: ProjectConfig): HashSet<string> {
         symbols := new HashSet<string>(StringComparer.Ordinal)
-        i := 0
-        while i < config.Defines.Count {
-            define := config.Defines[i]
+        for define in config.Defines {
             if !string.IsNullOrWhiteSpace(define) {
                 symbols.Add(define.Trim())
             }
-
-            i = i + 1
         }
 
         return symbols

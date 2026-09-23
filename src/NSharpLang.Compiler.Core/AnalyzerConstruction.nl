@@ -379,13 +379,10 @@ class AnalyzerConstruction {
         }
 
         missing := new List<string>()
-        nameIndex := 0
-        while nameIndex < requiredNames.Count {
-            if !CreationInitializerNamesMember(node, requiredNames[nameIndex]) {
-                missing.Add(requiredNames[nameIndex])
+        for requiredName in requiredNames {
+            if !CreationInitializerNamesMember(node, requiredName) {
+                missing.Add(requiredName)
             }
-
-            nameIndex = nameIndex + 1
         }
 
         if missing.Count == 0 {
@@ -424,13 +421,10 @@ class AnalyzerConstruction {
         }
 
         properties := node.Initializer.Properties
-        index := 0
-        while index < properties.Count {
-            if properties[index].Name == memberName {
+        for property in properties {
+            if property.Name == memberName {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -758,9 +752,7 @@ class AnalyzerConstruction {
         // file's scope, the owner's open type parameters, and no diagnostic of its own.
         declared := DeclaredConstructors(classType)
         substitution := DeclaredConstructorSubstitution(generic, classType)
-        declaredIndex := 0
-        while declaredIndex < declared.Count {
-            constructor := declared[declaredIndex]
+        for constructor in declared {
             if constructor.ParameterCount == argumentCount && index < constructor.ParameterTypes.Length {
                 candidate := BuiltInTypes.Unknown as TypeInfo
                 if declarationContextValue.TryResolveTypeForOwner(constructor.ParameterTypes[index], classType, substitution, out candidate) {
@@ -774,8 +766,6 @@ class AnalyzerConstruction {
                     }
                 }
             }
-
-            declaredIndex = declaredIndex + 1
         }
 
         return agreed
@@ -853,16 +843,12 @@ class AnalyzerConstruction {
             return argumentCount == 0
         }
 
-        index := 0
-        while index < constructors.Count {
-            candidate := constructors[index]
+        for candidate in constructors {
             if argumentCount >= candidate.RequiredParameterCount {
                 if candidate.HasParamsParameter || argumentCount <= candidate.ParameterCount {
                     return true
                 }
             }
-
-            index = index + 1
         }
 
         return false

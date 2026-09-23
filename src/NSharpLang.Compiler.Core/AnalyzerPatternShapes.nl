@@ -138,9 +138,7 @@ class AnalyzerPatternShapes {
     // The FIRST shape type whose `Count` — or, failing that, `Length` — is a readable `int`. A shape
     // type that declares neither contributes nothing and the walk moves on; it does not fail.
     static func HasReflectionListLengthProperty(shapeTypes: List<Type>, bindingFlags: BindingFlags): bool {
-        index := 0
-        while index < shapeTypes.Count {
-            shapeType := shapeTypes[index]
+        for shapeType in shapeTypes {
             lengthProperty := shapeType.GetProperty("Count", bindingFlags)
             if lengthProperty == null {
                 lengthProperty = shapeType.GetProperty("Length", bindingFlags)
@@ -149,8 +147,6 @@ class AnalyzerPatternShapes {
             if lengthProperty != null && lengthProperty.get_GetMethod() != null && lengthProperty.get_PropertyType() == typeof(int) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -159,9 +155,7 @@ class AnalyzerPatternShapes {
     // The FIRST readable single-`int`-parameter indexer over the shape types, in declaration order
     // within each type and shape order across them.
     static func FindReflectionListIndexerProperty(shapeTypes: List<Type>, bindingFlags: BindingFlags): PropertyInfo? {
-        index := 0
-        while index < shapeTypes.Count {
-            shapeType := shapeTypes[index]
+        for shapeType in shapeTypes {
             properties := shapeType.GetProperties(bindingFlags)
             propertyIndex := 0
             while propertyIndex < properties.Length {
@@ -178,8 +172,6 @@ class AnalyzerPatternShapes {
 
                 propertyIndex = propertyIndex + 1
             }
-
-            index = index + 1
         }
 
         return null

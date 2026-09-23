@@ -88,13 +88,10 @@ class DefineArgumentKernels {
     }
 
     static func ContainsSymbol(defines: List<string>, symbol: string): bool {
-        i := 0
-        while i < defines.Count {
-            if defines[i] == symbol {
+        for define in defines {
+            if define == symbol {
                 return true
             }
-
-            i = i + 1
         }
 
         return false

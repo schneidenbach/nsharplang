@@ -61,17 +61,14 @@ class ColumnarInternalsVisibleToEmitter {
         }
 
         seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        index := 0
-        while index < declared.Count {
-            normalized := NormalizeDeclaredName(declared[index])
+        for declaredItem in declared {
+            normalized := NormalizeDeclaredName(declaredItem)
             if normalized.Length > 0 {
                 simple := InternalsVisibleToGrants.FriendSimpleName(normalized)
                 if simple.Length > 0 && seen.Add(simple) {
                     resolved.Add(normalized)
                 }
             }
-
-            index = index + 1
         }
 
         return resolved
@@ -106,10 +103,8 @@ class ColumnarInternalsVisibleToEmitter {
         }
 
         constructor := AttributeConstructor()
-        index := 0
-        while index < names.Count {
-            builder.SetCustomAttribute(constructor, ColumnarAttributeBlobs.OneString(names[index]))
-            index = index + 1
+        for name in names {
+            builder.SetCustomAttribute(constructor, ColumnarAttributeBlobs.OneString(name))
         }
     }
 }

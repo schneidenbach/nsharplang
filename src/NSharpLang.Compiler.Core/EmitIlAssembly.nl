@@ -238,15 +238,12 @@ class EmitIlAssembly: Microsoft.Build.Utilities.Task {
             module := assembly.MainModule
             typeReferences := MaterializeTypeReferences(module)
 
-            typeReferenceIndex := 0
-            while typeReferenceIndex < typeReferences.Count {
-                typeReference := typeReferences[typeReferenceIndex]
+            for typeReference in typeReferences {
                 owner := owners.Resolve(typeReference.FullName)
                 if SdkEmitTaskKernels.ShouldRescopeTypeReference(ScopeName(typeReference), owner != null) {
                     ownerKey: string = owner
                     typeReference.Scope = GetOrAddAssemblyReference(module, ownerNames[ownerKey])
                 }
-                typeReferenceIndex = typeReferenceIndex + 1
             }
 
             RemoveUnusedCoreLibAssemblyReference(module)
@@ -458,10 +455,8 @@ class EmitIlAssembly: Microsoft.Build.Utilities.Task {
             }
         }
 
-        index := 0
-        while index < removable.Count {
-            module.AssemblyReferences.Remove(removable[index])
-            index = index + 1
+        for removableItem in removable {
+            module.AssemblyReferences.Remove(removableItem)
         }
     }
 

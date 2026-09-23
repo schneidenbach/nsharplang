@@ -1307,12 +1307,9 @@ class Analyzer: IDisposable {
     private func DeclareBlockLocalFunctions(statements: List<Statement>?) {
         hoisted := AnalyzerLocalFunctionScope.Hoist(statements, Ambient.CurrentTypeName, FunctionTypeFactory)
         currentScope := Scopes.Peek()
-        index := 0
-        while index < hoisted.Count {
-            entry := hoisted[index]
+        for entry in hoisted {
             currentScope.RecordHoistedLocalFunction(entry.Name)
             DeclarationPolicy.DeclareSymbol(entry.Name, entry.Signature, entry.Line, entry.Column, null, true)
-            index = index + 1
         }
     }
 

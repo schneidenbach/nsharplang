@@ -340,9 +340,8 @@ class FormatterWalk {
     }
 
     static func EffectiveMaxArgumentLine(arguments: List<Argument>, openLine: int): int {
-        index := 0
-        while index < arguments.Count {
-            value := arguments[index].Value
+        for argumentItem in arguments {
+            value := argumentItem.Value
 
             // An argument this walk ALWAYS writes across lines pushes every argument after it below
             // the opener whatever the author wrote, so their lines say nothing about the list's shape
@@ -356,8 +355,6 @@ class FormatterWalk {
             if value.Line > openLine {
                 return MaxArgumentLine(arguments)
             }
-
-            index = index + 1
         }
 
         return openLine
@@ -365,14 +362,11 @@ class FormatterWalk {
 
     static func MaxArgumentLine(arguments: List<Argument>): int {
         highest := 0
-        index := 0
-        while index < arguments.Count {
-            argumentLine := arguments[index].Value.Line
+        for argument in arguments {
+            argumentLine := argument.Value.Line
             if argumentLine > highest {
                 highest = argumentLine
             }
-
-            index = index + 1
         }
 
         return highest
@@ -390,13 +384,10 @@ class FormatterWalk {
     //
     // `out` is not in any of the three sets and needs no guard; `ref` is the one modifier that is.
     static func ArgumentsCanBeginLines(arguments: List<Argument>): bool {
-        index := 0
-        while index < arguments.Count {
-            if arguments[index].Modifier == ArgumentModifier.Ref {
+        for argument in arguments {
+            if argument.Modifier == ArgumentModifier.Ref {
                 return false
             }
-
-            index = index + 1
         }
 
         return true
@@ -413,14 +404,11 @@ class FormatterWalk {
     // A list of bare expressions — an array or collection literal's elements.
     static func MaxExpressionLine(expressions: List<Expression>): int {
         highest := 0
-        index := 0
-        while index < expressions.Count {
-            expressionLine := expressions[index].Line
+        for expression in expressions {
+            expressionLine := expression.Line
             if expressionLine > highest {
                 highest = expressionLine
             }
-
-            index = index + 1
         }
 
         return highest
@@ -477,14 +465,11 @@ class FormatterWalk {
 
     static func MaxParameterLine(parameters: List<Parameter>): int {
         highest := 0
-        index := 0
-        while index < parameters.Count {
-            parameterLine := parameters[index].Line
+        for parameter in parameters {
+            parameterLine := parameter.Line
             if parameterLine > highest {
                 highest = parameterLine
             }
-
-            index = index + 1
         }
 
         return highest
@@ -506,12 +491,10 @@ class FormatterWalk {
             return
         }
 
-        index := 0
-        while index < attributes.Count {
+        for attribute in attributes {
             state.Indent(builder)
-            FormatAttributeInline(attributes[index], builder)
+            FormatAttributeInline(attribute, builder)
             builder.AppendLine()
-            index = index + 1
         }
     }
 
@@ -582,11 +565,9 @@ class FormatterWalk {
     func FormatParameter(parameter: Parameter, builder: StringBuilder) {
         attributes := parameter.Attributes
         if attributes != null && attributes.Count > 0 {
-            attributeIndex := 0
-            while attributeIndex < attributes.Count {
-                FormatAttributeInline(attributes[attributeIndex], builder)
+            for attribute in attributes {
+                FormatAttributeInline(attribute, builder)
                 builder.Append(" ")
-                attributeIndex = attributeIndex + 1
             }
         }
 
@@ -718,9 +699,7 @@ class FormatterWalk {
             return
         }
 
-        index := 0
-        while index < constraints.Count {
-            constraint := constraints[index]
+        for constraint in constraints {
             builder.Append(" where ")
             builder.Append(constraint.TypeParameter)
             builder.Append(": ")
@@ -759,8 +738,6 @@ class FormatterWalk {
 
                 builder.Append("new()")
             }
-
-            index = index + 1
         }
     }
 
@@ -1240,9 +1217,7 @@ class FormatterWalk {
 
             // Every clause continues the SAME line the closing brace ended, which is why the arms
             // append `}` without a newline and the single `AppendLine` comes after all of them.
-            clauseIndex := 0
-            while clauseIndex < tryStatement.CatchClauses.Count {
-                catchClause := tryStatement.CatchClauses[clauseIndex]
+            for catchClause in tryStatement.CatchClauses {
                 builder.Append(" catch")
                 exceptionType := catchClause.ExceptionType
                 if exceptionType != null {
@@ -1274,7 +1249,6 @@ class FormatterWalk {
                 state.Pop()
                 state.Indent(builder)
                 builder.Append("}")
-                clauseIndex = clauseIndex + 1
             }
 
             if tryStatement.FinallyBlock != null {
@@ -1564,10 +1538,7 @@ class FormatterWalk {
                 builder.Append("$\"")
             }
 
-            partIndex := 0
-            while partIndex < interpolated.Parts.Count {
-                part := interpolated.Parts[partIndex]
-
+            for part in interpolated.Parts {
                 textPart := part as InterpolatedStringText
                 if textPart != null {
                     // A LITERAL BRACE IS DOUBLED IN SOURCE AND SINGLE IN THE PART, IN BOTH SPELLINGS,
@@ -1595,8 +1566,6 @@ class FormatterWalk {
                         builder.Append('}')
                     }
                 }
-
-                partIndex = partIndex + 1
             }
 
             if interpolated.IsRaw {
@@ -1738,17 +1707,14 @@ class FormatterWalk {
             // `var` counts as inferred, which is what lets a tree built by an earlier pass round
             // trip to the shorthand the author wrote.
             allInferred := true
-            inferredIndex := 0
-            while inferredIndex < lambda.Parameters.Count {
-                parameterType := lambda.Parameters[inferredIndex].Type
+            for parameter2 in lambda.Parameters {
+                parameterType := parameter2.Type
                 if parameterType != null {
                     simpleType := parameterType as SimpleTypeReference
                     if simpleType == null || simpleType.Name != "var" {
                         allInferred = false
                     }
                 }
-
-                inferredIndex = inferredIndex + 1
             }
 
             if lambda.Parameters.Count == 1 && allInferred {
@@ -2411,14 +2377,11 @@ class FormatterWalk {
 
     static func MaxPropertyLine(properties: List<PropertyInitializer>): int {
         highest := 0
-        index := 0
-        while index < properties.Count {
-            propertyLine := PropertyInitializerLine(properties[index])
+        for property in properties {
+            propertyLine := PropertyInitializerLine(property)
             if propertyLine > highest {
                 highest = propertyLine
             }
-
-            index = index + 1
         }
 
         return highest

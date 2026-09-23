@@ -265,14 +265,12 @@ class ColumnarExternalTypeCatalog {
     }
 
     static func ResolveImportedOwner(scan: ExternalAssemblyScanResult, facts: ColumnarSourceBindingFacts, ownerName: string): ExternalAssemblyTypeResolution {
-        importIndex := 0
-        while importIndex < facts.UnaliasedNamespaceImports.Count {
-            fullName := facts.UnaliasedNamespaceImports[importIndex] + "." + ownerName
+        for unaliasedNamespaceImport2 in facts.UnaliasedNamespaceImports {
+            fullName := unaliasedNamespaceImport2 + "." + ownerName
             resolution := ExternalAssemblyScan.FindExactOrNestedType(scan, fullName)
             if resolution.Status != ExternalAssemblyTypeLookupStatus.Missing {
                 return resolution
             }
-            importIndex = importIndex + 1
         }
 
         return new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Missing, "", typeof(object), false)
@@ -285,14 +283,12 @@ class ColumnarExternalTypeCatalog {
                 return resolution
             }
         }
-        importIndex := 0
-        while importIndex < facts.UnaliasedNamespaceImports.Count {
-            fullName := facts.UnaliasedNamespaceImports[importIndex] + "." + ownerName
+        for unaliasedNamespaceImport2 in facts.UnaliasedNamespaceImports {
+            fullName := unaliasedNamespaceImport2 + "." + ownerName
             resolution := ExternalAssemblyScan.FindExactOrNestedType(scan, fullName)
             if resolution.Status != ExternalAssemblyTypeLookupStatus.Missing {
                 return resolution
             }
-            importIndex = importIndex + 1
         }
         return ExternalAssemblyScan.FindFirstVisibleType(scan, ownerName)
     }
@@ -429,17 +425,12 @@ class ColumnarBindingScopeFacts {
         }
         result.ResolveFileImports(sources)
 
-        enumIndex := 0
-        while enumIndex < enums.Count {
-            result.AddSourceType(result.ExactTypeNameForFile(enums[enumIndex].Name, enums[enumIndex].SourceFileId))
-            enumIndex = enumIndex + 1
+        for enumItem in enums {
+            result.AddSourceType(result.ExactTypeNameForFile(enumItem.Name, enumItem.SourceFileId))
         }
 
-        unionIndex := 0
-        while unionIndex < unions.Count {
-            unionInput := unions[unionIndex]
+        for unionInput in unions {
             result.AddSourceType(result.ExactUnionTypeName(unionInput))
-            unionIndex = unionIndex + 1
         }
 
         structIndex := 0
@@ -454,12 +445,10 @@ class ColumnarBindingScopeFacts {
             structIndex = structIndex + 1
         }
 
-        interfaceIndex := 0
-        while interfaceIndex < interfaces.Count {
-            result.RegisterInterfaceKind(interfaces[interfaceIndex])
-            result.AddSourceType(result.ExactInterfaceTypeName(interfaces[interfaceIndex]))
-            result.AddInterfaceScope(interfaces[interfaceIndex])
-            interfaceIndex = interfaceIndex + 1
+        for interfaceItem in interfaces {
+            result.RegisterInterfaceKind(interfaceItem)
+            result.AddSourceType(result.ExactInterfaceTypeName(interfaceItem))
+            result.AddInterfaceScope(interfaceItem)
         }
         structIndex = 0
         while structIndex < structs.Count {
@@ -922,14 +911,12 @@ class ColumnarBindingScopeFacts {
             return TrySelectExactSourceDeclarationName(enclosingSourceName, true, activeAliases, depth + 1, out exactName)
         }
 
-        importIndex := 0
-        while importIndex < facts.UnaliasedNamespaceImports.Count {
-            importedExactName := facts.UnaliasedNamespaceImports[importIndex] + "." + canonical
+        for unaliasedNamespaceImport2 in facts.UnaliasedNamespaceImports {
+            importedExactName := unaliasedNamespaceImport2 + "." + canonical
             if exportedSourceTypeNames.Contains(importedExactName) || exportedSourceTypeAliasNames.Contains(importedExactName) {
                 claimed = true
                 return TrySelectExactSourceDeclarationName(importedExactName, true, activeAliases, depth + 1, out exactName)
             }
-            importIndex = importIndex + 1
         }
 
         uniqueClaimed := false
@@ -1337,9 +1324,8 @@ class ColumnarBindingScopeFacts {
             return false
         }
 
-        importIndex := 0
-        while importIndex < facts.UnaliasedNamespaceImports.Count {
-            importedExactName := facts.UnaliasedNamespaceImports[importIndex] + "." + canonical
+        for unaliasedNamespaceImport2 in facts.UnaliasedNamespaceImports {
+            importedExactName := unaliasedNamespaceImport2 + "." + canonical
             if exportedSourceTypeNames.Contains(importedExactName) || exportedSourceTypeAliasNames.Contains(importedExactName) {
                 claimed = true
                 if TryResolveExactSourceBinding(importedExactName, true, bindings, activeAliases, depth + 1, out result, out sourceClaimed) {
@@ -1347,7 +1333,6 @@ class ColumnarBindingScopeFacts {
                 }
                 return false
             }
-            importIndex = importIndex + 1
         }
 
         uniqueSourceName := ""
@@ -1504,15 +1489,12 @@ class ColumnarBindingScopeFacts {
         }
 
         enclosing := SimpleNamePrecedence.EnclosingNamespaceNames(facts.NamespaceName)
-        index := 0
-        while index < enclosing.Count {
-            enclosingNamespace := enclosing[index]
+        for enclosingNamespace in enclosing {
             candidateName := enclosingNamespace.Length == 0 ? canonical : enclosingNamespace + "." + canonical
             if exportedSourceTypeNames.Contains(candidateName) || exportedSourceTypeAliasNames.Contains(candidateName) {
                 exactName = candidateName
                 return true
             }
-            index = index + 1
         }
         return false
     }
@@ -2065,9 +2047,7 @@ class ColumnarBindingScopeFacts {
         }
 
         enclosing := SimpleNamePrecedence.EnclosingNamespaceNames(activeNamespaceName)
-        enclosingIndex := 0
-        while enclosingIndex < enclosing.Count {
-            enclosingNamespace := enclosing[enclosingIndex]
+        for enclosingNamespace in enclosing {
             enclosingName := enclosingNamespace.Length == 0 ? name : enclosingNamespace + "." + name
             if exportedSourceTypeNames.Contains(enclosingName) {
                 if ambiguousSourceTypeNames.Contains(enclosingName) {
@@ -2077,12 +2057,10 @@ class ColumnarBindingScopeFacts {
                 exactName = enclosingName
                 return true
             }
-            enclosingIndex = enclosingIndex + 1
         }
 
-        importIndex := 0
-        while importIndex < activeUnaliasedNamespaceImports.Count {
-            importedName := activeUnaliasedNamespaceImports[importIndex] + "." + name
+        for activeUnaliasedNamespaceImport in activeUnaliasedNamespaceImports {
+            importedName := activeUnaliasedNamespaceImport + "." + name
             if exportedSourceTypeNames.Contains(importedName) {
                 if ambiguousSourceTypeNames.Contains(importedName) {
                     blocked = true
@@ -2091,7 +2069,6 @@ class ColumnarBindingScopeFacts {
                 exactName = importedName
                 return true
             }
-            importIndex = importIndex + 1
         }
         return false
     }
@@ -2316,24 +2293,19 @@ class ColumnarBindingScopeFacts {
         // an enclosing-namespace source type resolves there while an external owner of the same
         // spelling binds here. The global namespace is already covered above.
         enclosing := SimpleNamePrecedence.EnclosingNamespaceNames(activeNamespaceName)
-        enclosingIndex := 0
-        while enclosingIndex < enclosing.Count {
-            enclosingNamespace := enclosing[enclosingIndex]
+        for enclosingNamespace in enclosing {
             if enclosingNamespace.Length > 0 {
                 enclosingName := enclosingNamespace + "." + rootName
                 if exportedSourceTypeNames.Contains(enclosingName) || exportedSourceTypeAliasNames.Contains(enclosingName) {
                     return true
                 }
             }
-            enclosingIndex = enclosingIndex + 1
         }
-        importIndex := 0
-        while importIndex < activeUnaliasedNamespaceImports.Count {
-            importedName := activeUnaliasedNamespaceImports[importIndex] + "." + rootName
+        for activeUnaliasedNamespaceImport in activeUnaliasedNamespaceImports {
+            importedName := activeUnaliasedNamespaceImport + "." + rootName
             if exportedSourceTypeNames.Contains(importedName) || exportedSourceTypeAliasNames.Contains(importedName) {
                 return true
             }
-            importIndex = importIndex + 1
         }
         return false
     }
@@ -2342,25 +2314,18 @@ class ColumnarBindingScopeFacts {
         exactName := ExactStructTypeName(input)
         members := GetOrAddNames(memberNamesByType, exactName)
         AddNames(members.Names, input.FieldNames)
-        methodIndex := 0
-        while methodIndex < input.Methods.Count {
-            members.Names.Add(input.Methods[methodIndex].Name)
-            methodIndex = methodIndex + 1
+        for method2 in input.Methods {
+            members.Names.Add(method2.Name)
         }
-        propertyIndex := 0
-        while propertyIndex < input.Properties.Count {
-            members.Names.Add(input.Properties[propertyIndex].Name)
-            propertyIndex = propertyIndex + 1
+        for property2 in input.Properties {
+            members.Names.Add(property2.Name)
         }
         lexical := GetOrAddNames(currentLexicalNamesByType, exactName)
         AddNames(lexical.Names, input.TypeParamNames)
-        constructorIndex := 0
-        while constructorIndex < input.Constructors.Count {
-            constructor := input.Constructors[constructorIndex]
+        for constructor in input.Constructors {
             if constructor.IsSynthesizedInitializer {
                 AddNames(lexical.Names, constructor.Body.ParamNames)
             }
-            constructorIndex = constructorIndex + 1
         }
         fileFacts := new ColumnarSourceBindingFacts()
         ownerShortName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(input.Name)
@@ -2443,24 +2408,19 @@ class ColumnarBindingScopeFacts {
         // An ENCLOSING namespace outranks an import here too (`SimpleNamePrecedence` rule 2 before
         // rule 3): a base name is a simple type name and resolves by the one precedence rule.
         enclosing := SimpleNamePrecedence.EnclosingNamespaceNames(ownerNamespace)
-        enclosingIndex := 0
-        while enclosingIndex < enclosing.Count {
-            enclosingNamespace := enclosing[enclosingIndex]
+        for enclosingNamespace in enclosing {
             enclosingName := enclosingNamespace.Length == 0 ? baseName : enclosingNamespace + "." + baseName
             if sourceTypeKindsByExactName.ContainsKey(enclosingName) {
                 return enclosingName
             }
-            enclosingIndex = enclosingIndex + 1
         }
         fileFacts := new ColumnarSourceBindingFacts()
         if fileFactsById.TryGetValue(sourceFileId, out fileFacts) {
-            importIndex := 0
-            while importIndex < fileFacts.UnaliasedNamespaceImports.Count {
-                importedName := fileFacts.UnaliasedNamespaceImports[importIndex] + "." + baseName
+            for unaliasedNamespaceImport2 in fileFacts.UnaliasedNamespaceImports {
+                importedName := unaliasedNamespaceImport2 + "." + baseName
                 if sourceTypeKindsByExactName.ContainsKey(importedName) {
                     return importedName
                 }
-                importIndex = importIndex + 1
             }
         }
         return ""
@@ -2817,9 +2777,8 @@ class ColumnarBindingScopeFacts {
             }
             sourcePath := Path.GetFullPath(sourceFile.FileName)
             resolver := new FileResolver(projectRoot, sourcePath)
-            importIndex := 0
-            while importIndex < facts.UnaliasedFileImportPaths.Count {
-                importPath := resolver.ResolveFilePath(facts.UnaliasedFileImportPaths[importIndex])
+            for unaliasedFileImportPath2 in facts.UnaliasedFileImportPaths {
+                importPath := resolver.ResolveFilePath(unaliasedFileImportPath2)
                 importedFacts := new ColumnarSourceBindingFacts()
                 importedFileId := -1
                 if factsByPath.TryGetValue(importPath, out importedFacts) && fileIdsByPath.TryGetValue(importPath, out importedFileId) && importedFacts.ScanComplete {
@@ -2840,7 +2799,6 @@ class ColumnarBindingScopeFacts {
                 } else {
                     facts.HasUnresolvedFileImport = true
                 }
-                importIndex = importIndex + 1
             }
 
             for fileAlias in facts.FileAliasPaths {

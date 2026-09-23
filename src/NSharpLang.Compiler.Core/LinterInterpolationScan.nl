@@ -80,14 +80,11 @@ class LinterInterpolationScan {
     static func UsedIdentifiers(value: string): List<string> {
         result := new List<string>()
         holes := HoleTexts(value)
-        index := 0
-        while index < holes.Count {
-            name := LeadingIdentifier(holes[index])
+        for hole in holes {
+            name := LeadingIdentifier(hole)
             if name != null {
                 result.Add(name)
             }
-
-            index = index + 1
         }
 
         return result
@@ -99,10 +96,8 @@ class LinterInterpolationScan {
     static func HoleTexts(value: string): List<string> {
         result := new List<string>()
         spans := HoleSpans(value, 1, 1)
-        index := 0
-        while index < spans.Count {
-            result.Add(spans[index].Text.Trim())
-            index = index + 1
+        for span in spans {
+            result.Add(span.Text.Trim())
         }
 
         return result

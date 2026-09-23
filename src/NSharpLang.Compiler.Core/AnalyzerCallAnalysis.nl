@@ -609,14 +609,11 @@ class AnalyzerCallAnalysis {
         }
 
         methods := state.CandidateMethods
-        index := 0
-        while index < methods.Count {
-            declaringType := methods[index].get_DeclaringType()
+        for method in methods {
+            declaringType := method.get_DeclaringType()
             if declaringType != null && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(declaringType, originClrType) {
                 return origin
             }
-
-            index = index + 1
         }
 
         return null
@@ -779,10 +776,8 @@ class AnalyzerCallAnalysis {
         // (the exact-match run below), because the fallback must be the next-best member and not
         // simply the next row of the sort.
         promoted := new List<ReflectionPreBoundCandidate>()
-        maximalIndex := 0
-        while maximalIndex < maximal.Count {
-            promoted.Add(candidates[maximal[maximalIndex]])
-            maximalIndex = maximalIndex + 1
+        for maximalItem in maximal {
+            promoted.Add(candidates[maximalItem])
         }
 
         remainingIndex := 0
@@ -1236,13 +1231,10 @@ class AnalyzerCallAnalysis {
     // to say anything about.
     static func CallHasLambdaArgument(call: CallExpression): bool {
         arguments := call.Arguments
-        index := 0
-        while index < arguments.Count {
-            if arguments[index].Value as LambdaExpression != null {
+        for argument in arguments {
+            if argument.Value as LambdaExpression != null {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

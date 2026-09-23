@@ -956,15 +956,13 @@ class AnalyzerMemberAccess {
             currentNamespace := UnitNamespace()
             leafName := qualifiedName.Substring(separator + 1)
             qualifiers := SimpleNamePrecedence.QualifierNamespaces(currentNamespace, qualifiedName.Substring(0, separator))
-            qualifierIndex := 0
-            while qualifierIndex < qualifiers.Count {
+            for qualifier in qualifiers {
                 projectType: TypeInfo = BuiltInTypes.Unknown
                 projectDeclaration: SymbolDeclaration? = null
-                if projectDiscoveryValue.TryResolveProjectTypeInNamespace(leafName, qualifiers[qualifierIndex], currentNamespace, out projectType, out projectDeclaration) {
+                if projectDiscoveryValue.TryResolveProjectTypeInNamespace(leafName, qualifier, currentNamespace, out projectType, out projectDeclaration) {
                     resolvedType = declarationContextValue.ResolveDeclaredAlias(projectType)
                     return !BuiltInTypes.IsUnknown(resolvedType)
                 }
-                qualifierIndex = qualifierIndex + 1
             }
         }
 
@@ -1300,15 +1298,11 @@ class AnalyzerMemberAccess {
             return true
         }
 
-        index := 0
-        while index < extensionMethodsValue.Count {
-            candidate := extensionMethodsValue[index]
+        for candidate in extensionMethodsValue {
             if candidate.Name == memberName && extensionMethodResolutionValue.IsExtensionReceiverApplicable(candidate, resolvedOwner) {
                 declaration = new SymbolDeclaration(candidate.Name, diagnosticsValue.CurrentFilePath, candidate.Line, candidate.Column, "function")
                 return true
             }
-
-            index = index + 1
         }
 
         declaration = null

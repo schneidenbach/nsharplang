@@ -135,17 +135,13 @@ class ColumnarForeachLoopPlanner {
     // A SOURCE TYPE WITH NO PATTERN OF ITS OWN STILL ITERATES THROUGH THE SEQUENCE INTERFACE IT
     // NAMES. The interface is an ordinary runtime type, so the external walk owns it from here.
     static func PlanThroughDeclaredInterfaces(definition: ColumnarStructDef, definitions: IReadOnlyDictionary<string, ColumnarStructDef>): ColumnarForeachPlan? {
-        index := 0
-        while index < definition.ExternalInterfaces.Count {
-            candidate := definition.ExternalInterfaces[index]
+        for candidate in definition.ExternalInterfaces {
             if ForeachPatternFacts.MatchesConstructedDefinition(candidate, ForeachPatternFacts.SequenceInterfaceName()) || candidate.FullName == ForeachPatternFacts.NonGenericSequenceName() {
                 plan := PlanExternalCollection(candidate, definitions)
                 if plan != null {
                     return plan
                 }
             }
-
-            index = index + 1
         }
 
         return null
@@ -155,14 +151,10 @@ class ColumnarForeachLoopPlanner {
         overloads: List<ColumnarInstanceMethodDef>? = null
         if definition.MethodOverloads.TryGetValue(name, out overloads) {
             if overloads != null {
-                index := 0
-                while index < overloads.Count {
-                    candidate := overloads[index]
+                for candidate in overloads {
                     if candidate.ParamTypes.Length == 0 {
                         return candidate
                     }
-
-                    index = index + 1
                 }
             }
         }
@@ -332,13 +324,10 @@ class ColumnarForeachLoopPlanner {
     }
 
     static func NamesExternalDisposable(definition: ColumnarStructDef): bool {
-        index := 0
-        while index < definition.ExternalInterfaces.Count {
-            if definition.ExternalInterfaces[index].FullName == ForeachPatternFacts.DisposableName() {
+        for externalInterface2 in definition.ExternalInterfaces {
+            if externalInterface2.FullName == ForeachPatternFacts.DisposableName() {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

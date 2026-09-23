@@ -617,10 +617,8 @@ class ColumnarProgramInput {
         AssignInterfaceListSourceFileId(program.Interfaces, sourceFileId)
         programTests := program.Tests
         if programTests != null {
-            testIndex := 0
-            while testIndex < programTests.Count {
-                AssignFunctionSourceFileId(programTests[testIndex].Body, sourceFileId)
-                testIndex = testIndex + 1
+            for programTest in programTests {
+                AssignFunctionSourceFileId(programTest.Body, sourceFileId)
             }
         }
     }
@@ -741,16 +739,11 @@ class ColumnarProgramInput {
 
     func StampBindingContexts(scope: ColumnarBindingScopeFacts) {
         noTypeParameters := new string[](0)
-        functionIndex := 0
-        while functionIndex < Functions.Count {
-            StampFunctionBindingContext(Functions[functionIndex], scope, "", noTypeParameters, null)
-
-            functionIndex = functionIndex + 1
+        for function2 in Functions {
+            StampFunctionBindingContext(function2, scope, "", noTypeParameters, null)
         }
 
-        structIndex := 0
-        while structIndex < Structs.Count {
-            structInput := Structs[structIndex]
+        for structInput in Structs {
             staticInitializer := structInput.StaticInitializer
             if staticInitializer != null {
                 StampFunctionBindingContext(staticInitializer, scope, scope.ExactStructTypeName(structInput), structInput.TypeParamNames, null)
@@ -793,13 +786,9 @@ class ColumnarProgramInput {
 
                 propertyIndex = propertyIndex + 1
             }
-
-            structIndex = structIndex + 1
         }
 
-        interfaceIndex := 0
-        while interfaceIndex < Interfaces.Count {
-            interfaceInput := Interfaces[interfaceIndex]
+        for interfaceInput in Interfaces {
             if interfaceInput.MethodNames.Length != interfaceInput.MethodBodies.Length {
                 throw new InvalidOperationException("Columnar interface method names and bodies must have identical lengths.")
             }
@@ -820,16 +809,11 @@ class ColumnarProgramInput {
 
                 methodIndex = methodIndex + 1
             }
-
-            interfaceIndex = interfaceIndex + 1
         }
 
         if Tests != null {
-            testIndex := 0
-            while testIndex < Tests.Count {
-                StampFunctionBindingContext(Tests[testIndex].Body, scope, "", noTypeParameters, null)
-
-                testIndex = testIndex + 1
+            for test2 in Tests {
+                StampFunctionBindingContext(test2.Body, scope, "", noTypeParameters, null)
             }
         }
     }
@@ -841,11 +825,8 @@ class ColumnarProgramInput {
 
         localFunctions := function.LocalFunctions
         if localFunctions != null {
-            localIndex := 0
-            while localIndex < localFunctions.Count {
-                StampFunctionBindingContext(localFunctions[localIndex].Function, scope, enclosingTypeName, visibleTypeParameters, additionalRootBindingNames)
-
-                localIndex = localIndex + 1
+            for localFunction in localFunctions {
+                StampFunctionBindingContext(localFunction.Function, scope, enclosingTypeName, visibleTypeParameters, additionalRootBindingNames)
             }
         }
     }
@@ -870,53 +851,39 @@ class ColumnarProgramInput {
         function.SourceFileId = sourceFileId
         localFunctions := function.LocalFunctions
         if localFunctions != null {
-            index := 0
-            while index < localFunctions.Count {
-                AssignFunctionSourceFileId(localFunctions[index].Function, sourceFileId)
-                index = index + 1
+            for localFunction in localFunctions {
+                AssignFunctionSourceFileId(localFunction.Function, sourceFileId)
             }
         }
     }
 
     static func AssignFunctionListSourceFileId(functions: IReadOnlyList<ColumnarFunctionInput>, sourceFileId: int) {
-        index := 0
-        while index < functions.Count {
-            AssignFunctionSourceFileId(functions[index], sourceFileId)
-            index = index + 1
+        for function in functions {
+            AssignFunctionSourceFileId(function, sourceFileId)
         }
     }
 
     static func AssignEnumListSourceFileId(enums: IReadOnlyList<ColumnarEnumInput>, sourceFileId: int) {
-        index := 0
-        while index < enums.Count {
-            enumInput := enums[index]
+        for enumInput in enums {
             enumInput.SourceFileId = sourceFileId
-            index = index + 1
         }
     }
 
     static func AssignStructListSourceFileId(structs: IReadOnlyList<ColumnarStructInput>, sourceFileId: int) {
-        index := 0
-        while index < structs.Count {
-            AssignStructSourceFileId(structs[index], sourceFileId)
-            index = index + 1
+        for structItem in structs {
+            AssignStructSourceFileId(structItem, sourceFileId)
         }
     }
 
     static func AssignUnionListSourceFileId(unions: IReadOnlyList<ColumnarUnionInput>, sourceFileId: int) {
-        index := 0
-        while index < unions.Count {
-            unionInput := unions[index]
+        for unionInput in unions {
             unionInput.SourceFileId = sourceFileId
-            index = index + 1
         }
     }
 
     static func AssignInterfaceListSourceFileId(interfaces: IReadOnlyList<ColumnarInterfaceInput>, sourceFileId: int) {
-        index := 0
-        while index < interfaces.Count {
-            AssignInterfaceSourceFileId(interfaces[index], sourceFileId)
-            index = index + 1
+        for interfaceItem in interfaces {
+            AssignInterfaceSourceFileId(interfaceItem, sourceFileId)
         }
     }
 
@@ -927,24 +894,17 @@ class ColumnarProgramInput {
             AssignFunctionSourceFileId(staticInitializer, sourceFileId)
         }
 
-        methodIndex := 0
-        while methodIndex < structInput.Methods.Count {
-            AssignFunctionSourceFileId(structInput.Methods[methodIndex], sourceFileId)
-            methodIndex = methodIndex + 1
+        for method2 in structInput.Methods {
+            AssignFunctionSourceFileId(method2, sourceFileId)
         }
 
-        constructorIndex := 0
-        while constructorIndex < structInput.Constructors.Count {
-            constructorInput := structInput.Constructors[constructorIndex]
+        for constructorInput in structInput.Constructors {
             constructorInput.SourceFileId = sourceFileId
             AssignFunctionSourceFileId(constructorInput.Body, sourceFileId)
-            constructorIndex = constructorIndex + 1
         }
 
-        propertyIndex := 0
-        while propertyIndex < structInput.Properties.Count {
-            AssignPropertySourceFileId(structInput.Properties[propertyIndex], sourceFileId)
-            propertyIndex = propertyIndex + 1
+        for property2 in structInput.Properties {
+            AssignPropertySourceFileId(property2, sourceFileId)
         }
     }
 
@@ -977,50 +937,38 @@ class ColumnarProgramInput {
     }
 
     static func AddFunctions(target: List<ColumnarFunctionInput>, source: IReadOnlyList<ColumnarFunctionInput>) {
-        index := 0
-        while index < source.Count {
-            target.Add(source[index])
-            index = index + 1
+        for sourceItem in source {
+            target.Add(sourceItem)
         }
     }
 
     static func AddTests(target: List<ColumnarTestInput>, source: IReadOnlyList<ColumnarTestInput>) {
-        index := 0
-        while index < source.Count {
-            target.Add(source[index])
-            index = index + 1
+        for sourceItem in source {
+            target.Add(sourceItem)
         }
     }
 
     static func AddEnums(target: List<ColumnarEnumInput>, source: IReadOnlyList<ColumnarEnumInput>) {
-        index := 0
-        while index < source.Count {
-            target.Add(source[index])
-            index = index + 1
+        for sourceItem in source {
+            target.Add(sourceItem)
         }
     }
 
     static func AddStructs(target: List<ColumnarStructInput>, source: IReadOnlyList<ColumnarStructInput>) {
-        index := 0
-        while index < source.Count {
-            target.Add(source[index])
-            index = index + 1
+        for sourceItem in source {
+            target.Add(sourceItem)
         }
     }
 
     static func AddUnions(target: List<ColumnarUnionInput>, source: IReadOnlyList<ColumnarUnionInput>) {
-        index := 0
-        while index < source.Count {
-            target.Add(source[index])
-            index = index + 1
+        for sourceItem in source {
+            target.Add(sourceItem)
         }
     }
 
     static func AddInterfaces(target: List<ColumnarInterfaceInput>, source: IReadOnlyList<ColumnarInterfaceInput>) {
-        index := 0
-        while index < source.Count {
-            target.Add(source[index])
-            index = index + 1
+        for sourceItem in source {
+            target.Add(sourceItem)
         }
     }
 }

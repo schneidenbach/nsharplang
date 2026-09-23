@@ -449,16 +449,12 @@ class AnalyzerSoaDirectColumnCalls {
             }
         }
 
-        index := 0
-        while index < call.Arguments.Count {
-            argument := call.Arguments[index]
+        for argument in call.Arguments {
             if argument.Modifier != ArgumentModifier.Ref && argument.Modifier != ArgumentModifier.Out {
                 if soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(argument.Value, "passed as an argument") {
                     return true
                 }
             }
-
-            index = index + 1
         }
 
         return false

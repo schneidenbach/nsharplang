@@ -750,9 +750,8 @@ class DocQueryKernels {
         }
 
         directories := new List<string>()
-        rootIndex := 0
-        while rootIndex < roots.Count {
-            packsDir := Path.Combine(roots[rootIndex], "packs")
+        for root in roots {
+            packsDir := Path.Combine(root, "packs")
             if Directory.Exists(packsDir) {
                 packDirs := Directory.GetDirectories(packsDir, "*.Ref", SearchOption.TopDirectoryOnly)
                 packIndex := 0
@@ -776,8 +775,6 @@ class DocQueryKernels {
                     packIndex = packIndex + 1
                 }
             }
-
-            rootIndex = rootIndex + 1
         }
 
         return DeduplicateStableStringsOrdinalIgnoreCase(directories)

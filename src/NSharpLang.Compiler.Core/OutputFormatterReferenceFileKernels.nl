@@ -75,13 +75,10 @@ class OutputFormatterReferenceFileKernels {
     }
 
     static func ContainsReferenceFile(files: List<string>, pathText: string, ignoreCase: bool): bool {
-        i := 0
-        while i < files.Count {
-            if CompareReferenceFiles(files[i], pathText, ignoreCase) == 0 {
+        for fileItem in files {
+            if CompareReferenceFiles(fileItem, pathText, ignoreCase) == 0 {
                 return true
             }
-
-            i = i + 1
         }
 
         return false

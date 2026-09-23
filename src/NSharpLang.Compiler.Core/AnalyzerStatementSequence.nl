@@ -243,13 +243,10 @@ class AnalyzerStatementSequence {
 
     // Whether this list writes a local function DIRECTLY — a nested block's own are not this list's.
     func HasLocalFunction(statements: List<Statement>): bool {
-        index := 0
-        while index < statements.Count {
-            if statements[index] as LocalFunctionStatement != null {
+        for statement in statements {
+            if statement as LocalFunctionStatement != null {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

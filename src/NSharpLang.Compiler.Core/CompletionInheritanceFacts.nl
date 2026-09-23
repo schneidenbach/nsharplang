@@ -142,13 +142,10 @@ class CompletionInheritanceFacts {
             return true
         }
 
-        index := 0
-        while index < seen.Count {
-            if Object.ReferenceEquals(seen[index], candidate) {
+        for seenItem in seen {
+            if Object.ReferenceEquals(seenItem, candidate) {
                 return false
             }
-
-            index = index + 1
         }
         seen.Add(candidate)
 
@@ -204,10 +201,8 @@ class CompletionInheritanceFacts {
         generic := typeInfo as GenericTypeInfo
         if generic != null {
             arguments := new List<TypeInfo>()
-            index := 0
-            while index < generic.TypeArguments.Count {
-                arguments.Add(ApplySubstitution(generic.TypeArguments[index], substitution))
-                index = index + 1
+            for typeArgument2 in generic.TypeArguments {
+                arguments.Add(ApplySubstitution(typeArgument2, substitution))
             }
 
             return new GenericTypeInfo(generic.Name, arguments, generic.GenericDefinition)
@@ -236,11 +231,8 @@ class CompletionInheritanceFacts {
         tuple := typeInfo as TupleTypeInfo
         if tuple != null {
             elements := new List<TupleTypeElementInfo>()
-            elementIndex := 0
-            while elementIndex < tuple.Elements.Count {
-                element := tuple.Elements[elementIndex]
+            for element in tuple.Elements {
                 elements.Add(new TupleTypeElementInfo(element.Name, ApplySubstitution(element.Type, substitution)))
-                elementIndex = elementIndex + 1
             }
 
             return new TupleTypeInfo(elements)
@@ -252,10 +244,8 @@ class CompletionInheritanceFacts {
             substitutedParameters: List<TypeInfo>? = null
             if parameterTypes != null {
                 substitutedParameters = new List<TypeInfo>()
-                parameterIndex := 0
-                while parameterIndex < parameterTypes.Count {
-                    substitutedParameters.Add(ApplySubstitution(parameterTypes[parameterIndex], substitution))
-                    parameterIndex = parameterIndex + 1
+                for parameterType in parameterTypes {
+                    substitutedParameters.Add(ApplySubstitution(parameterType, substitution))
                 }
             }
 
@@ -275,13 +265,10 @@ class CompletionInheritanceFacts {
     // definition and every closed argument in the identity, so `IValue<int>` and `IValue<string>`
     // are distinct while the same node reached through a diamond is visited once.
     static func ContainsExactType(seen: List<TypeInfo>, candidate: TypeInfo): bool {
-        index := 0
-        while index < seen.Count {
-            if TypeInfoIdentityFacts.AreEqual(seen[index], candidate) {
+        for seenItem in seen {
+            if TypeInfoIdentityFacts.AreEqual(seenItem, candidate) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false

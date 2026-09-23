@@ -136,17 +136,14 @@ class AnalyzerMetadataAssemblyResolver: MetadataAssemblyResolver {
         }
 
         // Stage 2 — the search directories, in the order they were added.
-        directoryIndex := 0
-        while directoryIndex < searchDirectories.Count {
-            candidate := AnalyzerMetadataLoadPolicy.SearchDirectoryAssemblyPath(searchDirectories[directoryIndex], simpleName)
+        for searchDirectory in searchDirectories {
+            candidate := AnalyzerMetadataLoadPolicy.SearchDirectoryAssemblyPath(searchDirectory, simpleName)
             if File.Exists(candidate) {
                 fromDirectory := TryLoadFromPath(context, candidate)
                 if fromDirectory != null {
                     return fromDirectory
                 }
             }
-
-            directoryIndex = directoryIndex + 1
         }
 
         nugetRoot := NuGetPackagesRoot()

@@ -40,14 +40,11 @@ class LinterTypeReferenceName {
         unionReference := typeReference as UnionTypeReference
         if unionReference != null {
             arms := unionReference.Arms
-            index := 0
-            while index < arms.Count {
-                armName := Base(arms[index])
+            for arm in arms {
+                armName := Base(arm)
                 if armName != null {
                     return armName
                 }
-
-                index = index + 1
             }
 
             return null
@@ -99,14 +96,11 @@ class LinterTypeReferenceName {
         unionReference := typeReference as UnionTypeReference
         if unionReference != null {
             arms := unionReference.Arms
-            index := 0
-            while index < arms.Count {
-                armName := Base(arms[index])
+            for arm in arms {
+                armName := Base(arm)
                 if armName != null {
-                    return BaseNameSpan(arms[index])
+                    return BaseNameSpan(arm)
                 }
-
-                index = index + 1
             }
 
             return SourceSpan.None
@@ -151,10 +145,8 @@ class LinterTypeReferenceName {
         if generic != null {
             into.Add(generic.Name)
             arguments := generic.TypeArguments
-            index := 0
-            while index < arguments.Count {
-                CollectMentionedNames(arguments[index], into)
-                index = index + 1
+            for argument in arguments {
+                CollectMentionedNames(argument, into)
             }
 
             return
@@ -175,10 +167,8 @@ class LinterTypeReferenceName {
         unionReference := typeReference as UnionTypeReference
         if unionReference != null {
             arms := unionReference.Arms
-            armIndex := 0
-            while armIndex < arms.Count {
-                CollectMentionedNames(arms[armIndex], into)
-                armIndex = armIndex + 1
+            for arm in arms {
+                CollectMentionedNames(arm, into)
             }
 
             return
@@ -187,10 +177,8 @@ class LinterTypeReferenceName {
         tuple := typeReference as TupleTypeReference
         if tuple != null {
             elements := tuple.Elements
-            elementIndex := 0
-            while elementIndex < elements.Count {
-                CollectMentionedNames(elements[elementIndex].Type, into)
-                elementIndex = elementIndex + 1
+            for element in elements {
+                CollectMentionedNames(element.Type, into)
             }
 
             return
@@ -208,10 +196,8 @@ class LinterTypeReferenceName {
 
             CollectMentionedNames(functionReference.ReturnType, into)
             parameterTypes := functionReference.ParameterTypes
-            parameterIndex := 0
-            while parameterIndex < parameterTypes.Count {
-                CollectMentionedNames(parameterTypes[parameterIndex], into)
-                parameterIndex = parameterIndex + 1
+            for parameterType in parameterTypes {
+                CollectMentionedNames(parameterType, into)
             }
 
             return
@@ -263,10 +249,8 @@ class LinterTypeReferenceName {
         if generic != null {
             into.Add(generic)
             arguments := generic.TypeArguments
-            index := 0
-            while index < arguments.Count {
-                CollectNamedReferences(arguments[index], into)
-                index = index + 1
+            for argument in arguments {
+                CollectNamedReferences(argument, into)
             }
 
             return
@@ -326,10 +310,8 @@ class LinterTypeReferenceName {
         tuple := typeReference as TupleTypeReference
         if tuple != null {
             elements := tuple.Elements
-            elementIndex := 0
-            while elementIndex < elements.Count {
-                CollectNamedReferences(elements[elementIndex].Type, into)
-                elementIndex = elementIndex + 1
+            for element in elements {
+                CollectNamedReferences(element.Type, into)
             }
 
             return
@@ -339,10 +321,8 @@ class LinterTypeReferenceName {
         if functionReference != null {
             CollectNamedReferences(functionReference.ReturnType, into)
             parameterTypes := functionReference.ParameterTypes
-            parameterIndex := 0
-            while parameterIndex < parameterTypes.Count {
-                CollectNamedReferences(parameterTypes[parameterIndex], into)
-                parameterIndex = parameterIndex + 1
+            for parameterType in parameterTypes {
+                CollectNamedReferences(parameterType, into)
             }
         }
     }

@@ -16,10 +16,8 @@ class NSharpMethodGroupInfoFactory {
         result := new List<FunctionTypeInfo>()
         source := methodGroup.Functions
 
-        index := 0
-        while index < source.Count {
-            result.Add(source[index])
-            index = index + 1
+        for sourceItem in source {
+            result.Add(sourceItem)
         }
 
         return result

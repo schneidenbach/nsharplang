@@ -124,13 +124,10 @@ class SystemsGuardPolicy {
     }
 
     static func AnyStatementExits(block: BlockStatement): bool {
-        index := 0
-        while index < block.Statements.Count {
-            if StatementExits(block.Statements[index]) {
+        for statement2 in block.Statements {
+            if StatementExits(statement2) {
                 return true
             }
-
-            index = index + 1
         }
 
         return false
@@ -216,14 +213,10 @@ class SystemsGuardPolicy {
         literalIndex := 0
         hasLiteralIndex := TryGetLiteralIndex(index.Index, out literalIndex)
 
-        position := 0
-        while position < guards.Count {
-            guard := guards[position]
+        for guard in guards {
             if GuardProvesIndex(guard, receiver, indexName, hasLiteralIndex, literalIndex) {
                 return true
             }
-
-            position = position + 1
         }
 
         return false
@@ -269,14 +262,10 @@ class SystemsGuardPolicy {
             return false
         }
 
-        position := 0
-        while position < guards.Count {
-            guard := guards[position]
+        for guard in guards {
             if guard.Kind == GuardKind.NonZero && guard.Target == identifier.Name {
                 return true
             }
-
-            position = position + 1
         }
 
         return false
