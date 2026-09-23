@@ -146,6 +146,18 @@ remaining state/control ownership from the active goal:
   lifetime and failure behavior. Its ten recovery cases execute in N#. Fresh product/IDE checks,
   installed SDK self-host and real unsaved-buffer verification pass at `27b1a8a1b`.
   Acceptance (`2026-09-08-complete-multifile-compiler-ownership.md`).
+- **The compilation order is canonical and independent of directory layout.** File ids are indices
+  into `MultiFileCompiler`'s source list and emission walks them in that order, so the order is part
+  of the emitted bytes. `CanonicalSourceOrder` (`CompilerServices.nl`) sorts every compilation's
+  files by basename (ordinal), tie-broken by full path, inside `MultiFileCompilerInputBuilder.Build`
+  - the one owner that `nlc build`/`check`/`test`, the SDK's `EmitIlAssembly` task and the language
+  server all pass through - so the CLI's directory walk and the SDK glob's item order no longer
+  decide anything, and moving a file between directories no longer changes a byte (the module
+  version id and timestamp being content hashes, a whole-file comparison is the check).
+  `tests/native/canonical-source-order` pins it: two layouts of one program emit identical
+  implementation and reference assemblies, explicit lists in any order match discovery, a rename
+  DOES move the bytes (the control), and every `src/` N# project keeps its basenames unique, which
+  is what makes the Compiler.Core split's directory moves byte-identical.
 - `CompilationReferenceResolver.nl` solely owns recursive reference builds, package traversal,
   caching and failure behavior. The C# owner is deleted; seven direct and four command canonicals
   execute in N#. Fresh gate and installed SDK verification are accepted at `a20dc98af`.

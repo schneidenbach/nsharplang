@@ -45,6 +45,54 @@ class SourceFileDeduplicator {
     }
 }
 
+// THE ORDER A COMPILATION READS ITS FILES IN IS A FUNCTION OF THE FILES, NOT OF WHERE THEY SIT.
+//
+// File ids are indices into `MultiFileCompiler`'s source list, and emission walks them in that
+// order, so the ORDER is part of the emitted bytes: type and member rows land in metadata slots by
+// it. Nothing used to decide it. `nlc build` handed over `ProjectConfig.GetSourceFiles`' directory
+// walk (a directory's files, then its subdirectories, in whatever order the file system returned
+// them), and the SDK handed over the `**/*.nl` glob's item order, so moving a file into another
+// directory - or building on another file system - changed the assembly without changing a line.
+//
+// Every compilation reaches `MultiFileCompilerInputBuilder.Build` - the CLI's project and explicit
+// lists, the SDK task's item list, `nlc check`, the language server's unsaved-buffer overlays - so
+// this is the one place the order is decided, and both entry points agree by construction.
+//
+// THE KEY IS THE FILE'S NAME, THEN ITS PATH. Ordinal on the basename is what makes the order
+// independent of the directory a file lives in; the full path breaks a tie between two files that
+// share a name. All of a compilation's files sit under one project root, so ordering the full paths
+// orders their paths relative to that root, and the tie-break does not depend on where the checkout
+// is. A project whose basenames are unique - the compiler's own projects are held to that by
+// `tests/native/canonical-source-order` - is therefore ordered identically in any directory layout;
+// one that repeats a name is still ordered deterministically, by where each copy sits.
+class CanonicalSourceOrder {
+    static func Sort(sourceFiles: IReadOnlyList<string>): List<string> {
+        keys := new string[](sourceFiles.Count)
+        i := 0
+        while i < sourceFiles.Count {
+            keys[i] = Key(sourceFiles[i])
+            i = i + 1
+        }
+
+        Array.Sort(keys, 0, keys.Length, StringComparer.Ordinal)
+
+        ordered := new List<string>(keys.Length)
+        for key in keys {
+            ordered.Add(key.Substring(key.IndexOf('\0') + 1))
+        }
+
+        return ordered
+    }
+
+    // NUL sorts below every character a file name can hold, so comparing `name + NUL + path`
+    // ordinally is exactly comparing `(name, path)` - a name that is a prefix of another still sorts
+    // first - and no path can contain one, so the first NUL is the separator and the path after it
+    // is recovered whole.
+    static func Key(sourceFile: string): string {
+        return Path.GetFileName(sourceFile) + "\u0000" + sourceFile
+    }
+}
+
 class MultiFileCompilerInputs {
     SourceFiles: List<string>
     SourceTextOverrides: Dictionary<string, string>
@@ -96,7 +144,7 @@ class MultiFileCompilerInputBuilder {
         }
 
         dogfoodSourceFiles := new List<string>()
-        if SourceFileDeduplicator.TryDeduplicateOrdinalIgnoreCase(candidates, out dogfoodSourceFiles) {
+        if SourceFileDeduplicator.TryDeduplicateOrdinalIgnoreCase(CanonicalSourceOrder.Sort(candidates), out dogfoodSourceFiles) {
             return dogfoodSourceFiles
         }
 
