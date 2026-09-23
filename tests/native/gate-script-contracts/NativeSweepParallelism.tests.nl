@@ -64,8 +64,40 @@ test "a native project whose claim is about the machine, or that touches state o
     assert body.Contains("tests/native/reference-resolution)")
     assert body.Contains("tests/native/sdk-emit-path-parity)")
     assert body.Contains("tests/native/template-project-smoke)")
+    // Packs the in-repo SDK and Runtime, which builds Build.Tasks and the Runtime into the SHARED
+    // `src/*/obj` and `src/*/bin`: run beside the sibling that packs the same two projects, one row
+    // of its 28 failed with an MSBuild file lock.
+    assert body.Contains("tests/native/sdk-project-reference-boundary)")
     // Walks the whole working tree and counts what it finds there.
     assert body.Contains("tests/native/ownership-audit)")
+}
+
+test "the sweep packs the one private SDK feed itself, before any worker exists, and hands it to the projects that would otherwise each pack it" {
+    coreScript := SweepScript()
+
+    // The two packs, and the environment contract the three SDK-path projects read before packing
+    // anything themselves. Both packs must PRECEDE the first worker: the pack writes the shared
+    // `src/*/obj` and `src/*/bin`, so two of them overlapping is an MSBuild file lock.
+    runtimePack := coreScript.IndexOf("dotnet pack src/NSharpLang.Runtime/NSharpLang.Runtime.csproj -o \"$NATIVE_SDK_FEED\"")
+    sdkPack := coreScript.IndexOf("dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o \"$NATIVE_SDK_FEED\"")
+    exportFeed := coreScript.IndexOf("export NSHARP_SDK_PROJECT_REFERENCE_FEED=\"$NATIVE_SDK_FEED\"")
+    exportVersion := coreScript.IndexOf("export NSHARP_SDK_PROJECT_REFERENCE_VERSION=\"$NATIVE_SDK_FEED_VERSION\"")
+    firstWorker := coreScript.IndexOf("xargs -P 1 -I{} bash -lc \"$NATIVE_WORKER\"")
+
+    assert runtimePack >= 0, "Step 3a must pack the private Runtime package itself."
+    assert sdkPack >= 0, "Step 3a must pack the private SDK package itself."
+    assert exportFeed >= 0 && exportVersion >= 0, "Step 3a must export both halves of the feed contract; a feed without its version is not honored by any of the three projects."
+    assert firstWorker >= 0
+    assert runtimePack < firstWorker && sdkPack < firstWorker, "The shared feed must be packed BEFORE the first worker starts, which is the whole point: a pack that overlaps another pack takes an MSBuild file lock."
+
+    // A pack the step could not do is a failure of the step, never a sweep that quietly packs
+    // per project again.
+    assert coreScript.Contains("handle_error \"Native N# tests: shared private SDK feed\"")
+    assert coreScript.Contains("NATIVE_STEP_OK=0")
+
+    // A feed handed in from outside is honored and never deleted; only one this step packed is.
+    assert coreScript.Contains("if [ -z \"${NSHARP_SDK_PROJECT_REFERENCE_FEED:-}\" ] || [ -z \"${NSHARP_SDK_PROJECT_REFERENCE_VERSION:-}\" ]; then")
+    assert coreScript.Contains("if [ -n \"${NATIVE_SDK_FEED:-}\" ]; then")
 }
 
 test "the parallel sweep replays every project in discovery order, records what each one cost, and refuses a project whose worker left no result" {

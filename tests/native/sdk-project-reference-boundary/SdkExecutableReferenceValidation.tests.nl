@@ -30,7 +30,7 @@ test "an unrestored project announces its project.yml outputType and survives Va
     root := SdkBoundaryRepositoryRoot()
     scratch := SdkExecutableReferenceScratch(root)
     try {
-        sdkPackage := SdkBoundaryPreparePackage(root, scratch)
+        sdkPackage := SdkBoundaryPreparePackage(root)
         packagesCache := Path.Combine(scratch, "packages")
         libraryDirectory := Path.Combine(scratch, "Library")
         consumerDirectory := Path.Combine(scratch, "Consumer")

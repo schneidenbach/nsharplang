@@ -42,7 +42,7 @@ test "a project.yml nuget dependency reaches the emitter through the SDK and bin
     root := SdkBoundaryRepositoryRoot()
     scratch := IlSdkScratch(root, "package-reference")
     try {
-        sdkPackage := SdkBoundaryPreparePackage(root, scratch)
+        sdkPackage := SdkBoundaryPreparePackage(root)
         projectDirectory := Path.Combine(scratch, "SdkPackageRef")
         projectPath := IlSdkProject(projectDirectory, "SdkPackageRef", PackageReferenceProjectYaml(), sdkPackage)
         File.WriteAllText(Path.Combine(projectDirectory, "Program.nl"), PackageReferenceProgram())

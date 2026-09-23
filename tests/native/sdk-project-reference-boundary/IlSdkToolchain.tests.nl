@@ -60,7 +60,7 @@ test "dotnet build uses the IL backend through the SDK" {
     root := SdkBoundaryRepositoryRoot()
     scratch := IlSdkScratch(root, "build")
     try {
-        sdkPackage := SdkBoundaryPreparePackage(root, scratch)
+        sdkPackage := SdkBoundaryPreparePackage(root)
         projectDirectory := Path.Combine(scratch, "SdkIlBuild")
         projectPath := IlSdkProject(
             projectDirectory,
@@ -92,7 +92,7 @@ test "dotnet build resolves runtime for an anonymous union and an N# project ref
     root := SdkBoundaryRepositoryRoot()
     scratch := IlSdkScratch(root, "union-project-reference")
     try {
-        sdkPackage := SdkBoundaryPreparePackage(root, scratch)
+        sdkPackage := SdkBoundaryPreparePackage(root)
 
         libraryDirectory := Path.Combine(scratch, "UnionLib")
         libraryProject := IlSdkProject(
@@ -141,7 +141,7 @@ test "dotnet build keeps a SemVer package version and numeric CLR versions" {
     root := SdkBoundaryRepositoryRoot()
     scratch := IlSdkScratch(root, "semver")
     try {
-        sdkPackage := SdkBoundaryPreparePackage(root, scratch)
+        sdkPackage := SdkBoundaryPreparePackage(root)
         projectDirectory := Path.Combine(scratch, "SdkSemVerBuild")
         projectPath := IlSdkProject(
             projectDirectory,
@@ -173,7 +173,7 @@ test "dotnet run uses the IL backend through the SDK" {
     root := SdkBoundaryRepositoryRoot()
     scratch := IlSdkScratch(root, "run")
     try {
-        sdkPackage := SdkBoundaryPreparePackage(root, scratch)
+        sdkPackage := SdkBoundaryPreparePackage(root)
         projectDirectory := Path.Combine(scratch, "SdkIlRun")
         projectPath := IlSdkProject(
             projectDirectory,
@@ -195,7 +195,7 @@ test "dotnet test uses the IL backend through the SDK" {
     root := SdkBoundaryRepositoryRoot()
     scratch := IlSdkScratch(root, "tests")
     try {
-        sdkPackage := SdkBoundaryPreparePackage(root, scratch)
+        sdkPackage := SdkBoundaryPreparePackage(root)
         projectDirectory := Path.Combine(scratch, "SdkIlTests")
         projectPath := IlSdkProject(
             projectDirectory,

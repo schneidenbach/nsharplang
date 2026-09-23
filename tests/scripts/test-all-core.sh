@@ -548,6 +548,17 @@ else
             tests/native/gate-script-contracts) return 0 ;;
             # Real `dotnet` restores/builds against a package cache: keep them off each other.
             tests/native/compilation-backend) return 0 ;;
+            # `dotnet pack` of the in-repo `NSharpLang.Sdk` and `NSharpLang.Runtime` projects. That
+            # pack is not confined to its own output directory: the SDK project-references
+            # Build.Tasks and the Runtime and MSBuilds Build.Tasks for its `tools/` payload, so it
+            # WRITES the shared `src/*/obj` and `src/*/bin`. Run beside its neighbour in discovery
+            # order -- `tests/native/sdk-pack-symbol-contract`, which packs the same two projects --
+            # it lost one row of 28 to an MSBuild file lock. The project now packs once per process
+            # instead of once per row, and this step hands it a feed it packed itself, so under the
+            # gate it packs nothing at all - but a run that supplies no feed still packs, so the
+            # serial slot stays. With it here, nothing left in the parallel group packs an in-repo
+            # project even when the shared feed is unavailable.
+            tests/native/sdk-project-reference-boundary) return 0 ;;
             tests/native/nuget-resolution-fidelity) return 0 ;;
             tests/native/reference-resolution) return 0 ;;
             tests/native/sdk-emit-path-parity) return 0 ;;
@@ -627,6 +638,42 @@ if dotnet "$cli_dll" test --project "$native_dir" --no-cache --json \
 fi
 printf "%s|%s\n" "$native_status" "$(($(date +%s) - native_start))" > "$results_dir/$idx.result"
 '
+
+    # ONE PRIVATE SDK FEED FOR THE WHOLE SWEEP, PACKED BEFORE THE FIRST PROJECT RUNS.
+    #
+    # `tests/native/sdk-project-reference-boundary`, `tests/native/sdk-pack-symbol-contract` and
+    # `tests/native/sdk-emit-path-parity` each need a private feed holding this tree's
+    # `NSharpLang.Sdk` and `NSharpLang.Runtime`, and each builds one by running `dotnet pack` over
+    # the two in-repo projects. All three read `NSHARP_SDK_PROJECT_REFERENCE_FEED` and
+    # `NSHARP_SDK_PROJECT_REFERENCE_VERSION` FIRST, exactly so a runner that already packed one can
+    # hand it over - their fixtures say so in as many words.
+    #
+    # That pack is not confined to its own output directory: `NSharpLang.Sdk.csproj`
+    # project-references Build.Tasks and the Runtime and MSBuilds Build.Tasks for its `tools/`
+    # payload, so every pack WRITES the shared `src/*/obj` and `src/*/bin`. Two of them overlapping
+    # is an MSBuild file lock, and that is not hypothetical: the boundary project lost one row of 28
+    # to `System.IO.IOException: The process cannot access the file
+    # 'src/NSharpLang.Runtime/bin/Release/net10.0/NSharpLang.Runtime.deps.json' because it is being
+    # used by another process`. Packed once HERE - by the parent, before any worker exists - the
+    # pack cannot overlap anything, and the three projects stop paying for it three times.
+    #
+    # A feed supplied from outside is honored untouched; only a feed this step packed is deleted
+    # again below.
+    if [ -z "${NSHARP_SDK_PROJECT_REFERENCE_FEED:-}" ] || [ -z "${NSHARP_SDK_PROJECT_REFERENCE_VERSION:-}" ]; then
+        NATIVE_SDK_FEED=$(mktemp -d)
+        NATIVE_SDK_FEED_VERSION="0.1.0-nativesweep$(date +%s)-$$"
+        if dotnet pack src/NSharpLang.Runtime/NSharpLang.Runtime.csproj -o "$NATIVE_SDK_FEED" \
+                -p:Version=0.1.0 $DOTNET_STABLE_FLAGS -v q \
+            && dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o "$NATIVE_SDK_FEED" \
+                -p:Version="$NATIVE_SDK_FEED_VERSION" $DOTNET_STABLE_FLAGS -v q; then
+            export NSHARP_SDK_PROJECT_REFERENCE_FEED="$NATIVE_SDK_FEED"
+            export NSHARP_SDK_PROJECT_REFERENCE_VERSION="$NATIVE_SDK_FEED_VERSION"
+            handle_success "Native N# tests: shared private SDK feed"
+        else
+            handle_error "Native N# tests: shared private SDK feed"
+            NATIVE_STEP_OK=0
+        fi
+    fi
 
     if [ -z "$NATIVE_PROJECTS" ]; then
         handle_error "Native N# tests (no projects found)"
@@ -714,6 +761,12 @@ printf "%s|%s\n" "$native_status" "$(($(date +%s) - native_start))" > "$results_
         done < "$NATIVE_LIST"
 
         rm -rf "$NATIVE_RESULTS_DIR"
+    fi
+
+    # Only a feed this step packed itself: a supplied one belongs to the caller.
+    if [ -n "${NATIVE_SDK_FEED:-}" ]; then
+        rm -rf "$NATIVE_SDK_FEED"
+        unset NSHARP_SDK_PROJECT_REFERENCE_FEED NSHARP_SDK_PROJECT_REFERENCE_VERSION NATIVE_SDK_FEED
     fi
 
     if [ "$NATIVE_STEP_OK" = "1" ]; then
