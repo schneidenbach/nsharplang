@@ -107,7 +107,32 @@
        property keeps the obj layout it has today. It must be set before the base SDK's props
        decide `MSBuildProjectExtensionsPath`, hence this position; `obj/project.g.props` above is
        imported by literal path and is written by `nlc restore` for both configurations alike. -->
-  <PropertyGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpExcludeTests)' == 'false' And '$(BaseIntermediateOutputPath)' == ''">
+  <!-- THE TESTS-INCLUDED FLAG NAMES ONE PROJECT: THE ONE BEING TESTED.
+       `-p:NSharpExcludeTests=false` is a GLOBAL property, and MSBuild hands every global property down
+       the whole `ProjectReference` closure - into NuGet's restore walk as well as the build - so every
+       project the tested one references used to build tests-included too: its `.tests.nl` compiled
+       into the assembly the dependent references, test framework packages restored for it, and one
+       more `Program` holder emitted for any namespace its tests declare free functions in. Split
+       Compiler.Core into projects that share an estate namespace and that is CS0433 across the slices.
+       A dependent compiles against what its dependency SHIPS, never against a tests-included variant;
+       that is also what `nlc test` does, which builds `project:` references product-only.
+
+       So the project the flag was given to records itself as `_NSharpTestedProject`, and passes that
+       name to everything it references: to the build through each `ProjectReference`'s
+       `AdditionalProperties` and to the restore walk through `_GenerateRestoreGraphProjectEntryInputProperties`
+       (both in Sdk.targets). A project that receives a name other than its own is a REFERENCE of the
+       tested project and builds product-only - `@(NSharpTestFiles)` stays empty and its intermediate
+       tree stays `obj/` - in restore and build alike, so the two phases agree on where its assets are.
+       Without the flag nothing is recorded or passed, and every build is exactly what it was. This must
+       precede the intermediate-tree discriminator below, which is why it sits here. -->
+  <PropertyGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpExcludeTests)' == 'false' And '$(_NSharpTestedProject)' == ''">
+    <_NSharpTestedProject>$(MSBuildProjectFullPath)</_NSharpTestedProject>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(_NSharpTestedProject)' != '' And '$(_NSharpTestedProject)' != '$(MSBuildProjectFullPath)'">
+    <_NSharpReferencedByTestedProject>true</_NSharpReferencedByTestedProject>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpExcludeTests)' == 'false' And '$(_NSharpReferencedByTestedProject)' != 'true' And '$(BaseIntermediateOutputPath)' == ''">
     <BaseIntermediateOutputPath>obj/tests-included/</BaseIntermediateOutputPath>
   </PropertyGroup>
 

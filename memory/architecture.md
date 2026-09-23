@@ -207,5 +207,18 @@ dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll test --project tests/native/
 There is no C# unit suite: `tests/*.cs` and `tests/Tests.csproj` are retired. Every assertion lives
 either in the estate or in a `tests/native/<dir>` project, which is what the gate's Step 3a runs.
 
+`-p:NSharpExcludeTests=false` applies to the project it is given to and to nothing it references.
+MSBuild passes a global property down the whole `ProjectReference` closure, restore walk included,
+so the SDK records the tested project as `_NSharpTestedProject` (Sdk.props) and hands that name to
+its references through `AdditionalProperties` and the restore walk's property list (Sdk.targets); a
+project that receives another project's name builds product-only - no `@(NSharpTestFiles)`, the
+ordinary `obj/` in both phases - which is what `nlc test` already does for `project:` references.
+Without the flag nothing is recorded or passed. `tests/native/sdk-reference-incrementality`
+(`TestsIncludedScope.tests.nl`) builds an A -> B pair whose tests share a namespace and pins that B
+ships no test type and no second `Program` holder, with B-tested-directly as the control;
+`tests/native/census-free-function-identity` (`ShippedHolders.tests.nl`) holds every assembly an
+SDK's `tools/` ships - the committed seed, or the one `NSHARP_BOOTSTRAP_DIR` names, and this tree's
+next payload - to one holder per namespace, none empty.
+
 Use `./scripts/dev.sh <pattern>` for focused backend/compiler iteration and the appropriate
 `./scripts/test-all.sh --commit` gate at integration checkpoints, as described in `AGENTS.md`.

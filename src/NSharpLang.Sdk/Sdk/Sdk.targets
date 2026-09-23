@@ -103,9 +103,25 @@
     <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl;**/obj/**;**/bin/**" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpExcludeTests)' != 'true'">
+  <!-- A reference of the tested project compiles product-only (Sdk.props, `_NSharpTestedProject`). -->
+  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpExcludeTests)' != 'true' And '$(_NSharpReferencedByTestedProject)' != 'true'">
     <NSharpTestFiles Include="**/*.tests.nl" Exclude="**/obj/**;**/bin/**" />
   </ItemGroup>
+
+  <!-- THE TESTED PROJECT'S NAME TRAVELS WITH ITS REFERENCES, in both phases that walk them (Sdk.props
+       says why). An item definition reaches every `ProjectReference` that does not spell its own
+       `AdditionalProperties`, including the ones `LoadProjectReferences` synthesizes from project.yml
+       inside a target, which carry no metadata at all. NuGet's restore walk passes no per-reference
+       metadata at all - only this one property list, to every project it evaluates - so the name rides
+       there too; the tested project reads its own name back and stays tests-included. -->
+  <ItemDefinitionGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(_NSharpTestedProject)' != ''">
+    <ProjectReference>
+      <AdditionalProperties>%(AdditionalProperties);_NSharpTestedProject=$(_NSharpTestedProject)</AdditionalProperties>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <PropertyGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(_NSharpTestedProject)' != ''">
+    <_GenerateRestoreGraphProjectEntryInputProperties>$(_GenerateRestoreGraphProjectEntryInputProperties);_NSharpTestedProject=$(_NSharpTestedProject)</_GenerateRestoreGraphProjectEntryInputProperties>
+  </PropertyGroup>
 
   <!-- Add test framework dependencies when test files exist (done in a target so NuGet restore sees them) -->
   <Target Name="AddNSharpTestDependencies" BeforeTargets="CollectPackageReferences" Condition="'$(EnableNSharpCompilation)' == 'true'">
