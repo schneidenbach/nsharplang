@@ -190,9 +190,18 @@ class NullabilityMetadataCore {
     }
 
     static func FormatParameter(isOut: bool, isByRef: bool, isParams: bool, attributePrefix: string, typeName: string, parameterName: string?): string {
+        return FormatParameter(isOut, isByRef, false, isParams, attributePrefix, typeName, parameterName)
+    }
+
+    // `isIn` IS ASKED BEFORE `isByRef`, because an `in` parameter IS a by-reference one: reading only
+    // the by-ref bit rendered every external `in` parameter as `ref` in hover and in signature help,
+    // which told the reader to write a word the callee does not want.
+    static func FormatParameter(isOut: bool, isByRef: bool, isIn: bool, isParams: bool, attributePrefix: string, typeName: string, parameterName: string?): string {
         modifier := ""
         if isOut {
             modifier = "out "
+        } else if isIn {
+            modifier = "in "
         } else if isByRef {
             modifier = "ref "
         } else if isParams {

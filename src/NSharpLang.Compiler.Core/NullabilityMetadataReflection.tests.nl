@@ -443,6 +443,20 @@ test "flow attributes are formatted ahead of the parameter modifier" {
     assert NullabilityMetadataReflection.FormatParameter(tryGetValue.GetParameters()[0]) == "string key"
 }
 
+test "an `in` parameter renders `in`, not `ref` — hover must not ask for a word the callee refuses" {
+    // `Volatile.Read(in int)`. An `in` parameter is by-ref with `IsOut` false, so rendering off the
+    // by-ref bit alone printed `ref int location` and told the reader to write a word that does not
+    // compile against this signature.
+    readTypes := new Type[](1)
+    readTypes[0] = typeof(int).MakeByRefType()
+    volatileRead := typeof(System.Threading.Volatile).GetMethod("Read", readTypes)
+    assert volatileRead != null
+
+    rendered := NullabilityMetadataReflection.FormatParameter(volatileRead.GetParameters()[0])
+    assert rendered.StartsWith("in ")
+    assert !rendered.StartsWith("ref ")
+}
+
 test "a params parameter is recognised through its attribute, not its array shape" {
     concat := NullabilityMethodByParameterType(typeof(string), "Concat", typeof(string[]))
     paramsParameter := concat.GetParameters()[0]

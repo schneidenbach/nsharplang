@@ -954,6 +954,97 @@ class AnalyzerWriteTargets {
         return true
     }
 
+    // AN `in` PARAMETER, WRITTEN TO — NL309. `in` is a READ-ONLY reference: the callee borrows the
+    // caller's storage and promises not to change it, and `[IsReadOnly]` on the parameter is the
+    // promise every consumer reads. Writing through it would break that for the caller, silently, at
+    // a distance — so it is refused rather than turned into a copy.
+    //
+    // Only a BARE NAME answers, and only the CURRENT function's parameter list is asked. Writing to a
+    // MEMBER of an `in` parameter (`value.A = 1`) is the same violation and is refused by the same
+    // rule, through `ReportInParameterMemberWriteIfNeeded` below; writing to an unrelated name that
+    // merely shares a spelling with an outer function's `in` parameter is not this rule's business.
+    func ReportInParameterWriteIfNeeded(target: Expression, action: string): bool {
+        parenthesized := target as ParenthesizedExpression
+        if parenthesized != null {
+            return ReportInParameterWriteIfNeeded(parenthesized.Inner, action)
+        }
+
+        identifier := target as IdentifierExpression
+        if identifier == null {
+            return false
+        }
+
+        if !IsInParameterName(identifier.Name) {
+            return false
+        }
+
+        span := spansValue.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column)
+        diagnosticsValue.Report(ErrorCode.ReadonlyAssignment, "The `in` parameter '" + identifier.Name + "' is a read-only reference — it can't be " + action, span.Line, span.Column, "An `in` parameter borrows the caller's storage and promises not to write to it. Copy it into a local first, or declare the parameter `ref` if the callee is meant to change what the caller passed.", span.Length)
+        return true
+    }
+
+    // The MEMBER form of the same rule: `value.Field = 1` where `value` is an `in` parameter writes
+    // through the borrowed reference just as surely as assigning the name would. Only a member whose
+    // receiver is the bare parameter name answers; a member of a COPY taken from it is an ordinary
+    // write to that copy.
+    func ReportInParameterMemberWriteIfNeeded(target: Expression, action: string): bool {
+        parenthesized := target as ParenthesizedExpression
+        if parenthesized != null {
+            return ReportInParameterMemberWriteIfNeeded(parenthesized.Inner, action)
+        }
+
+        member := target as MemberAccessExpression
+        if member == null {
+            return false
+        }
+
+        receiver := member.Object as IdentifierExpression
+        if receiver == null || !IsInParameterName(receiver.Name) {
+            return false
+        }
+
+        span := spansValue.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column)
+        diagnosticsValue.Report(ErrorCode.ReadonlyAssignment, "'" + member.MemberName + "' belongs to the `in` parameter '" + receiver.Name + "', which is a read-only reference — it can't be " + action, span.Line, span.Column, "An `in` parameter borrows the caller's storage and promises not to write to it. Copy it into a local first, or declare the parameter `ref` if the callee is meant to change what the caller passed.", span.Length)
+        return true
+    }
+
+    // Whether `name` is an `in` parameter of the function whose body is being analysed. A LAMBDA or a
+    // local function inside that body cannot capture a by-reference parameter at all, so there is no
+    // nesting case for this to get wrong: the capture ban has already reported it.
+    func IsInParameterName(name: string): bool {
+        declaration := ambientValue.CurrentFunction
+        if declaration == null {
+            return false
+        }
+
+        for parameter in declaration.Parameters {
+            if parameter.Name == name {
+                return parameter.Modifier == ParameterModifier.In
+            }
+        }
+
+        return false
+    }
+
+    // AN `in` PARAMETER PASSED AS A `ref` OR AN `out` ARGUMENT — the ESCAPE form. A read-only
+    // reference cannot be handed on as a writable one; doing so would let the callee's callee write
+    // what this callee promised not to.
+    func ReportInParameterRefOutArgumentIfNeeded(target: Expression, modifier: string): bool {
+        parenthesized := target as ParenthesizedExpression
+        if parenthesized != null {
+            return ReportInParameterRefOutArgumentIfNeeded(parenthesized.Inner, modifier)
+        }
+
+        identifier := target as IdentifierExpression
+        if identifier == null || !IsInParameterName(identifier.Name) {
+            return false
+        }
+
+        span := spansValue.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column)
+        diagnosticsValue.Report(ErrorCode.ReadonlyAssignment, "The `in` parameter '" + identifier.Name + "' is a read-only reference — it can't be used as a " + modifier + " argument", span.Line, span.Column, "Copy it into a local and pass that instead, or declare the parameter `ref` if the callee is meant to change what the caller passed.", span.Length)
+        return true
+    }
+
     // THE ASSIGNMENT FORM. A static readonly field can only ever be initialized at its declaration; an
     // instance one may be assigned by its OWN constructor, and the wording differs between "you are
     // not in a constructor" and "you are in a constructor but this is somebody else's instance",

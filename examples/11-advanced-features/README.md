@@ -11,6 +11,7 @@ This layout keeps the examples isolated from each other so they build, run, and 
 - `ExceptionFilters` - `catch ... when` guards, and the two-pass ordering that makes them more than sugar
 - `FileScopedSimple` - a small file-scoped type example
 - `FileScopedTypes` - a larger file-scoped type example with internal helper types
+- `InParameters` - `in` parameters: read-only by reference, and when to reach for one
 - `InterpolatedRawStrings` - interpolated raw string literals
 - `LockStatement` - thread-safe code with `lock`
 - `OperatorOverloading` - operator overload declarations

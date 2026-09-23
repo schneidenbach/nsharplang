@@ -51,6 +51,14 @@ class ColumnarDirectCallArgumentFacts {
     // compared against.
     IsByRefArgument: bool[]
 
+    // WHETHER THAT WORD WAS `in`. It is a separate column because the three directions are not
+    // interchangeable at a call site: `ref` and `out` must be written and must match, while `in` may be
+    // written or omitted and may NOT be substituted for either of the other two. A single bool cannot
+    // say which of three words was used, and getting that wrong would let `f(ref x)` bind an `in`
+    // parameter — which C# refuses (CS1615) for a reason: the callee promised not to write, and the
+    // caller wrote a word that says it expects a write.
+    IsInArgument: bool[]
+
     // AN ARRAY LITERAL WHOSE ELEMENTS ARE ALL UNSUFFIXED INTEGER CONSTANTS, and the widest constant it
     // wrote in each direction. `[0]` has the provisional type `int[]` and no element of its own that a
     // TYPE-to-TYPE score can look at, so `sha.TransformBlock([0], 0, 1, null, 0)` scored -1 against
@@ -91,6 +99,7 @@ class ColumnarDirectCallArgumentFacts {
         IntegerLiteralValues = integerLiteralValues
         IsNullLiteral = new bool[](isUnsuffixedIntegerLiteral.Length)
         IsByRefArgument = new bool[](isUnsuffixedIntegerLiteral.Length)
+        IsInArgument = new bool[](isUnsuffixedIntegerLiteral.Length)
         IsIntegerConstantArrayLiteral = new bool[](isUnsuffixedIntegerLiteral.Length)
         ArrayLiteralMinimumValues = new long[](isUnsuffixedIntegerLiteral.Length)
         ArrayLiteralMaximumValues = new long[](isUnsuffixedIntegerLiteral.Length)
@@ -481,7 +490,7 @@ class ColumnarSourceDirectCallResolver {
                 if IsCallableInstanceMethod(root, owner, accessingDefinition, sameAssembly, candidate, receiverIsAccessingInstance) {
                     parameters := ResolveParameterTypes(candidate.ParamTypes, receiverType, closed)
 
-                    score := ArgumentsScoreWithFacts(parameters, argumentTypes, argumentFacts)
+                    score := ArgumentsScoreWithFacts(parameters, argumentTypes, argumentFacts, candidate.ParamModifierKinds)
                     if score > bestScore {
                         bestScore = score
                         compatibleCount = 1
@@ -584,7 +593,7 @@ class ColumnarSourceDirectCallResolver {
                 if IsCallableStaticMethod(owner, accessingDefinition, sameAssembly, candidate) {
                     parameters := ResolveParameterTypes(candidate.ParamTypes, ownerType, closed)
 
-                    score := ArgumentsScoreWithFacts(parameters, argumentTypes, argumentFacts)
+                    score := ArgumentsScoreWithFacts(parameters, argumentTypes, argumentFacts, candidate.ParamModifierKinds)
                     if score > bestScore {
                         bestScore = score
                         compatibleCount = 1
@@ -764,10 +773,15 @@ class ColumnarSourceDirectCallResolver {
         return false
     }
 
+    // `in` IS NOT AN UNSUPPORTED MODIFIER. This gate exists to keep shapes the ordinary resolver has no
+    // lowering for out of it; a read-only by-reference parameter has one — the same address load an
+    // ordinary `ref` argument uses — so excluding it would make every `in` overload invisible for no
+    // reason, which is the defect `ColumnarOrdinaryRuntimeDirectCallResolver` already records about
+    // asking one predicate two questions.
     static func HasUnsupportedModifiers(modifierKinds: int[]): bool {
         index := 0
         while index < modifierKinds.Length {
-            if modifierKinds[index] != 0 {
+            if modifierKinds[index] != 0 && modifierKinds[index] != 5 {
                 return true
             }
 
@@ -1084,6 +1098,15 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ArgumentsScoreWithFacts(expected: Type[], actual: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        return ArgumentsScoreWithFacts(expected, actual, argumentFacts, new int[](0))
+    }
+
+    // `expectedModifierKinds` IS WHAT SEPARATES `in` FROM `ref`, AND NOTHING ELSE CAN. Both are `&T` in
+    // the signature, so a scorer given only types cannot tell a read-only reference from a writable
+    // one — and the call-site rule differs: `ref`/`out` must be written at the call, `in` must not be
+    // required there. An EMPTY column means "ask the types alone", which is what every caller that has
+    // no declaration behind it passes, so no candidate that scores today scores differently.
+    static func ArgumentsScoreWithFacts(expected: Type[], actual: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedModifierKinds: int[]): int {
         if expected.Length != actual.Length {
             return -1
         }
@@ -1094,14 +1117,34 @@ class ColumnarSourceDirectCallResolver {
         index := 0
         while index < expected.Length {
 
-            // A `ref`/`out` PARAMETER AND A `ref`/`out` ARGUMENT MUST AGREE, AND EXACTLY. The argument
+            // A BY-REFERENCE POSITION ON EITHER SIDE MAKES THIS A BY-REFERENCE MATCH. The argument
             // aliases the caller's storage, so there is no conversion to make: the parameter's element
-            // type has to BE the storage's type, and the two spellings must match in both directions —
-            // `f(x)` may not bind a `ref` parameter and `f(ref x)` may not bind an ordinary one. A
-            // match is scored as the exact identity it is.
+            // type has to BE the storage's type. A `ref`/`out`/`in` ARGUMENT never binds a by-value
+            // parameter — `f(ref x)` may not bind an ordinary one — and the three directions' own
+            // call-site rules are read immediately below, because they are not the same rule.
             if expected[index].get_IsByRef() || argumentFacts.IsByRefArgument[index] {
-                if !expected[index].get_IsByRef() || !argumentFacts.IsByRefArgument[index] {
+                if !expected[index].get_IsByRef() {
                     return -1
+                }
+
+                // THE THREE DIRECTIONS, EACH WITH ITS OWN CALL-SITE RULE.
+                //
+                // `in` is the one by-reference position the caller need not spell: the reference is
+                // read-only, so the caller is not being told its storage may change and there is
+                // nothing for a word to warn about. It may be written `in`, or omitted.
+                //
+                // `ref` and `out` must be written, and `in` may NOT stand in for either — nor either
+                // for `in`. A caller that writes `ref` is asking for a writable alias, and an `in`
+                // parameter is not one; C# refuses the pair for exactly that reason.
+                expectsReadOnlyByRef := index < expectedModifierKinds.Length && expectedModifierKinds[index] == 5
+                if expectsReadOnlyByRef {
+                    if argumentFacts.IsByRefArgument[index] && !argumentFacts.IsInArgument[index] {
+                        return -1
+                    }
+                } else {
+                    if !argumentFacts.IsByRefArgument[index] || argumentFacts.IsInArgument[index] {
+                        return -1
+                    }
                 }
 
                 byRefElement := expected[index].GetElementType()
@@ -1109,7 +1152,15 @@ class ColumnarSourceDirectCallResolver {
                     return -1
                 }
 
-                score += 8
+                // A WRITTEN `in` OUTSCORES AN OMITTED ONE, so a call that says what it means is never
+                // ambiguous with one that does not, and a BY-VALUE overload still beats an omitted
+                // `in` — passing by value is what an unadorned argument asks for.
+                if argumentFacts.IsByRefArgument[index] {
+                    score += 8
+                } else {
+                    score += 3
+                }
+
                 index += 1
                 continue
             }
@@ -1177,7 +1228,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ValidateArgumentFacts(argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts) {
-        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length {
+        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsInArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.ArgumentNodes == null || argumentFacts.WrittenOrderSlots == null || argumentFacts.ArgumentNodes.Length != argumentTypes.Length || argumentFacts.WrittenOrderSlots.Length != argumentTypes.Length || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsInArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument types.")
         }
 
@@ -1620,9 +1671,14 @@ class ColumnarSourceDirectCallResolver {
             }
 
             if modifierKinds.Length != 0 {
+                // 0 none, 1 ref, 2 out, 3 params, 4 the extension `this`, 5 `in`.
                 modifier := modifierKinds[index]
-                if modifier < 0 || modifier > 4 {
+                if modifier < 0 || modifier > 5 {
                     throw new InvalidOperationException("Source direct-call parameter modifier fact is invalid.")
+                }
+
+                if modifier == 5 && !parameterTypes[index].get_IsByRef() {
+                    throw new InvalidOperationException("An in source-call fact must describe a by-reference parameter.")
                 }
 
                 if modifier == 3 && (index != parameterTypes.Length - 1 || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameterTypes[index])) {

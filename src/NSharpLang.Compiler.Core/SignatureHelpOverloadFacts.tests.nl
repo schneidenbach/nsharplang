@@ -14,6 +14,31 @@ func ShoParameter(name: string, typeName: string): Parameter {
     return new Parameter(name, new SimpleTypeReference(typeName, 1, 1), null, false)
 }
 
+func ShoModifiedParameter(name: string, typeName: string, modifier: ParameterModifier): Parameter {
+    return new Parameter(name, new SimpleTypeReference(typeName, 1, 1), null, false, modifier, null, 1, 1)
+}
+
+// A PARAMETER'S DIRECTION IS PART OF ITS LABEL. Signature help exists to tell a caller what to write,
+// and the label used to be name-and-type alone — so it said nothing about the one thing the caller has
+// to get right: `ref` and `out` must be spelled at the call, `in` may be, and a `params` tail takes
+// any number of arguments.
+test "a parameter label carries the direction the caller has to write" {
+    parameters := new List<Parameter>()
+    parameters.Add(ShoModifiedParameter("plain", "int", ParameterModifier.None))
+    parameters.Add(ShoModifiedParameter("byRef", "int", ParameterModifier.Ref))
+    parameters.Add(ShoModifiedParameter("written", "int", ParameterModifier.Out))
+    parameters.Add(ShoModifiedParameter("borrowed", "int", ParameterModifier.In))
+    parameters.Add(ShoModifiedParameter("rest", "int[]", ParameterModifier.Params))
+
+    labels := SignatureHelpOverloadFacts.ParameterLabels(parameters)
+    assert labels.Count == 5
+    assert labels[0] == "plain: int"
+    assert labels[1] == "ref byRef: int"
+    assert labels[2] == "out written: int"
+    assert labels[3] == "in borrowed: int"
+    assert labels[4] == "params rest: int[]"
+}
+
 func ShoFunction(name: string, parameters: List<Parameter>, returnTypeName: string?): FunctionDeclaration {
     returnType: TypeReference? = null
     if returnTypeName != null {

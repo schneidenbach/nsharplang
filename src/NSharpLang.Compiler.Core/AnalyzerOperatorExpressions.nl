@@ -1021,6 +1021,10 @@ class AnalyzerOperatorExpressions {
             return null
         }
 
+        if writeTargetsValue.ReportInParameterWriteIfNeeded(operand, "changed with '" + UnarySymbolText(unaryNode.Operator) + "'") || writeTargetsValue.ReportInParameterMemberWriteIfNeeded(operand, "changed with '" + UnarySymbolText(unaryNode.Operator) + "'") {
+            return null
+        }
+
         state.ResultType = UnaryOperatorResult(state.OperandType, unaryNode)
         return null
     }

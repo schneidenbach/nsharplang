@@ -326,13 +326,43 @@ class SignatureHelpOverloadFacts {
         return new SignatureHelpOverload(FormatLabel(name, parameterLabels, TypeReferenceFacts.GetDisplayNameOrVoid(function.ReturnType)), LeadingDocumentation(sourceUnit, function.Line), parameterLabels)
     }
 
+    // A PARAMETER'S DIRECTION IS PART OF ITS LABEL, because it is part of what the caller has to write.
+    // The label used to be name-and-type alone, which told a reader nothing about the one thing
+    // signature help exists to tell them: `ref` and `out` must be spelled at the call and `in` may be.
     static func ParameterLabels(parameters: List<Parameter>): List<string> {
         labels := new List<string>()
         for parameter in parameters {
-            labels.Add(parameter.Name + ": " + TypeReferenceFacts.GetDisplayNameOrVoid(parameter.Type))
+            labels.Add(ParameterModifierText(parameter) + parameter.Name + ": " + TypeReferenceFacts.GetDisplayNameOrVoid(parameter.Type))
         }
 
         return labels
+    }
+
+    // The word a parameter is written with, with its trailing space, or the empty spelling. `this` comes
+    // first when both are present, exactly as the declaration writes them.
+    static func ParameterModifierText(parameter: Parameter): string {
+        prefix := ""
+        if parameter.IsThis {
+            prefix = "this "
+        }
+
+        if parameter.Modifier == ParameterModifier.Ref {
+            return prefix + "ref "
+        }
+
+        if parameter.Modifier == ParameterModifier.Out {
+            return prefix + "out "
+        }
+
+        if parameter.Modifier == ParameterModifier.In {
+            return prefix + "in "
+        }
+
+        if parameter.Modifier == ParameterModifier.Params {
+            return prefix + "params "
+        }
+
+        return prefix
     }
 
     static func FormatLabel(name: string, parameterLabels: List<string>, returnText: string): string {

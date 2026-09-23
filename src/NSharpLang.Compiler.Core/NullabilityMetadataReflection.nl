@@ -125,7 +125,7 @@ class NullabilityMetadataReflection {
         attributePrefix := FormatFlowAttributes(parameter.GetCustomAttributesData())
         typeName := FormatTypeInfo(ConvertParameterWithOverride(parameter, typeOverride))
         parameterType := parameter.get_ParameterType()
-        return NullabilityMetadataCore.FormatParameter(parameter.get_IsOut(), parameterType.get_IsByRef(), IsParamsParameter(parameter), attributePrefix, typeName, parameter.get_Name())
+        return NullabilityMetadataCore.FormatParameter(parameter.get_IsOut(), parameterType.get_IsByRef(), parameterType.get_IsByRef() && parameter.get_IsIn(), IsParamsParameter(parameter), attributePrefix, typeName, parameter.get_Name())
     }
 
     static func FormatReturnType(method: MethodInfo): string {

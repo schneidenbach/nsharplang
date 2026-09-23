@@ -61,6 +61,13 @@ class EditorRenameGuardFacts {
             return true
         }
 
+        // `in` is the `for x in xs` keyword AND the read-only by-reference parameter modifier. It was
+        // missing from this guard while it was only the former, which was already wrong: a rename to a
+        // reserved word cannot be applied.
+        if word == "in" {
+            return true
+        }
+
         if word == "false" || word == "null" || word == "is" || word == "as" || word == "typeof" {
             return true
         }

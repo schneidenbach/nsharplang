@@ -537,6 +537,7 @@ class ColumnarDirectCallPlanner {
         targetFacts.IntegerLiteralValues[targetIndex] = sourceFacts.IntegerLiteralValues[sourceIndex]
         targetFacts.IsNullLiteral[targetIndex] = sourceFacts.IsNullLiteral[sourceIndex]
         targetFacts.IsByRefArgument[targetIndex] = sourceFacts.IsByRefArgument[sourceIndex]
+        targetFacts.IsInArgument[targetIndex] = sourceFacts.IsInArgument[sourceIndex]
         targetFacts.IsIntegerConstantArrayLiteral[targetIndex] = sourceFacts.IsIntegerConstantArrayLiteral[sourceIndex]
         targetFacts.ArrayLiteralMinimumValues[targetIndex] = sourceFacts.ArrayLiteralMinimumValues[sourceIndex]
         targetFacts.ArrayLiteralMaximumValues[targetIndex] = sourceFacts.ArrayLiteralMaximumValues[sourceIndex]
@@ -614,6 +615,7 @@ class ColumnarDirectCallPlanner {
         copy.IntegerLiteralValues[0] = sourceFacts.IntegerLiteralValues[index]
         copy.IsNullLiteral[0] = sourceFacts.IsNullLiteral[index]
         copy.IsByRefArgument[0] = sourceFacts.IsByRefArgument[index]
+        copy.IsInArgument[0] = sourceFacts.IsInArgument[index]
         copy.IsIntegerConstantArrayLiteral[0] = sourceFacts.IsIntegerConstantArrayLiteral[index]
         copy.ArrayLiteralMinimumValues[0] = sourceFacts.ArrayLiteralMinimumValues[index]
         copy.ArrayLiteralMaximumValues[0] = sourceFacts.ArrayLiteralMaximumValues[index]
@@ -3281,7 +3283,10 @@ class ColumnarDirectCallPlanner {
         slotLocals := new int[](parameterTypes.Length)
         guard := 0
         while guard < parameterTypes.Length {
-            if parameterTypes[guard] == null || argumentFacts.IsByRefArgument[guard] != parameterTypes[guard].get_IsByRef() {
+            // An EXPLICIT `ref`/`out` on a by-value parameter is still refused; the reverse — a
+            // by-reference parameter reached by a plain argument — is the omitted `in`, and overload
+            // resolution has already proved it is one.
+            if parameterTypes[guard] == null || (argumentFacts.IsByRefArgument[guard] && !parameterTypes[guard].get_IsByRef()) {
                 return false
             }
 
@@ -3328,8 +3333,12 @@ class ColumnarDirectCallPlanner {
         // node over the name, and what goes on the stack is the name's managed address, so this
         // arm bypasses the value walk entirely — there is no conversion to apply and no temporary
         // to make, because either would alias something the caller cannot see.
-        if argumentFacts.IsByRefArgument[index] {
-            byRefTarget := ByRefArgumentTarget(nodes, source, argumentNode)
+        // AN OMITTED `in` REACHES THE SAME ARM. A by-reference parameter whose argument carries no
+        // modifier word can only be an `in`: overload resolution refuses a plain argument for a `ref`
+        // or an `out`, so by the time a call is being planned the pairing has already been proved. What
+        // goes on the stack is the same managed address either spelling produces.
+        if argumentFacts.IsByRefArgument[index] || parameterTypes[index].get_IsByRef() {
+            byRefTarget := argumentFacts.IsByRefArgument[index] ? ByRefArgumentTarget(nodes, source, argumentNode) : ColumnarPlannerSupport.UnwrapParentheses(nodes, argumentNode)
             byRefElement := typeof(int)
             if byRefTarget < 0 || !parameterTypes[index].get_IsByRef() || !ColumnarBoundIdentifierPlanner.TryAppendAddressOf(nodes, source, byRefTarget, bindings, plan, out byRefElement) {
                 return false
@@ -3603,6 +3612,7 @@ class ColumnarDirectCallPlanner {
 
                 argumentTypes[index] = byRefStorageType
                 argumentFacts.IsByRefArgument[index] = true
+                argumentFacts.IsInArgument[index] = IsInArgumentNode(nodes, source, argumentNode)
                 index += 1
                 continue
             }
@@ -3651,11 +3661,22 @@ class ColumnarDirectCallPlanner {
         }
 
         modifier := nodes.Text(source, argumentNode)
-        if modifier != "ref" && modifier != "out" {
+        if modifier != "ref" && modifier != "out" && modifier != "in" {
             return -1
         }
 
         return nodes.Child(argumentNode, 0)
+    }
+
+    // Whether the modifier word on a by-reference argument is `in`. Asked beside `ByRefArgumentTarget`
+    // rather than folded into it, because the two answer different questions: one is "is there storage
+    // here", the other is "which direction did the caller ask for".
+    static func IsInArgumentNode(nodes: ColumnarNodeTable, source: string, argumentNode: int): bool {
+        if argumentNode < 0 || argumentNode >= nodes.Kinds.Length || nodes.Kind(argumentNode) != 54 || nodes.ChildCount(argumentNode) != 1 {
+            return false
+        }
+
+        return nodes.Text(source, argumentNode) == "in"
     }
 
     static func TryGetTargetTypedIntegerArgumentValue(nodes: ColumnarNodeTable, source: string, node: int, out value: long, out isNegative: bool): bool {

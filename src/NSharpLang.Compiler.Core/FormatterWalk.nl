@@ -280,6 +280,12 @@ class FormatterWalk {
             builder.Append("ref ")
         } else if argument.Modifier == ArgumentModifier.Out {
             builder.Append("out ")
+        } else if argument.Modifier == ArgumentModifier.In {
+            // A WRITTEN `in` IS KEPT, NOT DROPPED. It is optional at a call site, so removing it would
+            // still compile — and that is exactly why it must survive: the word is the author saying
+            // this argument is passed by reference, and a formatter that deletes it deletes a fact
+            // about the call rather than a redundancy.
+            builder.Append("in ")
         }
 
         FormatExpression(argument.Value, builder)
@@ -592,6 +598,8 @@ class FormatterWalk {
             builder.Append("ref ")
         } else if parameter.Modifier == ParameterModifier.Out {
             builder.Append("out ")
+        } else if parameter.Modifier == ParameterModifier.In {
+            builder.Append("in ")
         } else if parameter.Modifier == ParameterModifier.Params {
             builder.Append("params ")
         }

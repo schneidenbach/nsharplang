@@ -132,6 +132,15 @@ func FwkStatementText(statement: Statement): string {
     return FwkShow(builder)
 }
 
+// One parameter's own text — the shape a declaration writes between its parentheses.
+func FwkParameterText(parameter: Parameter): string {
+    state := FwkState()
+    walk := FwkWalk(state)
+    builder := new StringBuilder()
+    walk.FormatParameter(parameter, builder)
+    return FwkShow(builder)
+}
+
 func FwkExpressionText(expression: Expression): string {
     state := FwkState()
     walk := FwkWalk(state)
@@ -632,6 +641,20 @@ test "a catch filter is written after the clause and before the block, in both c
     bare := new List<CatchClause>()
     bare.Add(new CatchClause(null, null, body, FwkIdentifier("ready")))
     assert FwkStatementText(new TryStatement(body, bare, null, 0, 0)) == "try {|    inner|} catch when ready {|    inner|}|"
+}
+
+test "a parameter's direction is written back, `in` included" {
+    // The formatter writes the word it was given. `in` is OPTIONAL at a CALL site but never optional on
+    // a DECLARATION, so dropping it here would change the signature.
+    plain := FwkParameterText(new Parameter("a", FwkType("int"), null, false, ParameterModifier.None, null, 0, 0))
+    byRef := FwkParameterText(new Parameter("a", FwkType("int"), null, false, ParameterModifier.Ref, null, 0, 0))
+    written := FwkParameterText(new Parameter("a", FwkType("int"), null, false, ParameterModifier.Out, null, 0, 0))
+    borrowed := FwkParameterText(new Parameter("a", FwkType("int"), null, false, ParameterModifier.In, null, 0, 0))
+
+    assert plain == "a: int"
+    assert byRef == "ref a: int"
+    assert written == "out a: int"
+    assert borrowed == "in a: int"
 }
 
 test "an assert with a message writes the message after a comma" {

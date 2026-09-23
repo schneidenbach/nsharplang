@@ -288,6 +288,23 @@ test "a reflection parameter's modifier is read off its by-ref direction" {
     assert AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameters[1]) == Ast.ParameterModifier.Out
 }
 
+test "a reflection `in` parameter reads as In, not as Ref — the bit that made external `in` uncallable" {
+    // `Volatile.Read(in int)` is the shape: `IsByRef` is true and `IsOut` is false, exactly as for a
+    // `ref` parameter, so reading only those two classified every external `in` as `ref` — and `ref`
+    // demands the word at the call site, which is why such a method could not be called at all rather
+    // than merely being called awkwardly. `IsIn` is the only thing that tells them apart.
+    readTypes := new Type[](1)
+    readTypes[0] = typeof(int).MakeByRefType()
+    volatileRead := typeof(System.Threading.Volatile).GetMethod("Read", readTypes)
+    assert volatileRead != null
+
+    readParameters := volatileRead.GetParameters()
+    assert readParameters[0].get_ParameterType().get_IsByRef()
+    assert !readParameters[0].get_IsOut()
+    assert readParameters[0].get_IsIn()
+    assert AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(readParameters[0]) == Ast.ParameterModifier.In
+}
+
 test "only an async NON-generator is wrapped in the task family" {
     plain := AnalyzerFunctionTypeFactory.ResolveFunctionCallReturnType("f", false, false, BuiltInTypes.Int)
     assert FactoryTypeName(plain) == "int"

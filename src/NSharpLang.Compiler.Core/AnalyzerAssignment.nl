@@ -391,6 +391,13 @@ class AnalyzerAssignment {
             return new AssignmentRequest(1, assignment.Value)
         }
 
+        // An `in` parameter is a READ-ONLY reference, so neither the name nor anything reached through
+        // it may be written. Both forms are asked here, in the order a reader meets them.
+        if writeTargetsValue.ReportInParameterWriteIfNeeded(assignment.Target, "assigned with '" + OperatorFacts.GetAssignmentText(assignment.Operator) + "'") || writeTargetsValue.ReportInParameterMemberWriteIfNeeded(assignment.Target, "assigned with '" + OperatorFacts.GetAssignmentText(assignment.Operator) + "'") {
+            state.Phase = 6
+            return new AssignmentRequest(1, assignment.Value)
+        }
+
         CheckNullCoalesceAssignmentTarget(assignment, targetType)
 
         memberWriteTarget := assignment.Target as MemberAccessExpression

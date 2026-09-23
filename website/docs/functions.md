@@ -246,6 +246,56 @@ increment(ref count)
 Console.WriteLine(count)  // 11
 ```
 
+### `in` Parameters
+
+`in` passes the caller's storage **by reference and read-only**. Reach for it when a parameter is a
+large `struct` and copying it costs more than the indirection — and only then, because for a reference
+type or a machine word it buys nothing.
+
+```n#
+struct Matrix {
+    A: double
+    B: double
+    C: double
+    D: double
+}
+
+func determinant(in m: Matrix): double {
+    return m.A * m.D - m.B * m.C
+}
+
+// Usage — the word is OPTIONAL at the call site.
+m := new Matrix { A: 1.0, B: 2.0, C: 3.0, D: 4.0 }
+print determinant(m)
+print determinant(in m)      // identical; the `in` just says it out loud
+```
+
+Three rules follow from "read-only":
+
+- **The callee may not write to it.** Assigning the parameter, assigning one of its members, or
+  changing one with `++`/`--` is [NL309](./errors/NL309.md). Copy it into a local if you need to
+  change something.
+- **It may not escape as a writable reference.** Passing an `in` parameter on as a `ref` or an `out`
+  argument is the same NL309: the next callee would write storage this one promised not to.
+- **It may not be captured** by a lambda or a local function, for the reason every by-reference
+  parameter cannot be: the closure outlives the frame the reference points into.
+
+`in` is not interchangeable with `ref` or `out` at a call site, in either direction. `ref` and `out`
+must be written; writing `ref` where the parameter is `in` is refused, and omitting the word where the
+parameter is `ref` is refused too. What `in` adds is that *omitting* it is fine — there is nothing for
+the word to warn a reader about, because the callee cannot change what they passed.
+
+In CLR metadata an `in` parameter is `&T` carrying `ParameterAttributes.In` and
+`[IsReadOnlyAttribute]` — exactly what C# writes, so C# and F# consumers see an `in` parameter and not
+a `ref` one. N# also reads that pair back: a referenced assembly's `in` method is callable, and hover
+and signature help render it `in`.
+
+**Current limits.** An `in` parameter on an **interface member** does not emit — which is true of
+`ref` and `out` on an interface member too, so it is a by-reference limit rather than an `in` one. A
+by-reference argument naming a **static field** does not emit either, for both `in` and `ref`; bind it
+to a local first. An overload set that differs *only* by `in` versus by-value is not distinguishable
+here, so do not write both.
+
 #### Nullability across `out` and `ref`
 
 The two modifiers differ in what the callee is allowed to assume, so they differ in what the caller

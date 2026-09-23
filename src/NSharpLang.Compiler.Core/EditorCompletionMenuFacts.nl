@@ -561,6 +561,7 @@ class EditorCompletionMenuFacts {
             "type",
             "out",
             "ref",
+            "in",
             "params",
             "true",
             "false",

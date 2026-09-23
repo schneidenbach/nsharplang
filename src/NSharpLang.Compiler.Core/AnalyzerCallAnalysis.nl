@@ -1895,6 +1895,12 @@ class AnalyzerCallAnalysis {
             return true
         }
 
+        // A READ-ONLY REFERENCE MAY NOT BE HANDED ON AS A WRITABLE ONE. Passing an `in` parameter as a
+        // `ref` or an `out` would let the next callee write storage this one promised not to.
+        if (modifier == "ref" || modifier == "out") && writeTargets.ReportInParameterRefOutArgumentIfNeeded(argument.Value, modifier) {
+            return true
+        }
+
         if writeTargets.IsRefOutArgumentTarget(argument.Value, expressionTypes) {
             return false
         }

@@ -1524,7 +1524,10 @@ class ColumnarParserRecovery {
                         paramAttrs := ParseAttributes()
                         attrsOk := AttributesMaterializable
 
-                        // params / ref / out (Parser.cs :783-798) — mutually exclusive, first match wins.
+                        // params / ref / out / in (Parser.cs :783-798) — mutually exclusive, first
+                        // match wins. `in` is read here and nowhere else in a parameter list, so the
+                        // `for x in xs` reading of the same token is untouched: that one is only ever
+                        // met AFTER a loop variable, never at the head of a parameter.
                         modifier := ParameterModifier.None
                         if Check(TokenType.Params) {
                             modifier = ParameterModifier.Params
@@ -1537,6 +1540,11 @@ class ColumnarParserRecovery {
                                 if Check(TokenType.Out) {
                                     modifier = ParameterModifier.Out
                                     Advance()
+                                } else {
+                                    if Check(TokenType.In) {
+                                        modifier = ParameterModifier.In
+                                        Advance()
+                                    }
                                 }
                             }
                         }
@@ -7700,6 +7708,14 @@ class ColumnarParserRecovery {
         if Check(TokenType.Ref) {
             Advance()
             return ArgumentModifier.Ref
+        }
+
+        // `in <expr>` — the OPTIONAL call-site spelling of a read-only by-reference argument. There is
+        // no inline-declaration form to recover from, because an `in` argument reads storage that
+        // already exists.
+        if Check(TokenType.In) {
+            Advance()
+            return ArgumentModifier.In
         }
 
         if !Check(TokenType.Out) {

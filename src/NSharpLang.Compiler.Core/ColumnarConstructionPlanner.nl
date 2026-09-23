@@ -1480,7 +1480,7 @@ class ColumnarConstructionPlanner {
                 projected[written] = candidate.ParamTypes[placement[written]]
                 written += 1
             }
-            if fillable && ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(projected, argumentTypes, argumentFacts) >= 0 {
+            if fillable && ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(projected, argumentTypes, argumentFacts, ProjectedModifierKinds(candidate.ParamModifierKinds, placement, argumentTypes.Length)) >= 0 {
                 candidates.Add(candidate)
                 candidateParameters.Add(projected)
                 candidatePlacements.Add(placement)
@@ -1630,7 +1630,7 @@ class ColumnarConstructionPlanner {
                 projected[written] = types[placement[written]]
                 written += 1
             }
-            if fillable && ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(projected, argumentTypes, argumentFacts) >= 0 {
+            if fillable && ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(projected, argumentTypes, argumentFacts, ProjectedModifierKinds(ReflectedModifierKinds(parameters), placement, argumentTypes.Length)) >= 0 {
                 candidates.Add(candidate)
                 candidateTypes.Add(types)
                 candidateParameters.Add(parameters)
@@ -1738,6 +1738,7 @@ class ColumnarConstructionPlanner {
         closedArguments := targetType.GetGenericArguments()
         candidates := new List<ColumnarConstructorDef>()
         candidateParameters := new List<Type[]>()
+        candidateModifierKinds := new List<int[]>()
         exactArityOnly := false
         for candidate in definition.Constructors {
             ValidateSourceConstructor(definition, candidate)
@@ -1761,6 +1762,7 @@ class ColumnarConstructionPlanner {
             if exactArity && !exactArityOnly {
                 candidates.Clear()
                 candidateParameters.Clear()
+                candidateModifierKinds.Clear()
                 exactArityOnly = true
             }
             if exactArityOnly && !exactArity {
@@ -1768,11 +1770,12 @@ class ColumnarConstructionPlanner {
             }
             candidates.Add(candidate)
             candidateParameters.Add(parameters)
+            candidateModifierKinds.Add(candidate.ParamModifierKinds)
         }
         if candidates.Count == 0 {
             return false
         }
-        selectedIndex := BestSourceConstructorIndex(candidateParameters, argumentTypes, argumentFacts)
+        selectedIndex := BestSourceConstructorIndex(candidateParameters, candidateModifierKinds, argumentTypes, argumentFacts)
         if selectedIndex < 0 {
             return false
         }
@@ -2063,10 +2066,12 @@ class ColumnarConstructionPlanner {
             candidates = exact
         }
         candidateParameters := new List<Type[]>()
+        candidateModifierKinds := new List<int[]>()
         for candidate in candidates {
             candidateParameters.Add(candidate.ParamTypes)
+            candidateModifierKinds.Add(candidate.ParamModifierKinds)
         }
-        selectedIndex := BestSourceConstructorIndex(candidateParameters, argumentTypes, argumentFacts)
+        selectedIndex := BestSourceConstructorIndex(candidateParameters, candidateModifierKinds, argumentTypes, argumentFacts)
         if selectedIndex < 0 {
             return false
         }
@@ -2081,13 +2086,86 @@ class ColumnarConstructionPlanner {
     // it: candidates that score EQUAL are re-compared on how specific their parameter types are, so an
     // overload set whose parameters sit on one conversion chain selects the most specific member
     // instead of declining as ambiguous. A tie no rule can break is still no selection.
+    // A REFLECTED member's directions in the same encoding a source one carries: 5 for `in`, 0 for
+    // everything else. `ref` and `out` are deliberately NOT reported here — the scorer only needs to
+    // know which by-reference parameters are READ-ONLY, because that is the only direction whose
+    // call-site word is optional, and reporting the other two would say nothing the types do not.
+    static func ReflectedModifierKinds(parameters: ParameterInfo[]): int[] {
+        kinds := new int[](parameters.Length)
+        index := 0
+        while index < parameters.Length {
+            if parameters[index].get_ParameterType().get_IsByRef() && parameters[index].get_IsIn() {
+                kinds[index] = 5
+            }
+            index = index + 1
+        }
+
+        return kinds
+    }
+
+    // The first `count` directions of a candidate's column, matching what `PrefixTypes` does to its
+    // types. A column shorter than the prefix cannot describe it, so it answers empty rather than
+    // guessing.
+    static func PrefixModifierKinds(modifierKinds: int[]?, count: int): int[] {
+        if modifierKinds == null || modifierKinds.Length < count {
+            return new int[](0)
+        }
+
+        prefix := new int[](count)
+        index := 0
+        while index < count {
+            prefix[index] = modifierKinds[index]
+            index = index + 1
+        }
+
+        return prefix
+    }
+
+    // A CANDIDATE'S MODIFIER COLUMN, MOVED THE SAME WAY ITS TYPES WERE. A named argument binds a written
+    // position to a declared slot, and the direction travels with the slot it belongs to — reading the
+    // column in written order instead would ask about the wrong parameter. An empty column stays empty,
+    // which is what `ArgumentsScoreWithFacts` reads as "ask the types alone".
+    static func ProjectedModifierKinds(modifierKinds: int[], placement: int[], writtenCount: int): int[] {
+        if modifierKinds == null || modifierKinds.Length == 0 {
+            return new int[](0)
+        }
+
+        projected := new int[](writtenCount)
+        written := 0
+        while written < writtenCount {
+            slot := placement[written]
+            if slot < 0 || slot >= modifierKinds.Length {
+                return new int[](0)
+            }
+
+            projected[written] = modifierKinds[slot]
+            written = written + 1
+        }
+
+        return projected
+    }
+
     static func BestSourceConstructorIndex(candidateParameters: List<Type[]>, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        return BestSourceConstructorIndex(candidateParameters, null, argumentTypes, argumentFacts)
+    }
+
+    // `candidateModifierKinds` IS PARALLEL TO `candidateParameters` and carries each candidate's
+    // parameter DIRECTIONS. It is what lets a constructor declare `in`: the scorer cannot tell a
+    // read-only by-reference parameter from a writable one by type, so without the column a bare
+    // argument scores -1 against `in` and the constructor is invisible. A null list, or a null entry in
+    // it, means "ask the types alone" — the reading every caller had before.
+    static func BestSourceConstructorIndex(candidateParameters: List<Type[]>, candidateModifierKinds: List<int[]>?, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
         bestScore := -1
         tied := new List<int>()
         candidateIndex := 0
         while candidateIndex < candidateParameters.Count {
             expected := PrefixTypes(candidateParameters[candidateIndex], argumentTypes.Length)
-            score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, argumentTypes, argumentFacts)
+            modifiers := new int[](0)
+            if candidateModifierKinds != null && candidateIndex < candidateModifierKinds.Count {
+                modifiers = PrefixModifierKinds(candidateModifierKinds[candidateIndex], argumentTypes.Length)
+            }
+
+            score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, argumentTypes, argumentFacts, modifiers)
             if score > bestScore {
                 bestScore = score
                 tied.Clear()

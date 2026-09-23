@@ -26623,7 +26623,10 @@ sealed class ColumnarIlEmitter {
     private func CanDeclaredCallArgumentMatch(argNode: int, expectedParamType: Type, allowLambdaLiteral: bool): bool {
         if (expectedParamType.get_IsByRef()) {
             let targetType: System.Type? = null
-            return _nodes.Kind(argNode) == 54 && _nodes.ChildCount(argNode) == 1 && TryGetAddressableTargetType(Child(argNode, 0), out targetType) && TypesEquivalent(targetType, expectedParamType.GetElementType())
+            // The MODIFIER NODE IS OPTIONAL, because `in` is: an argument written bare is addressed
+            // directly. See `EmitByRefCallArgument` for why a bare argument here can only be an `in`.
+            addressableNode := _nodes.Kind(argNode) == 54 ? (_nodes.ChildCount(argNode) == 1 ? Child(argNode, 0) : -1) : argNode
+            return addressableNode >= 0 && TryGetAddressableTargetType(addressableNode, out targetType) && TypesEquivalent(targetType, expectedParamType.GetElementType())
         }
         if (_nodes.Kind(argNode) == 54) {
             return false
@@ -27385,12 +27388,23 @@ sealed class ColumnarIlEmitter {
         return parameters.Length == 1 && parameters[0].get_ParameterType().get_IsGenericType() && parameters[0].get_ParameterType().GetGenericTypeDefinition() == typeof(Span<int>).GetGenericTypeDefinition() && method.get_ReturnType().get_IsGenericType() && method.get_ReturnType().GetGenericTypeDefinition() == typeof(ReadOnlySpan<int>).GetGenericTypeDefinition()
     }
 
+    // AN ARGUMENT IN A BY-REFERENCE POSITION, WRITTEN WITH OR WITHOUT THE WORD. `ref` and `out` must be
+    // spelled; `in` need not be, so an argument carrying NO modifier node is admitted here too and the
+    // storage's address is what goes on the stack either way. Which of the three the parameter is was
+    // settled by overload resolution, which refuses a plain argument for a `ref` or an `out` — so a
+    // by-reference parameter reached without a word can only be an `in`.
     private func EmitByRefCallArgument(argNode: int, expectedByRefType: Type): bool {
-        if (!expectedByRefType.get_IsByRef() || _nodes.Kind(argNode) != 54 || _nodes.ChildCount(argNode) != 1) {
+        if (!expectedByRefType.get_IsByRef()) {
+            return false
+        }
+        if (_nodes.Kind(argNode) != 54) {
+            return EmitAddressOfByRefTarget(argNode, expectedByRefType.GetElementType())
+        }
+        if (_nodes.ChildCount(argNode) != 1) {
             return false
         }
         modifier := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
-        if (modifier != "ref" && modifier != "out") {
+        if (modifier != "ref" && modifier != "out" && modifier != "in") {
             return false
         }
         return EmitAddressOfByRefTarget(Child(argNode, 0), expectedByRefType.GetElementType())

@@ -617,6 +617,11 @@ class AnalyzerFunctionTypeFactory {
         parameterModifiers := new List<Ast.ParameterModifier>()
         index := 0
         while index < parameters.Length {
+            // A FUNCTION TYPE CANNOT CARRY A DIRECTION, so a member with one is not convertible to
+            // one. `in` is excluded here for the same reason `ref` and `out` are — a delegate type
+            // built from this signature would lose the direction — and NOT because the member is
+            // uncallable: the columnar resolvers reach an `in` member through the ordinary by-ref
+            // door.
             if GetReflectionParameterModifier(parameters[index]) != Ast.ParameterModifier.None {
                 return null
             }
@@ -710,6 +715,12 @@ class AnalyzerFunctionTypeFactory {
     }
 
     // A by-ref reflection parameter carries its direction; everything else has none.
+    //
+    // THE THREE DIRECTIONS ARE ONE SIGNATURE AND TWO FLAGS. `in`, `ref` and `out` are all `&T`, so the
+    // type alone cannot tell them apart and `IsOut`/`IsIn` are the only things that can. Reading only
+    // `IsOut` classified every `in` parameter in every referenced assembly as a `ref` — and a `ref`
+    // demands the word at the call site, which is why an external `in` method could not be called at
+    // all rather than merely being called awkwardly.
     static func GetReflectionParameterModifier(parameter: ParameterInfo): Ast.ParameterModifier {
         parameterType := parameter.get_ParameterType()
         if !parameterType.get_IsByRef() {
@@ -718,6 +729,10 @@ class AnalyzerFunctionTypeFactory {
 
         if parameter.get_IsOut() {
             return Ast.ParameterModifier.Out
+        }
+
+        if parameter.get_IsIn() {
+            return Ast.ParameterModifier.In
         }
 
         return Ast.ParameterModifier.Ref

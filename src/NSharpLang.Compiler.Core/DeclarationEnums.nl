@@ -1,10 +1,15 @@
 namespace NSharpLang.Compiler.Ast
 
+// `In` IS APPENDED RATHER THAN INSERTED. The columnar pipeline encodes the same concept as an int
+// (`ParamModifierKinds`: 1 ref, 2 out, 3 params, 4 the extension `this`) and several owners compare
+// against those literals, so the three that already exist keep their ordinals and `in` takes the next
+// free one. The two encodings therefore still agree member-for-member.
 enum ParameterModifier {
     None,
     Ref,
     Out,
-    Params
+    Params,
+    In
 }
 
 enum EnumType {

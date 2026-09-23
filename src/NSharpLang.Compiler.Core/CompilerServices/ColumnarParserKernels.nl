@@ -5893,15 +5893,21 @@ func ParseCallArgumentNode(tokens: ParserTokenTable, count: int, st: ParserState
     return ParseCallArgumentModifierOrValueNode(tokens, count, st, argStack, nodes, children, depth)
 }
 
-// The `ref`/`out` modifier layer of a call argument, shared by the positional and the named forms:
-// `ref <expr>` / `out <expr>` (Ref 78 / Out 79) becomes a RefOutArgument (kind 54, the modifier token in
-// the value span, ONE child [target]); anything else is an ordinary argument expression.
+// The `ref`/`out`/`in` modifier layer of a call argument, shared by the positional and the named forms:
+// `ref <expr>` / `out <expr>` / `in <expr>` (Ref 78 / Out 79 / In 28) becomes a RefOutArgument (kind 54,
+// the modifier token in the value span, ONE child [target]); anything else is an ordinary argument
+// expression.
+//
+// `in` IS OPTIONAL AT A CALL SITE and `ref`/`out` are not, which is a rule the CALLEE's signature owns
+// rather than this layer: a plain argument reaching an `in` parameter is admitted by the score, and
+// writing the word is the caller saying out loud what the signature already said. Kind 28 is the same
+// token `for x in xs` reads; an argument list is not a position that reading can occur in.
 func ParseCallArgumentModifierOrValueNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     if depth > 200 {
         return -1
     }
 
-    if st.Pos < count && (tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79) {
+    if st.Pos < count && (tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79 || tokens.Kinds[st.Pos] == 28) {
         modifierStart := tokens.Starts[st.Pos]
         modifierLength := tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 1
@@ -13185,8 +13191,11 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
             }
         }
 
+        // 78 `ref` -> 1, 79 `out` -> 2, 82 `params` -> 3, 42 `this` -> 4, 28 `in` -> 5. Kind 28 is the
+        // same token `for x in xs` reads; it is a parameter MODIFIER only at the head of a parameter,
+        // which is the only position this scan runs in.
         modifierKind := 0
-        while pos < count && (tokens.Kinds[pos] == 78 || tokens.Kinds[pos] == 79 || tokens.Kinds[pos] == 82 || tokens.Kinds[pos] == 42) {
+        while pos < count && (tokens.Kinds[pos] == 78 || tokens.Kinds[pos] == 79 || tokens.Kinds[pos] == 82 || tokens.Kinds[pos] == 42 || tokens.Kinds[pos] == 28) {
             if tokens.Kinds[pos] == 78 {
                 modifierKind = 1
             } else if tokens.Kinds[pos] == 79 {
@@ -13195,6 +13204,8 @@ func ParseFunctionParameterDefaultsCore(source: string, tokens: ParserTokenTable
                 modifierKind = 3
             } else if tokens.Kinds[pos] == 42 {
                 modifierKind = 4
+            } else if tokens.Kinds[pos] == 28 {
+                modifierKind = 5
             }
 
             pos = pos + 1
@@ -13811,11 +13822,12 @@ func ParseFunctionSignatureCore(tokens: ParserTokenTable, count: int, funcIndex:
             }
         }
 
-        // `ref`/`out` are semantic: they wrap the parsed parameter type in a ByRef node. `params` and `this`
-        // are signature modifiers this kernel does not otherwise model.
+        // `ref`/`out`/`in` are semantic: they wrap the parsed parameter type in a ByRef node, because on
+        // the CLR all three ARE `&T` and differ only in the direction bits beside the signature.
+        // `params` and `this` are signature modifiers this kernel does not otherwise model.
         byRefParameter := false
-        while i < count && (tokens.Kinds[i] == 78 || tokens.Kinds[i] == 79 || tokens.Kinds[i] == 82 || tokens.Kinds[i] == 42) {
-            if tokens.Kinds[i] == 78 || tokens.Kinds[i] == 79 {
+        while i < count && (tokens.Kinds[i] == 78 || tokens.Kinds[i] == 79 || tokens.Kinds[i] == 82 || tokens.Kinds[i] == 42 || tokens.Kinds[i] == 28) {
+            if tokens.Kinds[i] == 78 || tokens.Kinds[i] == 79 || tokens.Kinds[i] == 28 {
                 byRefParameter = true
             }
 
@@ -14082,7 +14094,7 @@ func ParseConstructorParameterDefaultsCore(source: string, tokens: ParserTokenTa
             }
         }
 
-        while pos < count && (tokens.Kinds[pos] == 78 || tokens.Kinds[pos] == 79 || tokens.Kinds[pos] == 82 || tokens.Kinds[pos] == 42) {
+        while pos < count && (tokens.Kinds[pos] == 78 || tokens.Kinds[pos] == 79 || tokens.Kinds[pos] == 82 || tokens.Kinds[pos] == 42 || tokens.Kinds[pos] == 28) {
             pos = pos + 1
         }
 

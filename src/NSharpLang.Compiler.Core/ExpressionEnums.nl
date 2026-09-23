@@ -34,10 +34,14 @@ enum UnaryOperator {
     IndexFromEnd
 }
 
+// `In` is appended, so `Ref` and `Out` keep their ordinals. Unlike the other two, `In` is OPTIONAL at
+// a call site: the callee's signature already says the argument is passed by read-only reference, and
+// writing the word only makes that visible at the call.
 enum ArgumentModifier {
     None,
     Ref,
-    Out
+    Out,
+    In
 }
 
 enum AssignmentOperator {

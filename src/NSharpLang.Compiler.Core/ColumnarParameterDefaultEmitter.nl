@@ -41,11 +41,23 @@ class ColumnarParameterDefaultEmitter {
             if index < modifierKinds.Length && modifierKinds[index] == 2 {
                 attributes = attributes | ParameterAttributes.Out
             }
+            // AN `in` PARAMETER IS `&T` PLUS TWO MARKS, AND BOTH HAVE TO BE THERE. The signature alone
+            // says by-reference and nothing more, so `in x: T` and `ref x: T` are the same signature:
+            // `ParameterAttributes.In` is the direction bit (ECMA-335 II.23.1.13) and
+            // `[IsReadOnly]` on the parameter is what tells every consumer — C#, F#, and the overload
+            // rules of both — that the reference may not be written through. C# writes both, and a
+            // consumer that saw only one would treat the parameter as an ordinary `ref`.
+            if index < modifierKinds.Length && modifierKinds[index] == 5 {
+                attributes = attributes | ParameterAttributes.In
+            }
             hasDefault := HasParameterDefault(defaultKinds, defaultTexts, index)
             if hasDefault {
                 attributes = attributes | ParameterAttributes.Optional | ParameterAttributes.HasDefault
             }
             parameter := method.DefineParameter(index + 1, attributes, names[index])
+            if index < modifierKinds.Length && modifierKinds[index] == 5 && !ApplyIsReadOnlyToParameter(parameter) {
+                return false
+            }
             if sourceAttributes != null && sourceResolution != null && sourceAttributeQueue != null && index < sourceAttributes.Length {
                 sourceAttributeQueue.QueueParameter(parameter, sourceAttributes[index], sourceResolution)
             }
@@ -58,6 +70,21 @@ class ColumnarParameterDefaultEmitter {
             }
             index += 1
         }
+        return true
+    }
+
+    // `[IsReadOnly]` ON ONE PARAMETER. The attribute type is the one the runtime itself declares, so
+    // there is nothing to synthesize and nothing to resolve out of a reference set: a consumer reading
+    // it back gets the identical type C# writes. A missing parameterless constructor is a broken
+    // corelib rather than a source problem, so it declines instead of emitting a half-marked
+    // parameter that would read as an ordinary `ref`.
+    static func ApplyIsReadOnlyToParameter(parameter: ParameterBuilder): bool {
+        readOnlyCtor := typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute).GetConstructor(Type.EmptyTypes)
+        if readOnlyCtor == null {
+            return false
+        }
+
+        parameter.SetCustomAttribute(new CustomAttributeBuilder(readOnlyCtor, new object[](0)))
         return true
     }
 
@@ -122,11 +149,18 @@ class ColumnarParameterDefaultEmitter {
             if index < modifierKinds.Length && modifierKinds[index] == 2 {
                 attributes = attributes | ParameterAttributes.Out
             }
+            // The same two marks a method's `in` parameter gets; see the method loop above.
+            if index < modifierKinds.Length && modifierKinds[index] == 5 {
+                attributes = attributes | ParameterAttributes.In
+            }
             hasDefault := HasParameterDefault(defaultKinds, defaultTexts, index)
             if hasDefault {
                 attributes = attributes | ParameterAttributes.Optional | ParameterAttributes.HasDefault
             }
             parameter := constructorBuilder.DefineParameter(index + 1, attributes, names[index])
+            if index < modifierKinds.Length && modifierKinds[index] == 5 && !ApplyIsReadOnlyToParameter(parameter) {
+                return false
+            }
             if sourceAttributes != null && sourceResolution != null && sourceAttributeQueue != null && index < sourceAttributes.Length {
                 memberField: FieldBuilder? = null
                 if memberFields != null && index < memberFields.Length {
