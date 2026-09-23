@@ -31,7 +31,133 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
-### Census wave 16 — current closeout cursor (2026-09-22)
+### Census wave 17 — current closeout cursor (2026-09-22)
+
+**Tip.** Wave 17 is integrated, **pushed, gated and reseeded twice** through `59c965af0` on
+`census/merge`, which **equals `origin/systems-language`**. **Nine commits** since the wave-16 docs
+tip `9a513d053`; whole-range diff **207 files, +1,152 / −16,507**, of which 170 files and 16,342
+deleted lines are the evidence prune — the **product** delta is **37 files, +1,152 / −165**. The
+integration checkout is clean. **TWO bootstrap seeds were published**: `6cab15e2f` (packed source
+`0188fb5ef`) and `59c965af0` (packed source `f3b4884ad`).
+
+**THE HEADLINE: GITHUB ACTIONS `Build` HAD BEEN RED SINCE 2026-09-13 AND NOTHING LOCAL COULD SEE
+IT.** Last green `e9ca730b6`, 2026-09-11. Culprit `cf9e0a7ab` (Playground converted to N#): `Sdk.props`
+defaulted `OutputType=Exe` whenever `obj/project.g.props` was absent — which is always on a clean
+checkout — so `dotnet workload restore src/NSharpLang.Playground.Wasm/...` hit **NETSDK1150** before
+a single N# file compiled. **Root missed it for eleven days for two reasons, both ours: no local gate
+builds `Playground.Wasm` (`test-all-core.sh` builds `NSharpLang.Playground`, not `.Wasm`), and
+nobody looked at Actions after a push.** Fixed at `246b53db9`.
+
+**No toolchain floor moved this wave.** CLI 25, Runtime 861, Playground.Wasm 71 — **957 lines,
+unchanged.** The **rendered visual IDE proof is still owed**; the only successful extension reload
+remains the PRE-FLIP one at `2b9271828`.
+
+| Required step | State | Receipt |
+|---|---|---|
+| CLI / TestHost / LanguageServer conversion | **UNCHANGED — all three COMPLETE** (wave 16) | `c1edbad92`, `0ddb69807` |
+| Playground / Runtime / Wasm-hosting | **STILL NOT STARTED**; open user decision | `FABLE-REMAINING-OWNERS-ASSESSMENT.md` (untracked) |
+| Compiler blockers, round 13 | **4 LANDED** | `273941c7c`, `83ed2402b`, `383be97f8`, `d87083943` |
+| Gates at `0188fb5ef` | **both PASS**, first try (32m58s / 34m05s); pushed | `evidence/combined-0188fb5ef/` |
+| Fifth reseed (packed source `0188fb5ef`) | **SUCCESS** — estate 9,584/0 | `evidence/reseed-0188fb5ef/reseed.log` |
+| Gates on seed commit `6cab15e2f` | **both PASS** (32m52s / **39m39s**); pushed after transient GitHub timeouts | `evidence/seed-6cab15e2f/` |
+| CI root-cause + fix | **LANDED** — evaluation-time `outputType` read + offline contract test | `246b53db9` |
+| Evidence prune | **LANDED** — 170 files, 16,342 text lines + 52 PNGs | `f3b4884ad`; archive `evidence/pruned-from-repo-6cab15e2f/` |
+| Gate at `f3b4884ad`, non-VS | **PASS** 43m41s under load | `evidence/combined-f3b4884ad/product-non-vscode.log` |
+| Gate at `f3b4884ad`, VS | **FAILED — throughput ONLY** at load 5.52; 36 smoke passing | `evidence/combined-f3b4884ad/product-vscode.FAILED-throughput-under-load.log` |
+| Sixth reseed (packed source `f3b4884ad`) | **SUCCESS** — estate 9,584/0; CI step reproduced locally | `evidence/reseed-f3b4884ad/` |
+| Gates on seed commit `59c965af0` | **both PASS** (42m40s / 37m58s); pushed | `evidence/seed-59c965af0/` |
+| Actions run `35806417973` | **STILL RED** — 9 steps green, NU5026 at the integration tests | `gh run view 35806417973` |
+| Rendered visual IDE proof | **STILL OWED** | never produced |
+
+**Round 13, four commits.** `273941c7c` is **lsflip-1**: `ColumnarLambdaPlacementPlanner`'s two doors
+onto the same static-lambda placement disagreed about `CurrentStructForBody`, so a static helper body
+carried an instance-context marker and `ColumnarDirectCallPlanner.TryEmit` read the pair as the
+contextual-lambda preflight frame and yielded the whole call to the legacy residual; now one arm over
+`enclosing ?? staticOwner`. `83ed2402b` adds **analyzer NL308** for a non-friend touching a
+reference's `internal` member, asked after resolution MISSES and before NL303, with the emit-time
+`NL103` backstop now **asserted** because `<Project Sdk="NSharpLang.Sdk" />` runs no analysis at all.
+`383be97f8` makes `for type in values` report **one** NL109 naming the reserved keyword instead of
+fifteen cascading diagnostics. `d87083943` adds `tests/native/template-project-smoke` — every
+`templates/*/` project **and** every `nlc new` scaffold built, because `templates/` and
+`NewCommandKernels` are two different bodies of truth; it caught a wrong package-version rule;
+**corpus pin 153 → 154**. `0188fb5ef` corrects a marker rather than a defect: the inlined
+`configureServer` body now emits for every line but
+`initializedServer.TextDocument.PublishDiagnostics(...)`, which is a **different** defect, filed
+**lsflip-6**.
+
+**Seed fingerprints.**
+
+| seed commit | packed source | Sdk | Runtime | ownership head |
+|---|---|---|---|---|
+| `6cab15e2f` | `0188fb5ef` | `2962f090…` | `d8e09b15…` | `head-v2:08bae52e0067962f` (25/25) |
+| `59c965af0` | `f3b4884ad` | `86e0d74e…` | `23f95c37…` | `head-v2:36fb118ce3eaba38` (25/25) |
+
+**The prune, `f3b4884ad`.** `artifacts/` (81 force-added files) and
+`systems-language-closeout/decodes/` (89 dated records) are evidence, not product; **nothing in the
+build, the gate or any test read them** — `test-all.sh` excludes `artifacts/` from the isolated tree
+in both its rsync and its tar arm, and a per-file grep over all 81 paths found zero code readers.
+**104 markdown links across 11 files** were de-linked to backticked filenames, preserving every name.
+**`ownership-audit` 25/25 with NO repin, by construction**: `artifacts` is a `ShouldSkipDirectory` and
+`.md` hits `Classify`'s `Ignored()` arm, so every touched path was outside the audited set;
+`codeEpochFileCount` stays 223. All 170 files archived to `evidence/pruned-from-repo-6cab15e2f/`
+**before** deletion.
+
+**The VS gate failure at `f3b4884ad` was the throughput gate and nothing else.** Step 2c printed
+`load average { 5.52 5.35 4.97 }, 10 cores`; **9 of 12 cells** failed a 1.20× tolerance (worst 1.45×,
+`count-transitions` 4096) against a baseline measured **on an idle M4**. Everything downstream was
+green in the same run — estate 9,584/0, **36 VS Code smoke passing (41s)**, 80/80 assemblies
+IL-clean. Pushed on the non-VS pass because the change is file deletion and markdown editing and
+cannot move a throughput number.
+
+**CI state at the tip.** `35806417973` at `59c965af0`: workload restore, build, formatting, native
+tests, ownership audit and the whole `ilverify` job **PASS**; it fails at **`Installed toolchain
+integration tests`** with `NU5026 … Compiler.pdb … not found on disk` — `dotnet pack` of the N#-SDK
+projects emits no PDB. A fix is in flight on `census/ci2` and **needs a SEVENTH reseed to reach CI**,
+because the behaviour lives in the packaged SDK. **And `Build` triggers only on push/PR to `main`
+(`on: push: branches: [main]`, `pull_request: branches: [main]`) — every run in the listing is PR
+#190. A PR targeting `systems-language` gets NO CI**, which collides directly with the decision below
+to split #190 into PRs against `systems-language`.
+
+**PR #190's size, measured at `59c965af0`.** `gh pr view 190`: **+749,132 / −227,571 over 2,672
+files**, base `main`, opened 2026-08-22. *(A +765k/−228k / 2,841-file figure was circulating; it
+predates the prune.)* `Compiler.Core` is **299k source (220k code)** + **237k estate tests** replacing
+**81k C#**. `census-briefs/FABLE-COMPILER-CORE-AUDIT.md` attributes the 2.7× to **~52%
+architecture/redundancy, ~35% verbosity, ~10% migrated, ~5% new capability**, finds **near-zero use of
+`match`, interfaces, generics, unions and lambdas**, and names **five compression levers ≈20–25k
+lines**. `census-briefs/FABLE-TEST-SPEED-ANALYSIS.md`: **the gate compiles `Compiler.Core` seven
+times = 69% of wall**, while **the 9,584-row estate runs in 15 s**; levers L1/L2/L3/L4/L7.
+
+**User decisions, 2026-09-22.** Process: **split PR #190 by worktree into PRs targeting
+`systems-language`**; remove `artifacts`/`decodes` (done); make `Compiler.Core` **idiomatic N# and
+compress it**; **fast, independently testable slices** only. Language, under the standing rule
+**"existing code doesn't matter, not in production — no compatibility shims"**: **D1 explicit
+interface implementation ADDED** (`func IEnumerable.GetEnumerator(): IEnumerator`); **the `file`
+keyword REMOVED entirely** and **`type` demoted to contextual**; **D3 `in` parameters ADDED**; **D5
+exception filters ADDED**; **D4 `volatile` NOT added**; **D6 attribute targets and generic attributes
+NOT added**; **D11 camelCase TYPE names are package-private (the Go rule), emitted `assembly`**.
+
+**Lanes in flight.** `census/lang` (the language features), `census/speed` (the gate levers),
+`census/ci2` (NU5026), and **PR #191** (`census/core-a`): estate row namespacing + three owner
+extractions, **net product N# −906 lines**, front door **1,340 → 1,318**, rows 9,584 → 9,591,
+**awaiting its gate**.
+
+**Remaining C#, and one project the docs have never counted.** Production is unchanged at **957
+lines** — Runtime 861, Playground.Wasm 71, Cli 25. Separately, the CI step `Installed toolchain
+integration tests` runs **`tests/NSharpLang.IntegrationTests/IntegrationTests.csproj`**, a **C#**
+xUnit project of **576 lines across 3 `.cs` files** (`ToolchainTests.cs` 337, `ToolchainFixture.cs`
+170, `DockerFactAttribute.cs` 69) plus `Dockerfile.toolchain`. It is assertion code, not production —
+but it is remaining C#, it is the step currently failing CI, and no tracked doc has named it before
+now.
+
+**Still OWED at `59c965af0`.** (1) **Rendered visual IDE verification** — unchanged, four waves old;
+the only successful reload was at `2b9271828`, which built a **C#** server. (2) **A green Actions
+run** — needs the NU5026 fix and a seventh reseed. (3) **CI on `systems-language` itself**, or the
+split PRs merge blind. (4) **The `Compiler.Core` compression** — audit written, one slice open, four
+levers unstarted. (5) **Runtime / Playground.Wasm / the Cli floor** — still open user decisions.
+
+**Nothing in this wave completes the migration, and this cursor makes no such claim.**
+
+### Census wave 16 — superseded cursor (2026-09-22)
 
 **Tip.** Wave 16 is integrated, **pushed, gated and reseeded** through `5723c1002` on `census/merge`,
 which **equals `origin/systems-language`** (pushed 2026-09-22 11:17:53 −0500, per
@@ -2971,6 +3097,17 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
   exit code, the failure banner and the baseline refusal. An unreadable load skips too; a live contract
   keeps a broken reader from switching the gate off in silence. The skip is silent (Step 3a parses stdout
   as JSON) and leaves its numbers in `artifacts/compile-time/last-gate-run.txt` (2026-09-03).
+- **AN MSBUILD PLACEHOLDER IS A PUBLIC API.** `Sdk.props` defaulted `OutputType=Exe` whenever
+  `obj/project.g.props` was absent — a "private" fallback that only `nlc restore` fills in — and the base SDK
+  derives `_IsExecutable`, `HasRuntimeOutput` and `IsRidAgnostic` from it **during evaluation**, which a
+  referencing project reads back through `_GetProjectReferenceTargetFrameworkProperties`. On a clean CI checkout
+  `ValidateExecutableReferences` then refused `Playground.Wasm` with **NETSDK1150 before a single N# file
+  compiled**, for eleven days. A target cannot repair this — by `LoadProjectConfig` the derived properties
+  already exist — so the field is read out of `project.yml` at evaluation time in pure MSBuild (`246b53db9`,
+  2026-09-22).
+- **A PACKAGED-SDK FIX IS TESTED BY REPRODUCING THE CONSUMER'S STEP AGAINST THE NEW SEED**, not by re-reading the
+  diff. `evidence/reseed-f3b4884ad/ci-step-workload-restore.log` is that reproduction; without it the only way to
+  learn whether `246b53db9` worked was to push and wait for CI (2026-09-22).
 - **A native contract says nothing about the packaged SDK.** `tests/native/**` is built by the BRANCH CLI, so a
   shape a native contract proves may still decline inside `BootstrapServices`, which compiles under the packaged
   SDK — measured 2026-09-03 on `class X: MetadataAssemblyResolver` (022/3b Phase 1).
@@ -3242,6 +3379,16 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
   `external-abstract-override`; the pin is 71 at `c79fe23bb`. A brief that adds a native project says so and moves the pin
   in the same commit (2026-09-03).
 
+- **"PUSHED" IS NOT "GREEN" — CHECK `gh run list` AFTER EVERY PUSH AND RECORD THE RUN ID.** GitHub Actions
+  `Build` was RED from 2026-09-13 to the present, last green `e9ca730b6` (2026-09-11), while four waves of tracked
+  docs recorded pushes as though `git push` returning 0 were a verification. **A project CI builds and the local
+  gate does not is an unguarded surface**: `test-all-core.sh` builds `src/NSharpLang.Playground`, never
+  `Playground.Wasm`, which is exactly where CI broke (2026-09-22).
+- **`Build` triggers only on push/PR to `main`.** Every Actions run on this campaign belongs to PR #190
+  (`systems-language` → `main`); **a PR targeting `systems-language` gets no CI at all**. Splitting #190 into
+  branch PRs against `systems-language` merges them blind unless the trigger is widened (2026-09-22).
+- **A PR's size figure goes stale the moment the PR changes.** `f3b4884ad` moved #190 by 169 files and ~16k
+  lines; quote `gh pr view 190` at your tip, not a figure from a brief (2026-09-22).
 - **Agent worktrees live at `/private/tmp/nsharp-agent-wt/<stream>`, never under a session scratchpad, and agents commit
   WIP before every pause.** On 2026-09-03 the four active worktrees under another session's scratchpad vanished when that
   session ended, taking every uncommitted slice with them (022/3b-2's 370 N# lines + the `Analyzer.cs` shrink, the LSP

@@ -1,6 +1,286 @@
 # Managed toolchain conversion and census closeout
 
-## Census wave 16 — current status (2026-09-22)
+## Census wave 17 — current status (2026-09-22)
+
+Wave 17 is integrated, **pushed, gated and reseeded twice** through `59c965af0` on `census/merge`,
+which equals `origin/systems-language`. **Nine commits** sit between the wave-16 docs tip
+`9a513d053` and `59c965af0` (`git log 9a513d053..59c965af0 --oneline | wc -l` = 9; whole-range diff
+**207 files changed, 1,152 insertions(+), 16,507 deletions(-)** — but 170 of those files and 16,342
+of those deleted lines are the evidence prune, so the *product* delta is **37 files, +1,152 /
+−165**). The integration checkout is clean. **Two bootstrap seeds were published this wave**:
+`6cab15e2f` (packed source `0188fb5ef`) and then `59c965af0` (packed source `f3b4884ad`).
+
+**This is not a completion record, and the overall migration is NOT finished.** Nothing about the
+toolchain floor changed this wave: the CLI is still 25 lines of C#, Runtime still 861, Playground.Wasm
+still 71, and the **rendered visual IDE proof is still owed** — the extension has still only ever
+been reloaded at `9a513d053`'s ancestor `2b9271828`, which is PRE-FLIP. What wave 17 did was
+**round 13 of compiler blockers**, two reseeds, and the discovery and partial repair of a
+continuous-integration failure that had been red for eleven days without anyone noticing.
+
+**THE HEADLINE: GitHub Actions `Build` HAD BEEN RED SINCE 2026-09-13, AND NO LOCAL GATE COULD SEE
+IT.** The last green run is `e9ca730b6` on 2026-09-11 (`gh run list --workflow Build --branch
+systems-language`). Every run from `a0bd6fd1e` on 2026-09-13 onward failed. Two things combined:
+the workflow's `Restore .NET workloads` step builds `src/NSharpLang.Playground.Wasm`, **which no
+local gate builds** (`tests/scripts/test-all-core.sh` builds `NSharpLang.Playground`, not
+`.Wasm`), and **nobody looked at Actions after a push**. The root cause is recorded below; so is the
+fact that root missed it, which is a process defect and is recorded as one.
+
+### Status of the required sequence at a glance (2026-09-22, wave 17)
+
+| Step | State | Where the receipt is |
+|---|---|---|
+| CLI owner conversion | **UNCHANGED — COMPLETE to its floor**, 1 file / 25 lines | wave 15: `c1edbad92`, `dc3085766` |
+| TestHost | **UNCHANGED — COMPLETE**, 6 `.nl` / 1,184 lines / 0 C# | wave 15: `c1edbad92` |
+| LanguageServer conversion | **UNCHANGED — COMPLETE**, N#-SDK with ZERO C# | wave 16: `0ddb69807` |
+| Playground / Runtime / Wasm-hosting | **STILL NOT STARTED**; open user decision | `census-briefs/FABLE-REMAINING-OWNERS-ASSESSMENT.md` (untracked) |
+| Compiler blockers, round 13 | **4 LANDED** — `273941c7c`, `83ed2402b`, `383be97f8`, `d87083943` | commit messages |
+| Gates at `0188fb5ef` | **both PASS**, first try (non-VS 32m58s, VS 34m05s); pushed | `evidence/combined-0188fb5ef/` |
+| Fifth real reseed, at packed source `0188fb5ef` | **SUCCESS** — estate 9,584/0 | `evidence/reseed-0188fb5ef/reseed.log` |
+| Gates on the seed commit `6cab15e2f` | **both PASS** (non-VS 32m52s, VS 39m39s); pushed after transient GitHub timeouts | `evidence/seed-6cab15e2f/` |
+| CI red since 2026-09-13 | **FOUND, root-caused, fixed** at `246b53db9` | `gh run list --workflow Build --branch systems-language` |
+| Evidence prune | **LANDED** — 170 files, 16,342 text lines + 52 PNGs out | `f3b4884ad`; archive `evidence/pruned-from-repo-6cab15e2f/` |
+| Gate at `f3b4884ad`, non-VS | **PASS**, 43m41s under load | `evidence/combined-f3b4884ad/product-non-vscode.log` |
+| Gate at `f3b4884ad`, VS | **FAILED — throughput ONLY**, at load 5.52; 36 VS smoke passing | `evidence/combined-f3b4884ad/product-vscode.FAILED-throughput-under-load.log` |
+| Sixth real reseed, at packed source `f3b4884ad` | **SUCCESS** — estate 9,584/0; CI workload-restore step reproduced locally against the seed | `evidence/reseed-f3b4884ad/` incl. `ci-step-workload-restore.log` |
+| Gates on the seed commit `59c965af0` | **both PASS** (non-VS 42m40s, VS 37m58s); pushed | `evidence/seed-59c965af0/` |
+| Actions run `35806417973` at `59c965af0` | **STILL RED**, but one step later — NU5026 in the integration tests | `gh run view 35806417973` |
+| Extension reload | **STILL PRE-FLIP** — never re-run on the N# server | wave 16: `evidence/seed-2b9271828/reload-extension.log` |
+| Rendered visual IDE proof | **STILL OWED** | nothing rendered has ever been observed |
+
+### Compiler blockers — round 13, four commits
+
+| commit | what it fixes | tests |
+|---|---|---|
+| `273941c7c` | **lsflip-1.** `ColumnarLambdaPlacementPlanner` had two doors onto the same static-lambda placement and they disagreed: the `staticOwner` door left `CurrentStructForBody` null, the `enclosing` door set it to the enclosing type, so a static helper body ran with an instance-context marker for a type it holds no instance of. `ColumnarDirectCallPlanner.TryEmit` reads that pair as the contextual-lambda preflight frame and yielded the whole call to the legacy residual. Now one arm over `enclosing ?? staticOwner`. | 2 estate rows re-pointed + 2 new; 5 executing rows in `tests/native/lambda-placement`, all 5 fail pre-fix. Estate 9,577/9,577; native sweep 128 projects / 4,759 rows / 0 failures |
+| `83ed2402b` | **NL308**, a new ANALYZER diagnostic naming a reference's `internal` member to a non-friend, asked only after resolution has MISSED and before NL303. The emit-time `NL103` refusal is preserved as the backstop and is now **asserted** rather than assumed, because `<Project Sdk="NSharpLang.Sdk" />` runs no analysis at all. | 5 new estate rows; `census-internals-visible-to` 27/27, `cli-command-contracts` 213/213, `columnar-emit-facts` 206/206, `census-external-type-reach` 6/6; estate 9,584/9,584 |
+| `383be97f8` | **`for … in` with a reserved-keyword loop variable.** `for type in values` produced **fifteen** diagnostics (NL101, NL109, an NL102 pointing at the COLLECTION) and cascaded to end of file, because `for`'s three foreach arms each tested `TokenType.Identifier` and a keyword fell through to the C-style arm. `ParseForStatement` now claims `<keyword> in` and `<keyword> : <Type> in` and reports the same NL109 `foreach` has always reported. | 2 files, +86 |
+| `d87083943` | **`tests/native/template-project-smoke`** — every `templates/*/` project is copied out of the tree and built, and every template `nlc new` scaffolds is written from `NewCommandKernels` and built, because those are two different bodies of truth. This caught a wrong package-version rule in the template. **Corpus pin 153 → 154.** | `compile-time-bench` 74/74, `template-project-smoke` 5/5 |
+
+`0188fb5ef` closes the round by **correcting a marker rather than a defect**: measured against a
+scratch stage-2 seed, the whole 74-line `configureServer` body inlines back into
+`LanguageServer.From(options => { … })` and emits for every line **but one** —
+`initializedServer.TextDocument.PublishDiagnostics(...)`, which declines at
+`emit.call.static-member-unmodeled` naming `LanguageServer.From`. That is a **different** defect,
+filed as **lsflip-6**; `logger.LogInformation(...)` at the same lambda depth in the same body emits,
+so it is neither the depth nor "an external extension call".
+
+### The fifth real reseed and seed commit `6cab15e2f`
+
+Packed source `0188fb5ef`; both clean self-rebuilds 0 errors; restored package bytes match; **estate
+9,584/0**.
+
+```
+Sdk     2962f090d04e6ef667624f63a34315a0f042fc13b09faa8bd31870f881e5f78c
+Runtime d8e09b153426c1242017cf76291753974aff960fa3e9db655ebe22fe8375b542
+```
+
+Ownership head repinned to `head-v2:08bae52e0067962f`, ownership-audit 25/25. Both gates on the seed
+commit PASSED first try (non-VS 32m52s, VS **39m39s**). **The push needed several attempts** —
+transient GitHub timeouts, not a rejection.
+
+### GitHub Actions `Build` had been RED since 2026-09-13
+
+**Read this before trusting any "pushed and green" sentence in waves 13 through 16.**
+
+- **Last green: `e9ca730b6`, 2026-09-11T05:17Z.** Every subsequent run failed, thirty-plus of them.
+- **Culprit: `cf9e0a7ab` "Convert Playground owners to N#".** Once the Playground became an N#-SDK
+  project, `dotnet workload restore src/NSharpLang.Playground.Wasm/...` failed with **NETSDK1150**.
+- **Why.** `Sdk.props` defaulted `OutputType` to `Exe` whenever `obj/project.g.props` was absent, and
+  only `nlc restore` writes that file — so on a clean CI checkout the placeholder was the answer. The
+  placeholder is **not private**: the base SDK derives `_IsExecutable`, `HasRuntimeOutput` and
+  `IsRidAgnostic` from `OutputType` **during evaluation**, and a referencing project reads those back
+  as the referenced project's outer facts. `ValidateExecutableReferences` then rejected a
+  self-contained consumer of what looked like a framework-dependent exe — **before a single N# file
+  was compiled**.
+- **Why root missed it, stated plainly.** Two independent gaps, both ours. (1) **No local gate builds
+  `Playground.Wasm`.** `tests/scripts/test-all-core.sh` builds `src/NSharpLang.Playground`; the
+  `.Wasm` host is built only by `scripts/build-playground-wasm.sh`, which the gate never calls. (2)
+  **Nobody checked Actions on push.** Eleven days and four documented waves went by with the tracked
+  docs saying "pushed" and meaning only that `git push` returned 0.
+
+**The fix — `246b53db9`.** A target cannot repair this, because by the time `LoadProjectConfig` runs
+the derived properties already exist. So `Sdk.props` reads that one field out of `project.yml` **at
+evaluation time in pure MSBuild**, recognising only the two values `ProjectFileParser` accepts. The
+YamlDotNet projection still wins wherever it exists, `LoadProjectConfig` still re-asserts every
+field, and a malformed value still keeps the placeholder so the real parser reports it. The native
+contract test drives the exact MSBuild target `dotnet workload restore` runs, **offline and without a
+workload**, and pins both directions: an unrestored library announces `Library` with an empty
+`_IsExecutable`, an unrestored exe still announces `Exe`. 4 files, +108/−3.
+
+### `f3b4884ad` — 170 evidence-only files out of the repository
+
+`artifacts/` (81 force-added files — raw compile-time sweep output, IDE-verification screenshots,
+language-server logs) and `systems-language-closeout/decodes/` (89 dated per-slice records of the
+completed compiler-ownership campaign) are **verification evidence, not product**.
+
+- **Nothing in the build, the gate or any test read them.** `artifacts/` was already gitignored and
+  force-added, and `tests/scripts/test-all.sh` excludes it from the isolated gate tree in **both** its
+  rsync and its tar arm. An exhaustive per-file grep over all 81 paths found zero code readers. The
+  compile-time baseline lives at `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json`;
+  the ilverify baseline is `scripts/ilverify-baseline.txt`.
+- **The readers that did exist were documentation, and they were updated.** **104 markdown links**
+  into `decodes/` across **11 files** now name the record in backticks instead of linking to a file
+  that is gone; **the filename is preserved in every case**, so each citation still says exactly what
+  to recover, and recovery notes point at `6cab15e2f`.
+- **Removed: 170 files, 16,342 text lines (artifacts 4,995, decodes 11,347) plus 52 PNGs.** Copies of
+  all 170 were preserved **outside** the repository first, at
+  `evidence/pruned-from-repo-6cab15e2f/`.
+- **`ownership-audit` 25/25 with NO REPIN, and that is not luck**: `artifacts` is a
+  `ShouldSkipDirectory` and `.md` hits the `Ignored()` arm of `Classify`, so every removed and every
+  modified path was outside the audited set. The manifest is byte-identical, `codeEpochFileCount`
+  stays 223, all four fingerprints untouched.
+
+### Gates at `f3b4884ad` — non-VS PASS, VS FAILED on throughput ONLY
+
+| gate | result | total | note |
+|---|---|---|---|
+| non-VS | **PASS**, `EXIT=0` | **43m41s** | load 3.87 at start; all 80 N# assemblies pass IL verification |
+| VS-enabled | **FAILED 1**, `EXIT=1` | 46m05s | **Step 2c Systems Throughput Gate only** |
+
+The throughput gate printed its own load: **`load average { 5.52 5.35 4.97 }, 10 cores`**. **9 of 12
+cells failed** against a 1.20× tolerance, worst 1.45× (`count-transitions` 4096), against a baseline
+measured 2026-09-01 **on an idle Apple M4**. Everything downstream of it in the same run was green —
+estate **9,584/0**, **36 VS Code smoke tests passing (41s)**, all 80 assemblies IL-clean, `nlc check`
+on examples PASS. **Pushed on the non-VS pass**, on the stated ground that the change is backend-only
+(file deletions and markdown de-linking) and cannot move a throughput number. This is the
+`THROUGHPUT-CONCURRENCY` wall from wave 16, hit again.
+
+### The sixth real reseed and seed commit `59c965af0`
+
+Packed source `f3b4884ad`; both clean self-rebuilds 0 errors; restored package bytes match; **estate
+9,584/0**.
+
+```
+Sdk     86e0d74efeda2e1e52f8e06c8b608a64cdd501b4dbed954491edc360ee745ca8
+Runtime 23f95c3708be1c5951dc948d8b09146d3c7302672ed423a9d411ebfa1cc2d4a7
+```
+
+Ownership head repinned to `head-v2:36fb118ce3eaba38`, ownership-audit 25/25. **The CI workload-restore
+step was reproduced locally against this seed and succeeded** (`evidence/reseed-f3b4884ad/ci-step-workload-restore.log`,
+`EXIT=0`, `Successfully updated workload(s): wasm-tools`) — which is the only way to test `246b53db9`
+without waiting for CI, because the fix lives in the **packaged** SDK. Both gates on the seed commit
+PASSED (non-VS **42m40s**, VS **37m58s**); pushed.
+
+### Actions run `35806417973` at `59c965af0` — nine steps green, one red
+
+The workload restore now passes. So do `Verify pinned compiler bootstrap`, `Release lifecycle
+regression tests`, `Build portable product and tests`, `Canonical formatting`, `Native compiler
+tests`, `Ownership audit`, and **the whole `ilverify` job**. The run fails at **`Installed toolchain
+integration tests`**:
+
+```
+NU5026: The file '.../src/NSharpLang.Compiler/bin/Release/net10.0/Compiler.pdb'
+        to be packed was not found on disk.
+```
+
+`dotnet pack` of the N#-SDK projects produces no PDB, and the packaging step demands one. **A fix is
+in flight on `census/ci2`** — the SDK declaring that it emits no symbols — and it **will need a
+SEVENTH reseed to reach CI**, for the same reason the sixth was needed: the failing behaviour is in
+the packaged SDK, not in the branch source.
+
+**And one structural fact about this workflow that the docs have never stated.** `Build` triggers on
+`push` and `pull_request` **to `main` only**:
+
+```yaml
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+```
+
+Every run in the listing above is PR **#190** (`systems-language` → `main`). **A PR that targets
+`systems-language` gets no CI at all.** That matters immediately, because the user's decision below
+is to split #190 into PRs **targeting `systems-language`** — those PRs will be merged with **no
+automated signal whatsoever** unless the trigger is widened.
+
+### PR #190's size, and the audit that explains it
+
+Measured at `59c965af0` (`gh pr view 190`): **+749,132 / −227,571 over 2,672 files**, base `main`,
+opened 2026-08-22. *(A figure of +765k/−228k over 2,841 files was circulating; it predates the
+`f3b4884ad` prune and is superseded by the numbers here.)* `Compiler.Core` is **299k lines of source
+(220k code)** plus **237k lines of estate tests**, replacing **81k lines of C#**.
+
+`census-briefs/FABLE-COMPILER-CORE-AUDIT.md` decomposes the 2.7× ratio: **~52% architecture and
+redundancy, ~35% verbosity, ~10% genuinely migrated, ~5% new capability.** It also found **near-zero
+use of `match`, interfaces, generics, unions and lambdas** in Core — the code is written in a
+dialect of N# that ignores most of the language it implements — and names **five compression levers
+worth ≈20–25k lines**.
+
+`census-briefs/FABLE-TEST-SPEED-ANALYSIS.md` is the companion: **the gate compiles `Compiler.Core`
+seven times, which is 69% of wall-clock**, while **the 9,584-row estate itself runs in 15 seconds.**
+Levers L1/L2/L3/L4/L7 are the named fixes.
+
+### User decisions taken 2026-09-22
+
+**Process.** **PR #190 is to be split by worktree into PRs targeting `systems-language`**;
+`artifacts/` and `decodes/` are to be removed (done, `f3b4884ad`); `Compiler.Core` is to be **made
+idiomatic N# and compressed**; and every slice must be a **fast, independently testable** one.
+
+**Language.** Eight calls, and a standing rule that governs all of them: **"existing code doesn't
+matter, it's not in production — no compatibility shims."**
+
+| id | decision |
+|---|---|
+| D1 | **Explicit interface implementation — ADDED**, spelled `func IEnumerable.GetEnumerator(): IEnumerator` |
+| — | **`file` keyword — REMOVED ENTIRELY**; `type` demoted to a contextual keyword |
+| D3 | **`in` parameters — ADDED** |
+| D5 | **Exception filters — ADDED** |
+| D4 | `volatile` — **NOT** added |
+| D6 | Attribute targets and generic attributes — **NOT** added |
+| D11 | **camelCase type names are package-private (the Go rule)**, emitted `assembly` |
+
+**Lanes in flight** as of this checkpoint: `census/lang` (the language features above),
+`census/speed` (the gate levers), `census/ci2` (NU5026), and **PR #191** (`census/core-a`) — estate
+row namespacing plus three owner extractions, **net product N# −906 lines**, self-host front door
+**1,340 → 1,318**, estate rows 9,584 → 9,591, **awaiting its gate**.
+
+### Remaining production C#, measured at `59c965af0`
+
+**Unchanged from wave 16: 957 lines.**
+
+| project | C# lines | why it stands |
+|---|---|---|
+| `src/NSharpLang.Runtime` | **861** | `separate-campaign` in the ratchet; open user decision |
+| `src/NSharpLang.Playground.Wasm` | **71** | open user decision |
+| `src/NSharpLang.Cli` | **25** | `Program.cs`; irreducible while `typeof(Program).Assembly` must name `Cli.dll` |
+
+**Plus assertion code the docs have not been counting.** The CI step `Installed toolchain integration
+tests` runs **`tests/NSharpLang.IntegrationTests/IntegrationTests.csproj`**, a **C#** xUnit project:
+**576 lines across 3 `.cs` files** — `ToolchainTests.cs` 337, `ToolchainFixture.cs` 170,
+`DockerFactAttribute.cs` 69 — plus `Dockerfile.toolchain` and the csproj. It is **not** production
+C# and does not belong in the 957, but it **is** remaining C# that asserts the product, it is the
+step currently failing CI, and it has never been named in a tracked doc.
+
+### Still OWED at `59c965af0`
+
+1. **Rendered visual IDE verification.** Unchanged and now four waves old. The only successful
+   extension reload was at `2b9271828`, which built a **C#** language server. Nothing rendered from
+   the N# server has ever been observed.
+2. **A green GitHub Actions run.** `35806417973` gets nine steps further than any run since
+   2026-09-11 and still fails. The NU5026 fix needs a **seventh reseed**.
+3. **CI on the branch that is actually being merged into.** Splitting #190 into PRs against
+   `systems-language` gives those PRs no CI under the current trigger.
+4. **The `Compiler.Core` compression itself.** The audit and the speed analysis are written; one
+   slice (#191) is open; the other four levers are not started.
+5. **Runtime, Playground.Wasm and the Cli floor** — still open user decisions, still 957 lines.
+
+### Process lessons from this round
+
+- **"Pushed" is not "green".** For eleven days the tracked docs recorded pushes as though a push were
+  a verification. Check `gh run list` after every push, and record the run id.
+- **A gate that never builds a project cannot defend it.** `Playground.Wasm` is built by CI and by no
+  local gate. Any project CI builds and the gate does not is an unguarded surface.
+- **An MSBuild placeholder is a public API.** `Sdk.props`'s `OutputType` default was written as a
+  private fallback and was read by the base SDK, by `_GetProjectReferenceTargetFrameworkProperties`
+  and by `ValidateExecutableReferences` — one evaluation-time default cost eleven days of CI.
+- **Test a packaged-SDK fix by reproducing the consumer's step against the new seed**, not by
+  re-reading the diff. That is what `evidence/reseed-f3b4884ad/ci-step-workload-restore.log` is.
+- **Numbers about a PR go stale the moment the PR changes.** The prune moved #190 by 169 files and
+  ~16k lines; the size figure in the brief that ordered this checkpoint was already superseded when
+  it was written.
+
+## Census wave 16 — history (2026-09-22)
 
 Wave 16 is integrated, **pushed, gated and reseeded** through `5723c1002` on `census/merge`, which
 equals `origin/systems-language`. **Twenty commits** sit between the wave-15 docs tip `eadb060a8`
