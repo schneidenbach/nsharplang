@@ -1,7 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
 import System
-import System.IO
 
 class WatchOptionSummary {
     ProjectOption: string?

@@ -2,16 +2,10 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
-import System.Diagnostics
 import System.Globalization
-import System.IO
 import System.Reflection
 import System.Reflection.Emit
 import System.Text
-import System.Text.Json
-import YamlDotNet.Core
-import YamlDotNet.Core.Events
-import YamlDotNet.Serialization
 
 
 // Direct schema-v3 owner for the admitted construction surface: exact source and runtime

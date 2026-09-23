@@ -8,7 +8,6 @@ import System.Reflection
 import System.Text
 import System.Text.Json
 import NSharpLang.Compiler
-import NSharpLang.Compiler.CodeIntelligence
 
 class NativeTestCase {
     DisplayName: string

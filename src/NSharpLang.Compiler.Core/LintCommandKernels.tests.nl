@@ -1,7 +1,6 @@
 namespace NSharpLang.Cli.Commands
 
 import NSharpLang.Compiler
-import NSharpLang.Compiler.CodeIntelligence
 
 // THE `nlc lint` OPTION, FILE-SELECTION, OUTPUT-MODE AND MESSAGE KERNELS.
 //

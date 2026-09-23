@@ -1,10 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections
 import System.Collections.Generic
-import System.Diagnostics
-import System.IO
 import System.Reflection
 import System.Reflection.Emit
 import System.Text

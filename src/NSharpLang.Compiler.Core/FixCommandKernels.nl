@@ -6,7 +6,6 @@ import System.IO
 import System.Text
 import System.Text.Json
 import NSharpLang.Compiler
-import NSharpLang.Compiler.CodeIntelligence
 
 class FixEntry {
     File: string

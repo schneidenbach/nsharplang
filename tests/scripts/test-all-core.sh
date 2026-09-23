@@ -377,13 +377,20 @@ else
     )
     # Measured on the tip CLI; the classification behind each number is in memory/README.md.
     #
+    # 2026-09-22, the Compiler.Core compression campaign (PRs 1-4 of the Fable audit): 1,318,
+    # carried by 279 of the project's files, down from 1,340. The four PRs ADDED fourteen NL010s -- a
+    # deleted duplicate leaves the import that served it unused -- and removing those plus the
+    # twenty-two other unused imports already sitting in the same files took the total to 1,318. No
+    # other class moved: NL905 424, NL202 352, NL002 239, NL010 165 (was 201 at the peak, 186
+    # before), NL012 38, NL011 30, NL304 28.
+    #
     # -1 means BLOCKED, not clean. `check` on a project that REFERENCES Compiler.Core builds that
     # reference first, and that build fails while Core's own front door is not clean -- so those two
     # produce an error envelope instead of a diagnostic list and there is nothing to count yet. The
     # step prints the reason and moves on; the day Core reaches 0 their ceilings become real numbers
     # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
     SELF_HOST_CEILINGS=(
-        1340
+        1318
         -1
         -1
         0

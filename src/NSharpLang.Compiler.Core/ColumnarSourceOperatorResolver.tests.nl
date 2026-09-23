@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Reflection
-import System.Reflection.Emit
 
 func SourceOperatorOneType(valueType: Type): Type[] {
     result := new Type[](1)
