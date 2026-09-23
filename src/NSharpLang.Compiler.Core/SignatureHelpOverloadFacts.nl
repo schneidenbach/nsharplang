@@ -346,19 +346,21 @@ class SignatureHelpOverloadFacts {
             prefix = "this "
         }
 
-        if parameter.Modifier == ParameterModifier.Ref {
+        // `Ast.` IS NOT DECORATION HERE. This file imports `System.Reflection`, which declares a
+        // `ParameterModifier` of its own, so the bare name is ambiguous (NL209).
+        if parameter.Modifier == Ast.ParameterModifier.Ref {
             return prefix + "ref "
         }
 
-        if parameter.Modifier == ParameterModifier.Out {
+        if parameter.Modifier == Ast.ParameterModifier.Out {
             return prefix + "out "
         }
 
-        if parameter.Modifier == ParameterModifier.In {
+        if parameter.Modifier == Ast.ParameterModifier.In {
             return prefix + "in "
         }
 
-        if parameter.Modifier == ParameterModifier.Params {
+        if parameter.Modifier == Ast.ParameterModifier.Params {
             return prefix + "params "
         }
 

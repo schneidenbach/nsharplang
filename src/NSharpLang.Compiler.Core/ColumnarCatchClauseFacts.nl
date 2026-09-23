@@ -1,7 +1,5 @@
 namespace NSharpLang.Compiler.Columnar
 
-import System
-
 
 // WHICH CHILD OF A kind-50 CATCH CLAUSE IS WHICH.
 //

@@ -1019,7 +1019,10 @@ class AnalyzerWriteTargets {
 
         for parameter in declaration.Parameters {
             if parameter.Name == name {
-                return parameter.Modifier == ParameterModifier.In
+                // `Ast.` IS NOT DECORATION HERE. This file imports `System.Reflection` for
+                // `ParameterInfo`, and that namespace declares a `ParameterModifier` of its own, so the
+                // bare name is ambiguous (NL209) — the same prefix `AnalyzerFunctionTypeFactory` writes.
+                return parameter.Modifier == Ast.ParameterModifier.In
             }
         }
 
