@@ -2,7 +2,7 @@
 
 ## Test Suite
 
-**Total Tests:** Do not hard-code counts here. There are two test bodies and no C# unit suite: the ESTATE (`src/NSharpLang.Compiler.Core/*.tests.nl`, run through that project with `-p:NSharpExcludeTests=false`) and the NATIVE PROJECTS (`tests/native/<dir>`, each run by `nlc test`). `./scripts/dev.sh --list` names every slice; `./scripts/test-all.sh` runs the full product gate.
+**Total Tests:** Do not hard-code counts here. There are two test bodies and no C# unit suite: the ESTATE (`src/NSharpLang.Compiler.Core/<slice>/*.tests.nl`, run through that project with `-p:NSharpExcludeTests=false`) and the NATIVE PROJECTS (`tests/native/<dir>`, each run by `nlc test`). `./scripts/dev.sh --list` names every slice; `./scripts/test-all.sh` runs the full product gate.
 
 ## Test Organization
 
@@ -412,7 +412,7 @@ types. The models themselves are already N# — `PlaygroundFile`, `PlaygroundChe
 execution MECHANISM — the tree walk, the scope chain, the runtime value model — stays C# and is a
 `(b)`-bucket subject whose retirement is a Playground task (run emitted IL in the browser), because
 a browser tab has no process to spawn and no `Reflection.Emit`. Everything it DECIDES now lives in
-`src/NSharpLang.Compiler.Core/PlaygroundRunFacts.nl` (66 `static func`s) and is pinned
+`src/NSharpLang.Compiler.Core/Driver/PlaygroundRunFacts.nl` (66 `static func`s) and is pinned
 by `PlaygroundRunFacts.tests.nl` (18 blocks / 143 asserts): the **37-code `PG201`–`PG237`
 vocabulary** with its sentences, the three budgets (20,000 steps / 128 frames / 200 output lines),
 the entry-point rule, the reserved names, union-case name matching and splitting, the division and
@@ -689,7 +689,7 @@ body compared an envelope's message against a LIVE call to the kernel that produ
 agreed by construction and neither side ever said what the sentence is. The same pattern held for
 the two surviving `DaemonServer` bodies, which are kept and de-tautologised in place: they assert
 the literal wire message, and the kernel's own text is pinned independently in
-`src/NSharpLang.Compiler.Core/DaemonServerAndClientKernels.tests.nl`.
+`src/NSharpLang.Compiler.Core/Driver/DaemonServerAndClientKernels.tests.nl`.
 
 **Two emit walls and one parser limit were measured this slice.** A widening ARRAY STORE of a user
 reference type into `object[]` declines (`emit.statement.block-child`), and so does an array
@@ -737,7 +737,7 @@ canonicalised to its SHAPE rather than its value. Before and after are byte-iden
 and the after reproduces byte-identical across a restore-and-rebuild.
 
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
-`src/NSharpLang.Compiler.Core/Lexer.tests.nl`, and they run in the Compiler Core
+`src/NSharpLang.Compiler.Core/Syntax/Lexer.tests.nl`, and they run in the Compiler Core
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.
 
 Linting has no C# assertion layer either. The linter's canonical contracts are N# and live beside
@@ -845,7 +845,7 @@ single pin dies with the process — but it is the thing to fix before several p
 process.
 - The compiler side holds the matching guarantee: external-type/doc resolution enumerates loaded
   assemblies through the N# `ExternalAssemblyScan.Loaded()` owner
-  (`src/NSharpLang.Compiler.Core/ExternalAssemblyScan.nl`),
+  (`src/NSharpLang.Compiler.Core/Model/ExternalAssemblyScan.nl`),
   which skips dynamic and collectible assemblies — so a briefly-loaded emitted assembly can no longer
   hijack a concurrent in-process compile's bare-name lookup (the "MemoryCopy not found on type Buffer"
   flake). Never resolve external types via a raw `AppDomain.CurrentDomain.GetAssemblies()` scan.

@@ -32,12 +32,37 @@ separately. Historical allowlist labels below do not establish current completio
 
 ## Main Components
 
-1. **Lexer** - tokenizes source code (`src/NSharpLang.Compiler.Core/Lexer.nl`)
-2. **Parser** - builds syntax trees (`src/NSharpLang.Compiler.Core/ColumnarParserRecovery.nl`, N#)
-3. **Analyzer** - type checking and semantic analysis (`src/NSharpLang.Compiler.Core/Analyzer.nl`, with the N# owners `AnalyzerDeclarationContext.nl`, `TypeInfoIdentityFacts.nl`, `AnalyzerConversionFacts.nl`, `AnalyzerCallableReferenceFacts.nl`, `AnalyzerWellKnownTypes.nl`, `AnalyzerWellKnownTypeFacts.nl`, `AnalyzerClrTypeConversion.nl`, `AnalyzerAssignabilityFacts.nl`, `AnalyzerExternalTypeProbe.nl`, `AnalyzerTypeReferenceFacts.nl`, `AnalyzerScopeStack.nl`, `AnalyzerProjectDiscovery.nl`, `AnalyzerTypeResolver.nl`, `AnalyzerTypeSubstitution.nl`, `AnalyzerStructuralAssignability.nl`, `AnalyzerDiagnosticSink.nl`, `AnalyzerStateModels.nl`, `AnalyzerDiagnostics.nl`, `NullabilityMetadataCore.nl`, `NullabilityMetadataReflection.nl`, `AnalyzerReflectionTypeConversion.nl`, `AnalyzerFunctionTypeFactory.nl`, `AnalyzerAssignability.nl`)
-4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler.Core/ColumnarIlEmitter.nl`)
+1. **Lexer** - tokenizes source code (`src/NSharpLang.Compiler.Core/Syntax/Lexer.nl`)
+2. **Parser** - builds syntax trees (`src/NSharpLang.Compiler.Core/Syntax/ColumnarParserRecovery.nl`, N#)
+3. **Analyzer** - type checking and semantic analysis (`src/NSharpLang.Compiler.Core/Semantics/Analyzer.nl`, with the N# owners `AnalyzerDeclarationContext.nl`, `TypeInfoIdentityFacts.nl`, `AnalyzerConversionFacts.nl`, `AnalyzerCallableReferenceFacts.nl`, `AnalyzerWellKnownTypes.nl`, `AnalyzerWellKnownTypeFacts.nl`, `AnalyzerClrTypeConversion.nl`, `AnalyzerAssignabilityFacts.nl`, `AnalyzerExternalTypeProbe.nl`, `AnalyzerTypeReferenceFacts.nl`, `AnalyzerScopeStack.nl`, `AnalyzerProjectDiscovery.nl`, `AnalyzerTypeResolver.nl`, `AnalyzerTypeSubstitution.nl`, `AnalyzerStructuralAssignability.nl`, `AnalyzerDiagnosticSink.nl`, `AnalyzerStateModels.nl`, `AnalyzerDiagnostics.nl`, `NullabilityMetadataCore.nl`, `NullabilityMetadataReflection.nl`, `AnalyzerReflectionTypeConversion.nl`, `AnalyzerFunctionTypeFactory.nl`, `AnalyzerAssignability.nl`)
+4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler.Core/Backend.Emit/ColumnarIlEmitter.nl`)
 5. **CLI** - command-line workflows (`src/NSharpLang.Cli/`)
-6. **Error reporting** - diagnostics and suggestions (`src/NSharpLang.Compiler.Core/CompilerError.nl`, `ErrorCode.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, N#)
+6. **Error reporting** - diagnostics and suggestions (`src/NSharpLang.Compiler.Core/Model/CompilerError.nl`, `ErrorCode.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, N#)
+
+## Compiler.Core slice directories
+
+`src/NSharpLang.Compiler.Core` is ONE project whose sources sit in eight slice directories, named
+for the projects the Compiler.Core split carves out of it and ordered so a file names only its own
+slice or a lower one:
+
+| directory | slice | holds |
+|---|---|---|
+| `Model/` | S0 | the AST, the type, diagnostic and project-config models, and the shared facts every slice reads |
+| `Syntax/` | S1 | lexer, preprocessor, the columnar parser kernels and node table |
+| `Semantics/` | S2 | the analyzer, the systems analyzer, flow and nullability |
+| `Backend.Plan/` | S3 | the columnar planners and binding scope, and the metadata-blob writers |
+| `Backend.Emit/` | S4 | `ColumnarIlEmitter` and the IL realizations |
+| `CodeIntel/` | S5 | completion, hover, signature help, code fixes, DocQuery and the Linter |
+| `Tooling/` | S6 | the formatter and the JSON output models |
+| `Driver/` | S7 | the CLI command kernels, `MultiFileCompiler`, and the SDK emit task |
+
+Every `.tests.nl` sits beside its subject, in the same directory. The directories are organisational
+only: the SDK's `**/*.nl` globs and the CLI's source walk recurse, `project.yml` lists no sources, a
+file's namespace is its own `namespace` line, and canonical source order (below) keys on the
+basename, so moving a file between directories changes no byte of any assembly. One reference still
+points upward -- `ColumnarNodeTable` (Syntax) holds a `ColumnarBindingScopeFacts` (Backend.Plan)
+field -- and is the next step of the split. `scripts/dev.sh --since` selects tests by these
+directories.
 
 ## Data Flow
 
@@ -134,7 +159,7 @@ Eleven further C# files in this assembly are `state:"removed"` — deleted whole
 remaining state/control ownership from the active goal:
 
 - The complete `ColumnarIlEmitter` implementation, including SIMD loop lowering, now lives in
-  `src/NSharpLang.Compiler.Core/ColumnarIlEmitter.nl`; its C# owner is deleted.
+  `src/NSharpLang.Compiler.Core/Backend.Emit/ColumnarIlEmitter.nl`; its C# owner is deleted.
   Checkpoint `8ec52542b`, published with `d533cd51e`, passed the fresh IDE-enabled product gate,
   installed SDK verification and real-editor formatting checks. See
   the acceptance evidence (`2026-09-08-complete-columnar-emitter-ownership.md`).

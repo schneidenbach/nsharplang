@@ -1,6 +1,6 @@
 # Parser Component
 
-**Owner:** `src/NSharpLang.Compiler.Core/ColumnarParserRecovery.nl` (N#)
+**Owner:** `src/NSharpLang.Compiler.Core/Syntax/ColumnarParserRecovery.nl` (N#)
 
 The parser is written in N#. The former C# `Parser.cs` was deleted at the end of the task-016 ownership
 arc; `ColumnarParserRecovery` is the sole parse and ordered-diagnostic authority for the compiler, the
@@ -92,7 +92,7 @@ The AST is N#-owned. The node families live in `src/NSharpLang.Compiler.Core/`
 `Ast/Expressions.cs`, `Ast/Statements.cs` and `Ast/AstChildren.cs` were deleted whole.
 
 **Adding an expression node or a new Expression-typed child?** Update
-`AstChildrenCore.Of` (`src/NSharpLang.Compiler.Core/AstChildrenCore.nl`) — the N#-owned
+`AstChildrenCore.Of` (`src/NSharpLang.Compiler.Core/Model/AstChildrenCore.nl`) — the N#-owned
 shared exhaustive child enumeration that the linter, definite assignment, capture/escape scans and
 performance analyzers recurse through. It is called directly, with no C# adapter.
 `AstChildrenCore.tests.nl` fails until every Expression-typed slot (including slots inside

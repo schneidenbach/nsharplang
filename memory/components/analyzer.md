@@ -1,25 +1,25 @@
 # Analyzer Component
 
 **Files:** `src/NSharpLang.Compiler/Analyzer.cs`,
-`src/NSharpLang.Compiler.Core/AnalyzerDeclarationContext.nl`,
-`src/NSharpLang.Compiler.Core/TypeInfoIdentityFacts.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerConversionFacts.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerCallableReferenceFacts.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerWellKnownTypes.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerWellKnownTypeFacts.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerClrTypeConversion.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerAssignabilityFacts.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerExternalTypeProbe.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerTypeReferenceFacts.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerScopeStack.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerProjectDiscovery.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerTypeResolver.nl`,
-`src/NSharpLang.Compiler.Core/TypeArityNames.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerTypeSubstitution.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerStructuralAssignability.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerDiagnosticSink.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerStateModels.nl`,
-`src/NSharpLang.Compiler.Core/AnalyzerDiagnostics.nl`
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerDeclarationContext.nl`,
+`src/NSharpLang.Compiler.Core/Model/TypeInfoIdentityFacts.nl`,
+`src/NSharpLang.Compiler.Core/Model/AnalyzerConversionFacts.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerCallableReferenceFacts.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerWellKnownTypes.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerWellKnownTypeFacts.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerClrTypeConversion.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerAssignabilityFacts.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerExternalTypeProbe.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerTypeReferenceFacts.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerScopeStack.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerProjectDiscovery.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerTypeResolver.nl`,
+`src/NSharpLang.Compiler.Core/Model/TypeArityNames.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerTypeSubstitution.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerStructuralAssignability.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerDiagnosticSink.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerStateModels.nl`,
+`src/NSharpLang.Compiler.Core/Semantics/AnalyzerDiagnostics.nl`
 
 ## Responsibility
 
@@ -1702,7 +1702,7 @@ The stack is `AnalyzerScopeStack` (N#, see "The scope stack" above); the shell's
 
 ## Type System
 
-See `src/NSharpLang.Compiler.Core/TypeInfoModels.nl` (with `TypeInfoFactories.nl` and
+See `src/NSharpLang.Compiler.Core/Model/TypeInfoModels.nl` (with `TypeInfoFactories.nl` and
 `TypeInfoIdentityFacts.nl`) for type representations:
 
 ### Built-in Types
@@ -3329,10 +3329,10 @@ Analyzer emits `CompilerError` records with:
 
 Analyzer coverage is split deliberately across:
 
-- `src/NSharpLang.Compiler.Core/AnalyzerDeclarationContext.tests.nl` for the N#
+- `src/NSharpLang.Compiler.Core/Semantics/AnalyzerDeclarationContext.tests.nl` for the N#
   declaration catalog, source ownership, visibility, imports, members, and exact runtime
   projections.
-- `src/NSharpLang.Compiler.Core/TypeInfoIdentityFacts.tests.nl` for nominal,
+- `src/NSharpLang.Compiler.Core/Model/TypeInfoIdentityFacts.tests.nl` for nominal,
   structural, runtime, and metadata-only identity and conversion rules.
 - `tests/native/analyzer-identifier-binding` for what the analyzer BINDS an identifier to at an
   incomplete member access — the bound `ClassTypeInfo`, its name and anchor, its whole declared-member
@@ -4797,7 +4797,7 @@ declined at the extension call. Element NAMES still do not survive an `IGrouping
 
 ## Import usage is a binding fact, and both import rules read it (census 2026-09-13, TOOL3)
 
-`ImportUsageFacts` (`src/NSharpLang.Compiler.Core/ImportUsageFacts.nl`) is a per-file ledger the
+`ImportUsageFacts` (`src/NSharpLang.Compiler.Core/Model/ImportUsageFacts.nl`) is a per-file ledger the
 analyzer stamps on the `CompilationUnit` it analyses. It records two things: every namespace some
 written name resolved THROUGH, and, for a name that resolved to a METADATA type, which namespace
 supplied it. The linter's two import rules are that one measurement read from two sides — an import

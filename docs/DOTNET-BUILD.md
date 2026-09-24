@@ -119,7 +119,7 @@ Hello from N#!
    defined in an assembly that is not referenced.`
 7. MSBuild continues with the normal .NET pipeline using the emitted assembly, references, and runtime assets.
 
-Every decision in steps 4 and 6 lives in N#. `src/NSharpLang.Compiler.Core/EmitIlAssembly.nl`
+Every decision in steps 4 and 6 lives in N#. `src/NSharpLang.Compiler.Core/Driver/EmitIlAssembly.nl`
 owns the MSBuild task and Mono.Cecil orchestration, while `SdkEmitTaskKernels.nl` owns its pure
 selection and formatting rules.
 
