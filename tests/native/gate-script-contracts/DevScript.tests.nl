@@ -1,6 +1,7 @@
 namespace NSharpLang.GateScriptContracts.Tests
 
 import System
+import System.Collections.Generic
 import System.IO
 
 // ─── THE DEVELOPMENT ESTATE EVIDENCE GUARD ────────────────────────────────────────────────────
@@ -108,4 +109,109 @@ test "dev estate preserves a nonzero test process exit" {
     assert run.ExitCode == 23, run.Report()
     assert run.Stdout.Contains("Estate rows failed"), run.Report()
     assert !run.Stdout.Contains("Estate rows passed"), run.Report()
+}
+
+// ─── `--since` BY COMPILER.CORE SLICE DIRECTORY ───────────────────────────────────────────────
+//
+// Compiler.Core's sources sit in eight slice directories, and `dev.sh --since` maps a changed path
+// to a selection with shell `case` globs. A `case` glob's `*` also matches `/`, so a slice that is
+// not spelled before the `src/NSharpLang.Compiler.Core/*` catch-all silently falls into it and
+// every edit selects EVERYTHING. Each row copies the real script into a throwaway git repository,
+// leaves ONE changed file in it, and reads the selection the script prints -- with a fake `dotnet`
+// ahead of PATH and `--no-build`, so nothing is built or run for real.
+func DevSinceRun(changedPath: string): ProcessRun {
+    root := NewTempDirectory("nsharp-dev-since")
+    try {
+        // The fake `dotnet` lives BESIDE the repository, not in it, or it would be a changed path too.
+        bin := MakeFakeDotnet(root, "Passed: 2, Failed: 0, Skipped: 0, Total: 2\n", 0)
+        repository := Path.Combine(root, "repository")
+        scripts := Path.Combine(repository, "scripts")
+        Directory.CreateDirectory(scripts)
+        File.Copy(Path.Combine(Path.Combine(RepositoryRoot(), "scripts"), "dev.sh"), Path.Combine(scripts, "dev.sh"))
+        File.WriteAllText(Path.Combine(repository, "README.md"), "dev.sh --since probe\n")
+        DevSinceGit(repository, ["init", "-q"])
+        DevSinceGit(repository, ["add", "-A"])
+        DevSinceGit(repository, ["-c", "user.name=probe", "-c", "user.email=probe@example.invalid", "-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-gpg-sign", "-m", "base"])
+
+        changed := Path.Combine(repository, changedPath)
+        Directory.CreateDirectory(Path.GetDirectoryName(changed) ?? repository)
+        File.WriteAllText(changed, "// changed\n")
+
+        launch := new ProcessLaunch("bash", repository, 60000)
+        launch.Arguments.Add("scripts/dev.sh")
+        launch.Arguments.Add("--no-build")
+        launch.Arguments.Add("--since")
+        launch.WithEnvironment("PATH", bin + ":" + (Environment.GetEnvironmentVariable("PATH") ?? ""))
+        return Run(launch)
+    } finally {
+        DeleteTempDirectory(root)
+    }
+}
+
+func DevSinceGit(root: string, arguments: string[]) {
+    git := new ProcessLaunch("git", root, 60000)
+    for argument in arguments {
+        git.Arguments.Add(argument)
+    }
+
+    run := Run(git)
+    if run.ExitCode != 0 {
+        throw new InvalidOperationException("git failed in the dev.sh probe repository: " + run.Report())
+    }
+}
+
+// The words of the one `Change-aware selection (since HEAD): ...` line, sorted. The script sorts
+// them with the locale's `sort`, so the rows compare them as a set rather than as a spelling.
+func DevSinceWords(run: ProcessRun): string {
+    marker := "Change-aware selection (since HEAD): "
+    start := run.Stderr.IndexOf(marker, StringComparison.Ordinal)
+    if start < 0 {
+        return "<no selection line>"
+    }
+
+    rest := run.Stderr.Substring(start + marker.Length)
+    newline := rest.IndexOf("\n", StringComparison.Ordinal)
+    if newline >= 0 {
+        rest = rest.Substring(0, newline)
+    }
+
+    words := new List<string>(rest.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+    words.Sort(StringComparer.Ordinal)
+    return string.Join(" ", words)
+}
+
+test "dev since selects each Compiler.Core slice directory's own subsystem" {
+    slices: string[] = ["Syntax", "Semantics", "Backend.Plan", "Backend.Emit", "CodeIntel", "Tooling", "Driver"]
+    expected: string[] = ["Columnar estate", "Analyzer estate", "Columnar estate", "Columnar estate", "LanguageServer completion doc estate query", "estate", "cli daemon estate"]
+    index := 0
+    while index < slices.Length {
+        run := DevSinceRun("src/NSharpLang.Compiler.Core/" + slices[index] + "/Probe.nl")
+        assert run.ExitCode == 0, slices[index] + ": " + run.Report()
+        assert DevSinceWords(run) == expected[index], slices[index] + " selected '" + DevSinceWords(run) + "': " + run.Report()
+        assert !run.Stderr.Contains("EVERYTHING (fail-safe)"), slices[index] + ": " + run.Report()
+        index = index + 1
+    }
+}
+
+test "dev since treats a Compiler.Core Model change as central and runs everything" {
+    run := DevSinceRun("src/NSharpLang.Compiler.Core/Model/Probe.nl")
+
+    assert run.ExitCode == 0, run.Report()
+    assert run.Stderr.Contains("Change-aware selection: EVERYTHING (fail-safe). Triggers:"), run.Report()
+    assert run.Stderr.Contains("src/NSharpLang.Compiler.Core/Model/Probe.nl (Compiler.Core Model slice: the AST and shared model every slice reads)"), run.Report()
+}
+
+test "dev since still runs everything for a Compiler.Core file outside every slice directory" {
+    run := DevSinceRun("src/NSharpLang.Compiler.Core/Stray.nl")
+
+    assert run.ExitCode == 0, run.Report()
+    assert run.Stderr.Contains("Change-aware selection: EVERYTHING (fail-safe). Triggers:"), run.Report()
+    assert run.Stderr.Contains("src/NSharpLang.Compiler.Core/Stray.nl (shared compiler file)"), run.Report()
+}
+
+test "dev list names the slice directories that hold estate rows" {
+    run := Run(BashLaunch("scripts/dev.sh --list", 60000))
+
+    assert run.ExitCode == 0, run.Report()
+    assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Core/<slice>/*.tests.nl (run with --estate; slices: Backend.Emit Backend.Plan CodeIntel Driver Model Semantics Syntax Tooling)"), run.Report()
 }

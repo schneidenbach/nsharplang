@@ -1014,8 +1014,14 @@ Do not pay the full gate during normal edit loops. Use:
 
 `dev.sh --since` is intentionally fail-safe: central compiler, SDK/runtime,
 build, fixture, or unmapped changes run the full unit suite rather than silently
-narrowing. For backend-only commit verification, the required final command is
-still:
+narrowing. A Compiler.Core change maps by its SLICE DIRECTORY: `Syntax/`,
+`Backend.Plan/` and `Backend.Emit/` select the estate's `Columnar` rows and the
+columnar native projects, `Semantics/` the `Analyzer` ones, `CodeIntel/` the
+completion/query/doc/LanguageServer ones, `Driver/` the cli/daemon ones,
+`Tooling/` the whole estate, and `Model/` (the AST and shared model every slice
+reads) or any Core file outside a slice directory runs everything.
+`tests/native/gate-script-contracts/DevScript.tests.nl` pins each mapping. For
+backend-only commit verification, the required final command is still:
 
 ```bash
 VSCODE_TESTS=skip ./scripts/test-all.sh --commit

@@ -14,7 +14,7 @@
 # `tests/Tests.csproj` with it. What remains is what the gate's Step 3a runs:
 #
 #   * the ESTATE — the compiler-service contracts that live beside their owners as
-#     `src/NSharpLang.Compiler.Core/*.tests.nl`, run through that project with
+#     `src/NSharpLang.Compiler.Core/<slice>/*.tests.nl`, run through that project with
 #     `-p:NSharpExcludeTests=false`. This is the slow one: it re-restores and rebuilds
 #     Compiler Core with its tests included.
 #   * the NATIVE PROJECTS — every `tests/native/<dir>` with a `project.yml` and a
@@ -228,7 +228,16 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$LIST_ONLY" = "1" ]; then
-    echo "estate    src/NSharpLang.Compiler.Core/*.tests.nl (run with --estate)"
+    # The estate sits in Compiler.Core's slice directories; name the ones that hold rows.
+    estate_slices=""
+    for slice_dir in src/NSharpLang.Compiler.Core/*/; do
+        slice_name="$(basename "$slice_dir")"
+        case "$slice_name" in bin|obj) continue ;; esac
+        if compgen -G "$slice_dir*.tests.nl" > /dev/null; then
+            estate_slices="$estate_slices $slice_name"
+        fi
+    done
+    echo "estate    src/NSharpLang.Compiler.Core/<slice>/*.tests.nl (run with --estate; slices:$estate_slices)"
     native_slices | sed 's/^tests\/native\//native    /'
     exit 0
 fi
@@ -263,13 +272,19 @@ derive_slices_from_diff() {
             src/NSharpLang.Runtime/*|src/NSharpLang.Build.Tasks/*|src/NSharpLang.Sdk/*)
                 full=1; reasons="$reasons
   - $f (runtime/SDK — also run the gate for template/example coverage)" ;;
-            # --- the N# compiler: one flat directory, so the FILE NAME names the subsystem ---
-            src/NSharpLang.Compiler.Core/Columnar*)        terms="$terms estate Columnar" ;;
-            src/NSharpLang.Compiler.Core/Analyzer*)        terms="$terms estate Analyzer" ;;
-            src/NSharpLang.Compiler.Core/Formatter*|src/NSharpLang.Compiler.Core/Format*) terms="$terms estate" ;;
-            src/NSharpLang.Compiler.Core/CodeIntelligence*|src/NSharpLang.Compiler.Core/Completion*) terms="$terms estate completion query LanguageServer" ;;
-            src/NSharpLang.Compiler.Core/DocQuery*|src/NSharpLang.Compiler.Core/Query*) terms="$terms estate query doc" ;;
-            src/NSharpLang.Compiler.Core/*Command*)        terms="$terms estate cli daemon" ;;
+            # --- the N# compiler: its SLICE DIRECTORY names the subsystem. A case glob's `*` also
+            #     matches `/`, so every slice is spelled before the Compiler.Core catch-all. ---
+            # Model is the AST and the shared compiler model every other slice reads: central.
+            src/NSharpLang.Compiler.Core/Model/*)
+                full=1; reasons="$reasons
+  - $f (Compiler.Core Model slice: the AST and shared model every slice reads)" ;;
+            src/NSharpLang.Compiler.Core/Syntax/*)         terms="$terms estate Columnar" ;;
+            src/NSharpLang.Compiler.Core/Semantics/*)      terms="$terms estate Analyzer" ;;
+            src/NSharpLang.Compiler.Core/Backend.Plan/*)   terms="$terms estate Columnar" ;;
+            src/NSharpLang.Compiler.Core/Backend.Emit/*)   terms="$terms estate Columnar" ;;
+            src/NSharpLang.Compiler.Core/CodeIntel/*)      terms="$terms estate completion query doc LanguageServer" ;;
+            src/NSharpLang.Compiler.Core/Tooling/*)        terms="$terms estate" ;;
+            src/NSharpLang.Compiler.Core/Driver/*)         terms="$terms estate cli daemon" ;;
             src/NSharpLang.Compiler.Core/*)
                 full=1; reasons="$reasons
   - $f (shared compiler file)" ;;
