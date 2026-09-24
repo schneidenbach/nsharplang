@@ -249,3 +249,146 @@ test "one project emits the same program through nlc build and through the SDK e
         Directory.Delete(scratch, true)
     }
 }
+
+// ─── A REFERENCED N# ASSEMBLY'S MEMBER, TYPED BY AN IDENTITY THE COMPILER ITSELF REFERENCES ─────
+//
+// `ScanResult.Context` is a `MetadataLoadContext?` declared by a LIBRARY the sample references --
+// the shape `Compiler.Core` meets once `Compiler.Model` (which declares `ExternalAssemblyScanResult`)
+// is its own assembly. Inside MSBuild the compiler runs in a load context of its own, and the
+// executable handle a compilation pairs `System.Reflection.MetadataLoadContext` with is the
+// COMPILER'S build of it; the library, loaded into the compiler's owned reference context, used to
+// resolve its dependency out of the DEFAULT context instead -- the SDK directory's build of the same
+// identity. `F(scan.Context)` then declined through `dotnet build` (two `MetadataLoadContext` types,
+// one name) while `nlc build` emitted it. Measured against a stage-2 seed built before the fix:
+// `context: MetadataLoadContext? = scan.Context` declined `emit.typed-local.type-mismatch` naming the
+// same type twice.
+func ParityLibraryProjectYml(): string {
+    return """
+name: ParityScanLibrary
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+dependencies:
+  - nuget: System.Reflection.MetadataLoadContext
+    version: 10.0.5
+"""
+}
+
+func ParityLibrarySource(): string {
+    return """
+namespace Parity.Scan
+
+import System.Reflection
+
+class ScanResult {
+    Context: MetadataLoadContext?
+
+    constructor(context: MetadataLoadContext?) {
+        Context = context
+    }
+}
+"""
+}
+
+func ParityScanProjectYml(): string {
+    return """
+name: ParityScanSample
+version: 1.0.0
+backend: il
+outputType: exe
+targetFramework: net10.0
+dependencies:
+  - project: ../ParityScanLibrary/project.yml
+  - nuget: System.Reflection.MetadataLoadContext
+    version: 10.0.5
+"""
+}
+
+func ParityScanProgram(): string {
+    return """
+namespace Parity.Scan
+
+import System.IO
+import System.Reflection
+import System.Runtime.InteropServices
+
+func CoreName(scan: ScanResult): string {
+    context := scan.Context
+    if context == null {
+        return "none"
+    }
+    return Describe(context)
+}
+
+func Typed(scan: ScanResult): string {
+    context: MetadataLoadContext? = scan.Context
+    if context == null {
+        return "none"
+    }
+    return Describe(context)
+}
+
+func Describe(loadContext: MetadataLoadContext): string {
+    return loadContext.CoreAssembly?.GetName().Name ?? ""
+}
+
+func main() {
+    paths := Directory.GetFiles(RuntimeEnvironment.GetRuntimeDirectory(), "*.dll")
+    loadContext := new MetadataLoadContext(new PathAssemblyResolver(paths), "System.Private.CoreLib")
+    try {
+        print CoreName(new ScanResult(null)) + "|" + CoreName(new ScanResult(loadContext)) + "|" + Typed(new ScanResult(loadContext))
+    } finally {
+        loadContext.Dispose()
+    }
+}
+"""
+}
+
+func ParityWriteScanSample(scratch: string, sdkPackage: ParityPackage): string {
+    libraryDirectory := Path.Combine(scratch, "ParityScanLibrary")
+    projectDirectory := Path.Combine(scratch, "ParityScanSample")
+    Directory.CreateDirectory(libraryDirectory)
+    Directory.CreateDirectory(projectDirectory)
+    File.WriteAllText(Path.Combine(libraryDirectory, "ParityScanLibrary.csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n")
+    File.WriteAllText(Path.Combine(libraryDirectory, "project.yml"), ParityLibraryProjectYml())
+    File.WriteAllText(Path.Combine(libraryDirectory, "ScanResult.nl"), ParityLibrarySource())
+    File.WriteAllText(Path.Combine(projectDirectory, "ParityScanSample.csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n")
+    File.WriteAllText(Path.Combine(projectDirectory, "project.yml"), ParityScanProjectYml())
+    File.WriteAllText(Path.Combine(projectDirectory, "Program.nl"), ParityScanProgram())
+    // One resolution for both projects: the global.json, NuGet.config and props sit above them.
+    ParityWriteResolution(scratch, sdkPackage, Path.Combine(scratch, "packages"))
+    return projectDirectory
+}
+
+test "a referenced N# assembly's member typed by a compiler-referenced identity binds one type through both doors" {
+    root := ParityRepositoryRoot()
+    scratch := Path.Combine(Path.Combine(root, "artifacts"), "sdk-emit-path-parity-scan-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(scratch)
+    try {
+        sdkPackage := ParityPreparePackage(root, scratch)
+        projectDirectory := ParityWriteScanSample(scratch, sdkPackage)
+        expected := "none|System.Private.CoreLib|System.Private.CoreLib"
+
+        // ── DOOR ONE: the standalone CLI ──────────────────────────────────────────────────────
+        cliBuild := ParityRunDotnet(ParityQuote(ParityCliPath(root)) + " build", projectDirectory)
+        ParityRequireSuccess(cliBuild, "nlc build of the scan sample")
+        cliRun := ParityRunDotnet(ParityQuote(ParityOutputAssembly(projectDirectory, "ParityScanSample")), projectDirectory)
+        ParityRequireSuccess(cliRun, "running the CLI-built scan sample")
+        assert cliRun.Stdout.Trim() == expected, cliRun.Output()
+        ParityDeleteOutput(projectDirectory)
+        ParityDeleteOutput(Path.Combine(scratch, "ParityScanLibrary"))
+
+        // ── DOOR TWO: `dotnet build`, emitting inside MSBuild ──────────────────────────────────
+        restore := ParityRunDotnet("restore ParityScanSample.csproj --disable-build-servers -v q", projectDirectory)
+        ParityRequireSuccess(restore, "restore of the scan sample")
+        sdkBuild := ParityRunDotnet("build ParityScanSample.csproj --no-restore --disable-build-servers -v q", projectDirectory)
+        assert !sdkBuild.Output().Contains("declined"), sdkBuild.Output()
+        ParityRequireSuccess(sdkBuild, "dotnet build of the scan sample")
+        sdkRun := ParityRunDotnet(ParityQuote(ParityOutputAssembly(projectDirectory, "ParityScanSample")), projectDirectory)
+        ParityRequireSuccess(sdkRun, "running the SDK-built scan sample")
+        assert sdkRun.Stdout.Trim() == expected, sdkRun.Output()
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}

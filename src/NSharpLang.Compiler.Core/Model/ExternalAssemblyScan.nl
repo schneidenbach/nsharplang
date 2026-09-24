@@ -59,6 +59,52 @@ class ExternalAssemblyCatalogEntry {
     }
 }
 
+// THE COMPILER'S OWNED REFERENCE CONTEXT, and the one rule it adds to the default fallback.
+//
+// A reference loaded here resolves its OWN dependencies through this context, and an identity it does
+// not carry falls back to the default context. Under the standalone CLI that is the compiler's own
+// context, so nothing changes. Under MSBuild it is not: the build task runs in a context of its own, and
+// the compilation's executable handles for the identities the COMPILER itself references come from
+// THAT context (`PreferEmissionRuntimeAssemblies`, `IsCompilerBoundRuntimeAssembly`). A referenced
+// assembly's member typed by one of those identities then named the DEFAULT context's build instead,
+// so `scan.Context` -- a `MetadataLoadContext?` declared by a referenced N# assembly -- was a different
+// `MetadataLoadContext` from the one the project names, and `F(scan.Context)` declined in the SDK build
+// while the identical project built through `nlc build`. That is exactly the shape carving
+// `Compiler.Model` out of Core creates.
+//
+// So a dependency whose identity the compiler assembly references is answered with the handle the
+// COMPILER'S context binds for it -- the same handle the reference set is paired with -- and every
+// other name keeps the default fallback. The compiler's own product assemblies are not among the
+// compiler's references, so a project's own build of them still binds from its reference path.
+class ExactIdentityReferenceLoadContext: AssemblyLoadContext {
+    constructor(): base("nsharp-exact-identity-references", false) {
+    }
+
+    protected override func Load(assemblyName: AssemblyName): Assembly? {
+        identity := assemblyName.FullName
+        if !ExternalAssemblyScan.CompilerAssemblyReferencesIdentity(identity) {
+            return null
+        }
+
+        compilerContext := ExternalAssemblyScan.CompilerLoadContext()
+        if compilerContext == null {
+            return null
+        }
+
+        try {
+            bound := compilerContext.LoadFromAssemblyName(assemblyName)
+            if ExternalAssemblyScan.RuntimeAssemblyHasIdentity(bound, identity) {
+                return bound
+            }
+        } catch {
+            // The compiler's context cannot bind it after all; the default fallback answers.
+            return null
+        }
+
+        return null
+    }
+}
+
 class ExternalAssemblyScanResult {
     Entries: ExternalAssemblyCatalogEntry[]
     Context: MetadataLoadContext?
@@ -99,7 +145,7 @@ class ExternalAssemblyScan {
     // A context of the compiler's own gives the requested FILE an executable handle without
     // displacing the host's. Unresolved dependencies of an assembly loaded here still fall back to
     // the default context, so it keeps binding `System.Runtime` and friends exactly as before.
-    private static readonly s_exactIdentityReferences: AssemblyLoadContext = new AssemblyLoadContext("nsharp-exact-identity-references", false)
+    private static readonly s_exactIdentityReferences: AssemblyLoadContext = new ExactIdentityReferenceLoadContext()
 
     static func ExactIdentityLoadContext(): AssemblyLoadContext {
         return s_exactIdentityReferences

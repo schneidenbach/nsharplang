@@ -767,3 +767,30 @@ test "the compiler's own reference context is a stable context that is not the d
     // so it must never be the context the host's own assemblies were loaded into.
     assert !Object.ReferenceEquals(first, AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).get_Assembly()))
 }
+
+// THE OWNED CONTEXT'S DEPENDENCY RULE. A reference loaded into the owned context resolves an identity
+// the COMPILER references to the handle the compiler's own context binds for it -- the handle the
+// reference set is paired with -- so a referenced assembly's member typed by one of those identities
+// names the same type the project names. Under MSBuild the compiler's context is not the default one,
+// and the default fallback used to answer with the SDK directory's build instead
+// (`tests/native/sdk-emit-path-parity`'s scan row is the product-path contract).
+test "the owned reference context binds an identity the compiler references to the compiler's own handle" {
+    compilerHandle := typeof(System.Reflection.MetadataLoadContext).get_Assembly()
+    identity := compilerHandle.GetName().get_FullName()
+    assert ExternalAssemblyScan.CompilerAssemblyReferencesIdentity(identity)
+
+    bound := ExternalAssemblyScan.ExactIdentityLoadContext().LoadFromAssemblyName(new AssemblyName(identity))
+    assert Object.ReferenceEquals(bound, compilerHandle)
+}
+
+test "the owned reference context leaves an identity the compiler does not reference to the default fallback" {
+    path := ExternalUnboundAssemblyPath()
+    assert path.Length > 0
+    identity := AssemblyName.GetAssemblyName(path).get_FullName()
+    assert !ExternalAssemblyScan.CompilerAssemblyReferencesIdentity(identity)
+
+    // Nothing the compiler references is involved, so the owner still loads the project's file.
+    owned := ExternalAssemblyScan.TryLoadExactIdentityAssembly(path, identity)
+    assert owned != null
+    assert Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(owned), ExternalAssemblyScan.ExactIdentityLoadContext())
+}
