@@ -55,22 +55,22 @@ func IvtEmitBlobText(blob: byte[]): string {
 // strong-name key after a comma is PART of the display name and is kept; only the reader
 // (`InternalsVisibleToGrants.FriendSimpleName`) narrows to the simple name in front of it.
 test "a declared grant keeps its display name and loses only its surrounding whitespace" {
-    assert ColumnarInternalsVisibleToEmitter.NormalizeDeclaredName("Tests") == "Tests"
-    assert ColumnarInternalsVisibleToEmitter.NormalizeDeclaredName("  Tests\t") == "Tests"
-    assert ColumnarInternalsVisibleToEmitter.NormalizeDeclaredName("Tests, PublicKey=0024") == "Tests, PublicKey=0024"
-    assert ColumnarInternalsVisibleToEmitter.NormalizeDeclaredName(null) == ""
+    assert InternalsVisibleToGrants.NormalizeDeclaredName("Tests") == "Tests"
+    assert InternalsVisibleToGrants.NormalizeDeclaredName("  Tests\t") == "Tests"
+    assert InternalsVisibleToGrants.NormalizeDeclaredName("Tests, PublicKey=0024") == "Tests, PublicKey=0024"
+    assert InternalsVisibleToGrants.NormalizeDeclaredName(null) == ""
 }
 
 // AN ENTRY THAT NAMES NO ASSEMBLY IS NOT A GRANT. It would emit a row whose argument the reader's
 // own simple-name rule can never match, so the project file refuses it rather than emitting it.
 test "an entry with no simple name in front of the comma is not a usable grant" {
-    assert ColumnarInternalsVisibleToEmitter.IsUsableDeclaredName("Tests")
-    assert ColumnarInternalsVisibleToEmitter.IsUsableDeclaredName("  Contoso.Widgets.Tests, PublicKey=0024  ")
+    assert InternalsVisibleToGrants.IsUsableDeclaredName("Tests")
+    assert InternalsVisibleToGrants.IsUsableDeclaredName("  Contoso.Widgets.Tests, PublicKey=0024  ")
 
-    assert !ColumnarInternalsVisibleToEmitter.IsUsableDeclaredName(null)
-    assert !ColumnarInternalsVisibleToEmitter.IsUsableDeclaredName("")
-    assert !ColumnarInternalsVisibleToEmitter.IsUsableDeclaredName("   ")
-    assert !ColumnarInternalsVisibleToEmitter.IsUsableDeclaredName(", PublicKey=0024")
+    assert !InternalsVisibleToGrants.IsUsableDeclaredName(null)
+    assert !InternalsVisibleToGrants.IsUsableDeclaredName("")
+    assert !InternalsVisibleToGrants.IsUsableDeclaredName("   ")
+    assert !InternalsVisibleToGrants.IsUsableDeclaredName(", PublicKey=0024")
 }
 
 // THE ROWS, IN PROJECT ORDER. A repeated SIMPLE name is one permission however many times it is

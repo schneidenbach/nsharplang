@@ -106,7 +106,7 @@ class ProjectFileParser {
         // An entry with no simple name in front of its comma would emit a metadata row no reader
         // can ever match, so the project file is refused with the entry's own spelling quoted.
         for declaredGrant in config.InternalsVisibleTo {
-            if !ColumnarInternalsVisibleToEmitter.IsUsableDeclaredName(declaredGrant) {
+            if !InternalsVisibleToGrants.IsUsableDeclaredName(declaredGrant) {
                 throw new InvalidOperationException("Invalid internalsVisibleTo entry: '" + (declaredGrant ?? "") + "'. Each entry must be an assembly name.")
             }
         }

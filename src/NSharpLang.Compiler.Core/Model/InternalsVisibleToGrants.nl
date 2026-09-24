@@ -196,6 +196,29 @@ class InternalsVisibleToGrants {
         return false
     }
 
+    // A declared grant, as it will be written: the developer's spelling with surrounding whitespace
+    // removed. The strong-name key an entry may carry after a comma is PRESERVED here — it is part
+    // of the display name a consumer's own tooling may compare — while the reader compares only the
+    // simple name in front of it (`FriendSimpleName`, below).
+    static func NormalizeDeclaredName(declared: string?): string {
+        if declared == null {
+            return ""
+        }
+
+        return declared.Trim()
+    }
+
+    // A grant with no simple name in front of the comma names no assembly and would emit a row no
+    // reader can ever match, so the project file is refused instead of emitting it.
+    static func IsUsableDeclaredName(declared: string?): bool {
+        normalized := NormalizeDeclaredName(declared)
+        if normalized.Length == 0 {
+            return false
+        }
+
+        return FriendSimpleName(normalized).Length > 0
+    }
+
     // The simple name of a friend declaration: everything before the first comma, trimmed. An
     // `InternalsVisibleTo` argument is an assembly DISPLAY name, and the strong-name key that a
     // signed grant carries after the comma is not part of the identity N# compares — N# emits no

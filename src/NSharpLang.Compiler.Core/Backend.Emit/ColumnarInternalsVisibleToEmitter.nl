@@ -27,29 +27,6 @@ import System.Reflection.Emit
 // uses the shape already pinned there.
 class ColumnarInternalsVisibleToEmitter {
 
-    // A declared grant, as it will be written: the developer's spelling with surrounding whitespace
-    // removed. The strong-name key an entry may carry after a comma is PRESERVED here — it is part
-    // of the display name a consumer's own tooling may compare — while the reader compares only the
-    // simple name in front of it (`InternalsVisibleToGrants.FriendSimpleName`).
-    static func NormalizeDeclaredName(declared: string?): string {
-        if declared == null {
-            return ""
-        }
-
-        return declared.Trim()
-    }
-
-    // A grant with no simple name in front of the comma names no assembly and would emit a row no
-    // reader can ever match, so the project file is refused instead of emitting it.
-    static func IsUsableDeclaredName(declared: string?): bool {
-        normalized := NormalizeDeclaredName(declared)
-        if normalized.Length == 0 {
-            return false
-        }
-
-        return InternalsVisibleToGrants.FriendSimpleName(normalized).Length > 0
-    }
-
     // The declared grants in project order, normalized, with duplicates of the same SIMPLE name
     // dropped. A repeated grant would write a second identical metadata row; the CLR tolerates it
     // and the reader stops at the first match, so the duplicate is noise in the emitted metadata
@@ -62,7 +39,7 @@ class ColumnarInternalsVisibleToEmitter {
 
         seen := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         for declaredItem in declared {
-            normalized := NormalizeDeclaredName(declaredItem)
+            normalized := InternalsVisibleToGrants.NormalizeDeclaredName(declaredItem)
             if normalized.Length > 0 {
                 simple := InternalsVisibleToGrants.FriendSimpleName(normalized)
                 if simple.Length > 0 && seen.Add(simple) {
