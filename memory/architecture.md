@@ -113,25 +113,34 @@ built at `Create`, before the assembly scan exists, and still records that impor
 emitted program was found whose binding it changes (it can only refuse, never re-bind), but a fence
 that disagrees with the parent is debt.
 
-**What the Model carve still needs after the lookup fix** (proved 2026-09-24 on throwaway
-`census/carve-proof` = `census/lookup` + the two `census/model-carve-wip` commits, built with scratch
-seeds): with the lookup fix alone the carved Model builds and Core's relative `Ast.X` spellings (the WIP's
-167 full qualifications reverted) and bare `TypeInfo` bind correctly, but Core's emit-only build hits
-EMITTER gaps on shapes the same source used to exercise against SOURCE types and now meets as
-REFERENCED-ASSEMBLY types: (G1) `==`/`!=` between two external reference operands (`object == object`
-too) -- the residual in `ColumnarIlEmitter`'s binary arm grants reference identity only to `TypeBuilder`
-operands; (G2) an external constructor argument that is an enum `==`; (G3) an external construction
-with an object initializer whose arguments are composite (a call or a concatenation); (G4) an enum cast
-as an external constructor argument; (G5, tests) nested `new`/free-call arguments to an external
-constructor; (G6, tests) a narrowed `MetadataLoadContext?` from `scan.Context` passed as an argument.
-With G1 probe-patched into a scratch seed (`census/g1-probe`) and the rest worked around at ~113 sites,
-the carved tree builds end to end, the estate is 9,629/9,642 -- the 13 are source-layout guards that
-look for Model files under Core (AstChildrenCore x7, the SZArray scan x1) and reference-image paths for
-Model under Core's `obj` (ExternalAssemblyScan/RuntimePairing x5) -- and the edit->test loop for a
-one-line Model body edit is 10 s against 118 s uncarved (Core does not re-emit: its reference image is
-unchanged). Carve-wiring rows still owed: slice-direction's estate-reach ceiling, gate-script-contracts'
-package-loop trace (Model is packed), `census-nominal-interfaces` taking Model.dll, and a real reseed
-for `sdk-reference-incrementality`.
+**What the Model carve still needs** (re-proved 2026-09-24 on throwaway `census/xasm-carve` = `census/xasm`
++ the two `census/model-carve-wip` commits + the lookup lane's restoration of the 167 relative `Ast.X`
+spellings, built with a scratch stage-2 seed from `census/xasm`): the carved Model, Core and the CLI build
+end to end with **no source workarounds** -- the ~113 (13 product, ~100 test) the lookup lane needed are
+gone. The six gaps it recorded were three emitter roots and one host root, all fixed on `census/xasm`:
+(G1) `ColumnarIlEmitter`'s residual `==`/`!=` granted identity only to a registry `TypeBuilder`;
+`IsPredefinedReferenceEquality` is C#'s predefined reference equality over the one reference-conversion
+owner, declining whenever a referenced type declares `op_Equality` (preflight and interpolation ask the
+same predicate). (G2-G5) an external CONSTRUCTION had no emitter door, only the whole-subtree construction
+planner, so any argument outside its surface declined the whole `new`; `TryEmitReferencedConstruction`
+(the constructor twin of the ordinary runtime call door) chooses from the type's metadata -- applicable by
+the call path's own argument predicate, exact arity before optional fill, the planner's scorer among
+several -- and emits each argument against its parameter, then the defaults. Two preflight arms had no
+typing twin (the ordinary runtime instance call, `(index - 1).ToString()`; `is`/`as`). (G6) only through
+`dotnet build`: the compiler's owned reference context resolved a referenced assembly's dependency on an
+identity the COMPILER references through the default context (the SDK directory's build) while the
+reference set paired it with the compiler context's build, so `scan.Context` was a second
+`MetadataLoadContext`; `ExactIdentityReferenceLoadContext.Load` answers those identities with the
+compiler context's handle. Regressions: `tests/native/census-external-operands` (analysis and emit-only
+over a two-assembly fixture), estate `Driver/ExternalOperandEmission` and two `ExternalAssemblyScan`
+rows, and `sdk-emit-path-parity`'s scan row. What the carve still owes is wiring, not the compiler: the
+carved estate is 9,638/9,651 -- the 13 are the rows that read Model's files under Core
+(`AstChildrenCore` x7, the SZArray-predicate scan x1) or Model's reference image under Core's `obj`
+(`ExternalAssemblyScan`/`ExternalAssemblyRuntimePairing` x5) -- plus `compiler-core-slice-direction`'s
+estate-reach ceiling (172 against 171), gate-script-contracts' package-loop trace (Model is packed),
+`census-nominal-interfaces` loading the analyzer types without Model.dll, `sdk-reference-incrementality`
+packing its private SDK with the committed seed (needs a real reseed), and the wiring's own NU1504
+duplicate `NSharpLang.Runtime` reference in Model's project.
 
 ## Data Flow
 

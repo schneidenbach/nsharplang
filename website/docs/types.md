@@ -1594,6 +1594,11 @@ func SumBlocks(values: int[], lanes: int): int {
 The built-in numeric, `bool`, `char` and `string` operators are unaffected: `1 + 2` is still a single
 IL instruction, not a method call.
 
+`==` and `!=` between two references that no declared operator claims compare **identity**, as in
+C#: the same class, a base against a derived one, an interface, or `object` against `object` — and it
+does not matter whether the types were declared in your project or in a referenced assembly. A type
+that declares `operator ==` keeps it; identity is never chosen over an operator the type declares.
+
 ### Conversion operators
 
 A conversion operator is a member like any other, so the ones a referenced assembly's type declares
