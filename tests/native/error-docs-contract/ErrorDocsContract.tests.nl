@@ -108,7 +108,8 @@ func EdcSystemsCodes(): List<string> {
         return codes
     }
 
-    paths := Directory.GetFiles(directory, "Systems*.nl")
+    // Recursive: Compiler.Core's sources sit in slice directories, so a top-level listing finds none.
+    paths := Directory.GetFiles(directory, "Systems*.nl", SearchOption.AllDirectories)
     i := 0
     while i < paths.Length {
         sourcePath := paths[i]

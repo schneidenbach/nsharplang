@@ -55,14 +55,27 @@ func AstGuardRepositoryRoot(): string {
     throw new InvalidOperationException("Could not locate the repository root above the estate's output directory.")
 }
 
+// The source is found by NAME anywhere under the project, not at a fixed path: Compiler.Core's files
+// sit in slice directories, and a basename is unique across the project (pinned by
+// `tests/native/canonical-source-order`), so the name alone says which file is meant wherever it sits.
 func AstGuardSourceText(fileName: string): string {
     root := AstGuardRepositoryRoot()
-    path := Path.Combine(Path.Combine(Path.Combine(root, "src"), "NSharpLang.Compiler.Core"), fileName)
-    if !File.Exists(path) {
-        throw new InvalidOperationException("The AST guard could not read '" + fileName + "' beside the estate.")
+    core := Path.Combine(Path.Combine(root, "src"), "NSharpLang.Compiler.Core")
+    found := new List<string>()
+    if Directory.Exists(core) {
+        for candidate in Directory.GetFiles(core, fileName, SearchOption.AllDirectories) {
+            relative := Path.GetRelativePath(core, candidate).Replace('\\', '/')
+            if !relative.StartsWith("bin/", StringComparison.Ordinal) && !relative.StartsWith("obj/", StringComparison.Ordinal) {
+                found.Add(candidate)
+            }
+        }
     }
 
-    return File.ReadAllText(path)
+    if found.Count != 1 {
+        throw new InvalidOperationException("The AST guard expected exactly one '" + fileName + "' under the estate's project and found " + found.Count.ToString() + ".")
+    }
+
+    return File.ReadAllText(found[0])
 }
 
 func SourceLines(text: string): string[] {
