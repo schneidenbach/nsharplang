@@ -2,7 +2,7 @@
 
 ## Test Suite
 
-**Total Tests:** Do not hard-code counts here. There are two test bodies and no C# unit suite: the ESTATE (`src/NSharpLang.Compiler.Core/<slice>/*.tests.nl`, run through that project with `-p:NSharpExcludeTests=false`) and the NATIVE PROJECTS (`tests/native/<dir>`, each run by `nlc test`). `./scripts/dev.sh --list` names every slice; `./scripts/test-all.sh` runs the full product gate.
+**Total Tests:** Do not hard-code counts here. There are two test bodies and no C# unit suite: the ESTATE (`src/NSharpLang.Compiler.Core/<slice>/*.tests.nl` and the carved `src/NSharpLang.Compiler.Syntax/*.tests.nl`, each run through its own project with `-p:NSharpExcludeTests=false`) and the NATIVE PROJECTS (`tests/native/<dir>`, each run by `nlc test`). `./scripts/dev.sh --list` names every slice; `./scripts/test-all.sh` runs the full product gate.
 
 ## Test Organization
 
@@ -737,7 +737,7 @@ canonicalised to its SHAPE rather than its value. Before and after are byte-iden
 and the after reproduces byte-identical across a restore-and-rebuild.
 
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
-`src/NSharpLang.Compiler.Core/Syntax/Lexer.tests.nl`, and they run in the Compiler Core
+`src/NSharpLang.Compiler.Syntax/Lexer.tests.nl`, and they run in Compiler.Syntax's own
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.
 
 Linting has no C# assertion layer either. The linter's canonical contracts are N# and live beside
@@ -1032,8 +1032,9 @@ Do not pay the full gate during normal edit loops. Use:
 
 `dev.sh --since` is intentionally fail-safe: central compiler, SDK/runtime,
 build, fixture, or unmapped changes run the full unit suite rather than silently
-narrowing. A Compiler.Core change maps by its SLICE DIRECTORY: `Syntax/`,
-`Backend.Plan/` and `Backend.Emit/` select the estate's `Columnar` rows and the
+narrowing. A Compiler.Core change maps by its SLICE DIRECTORY: the carved
+`src/NSharpLang.Compiler.Syntax/` (product and rows; its `project.yml`, csproj and `global.json`
+run everything), `Backend.Plan/` and `Backend.Emit/` select the estate's `Columnar` rows and the
 columnar native projects, `Semantics/` the `Analyzer` ones, `CodeIntel/` the
 completion/query/doc/LanguageServer ones, `Driver/` the cli/daemon ones,
 `Tooling/` the whole estate, and `src/NSharpLang.Compiler.Model/` (the carved

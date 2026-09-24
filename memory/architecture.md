@@ -32,8 +32,8 @@ separately. Historical allowlist labels below do not establish current completio
 
 ## Main Components
 
-1. **Lexer** - tokenizes source code (`src/NSharpLang.Compiler.Core/Syntax/Lexer.nl`)
-2. **Parser** - builds syntax trees (`src/NSharpLang.Compiler.Core/Syntax/ColumnarParserRecovery.nl`, N#)
+1. **Lexer** - tokenizes source code (`src/NSharpLang.Compiler.Syntax/Lexer.nl`)
+2. **Parser** - builds syntax trees (`src/NSharpLang.Compiler.Syntax/ColumnarParserRecovery.nl`, N#)
 3. **Analyzer** - type checking and semantic analysis (`src/NSharpLang.Compiler.Core/Semantics/Analyzer.nl`, with the N# owners `AnalyzerDeclarationContext.nl`, `TypeInfoIdentityFacts.nl`, `AnalyzerConversionFacts.nl`, `AnalyzerCallableReferenceFacts.nl`, `AnalyzerWellKnownTypes.nl`, `AnalyzerWellKnownTypeFacts.nl`, `AnalyzerClrTypeConversion.nl`, `AnalyzerAssignabilityFacts.nl`, `AnalyzerExternalTypeProbe.nl`, `AnalyzerTypeReferenceFacts.nl`, `AnalyzerScopeStack.nl`, `AnalyzerProjectDiscovery.nl`, `AnalyzerTypeResolver.nl`, `AnalyzerTypeSubstitution.nl`, `AnalyzerStructuralAssignability.nl`, `AnalyzerDiagnosticSink.nl`, `AnalyzerStateModels.nl`, `AnalyzerDiagnostics.nl`, `NullabilityMetadataCore.nl`, `NullabilityMetadataReflection.nl`, `AnalyzerReflectionTypeConversion.nl`, `AnalyzerFunctionTypeFactory.nl`, `AnalyzerAssignability.nl`)
 4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler.Core/Backend.Emit/ColumnarIlEmitter.nl`)
 5. **CLI** - command-line workflows (`src/NSharpLang.Cli/`)
@@ -42,15 +42,15 @@ separately. Historical allowlist labels below do not establish current completio
 ## Compiler.Core slice directories
 
 `src/NSharpLang.Compiler.Core` is being carved into eight slice projects, lowest first, and ordered so
-a file names only its own slice or a lower one. **S0 is carved**: `src/NSharpLang.Compiler.Model` is
-its own N#-SDK project (one-line csproj, `project.yml`, the SDK's `global.json` pin), Core takes it
-with `project: ../NSharpLang.Compiler.Model/project.yml`, and every consumer builds the Model -> Core
-DAG through that edge. The other seven are still directories of Core:
+a file names only its own slice or a lower one. **S0 and S1 are carved**: `src/NSharpLang.Compiler.Model`
+and `src/NSharpLang.Compiler.Syntax` are each their own N#-SDK project (one-line csproj, `project.yml`,
+the SDK's `global.json` pin); Syntax takes Model with `project:`, Core takes Syntax, and every consumer
+builds the Model -> Syntax -> Core DAG through those edges. The other six are still directories of Core:
 
 | directory | slice | holds |
 |---|---|---|
 | `src/NSharpLang.Compiler.Model/` (Core's `Model/` holds only its estate) | S0 | the AST, the type, diagnostic and project-config models, and the shared facts every slice reads |
-| `Syntax/` | S1 | lexer, preprocessor, the columnar parser kernels and node table |
+| `src/NSharpLang.Compiler.Syntax/` (product AND estate) | S1 | lexer, preprocessor, the columnar parser kernels and node table |
 | `Semantics/` | S2 | the analyzer, the systems analyzer, flow and nullability |
 | `Backend.Plan/` | S3 | the columnar planners and binding scope, and the metadata-blob writers |
 | `Backend.Emit/` | S4 | `ColumnarIlEmitter` and the IL realizations |
@@ -58,7 +58,8 @@ DAG through that edge. The other seven are still directories of Core:
 | `Tooling/` | S6 | the formatter and the JSON output models |
 | `Driver/` | S7 | the CLI command kernels, `MultiFileCompiler`, and the SDK emit task |
 
-Every `.tests.nl` sits beside its subject, in the same directory. The directories are organisational
+Every `.tests.nl` sits beside its subject, in the same directory, except where a row's helpers force
+it into the lowest slice they build in (Syntax's `AstNodeFinderCore.tests.nl`, below). The directories are organisational
 only: the SDK's `**/*.nl` globs and the CLI's source walk recurse, `project.yml` lists no sources, a
 file's namespace is its own `namespace` line, and canonical source order (below) keys on the
 basename, so moving a file between directories changes no byte of any assembly. `scripts/dev.sh
@@ -153,6 +154,39 @@ and so re-asked every referenced assembly for the same `<namespace>.<name>` pair
 `ColumnarExternalTypeCatalog.FindInNamespaceCached` shares that answer across files; with a scratch
 stage-2 seed the same emit is **96.1 / 95.3 s**. The emit runs in the SEED's SDK task, so dev.sh sees
 it after the next republish.
+
+**Compiler.Syntax is carved** (2026-09-24, `census/syntax`, on the eleventh seed plus the pre-carve
+commits a republish must carry: the front-door zero, the formatter-row split, referenced free
+functions, `excludeTests` and transitive project references -- the seed's own emitter and SDK
+compile Core, so referenced free functions and `excludeTests` must be IN the seed before the carve
+builds). What the carve is:
+- the product (28 files) AND the estate as pure renames into `src/NSharpLang.Compiler.Syntax/` -- the
+  first slice whose rows are its own, because they reach only Syntax and Model. 18 estate files moved:
+  Syntax's 15, and three rows that parse through Syntax's own estate helpers (`PsAst`, `Golden`,
+  `AstEq`): `AstNodeFinderCore.tests.nl` (its subject is Model's, and the lowest slice its rows build
+  in is Syntax -- "beside its subject" gives way there) and the parser rows of
+  `ColumnarParserGenericTypeReceiver`/`ColumnarParserTypeArgumentScan`, whose ONE formatter round-trip
+  row each kept them in Tooling and now lives beside the formatter (`Tooling/Formatter*.tests.nl`);
+- `excludeTests: true` in Syntax's project.yml keeps every build that does not pass
+  `-p:NSharpExcludeTests=false` product-only (Sdk.props reads it at evaluation time, for any N#
+  project), and the estate runners run each estate project on its own: `scripts/dev.sh --estate`
+  (a filter that matches no row of one project is fine, a project that proves nothing is not),
+  test-all-core Step 3a, the reseed's step 8 and both CI workflows;
+- Syntax's parser kernels are GLOBAL free functions, so Core's calls into them (~30 names in six
+  files) are calls to a REFERENCED assembly's free functions -- which neither the analyzer nor the
+  emitter could make until the carve's own fix (`memory/components/analyzer.md`, "A FREE FUNCTION
+  ACROSS AN ASSEMBLY BOUNDARY"). The emit-only path compiles Core, so that fix rides the seed;
+- Core takes Syntax with `project:` and Syntax takes Model, so Core reaches Model TRANSITIVELY --
+  which `nlc` did not compile against until the carve's front door found it (36,701 diagnostics, every
+  Model name; `ReferenceResolutionResult.ProjectOutputAssemblies`);
+- the SDK packs `NSharpLang.Compiler.Syntax.dll` into `tools/` and names it in the emit target's
+  `Inputs` and the emit-only switch; `CompilerSliceAssemblyNames` names it; `dll:` consumers take it
+  beside Model and Core; the 11 assembly-qualified `ColumnarParserRecovery` names say
+  `NSharpLang.Compiler.Syntax`; `ShippedPayloadAssemblies` reads every slice (it had missed Model);
+- 16 Core files import `NSharpLang.Compiler.Columnar`: a SOURCE type's project-wide discovery had
+  answered `ColumnarParserRecovery`/`ColumnarNodeTable`/`ColumnarExpressionNodeKind` for them, and a
+  referenced one needs its import (62 NL002s);
+- Step 2d checks Model, Syntax (both 0), then Core.
 
 ## Data Flow
 

@@ -1,6 +1,6 @@
 # Parser Component
 
-**Owner:** `src/NSharpLang.Compiler.Core/Syntax/ColumnarParserRecovery.nl` (N#)
+**Owner:** `src/NSharpLang.Compiler.Syntax/ColumnarParserRecovery.nl` (N#)
 
 The parser is written in N#. The former C# `Parser.cs` was deleted at the end of the task-016 ownership
 arc; `ColumnarParserRecovery` is the sole parse and ordered-diagnostic authority for the compiler, the

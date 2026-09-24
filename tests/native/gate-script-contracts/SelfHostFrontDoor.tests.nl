@@ -8,10 +8,12 @@ import System.Text.RegularExpressions
 // Every row here reads `tests/scripts/test-all-core.sh` as TEXT. None of them runs the gate, the
 // CLI or a check.
 //
-// Step 2d checks five projects with the CLI the gate just built and compares each count to a
-// ceiling. `src/NSharpLang.Compiler.Model`, carved out of Core, is checked first at ceiling 0: Core
-// takes it as a `project:` reference, so a diagnostic in Model would BLOCK Core's check rather than
-// count in it, and the zero is what keeps Core's number a number. Two of the five — `src/NSharpLang.Compiler` and `src/NSharpLang.Playground` — carry the
+// Step 2d checks six projects with the CLI the gate just built and compares each count to a
+// ceiling. `src/NSharpLang.Compiler.Model` and `src/NSharpLang.Compiler.Syntax`, carved out of Core,
+// are checked first, lowest first, at ceiling 0: Core takes Syntax as a `project:` reference and
+// Syntax takes Model, so a diagnostic in either would BLOCK the next check rather than count in it,
+// and the zeros are what keep Core's number a number. Two of the six — `src/NSharpLang.Compiler` and
+// `src/NSharpLang.Playground` — carry the
 // ceiling -1, which the step's own comment defines as BLOCKED: `check` resolves references with
 // `BuildProjectReferences` on, so checking a project that references Compiler.Core begins by
 // building Core from source, and that build cannot succeed while Core's own front door reports
@@ -49,13 +51,14 @@ func BlockedSentence(): string {
     return "BLOCKED behind Compiler.Core's own front door; not counted yet"
 }
 
-test "the self-host front door checks Compiler.Model, then Compiler.Core, and records the count the blocked projects are judged against" {
+test "the self-host front door checks Compiler.Model, then Compiler.Syntax, then Compiler.Core, and records the count the blocked projects are judged against" {
     coreScript := CoreScript()
 
     projects := SelfHostProjects(coreScript)
-    assert projects.Count == 5, "The self-host front door must check five projects; found " + projects.Count.ToString() + "."
-    assert projects[0] == "src/NSharpLang.Compiler.Model", "Compiler.Model must be checked FIRST: Core's check builds it as a project reference, so its own count is what says whether Core's can be read at all."
-    assert projects[1] == "src/NSharpLang.Compiler.Core", "Compiler.Core must be checked before the projects that reference it: the skip for them is keyed on the count this run measured for Core, and a later position would leave that count unread."
+    assert projects.Count == 6, "The self-host front door must check six projects; found " + projects.Count.ToString() + "."
+    assert projects[0] == "src/NSharpLang.Compiler.Model", "Compiler.Model must be checked FIRST: Syntax's and Core's checks build it as a project reference, so its own count is what says whether theirs can be read at all."
+    assert projects[1] == "src/NSharpLang.Compiler.Syntax", "Compiler.Syntax must be checked after Model and before Core: Core's check builds it as a project reference, so its own count is what says whether Core's can be read at all."
+    assert projects[2] == "src/NSharpLang.Compiler.Core", "Compiler.Core must be checked before the projects that reference it: the skip for them is keyed on the count this run measured for Core, and a later position would leave that count unread."
     assert projects.Contains("src/NSharpLang.Compiler")
     assert projects.Contains("src/NSharpLang.Playground")
     assert projects.Contains("src/NSharpLang.Build.Tasks")
@@ -94,12 +97,13 @@ test "skipping the doomed build changes no ceiling and no ratchet comparison in 
     coreScript := CoreScript()
 
     ceilings := SelfHostCeilings(coreScript)
-    assert ceilings.Count == 5, "The self-host front door must carry five ceilings; found " + ceilings.Count.ToString() + "."
+    assert ceilings.Count == 6, "The self-host front door must carry six ceilings; found " + ceilings.Count.ToString() + "."
     assert ceilings[0] == "0", "Compiler.Model's front-door ceiling must stay 0; found '" + ceilings[0] + "'."
-    assert ceilings[1] == "1279", "Compiler.Core's front-door ceiling must stay 1279; found '" + ceilings[1] + "'."
-    assert ceilings[2] == "-1"
+    assert ceilings[1] == "0", "Compiler.Syntax's front-door ceiling must stay 0; found '" + ceilings[1] + "'."
+    assert ceilings[2] == "1261", "Compiler.Core's front-door ceiling must stay 1261; found '" + ceilings[2] + "'."
     assert ceilings[3] == "-1"
-    assert ceilings[4] == "0", "Build.Tasks' front-door ceiling must stay 0; found '" + ceilings[4] + "'."
+    assert ceilings[4] == "-1"
+    assert ceilings[5] == "0", "Build.Tasks' front-door ceiling must stay 0; found '" + ceilings[5] + "'."
 
     // All three ratchet directions survive verbatim: over the ceiling fails the step, under it
     // demands the ceiling be lowered, and at it passes.

@@ -368,8 +368,9 @@ section "Step 2d: Self-Host Front Door"
 # `src/NSharpLang.Build.Tasks` has no N# sources yet (it is MSBuild targets plus C# tasks), so it is
 # listed and checked rather than assumed: the day it grows one, this step covers it.
 #
-# `src/NSharpLang.Compiler.Model`, the first slice carved out of Core, is checked before it: Core
-# builds it as a project reference, so Model's own count must stay 0 for Core's to be readable.
+# `src/NSharpLang.Compiler.Model` and `src/NSharpLang.Compiler.Syntax`, the slices carved out of Core
+# so far, are checked before it, lowest first: Core builds them as project references (Syntax builds
+# Model the same way), so each one's own count must stay 0 for the next one's to be readable.
 #
 # COST: the whole step is dominated by Core, whose front door walks 952 files. It sits inside the
 # validated step cache on the UNIT input set, so it runs only when the compiler's own sources move.
@@ -380,6 +381,7 @@ else
     echo "Checking the compiler's own projects with the CLI this gate built..."
     SELF_HOST_PROJECTS=(
         "src/NSharpLang.Compiler.Model"
+        "src/NSharpLang.Compiler.Syntax"
         "src/NSharpLang.Compiler.Core"
         "src/NSharpLang.Compiler"
         "src/NSharpLang.Playground"
@@ -444,6 +446,19 @@ else
     # one; that was fixed in the analyzer (a maybe-null value of a non-framework referenced class
     # type is refused where the same source type is, and a bare one is not-null), not ratcheted.
     #
+    # 2026-09-24, Compiler.Syntax carved out of Core into its own project, rows included
+    # (`census/syntax`): Model 0, Syntax 0 and Core 1,261, checked in that order because each takes
+    # the one before it as a `project:` reference. Syntax reached zero at the source first -- the
+    # NL012 on `ParseTypeBody`'s unread `name`, and its estate's 16 (NL010 9, NL907 4, NL905 2, NL202
+    # 1) plus the NL010 splitting the formatter rows off two parser files left -- so the identity diff
+    # against the base tree (1,279) through the same tip CLI is zero additions and 18 removals (NL010 10,
+    # NL907 4, NL905 2, NL202 1, NL012 1), every one a source fix, and against the pre-carve tree zero
+    # and zero. The carve first measured 36,701 -- every Model name unresolved, because `nlc` did not
+    # compile against a project reference's own project references and Core now reaches Model only
+    # through Syntax -- and then 1,325, the 62 NL002s a SOURCE type's project-wide discovery had
+    # answered for `ColumnarParserRecovery`, `ColumnarNodeTable` and `ColumnarExpressionNodeKind`;
+    # the first was fixed in the resolver, the second by the imports NL002 asks for.
+    #
     # -1 means BLOCKED, not clean. `check` on a project that REFERENCES Compiler.Core builds that
     # reference first, and that build fails while Core's own front door is not clean -- so those two
     # produce an error envelope instead of a diagnostic list and there is nothing to count yet. The
@@ -451,7 +466,8 @@ else
     # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
     SELF_HOST_CEILINGS=(
         0
-        1279
+        0
+        1261
         -1
         -1
         0

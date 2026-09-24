@@ -1,6 +1,6 @@
 # Lexer Component
 
-**File:** `src/NSharpLang.Compiler.Core/Syntax/Lexer.nl`
+**File:** `src/NSharpLang.Compiler.Syntax/Lexer.nl`
 
 ## Responsibility
 
@@ -99,7 +99,7 @@ var tokens = lexer.Tokenize(); // Returns List<Token>
 
 ## Testing
 
-The lexer's canonical contracts are **N#, not C#**: `src/NSharpLang.Compiler.Core/Syntax/Lexer.tests.nl`,
+The lexer's canonical contracts are **N#, not C#**: `src/NSharpLang.Compiler.Syntax/Lexer.tests.nl`,
 which replaced `tests/LexerTests.cs` in 020 slice 7. They cover:
 - **Every keyword** — all 85 are lexed individually and crossed through `KeywordTypeForText` and
   back through `KeywordTextForType`; the remaining 63 `TokenType` members are proved reserved by

@@ -70,7 +70,7 @@ C# consumer of the self-compiled assemblies (`Cli`, `Build.Tasks`, `LanguageServ
 against the stage-2 seed before believing it.**
 
 `Step 2d: Self-Host Front Door` in `tests/scripts/test-all-core.sh` closes that blind spot. It runs
-`nlc check --json` over `src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler`,
+`nlc check --json` over `src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler`,
 `src/NSharpLang.Playground` and `src/NSharpLang.Build.Tasks` with the CLI the gate just built and
 fails on any INCREASE over the committed ceilings. **The ceilings are a backlog, not a target**: the
 front door reports diagnostics on Core's own source that the emit-only path never asked about
@@ -169,6 +169,17 @@ source. Three owners now give a split program the one-project answer -- see
 `memory/components/analyzer.md`, "A PROGRAM SPLIT INTO TWO PROJECTS". The shared framework keeps its
 old answer: enforcing its own class-type annotations the same way adds **860 NL202s to Core alone**
 (`Type?` 673, `MethodInfo?`/`FieldInfo?` 65 each, ...), a separate decision.
+
+**Measured 2026-09-24 on `census/syntax`** (Compiler.Syntax carved out of Core, rows included):
+Step 2d checks **Model, then Syntax, both ceiling 0**, then **Core at 1,261** (1,279 before). Syntax reached zero at
+the source before the move -- `ParseTypeBody`'s unread `name` (NL012) and its estate's 16 (NL010 9,
+NL907 4, NL905 2, NL202 1), plus the one NL010 the formatter-row split left -- so the identity diff
+against the base tree through the same tip CLI is **zero additions and 18 removals** (NL010 10, NL907 4,
+NL905 2, NL202 1, NL012 1), and against the pre-carve tree zero and zero. Two measurements came first
+and were fixed rather than ratcheted: **36,701** -- `nlc` did not compile against a project
+reference's own project references, and Core now reaches Model only through Syntax -- and **1,325**,
+the 62 NL002s a SOURCE type's project-wide discovery used to answer for `ColumnarParserRecovery`,
+`ColumnarNodeTable` and `ColumnarExpressionNodeKind`, now the imports NL002 asks for.
 
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
