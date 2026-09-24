@@ -76,6 +76,19 @@ func EmitTaskOwnerAssemblyType(fullName: string): Type {
     return EmitTaskRequireType(EmitTaskOwnerType().get_Assembly().GetType(fullName), fullName)
 }
 
+// `ProjectConfig` and `Reference` are Compiler.Model's types, not Core's. They are taken from the
+// Model assembly the loaded task itself BINDS -- the parameter of `AddResolvedDllReferences(config)`
+// -- so a config built here is exactly the type the task's methods accept, whichever load of Model
+// that is.
+func EmitTaskModelAssemblyType(fullName: string): Type {
+    method := EmitTaskOwnerType().GetMethod("AddResolvedDllReferences", BindingFlags.Instance | BindingFlags.NonPublic)
+    if method == null {
+        throw new InvalidOperationException("Required method was not found: EmitIlAssembly.AddResolvedDllReferences(ProjectConfig)")
+    }
+    modelAssembly := method.GetParameters()[0].ParameterType.get_Assembly()
+    return EmitTaskRequireType(modelAssembly.GetType(fullName), fullName)
+}
+
 func EmitTaskPut(values: object?[], index: int, value: object?) {
     values[index] = value
 }
@@ -298,7 +311,7 @@ func EmitTaskSetReferences(task: object, paths: string[]) {
 }
 
 func EmitTaskCreateConfig(): object {
-    return EmitTaskNewInstance(EmitTaskOwnerAssemblyType("NSharpLang.Compiler.ProjectConfig"))
+    return EmitTaskNewInstance(EmitTaskModelAssemblyType("NSharpLang.Compiler.ProjectConfig"))
 }
 
 func EmitTaskConfigDependencies(config: object): object {
@@ -306,7 +319,7 @@ func EmitTaskConfigDependencies(config: object): object {
 }
 
 func EmitTaskAddDllDependency(config: object, path: string) {
-    reference := EmitTaskNewInstance(EmitTaskOwnerAssemblyType("NSharpLang.Compiler.Reference"))
+    reference := EmitTaskNewInstance(EmitTaskModelAssemblyType("NSharpLang.Compiler.Reference"))
     EmitTaskSetObjectField(reference, "Dll", path)
     EmitTaskCollectionAdd(EmitTaskConfigDependencies(config), reference)
 }

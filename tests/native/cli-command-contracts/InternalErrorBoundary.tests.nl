@@ -15,8 +15,8 @@ func InternalBoundaryProbe(source: string): CliRun {
         // The CLI's whole dependency closure, because this probe hosts `Cli.dll` OUTSIDE its own
         // output directory: the JIT resolves every type `Program.Execute` names as it compiles that
         // method, and `NSharpLang.TestHost.dll` is one of them — it owns `nlc test`, `nlc watch` and
-        // the dispatch pipeline.
-        project := "name: InternalBoundaryProbe\nbackend: il\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - dll: " + CliDll() + "\n  - dll: " + Path.Combine(cliDirectory, "NSharpLang.Compiler.Core.dll") + "\n  - dll: " + Path.Combine(cliDirectory, "Compiler.dll") + "\n  - dll: " + Path.Combine(cliDirectory, "NSharpLang.TestHost.dll") + "\n"
+        // the dispatch pipeline. The compiler is two assemblies now: Core, and Model beneath it.
+        project := "name: InternalBoundaryProbe\nbackend: il\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - dll: " + CliDll() + "\n  - dll: " + Path.Combine(cliDirectory, "NSharpLang.Compiler.Model.dll") + "\n  - dll: " + Path.Combine(cliDirectory, "NSharpLang.Compiler.Core.dll") + "\n  - dll: " + Path.Combine(cliDirectory, "Compiler.dll") + "\n  - dll: " + Path.Combine(cliDirectory, "NSharpLang.TestHost.dll") + "\n"
         File.WriteAllText(Path.Combine(directory, "project.yml"), project)
         File.WriteAllText(Path.Combine(directory, "Program.nl"), source)
         build := Nlc("build --project \"" + directory + "\"")
