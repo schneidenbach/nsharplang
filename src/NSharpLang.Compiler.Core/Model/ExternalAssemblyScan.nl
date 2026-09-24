@@ -161,8 +161,8 @@ class ExternalAssemblyScan {
                 return owned
             }
         } catch {
-
             // An image that will not load at all has no executable handle; stay metadata-only.
+            return null
         }
 
         return null
@@ -185,8 +185,8 @@ class ExternalAssemblyScan {
                 return bound
             }
         } catch {
-
             // No build of this identity is the default context's to give; the owned context answers.
+            return null
         }
 
         return null
@@ -247,9 +247,9 @@ class ExternalAssemblyScan {
                     byIdentity[identity] = assembly
                 }
             } catch {
+                // A hostile loaded assembly is not semantic evidence; keep indexing.
+                continue
             }
-
-            // A hostile loaded assembly is not semantic evidence; keep indexing.
         }
 
         return byIdentity
@@ -285,6 +285,8 @@ class ExternalAssemblyScan {
                         }
                     }
                 } catch {
+                    // An assembly whose name cannot be read is skipped, as `LoadedByIdentity` skips it.
+                    continue
                 }
             }
         }
@@ -320,10 +322,8 @@ class ExternalAssemblyScan {
                     continue
                 }
 
-                identityName: AssemblyName? = null
-                try {
-                    identityName = AssemblyName.GetAssemblyName(path)
-                } catch {
+                identityName := TryReadAssemblyName(path)
+                if identityName == null {
                     entries.Add(new ExternalAssemblyCatalogEntry(null, "unresolved-path:" + path, "", null, false))
 
                     pathIndex = pathIndex + 1
@@ -366,10 +366,8 @@ class ExternalAssemblyScan {
 
         AddForwardTargetPaths(resolverPaths, resolverNames, searchDirectories)
 
-        context: MetadataLoadContext? = null
-        try {
-            context = CreateMetadataLoadContext(resolverPaths.ToArray())
-        } catch {
+        context := TryCreateMetadataLoadContext(resolverPaths.ToArray())
+        if context == null {
             entryIndex = 0
             while entryIndex < entries.Count {
                 entries[entryIndex].MarkUninspectable()
@@ -1095,6 +1093,8 @@ class ExternalAssemblyScan {
                 return runtimeAssembly
             }
         } catch {
+            // A framework file that will not load has no executable handle to offer.
+            return null
         }
 
         return null
@@ -1215,19 +1215,29 @@ class ExternalAssemblyScan {
         runtimeType := typeof(object)
         hasRuntimeType := false
         if entry.RuntimeAssembly != null {
-            try {
-                candidate := entry.RuntimeAssembly.GetType(fullName)
-                if candidate != null && candidate.AssemblyQualifiedName == identity {
-                    runtimeType = candidate
-                    hasRuntimeType = true
-                }
-            } catch {
+            candidate := ExactRuntimeType(entry.RuntimeAssembly, fullName, identity)
+            if candidate != null {
+                runtimeType = candidate
+                hasRuntimeType = true
             }
         }
 
-        // A hostile runtime assembly cannot replace the exact metadata identity.
-
         return new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Found, identity, runtimeType, hasRuntimeType)
+    }
+
+    // The runtime type that carries exactly the metadata identity, or null. A hostile runtime
+    // assembly cannot replace the exact metadata identity: one that throws on the lookup offers none.
+    static func ExactRuntimeType(runtimeAssembly: Assembly, fullName: string, identity: string): Type? {
+        try {
+            candidate := runtimeAssembly.GetType(fullName)
+            if candidate != null && candidate.AssemblyQualifiedName == identity {
+                return candidate
+            }
+        } catch {
+            return null
+        }
+
+        return null
     }
 
     static func MissingResolution(): ExternalAssemblyTypeResolution {
@@ -1355,6 +1365,25 @@ class ExternalAssemblyScan {
     // reflection is gone -- and with it `ConstructorInfo::Invoke`, which a `MetadataLoadContext` refuses
     // outright (`Cannot invoke a method on objects loaded by a MetadataLoadContext.`), i.e. the one
     // remaining call shape that could not survive the universe this task is moving the catalog to.
+    // The identity a path's image declares, or null when the file is not an assembly that can be
+    // read at all.
+    static func TryReadAssemblyName(path: string): AssemblyName? {
+        try {
+            return AssemblyName.GetAssemblyName(path)
+        } catch {
+            return null
+        }
+    }
+
+    // The metadata context over `paths`, or null when one cannot be built over them.
+    static func TryCreateMetadataLoadContext(paths: string[]): MetadataLoadContext? {
+        try {
+            return CreateMetadataLoadContext(paths)
+        } catch {
+            return null
+        }
+    }
+
     static func CreateMetadataLoadContext(paths: string[]): MetadataLoadContext {
         resolver := new PathAssemblyResolver(paths)
         return new MetadataLoadContext(resolver, "System.Runtime")

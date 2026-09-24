@@ -127,21 +127,25 @@ class EditorTypeCatalog {
             return cached
         }
 
-        loaded := new Type[](0)
-        try {
-            // A reference that made the editing project a friend offers its internals too, and only
-            // `GetTypes()` returns them. Every reader below filters with `IsNameable`, so the wider
-            // read can admit nothing the rule does not.
-            if friendGrants != null && friendGrants.GrantsAccess(assemblies[index]) {
-                loaded = assemblies[index].GetTypes()
-            } else {
-                loaded = assemblies[index].GetExportedTypes()
-            }
-        } catch scanError: Exception {
-        }
-
+        loaded := ReadCandidateTypes(assemblies[index])
         exportedTypes[index] = loaded
         return loaded
+    }
+
+    // The types one assembly offers the editing project, or none when the assembly cannot be read.
+    // A reference that made the editing project a friend offers its internals too, and only
+    // `GetTypes()` returns them. Every reader filters with `IsNameable`, so the wider read can admit
+    // nothing the rule does not.
+    func ReadCandidateTypes(assembly: Assembly): Type[] {
+        try {
+            if friendGrants != null && friendGrants.GrantsAccess(assembly) {
+                return assembly.GetTypes()
+            }
+
+            return assembly.GetExportedTypes()
+        } catch scanError: Exception {
+            return new Type[](0)
+        }
     }
 
     // Exact, and CASE-SENSITIVE by construction: the one-argument `Assembly.GetType` overload is the
@@ -157,6 +161,8 @@ class EditorTypeCatalog {
                     return found
                 }
             } catch lookupError: Exception {
+                // An assembly that cannot answer the lookup offers no type; ask the next one.
+                continue
             }
         }
 

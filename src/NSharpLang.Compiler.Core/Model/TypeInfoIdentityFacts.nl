@@ -3,7 +3,6 @@ namespace NSharpLang.Compiler
 import System
 import System.Reflection
 import System.Reflection.Emit
-import NSharpLang.Compiler.Ast
 
 
 // Exact semantic identity for analyzer TypeInfo values. Nominal source types are canonical

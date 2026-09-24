@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections
-import System.Collections.Generic
 
 class CompilationUnitFacts {
     static func ContainsSoaRecordDeclaration(compilationUnit: object): bool {

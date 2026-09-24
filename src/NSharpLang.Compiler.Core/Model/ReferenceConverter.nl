@@ -9,7 +9,7 @@ class ReferenceConverter: IYamlTypeConverter {
         return targetType == typeof(Reference)
     }
 
-    func ReadYaml(parser: YamlDotNet.Core.IParser, targetType: Type, rootDeserializer: ObjectDeserializer): object {
+    func ReadYaml(parser: YamlDotNet.Core.IParser, _targetType: Type, _rootDeserializer: ObjectDeserializer): object {
         scalar := parser.Current as Scalar
         if scalar != null {
             parser.MoveNext()
@@ -54,7 +54,7 @@ class ReferenceConverter: IYamlTypeConverter {
         throw new YamlDotNet.Core.YamlException("Invalid reference format")
     }
 
-    func WriteYaml(emitter: YamlDotNet.Core.IEmitter, value: object?, targetType: Type, serializer: ObjectSerializer): void {
+    func WriteYaml(emitter: YamlDotNet.Core.IEmitter, value: object?, _targetType: Type, _serializer: ObjectSerializer): void {
         reference := value as Reference
         if reference == null {
             throw new InvalidOperationException("Expected Reference object")

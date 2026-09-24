@@ -1,5 +1,7 @@
 namespace NSharpLang.Compiler
 
+import System
+
 class NullabilityMetadataCore {
     static func ConvertBuiltInType(fullName: string?): TypeInfo? {
         if fullName == "System.Int32" {
