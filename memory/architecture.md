@@ -113,6 +113,26 @@ built at `Create`, before the assembly scan exists, and still records that impor
 emitted program was found whose binding it changes (it can only refuse, never re-bind), but a fence
 that disagrees with the parent is debt.
 
+**What the Model carve still needs after the lookup fix** (proved 2026-09-24 on throwaway
+`census/carve-proof` = `census/lookup` + the two `census/model-carve-wip` commits, built with scratch
+seeds): with the lookup fix alone the carved Model builds and Core's relative `Ast.X` spellings (the WIP's
+167 full qualifications reverted) and bare `TypeInfo` bind correctly, but Core's emit-only build hits
+EMITTER gaps on shapes the same source used to exercise against SOURCE types and now meets as
+REFERENCED-ASSEMBLY types: (G1) `==`/`!=` between two external reference operands (`object == object`
+too) -- the residual in `ColumnarIlEmitter`'s binary arm grants reference identity only to `TypeBuilder`
+operands; (G2) an external constructor argument that is an enum `==`; (G3) an external construction
+with an object initializer whose arguments are composite (a call or a concatenation); (G4) an enum cast
+as an external constructor argument; (G5, tests) nested `new`/free-call arguments to an external
+constructor; (G6, tests) a narrowed `MetadataLoadContext?` from `scan.Context` passed as an argument.
+With G1 probe-patched into a scratch seed (`census/g1-probe`) and the rest worked around at ~113 sites,
+the carved tree builds end to end, the estate is 9,629/9,642 -- the 13 are source-layout guards that
+look for Model files under Core (AstChildrenCore x7, the SZArray scan x1) and reference-image paths for
+Model under Core's `obj` (ExternalAssemblyScan/RuntimePairing x5) -- and the edit->test loop for a
+one-line Model body edit is 10 s against 118 s uncarved (Core does not re-emit: its reference image is
+unchanged). Carve-wiring rows still owed: slice-direction's estate-reach ceiling, gate-script-contracts'
+package-loop trace (Model is packed), `census-nominal-interfaces` taking Model.dll, and a real reseed
+for `sdk-reference-incrementality`.
+
 ## Data Flow
 
 ### Tokenization
