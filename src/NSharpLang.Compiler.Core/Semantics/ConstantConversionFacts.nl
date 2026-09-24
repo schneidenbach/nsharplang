@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import NSharpLang.Compiler
 
 
 // 023/1e — THE TWO IMPLICIT CONSTANT CONVERSIONS, IN ONE N#-OWNED PLACE.
@@ -21,7 +22,7 @@ import System
 // languages. This owner is the single answer all of them consult; the C# host keeps only the
 // `_il.Emit` of the value returned here.
 //
-// THE INTEGER PARSER IS NOT WRITTEN AGAIN. `ColumnarScalarLiteralPlanner.TryParseIntegerLiteral`
+// THE INTEGER PARSER IS NOT WRITTEN AGAIN. `NumericLiteralFacts.TryParseIntegerLiteral`
 // already owns suffix classification (kind 0 unsuffixed, 1 `L`, 2 `UL`) and radix parsing; this owner
 // delegates to it and adds only the target-fit decision.
 class ConstantConversionFacts {
@@ -36,7 +37,7 @@ class ConstantConversionFacts {
 
         literalKind := 0
         magnitude := 0UL
-        if !ColumnarScalarLiteralPlanner.TryParseIntegerLiteral(literalText, out literalKind, out magnitude) {
+        if !NumericLiteralFacts.TryParseIntegerLiteral(literalText, out literalKind, out magnitude) {
             return false
         }
 
@@ -64,7 +65,7 @@ class ConstantConversionFacts {
 
         literalKind := 0
         magnitude := 0UL
-        if !ColumnarScalarLiteralPlanner.TryParseIntegerLiteral(literalText, out literalKind, out magnitude) {
+        if !NumericLiteralFacts.TryParseIntegerLiteral(literalText, out literalKind, out magnitude) {
             return false
         }
 

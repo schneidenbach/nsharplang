@@ -531,7 +531,7 @@ class ColumnarAttributeBlobWriter {
         if node.Kind == ColumnarAttributeArgumentKind.IntLiteral {
             literalKind := 0
             magnitude := 0UL
-            if !ColumnarScalarLiteralPlanner.TryParseIntegerLiteral(node.Text, out literalKind, out magnitude) {
+            if !NumericLiteralFacts.TryParseIntegerLiteral(node.Text, out literalKind, out magnitude) {
                 return false
             }
 
@@ -676,7 +676,7 @@ class ColumnarAttributeBlobWriter {
         if node.Kind == ColumnarAttributeArgumentKind.IntLiteral {
             literalKind := 0
             magnitude := 0UL
-            if !ColumnarScalarLiteralPlanner.TryParseIntegerLiteral(node.Text, out literalKind, out magnitude) {
+            if !NumericLiteralFacts.TryParseIntegerLiteral(node.Text, out literalKind, out magnitude) {
                 return false
             }
 

@@ -41,7 +41,7 @@ class ColumnarFieldMetadataEmitter {
 
         literalKind := 0
         magnitude := 0UL
-        if !ColumnarScalarLiteralPlanner.TryParseIntegerLiteral(text, out literalKind, out magnitude) || literalKind != 0 || magnitude > 2147483647UL {
+        if !NumericLiteralFacts.TryParseIntegerLiteral(text, out literalKind, out magnitude) || literalKind != 0 || magnitude > 2147483647UL {
             return false
         }
 
