@@ -108,6 +108,7 @@ class ColumnarExternalTypeCatalog {
     // from rebuilding a whole MetadataLoadContext over every referenced assembly.
     preparedScan: ExternalAssemblyScanResult?
     IsPrepared: bool
+    holdersByNamespace: Dictionary<string, List<Type>>
 
     constructor() {
         resolvedOwners = new Dictionary<string, ExternalAssemblyTypeResolution>(StringComparer.Ordinal)
@@ -117,6 +118,7 @@ class ColumnarExternalTypeCatalog {
         extensionIndexBuilt = false
         preparedScan = null
         IsPrepared = false
+        holdersByNamespace = new Dictionary<string, List<Type>>(StringComparer.Ordinal)
     }
 
     // Extension-method discovery rides the same referenced-assembly scan the owner resolver uses.
@@ -188,6 +190,7 @@ class ColumnarExternalTypeCatalog {
 
     func Prepare(referenceAssemblyPaths: IReadOnlyList<string>?, sourceFactsById: Dictionary<int, ColumnarSourceBindingFacts>) {
         resolvedOwners.Clear()
+        holdersByNamespace.Clear()
         fileFactsById = sourceFactsById
         referenceCount := 0
         if referenceAssemblyPaths != null {
@@ -423,6 +426,62 @@ class ColumnarExternalTypeCatalog {
 
         runtimeType = resolvedOwners["namespace:" + (namespaceName ?? "") + ":" + name].RuntimeType
         return true
+    }
+
+    // THE FREE-FUNCTION HOLDERS THE REFERENCED ASSEMBLIES DECLARE IN ONE NAMESPACE, one per assembly
+    // that declares one, in reference order. The holder is the type an N# assembly puts that
+    // namespace's free functions on (`ColumnarFreeFunctionScope`): `<Program>` where the namespace
+    // declares a type named `Program` itself -- that name is then the user's type, not the holder --
+    // and `Program` otherwise. EVERY assembly is asked, not the first that answers: two referenced
+    // assemblies may each hold free functions of one namespace (the global one above all), and a
+    // type lookup's first-wins answer would hide the second one's functions entirely. A holder this
+    // emission cannot name is not one it can call into, and an uninspectable reference holds nothing
+    // it can call. Cached per namespace for the prepared scan.
+    func FreeFunctionHolders(namespaceName: string?, rootHolderTypeName: string): List<Type> {
+        holders := new List<Type>()
+        scan := preparedScan
+        if !IsPrepared || scan == null {
+            return holders
+        }
+
+        key := (namespaceName ?? "") + ":" + rootHolderTypeName
+        cached: List<Type>? = null
+        if holdersByNamespace.TryGetValue(key, out cached) {
+            return cached
+        }
+
+        prefix := ""
+        if namespaceName != null && namespaceName.Length > 0 {
+            prefix = namespaceName + "."
+        }
+        reservedName := prefix + ColumnarFreeFunctionScope.ReservedHolderTypeName(rootHolderTypeName)
+        ordinaryName := prefix + rootHolderTypeName
+        for entry in scan.Entries {
+            if entry == null || !entry.IsInspectable || entry.MetadataAssembly == null {
+                continue
+            }
+
+            try {
+                candidate := entry.MetadataAssembly.GetType(reservedName)
+                if candidate == null {
+                    ordinary := entry.MetadataAssembly.GetType(ordinaryName)
+                    if ordinary != null && ordinary.IsClass {
+                        candidate = ordinary
+                    }
+                }
+                if candidate != null {
+                    resolution := NameableOnly(ExternalAssemblyScan.FoundResolution(entry, candidate))
+                    if resolution.Status == ExternalAssemblyTypeLookupStatus.Found && resolution.HasRuntimeType {
+                        holders.Add(resolution.RuntimeType)
+                    }
+                }
+            } catch {
+                continue
+            }
+        }
+
+        holdersByNamespace[key] = holders
+        return holders
     }
 
     static func Key(sourceFileId: int, ownerName: string): string {
@@ -1726,6 +1785,12 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
     static func RecordAmbiguousName(selection: SimpleNameSelection, name: string) {
         written := TypeArityNames.Display(name)
         ColumnarDeclineTrace.Record("emit.names.ambiguous-import", "'" + written + "' is ambiguous between '" + selection.QualifiedName(written) + "' and '" + selection.SecondQualifiedName(written) + "': both are imported (NL209); write the one you mean in full", -1, 0, ColumnarDeclineTrace.CurrentMemberName())
+    }
+
+    // The referenced assemblies' free-function holders in one namespace -- see
+    // `ColumnarExternalTypeCatalog.FreeFunctionHolders`.
+    func ExternalFreeFunctionHolders(namespaceName: string, rootHolderTypeName: string): List<Type> {
+        return assemblyCatalog.FreeFunctionHolders(namespaceName, rootHolderTypeName)
     }
 
     // The runtime type a METADATA selection bound.

@@ -1,0 +1,12 @@
+name: NSharpLang.CensusExternalFreeFunctions.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# The fixture library is a PROJECT reference, so this assembly meets its free functions as a
+# referenced assembly's; the compiler assemblies compile the consumer again, emit-only and analysed.
+dependencies:
+  - project: ../../fixtures/census-external-free-functions-library/project.yml
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Model.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Core.dll

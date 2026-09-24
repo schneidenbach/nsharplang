@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
@@ -204,17 +205,29 @@ class AnalyzerIdentifierResolution {
     // PUBLISHED rather than private because the qualified-external-type probe asks the same question
     // of a dotted name's ROOT before it will accept a CLR type of that name — a project function
     // named `Log` must not be shadowed by `Log.Write` resolving to an assembly type.
+    //
+    // A REFERENCED ASSEMBLY'S FREE FUNCTION answers here too, when the walk settles on one: it is its
+    // holder's public static method, so it is typed as that reflected method and the call arm binds
+    // it the way it binds any reflected method -- applicability, conversions and the nullability a
+    // referenced signature states. It has no source declaration to record.
     func TryResolveVisibleProjectFunction(name: string, out resolvedType: TypeInfo, out declaration: SymbolDeclaration?): bool {
         declarationFile: string? = null
         functionDeclaration: FunctionDeclaration? = null
         functionSymbol: SymbolDeclaration? = null
-        if projectDiscoveryValue.TryResolveVisibleProjectFunction(name, UnitNamespace(), out declarationFile, out functionDeclaration, out functionSymbol) {
-            // Both nested guards are TOTAL on this path — discovery only answers `true` after it has
-            // matched an exported `FunctionDeclaration` in a named file — but the factory wants
-            // non-nullables, and a nested `if` is the only narrowing that holds.
+        externalFunctions := new List<MethodInfo>()
+        if projectDiscoveryValue.TryResolveVisibleFunction(name, UnitNamespace(), out declarationFile, out functionDeclaration, out functionSymbol, out externalFunctions) {
+            // Both nested guards are TOTAL on the source path — discovery only answers `true` with a
+            // declaration after it has matched an exported `FunctionDeclaration` in a named file —
+            // but the factory wants non-nullables, and a nested `if` is the only narrowing that holds.
             if functionDeclaration != null && declarationFile != null {
                 resolvedType = functionTypeFactoryValue.CreateFromDeclarationInFile(functionDeclaration, declarationFile)
                 declaration = functionSymbol
+                return true
+            }
+
+            if externalFunctions.Count == 1 {
+                resolvedType = new ReflectionMethodInfo(externalFunctions[0])
+                declaration = null
                 return true
             }
         }

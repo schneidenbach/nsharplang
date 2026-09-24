@@ -49,6 +49,10 @@ import NSharpLang.Compiler
 // overrides it, which is why `public func buildExplicit()` is exported and `internal func Helper()`
 // is not, and why `ColumnarFunctionInput` carries that word in its own column.
 //
+// Tiers 2 and 3 ask REFERENCED assemblies too: a namespace's free functions are its members wherever
+// they were compiled, so a referenced holder's public static methods (`ColumnarExternalFreeFunctions`)
+// enter the view at their namespace's rank, below a source function of the same rank.
+//
 // There is deliberately no project-wide auto-discovery tier for functions — the analyzer has none,
 // and an emitter that resolved a name the analyzer rejected would be inventing a program.
 class ColumnarFreeFunctionScope {
@@ -65,6 +69,7 @@ class ColumnarFreeFunctionScope {
     // Every (namespace, name) declared so far, so a second declaration of one is refused rather than
     // silently shadowing the first.
     declaredIdentities: HashSet<string>
+    externalDefinitionsByHolder: Dictionary<Type, List<ColumnarSiblingMethodDefinition>>
 
     constructor(programInput: ColumnarProgramInput, rootHolderTypeName: string) {
         program = programInput
@@ -78,6 +83,7 @@ class ColumnarFreeFunctionScope {
         viewsByFile = new Dictionary<int, Dictionary<string, ColumnarSiblingMethodDefinition>>()
         labeledViewsByFile = new Dictionary<int, Dictionary<string, string>>()
         declaredIdentities = new HashSet<string>(StringComparer.Ordinal)
+        externalDefinitionsByHolder = new Dictionary<Type, List<ColumnarSiblingMethodDefinition>>()
     }
 
     // The CLR name of the holder type a namespace's free functions are declared on. The global
@@ -198,8 +204,58 @@ class ColumnarFreeFunctionScope {
             index = index + 1
         }
 
+        // A REFERENCED ASSEMBLY'S FREE FUNCTIONS TAKE THE SAME WALK. Each candidate namespace is asked
+        // of metadata too, at its own rank, and a source function of the same name wins at the SAME
+        // rank (the rank comparison is strict) -- so the caller's file, a file import and a nearer
+        // namespace still beat a referenced function, and a referenced function in a nearer namespace
+        // beats a source one further out, exactly as `SimpleNamePrecedence` orders a type name. Two
+        // referenced assemblies holding one name in one namespace are not one function: the name is
+        // taken at that rank and left out of the view, so a call to it declines rather than binding
+        // whichever reference was listed first. See `ColumnarExternalFreeFunctions`.
+        for rankedNamespace in ranks {
+            rank := rankedNamespace.Value
+            offered := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
+            ambiguous := new HashSet<string>(StringComparer.Ordinal)
+            for holder in program.ExternalFreeFunctionHolders(rankedNamespace.Key, rootTypeName) {
+                for external in ExternalDefinitionsFor(holder) {
+                    externalName := external.Method.Name
+                    if offered.ContainsKey(externalName) {
+                        ambiguous.Add(externalName)
+                    } else {
+                        offered[externalName] = external
+                    }
+                }
+            }
+
+            for entry in offered {
+                existingRank := 0
+                if bestRanks.TryGetValue(entry.Key, out existingRank) && existingRank <= rank {
+                    continue
+                }
+                bestRanks[entry.Key] = rank
+                labeled.Remove(entry.Key)
+                if ambiguous.Contains(entry.Key) {
+                    view.Remove(entry.Key)
+                } else {
+                    view[entry.Key] = entry.Value
+                }
+            }
+        }
+
         viewsByFile[sourceFileId] = view
         labeledViewsByFile[sourceFileId] = labeled
+    }
+
+    // A holder's definitions are read once per compilation, however many files reach it.
+    func ExternalDefinitionsFor(holder: Type): List<ColumnarSiblingMethodDefinition> {
+        cached: List<ColumnarSiblingMethodDefinition>? = null
+        if externalDefinitionsByHolder.TryGetValue(holder, out cached) {
+            return cached
+        }
+
+        definitions := ColumnarExternalFreeFunctions.Definitions(holder)
+        externalDefinitionsByHolder[holder] = definitions
+        return definitions
     }
 
     // The caller's own file is nearer than every import and every namespace, so its rank sits below

@@ -134,6 +134,15 @@ different one — is [NL306](./errors/NL306.md), reported in each file and namin
 two declarations in two different namespaces are two functions, and a folder of standalone scripts
 with no `project.yml` is not one program, so its files never collide.
 
+**A referenced assembly's free functions take the same walk.** A namespace's free functions are its
+members wherever they were compiled, so a library's `func Helper()` in `namespace Reporting` is
+reached by a bare `Helper()` from a program that references the library — through step 3 when the
+caller sits inside `Reporting`, through step 4 when it imports it, and from anywhere when the
+library declares it in the global namespace. At one step a function of the program's own source
+wins over a referenced one of the same name, and a referenced one at a nearer step wins over a
+source one further out. Only what the library exports is reachable: a camelCase free function is
+namespace-private there and invisible to every other assembly.
+
 ### What a free function looks like from .NET
 
 Free functions are emitted as **static methods on a `Program` class inside their own namespace**, so

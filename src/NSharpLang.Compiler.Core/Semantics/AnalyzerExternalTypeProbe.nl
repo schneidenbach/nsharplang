@@ -82,6 +82,11 @@ class AnalyzerExternalTypeProbe {
     // analysis with the import list; null is the global namespace.
     currentNamespace: string?
 
+    // The free-function holders each namespace was found to have, and the assembly count that found
+    // them (`FreeFunctionHolders`).
+    holdersByNamespace: Dictionary<string, List<Type>>
+    holderCountsByNamespace: Dictionary<string, int>
+
     // A PROBE WITH NO PROJECT BEHIND IT IS THE FRIEND OF NOTHING. The analyzer hands in its own
     // grants; a caller that builds a probe over a bare assembly list has no assembly identity to be
     // named by an `InternalsVisibleTo`, so it gets an unnamed instance and sees exactly the visible
@@ -97,6 +102,8 @@ class AnalyzerExternalTypeProbe {
         missedFullNames = new Dictionary<string, int>(StringComparer.Ordinal)
         grants = friendGrants
         currentNamespace = null
+        holdersByNamespace = new Dictionary<string, List<Type>>(StringComparer.Ordinal)
+        holderCountsByNamespace = new Dictionary<string, int>(StringComparer.Ordinal)
     }
 
     // One call per analysis: the file's namespace is the start of the lexical chain every bare
@@ -301,6 +308,79 @@ class AnalyzerExternalTypeProbe {
     func NamespaceDeclares(namespaceName: string?, name: string): bool {
         resolved := typeof(object)
         return TryResolveInNamespace(namespaceName, name, out resolved)
+    }
+
+    // A REFERENCED ASSEMBLY'S FREE FUNCTION OF THIS NAME IN THIS ONE NAMESPACE -- the metadata answer
+    // the function channel asks of each candidate namespace, as the type channel asks
+    // `NamespaceDeclares`. An N# assembly holds a namespace's free functions on `<namespace>.Program`,
+    // or on `<namespace>.<Program>` where the namespace declares a type named `Program` itself (that
+    // name is then the user's type), and a free function is one of the holder's PUBLIC static
+    // methods: a camelCase one is emitted CLR `assembly` and is not exported.
+    //
+    // EVERY LOADED ASSEMBLY IS ASKED, not the first whose holder answers: two referenced assemblies may
+    // each hold free functions of one namespace -- the global one above all -- and a first-wins answer
+    // would hide the second one's functions entirely. The answer is the one method of that name across
+    // all of them; two (one name held twice, in one holder or in two) are not one free function and
+    // answer nothing, which is the emitter's answer too (`ColumnarFreeFunctionScope`). Empty when no
+    // holder declares it.
+    func NamespaceFreeFunctions(namespaceName: string?, name: string): List<MethodInfo> {
+        functions := new List<MethodInfo>()
+        if name == null || name.Length == 0 {
+            return functions
+        }
+
+        holders := FreeFunctionHolders(namespaceName)
+        if holders.Count == 0 {
+            return functions
+        }
+
+        for holder in holders {
+            for method in holder.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly) {
+                if !method.IsSpecialName && method.Name == name {
+                    functions.Add(method)
+                }
+            }
+        }
+
+        if functions.Count > 1 {
+            functions.Clear()
+        }
+
+        return functions
+    }
+
+    // The holders `NamespaceFreeFunctions` reads, one per assembly that declares one, remembered
+    // against the assembly count that found them -- the list only grows, so a new reference is
+    // exactly what can add a holder.
+    func FreeFunctionHolders(namespaceName: string?): List<Type> {
+        key := namespaceName ?? ""
+        cached: List<Type>? = null
+        cachedCount := 0
+        if holdersByNamespace.TryGetValue(key, out cached) && holderCountsByNamespace.TryGetValue(key, out cachedCount) && cachedCount == assemblies.Count {
+            return cached
+        }
+
+        prefix := ""
+        if key.Length > 0 {
+            prefix = key + "."
+        }
+        holders := new List<Type>()
+        for assemblyItem in assemblies {
+            candidate := assemblyItem.GetType(prefix + "<Program>")
+            if candidate == null {
+                ordinary := assemblyItem.GetType(prefix + "Program")
+                if ordinary != null && ordinary.IsClass {
+                    candidate = ordinary
+                }
+            }
+            if candidate != null && grants.IsNameableType(candidate) {
+                holders.Add(candidate)
+            }
+        }
+
+        holdersByNamespace[key] = holders
+        holderCountsByNamespace[key] = assemblies.Count
+        return holders
     }
 
     // The type that `NamespaceDeclares` found, or null.

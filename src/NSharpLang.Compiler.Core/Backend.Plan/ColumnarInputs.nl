@@ -639,6 +639,12 @@ class ColumnarProgramInput {
         bindingScope.PrepareExternalTypeBindings(referenceAssemblyPaths)
     }
 
+    // The referenced assemblies' free-function holders in one namespace (`""` is the global one) --
+    // asked by `ColumnarFreeFunctionScope` once the external bindings are prepared.
+    func ExternalFreeFunctionHolders(namespaceName: string, rootHolderTypeName: string): List<Type> {
+        return bindingScope.ExternalFreeFunctionHolders(namespaceName, rootHolderTypeName)
+    }
+
     func GetSourceForFileId(fileId: int): string {
         if fileId >= 0 && fileId < Sources.Length {
             return Sources[fileId].Source

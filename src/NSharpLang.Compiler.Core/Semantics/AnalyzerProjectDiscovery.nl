@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import System.Reflection
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.CodeIntelligence
 import NSharpLang.Compiler.Columnar
@@ -606,6 +607,19 @@ class AnalyzerProjectTypeDiscovery {
     // two files already resolved — the two halves of one rule disagreed. The FunctionTypeInfo itself
     // is built by the caller, which is why the matched declaration and its file come back out.
     func TryResolveVisibleProjectFunction(name: string, currentNamespace: string?, out filePath: string?, out functionDeclaration: FunctionDeclaration?, out declaration: SymbolDeclaration?): bool {
+        externalFunctions := new List<MethodInfo>()
+        return TryResolveVisibleFunction(name, currentNamespace, out filePath, out functionDeclaration, out declaration, out externalFunctions) && functionDeclaration != null
+    }
+
+    // THE SAME WALK OVER REFERENCED ASSEMBLIES TOO. A namespace's free functions are its members
+    // wherever they were compiled, so every visible namespace is asked of source first and then of
+    // metadata (`AnalyzerExternalTypeProbe.NamespaceFreeFunctions`) before the walk moves outward:
+    // a source function wins at its own namespace, and a referenced one in a nearer namespace wins
+    // over a source one further out -- the order `SimpleNamePrecedence` gives a type name and the
+    // emitter's free-function scope gives the same call (`ColumnarFreeFunctionScope`). A referenced
+    // winner answers through `externalFunctions`, with no declaration or file.
+    func TryResolveVisibleFunction(name: string, currentNamespace: string?, out filePath: string?, out functionDeclaration: FunctionDeclaration?, out declaration: SymbolDeclaration?, out externalFunctions: List<MethodInfo>): bool {
+        externalFunctions = new List<MethodInfo>()
         visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
         paths := sources.SourceFilePaths()
         for visibleNamespace in visible {
@@ -626,11 +640,7 @@ class AnalyzerProjectTypeDiscovery {
                             // NL010: A FREE FUNCTION IS WHAT ITS NAMESPACE'S IMPORT IS FOR, and the
                             // call writes no type name at all. A file whose whole use of
                             // `import Census.Holder` was `Hold(1)` had that import reported dead.
-                            functionCredit := importUsageCredit
-                            if functionCredit != null {
-                                functionCredit.CreditNamespaceSupplier(visibleNamespace)
-                            }
-
+                            CreditFunctionNamespace(visibleNamespace)
                             return true
                         }
 
@@ -639,6 +649,19 @@ class AnalyzerProjectTypeDiscovery {
                 }
 
                 fileIndex = fileIndex + 1
+            }
+
+            probe := externalTypeProbe
+            if probe != null {
+                referenced := probe.NamespaceFreeFunctions(visibleNamespace, name)
+                if referenced.Count > 0 {
+                    filePath = null
+                    functionDeclaration = null
+                    declaration = null
+                    externalFunctions = referenced
+                    CreditFunctionNamespace(visibleNamespace)
+                    return true
+                }
             }
         }
 
@@ -710,6 +733,13 @@ class AnalyzerProjectTypeDiscovery {
         return twins
     }
 
+    func CreditFunctionNamespace(namespaceName: string?) {
+        functionCredit := importUsageCredit
+        if functionCredit != null {
+            functionCredit.CreditNamespaceSupplier(namespaceName)
+        }
+    }
+
     // NL209 FOR THE FUNCTION CHANNEL. The same tie the type half reports, asked of top-level `func`
     // declarations: two IMPORTED namespaces each export this spelling, so `SimpleNamePrecedence`
     // rule 3 has two winners and the file has to settle it.
@@ -757,8 +787,14 @@ class AnalyzerProjectTypeDiscovery {
         return false
     }
 
-    // One namespace's answer to "does an exported top-level function of this name live here?".
+    // One namespace's answer to "does an exported top-level function of this name live here?" -- in
+    // this project's source, or in a referenced assembly's holder for that namespace.
     func HasExportedFunctionInNamespace(name: string, namespaceName: string?): bool {
+        probe := externalTypeProbe
+        if probe != null && probe.NamespaceFreeFunctions(namespaceName, name).Count > 0 {
+            return true
+        }
+
         paths := sources.SourceFilePaths()
         for candidatePath in paths {
             unit := sources.GetProjectCompilationUnit(candidatePath)

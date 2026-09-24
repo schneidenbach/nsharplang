@@ -920,6 +920,40 @@ members THIS program declares; a `[DoesNotReturn]` member of a referenced assemb
 external call plan and is not read there, so such a body declines at emission — a decline, never a
 wrong answer, and the diagnostics pass reads both.
 
+### A FREE FUNCTION ACROSS AN ASSEMBLY BOUNDARY (2026-09-24, the Compiler.Syntax carve)
+
+A namespace's free functions are its members wherever they were compiled, exactly as its types are.
+Until this held, a referenced N# assembly's free function could not be called at all -- NL412 in the
+analyzer, `emit.call.bare-unresolved` in the emitter -- and carving `Compiler.Syntax`, whose parser
+kernels are GLOBAL free functions, out of Core broke every Core call into them. The rule and its two
+owners:
+
+- **The holder.** An N# assembly puts a namespace's free functions on `<namespace>.Program`, or on
+  `<namespace>.<Program>` where the namespace declares its own `Program` (the name is then the user's
+  type). A free function is one of the holder's PUBLIC static methods; a camelCase one is CLR
+  `assembly` and not exported. EVERY referenced assembly's holder is asked, never the first that
+  answers: two references may each hold one namespace's functions (the global namespace above all),
+  and a name held twice is not one function -- it answers nothing and a call declines.
+- **The analyzer** (`AnalyzerProjectDiscovery.TryResolveVisibleFunction`, asking
+  `AnalyzerExternalTypeProbe.NamespaceFreeFunctions`): each visible namespace, in
+  `SimpleNamePrecedence` order, is asked of source and then of metadata before the walk moves outward,
+  so a source function wins at its own namespace and a referenced one in a nearer namespace beats a
+  source one further out. A referenced winner is typed as its reflected method, so the call arm binds
+  it like any reflected call (a refused argument is NL402, not NL202), and it credits the import that
+  supplied it (NL010). The NL209 import tie counts referenced functions too.
+- **The emitter** (`ColumnarFreeFunctionScope.BuildViews`, reading
+  `ColumnarExternalTypeCatalog.FreeFunctionHolders` and `ColumnarExternalFreeFunctions`): each
+  candidate namespace's referenced holders enter the file's sibling view at that namespace's rank,
+  below a source function of the same rank, as `ColumnarSiblingMethodDefinition`s read off metadata
+  (parameter modifiers, names, simple defaults, generic constraints, `[DoesNotReturn]`). Every sibling
+  path -- the bare call, the preflight, the direct-call planner, method groups -- then reads them
+  unchanged.
+
+`tests/native/census-external-free-functions` pins it over
+`tests/fixtures/census-external-free-functions-library`: the analysed and the emit-only paths compute
+the same answer through global, enclosing, imported and yielded holders, and the precedence, export,
+NL209 and refused-argument rows.
+
 ### A PROGRAM SPLIT INTO TWO PROJECTS (2026-09-24, the Compiler.Model carve)
 
 A class type declared in a REFERENCED assembly is judged exactly as the same declaration is in
