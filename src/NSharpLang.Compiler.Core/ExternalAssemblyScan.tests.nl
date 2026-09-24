@@ -39,6 +39,40 @@ func ExternalContainsPath(paths: IReadOnlyList<string>, expected: string): bool 
     return false
 }
 
+// THE ESTATE HOST'S OWN PROJECT AND REFERENCE IMAGE, READ FROM WHERE THE HOST ACTUALLY RUNS.
+// The SDK writes the reference image below the project's intermediate root at the same relative
+// location the assembly has below its output root: `bin/<configuration>/<tfm>/` pairs with
+// `obj/<configuration>/<tfm>/refint/`, and the tested project's `bin/tests-included/<configuration>/<tfm>/`
+// with `obj/tests-included/<configuration>/<tfm>/refint/`. Counting a fixed three directories up from
+// the host assumed the first shape: under a seed whose SDK gives the tested project its own trees it
+// named `bin/obj/...`, and under the seed before it (own `obj/` only) it silently read a PRODUCT build's
+// `obj/<configuration>/<tfm>/refint/` - a different compilation that merely shared the identity.
+func ExternalHostProjectDirectory(): string {
+    runtimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    outputRoot := Path.GetDirectoryName(runtimePath) ?? ""
+    while outputRoot.Length > 0 && !string.Equals(Path.GetFileName(outputRoot), "bin", StringComparison.OrdinalIgnoreCase) {
+        outputRoot = Path.GetDirectoryName(outputRoot) ?? ""
+    }
+
+    projectDirectory := Path.GetDirectoryName(outputRoot) ?? ""
+    if outputRoot.Length == 0 || projectDirectory.Length == 0 {
+        throw new InvalidOperationException("The estate host does not run from below a project's bin directory: " + runtimePath)
+    }
+
+    return projectDirectory
+}
+
+func ExternalHostReferenceImagePath(): string {
+    runtimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    outputRelative := Path.GetRelativePath(Path.Combine(ExternalHostProjectDirectory(), "bin"), Path.GetDirectoryName(runtimePath) ?? "")
+    referencePath := Path.Combine(Path.Combine(Path.Combine(Path.Combine(ExternalHostProjectDirectory(), "obj"), outputRelative), "refint"), Path.GetFileName(runtimePath))
+    if !File.Exists(referencePath) {
+        throw new InvalidOperationException("The estate host's reference image is not where its SDK writes it: " + referencePath)
+    }
+
+    return referencePath
+}
+
 test "external assembly scan resolves common types through metadata with exact runtime handles" {
     scan := ExternalAssemblyScan.OpenWithReferences(null)
     try {
@@ -144,20 +178,9 @@ test "external assembly scan stops before an unrelated broken reference" {
 }
 
 test "external assembly scan resolves an MSBuild reference-only path to its project runtime output" {
-    runtimeAssembly := typeof(ExternalAssemblyScan).get_Assembly()
-    runtimePath := runtimeAssembly.get_Location()
-    netDirectory := Path.GetDirectoryName(runtimePath)
-    configurationDirectory := Path.GetDirectoryName(netDirectory)
-    binDirectory := Path.GetDirectoryName(configurationDirectory)
-    projectDirectory := Path.GetDirectoryName(binDirectory)
-    assert projectDirectory != null
-    configurationName := Path.GetFileName(configurationDirectory)
-    targetFrameworkName := Path.GetFileName(netDirectory)
-    referenceDirectory := Path.Combine(projectDirectory, "obj/" + configurationName + "/" + targetFrameworkName + "/refint")
-
-    referencePath := Path.Combine(referenceDirectory, Path.GetFileName(runtimePath))
-
-    assert File.Exists(referencePath)
+    runtimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    projectDirectory := ExternalHostProjectDirectory()
+    referencePath := ExternalHostReferenceImagePath()
 
     dependencies := new List<Reference>()
     reference := new Reference()
@@ -203,16 +226,29 @@ test "external reference paths select DLLs normalize project-relative paths and 
     assert paths[0] == Path.GetFullPath("/tmp/nsharp-project/lib/relative.dll")
 }
 
+test "a project reference image pairs with the implementation at its own relative location below bin" {
+    project := Path.GetFullPath("/tmp/nsharp-project-output-layout/Lib")
+    assert ExternalAssemblyScan.ProjectOutputRuntimePath(Path.Combine(project, "obj/Debug/net10.0/ref/Lib.dll")) == Path.Combine(project, "bin/Debug/net10.0/Lib.dll")
+    assert ExternalAssemblyScan.ProjectOutputRuntimePath(Path.Combine(project, "obj/Release/net10.0/osx-arm64/refint/Lib.dll")) == Path.Combine(project, "bin/Release/net10.0/osx-arm64/Lib.dll")
+    testedImage := Path.Combine(project, "obj/tests-included/Debug/net10.0/refint/Lib.dll")
+    assert ExternalAssemblyScan.ProjectOutputRuntimePath(testedImage) == Path.Combine(project, "bin/tests-included/Debug/net10.0/Lib.dll")
+    assert ExternalAssemblyScan.IsProjectReferenceAssemblyPath(testedImage)
+    assert !ExternalAssemblyScan.IsHostDependencyReferencePath(testedImage)
+    assert ExternalAssemblyScan.GetRuntimePathCandidate(testedImage) == Path.Combine(project, "bin/tests-included/Debug/net10.0/Lib.dll")
+
+    // Not project images: a NuGet compile asset (its tfm, not `ref`, holds the file), an image with
+    // no configuration and target framework between it and `obj`, and one below no `obj` at all.
+    nugetImage := Path.GetFullPath("/tmp/nsharp-project-output-layout/packages/lib/1.0.0/ref/net10.0/Lib.dll")
+    assert ExternalAssemblyScan.ProjectOutputRuntimePath(nugetImage) == ""
+    assert !ExternalAssemblyScan.IsProjectReferenceAssemblyPath(nugetImage)
+    assert ExternalAssemblyScan.GetRuntimePathCandidate(nugetImage) == Path.GetFullPath("/tmp/nsharp-project-output-layout/packages/lib/1.0.0/lib/net10.0/Lib.dll")
+    assert ExternalAssemblyScan.ProjectOutputRuntimePath(Path.Combine(project, "obj/net10.0/ref/Lib.dll")) == ""
+    assert ExternalAssemblyScan.ProjectOutputRuntimePath(Path.Combine(project, "out/Debug/net10.0/ref/Lib.dll")) == ""
+}
+
 test "external reference paths put NuGet metadata before its runtime implementation" {
     bootstrapRuntimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
-    netDirectory := Path.GetDirectoryName(bootstrapRuntimePath)
-    configurationDirectory := Path.GetDirectoryName(netDirectory)
-    binDirectory := Path.GetDirectoryName(configurationDirectory)
-    projectDirectory := Path.GetDirectoryName(binDirectory)
-    assert projectDirectory != null
-    bootstrapReferencePath := Path.Combine(projectDirectory, "obj/" + Path.GetFileName(configurationDirectory) + "/" + Path.GetFileName(netDirectory) + "/refint/" + Path.GetFileName(bootstrapRuntimePath))
-
-    assert File.Exists(bootstrapReferencePath)
+    bootstrapReferencePath := ExternalHostReferenceImagePath()
 
     packageVersionDirectory := Path.GetFullPath("obj/nsharp-reference-pair-contract/package/1.0.0")
 
@@ -240,14 +276,7 @@ test "external reference paths put NuGet metadata before its runtime implementat
 
 test "external reference paths reject a conventionally located runtime with a different assembly identity" {
     bootstrapRuntimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
-    netDirectory := Path.GetDirectoryName(bootstrapRuntimePath)
-    configurationDirectory := Path.GetDirectoryName(netDirectory)
-    binDirectory := Path.GetDirectoryName(configurationDirectory)
-    projectDirectory := Path.GetDirectoryName(binDirectory)
-    assert projectDirectory != null
-    bootstrapReferencePath := Path.Combine(projectDirectory, "obj/" + Path.GetFileName(configurationDirectory) + "/" + Path.GetFileName(netDirectory) + "/refint/" + Path.GetFileName(bootstrapRuntimePath))
-
-    assert File.Exists(bootstrapReferencePath)
+    bootstrapReferencePath := ExternalHostReferenceImagePath()
 
     packageVersionDirectory := Path.GetFullPath("obj/nsharp-reference-mismatch-contract/package/1.0.0")
     referencePath := Path.Combine(packageVersionDirectory, "ref/net10.0/Mismatched.dll")
@@ -343,14 +372,7 @@ test "configured DLL runtime assets deploy implementations and retain metadata-o
     metadataOnlyPath := Path.Combine(root, "packages/metadata/1.0.0/ref/net10.0/MetadataOnly.dll")
 
     bootstrapRuntimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
-    netDirectory := Path.GetDirectoryName(bootstrapRuntimePath)
-    configurationDirectory := Path.GetDirectoryName(netDirectory)
-    binDirectory := Path.GetDirectoryName(configurationDirectory)
-    projectDirectory := Path.GetDirectoryName(binDirectory)
-    assert projectDirectory != null
-    bootstrapReferencePath := Path.Combine(projectDirectory, "obj/" + Path.GetFileName(configurationDirectory) + "/" + Path.GetFileName(netDirectory) + "/refint/" + Path.GetFileName(bootstrapRuntimePath))
-
-    assert File.Exists(bootstrapReferencePath)
+    bootstrapReferencePath := ExternalHostReferenceImagePath()
 
     ExternalCopyAsset(bootstrapRuntimePath, normalPath)
     ExternalCopyAsset(bootstrapReferencePath, packageReferencePath)

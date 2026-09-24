@@ -561,26 +561,10 @@ class ExternalAssemblyScan {
             return ""
         }
 
-        // MSBuild project references normally point at
-        // obj/<configuration>/<tfm>/{ref,refint}/Assembly.dll.
-        referenceDirectoryName := Path.GetFileName(referenceDirectory ?? "")
-        if string.Equals(referenceDirectoryName, "ref", StringComparison.OrdinalIgnoreCase) || string.Equals(referenceDirectoryName, "refint", StringComparison.OrdinalIgnoreCase) {
-            targetFrameworkDirectory := Path.GetDirectoryName(referenceDirectory ?? "")
-
-            configurationDirectory := Path.GetDirectoryName(targetFrameworkDirectory ?? "")
-
-            objectDirectory := Path.GetDirectoryName(configurationDirectory ?? "")
-
-            projectDirectory := Path.GetDirectoryName(objectDirectory ?? "")
-            if string.Equals(Path.GetFileName(objectDirectory ?? ""), "obj", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(projectDirectory ?? "") {
-                configuration := Path.GetFileName(configurationDirectory ?? "")
-
-                targetFramework := Path.GetFileName(targetFrameworkDirectory ?? "")
-
-                if !string.IsNullOrWhiteSpace(configuration) && !string.IsNullOrWhiteSpace(targetFramework) {
-                    return Path.GetFullPath(Path.Combine(Path.Combine(Path.Combine(projectDirectory ?? "", "bin"), configuration), Path.Combine(targetFramework, fileName)))
-                }
-            }
+        // MSBuild project references point at a ref/refint image below the project's obj/.
+        projectRuntimePath := ProjectOutputRuntimePath(referencePath)
+        if projectRuntimePath.Length > 0 {
+            return projectRuntimePath
         }
 
         // NuGet compile/runtime pairs use <package>/<version>/ref/<tfm> and lib/<tfm>.
@@ -595,6 +579,49 @@ class ExternalAssemblyScan {
         }
 
         return ""
+    }
+
+    // An MSBuild project's reference image sits in a `ref` or `refint` directory below the
+    // project's intermediate root, and its implementation sits at the SAME relative location below
+    // the output root beside it. The intermediate root is the nearest `obj` ancestor, and at least a
+    // configuration and a target framework separate it from the reference directory:
+    //   obj/<configuration>/<tfm>/ref/A.dll                 -> bin/<configuration>/<tfm>/A.dll
+    //   obj/<configuration>/<tfm>/<rid>/refint/A.dll        -> bin/<configuration>/<tfm>/<rid>/A.dll
+    //   obj/tests-included/<configuration>/<tfm>/refint/A.dll -> bin/tests-included/<configuration>/<tfm>/A.dll
+    // The last is the N# SDK's own tested-project layout: Sdk.props chooses `obj/tests-included/`
+    // and `bin/tests-included/` under one condition. Counting a fixed three directories up to `obj`
+    // knew only the first shape, so a tested project's own image paired with no implementation and
+    // stayed metadata-only. Any other shape answers "" and pairs through the NuGet layout, if at all.
+    static func ProjectOutputRuntimePath(referencePath: string): string {
+        fileName := Path.GetFileName(referencePath)
+        referenceDirectory := Path.GetDirectoryName(referencePath) ?? ""
+        referenceDirectoryName := Path.GetFileName(referenceDirectory)
+        if string.IsNullOrWhiteSpace(fileName) || (!string.Equals(referenceDirectoryName, "ref", StringComparison.OrdinalIgnoreCase) && !string.Equals(referenceDirectoryName, "refint", StringComparison.OrdinalIgnoreCase)) {
+            return ""
+        }
+
+        segments := new List<string>()
+        objectDirectory := Path.GetDirectoryName(referenceDirectory) ?? ""
+        while objectDirectory.Length > 0 && !string.Equals(Path.GetFileName(objectDirectory), "obj", StringComparison.OrdinalIgnoreCase) {
+            segments.Insert(0, Path.GetFileName(objectDirectory))
+            objectDirectory = Path.GetDirectoryName(objectDirectory) ?? ""
+        }
+
+        if objectDirectory.Length == 0 || segments.Count < 2 {
+            return ""
+        }
+
+        projectDirectory := Path.GetDirectoryName(objectDirectory) ?? ""
+        if string.IsNullOrWhiteSpace(projectDirectory) {
+            return ""
+        }
+
+        runtimeDirectory := Path.Combine(projectDirectory, "bin")
+        for segment in segments {
+            runtimeDirectory = Path.Combine(runtimeDirectory, segment)
+        }
+
+        return Path.GetFullPath(Path.Combine(runtimeDirectory, fileName))
     }
 
     static func AddUniquePath(paths: List<string>, seen: HashSet<string>, path: string) {
@@ -901,17 +928,7 @@ class ExternalAssemblyScan {
             return false
         }
 
-        referenceDirectory := Path.GetDirectoryName(path)
-        referenceDirectoryName := Path.GetFileName(referenceDirectory ?? "")
-        if !string.Equals(referenceDirectoryName, "ref", StringComparison.OrdinalIgnoreCase) && !string.Equals(referenceDirectoryName, "refint", StringComparison.OrdinalIgnoreCase) {
-            return false
-        }
-
-        targetFrameworkDirectory := Path.GetDirectoryName(referenceDirectory ?? "")
-        configurationDirectory := Path.GetDirectoryName(targetFrameworkDirectory ?? "")
-        objectDirectory := Path.GetDirectoryName(configurationDirectory ?? "")
-        projectDirectory := Path.GetDirectoryName(objectDirectory ?? "")
-        return string.Equals(Path.GetFileName(objectDirectory ?? ""), "obj", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(projectDirectory ?? "")
+        return ProjectOutputRuntimePath(path).Length > 0
     }
 
     static func IsFrameworkPackReferencePath(path: string): bool {

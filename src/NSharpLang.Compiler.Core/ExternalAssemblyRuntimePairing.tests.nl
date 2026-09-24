@@ -197,13 +197,7 @@ test "metadata module version selects the matching same-identity build" {
 
 test "exact NuGet ref and lib pairing wins before host dependency preservation" {
     runtimeSourcePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
-    netDirectory := Path.GetDirectoryName(runtimeSourcePath)
-    configurationDirectory := Path.GetDirectoryName(netDirectory)
-    binDirectory := Path.GetDirectoryName(configurationDirectory)
-    projectDirectory := Path.GetDirectoryName(binDirectory)
-    assert projectDirectory != null
-    referenceSourcePath := Path.Combine(projectDirectory, "obj/" + Path.GetFileName(configurationDirectory) + "/" + Path.GetFileName(netDirectory) + "/refint/" + Path.GetFileName(runtimeSourcePath))
-    assert File.Exists(referenceSourcePath)
+    referenceSourcePath := ExternalHostReferenceImagePath()
 
     root := Path.Combine(Path.GetTempPath(), "nsharp-runtime-pairing-paired-" + Guid.NewGuid().ToString("N"))
     referencePath := Path.Combine(root, "package/1.0.0/ref/net10.0/Paired.dll")

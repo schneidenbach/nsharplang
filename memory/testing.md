@@ -887,6 +887,19 @@ temp root, the SDK copy packed with `NoBuild` - once per process under a lock
 "once per process" cache let two parallel test classes pack at once: 1 `dev.sh` run in 3 failed
 before, 10/10 at 29/29 after with 119 `--no-incremental` Runtime builds running beside them.
 
+### 4b. Estate Rows Take Their Host's Layout From the Seed, Not From Arithmetic
+The estate host is built by the SEED's SDK, so a layout change in `src/NSharpLang.Sdk` reaches it only
+with the next reseed. MEASURED (2026-09-23, ninth reseed, step 8): five `ExternalAssembly*` rows
+counted three directories up from the host to name `obj/<configuration>/<tfm>/refint/`; the new seed
+runs the tested project from `bin/tests-included/...`, so the arithmetic named `bin/obj/...` and every
+row failed, while under the old seed the same arithmetic had silently read a PRODUCT build's `refint`.
+The product pairing (`ExternalAssemblyScan.ProjectOutputRuntimePath`) had the same fixed-depth
+assumption and could not pair the tested project's own image. Rows now read the host's project and
+reference image through `ExternalHostProjectDirectory()` / `ExternalHostReferenceImagePath()`, and
+`tests/native/sdk-reference-incrementality/TestsIncludedReferencePairing.tests.nl` builds a library
+both ways with THIS tree's SDK and pairs each image, so the next layout change fails there, before any
+reseed.
+
 ### 5. The Product Gate Skips Steps With Unchanged Inputs
 Within a plain fresh isolated `./scripts/test-all.sh` development run, a gate step is skipped when
 its ENTIRE input set is byte-identical to inputs that previously PASSED that step on the same
