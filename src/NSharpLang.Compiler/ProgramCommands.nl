@@ -204,7 +204,7 @@ static class ProgramCommands {
                 Console.WriteLine(PublishCommandKernels.GetAotAnalysisOnlyNotice())
             }
 
-            if PublishCommandKernels.ShouldWriteRuntimeLauncher(runtime) {
+            if runtime != null && PublishCommandKernels.ShouldWriteRuntimeLauncher(runtime) {
                 currentRuntime := RuntimeInformation.RuntimeIdentifier
                 if !PublishCommandKernels.RuntimeMatchesRequestedRuntime(runtime, currentRuntime) {
                     return CliError.Report(PublishCommandKernels.GetCrossRuntimeUnsupportedMessage(runtime, currentRuntime))

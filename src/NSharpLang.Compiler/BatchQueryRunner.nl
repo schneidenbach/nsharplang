@@ -583,10 +583,11 @@ class BatchQueryRunner {
 
         line := 0
         column := 0
-        if !QueryCommandKernels.ParsePosition(request.Pos, out line, out column) {
+        position := request.Pos ?? ""
+        if !QueryCommandKernels.ParsePosition(position, out line, out column) {
             rejection := InvalidRequest(
                 BatchQueryValidationKernels.GetCommandName(commandKind),
-                BatchQueryKernels.GetInvalidPositionMessage(request.Pos),
+                BatchQueryKernels.GetInvalidPositionMessage(position),
                 projectRoot,
                 request
             )

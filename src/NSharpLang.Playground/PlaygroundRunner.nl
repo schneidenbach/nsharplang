@@ -180,7 +180,13 @@ internal sealed class PlaygroundRunner {
 
         throwStatement := statement as ThrowStatement
         if throwStatement != null {
-            throw new PlaygroundThrownException(Evaluate(throwStatement.Expression, environment, depth))
+            thrown := throwStatement.Expression
+            if thrown == null {
+                // A bare `throw` rethrows the exception a catch is handling, and the runner runs no
+                // catch; before, it reached `Evaluate` with no expression at all.
+                throw Unsupported(PlaygroundRunFacts.UnsupportedStatement("a bare rethrow"))
+            }
+            throw new PlaygroundThrownException(Evaluate(thrown, environment, depth))
         }
 
         emptyStatement := statement as EmptyStatement

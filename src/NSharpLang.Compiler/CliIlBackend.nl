@@ -314,19 +314,20 @@ class CliIlBackend {
         perfFacts = BuildCommandKernels.ToPerfReportFacts(compiler.SystemsReport)
         EmitCompilationDiagnostics(result)
 
-        if CompilationReferenceResolverKernels.ShouldTreatProjectReferenceBuildAsFailed(result.Success, result.OutputAssemblyPath) {
+        outputAssemblyPath := result.OutputAssemblyPath
+        if outputAssemblyPath == null || CompilationReferenceResolverKernels.ShouldTreatProjectReferenceBuildAsFailed(result.Success, outputAssemblyPath) {
             return null
         }
 
         if CompilationReferenceResolverKernels.IsExecutableOutputType(config.OutputType) {
-            CompilationArtifacts.WriteRuntimeConfig(config, result.OutputAssemblyPath)
+            CompilationArtifacts.WriteRuntimeConfig(config, outputAssemblyPath)
         }
 
         if references != null {
             references.CopyRuntimeAssets(outputDir)
         }
 
-        return result.OutputAssemblyPath
+        return outputAssemblyPath
     }
 
     static func EmitCompilationDiagnostics(result: MultiFileCompilationResult) {
