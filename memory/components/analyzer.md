@@ -1027,8 +1027,8 @@ must not be, because its cache is part of the answer.
   to `IntPtr`/`UIntPtr` and `SystemsTypePolicy` counts them as primitives, but `BuiltInTypes` has no
   `TypeInfo` for either, so `BuiltInSimpleType` still answers null for them. Contracts assert the
   divergence is exactly those two names.
-- `BuiltInClrTypeName(name)` is the CLR name each of the eighteen denotes, over the same membership.
-  It is what the editor's type resolution asks; do not confuse either with
+- `BuiltInTypeSpellings.BuiltInClrTypeName(name)` (Model) is the CLR name each of the eighteen
+  denotes, over the same membership. It is what the editor's type resolution asks; do not confuse either with
   `AnalyzerResourceStatements.IsPrimitiveValueTypeName` or `SystemsTypePolicy.IsPrimitiveValueTypeName`,
   which answer "is this a primitive VALUE type" and exclude `string` and `object` on purpose.
 - `GenericHeadArity(TypeInfo)` distinguishes ZERO — "I know this head and it takes no type
@@ -2033,7 +2033,7 @@ which assemblies the editor may see, which short names a general completion alwa
 what each denotes, which namespaces a bare name is probed in and in what order, how a written type
 name is spelled, which CLR types may be offered, how they are ranked, and how many may be sent.
 `src/NSharpLang.LanguageServer/Services/TypeResolver.nl` performs the reflection reads and the
-caching; it decides nothing. `AnalyzerTypeReferenceFacts.BuiltInClrTypeName` still owns the built-in
+caching; it decides nothing. `BuiltInTypeSpellings.BuiltInClrTypeName` still owns the built-in
 aliases and is consulted before this catalogue.
 
 **The two universes are disjoint, and that is a product defect rather than a spelling one.** The

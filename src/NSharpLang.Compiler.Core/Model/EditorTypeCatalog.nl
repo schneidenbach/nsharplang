@@ -206,7 +206,7 @@ class EditorTypeCatalog {
 
         name = EditorTypeCatalogFacts.StripGenericArgumentList(name)
 
-        aliasFullName := AnalyzerTypeReferenceFacts.BuiltInClrTypeName(name)
+        aliasFullName := BuiltInTypeSpellings.BuiltInClrTypeName(name)
         if aliasFullName != null {
             name = aliasFullName
         } else if !EditorTypeCatalogFacts.IsQualifiedTypeName(name) {

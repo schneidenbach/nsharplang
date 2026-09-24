@@ -126,8 +126,8 @@ test "the roster is twelve spellings and they are the CLR ones a user types at a
     // before this table is ever consulted, so the lowercase spellings never reach it.
     assert EtcContains(names, "String")
     assert !EtcContains(names, "string")
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("string") == "System.String"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("String") == null
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("string") == "System.String"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("String") == null
 }
 
 test "eight of the twelve full names are DERIVED from CompletionReflectionFacts and equal what they replaced" {

@@ -464,7 +464,7 @@ test "analyzer type reference facts resolve exactly the spellings they admit" {
     index := 0
     while index < spellings.Length {
         name := spellings[index]
-        assert AnalyzerTypeReferenceFacts.IsBuiltInTypeName(name) == (AnalyzerTypeReferenceFacts.BuiltInClrTypeName(name) != null)
+        assert AnalyzerTypeReferenceFacts.IsBuiltInTypeName(name) == (BuiltInTypeSpellings.BuiltInClrTypeName(name) != null)
         index = index + 1
     }
 
@@ -472,33 +472,33 @@ test "analyzer type reference facts resolve exactly the spellings they admit" {
     index = 0
     while index < others.Length {
         name := others[index]
-        assert AnalyzerTypeReferenceFacts.IsBuiltInTypeName(name) == (AnalyzerTypeReferenceFacts.BuiltInClrTypeName(name) != null)
+        assert AnalyzerTypeReferenceFacts.IsBuiltInTypeName(name) == (BuiltInTypeSpellings.BuiltInClrTypeName(name) != null)
         index = index + 1
     }
 }
 
 test "analyzer type reference facts name the CLR type each spelling denotes" {
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("int") == "System.Int32"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("uint") == "System.UInt32"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("long") == "System.Int64"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("ulong") == "System.UInt64"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("short") == "System.Int16"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("ushort") == "System.UInt16"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("byte") == "System.Byte"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("sbyte") == "System.SByte"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("bool") == "System.Boolean"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("char") == "System.Char"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("float") == "System.Single"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("double") == "System.Double"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("decimal") == "System.Decimal"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("string") == "System.String"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("object") == "System.Object"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("void") == "System.Void"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("int") == "System.Int32"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("uint") == "System.UInt32"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("long") == "System.Int64"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("ulong") == "System.UInt64"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("short") == "System.Int16"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("ushort") == "System.UInt16"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("byte") == "System.Byte"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("sbyte") == "System.SByte"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("bool") == "System.Boolean"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("char") == "System.Char"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("float") == "System.Single"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("double") == "System.Double"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("decimal") == "System.Decimal"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("string") == "System.String"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("object") == "System.Object"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("void") == "System.Void"
 
     // The two the analyzer cannot resolve to a `TypeInfo` still have a CLR name, and it is the one
     // the columnar binder already binds them to.
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("nint") == "System.IntPtr"
-    assert AnalyzerTypeReferenceFacts.BuiltInClrTypeName("nuint") == "System.UIntPtr"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("nint") == "System.IntPtr"
+    assert BuiltInTypeSpellings.BuiltInClrTypeName("nuint") == "System.UIntPtr"
 }
 
 // THE ANALYZER'S GAP, PINNED TO EXACTLY TWO NAMES. Every spelling the owner admits must either
@@ -569,7 +569,7 @@ test "analyzer type reference facts agree with the numeric limit owner" {
     index := 0
     while index < numerics.Length {
         name := numerics[index]
-        assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName(name) == AnalyzerTypeReferenceFacts.BuiltInClrTypeName(name)
+        assert ColumnarExternalBindingPlans.PrimitiveLimitTypeName(name) == BuiltInTypeSpellings.BuiltInClrTypeName(name)
         index = index + 1
     }
 

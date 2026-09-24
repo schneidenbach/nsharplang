@@ -27,10 +27,10 @@ import System.Threading.Tasks
 // and are consolidated here. The rest are NOT the same relation with a different codomain: they
 // admit different KEY SETS. `ColumnarBindingScopeFacts.TryResolveExplicitBuiltin` admits `object`
 // and refuses `IntPtr`, `DateTime`, `Index` and `Range`; its `TryResolveBuiltinOwner` admits
-// `Int32` and `System.Int32` but not `nint`; `AnalyzerTypeReferenceFacts` answers a `TypeInfo` and
-// a CLR name string for a third set. Making those one table means a row type with per-projection
-// admission rules — a design change with resolution consequences, not a deletion — and it is a PR
-// of its own. Stating that here is cheaper than rediscovering it.
+// `Int32` and `System.Int32` but not `nint`; `AnalyzerTypeReferenceFacts` answers a `TypeInfo` (and
+// `BuiltInTypeSpellings` a CLR name string) for a third set. Making those one table means a row
+// type with per-projection admission rules — a design change with resolution consequences, not a
+// deletion — and it is a PR of its own. Stating that here is cheaper than rediscovering it.
 static class WellKnownTypeCatalog {
 
     // ── THE LANGUAGE'S OWN SPELLINGS ──────────────────────────────────────────
