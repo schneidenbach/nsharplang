@@ -7796,7 +7796,7 @@ sealed class ColumnarIlEmitter {
         }
         if valueType.IsGenericParameter {
             for ownTypeParameter in ownTypeParameters {
-                if ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(ownTypeParameter, valueType) {
+                if RuntimeTypeShapeFacts.SameTypeParameterIdentity(ownTypeParameter, valueType) {
                     return true
                 }
             }

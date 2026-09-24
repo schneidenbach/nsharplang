@@ -164,6 +164,26 @@ static class RuntimeTypeShapeFacts {
         return ShapeMatches(left, right, false)
     }
 
+    // Whether two types are the SAME open generic parameter: reference equality answers first;
+    // otherwise both must be generic parameters of the same kind (method or type), at the same
+    // position, of the same declaring method or type.
+    static func SameTypeParameterIdentity(left: Type, right: Type): bool {
+        if Object.ReferenceEquals(left, right) || left == right {
+            return true
+        }
+        if !left.IsGenericParameter || !right.IsGenericParameter || left.IsGenericMethodParameter != right.IsGenericMethodParameter || left.IsGenericTypeParameter != right.IsGenericTypeParameter || left.GenericParameterPosition != right.GenericParameterPosition {
+            return false
+        }
+        if left.IsGenericMethodParameter {
+            leftMethod := left.DeclaringMethod
+            rightMethod := right.DeclaringMethod
+            return leftMethod != null && rightMethod != null && Object.ReferenceEquals(leftMethod, rightMethod)
+        }
+        leftType := left.DeclaringType
+        rightType := right.DeclaringType
+        return leftType != null && rightType != null && (Object.ReferenceEquals(leftType, rightType) || leftType == rightType)
+    }
+
     // The same walk, with two open generic parameters of the same identity counting as one shape.
     static func ExactTypeShapeMatchesWithGenericParameterIdentity(left: Type, right: Type): bool {
         return ShapeMatches(left, right, true)
@@ -180,7 +200,7 @@ static class RuntimeTypeShapeFacts {
         }
 
         if matchGenericParameterIdentity && (left.IsGenericParameter || right.IsGenericParameter) {
-            return left.IsGenericParameter && right.IsGenericParameter && ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(left, right)
+            return left.IsGenericParameter && right.IsGenericParameter && SameTypeParameterIdentity(left, right)
         }
 
         if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {

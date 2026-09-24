@@ -213,10 +213,10 @@ test "generic call identity distinguishes VAR and MVAR owners even at the same o
     firstParameter := firstMethod.DefineGenericParameters(["T"])[0]
     secondParameter := secondMethod.DefineGenericParameters(["T"])[0]
 
-    assert ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(ownerParameter, ownerParameter)
-    assert ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(firstParameter, firstParameter)
-    assert !ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(ownerParameter, firstParameter)
-    assert !ColumnarGenericCallBindingPlanner.SameTypeParameterIdentity(firstParameter, secondParameter)
+    assert RuntimeTypeShapeFacts.SameTypeParameterIdentity(ownerParameter, ownerParameter)
+    assert RuntimeTypeShapeFacts.SameTypeParameterIdentity(firstParameter, firstParameter)
+    assert !RuntimeTypeShapeFacts.SameTypeParameterIdentity(ownerParameter, firstParameter)
+    assert !RuntimeTypeShapeFacts.SameTypeParameterIdentity(firstParameter, secondParameter)
 }
 
 test "generic call binding admits direct source shapes but declines a composed builder-bound argument" {
