@@ -594,12 +594,13 @@ Three shape rules the port keeps, each one found by a decline and pinned by the 
 
 ### Nullability postconditions — what a call leaves behind (census 2026-09-13, §FLOW3)
 
-`AnalyzerNullabilityPostconditions.nl` owns what a call proves about the arguments it was handed once
-it has returned. `NullabilityFlowFacts` is the bit vocabulary and the SOURCE reader (over the parser's
-`AttributeNode`s); `NullabilityFlowAttributeReflection` is the metadata reader (over
-`CustomAttributeData`, with the same boxed-value comparison the type reader needs under an MLC).
-`NullabilityPostcondition` is one fact: a stable path, a condition (0 unconditional, 1 when the call
-returned true, 2 when false) and a `NullState`.
+`AnalyzerNullabilityPostconditions.nl` (Semantics) owns what a call proves about the arguments it
+was handed once it has returned. Its vocabulary sits one slice lower, in `NullabilityFlowFacts.nl`
+(Model), because the type factories read it too: `NullabilityFlowFacts` is the bit vocabulary and the
+SOURCE reader (over the parser's `AttributeNode`s); `NullabilityFlowAttributeReflection` is the
+metadata reader (over `CustomAttributeData`, with the same boxed-value comparison the type reader
+needs under an MLC). `NullabilityPostcondition` is one fact: a stable path, a condition (0
+unconditional, 1 when the call returned true, 2 when false) and a `NullState`.
 
 Three rules, composed in this order:
 
