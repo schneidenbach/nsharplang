@@ -4,7 +4,7 @@
   "codeEpochFileCount": 223,
   "codeEpochPathFingerprint": "pathset-v2:fbda7fc3d5053525",
   "codeEpochFactFingerprint": "epochfacts-v2:05f608333cab8ef7",
-  "reviewedHeadFingerprint": "head-v2:f9983d02acc9988c",
+  "reviewedHeadFingerprint": "head-v2:3f030201cd06e43f",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":190,"currentNonBlankLines":164,"currentBytes":0,"currentFingerprint":"text-v1:3a65c0407cf192e9"},
@@ -161,7 +161,7 @@
     {"path":"install-local.sh","language":"shell","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":8,"currentNonBlankLines":6,"currentBytes":0,"currentFingerprint":"text-v1:97e437ef854120d2"},
     {"path":"scripts/build-playground-wasm.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":33,"currentNonBlankLines":26,"currentBytes":0,"currentFingerprint":"text-v1:0a6b6646e4833fc5"},
     {"path":"scripts/build-vscode-extension.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":30,"currentNonBlankLines":24,"currentBytes":0,"currentFingerprint":"text-v1:fa33c0fcded46d1d"},
-    {"path":"scripts/dev.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":477,"currentNonBlankLines":441,"currentBytes":0,"currentFingerprint":"text-v1:7dffbc1de7120c48"},
+    {"path":"scripts/dev.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":492,"currentNonBlankLines":456,"currentBytes":0,"currentFingerprint":"text-v1:fe1dda0381c822fa"},
     {"path":"scripts/ilverify-baseline.txt","language":"policy-data","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":15,"currentNonBlankLines":15,"currentBytes":0,"currentFingerprint":"text-v1:42b7513e33bc7934"},
     {"path":"scripts/ilverify.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":485,"currentNonBlankLines":441,"currentBytes":0,"currentFingerprint":"text-v1:c1260c001856b383"},
     {"path":"scripts/install.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":565,"currentNonBlankLines":493,"currentBytes":0,"currentFingerprint":"text-v1:0d09fc95d7130944"},
