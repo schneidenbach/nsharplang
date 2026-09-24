@@ -14,15 +14,9 @@ func WidenElements(values: string[]): int {
     return widened.Length
 }
 
-func CountNonNull(values: string?[]): int {
-    total := 0
-    for value in values {
-        if value != null {
-            total = total + 1
-        }
-    }
-    return total
-}
+// `CountNonNull` is declared once for this namespace, in `ArrayNullabilityCovariance.nl`: a
+// free-function name has one declaration per namespace (NL306), and this file reaches it with no
+// import.
 
 func ElementsOrEmpty(values: string?[]): string {
     joined := ""

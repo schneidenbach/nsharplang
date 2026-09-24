@@ -103,10 +103,6 @@ func CrfMemberWithType(name: string, memberType: TypeReference): DeclaredMemberI
     )
 }
 
-func CrfNoMembers(): DeclaredMemberInfo[] {
-    return new DeclaredMemberInfo[](0)
-}
-
 func CrfNoModels(): List<SemanticModel> {
     return new List<SemanticModel>()
 }

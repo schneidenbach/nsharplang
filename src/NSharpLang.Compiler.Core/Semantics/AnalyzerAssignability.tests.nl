@@ -27,13 +27,6 @@ func AssignabilityRuntimeType(canonicalName: string): Type {
     return resolved
 }
 
-func AssignabilityClosed(canonicalName: string, argument: Type): Type {
-    definition := AssignabilityRuntimeType(canonicalName)
-    arguments := new Type[](1)
-    arguments[0] = argument
-    return definition.MakeGenericType(arguments)
-}
-
 func AssignabilityDefault(): AnalyzerAssignability {
     context := new AnalyzerDeclarationContext()
     context.Reset(Path.GetFullPath("."), new List<Assembly>())
