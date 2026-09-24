@@ -70,32 +70,35 @@ func SdkBoundaryCopyRuntime(root: string, destination: string) {
     }
 }
 
-// ONE PACK PER RUN, AND THE FEED OUTLIVES THE ROW THAT BUILT IT.
+// ONE PACK PER PROCESS, OF A PRIVATE COPY, AND THE FEED OUTLIVES THE ROW THAT BUILT IT.
 //
-// Eight rows in this project asked for a private feed, and each one packed `src/NSharpLang.Runtime`
-// and `src/NSharpLang.Sdk` again. That pack is NOT confined to its own output directory:
-// `NSharpLang.Sdk.csproj` project-references Build.Tasks and the Runtime and MSBuilds Build.Tasks
-// for its `tools/` payload, so every pack writes `src/*/obj` and `src/*/bin` - paths shared with
-// every other process in the repository. Under Step 3a's parallel sweep that made this project race
-// `tests/native/sdk-pack-symbol-contract`, which packs the same two projects and is its neighbour in
-// discovery order, and one row of 28 lost the race to an MSBuild file-lock IOException.
+// Eight rows in this project ask for a private feed. Packing `src/NSharpLang.Runtime` and
+// `src/NSharpLang.Sdk` IN PLACE is not confined to the pack's output directory: the SDK
+// project-references the Runtime and MSBuilds Build.Tasks for its `tools/` payload, so every in-place
+// pack writes `src/NSharpLang.Runtime/bin` and `obj` - paths shared with every other process in the
+// repository. Any other build of the Runtime at the same moment (a developer's, another sweep
+// project's) lost a file-lock race: "NSharpLang.Runtime.deps.json ... being used by another process".
+// And the old cache was not the once-per-process it claimed: the eight rows live in four files, every
+// file is its own test class, and the classes run in parallel, so two rows that found the cache empty
+// packed the same two projects AT ONCE, in one process - about one `dev.sh` run in three failed.
 //
-// The pack now happens at most ONCE per `nlc test` process, and every row reuses its result. The
-// rows run one at a time - the native runner walks its cases in a single loop - so the cache needs
-// no lock. The feed cannot live in the calling row's scratch directory, which that row deletes when
-// it finishes, so it gets a directory of its own under `artifacts/` and a `ProcessExit` handler
-// removes it. Nothing a row CLAIMS changes: each row still writes its own `global.json`, its own
-// `NuGet.config` and its own throwaway `globalPackagesFolder`, and still resolves the SDK by version
-// out of this feed; the version is asserted nowhere, only resolved.
+// So the pack runs once per process under a lock, and it packs COPIES: the Runtime's sources and the
+// SDK's project and `Sdk/` tree are copied into a directory of their own under the system temp root,
+// with the `tools/` payload beside them, and packed there. The payload is Build.Tasks' own output,
+// built in place first in Release - the configuration `dotnet pack` builds - which touches Build.Tasks,
+// Compiler and Compiler.Core but never the Runtime project, and is a no-op when they are current; the
+// copied SDK project is then packed with `NoBuild`, which is how its `None` items pick the copied
+// payload up rather than rebuilding it. Nothing a row CLAIMS changes: each row still writes its own
+// `global.json`, its own `NuGet.config` and its own throwaway `globalPackagesFolder`, and still
+// resolves the SDK by version out of this feed; the version is asserted nowhere, only resolved. A
+// `ProcessExit` handler removes the copy and its feed.
 //
-// Under the gate no pack happens here at all: Step 3a packs one feed for the whole sweep and
-// exports it through the environment contract above, which is what the two `Supplied` reads honor.
-// This cache is what a run with NO feed supplied gets - `dev.sh`, or `nlc test` on this project
-// alone - and the sweep keeps the project in its serial group for the same reason: whenever nobody
-// hands it a feed, it packs two shared in-repo projects.
+// Under the gate no pack happens here at all: Step 3a packs one feed for the whole sweep and exports
+// it through the environment contract above, which is what the two `Supplied` reads honor.
 class SdkBoundaryFeed {
     static Root: string = ""
     static SdkVersion: string = ""
+    static Gate: object = new object()
 }
 
 func SdkBoundaryPreparePackage(root: string): SdkBoundaryPackage {
@@ -105,31 +108,68 @@ func SdkBoundaryPreparePackage(root: string): SdkBoundaryPackage {
         return new SdkBoundaryPackage(suppliedFeed, suppliedVersion)
     }
 
-    if SdkBoundaryFeed.Root.Length > 0 {
-        return new SdkBoundaryPackage(SdkBoundaryFeed.Root, SdkBoundaryFeed.SdkVersion)
-    }
-
-    feed := Path.Combine(Path.Combine(root, "artifacts"), "sdk-project-reference-feed-" + Guid.NewGuid().ToString("N"))
-    Directory.CreateDirectory(feed)
-    on AppDomain.CurrentDomain.ProcessExit (sender, args) => {
-        if Directory.Exists(feed) {
-            Directory.Delete(feed, true)
+    lock SdkBoundaryFeed.Gate {
+        if SdkBoundaryFeed.Root.Length == 0 {
+            SdkBoundaryPackPrivateCopy(root)
         }
     }
-    version := "0.1.0-projectref" + Guid.NewGuid().ToString("N")
-    runtimeProject := Path.Combine(Path.Combine(Path.Combine(root, "src"), "NSharpLang.Runtime"), "NSharpLang.Runtime.csproj")
-    sdkProject := Path.Combine(Path.Combine(Path.Combine(root, "src"), "NSharpLang.Sdk"), "NSharpLang.Sdk.csproj")
+
+    return new SdkBoundaryPackage(SdkBoundaryFeed.Root, SdkBoundaryFeed.SdkVersion)
+}
+
+func SdkBoundaryCopyTree(source: string, destination: string) {
+    Directory.CreateDirectory(destination)
+    for sourceFile in Directory.GetFiles(source, "*", SearchOption.AllDirectories) {
+        target := Path.Combine(destination, Path.GetRelativePath(source, sourceFile))
+        Directory.CreateDirectory(Path.GetDirectoryName(target) ?? destination)
+        File.Copy(sourceFile, target, true)
+    }
+}
+
+func SdkBoundaryPackPrivateCopy(root: string) {
+    stage := Path.Combine(Path.GetTempPath(), "nsharp-sdk-boundary-pack-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(stage)
+    on AppDomain.CurrentDomain.ProcessExit (sender, args) => {
+        if Directory.Exists(stage) {
+            Directory.Delete(stage, true)
+        }
+    }
+
+    // The repository's SDK pin, and a package source list with no repository-relative entries.
+    File.Copy(Path.Combine(root, "global.json"), Path.Combine(stage, "global.json"))
+    File.WriteAllText(
+        Path.Combine(stage, "NuGet.config"),
+        "<configuration><packageSources><clear /><add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" /></packageSources></configuration>"
+    )
+
+    source := Path.Combine(root, "src")
+    stagedSource := Path.Combine(stage, "src")
+    SdkBoundaryCopyRuntime(root, Path.Combine(stagedSource, "NSharpLang.Runtime"))
+    stagedSdk := Path.Combine(stagedSource, "NSharpLang.Sdk")
+    SdkBoundaryCopyTree(Path.Combine(Path.Combine(source, "NSharpLang.Sdk"), "Sdk"), Path.Combine(stagedSdk, "Sdk"))
+    File.Copy(Path.Combine(Path.Combine(source, "NSharpLang.Sdk"), "NSharpLang.Sdk.csproj"), Path.Combine(stagedSdk, "NSharpLang.Sdk.csproj"))
+
+    tasksDirectory := Path.Combine(source, "NSharpLang.Build.Tasks")
     SdkBoundaryRequireSuccess(
-        SdkBoundaryRunDotnet("pack " + SdkBoundaryQuote(runtimeProject) + " -o " + SdkBoundaryQuote(feed) + " -p:Version=0.1.0 --disable-build-servers -v q", root),
+        SdkBoundaryRunDotnet("build " + SdkBoundaryQuote(Path.Combine(tasksDirectory, "NSharpLang.Build.Tasks.csproj")) + " -c Release --disable-build-servers -v q", root),
+        "Build.Tasks payload for the private SDK package"
+    )
+    payload := Path.Combine(Path.Combine("bin", "Release"), "net10.0")
+    SdkBoundaryCopyTree(Path.Combine(tasksDirectory, payload), Path.Combine(Path.Combine(stagedSource, "NSharpLang.Build.Tasks"), payload))
+
+    feed := Path.Combine(stage, "feed")
+    Directory.CreateDirectory(feed)
+    version := "0.1.0-projectref" + Guid.NewGuid().ToString("N")
+    SdkBoundaryRequireSuccess(
+        SdkBoundaryRunDotnet("pack " + SdkBoundaryQuote(Path.Combine(Path.Combine(stagedSource, "NSharpLang.Runtime"), "NSharpLang.Runtime.csproj")) + " -o " + SdkBoundaryQuote(feed) + " -p:Version=0.1.0 --disable-build-servers -v q", stage),
         "private Runtime package"
     )
     SdkBoundaryRequireSuccess(
-        SdkBoundaryRunDotnet("pack " + SdkBoundaryQuote(sdkProject) + " -o " + SdkBoundaryQuote(feed) + " -p:Version=" + version + " --disable-build-servers -v q", root),
+        SdkBoundaryRunDotnet("pack " + SdkBoundaryQuote(Path.Combine(stagedSdk, "NSharpLang.Sdk.csproj")) + " -o " + SdkBoundaryQuote(feed) + " -p:Version=" + version + " -p:NoBuild=true --disable-build-servers -v q", stage),
         "private SDK package"
     )
     SdkBoundaryFeed.Root = feed
     SdkBoundaryFeed.SdkVersion = version
-    return new SdkBoundaryPackage(feed, version)
 }
 
 func SdkBoundaryWriteResolution(projectDirectory: string, sdkPackage: SdkBoundaryPackage, packagesCache: string) {

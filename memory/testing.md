@@ -878,6 +878,15 @@ test process compiles and fails on `Environment.SetEnvironmentVariable`,
 `Directory.SetCurrentDirectory`, an `Environment.CurrentDirectory` assignment and
 `Console.SetOut`/`SetError`/`SetIn` outside a `//` comment.
 
+The repository tree is process-global too. A native fixture that needs a private SDK feed and was not
+handed one (`NSHARP_SDK_PROJECT_REFERENCE_FEED`) packs a COPY - the Runtime's sources, the SDK's
+project and `Sdk/` tree, and Build.Tasks' Release output as the `tools/` payload, under the system
+temp root, the SDK copy packed with `NoBuild` - once per process under a lock
+(`sdk-project-reference-boundary`, `sdk-reference-incrementality`). Packing in place wrote
+`src/NSharpLang.Runtime/bin`, which any concurrent Runtime build also writes, and the unlocked
+"once per process" cache let two parallel test classes pack at once: 1 `dev.sh` run in 3 failed
+before, 10/10 at 29/29 after with 119 `--no-incremental` Runtime builds running beside them.
+
 ### 5. The Product Gate Skips Steps With Unchanged Inputs
 Within a plain fresh isolated `./scripts/test-all.sh` development run, a gate step is skipped when
 its ENTIRE input set is byte-identical to inputs that previously PASSED that step on the same

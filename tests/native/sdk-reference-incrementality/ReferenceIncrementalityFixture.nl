@@ -27,8 +27,12 @@ class IncrementalityRun {
     }
 }
 
-// ONE PACK PER PROCESS, UNDER A LOCK. Every `.tests.nl` file here is its own test class and the
-// classes run in parallel, so without the lock two rows that both find the cache empty pack at once.
+// ONE PACK PER PROCESS, UNDER A LOCK, OF A PRIVATE COPY. Every `.tests.nl` file here is its own
+// test class and the classes run in parallel, so without the lock two rows that both find the cache
+// empty pack at once. And the pack is of COPIES of the Runtime and the SDK project, exactly as
+// `tests/native/sdk-project-reference-boundary` does and for the same reason: packing them in place
+// writes `src/NSharpLang.Runtime/bin` and `obj`, which any other build of the Runtime running at the
+// same moment also writes.
 class IncrementalityFeed {
     static Root: string = ""
     static Version: string = ""
@@ -87,23 +91,66 @@ func IncrementalityPrepareFeed(root: string) {
     }
 }
 
+func IncrementalityCopyTree(source: string, destination: string) {
+    Directory.CreateDirectory(destination)
+    for sourceFile in Directory.GetFiles(source, "*", SearchOption.AllDirectories) {
+        target := Path.Combine(destination, Path.GetRelativePath(source, sourceFile))
+        Directory.CreateDirectory(Path.GetDirectoryName(target) ?? destination)
+        File.Copy(sourceFile, target, true)
+    }
+}
+
+// The Runtime's sources and project, the SDK's project and `Sdk/` tree, and Build.Tasks' Release
+// output as the SDK's `tools/` payload, copied under the system temp root and packed there; the SDK
+// copy is packed with `NoBuild` so it takes the copied payload rather than rebuilding it. Build.Tasks
+// is built in place first (Release, the configuration `dotnet pack` builds): that touches
+// Build.Tasks, Compiler and Compiler.Core, never the Runtime project, and is a no-op when current.
 func IncrementalityPackFeed(root: string) {
-    feed := Path.Combine(Path.Combine(root, "artifacts"), "sdk-reference-incrementality-feed-" + Guid.NewGuid().ToString("N"))
-    Directory.CreateDirectory(feed)
+    stage := Path.Combine(Path.GetTempPath(), "nsharp-reference-incrementality-pack-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(stage)
     on AppDomain.CurrentDomain.ProcessExit (sender, args) => {
-        if Directory.Exists(feed) {
-            Directory.Delete(feed, true)
+        if Directory.Exists(stage) {
+            Directory.Delete(stage, true)
         }
     }
-    version := "0.1.0-refincr" + Guid.NewGuid().ToString("N")
-    runtimeProject := Path.Combine(Path.Combine(Path.Combine(root, "src"), "NSharpLang.Runtime"), "NSharpLang.Runtime.csproj")
-    sdkProject := Path.Combine(Path.Combine(Path.Combine(root, "src"), "NSharpLang.Sdk"), "NSharpLang.Sdk.csproj")
+
+    File.Copy(Path.Combine(root, "global.json"), Path.Combine(stage, "global.json"))
+    File.WriteAllText(
+        Path.Combine(stage, "NuGet.config"),
+        "<configuration><packageSources><clear /><add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" /></packageSources></configuration>"
+    )
+
+    source := Path.Combine(root, "src")
+    stagedSource := Path.Combine(stage, "src")
+    stagedRuntime := Path.Combine(stagedSource, "NSharpLang.Runtime")
+    Directory.CreateDirectory(stagedRuntime)
+    for runtimeFile in Directory.GetFiles(Path.Combine(source, "NSharpLang.Runtime"), "*", SearchOption.TopDirectoryOnly) {
+        extension := Path.GetExtension(runtimeFile)
+        if extension == ".cs" || extension == ".csproj" {
+            File.Copy(runtimeFile, Path.Combine(stagedRuntime, Path.GetFileName(runtimeFile)))
+        }
+    }
+    stagedSdk := Path.Combine(stagedSource, "NSharpLang.Sdk")
+    IncrementalityCopyTree(Path.Combine(Path.Combine(source, "NSharpLang.Sdk"), "Sdk"), Path.Combine(stagedSdk, "Sdk"))
+    File.Copy(Path.Combine(Path.Combine(source, "NSharpLang.Sdk"), "NSharpLang.Sdk.csproj"), Path.Combine(stagedSdk, "NSharpLang.Sdk.csproj"))
+
+    tasksDirectory := Path.Combine(source, "NSharpLang.Build.Tasks")
     IncrementalityRequireSuccess(
-        IncrementalityRunDotnet("pack " + IncrementalityQuote(runtimeProject) + " -o " + IncrementalityQuote(feed) + " -p:Version=0.1.0 --disable-build-servers -v q", root),
+        IncrementalityRunDotnet("build " + IncrementalityQuote(Path.Combine(tasksDirectory, "NSharpLang.Build.Tasks.csproj")) + " -c Release --disable-build-servers -v q", root),
+        "Build.Tasks payload for the private SDK package"
+    )
+    payload := Path.Combine(Path.Combine("bin", "Release"), "net10.0")
+    IncrementalityCopyTree(Path.Combine(tasksDirectory, payload), Path.Combine(Path.Combine(stagedSource, "NSharpLang.Build.Tasks"), payload))
+
+    feed := Path.Combine(stage, "feed")
+    Directory.CreateDirectory(feed)
+    version := "0.1.0-refincr" + Guid.NewGuid().ToString("N")
+    IncrementalityRequireSuccess(
+        IncrementalityRunDotnet("pack " + IncrementalityQuote(Path.Combine(stagedRuntime, "NSharpLang.Runtime.csproj")) + " -o " + IncrementalityQuote(feed) + " -p:Version=0.1.0 --disable-build-servers -v q", stage),
         "private Runtime package"
     )
     IncrementalityRequireSuccess(
-        IncrementalityRunDotnet("pack " + IncrementalityQuote(sdkProject) + " -o " + IncrementalityQuote(feed) + " -p:Version=" + version + " --disable-build-servers -v q", root),
+        IncrementalityRunDotnet("pack " + IncrementalityQuote(Path.Combine(stagedSdk, "NSharpLang.Sdk.csproj")) + " -o " + IncrementalityQuote(feed) + " -p:Version=" + version + " -p:NoBuild=true --disable-build-servers -v q", stage),
         "private SDK package"
     )
     IncrementalityFeed.Root = feed
