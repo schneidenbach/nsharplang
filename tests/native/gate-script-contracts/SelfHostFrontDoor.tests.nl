@@ -92,7 +92,7 @@ test "skipping the doomed build changes no ceiling and no ratchet comparison in 
 
     ceilings := SelfHostCeilings(coreScript)
     assert ceilings.Count == 4, "The self-host front door must still carry four ceilings; found " + ceilings.Count.ToString() + "."
-    assert ceilings[0] == "1314", "Compiler.Core's front-door ceiling must stay 1314; found '" + ceilings[0] + "'."
+    assert ceilings[0] == "1291", "Compiler.Core's front-door ceiling must stay 1291; found '" + ceilings[0] + "'."
     assert ceilings[1] == "-1"
     assert ceilings[2] == "-1"
     assert ceilings[3] == "0", "Build.Tasks' front-door ceiling must stay 0; found '" + ceilings[3] + "'."

@@ -408,13 +408,21 @@ else
     # the split gives each of the twelve new files the imports it actually uses. NL905 423 -> 421,
     # NL002 239 -> 238; NL202 352, NL010 165, NL012 38, NL011 30 and NL304 28 are all unmoved.
     #
+    # 2026-09-24, before Compiler.Model is carved out of Core: 1,291, carried by 270 of the
+    # project's files. Model's product files carried 23 of the 1,314 and are now clean, because once
+    # Model is its own project its diagnostics block Core's check (the reference build fails) rather
+    # than counting in it. Measured with the same tip CLI against both trees, the diff over
+    # diagnostic identities is zero additions and 23 removals: NL011 8, NL010 5, NL002 4, NL012 4 and
+    # NL905 2, every one in a Model product file. NL905 421 -> 419, NL002 238 -> 234, NL010 165 ->
+    # 160, NL012 38 -> 34, NL011 30 -> 22; NL202 352 and NL304 28 are unmoved.
+    #
     # -1 means BLOCKED, not clean. `check` on a project that REFERENCES Compiler.Core builds that
     # reference first, and that build fails while Core's own front door is not clean -- so those two
     # produce an error envelope instead of a diagnostic list and there is nothing to count yet. The
     # step prints the reason and moves on; the day Core reaches 0 their ceilings become real numbers
     # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
     SELF_HOST_CEILINGS=(
-        1314
+        1291
         -1
         -1
         0

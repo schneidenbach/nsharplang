@@ -92,6 +92,22 @@ the same native project: no namespace's holder written by two slices' product co
 see that only in a seed built after the split), and no slice's estate declaring free functions in a
 namespace a LOWER slice's product code holds.
 
+**Carving a slice turns its types EXTERNAL to every slice above it, and name lookup does not treat
+external types the way it treats source ones** (found carving Model, 2026-09-24; the wiring is parked
+on `census/model-carve-wip`). `SimpleNamePrecedence` rules 1-2 (the file's own namespace, then each
+enclosing one, before any import) and the lexically-relative qualifier (`Ast.X` inside
+`NSharpLang.Compiler`) are applied to SOURCE declarations only, in the analyzer and in the emitter's
+binding scope alike, and rule 4 (auto-discovery) finds only project types. So once Model is an
+assembly: a Core file in `NSharpLang.Compiler.Columnar` naming a `NSharpLang.Compiler` Model type is
+NL002; `Ast.ParameterModifier` does not resolve in the pinned seed; and `TypeInfo` (3,552 bare uses in
+193 Core files) binds `System.Reflection.TypeInfo` instead of the own-namespace Model type C# would
+pick -- through `import System.Reflection`, and even without it the analyzer answers NL002 naming
+`System.Reflection` (a two-project probe reproduces both with the tip CLI). Two
+imports supplying one external simple name are not NL209 either: the FIRST import wins, and
+`nlc format` sorts imports, so reordering them to steer the binding is changed back by the format
+gate. The carve therefore needs rules 1-2 and relative qualification for external types in both walks,
+republished in the seed, before any slice below the top is carved.
+
 ## Data Flow
 
 ### Tokenization

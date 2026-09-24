@@ -136,6 +136,16 @@ provides it: the old file's four imports did not include `System.Collections.Gen
 gives each of the twelve new files the imports it actually uses. NL905 423 -> 421, NL002 239 -> 238;
 NL202 352, NL010 165, NL012 38, NL011 30 and NL304 28 all unmoved.
 
+**Measured 2026-09-24 at `ab1f732b8`** (the first step of carving `Compiler.Model` out of Core):
+Core reports **1,291 diagnostics carried by 270 of the project's files**, and **the gate ceiling is
+now 1,291**. Model's product files carried 23 of the 1,314, and they had to reach zero first: once
+Model is its own project, `check` on Core builds it as a `project:` reference and a diagnostic there
+BLOCKS Core's check instead of counting in it. Measured with the same tip CLI against both trees, the
+identity diff is **zero additions and 23 removals**, all in Model product files: NL011 8 (each empty
+catch now says what falling out of it did -- `return null`, `continue`, or a helper returning the
+fallback), NL010 5, NL002 4, NL012 4 (`_`-named interface parameters) and NL905 2 (a `Try...` helper
+answering null where a catch always left). NL202 352 and NL304 28 unmoved.
+
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
 
