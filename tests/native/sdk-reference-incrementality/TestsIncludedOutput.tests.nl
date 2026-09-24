@@ -91,6 +91,43 @@ test "a product build between tests-included builds leaves the test run working 
     }
 }
 
+// A PROJECT.YML CAN KEEP ITS OWN TESTS OUT OF THE PRODUCT BUILD. The same library, saying
+// `excludeTests: true`, is built with NO flag -- the way every consumer's build reaches a compiler
+// slice -- and must come out product-only: no test type, no test framework in its deps file, and
+// still a library (the test SDK turns a tests-included project into an executable). The estate's
+// explicit `-p:NSharpExcludeTests=false` must still bring its one row back. Against the SDK without
+// the key the flagless build declares `LabLib.LibraryTests`.
+test "a project.yml that says excludeTests builds product-only without a flag, and the estate's flag still runs its rows" {
+    repositoryRoot := IncrementalityRepositoryRoot()
+    IncrementalityPrepareFeed(repositoryRoot)
+    scratch := IncrementalityScratch("tests-excluded")
+    try {
+        ScopeWriteResolution(scratch)
+        OutputWriteLibrary(scratch)
+        library := Path.Combine(scratch, "Lib")
+        projectFile := Path.Combine(library, "project.yml")
+        File.WriteAllText(projectFile, File.ReadAllText(projectFile) + "excludeTests: true\n")
+        flags := " --disable-build-servers -nr:false -v q --nologo"
+
+        IncrementalityRequireSuccess(IncrementalityRunInCache("build Lib.csproj" + flags, library, IncrementalityPackages(scratch)), "flagless build")
+        productDirectory := Path.Combine(Path.Combine(Path.Combine(library, "bin"), "Debug"), "net10.0")
+        productNames := ScopeTypeNames(OutputAssembly(scratch, "Debug/net10.0"))
+        assert productNames.Contains("LabLib.Greeter"), string.Join(",", productNames)
+        assert !productNames.Contains("LabLib.LibraryTests"), string.Join(",", productNames)
+        productDeps := File.ReadAllText(Path.Combine(productDirectory, "Lib.deps.json"))
+        assert !productDeps.Contains("xunit", StringComparison.OrdinalIgnoreCase), productDeps
+        assert !File.Exists(Path.Combine(productDirectory, "Lib.runtimeconfig.json")), "a product-only library has no runtime configuration of its own"
+
+        IncrementalityRequireSuccess(IncrementalityRunInCache("restore Lib.csproj -p:NSharpExcludeTests=false --force-evaluate" + flags, library, IncrementalityPackages(scratch)), "tests-included restore")
+        OutputRequireOneTestPassed(
+            IncrementalityRunInCache("test Lib.csproj -p:NSharpExcludeTests=false --no-restore" + flags, library, IncrementalityPackages(scratch)),
+            "tests-included test run"
+        )
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
+
 // The mechanism, pinned where it is written: the output root is chosen under exactly the condition the
 // intermediate root is, and both before the base SDK's props decide the paths derived from them.
 test "the SDK gives the tests-included configuration its own output root beside its own intermediate root" {

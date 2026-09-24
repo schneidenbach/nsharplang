@@ -103,7 +103,10 @@ Hello from N#!
 
 1. MSBuild loads `NSharpLang.Sdk` from `global.json`.
 2. The SDK reads `project.yml`.
-3. It discovers `.nl` files automatically, excluding `.tests.nl` from the main build.
+3. It discovers `.nl` files automatically. A project's `.tests.nl` are compiled in beside them, with
+   the test framework, so `dotnet test` needs no flag - unless `project.yml` says `excludeTests: true`,
+   which keeps them out of every build that does not pass `-p:NSharpExcludeTests=false` (a library
+   whose tests are run on purpose, such as a compiler slice and its estate).
 4. `$(Configuration)` and `$(DefineConstants)` are folded into the project's `#if` symbols through the
    same owners `nlc` uses, so `dotnet build` and `nlc build` resolve conditional compilation
    identically: `DEBUG` is defined for every configuration except `Release`, and a define list accepts

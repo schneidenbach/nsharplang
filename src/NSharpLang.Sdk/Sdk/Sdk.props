@@ -33,6 +33,23 @@
     <OutputType Condition="'$(_NSharpDeclaredOutputType)' == 'exe'">Exe</OutputType>
   </PropertyGroup>
 
+  <!-- A PROJECT THAT CARRIES ITS OWN TESTS BUT SHIPS PRODUCT-ONLY. By default a project's `.tests.nl`
+       compile into the assembly `dotnet build` produces, test framework and all, so `dotnet test` on it
+       needs no flag. A LIBRARY whose tests are an estate run on purpose - a compiler slice above all -
+       says so in project.yml instead:
+
+         excludeTests: true     # the product build leaves this project's `.tests.nl` out
+
+       and every build of it is product-only unless the caller passes `-p:NSharpExcludeTests=false`,
+       which is what the gate, dev.sh and the reseed pass to run its rows (and which, being a global
+       property, wins over this default). Read here, at evaluation time and by regex like `outputType`,
+       because the test framework packages are chosen during RESTORE and only `nlc restore` writes
+       obj/project.g.props. A caller's explicit value is never overridden. -->
+  <PropertyGroup Condition="'$(NSharpExcludeTests)' == '' And Exists('$(NSharpProjectFile)')">
+    <_NSharpDeclaredExcludeTests>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText($(NSharpProjectFile))), '(?m)^excludeTests[ \t]*:[ \t]*[&quot;%27]?(true|false)[&quot;%27]?(?:[ \t]+#[^\r\n]*)?[ \t]*\r?$').Groups.get_Item(1).Value)</_NSharpDeclaredExcludeTests>
+    <NSharpExcludeTests Condition="'$(_NSharpDeclaredExcludeTests)' == 'true'">true</NSharpExcludeTests>
+  </PropertyGroup>
+
   <!-- AN N# PROJECT PRODUCES NO SYMBOL FILE, AND THE PACK PATH READS THAT FACT DURING EVALUATION.
        `EmitNSharpIlAssembly` writes the assembly with the compiler's own IL emitter, which has no
        symbol writer, so an N#-SDK project's output directory holds a `.dll` and NO `.pdb`. The base
