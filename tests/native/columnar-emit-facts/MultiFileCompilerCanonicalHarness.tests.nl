@@ -3,6 +3,7 @@ namespace NSharpLang.ColumnarEmitFacts.Tests
 import System
 import System.Collections
 import System.Collections.Generic
+import System.Diagnostics
 import System.IO
 import System.Reflection
 
@@ -45,11 +46,11 @@ class EmitterCanonicalRunResult {
 
 class EmitterCanonicalCapturedCompilation {
     Compilation: EmitterCanonicalCompilation
-    Stderr: string
+    DeclineTrace: string
 
-    constructor(compilation: EmitterCanonicalCompilation, stderr: string) {
+    constructor(compilation: EmitterCanonicalCompilation, declineTrace: string) {
         Compilation = compilation
-        Stderr = stderr
+        DeclineTrace = declineTrace
     }
 }
 
@@ -186,6 +187,32 @@ func EmitterCanonicalCompileWithCliDefines(
     useExplicitSourceFiles: bool,
     rawDefines: string?
 ): EmitterCanonicalCompilation {
+    return EmitterCanonicalCompileConfigured(
+        projectName,
+        projectYml,
+        fileNames,
+        contents,
+        useExplicitSourceFiles,
+        rawDefines,
+        null,
+        null
+    )
+}
+
+// `compilerSetting`, when named, is one of the compiler's own settable properties - `SoaEnabled`,
+// `ColumnarDeclineLog` - set on THIS compiler before it compiles. That is how a row asks for a
+// non-default compilation: the settings those properties seed from are process environment
+// variables, and the other test files in this project compile in parallel beside it.
+func EmitterCanonicalCompileConfigured(
+    projectName: string,
+    projectYml: string,
+    fileNames: string[],
+    contents: string[],
+    useExplicitSourceFiles: bool,
+    rawDefines: string?,
+    compilerSetting: string?,
+    compilerSettingValue: object?
+): EmitterCanonicalCompilation {
     if fileNames.Length != contents.Length {
         throw new ArgumentException("Canonical fixture file names and contents must have equal lengths")
     }
@@ -215,6 +242,13 @@ func EmitterCanonicalCompileWithCliDefines(
             sourceFiles,
             useExplicitSourceFiles
         )
+        if compilerSetting != null {
+            settingProperty := EmitterCanonicalCompilerType().GetProperty(compilerSetting ?? "")
+            if settingProperty == null {
+                throw new InvalidOperationException("MultiFileCompiler has no setting named '" + (compilerSetting ?? "") + "'")
+            }
+            settingProperty.SetValue(compiler, compilerSettingValue)
+        }
         outputDirectory := Path.Combine(fixtureRoot, "artifacts")
         Directory.CreateDirectory(outputDirectory)
         outputPath := Path.Combine(outputDirectory, projectName + ".dll")
@@ -611,75 +645,85 @@ func EmitterCanonicalAssertProgramFilesContain(
     }
 }
 
-func EmitterCanonicalCompileWithCapturedStderr(
+// A compilation with one of the compiler's own settings changed - see
+// `EmitterCanonicalCompileConfigured`.
+func EmitterCanonicalCompileWithSetting(
+    projectName: string,
+    outputType: string,
+    source: string,
+    compilerSetting: string,
+    compilerSettingValue: object?
+): EmitterCanonicalCompilation {
+    return EmitterCanonicalCompileConfigured(
+        projectName,
+        EmitterCanonicalProjectYml(projectName, outputType),
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(source),
+        false,
+        null,
+        compilerSetting,
+        compilerSettingValue
+    )
+}
+
+// The columnar decline trace, captured by handing the compiler its own writer. The trace used to be
+// captured by setting `NSHARP_COLUMNAR_DECLINE_LOG` and swapping `Console.Error`, both process-wide,
+// while every other file in this project compiled - and wrote to stderr - beside it.
+func EmitterCanonicalCompileWithDeclineLog(
     projectName: string,
     outputType: string,
     source: string
 ): EmitterCanonicalCapturedCompilation {
-    originalError := Console.Error
-    stderr := new StringWriter()
-    captured: EmitterCanonicalCapturedCompilation? = null
-    Console.SetError(stderr)
+    trace := new StringWriter()
     try {
-        compilation := EmitterCanonicalCompileSingle(projectName, outputType, source)
-        captured = new EmitterCanonicalCapturedCompilation(compilation, stderr.ToString())
+        compilation := EmitterCanonicalCompileWithSetting(projectName, outputType, source, "ColumnarDeclineLog", trace)
+        return new EmitterCanonicalCapturedCompilation(compilation, trace.ToString())
     } finally {
-        Console.SetError(originalError)
-        stderr.Dispose()
+        trace.Dispose()
     }
-    if captured == null {
-        throw new InvalidOperationException("The stderr compilation did not produce a result")
-    }
-    return captured
 }
 
-// Native test declarations in this project are emitted onto one NSharpTests class, so xUnit keeps
-// these process-wide controls in one collection. Each helper still restores the exact prior state
-// in finally so later canonical cases observe the same environment and Console.Error writer.
-func EmitterCanonicalCompileWithEnvironment(
-    projectName: string,
-    outputType: string,
-    source: string,
-    variable: string,
-    setting: string
-): EmitterCanonicalCompilation {
-    previous := Environment.GetEnvironmentVariable(variable)
-    captured: EmitterCanonicalCompilation? = null
-    Environment.SetEnvironmentVariable(variable, setting)
+// The installed front door, as a CHILD process whose environment block alone carries `variable`.
+// This is where the environment variables the compiler seeds its settings from are proved: the
+// child reads them at its own entry point, and this process's environment is never written.
+func EmitterCanonicalCliBuild(projectName: string, source: string, variable: string, setting: string): EmitterCanonicalRunResult {
+    fixtureRoot := Path.Combine(Path.GetTempPath(), "nsharp-columnar-emitter-cli-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(fixtureRoot)
     try {
-        captured = EmitterCanonicalCompileSingle(projectName, outputType, source)
-    } finally {
-        Environment.SetEnvironmentVariable(variable, previous)
-    }
-    if captured == null {
-        throw new InvalidOperationException("The environment-scoped compilation did not produce a result")
-    }
-    return captured
-}
+        File.WriteAllText(Path.Combine(fixtureRoot, "project.yml"), EmitterCanonicalProjectYml(projectName, "exe"))
+        File.WriteAllText(Path.Combine(fixtureRoot, "Program.nl"), EmitterCanonicalDecodedSource(source))
+        compilerDirectory := Path.GetDirectoryName(EmitterCanonicalCompilerType().Assembly.Location) ?? ""
+        cliDll := Path.Combine(compilerDirectory, "Cli.dll")
+        if !File.Exists(cliDll) {
+            throw new InvalidOperationException("The CLI beside the loaded compiler was not found at " + cliDll)
+        }
 
-func EmitterCanonicalCompileWithCapturedStderrAndEnvironment(
-    projectName: string,
-    outputType: string,
-    source: string,
-    variable: string,
-    setting: string
-): EmitterCanonicalCapturedCompilation {
-    previous := Environment.GetEnvironmentVariable(variable)
-    originalError := Console.Error
-    stderr := new StringWriter()
-    captured: EmitterCanonicalCapturedCompilation? = null
-    Environment.SetEnvironmentVariable(variable, setting)
-    Console.SetError(stderr)
-    try {
-        compilation := EmitterCanonicalCompileSingle(projectName, outputType, source)
-        captured = new EmitterCanonicalCapturedCompilation(compilation, stderr.ToString())
+        startInfo := new ProcessStartInfo("dotnet")
+        startInfo.ArgumentList.Add(cliDll)
+        startInfo.ArgumentList.Add("build")
+        startInfo.ArgumentList.Add("--project")
+        startInfo.ArgumentList.Add(fixtureRoot)
+        startInfo.WorkingDirectory = fixtureRoot
+        startInfo.UseShellExecute = false
+        startInfo.RedirectStandardOutput = true
+        startInfo.RedirectStandardError = true
+        startInfo.Environment[variable] = setting
+        process := Process.Start(startInfo)
+        if process == null {
+            throw new InvalidOperationException("The CLI did not start")
+        }
+        stdoutTask := process.StandardOutput.ReadToEndAsync()
+        stderrTask := process.StandardError.ReadToEndAsync()
+        if !process.WaitForExit(300000) {
+            process.Kill(true)
+            process.WaitForExit()
+            process.Dispose()
+            throw new TimeoutException("nlc build did not finish within 300 s")
+        }
+        exitCode := process.ExitCode
+        process.Dispose()
+        return new EmitterCanonicalRunResult(exitCode, stdoutTask.Result, stderrTask.Result)
     } finally {
-        Console.SetError(originalError)
-        Environment.SetEnvironmentVariable(variable, previous)
-        stderr.Dispose()
+        Directory.Delete(fixtureRoot, true)
     }
-    if captured == null {
-        throw new InvalidOperationException("The stderr environment compilation did not produce a result")
-    }
-    return captured
 }

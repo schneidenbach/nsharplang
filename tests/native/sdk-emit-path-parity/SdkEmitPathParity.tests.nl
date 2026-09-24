@@ -127,13 +127,7 @@ func ParityRunSample(projectDirectory: string, logPath: string): ParityRun {
 
     Directory.CreateDirectory(logDirectory)
 
-    previous := Environment.GetEnvironmentVariable("NSHARP_PARITY_LOG")
-    Environment.SetEnvironmentVariable("NSHARP_PARITY_LOG", logPath)
-    try {
-        return ParityRunDotnet(ParityQuote(ParityOutputAssembly(projectDirectory, "ParitySample")), projectDirectory)
-    } finally {
-        Environment.SetEnvironmentVariable("NSHARP_PARITY_LOG", previous)
-    }
+    return ParityRunProcessWith("dotnet", ParityQuote(ParityOutputAssembly(projectDirectory, "ParitySample")), projectDirectory, "NSHARP_PARITY_LOG", logPath)
 }
 
 func ParityLogText(directory: string): string {

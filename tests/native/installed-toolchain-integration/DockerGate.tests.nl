@@ -49,8 +49,19 @@ func DockerForceEnvironmentVariableName(): string {
     return "NSHARP_RUN_DOCKER_INTEGRATION"
 }
 
+// The variable is read HERE, once per question, and nowhere else. Everything below takes the value
+// as an argument, so the rows that pin the rule hand it the spellings they mean instead of rewriting
+// the variable while the other files of this project run beside them.
+func DockerForceSetting(): string? {
+    return System.Environment.GetEnvironmentVariable(DockerForceEnvironmentVariableName())
+}
+
 func DockerIntegrationForced(): bool {
-    value := (System.Environment.GetEnvironmentVariable(DockerForceEnvironmentVariableName()) ?? "").ToLowerInvariant()
+    return DockerForcedBy(DockerForceSetting())
+}
+
+func DockerForcedBy(setting: string?): bool {
+    value := (setting ?? "").ToLowerInvariant()
     return value == "1" || value == "true"
 }
 
@@ -58,7 +69,11 @@ func DockerIntegrationForced(): bool {
 // The reason a row IS skipped is a sentence, never an empty one: an empty reason in a `nlc test`
 // summary tells a reader nothing about which prerequisite was missing.
 func DockerGateSkipReason(): string {
-    if DockerIntegrationForced() {
+    return DockerGateSkipReasonGiven(DockerForceSetting())
+}
+
+func DockerGateSkipReasonGiven(forceSetting: string?): string {
+    if DockerForcedBy(forceSetting) {
         return ""
     }
 

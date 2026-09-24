@@ -55,17 +55,32 @@ class OptOutProbe {
     // Start a child process, drain both pipes before waiting (so a chatty child cannot deadlock on a full
     // pipe buffer), and dispose it, so this project leaves no orphan `dotnet` behind.
     //
-    // The child's environment is set on THIS process rather than on the ProcessStartInfo: both
-    // `startInfo.Environment.Add` and `startInfo.EnvironmentVariables.Add` decline on this emit path
-    // (NL103, emit.expression-statement.call), while `Environment.SetEnvironmentVariable` is modelled, and a
-    // child process inherits its parent's environment. `BuildWith` below sets the variable, builds, and
-    // restores whatever was there before, so the setting never leaks past one build.
+    // The child's environment is written on the ProcessStartInfo, through the dictionary's INDEXER and
+    // `Remove` - `startInfo.Environment.Add` declines on this emit path (NL103,
+    // emit.expression-statement.call). It used to be written on THIS process and restored afterwards,
+    // which every other file of this project, running in parallel, could observe mid-build.
     static func RunProcess(fileName: string, arguments: string, workingDirectory: string): ProcessResult {
+        return RunProcessWithVariable(fileName, arguments, workingDirectory, null, null)
+    }
+
+    // `variable`, when named, is set to `setting` - or removed, for a null setting - in the CHILD'S
+    // environment block only. The opt-out is read by the child's own front door; writing it into this
+    // process instead would leak it to every other file of this project running beside this one.
+    static func RunProcessWithVariable(fileName: string, arguments: string, workingDirectory: string, variable: string?, setting: string?): ProcessResult {
         startInfo := new ProcessStartInfo { FileName: fileName, Arguments: arguments }
         startInfo.WorkingDirectory = workingDirectory
         startInfo.RedirectStandardOutput = true
         startInfo.RedirectStandardError = true
         startInfo.UseShellExecute = false
+        if variable != null {
+            name := variable ?? ""
+            if setting == null {
+                removed := startInfo.Environment.Remove(name)
+                _ = removed
+            } else {
+                startInfo.Environment[name] = setting
+            }
+        }
 
         process := new Process { StartInfo: startInfo }
         process.Start()
@@ -128,19 +143,16 @@ class OptOutProbe {
         return Path.Combine(FixtureOutputDirectory(), "NSharpLang.VectorizationOptOutProbe.dll")
     }
 
-    // Build the fixture with `NSHARP_VECTORIZE_REDUCTIONS` set to `setting` ("" meaning unset), restore the
-    // ambient value afterwards, and report the CLI's exit code.
+    // Build the fixture with `NSHARP_VECTORIZE_REDUCTIONS` set to `setting` ("" meaning unset) in the
+    // build's own environment, and report the CLI's exit code.
     static func BuildExitCode(setting: string): int {
         variable := "NSHARP_VECTORIZE_REDUCTIONS"
-        previous := Environment.GetEnvironmentVariable(variable)
+        childSetting: string? = setting
         if setting == "" {
-            Environment.SetEnvironmentVariable(variable, null)
-        } else {
-            Environment.SetEnvironmentVariable(variable, setting)
+            childSetting = null
         }
 
-        run := RunProcess("dotnet", "\"" + CliDll() + "\" build --project \"" + FixtureDirectory() + "\"", Path.GetTempPath())
-        Environment.SetEnvironmentVariable(variable, previous)
+        run := RunProcessWithVariable("dotnet", "\"" + CliDll() + "\" build --project \"" + FixtureDirectory() + "\"", Path.GetTempPath(), variable, childSetting)
         if run.ExitCode != 0 {
             Console.Error.WriteLine(run.Stdout + run.Stderr)
         }

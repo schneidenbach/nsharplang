@@ -2,6 +2,7 @@ namespace NSharpLang.ReferenceResolution.Tests
 
 import System
 import System.Collections.Generic
+import System.Diagnostics
 import System.IO
 import System.Reflection
 
@@ -91,6 +92,33 @@ func ResolverRunProcess(fileName: string, arguments: string, workingDirectory: s
 
 func ResolverRunCli(arguments: string, workingDirectory: string): ResolverRun {
     return ResolverRunProcess("dotnet", ResolverQuote(ResolverCliDll()) + " " + arguments, workingDirectory)
+}
+
+// The CLI with `NUGET_PACKAGES` pointed at `packagesRoot` in ITS environment block only. The child
+// reads the variable at its own entry point; setting it on this process instead would point every
+// other resolution this process runs at the throwaway cache for as long as the build took.
+func ResolverRunCliInCache(arguments: string, workingDirectory: string, packagesRoot: string): ResolverRun {
+    startInfo := new ProcessStartInfo("dotnet", ResolverQuote(ResolverCliDll()) + " " + arguments)
+    startInfo.WorkingDirectory = workingDirectory
+    startInfo.UseShellExecute = false
+    startInfo.RedirectStandardOutput = true
+    startInfo.RedirectStandardError = true
+    startInfo.Environment["NUGET_PACKAGES"] = packagesRoot
+    process := Process.Start(startInfo)
+    if process == null {
+        throw new InvalidOperationException("The N# CLI did not start.")
+    }
+    stdoutTask := process.StandardOutput.ReadToEndAsync()
+    stderrTask := process.StandardError.ReadToEndAsync()
+    if !process.WaitForExit(300000) {
+        process.Kill(true)
+        process.WaitForExit()
+        process.Dispose()
+        throw new TimeoutException("The N# CLI did not finish within 300 s: " + arguments)
+    }
+    exitCode := process.ExitCode
+    process.Dispose()
+    return new ResolverRun(exitCode, stdoutTask.Result, stderrTask.Result)
 }
 
 func ResolverNewTempDirectory(label: string): string {

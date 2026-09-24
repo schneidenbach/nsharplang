@@ -300,61 +300,49 @@ test "the gate is forced by the one environment variable the workflows set" {
     // from there.
     assert DockerForceEnvironmentVariableName() == "NSHARP_RUN_DOCKER_INTEGRATION", DockerForceEnvironmentVariableName()
 
-    original := Environment.GetEnvironmentVariable(DockerForceEnvironmentVariableName())
-    try {
-        // FORCED MEANS REQUIRED, NOT PREFERRED. CI sets this, so a CI machine whose daemon is missing
-        // must FAIL these rows rather than skip them — which is the whole reason the workflow step
-        // cannot go green on a runner with no Docker.
-        Environment.SetEnvironmentVariable(DockerForceEnvironmentVariableName(), "1")
-        assert DockerIntegrationForced()
-        assert DockerGateSkipReason() == "", DockerGateSkipReason()
+    // FORCED MEANS REQUIRED, NOT PREFERRED. CI sets this, so a CI machine whose daemon is missing
+    // must FAIL these rows rather than skip them — which is the whole reason the workflow step
+    // cannot go green on a runner with no Docker. The rule is asked of the SPELLINGS, not of a
+    // rewritten process environment, which every other file of this project reads while it runs.
+    assert DockerForcedBy("1")
+    assert DockerGateSkipReasonGiven("1") == "", DockerGateSkipReasonGiven("1")
 
-        Environment.SetEnvironmentVariable(DockerForceEnvironmentVariableName(), "true")
-        assert DockerIntegrationForced()
-        assert DockerGateSkipReason() == "", DockerGateSkipReason()
+    assert DockerForcedBy("true")
+    assert DockerGateSkipReasonGiven("true") == "", DockerGateSkipReasonGiven("true")
 
-        Environment.SetEnvironmentVariable(DockerForceEnvironmentVariableName(), "TRUE")
-        assert DockerIntegrationForced()
+    assert DockerForcedBy("TRUE")
 
-        // Anything else is not a force. `0`, `no` and an empty value all fall through to the probe,
-        // exactly as the deleted attribute's two ordinal-ignore-case comparisons did.
-        Environment.SetEnvironmentVariable(DockerForceEnvironmentVariableName(), "0")
-        assert !DockerIntegrationForced()
-        Environment.SetEnvironmentVariable(DockerForceEnvironmentVariableName(), "no")
-        assert !DockerIntegrationForced()
-        Environment.SetEnvironmentVariable(DockerForceEnvironmentVariableName(), "")
-        assert !DockerIntegrationForced()
-    } finally {
-        Environment.SetEnvironmentVariable(DockerForceEnvironmentVariableName(), original)
-    }
+    // Anything else is not a force. `0`, `no`, an empty value and no value at all fall through to
+    // the probe, exactly as the deleted attribute's two ordinal-ignore-case comparisons did.
+    assert !DockerForcedBy("0")
+    assert !DockerForcedBy("no")
+    assert !DockerForcedBy("")
+    assert !DockerForcedBy(null)
+
+    // And the gate asks the rule of the variable itself, whatever this machine has it set to.
+    assert DockerIntegrationForced() == DockerForcedBy(Environment.GetEnvironmentVariable("NSHARP_RUN_DOCKER_INTEGRATION"))
 }
 
 // THE SKIP IS NAMED, AND IT NAMES THE WAY OUT. This row states the relation between what the probe
 // found and what a reader is told, on whichever machine it runs: a daemon means no skip, and no daemon
 // means a reason that says which prerequisite was missing and how to demand the row anyway.
 test "a machine without a daemon is told which prerequisite is missing and how to require the row" {
-    original := Environment.GetEnvironmentVariable(DockerForceEnvironmentVariableName())
-    try {
-        Environment.SetEnvironmentVariable(DockerForceEnvironmentVariableName(), null)
-        probe := ProbeDocker()
-        reason := DockerGateSkipReason()
+    probe := ProbeDocker()
+    reason := DockerGateSkipReasonGiven(null)
 
-        if probe.Available {
-            assert reason == "", reason
-            assert probe.Reason == "", probe.Reason
-        } else {
-            assert reason.Length > 0, "an unavailable daemon must produce a named skip reason"
-            named := reason
-            assert named.StartsWith("Docker integration prerequisite unavailable: "), named
-            assert named.Contains(probe.Reason), named
-            assert named.EndsWith("Set NSHARP_RUN_DOCKER_INTEGRATION=1 to require this test."), named
+    if probe.Available {
+        assert reason == "", reason
+        assert probe.Reason == "", probe.Reason
+    } else {
+        assert reason.Length > 0, "an unavailable daemon must produce a named skip reason"
+        named := reason
+        assert named.StartsWith("Docker integration prerequisite unavailable: "), named
+        assert named.Contains(probe.Reason), named
+        assert named.EndsWith("Set NSHARP_RUN_DOCKER_INTEGRATION=1 to require this test."), named
 
-            // The reason is one of the three the probe distinguishes, never an empty sentence: a
-            // missing CLI, a daemon that would not answer in ten seconds, and a daemon that answered
-            // with a failure are three different things to tell a reader.
-            assert probe.Reason.Length > 0, named
-        }
-    } finally {
-        Environment.SetEnvironmentVariable(DockerForceEnvironmentVariableName(), original)
+        // The reason is one of the three the probe distinguishes, never an empty sentence: a
+        // missing CLI, a daemon that would not answer in ten seconds, and a daemon that answered
+        // with a failure are three different things to tell a reader.
+        assert probe.Reason.Length > 0, named
     }
 }

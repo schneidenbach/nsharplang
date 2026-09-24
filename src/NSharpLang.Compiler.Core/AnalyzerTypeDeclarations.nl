@@ -772,7 +772,7 @@ class AnalyzerTypeDeclarations {
             return null
         }
 
-        if !SoaFeature.IsEnabled {
+        if !declarationContextValue.SoaEnabled {
             diagnosticsValue.Report(ErrorCode.FeatureNotImplemented, "soa record '" + soaRecord.Name + "' is parsed but not available in production builds yet", soaRecord.Line, soaRecord.Column, "Set NSHARP_EXPERIMENTAL_SOA=1 only for the compiler table migration gate; otherwise keep using regular records", 3)
             return null
         }

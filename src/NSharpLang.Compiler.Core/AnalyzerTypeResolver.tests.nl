@@ -41,7 +41,18 @@ func ResolverOf(
     model: SemanticModel,
     bindings: BindingMap
 ): AnalyzerTypeResolver {
-    context := new AnalyzerDeclarationContext()
+    return ResolverOverContext(new AnalyzerDeclarationContext(), scopes, sink, model, bindings)
+}
+
+// The same resolver over a context the caller keeps, for the contracts that read a compilation-wide
+// setting the context carries - the experimental SoA gate - and change it between two asks.
+func ResolverOverContext(
+    context: AnalyzerDeclarationContext,
+    scopes: AnalyzerScopeStack,
+    sink: AnalyzerDiagnosticSink,
+    model: SemanticModel,
+    bindings: BindingMap
+): AnalyzerTypeResolver {
     context.Reset(Path.GetFullPath("."), new List<Assembly>())
     provider := new AnalyzerProjectSourceProvider()
     discovery := new AnalyzerProjectTypeDiscovery(
@@ -811,7 +822,8 @@ test "a `.Row` reference is refused only when the feature is on AND the prefix n
     scopes := ResolverScopesOf()
     model := new SemanticModel()
     bindings := new BindingMap()
-    resolver := ResolverOf(scopes, ResolverSinkOf(errors), model, bindings)
+    context := new AnalyzerDeclarationContext()
+    resolver := ResolverOverContext(context, scopes, ResolverSinkOf(errors), model, bindings)
     resolver.BeginAnalysis("/p/main.nl", null, model, bindings)
 
     columns := new List<SoaColumnInfo>()
@@ -821,48 +833,47 @@ test "a `.Row` reference is refused only when the feature is on AND the prefix n
     ))
     scopes.DeclareNestedTypeIfAbsent("Plain", new SimpleTypeInfo("Plain"))
 
-    previous := Environment.GetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA")
-    try {
-        Environment.SetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA", null)
-        // With the feature OFF the row suffix is just a dotted name.
-        assert !resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable.Row", 5, 11)
-        assert errors.Count == 0
+    previous := Environment.GetEnvironmentVariable(SoaFeature.EnvironmentVariable)
+    // With the feature OFF the row suffix is just a dotted name.
+    assert !context.SoaEnabled
+    assert !resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable.Row", 5, 11)
+    assert errors.Count == 0
 
-        Environment.SetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA", "1")
-        assert resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable.Row", 5, 11)
-        assert errors.Count == 1
-        assert errors[0].Code == ErrorCode.InvalidSyntax
-        assert errors[0].Message == "SoA row type 'NodeTable.Row' is not part of this lowering"
-        assert errors[0].Suggestion.Contains("Pass the 'NodeTable' table and an int row index instead")
-        assert errors[0].Length == 13
+    context.SetSoaEnabled(true)
+    assert resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable.Row", 5, 11)
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.InvalidSyntax
+    assert errors[0].Message == "SoA row type 'NodeTable.Row' is not part of this lowering"
+    assert errors[0].Suggestion.Contains("Pass the 'NodeTable' table and an int row index instead")
+    assert errors[0].Length == 13
 
-        // The answer stays TRUE at the same position — the reference is still refused — but its own
-        // dedupe set silences the second report.
-        assert resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable.Row", 5, 11)
-        assert errors.Count == 1
-        // A different position reports again.
-        assert resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable.Row", 6, 11)
-        assert errors.Count == 2
+    // The answer stays TRUE at the same position — the reference is still refused — but its own
+    // dedupe set silences the second report.
+    assert resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable.Row", 5, 11)
+    assert errors.Count == 1
+    // A different position reports again.
+    assert resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable.Row", 6, 11)
+    assert errors.Count == 2
 
-        // Not a table, no position, no suffix, and an empty prefix are all "not a row reference".
-        assert !resolver.ReportSoaRowTypeReferenceIfNeeded("Plain.Row", 5, 11)
-        assert !resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable.Row", 0, 0)
-        assert !resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable", 5, 11)
-        assert !resolver.ReportSoaRowTypeReferenceIfNeeded(".Row", 5, 11)
-        assert errors.Count == 2
+    // Not a table, no position, no suffix, and an empty prefix are all "not a row reference".
+    assert !resolver.ReportSoaRowTypeReferenceIfNeeded("Plain.Row", 5, 11)
+    assert !resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable.Row", 0, 0)
+    assert !resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable", 5, 11)
+    assert !resolver.ReportSoaRowTypeReferenceIfNeeded(".Row", 5, 11)
+    assert errors.Count == 2
 
-        // Through the reference walk the row reference SHORT-CIRCUITS to unknown rather than
-        // resolving through the remaining channels.
-        assert ResolverTypeName(resolver.ResolveType(new SimpleTypeReference("NodeTable.Row", 8, 11))) == "unknown"
+    // Through the reference walk the row reference SHORT-CIRCUITS to unknown rather than
+    // resolving through the remaining channels.
+    assert ResolverTypeName(resolver.ResolveType(new SimpleTypeReference("NodeTable.Row", 8, 11))) == "unknown"
 
-        // And the SoA set is cleared by a new analysis, exactly like the unresolved set.
-        resolver.BeginAnalysis("/p/main.nl", null, model, bindings)
-        errorsBefore := errors.Count
-        assert resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable.Row", 5, 11)
-        assert errors.Count == errorsBefore + 1
-    } finally {
-        Environment.SetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA", previous)
-    }
+    // And the SoA set is cleared by a new analysis, exactly like the unresolved set.
+    resolver.BeginAnalysis("/p/main.nl", null, model, bindings)
+    errorsBefore := errors.Count
+    assert resolver.ReportSoaRowTypeReferenceIfNeeded("NodeTable.Row", 5, 11)
+    assert errors.Count == errorsBefore + 1
+    // The gate is the compilation's setting, not the process's: nothing above read or wrote the
+    // environment variable that seeds it.
+    assert Environment.GetEnvironmentVariable(SoaFeature.EnvironmentVariable) == previous
 }
 
 // ---- the bulk helpers ---------------------------------------------------------------------------

@@ -77,11 +77,20 @@ func ParityQuote(value: string): string {
 // buffer otherwise, and the gate parses this project's own stdout as JSON, so nothing a child
 // prints may reach it.
 func ParityRunProcess(fileName: string, arguments: string, workingDirectory: string): ParityRun {
+    return ParityRunProcessWith(fileName, arguments, workingDirectory, null, null)
+}
+
+// `variable`, when named, is set in the CHILD'S environment block only - never on this process,
+// whose environment the other files of this project read while they run.
+func ParityRunProcessWith(fileName: string, arguments: string, workingDirectory: string, variable: string?, setting: string?): ParityRun {
     startInfo := new ProcessStartInfo { FileName: fileName, Arguments: arguments }
     startInfo.WorkingDirectory = workingDirectory
     startInfo.RedirectStandardOutput = true
     startInfo.RedirectStandardError = true
     startInfo.UseShellExecute = false
+    if variable != null && setting != null {
+        startInfo.Environment[variable ?? ""] = setting
+    }
 
     process := new Process { StartInfo: startInfo }
     process.Start()

@@ -860,8 +860,23 @@ the same moment threw `DirectoryNotFoundException` on `<temp>/packages/microsoft
 1 estate run in 10 under load, 35 in 40 with the two classes alone, and one failed VS-enabled gate.
 Give the code under test the value as an input instead — the resolver's packages folder is now
 `ReferenceResolutionOptions.PackagesFolder` / `ResolutionContext(packagesFolder)`, decided once per
-resolution. A row whose claim really is about process-global state belongs in a native project,
-which is its own process.
+resolution. The same held for `NSHARP_EXPERIMENTAL_SOA` (the SoA rows in
+`AnalyzerTypeResolver.tests.nl` / `AnalyzerTypeDeclarations.tests.nl` flipped the gate every other
+analyzer row reads): it is now `Analyzer.SoaEnabled` / `MultiFileCompiler.SoaEnabled`, read from the
+variable ONCE when the owner is built and carried on `AnalyzerDeclarationContext`, and the decline
+trace is `MultiFileCompiler.ColumnarDeclineLog` (a `TextWriter`) instead of the variable plus a
+`Console.SetError` swap.
+
+A NATIVE PROJECT IS NOT AN ESCAPE HATCH. `nlc test` runs it in one process through the same xunit
+front controller, and every `.tests.nl` file there is its own test class too
+(`ColumnarTestTypeNames`), so its files run in parallel exactly like the estate's. A row whose claim
+is about an environment variable proves it in a CHILD process whose `ProcessStartInfo.Environment`
+alone carries the value (`startInfo.Environment[name] = value`, and `Remove` for "unset"; `.Add`
+declines at emit), and the product reads the variable once at its entry point.
+`tests/native/process-global-state-guard` scans every `src/**/*.tests.nl` and every `.nl` a native
+test process compiles and fails on `Environment.SetEnvironmentVariable`,
+`Directory.SetCurrentDirectory`, an `Environment.CurrentDirectory` assignment and
+`Console.SetOut`/`SetError`/`SetIn` outside a `//` comment.
 
 ### 5. The Product Gate Skips Steps With Unchanged Inputs
 Within a plain fresh isolated `./scripts/test-all.sh` development run, a gate step is skipped when

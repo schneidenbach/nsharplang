@@ -104,12 +104,19 @@ func TypeDeclPath(): string {
 }
 
 func TypeDeclHarnessWith(sourceText: string?): TypeDeclarationHarness {
+    return TypeDeclHarnessOf(sourceText, false)
+}
+
+// The experimental SoA gate is the compilation's setting, carried on the declaration context the
+// analyzer builds - never the process environment, which every row running beside this one reads.
+func TypeDeclHarnessOf(sourceText: string?, soaEnabled: bool): TypeDeclarationHarness {
     provider := new AnalyzerProjectSourceProvider()
     errors := new List<CompilerError>()
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
     diagnostics.BeginAnalysis(TypeDeclPath(), sourceText)
     spans := new AnalyzerDiagnosticSpans(diagnostics)
     context := new AnalyzerDeclarationContext()
+    context.SetSoaEnabled(soaEnabled)
     assemblies := new List<Assembly>()
     assemblies.Add(typeof(List<int>).get_Assembly())
     context.Reset(Path.GetFullPath("."), assemblies)
@@ -135,6 +142,10 @@ func TypeDeclHarnessWith(sourceText: string?): TypeDeclarationHarness {
 
 func TypeDeclDefault(): TypeDeclarationHarness {
     return TypeDeclHarnessWith(null)
+}
+
+func TypeDeclSoaEnabled(): TypeDeclarationHarness {
+    return TypeDeclHarnessOf(null, true)
 }
 
 func TypeDeclText(candidate: TypeInfo?): string {
@@ -1191,10 +1202,33 @@ test "`char` COUNTS AS NUMERIC FOR AN INT ENUM, WHICH IS THE TWELVE-TYPE SET THE
 // THE `soa record` RULES
 // ---------------------------------------------------------------------------------------------
 
+// THE GATE IS THE COMPILATION'S SETTING, NOT THE PROCESS'S. The analyzer reads
+// `NSHARP_EXPERIMENTAL_SOA` once, when it is built, into the declaration context every gated owner
+// reads; a caller that wants the other answer says so on the analyzer. These rows used to rewrite the
+// variable instead, and every estate class running beside them read the rewritten value.
+test "AN ANALYZER DECIDES THE SOA GATE ONCE FROM THE ENVIRONMENT AND A CALLER'S ANSWER WINS WITHOUT TOUCHING IT" {
+    previous := Environment.GetEnvironmentVariable(SoaFeature.EnvironmentVariable)
+    assert SoaFeature.EnvironmentVariable == "NSHARP_EXPERIMENTAL_SOA"
+
+    analyzer := new Analyzer()
+    try {
+        assert analyzer.SoaEnabled == SoaFeature.IsEnabled
+        analyzer.SoaEnabled = true
+        assert analyzer.SoaEnabled
+        analyzer.SoaEnabled = false
+        assert !analyzer.SoaEnabled
+    } finally {
+        analyzer.Dispose()
+    }
+
+    // A context with no analyzer behind it accepts nothing experimental, whatever the process says.
+    bareContext := new AnalyzerDeclarationContext()
+    assert !bareContext.SoaEnabled
+    assert Environment.GetEnvironmentVariable(SoaFeature.EnvironmentVariable) == previous
+}
+
 test "A NESTED `soa record` IS REFUSED BY THE AMBIENT TYPE NAME THIS FAMILY ITSELF SETS" {
-    harness := TypeDeclDefault()
-    previous := Environment.GetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA")
-    Environment.SetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA", "1")
+    harness := TypeDeclSoaEnabled()
     saved := harness.Ambient.EnterTypeName("Outer")
 
     columns := new List<SoaColumnDeclaration>()
@@ -1202,7 +1236,6 @@ test "A NESTED `soa record` IS REFUSED BY THE AMBIENT TYPE NAME THIS FAMILY ITSE
     TypeDeclRun(harness, harness.Declarations.BeginSoaRecord(TypeDeclSoaRecord("Rows", columns, Modifiers.None), harness.Assignability), null)
 
     harness.Ambient.ExitTypeName(saved)
-    Environment.SetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA", previous)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message.Contains("nested soa record 'Rows'")
@@ -1210,16 +1243,12 @@ test "A NESTED `soa record` IS REFUSED BY THE AMBIENT TYPE NAME THIS FAMILY ITSE
 }
 
 test "A COLUMN NAME IS TWO RULES, AND A NAME THAT BREAKS BOTH IS REPORTED TWICE" {
-    harness := TypeDeclDefault()
-    previous := Environment.GetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA")
-    Environment.SetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA", "1")
+    harness := TypeDeclSoaEnabled()
 
     columns := new List<SoaColumnDeclaration>()
     columns.Add(TypeDeclColumn("length", "int", 8))
     columns.Add(TypeDeclColumn("length", "int", 9))
     TypeDeclRun(harness, harness.Declarations.BeginSoaRecord(TypeDeclSoaRecord("Rows", columns, Modifiers.None), harness.Assignability), null)
-
-    Environment.SetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA", previous)
 
     // Column 1 collides with a generated member; column 2 collides with column 1 AND with the
     // generated member. Three reports, in that order.
@@ -1230,17 +1259,13 @@ test "A COLUMN NAME IS TWO RULES, AND A NAME THAT BREAKS BOTH IS REPORTED TWICE"
 }
 
 test "AN UNSUPPORTED COLUMN TYPE IS REPORTED AND A SUPPORTED ONE IS NOT" {
-    harness := TypeDeclDefault()
-    previous := Environment.GetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA")
-    Environment.SetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA", "1")
+    harness := TypeDeclSoaEnabled()
 
     columns := new List<SoaColumnDeclaration>()
     columns.Add(TypeDeclColumn("id", "int", 8))
     columns.Add(TypeDeclColumn("name", "string", 9))
     columns.Add(TypeDeclColumn("ratio", "double", 10))
     TypeDeclRun(harness, harness.Declarations.BeginSoaRecord(TypeDeclSoaRecord("Rows", columns, Modifiers.None), harness.Assignability), null)
-
-    Environment.SetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA", previous)
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message.Contains("SoA column type 'double'")

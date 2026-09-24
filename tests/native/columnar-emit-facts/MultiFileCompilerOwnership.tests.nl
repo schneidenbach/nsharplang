@@ -273,8 +273,12 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     // `EmitReferenceAssembly` asks the compiler to write the SURFACE of what it emits beside the
     // implementation, which is what MSBuild's `ProduceReferenceAssembly` needs and what `nlc build`
     // does not, so it is settable like `AotMode` and defaults off.
-    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 11
-    propertyNames := new string[](11)
+    // THE TWELFTH AND THIRTEENTH ARE THE TWO SETTINGS THE ENVIRONMENT USED TO BE THE ONLY DOOR TO:
+    // `SoaEnabled` (`NSHARP_EXPERIMENTAL_SOA`) and `ColumnarDeclineLog` (`NSHARP_COLUMNAR_DECLINE_LOG`,
+    // which meant stderr). Each is read from its variable ONCE, when the compiler is built, and a
+    // caller that wants the other answer sets the property instead of rewriting the process.
+    assert owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 13
+    propertyNames := new string[](13)
     propertyNames[0] = "CompilationUnits"
     propertyNames[1] = "SemanticModels"
     propertyNames[2] = "AllErrors"
@@ -286,6 +290,8 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     propertyNames[8] = "AotMode"
     propertyNames[9] = "FriendGrants"
     propertyNames[10] = "EmitReferenceAssembly"
+    propertyNames[11] = "SoaEnabled"
+    propertyNames[12] = "ColumnarDeclineLog"
     propertyIndex := 0
     while propertyIndex < propertyNames.Length {
         property := MultiFileOwnerRequiredProperty(
@@ -293,13 +299,16 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
             propertyNames[propertyIndex]
         )
         assert property.get_CanRead(), propertyNames[propertyIndex]
-        if propertyNames[propertyIndex] == "AotMode" || propertyNames[propertyIndex] == "EmitReferenceAssembly" {
+        if propertyNames[propertyIndex] == "AotMode" || propertyNames[propertyIndex] == "EmitReferenceAssembly" || propertyNames[propertyIndex] == "SoaEnabled" || propertyNames[propertyIndex] == "ColumnarDeclineLog" {
             assert property.get_CanWrite()
         } else {
             assert !property.get_CanWrite(), propertyNames[propertyIndex]
         }
         propertyIndex = propertyIndex + 1
     }
+
+    assert MultiFileOwnerRequiredProperty(owner.GetProperty("SoaEnabled"), "SoaEnabled").get_PropertyType() == typeof(bool)
+    assert MultiFileOwnerRequiredProperty(owner.GetProperty("ColumnarDeclineLog"), "ColumnarDeclineLog").get_PropertyType() == typeof(TextWriter)
 
     analysisTypes := new Type[](0)
     analysis := MultiFileOwnerRequiredMethod(

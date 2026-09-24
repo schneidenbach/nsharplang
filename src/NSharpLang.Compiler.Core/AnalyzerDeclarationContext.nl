@@ -207,6 +207,13 @@ class AnalyzerDeclarationContext {
     // and answering it by walking every file's declarations per name would be quadratic.
     declaredTypeNames: HashSet<string>?
 
+    // WHETHER THIS COMPILATION ACCEPTS THE EXPERIMENTAL `soa record` LOWERING. The analyzer decides it
+    // ONCE, when it is built, from `NSHARP_EXPERIMENTAL_SOA` (`SoaFeature`), and every owner that
+    // gates on the feature reads it here. A context built without an analyzer behind it accepts
+    // nothing experimental; a caller that wants the feature says so on the context rather than
+    // rewriting the process environment, which every other compilation in the process would read.
+    soaEnabledValue: bool
+
     constructor() {
         projectRoot = Path.GetFullPath(".")
         assemblies = new List<Assembly>()
@@ -221,6 +228,13 @@ class AnalyzerDeclarationContext {
         importUsageCredit = null
         importUsageFilePath = null
         declaredTypeNames = null
+        soaEnabledValue = false
+    }
+
+    SoaEnabled: bool => soaEnabledValue
+
+    func SetSoaEnabled(enabled: bool) {
+        soaEnabledValue = enabled
     }
 
     // One call per `Analyze`: which file is being analysed, and where its import-usage facts go.

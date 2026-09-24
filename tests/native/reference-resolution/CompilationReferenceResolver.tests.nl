@@ -23,13 +23,12 @@ test "real build and publish keep project and local NuGet runtime assets executa
     previousPackages := Environment.GetEnvironmentVariable("NUGET_PACKAGES")
     try {
         ResolverPrepareNewtonsoftCache(packagesRoot)
-        Environment.SetEnvironmentVariable("NUGET_PACKAGES", packagesRoot)
 
         buildRoot := Path.Combine(scratch, "build-project")
         Directory.CreateDirectory(buildRoot)
         ResolverWriteProjectReferenceFixture(buildRoot)
         buildOutput := Path.Combine(buildRoot, "dist")
-        build := ResolverRunCli("build --project " + ResolverQuote(buildRoot) + " --backend il -o " + ResolverQuote(buildOutput), buildRoot)
+        build := ResolverRunCliInCache("build --project " + ResolverQuote(buildRoot) + " --backend il -o " + ResolverQuote(buildOutput), buildRoot, packagesRoot)
         assert build.ExitCode == 0, build.Stdout + build.Stderr
         assert build.Stdout.Contains("Build successful!", StringComparison.Ordinal)
         assert build.Stderr.Trim().Length == 0, build.Stderr
@@ -48,7 +47,7 @@ test "real build and publish keep project and local NuGet runtime assets executa
         Directory.CreateDirectory(publishRoot)
         ResolverWriteProjectReferenceFixture(publishRoot)
         publishOutput := Path.Combine(publishRoot, "publish")
-        publish := ResolverRunCli("publish --project " + ResolverQuote(publishRoot) + " --backend il --output " + ResolverQuote(publishOutput), publishRoot)
+        publish := ResolverRunCliInCache("publish --project " + ResolverQuote(publishRoot) + " --backend il --output " + ResolverQuote(publishOutput), publishRoot, packagesRoot)
         assert publish.ExitCode == 0, publish.Stdout + publish.Stderr
         assert publish.Stdout.Contains("Publish successful!", StringComparison.Ordinal)
         assert publish.Stderr.Trim().Length == 0, publish.Stderr
@@ -63,9 +62,9 @@ test "real build and publish keep project and local NuGet runtime assets executa
         assert publishRun.ExitCode == 0, publishRun.Stderr
         assert publishRun.Stdout.Contains("hello from shared", StringComparison.Ordinal), publishRun.Stdout
     } finally {
-        Environment.SetEnvironmentVariable("NUGET_PACKAGES", previousPackages)
         Directory.Delete(scratch, true)
     }
+    assert Environment.GetEnvironmentVariable("NUGET_PACKAGES") == previousPackages, "The throwaway cache is the children's, never this process's."
 }
 
 test "a referenced N# assembly reaches inherited members and the Compiler facade at runtime" {

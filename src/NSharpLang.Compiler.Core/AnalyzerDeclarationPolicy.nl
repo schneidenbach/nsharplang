@@ -612,7 +612,7 @@ class AnalyzerDeclarationPolicy {
     // Answers a request when the parameter's declared type is an SoA table, and null when the SoA rule
     // does not apply and the generic value rule should run instead.
     func BeginSoaDefaultCheck(state: ParameterWalkState, parameter: Parameter, defaultValue: Expression): ParameterWalkRequest? {
-        if !SoaFeature.IsEnabled {
+        if !declarationContext.SoaEnabled {
             return null
         }
 

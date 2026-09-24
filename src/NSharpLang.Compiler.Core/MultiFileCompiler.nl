@@ -48,6 +48,8 @@ class MultiFileCompiler {
     private _systemsReport: SystemsReport
     private _aotMode: bool
     private _emitReferenceAssembly: bool
+    private _soaEnabled: bool
+    private _columnarDeclineLog: TextWriter?
 
     CompilationUnits: IReadOnlyDictionary<string, CompilationUnit> => _compilationUnits
     SemanticModels: IReadOnlyDictionary<string, SemanticModel> => _semanticModels
@@ -85,6 +87,35 @@ class MultiFileCompiler {
         }
         set {
             _emitReferenceAssembly = value
+        }
+    }
+
+    // WHETHER THIS COMPILATION ACCEPTS THE EXPERIMENTAL `soa record` LOWERING. Decided ONCE, when the
+    // compiler is built, from `NSHARP_EXPERIMENTAL_SOA` (`SoaFeature`), and carried into the analyzer
+    // this compiler owns; the emission route reads the same value. A caller that wants the other
+    // answer - a test proving the columnar route refuses to fall back - sets it here instead of
+    // rewriting the process environment, which every other compilation in the process would see.
+    SoaEnabled: bool {
+        get {
+            return _soaEnabled
+        }
+        set {
+            _soaEnabled = value
+            analyzer := _sharedAnalyzer
+            analyzer.SoaEnabled = value
+        }
+    }
+
+    // WHERE THE COLUMNAR DECLINE TRACE GOES, or null for nowhere. Decided ONCE, when the compiler is
+    // built: stderr when `NSHARP_COLUMNAR_DECLINE_LOG` is on, else nothing. A caller that wants the
+    // trace names its own writer here instead of setting the variable and swapping `Console.Error`,
+    // both of which are process-global.
+    ColumnarDeclineLog: TextWriter? {
+        get {
+            return _columnarDeclineLog
+        }
+        set {
+            _columnarDeclineLog = value
         }
     }
 
@@ -134,9 +165,16 @@ class MultiFileCompiler {
         _sourceTextOverrides = inputs.SourceTextOverrides
         _sourceFiles = inputs.SourceFiles
         _debugLoggingEnabled = IsDebugLoggingEnabled()
+        _soaEnabled = SoaFeature.IsEnabled
+        _columnarDeclineLog = null
+        if IsColumnarDeclineLoggingEnabled() {
+            _columnarDeclineLog = Console.Error
+        }
 
         // One analyzer instance owns the complete repeated-call lifetime.
-        _sharedAnalyzer = new Analyzer()
+        analyzer := new Analyzer()
+        analyzer.SoaEnabled = _soaEnabled
+        _sharedAnalyzer = analyzer
         _sharedAnalyzer.LoadSystemAssemblies()
         _sharedAnalyzer.LoadFromProjectConfig(_config, _projectRoot)
     }
@@ -714,9 +752,8 @@ class MultiFileCompiler {
     }
 
     private func RequiresColumnarSoaEmission(): bool {
-        soaFeatureEnabled := SoaFeature.IsEnabled
         compilationUnits := _compilationUnits.Values
-        if !soaFeatureEnabled {
+        if !_soaEnabled {
             return false
         }
         enumerator := compilationUnits.GetEnumerator()
@@ -799,8 +836,8 @@ class MultiFileCompiler {
             return
         }
 
-        writeToStdErr := IsColumnarDeclineLoggingEnabled()
-        if (!writeToStdErr && !_debugLoggingEnabled) {
+        declineLog := _columnarDeclineLog
+        if (declineLog == null && !_debugLoggingEnabled) {
             return
         }
 
@@ -822,8 +859,8 @@ class MultiFileCompiler {
             }
 
             traceLine := ColumnarDeclineReasonFacts.FormatTraceLine(columnarRecordValue, fileName, line, column)
-            if (writeToStdErr) {
-                Console.Error.WriteLine(traceLine)
+            if (declineLog != null) {
+                declineLog.WriteLine(traceLine)
             }
 
             if (_debugLoggingEnabled) {

@@ -375,7 +375,7 @@ class AnalyzerTypeResolver {
     // real source position, and on the prefix actually naming a SoA table.
     func ReportSoaRowTypeReferenceIfNeeded(name: string, line: int, column: int): bool {
         rowSuffix := ".Row"
-        if !SoaFeature.IsEnabled || line <= 0 || !name.EndsWith(rowSuffix, StringComparison.Ordinal) {
+        if !declarationContextValue.SoaEnabled || line <= 0 || !name.EndsWith(rowSuffix, StringComparison.Ordinal) {
             return false
         }
 

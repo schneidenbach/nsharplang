@@ -155,6 +155,7 @@ class Analyzer: IDisposable {
 
         FriendGrants = new InternalsVisibleToGrants()
         DeclarationContext.SetFriendGrants(FriendGrants)
+        DeclarationContext.SetSoaEnabled(SoaFeature.IsEnabled)
         ExternalTypeProbe = new AnalyzerExternalTypeProbe(MlcAssemblies, UsingNamespaces, FriendGrants)
         ProjectDiscovery = new AnalyzerProjectTypeDiscovery(
             ProjectSources,
@@ -2220,6 +2221,19 @@ class Analyzer: IDisposable {
 
     func GetFriendGrants(): InternalsVisibleToGrants {
         return FriendGrants
+    }
+
+    // WHETHER THIS ANALYSIS ACCEPTS THE EXPERIMENTAL `soa record` LOWERING: `NSHARP_EXPERIMENTAL_SOA`,
+    // read once when the analyzer is built, and settable by a caller that wants the other answer
+    // without rewriting the process environment. The declaration context is the one place every
+    // gated owner reads it from.
+    SoaEnabled: bool {
+        get {
+            return DeclarationContext.SoaEnabled
+        }
+        set {
+            DeclarationContext.SetSoaEnabled(value)
+        }
     }
 
     func CreateEditorTypeCatalog(): EditorTypeCatalog {

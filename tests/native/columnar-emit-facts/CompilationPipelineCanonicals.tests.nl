@@ -10,7 +10,7 @@ import System.Reflection
 // analysis-before-emit failures, persisted assembly metadata, decline diagnostics, and preprocessing.
 // Each still uses the public MultiFileCompiler entry point and cleans its fixture in a finally block.
 test "MultiFileCompiler_ExperimentalSoaDoesNotFallbackToIlWhenColumnarRouteDeclines" {
-    compilation := EmitterCanonicalCompileWithEnvironment(
+    compilation := EmitterCanonicalCompileWithSetting(
         "SoaFallbackProject",
         "exe",
         """
@@ -27,8 +27,8 @@ func main() {
     print nodes[row].kind + nodes[row].start + nodes.length
 }
 """,
-        "NSHARP_EXPERIMENTAL_SOA",
-        "1"
+        "SoaEnabled",
+        true
     )
     try {
         assert !compilation.Succeeded
@@ -295,8 +295,8 @@ func main() { Console.WriteLine(5.Tag("ok")) }
     }
 }
 
-test "CompileToIlAssembly_DeclineLogEnvVarWritesTraceToStderr" {
-    captured := EmitterCanonicalCompileWithCapturedStderrAndEnvironment(
+test "CompileToIlAssembly_DeclineLogWritesTraceToTheCompilersWriter" {
+    captured := EmitterCanonicalCompileWithDeclineLog(
         "TraceDecline",
         "library",
         """
@@ -306,17 +306,61 @@ func TypeName(value: string): string? {
     lanes: Vector<int>[] = []
     return value + lanes.Length.ToString()
 }
+"""
+    )
+    try {
+        assert captured.DeclineTrace.Contains("decline site=emit.typed-local.unsupported-type", StringComparison.Ordinal)
+        assert captured.DeclineTrace.Contains("typed local declaration type is not supported for 'lanes': Vector<int>[]", StringComparison.Ordinal)
+        assert captured.DeclineTrace.Contains("location=Program.nl:4:5", StringComparison.Ordinal)
+    } finally {
+        EmitterCanonicalCleanup(captured.Compilation)
+    }
+}
+
+// THE TWO VARIABLES ARE READ AT THE FRONT DOOR, ONCE. The rows above set the compiler's own
+// settings in this process; these two prove the variables still seed them, in a child `nlc build`
+// whose environment block alone carries the variable.
+test "the columnar decline log variable sends the trace to the front door's stderr" {
+    run := EmitterCanonicalCliBuild(
+        "TraceDeclineCli",
+        """
+import System.Numerics
+
+func main() {
+    lanes: Vector<int>[] = []
+    print lanes.Length
+}
 """,
         "NSHARP_COLUMNAR_DECLINE_LOG",
         "1"
     )
-    try {
-        assert captured.Stderr.Contains("decline site=emit.typed-local.unsupported-type", StringComparison.Ordinal)
-        assert captured.Stderr.Contains("typed local declaration type is not supported for 'lanes': Vector<int>[]", StringComparison.Ordinal)
-        assert captured.Stderr.Contains("location=Program.nl:4:5", StringComparison.Ordinal)
-    } finally {
-        EmitterCanonicalCleanup(captured.Compilation)
-    }
+    assert run.ExitCode != 0, run.Stdout + run.Stderr
+    assert run.Stderr.Contains("decline site=emit.typed-local.unsupported-type", StringComparison.Ordinal), run.Stdout + run.Stderr
+    assert run.Stderr.Contains("location=Program.nl:4:5", StringComparison.Ordinal), run.Stdout + run.Stderr
+}
+
+test "the experimental soa variable turns on the columnar-only route at the front door" {
+    run := EmitterCanonicalCliBuild(
+        "SoaFallbackCli",
+        """
+soa record NodeTable {
+    kind: int
+    start: int
+}
+
+func main() {
+    nodes := new NodeTable(1)
+    row := nodes.add()
+    nodes[row].kind = 7
+    nodes[row].start = 9
+    print nodes[row].kind + nodes[row].start + nodes.length
+}
+""",
+        "NSHARP_EXPERIMENTAL_SOA",
+        "1"
+    )
+    assert run.ExitCode != 0, run.Stdout + run.Stderr
+    assert (run.Stdout + run.Stderr).Contains("Columnar SoA emission is required", StringComparison.Ordinal), run.Stdout + run.Stderr
 }
 
 test "ConditionalCompilation_EmitsOnlyLiveBranches_BasedOnProjectDefines" {

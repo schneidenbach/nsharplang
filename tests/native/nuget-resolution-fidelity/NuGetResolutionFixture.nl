@@ -77,11 +77,18 @@ func ResolutionQuote(value: string): string {
 // buffer otherwise, and the gate parses this project's own stdout as JSON, so nothing a child
 // prints may reach it.
 func ResolutionRunDotnet(arguments: string, workingDirectory: string): ResolutionRun {
+    return ResolutionRunDotnetWith(arguments, workingDirectory, null)
+}
+
+func ResolutionRunDotnetWith(arguments: string, workingDirectory: string, packagesCache: string?): ResolutionRun {
     startInfo := new ProcessStartInfo { FileName: "dotnet", Arguments: arguments }
     startInfo.WorkingDirectory = workingDirectory
     startInfo.RedirectStandardOutput = true
     startInfo.RedirectStandardError = true
     startInfo.UseShellExecute = false
+    if packagesCache != null {
+        startInfo.Environment["NUGET_PACKAGES"] = packagesCache
+    }
 
     process := new Process { StartInfo: startInfo }
     process.Start()
@@ -105,17 +112,11 @@ func ResolutionRequireSuccess(result: ResolutionRun, operation: string) {
     }
 }
 
-// The child inherits this process's environment because `UseShellExecute` is false and nothing
-// rewrites the child's own block, so pointing `NUGET_PACKAGES` here points BOTH doors at the
-// throwaway cache — `nlc build` reads it through the same accessor `dotnet` does.
+// `NUGET_PACKAGES` is written into the CHILD'S environment block, which points BOTH doors at the
+// throwaway cache — `nlc build` reads it through the same accessor `dotnet` does — and leaves this
+// process's own environment, which the other files of this project read while they run, alone.
 func ResolutionRunInCache(arguments: string, workingDirectory: string, packagesCache: string): ResolutionRun {
-    previous := Environment.GetEnvironmentVariable("NUGET_PACKAGES")
-    Environment.SetEnvironmentVariable("NUGET_PACKAGES", packagesCache)
-    try {
-        return ResolutionRunDotnet(arguments, workingDirectory)
-    } finally {
-        Environment.SetEnvironmentVariable("NUGET_PACKAGES", previous)
-    }
+    return ResolutionRunDotnetWith(arguments, workingDirectory, packagesCache)
 }
 
 func ResolutionOutputDirectory(projectDirectory: string): string {
