@@ -3,6 +3,8 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import NSharpLang.Compiler.Columnar
+
 
 // CONTRACTS FOR THE SHIPPED `examples/` CORPUS (020 slice 15).
 //

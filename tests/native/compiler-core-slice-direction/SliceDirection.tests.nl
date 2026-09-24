@@ -41,9 +41,11 @@ func CoreSliceGraph(): SliceGraph {
 // test helper cannot build there. These are the split plan's fixture-hoisting work (moving a row to
 // the slice its subject lives in, or a helper to the slice that uses it), not PR 2's; until that
 // lands the count may only fall. Measured when this row was written: 116 reaches of product names
-// and 55 of other estate files' helpers, 111 of them from Model's estate.
+// and 55 of other estate files' helpers, 111 of them from Model's estate. 161 since the Syntax carve
+// moved `AstNodeFinderCore.tests.nl` -- a Model-subject row set that parses through Syntax's own estate
+// helpers -- into Syntax's project, where its ten reaches of those helpers are its own slice's.
 func EstateUpwardCeiling(): int {
-    return 171
+    return 161
 }
 
 test "every Compiler.Core source file sits in one of the eight slice directories" {
@@ -57,23 +59,42 @@ test "every Compiler.Core source file sits in one of the eight slice directories
     }
 }
 
-test "a carved slice's product is read from its own project, and none of it is left in Core" {
-    graph := CoreSliceGraph()
-    carvedProduct := 0
-    coreModelEstate := 0
+// A carved slice's files, after asserting none of its PRODUCT is left in Core's directory: its product
+// files in its own project, its estate files in its own project, and its estate files still in Core's
+// directory.
+func CarvedSliceCounts(graph: SliceGraph, rank: int): int[] {
+    product := 0
+    projectEstate := 0
+    coreEstate := 0
     for file in graph.Files {
-        if file.Rank == 0 && !file.IsEstate {
-            assert IsInSliceProject(file.RelativePath), file.RelativePath + " is Model product outside src/NSharpLang.Compiler.Model"
-            carvedProduct = carvedProduct + 1
+        if file.Rank != rank {
+            continue
         }
-        if file.Rank == 0 && file.IsEstate && !IsInSliceProject(file.RelativePath) {
-            coreModelEstate = coreModelEstate + 1
+        if !file.IsEstate {
+            assert IsInSliceProject(file.RelativePath), file.RelativePath + " is " + SliceName(rank) + " product outside src/" + SliceProjectName(rank)
+            product = product + 1
+        } else if IsInSliceProject(file.RelativePath) {
+            projectEstate = projectEstate + 1
+        } else {
+            coreEstate = coreEstate + 1
         }
     }
+    return [product, projectEstate, coreEstate]
+}
+
+test "a carved slice's product is read from its own project, and none of it is left in Core" {
+    graph := CoreSliceGraph()
     // Model's product is its own project; its estate stays in Core's `Model/` until the fixture
     // hoisting, because its rows still reach the slices above it.
-    assert carvedProduct > 90, carvedProduct.ToString()
-    assert coreModelEstate > 40, coreModelEstate.ToString()
+    model := CarvedSliceCounts(graph, 0)
+    assert model[0] > 90, model[0].ToString()
+    assert model[1] == 0, model[1].ToString()
+    assert model[2] > 40, model[2].ToString()
+    // Syntax's rows reach only Syntax and Model, so its estate moved with its product.
+    syntax := CarvedSliceCounts(graph, 1)
+    assert syntax[0] > 25, syntax[0].ToString()
+    assert syntax[1] > 10, syntax[1].ToString()
+    assert syntax[2] == 0, syntax[2].ToString()
 }
 
 test "no Compiler.Core product file reaches a top-level name a higher slice owns" {

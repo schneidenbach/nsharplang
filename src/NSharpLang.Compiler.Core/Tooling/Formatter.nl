@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 
 // THE FORMATTER ITSELF: THE FILE, ITS DECLARATIONS AND THE TWO SAFETY GATES.

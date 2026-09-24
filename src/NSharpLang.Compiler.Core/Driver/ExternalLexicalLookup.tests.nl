@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import System.Runtime.InteropServices
+import NSharpLang.Compiler.Columnar
 
 
 // A NAMESPACE'S MEMBERS ARE ITS TYPES, WHICHEVER ASSEMBLY COMPILED THEM — over real projects.

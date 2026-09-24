@@ -581,7 +581,7 @@ func PgRunFiles(code: string, activeFile: string): object {
 // the runner's dictionary replacement contract isolated: the later declaration must replace the
 // earlier value before Run selects the final dictionary entry.
 func PgRunDuplicateEntryPoint(): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Syntax")
     unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     runnerType := Type.GetType("NSharpLang.Playground.PlaygroundRunner, NSharpLang.Playground")
     if parserType == null || unitType == null || runnerType == null {

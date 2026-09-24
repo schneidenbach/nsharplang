@@ -38,7 +38,7 @@ func NominalText(owner: object, memberName: string): string {
 }
 
 func NominalParse(source: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Syntax")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }

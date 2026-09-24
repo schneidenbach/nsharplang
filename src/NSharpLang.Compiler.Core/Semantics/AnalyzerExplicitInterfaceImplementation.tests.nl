@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import NSharpLang.Compiler.Columnar
 
 
 // PRODUCT-PATH CONTRACTS FOR THE FIVE EXPLICIT-INTERFACE DIAGNOSTICS.

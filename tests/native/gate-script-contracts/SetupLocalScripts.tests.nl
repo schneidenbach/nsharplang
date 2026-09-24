@@ -81,8 +81,10 @@ test "the synchronous package loop traces runtime once and exact compiler PDB fl
         expected = expected + boundary + "<arg>dotnet|<arg>build|" + flags + "<arg>" + buildTasks + "|<arg>-c|<arg>Release|<arg>-v|<arg>q|\n"
         expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>src/NSharpLang.Sdk/NSharpLang.Sdk.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-v|<arg>q|\n"
         expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>templates/NSharpLang.Templates.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-v|<arg>q|\n"
-        // Compiler.Model is carved out of Core and packed before it: Core's package depends on it.
+        // Compiler.Model and Compiler.Syntax are carved out of Core and packed before it, lowest first:
+        // Syntax's package depends on Model's, and Core's on Syntax's.
         expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>src/NSharpLang.Compiler.Model/NSharpLang.Compiler.Model.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-p:DebugSymbols=false|<arg>-p:DebugType=None|<arg>-v|<arg>q|\n"
+        expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-p:DebugSymbols=false|<arg>-p:DebugType=None|<arg>-v|<arg>q|\n"
         expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>" + restore + "|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-p:DebugSymbols=false|<arg>-p:DebugType=None|<arg>-v|<arg>q|\n"
         expected = expected + boundary + "<arg>dotnet|<arg>pack|" + flags + "<arg>src/NSharpLang.Compiler/Compiler.csproj|<arg>-c|<arg>Release|<arg>-o|" + output + "<arg>-p:DebugSymbols=false|<arg>-p:DebugType=None|<arg>-v|<arg>q|\n"
 

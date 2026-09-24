@@ -12,6 +12,8 @@ import System.Text.RegularExpressions
 import System.Threading
 import System.Threading.Tasks
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
+
 
 // THE IMPORTS ABOVE ARE PART OF THE FIXTURE. `LnieDeclares` resolves against the assemblies this test
 // host has LOADED, so a namespace no code in the estate mentions would answer "declares nothing" and

@@ -181,8 +181,8 @@ func DevSinceWords(run: ProcessRun): string {
 }
 
 test "dev since selects each Compiler.Core slice directory's own subsystem" {
-    slices: string[] = ["Syntax", "Semantics", "Backend.Plan", "Backend.Emit", "CodeIntel", "Tooling", "Driver"]
-    expected: string[] = ["Columnar estate", "Analyzer estate", "Columnar estate", "Columnar estate", "LanguageServer completion doc estate query", "estate", "cli daemon estate"]
+    slices: string[] = ["Semantics", "Backend.Plan", "Backend.Emit", "CodeIntel", "Tooling", "Driver"]
+    expected: string[] = ["Analyzer estate", "Columnar estate", "Columnar estate", "LanguageServer completion doc estate query", "estate", "cli daemon estate"]
     index := 0
     while index < slices.Length {
         run := DevSinceRun("src/NSharpLang.Compiler.Core/" + slices[index] + "/Probe.nl")
@@ -209,6 +209,20 @@ test "dev since treats a change to the carved Compiler.Model project as central 
     assert run.Stderr.Contains("src/NSharpLang.Compiler.Model/Probe.nl (Compiler.Model: the AST and shared model every slice reads)"), run.Report()
 }
 
+test "dev since selects the carved Compiler.Syntax project's subsystem, and runs everything for its build configuration" {
+    run := DevSinceRun("src/NSharpLang.Compiler.Syntax/Probe.nl")
+    assert run.ExitCode == 0, run.Report()
+    assert DevSinceWords(run) == "Columnar estate", "selected '" + DevSinceWords(run) + "': " + run.Report()
+    assert !run.Stderr.Contains("EVERYTHING (fail-safe)"), run.Report()
+
+    for configuration in ["project.yml", "NSharpLang.Compiler.Syntax.csproj", "global.json"] {
+        configured := DevSinceRun("src/NSharpLang.Compiler.Syntax/" + configuration)
+        assert configured.ExitCode == 0, configuration + ": " + configured.Report()
+        assert configured.Stderr.Contains("Change-aware selection: EVERYTHING (fail-safe). Triggers:"), configuration + ": " + configured.Report()
+        assert configured.Stderr.Contains("src/NSharpLang.Compiler.Syntax/" + configuration + " (Compiler.Syntax build config)"), configuration + ": " + configured.Report()
+    }
+}
+
 test "dev since still runs everything for a Compiler.Core file outside every slice directory" {
     run := DevSinceRun("src/NSharpLang.Compiler.Core/Stray.nl")
 
@@ -217,9 +231,10 @@ test "dev since still runs everything for a Compiler.Core file outside every sli
     assert run.Stderr.Contains("src/NSharpLang.Compiler.Core/Stray.nl (shared compiler file)"), run.Report()
 }
 
-test "dev list names the slice directories that hold estate rows" {
+test "dev list names the slice directories and the carved projects that hold estate rows" {
     run := Run(BashLaunch("scripts/dev.sh --list", 60000))
 
     assert run.ExitCode == 0, run.Report()
-    assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Core/<slice>/*.tests.nl (run with --estate; slices: Backend.Emit Backend.Plan CodeIntel Driver Model Semantics Syntax Tooling)"), run.Report()
+    assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Core/<slice>/*.tests.nl (run with --estate; slices: Backend.Emit Backend.Plan CodeIntel Driver Model Semantics Tooling)"), run.Report()
+    assert run.Stdout.Contains("estate    src/NSharpLang.Compiler.Syntax/*.tests.nl (run with --estate)"), run.Report()
 }

@@ -108,6 +108,7 @@ func CompilerProjectDirectoriesFromCore(): List<string> {
 test "every compiler project the seed builds is compiled emit-only and cleaned by the reseed" {
     compilerProjects := CompilerProjectDirectoriesFromCore()
     assert compilerProjects.Contains("src/NSharpLang.Compiler.Model"), "Core must reach the carved Compiler.Model through project.yml: " + string.Join(", ", compilerProjects)
+    assert compilerProjects.Contains("src/NSharpLang.Compiler.Syntax"), "Core must reach the carved Compiler.Syntax through project.yml: " + string.Join(", ", compilerProjects)
 
     targets := ReadSdkFile("Sdk.targets")
     emitOnly := RequireMatch(

@@ -98,11 +98,12 @@ test "the fixture packs this checkout and publishes the toolset into a Docker bu
     assert Directory.Exists(toolsetDirectory), toolsetDirectory
     assert File.Exists(Path.Combine(buildContextDirectory, "Dockerfile.toolchain")), buildContextDirectory
 
-    // The six packages a generated project restores, plus the template package `dotnet new install`
+    // The packages a generated project restores, plus the template package `dotnet new install`
     // reads from `/root/.nsharp/packages`.
     packageNames: string[] = [
         "NSharpLang.Runtime",
         "NSharpLang.Compiler.Model",
+        "NSharpLang.Compiler.Syntax",
         "NSharpLang.Compiler.Core",
         "NSharpLang.Compiler",
         "NSharpLang.Sdk",

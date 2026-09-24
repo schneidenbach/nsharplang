@@ -86,7 +86,7 @@ func EventText(owner: object, memberName: string): string {
 // The production recovery parser, asked with a NULL file name — exactly as the deleted `Analyze`
 // helper asked it, and the reason every diagnostic below carries no file.
 func EventParse(source: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Syntax")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }

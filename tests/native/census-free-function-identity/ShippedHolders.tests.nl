@@ -84,12 +84,13 @@ func ShippedSeedAssemblies(): List<ShippedAssembly> {
     return assemblies
 }
 
-// The same four assemblies `NSharpLang.Sdk.csproj` packs into `tools/` from the tasks project's
-// output. A payload that is not built is a failure, never an empty pass.
+// The N# assemblies `NSharpLang.Sdk.csproj` packs into `tools/` from the tasks project's output:
+// the tasks, the facade, every Compiler.Core slice carved so far and Core itself, and the runtime.
+// A payload that is not built is a failure, never an empty pass.
 func ShippedPayloadAssemblies(): List<ShippedAssembly> {
     payload := Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(ShippedRepositoryRoot(), "src"), "NSharpLang.Build.Tasks"), "bin"), "Debug"), "net10.0")
     assemblies := new List<ShippedAssembly>()
-    for name in ["NSharpLang.Build.Tasks.dll", "Compiler.dll", "NSharpLang.Compiler.Core.dll", "NSharpLang.Runtime.dll"] {
+    for name in ["NSharpLang.Build.Tasks.dll", "Compiler.dll", "NSharpLang.Compiler.Model.dll", "NSharpLang.Compiler.Syntax.dll", "NSharpLang.Compiler.Core.dll", "NSharpLang.Runtime.dll"] {
         path := Path.Combine(payload, name)
         if !File.Exists(path) {
             throw new InvalidOperationException("The SDK payload is not built: " + path + " is missing (build src/NSharpLang.Build.Tasks first).")

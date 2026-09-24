@@ -12,7 +12,7 @@
   <PropertyGroup>
     <!-- The compiler compiles ITSELF emit-only: Compiler Core and every slice carved out of it. Their
          analysis is the self-host front door's job (test-all-core.sh Step 2d), not the seed's. -->
-    <NSharpEmitValidateWithLegacyAnalysis Condition="'$(NSharpEmitValidateWithLegacyAnalysis)' == '' And ('$(MSBuildProjectName)' == 'NSharpLang.Compiler.Core' Or '$(MSBuildProjectName)' == 'NSharpLang.Compiler.Model')">false</NSharpEmitValidateWithLegacyAnalysis>
+    <NSharpEmitValidateWithLegacyAnalysis Condition="'$(NSharpEmitValidateWithLegacyAnalysis)' == '' And ('$(MSBuildProjectName)' == 'NSharpLang.Compiler.Core' Or '$(MSBuildProjectName)' == 'NSharpLang.Compiler.Syntax' Or '$(MSBuildProjectName)' == 'NSharpLang.Compiler.Model')">false</NSharpEmitValidateWithLegacyAnalysis>
     <NSharpEmitValidateWithLegacyAnalysis Condition="'$(NSharpEmitValidateWithLegacyAnalysis)' == ''">true</NSharpEmitValidateWithLegacyAnalysis>
     <_NSharpEmitStamp>$(IntermediateOutputPath)nsharp.emit.stamp</_NSharpEmitStamp>
   </PropertyGroup>
@@ -198,7 +198,7 @@
           AfterTargets="CoreCompile"
           BeforeTargets="CopyFilesToOutputDirectory"
           DependsOnTargets="FindReferenceAssembliesForReferences"
-          Inputs="@(NSharpCompile);@(NSharpTestFiles);$(NSharpProjectFile);@(ReferencePathWithRefAssemblies);$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll;$(MSBuildThisFileDirectory)../tools/Compiler.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Model.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Core.dll"
+          Inputs="@(NSharpCompile);@(NSharpTestFiles);$(NSharpProjectFile);@(ReferencePathWithRefAssemblies);$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll;$(MSBuildThisFileDirectory)../tools/Compiler.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Model.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Syntax.dll;$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Core.dll"
           Outputs="$(_NSharpEmitStamp);@(IntermediateAssembly)"
           Condition="'$(EnableNSharpCompilation)' == 'true' And ('@(NSharpCompile)' != '' Or '@(NSharpTestFiles)' != '')">
     <ItemGroup>

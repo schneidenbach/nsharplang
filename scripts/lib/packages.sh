@@ -9,6 +9,7 @@ NSHARP_PACKAGE_SPECS=(
     "NSharpLang.Runtime|NSharpLang.Runtime|src/NSharpLang.Runtime/NSharpLang.Runtime.csproj"
     "NSharpLang.Templates|NSharpLang.Templates|templates/NSharpLang.Templates.csproj"
     "NSharpLang.Compiler.Model|NSharpLang.Compiler.Model|src/NSharpLang.Compiler.Model/NSharpLang.Compiler.Model.csproj"
+    "NSharpLang.Compiler.Syntax|NSharpLang.Compiler.Syntax|src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj"
     "NSharpLang.Compiler.Core|NSharpLang.Compiler.Core|src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
     "NSharpLang.Compiler|NSharpLang.Compiler|src/NSharpLang.Compiler/Compiler.csproj"
 )
@@ -119,7 +120,7 @@ nsharp_pack_package_set() {
 
         echo
         echo "Packing $label..."
-        if [[ "$project" == "src/NSharpLang.Compiler.Model/NSharpLang.Compiler.Model.csproj" || "$project" == "src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj" || "$project" == "src/NSharpLang.Compiler/Compiler.csproj" ]]; then
+        if [[ "$project" == "src/NSharpLang.Compiler.Model/NSharpLang.Compiler.Model.csproj" || "$project" == "src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj" || "$project" == "src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj" || "$project" == "src/NSharpLang.Compiler/Compiler.csproj" ]]; then
             # Direct N# IL emits no PDB. Tell NuGet the actual output shape for the compiler assemblies.
             nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet pack "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$project" -c Release -o "$output_dir" -p:DebugSymbols=false -p:DebugType=None -v "$verbosity"
         else
@@ -133,6 +134,7 @@ nsharp_print_release_artifact_set() {
     echo "  - NSharpLang.Runtime - runtime support library for N# language features"
     echo "  - NSharpLang.Templates - dotnet new templates"
     echo "  - NSharpLang.Compiler.Model - N# compiler model (AST, types, diagnostics, project config)"
+    echo "  - NSharpLang.Compiler.Syntax - N# compiler syntax (lexer, preprocessor, parser, node table)"
     echo "  - NSharpLang.Compiler.Core - N# compiler implementation dependency"
     echo "  - NSharpLang.Compiler - Compiler API library"
     echo "  - nsharp-toolset.tar.gz - package-manager-ready nlc and nsharp-lsp payloads"

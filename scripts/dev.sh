@@ -14,10 +14,11 @@
 # `tests/Tests.csproj` with it. What remains is what the gate's Step 3a runs:
 #
 #   * the ESTATE — the compiler-service contracts that live beside their owners as
-#     `src/NSharpLang.Compiler.Core/<slice>/*.tests.nl`, run through that project with
-#     `-p:NSharpExcludeTests=false`. This is the slow one: it re-restores and rebuilds
-#     Compiler Core with its tests included. `src/NSharpLang.Compiler.Model` (carved out of
-#     Core) has no rows of its own yet: its estate stays in Core's `Model/` directory.
+#     `src/NSharpLang.Compiler.Core/<slice>/*.tests.nl` and `src/NSharpLang.Compiler.Syntax/*.tests.nl`,
+#     each run through its own project with `-p:NSharpExcludeTests=false`. This is the slow one: it
+#     re-restores and rebuilds each estate project with its tests included. `src/NSharpLang.Compiler.
+#     Syntax` (carved out of Core) carries its own rows, because they reach only Syntax and Model;
+#     `src/NSharpLang.Compiler.Model` has none yet: its estate stays in Core's `Model/` directory.
 #   * the NATIVE PROJECTS — every `tests/native/<dir>` with a `project.yml` and a
 #     `*.tests.nl` beside it, each run by the freshly built `nlc test`. These are seconds
 #     apiece, and a pattern usually wants only one or two of them.
@@ -70,7 +71,13 @@ cd "$REPO_ROOT"
 
 CLI_PROJECT="src/NSharpLang.Cli/Cli.csproj"
 CLI_DLL="src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
-ESTATE_PROJECT="src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
+# Every project whose own directory holds estate rows, lowest slice first. A slice carved out of
+# Compiler.Core whose rows reach only itself and the slices below it carries its rows into its own
+# project; the rest still sit in Core's slice directories.
+ESTATE_PROJECTS=(
+    "src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj"
+    "src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
+)
 
 # Same build-server stability flags the product gate uses, so the inner loop and
 # the gate agree on MSBuild behavior.
@@ -239,6 +246,7 @@ if [ "$LIST_ONLY" = "1" ]; then
         fi
     done
     echo "estate    src/NSharpLang.Compiler.Core/<slice>/*.tests.nl (run with --estate; slices:$estate_slices)"
+    echo "estate    src/NSharpLang.Compiler.Syntax/*.tests.nl (run with --estate)"
     native_slices | sed 's/^tests\/native\//native    /'
     exit 0
 fi
@@ -283,7 +291,12 @@ derive_slices_from_diff() {
             src/NSharpLang.Compiler.Core/Model/*)
                 full=1; reasons="$reasons
   - $f (Compiler.Core Model slice: the AST and shared model every slice reads)" ;;
-            src/NSharpLang.Compiler.Core/Syntax/*)         terms="$terms estate Columnar" ;;
+            # Syntax is its own project, rows included. Its build configuration is the compiler's
+            # build configuration: central.
+            src/NSharpLang.Compiler.Syntax/project.yml|src/NSharpLang.Compiler.Syntax/*.csproj|src/NSharpLang.Compiler.Syntax/global.json)
+                full=1; reasons="$reasons
+  - $f (Compiler.Syntax build config)" ;;
+            src/NSharpLang.Compiler.Syntax/*)              terms="$terms estate Columnar" ;;
             src/NSharpLang.Compiler.Core/Semantics/*)      terms="$terms estate Analyzer" ;;
             src/NSharpLang.Compiler.Core/Backend.Plan/*)   terms="$terms estate Columnar" ;;
             src/NSharpLang.Compiler.Core/Backend.Emit/*)   terms="$terms estate Columnar" ;;
@@ -415,35 +428,62 @@ if [ "$DO_TESTS" = "1" ] && [ "$WANT_ESTATE" = "1" ]; then
     else
         echo -e "${YELLOW}>>> Compiler-service estate (all rows)${NC}"
     fi
-    # The restore MUST re-run with -p:NSharpExcludeTests=false --force-evaluate after any other
-    # build, or `dotnet test` silently exits 0 having discovered zero tests.
-    if ! dotnet restore $DOTNET_STABLE_FLAGS "$ESTATE_PROJECT" -p:NSharpExcludeTests=false --force-evaluate -v q; then
-        echo -e "${RED}✗ Estate restore failed${NC}"
-        TEST_EXIT=1
-    else
+    # Each estate project runs on its own. The restore MUST re-run with -p:NSharpExcludeTests=false
+    # --force-evaluate after any other build, or `dotnet test` silently exits 0 having discovered zero
+    # tests. The run passes only with evidence: every project either reports a nonempty successful
+    # summary or -- under a filter -- names none of its rows ("No test matches"), and at least one
+    # project reports rows. A project that says neither proved nothing, and fails the run.
+    ESTATE_EVIDENCE=0
+    ESTATE_OUTPUTS=()
+    for ESTATE_PROJECT in "${ESTATE_PROJECTS[@]}"; do
+        ESTATE_NAME="$(basename "$ESTATE_PROJECT" .csproj)"
+        if ! dotnet restore $DOTNET_STABLE_FLAGS "$ESTATE_PROJECT" -p:NSharpExcludeTests=false --force-evaluate -v q; then
+            echo -e "${RED}✗ Estate restore failed ($ESTATE_NAME)${NC}"
+            TEST_EXIT=1
+            break
+        fi
         ESTATE_OUTPUT=$(mktemp)
+        ESTATE_OUTPUTS+=("$ESTATE_OUTPUT")
         ESTATE_RC=0
         if [ -n "$ESTATE_FILTER" ]; then
+            # `-v q` quiets the test console too, and a quiet one does not say "No test matches the
+            # given testcase filter" -- the one line that tells a project with no matching row from one
+            # that ran nothing at all -- so the console logger keeps its own minimal verbosity.
             dotnet test $DOTNET_STABLE_FLAGS "$ESTATE_PROJECT" -p:NSharpExcludeTests=false --no-restore \
-                --filter "FullyQualifiedName~$ESTATE_FILTER" -v q --nologo > "$ESTATE_OUTPUT" 2>&1 || ESTATE_RC=$?
+                --filter "FullyQualifiedName~$ESTATE_FILTER" -v q --nologo --logger "console;verbosity=minimal" \
+                > "$ESTATE_OUTPUT" 2>&1 || ESTATE_RC=$?
         else
             dotnet test $DOTNET_STABLE_FLAGS "$ESTATE_PROJECT" -p:NSharpExcludeTests=false --no-restore \
                 -v q --nologo > "$ESTATE_OUTPUT" 2>&1 || ESTATE_RC=$?
         fi
         if [ "$ESTATE_RC" != "0" ]; then
             cat "$ESTATE_OUTPUT"
-            echo -e "${RED}✗ Estate rows failed${NC}"
+            echo -e "${RED}✗ Estate rows failed ($ESTATE_NAME)${NC}"
             TEST_EXIT=$ESTATE_RC
+            break
         elif has_nonempty_successful_test_summary "$ESTATE_OUTPUT"; then
             grep -E "Passed!|Failed!|Passed:|Failed:|error" "$ESTATE_OUTPUT" | head -20 || true
-            echo -e "${GREEN}✓ Estate rows passed${NC}"
+            ESTATE_EVIDENCE=$((ESTATE_EVIDENCE + 1))
+        elif [ -n "$ESTATE_FILTER" ] && grep -q "No test matches the given testcase filter" "$ESTATE_OUTPUT"; then
+            echo "    $ESTATE_NAME: no row matches '$ESTATE_FILTER'"
         else
             cat "$ESTATE_OUTPUT"
+            echo "    in $ESTATE_NAME:"
+            report_missing_test_evidence "Estate rows"
+            TEST_EXIT=1
+            break
+        fi
+    done
+    if [ "$TEST_EXIT" = "0" ]; then
+        if [ "$ESTATE_EVIDENCE" -gt 0 ]; then
+            echo -e "${GREEN}✓ Estate rows passed${NC}"
+        else
+            cat "${ESTATE_OUTPUTS[@]}"
             report_missing_test_evidence "Estate rows"
             TEST_EXIT=1
         fi
-        rm -f "$ESTATE_OUTPUT"
     fi
+    rm -f ${ESTATE_OUTPUTS[@]+"${ESTATE_OUTPUTS[@]}"}
 fi
 
 if [ "$DO_TESTS" = "1" ] && [ -n "${SELECTED_NATIVE// /}" ]; then

@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 
 // ONE STEP THE IMPORT WALK CANNOT TAKE FOR ITSELF.

@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.CodeIntelligence
+import NSharpLang.Compiler.Columnar
 
 
 // CONTRACTS FOR THE LINTER'S ENTRY AND ITS DECLARATION WALK (task 019 slice 12). These are the

@@ -312,6 +312,7 @@ format_rc=0
     dotnet "$CLI_DLL" format --project templates --check || format_rc=1
     dotnet "$CLI_DLL" format --project tests/fixtures/issue-tracker --check || format_rc=1
     dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.Model --check || format_rc=1
+    dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.Syntax --check || format_rc=1
     dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.Core --check || format_rc=1
 } > "$FORMAT_OUTPUT" 2>&1
 cat "$FORMAT_OUTPUT"
@@ -546,24 +547,34 @@ if step_cache_hit "native-nsharp-tests" "$UNIT_INPUTS_HASH"; then
 else
     echo "Running the gated compiler-service and product .tests.nl estate..."
     NATIVE_STEP_OK=1
-    BOOTSTRAP_TEST_PROJECT="src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
-    BOOTSTRAP_TEST_OUTPUT=$(mktemp)
-    if dotnet restore $DOTNET_STABLE_FLAGS "$BOOTSTRAP_TEST_PROJECT" \
-            -p:NSharpExcludeTests=false --force-evaluate -v q \
-        && dotnet test $DOTNET_STABLE_FLAGS "$BOOTSTRAP_TEST_PROJECT" \
-            -p:NSharpExcludeTests=false --no-restore -v q --nologo \
-            > "$BOOTSTRAP_TEST_OUTPUT" 2>&1 \
-        && grep -Eq 'Passed:[[:space:]]*[1-9][0-9]*' "$BOOTSTRAP_TEST_OUTPUT" \
-        && grep -Eq 'Failed:[[:space:]]*0([^0-9]|$)' "$BOOTSTRAP_TEST_OUTPUT" \
-        && grep -Eq 'Total:[[:space:]]*[1-9][0-9]*' "$BOOTSTRAP_TEST_OUTPUT"; then
-        grep -E "Passed!|Failed!" "$BOOTSTRAP_TEST_OUTPUT" || true
-        handle_success "Native N# tests: compiler-service contracts"
-    else
-        cat "$BOOTSTRAP_TEST_OUTPUT"
-        handle_error "Native N# tests: compiler-service contracts"
-        NATIVE_STEP_OK=0
-    fi
-    rm -f "$BOOTSTRAP_TEST_OUTPUT"
+    # Every project whose own directory holds estate rows, lowest slice first: a slice carved out of
+    # Compiler.Core whose rows reach only itself and the slices below it carries them into its own
+    # project (Compiler.Syntax does); the rest still sit in Core's slice directories. Each is restored
+    # and run on its own, and each must show its own nonempty, failure-free summary.
+    BOOTSTRAP_TEST_PROJECTS=(
+        "src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj"
+        "src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
+    )
+    for BOOTSTRAP_TEST_PROJECT in "${BOOTSTRAP_TEST_PROJECTS[@]}"; do
+        BOOTSTRAP_TEST_NAME="$(basename "$BOOTSTRAP_TEST_PROJECT" .csproj)"
+        BOOTSTRAP_TEST_OUTPUT=$(mktemp)
+        if dotnet restore $DOTNET_STABLE_FLAGS "$BOOTSTRAP_TEST_PROJECT" \
+                -p:NSharpExcludeTests=false --force-evaluate -v q \
+            && dotnet test $DOTNET_STABLE_FLAGS "$BOOTSTRAP_TEST_PROJECT" \
+                -p:NSharpExcludeTests=false --no-restore -v q --nologo \
+                > "$BOOTSTRAP_TEST_OUTPUT" 2>&1 \
+            && grep -Eq 'Passed:[[:space:]]*[1-9][0-9]*' "$BOOTSTRAP_TEST_OUTPUT" \
+            && grep -Eq 'Failed:[[:space:]]*0([^0-9]|$)' "$BOOTSTRAP_TEST_OUTPUT" \
+            && grep -Eq 'Total:[[:space:]]*[1-9][0-9]*' "$BOOTSTRAP_TEST_OUTPUT"; then
+            grep -E "Passed!|Failed!" "$BOOTSTRAP_TEST_OUTPUT" || true
+            handle_success "Native N# tests: compiler-service contracts ($BOOTSTRAP_TEST_NAME)"
+        else
+            cat "$BOOTSTRAP_TEST_OUTPUT"
+            handle_error "Native N# tests: compiler-service contracts ($BOOTSTRAP_TEST_NAME)"
+            NATIVE_STEP_OK=0
+        fi
+        rm -f "$BOOTSTRAP_TEST_OUTPUT"
+    done
 
     NATIVE_PROJECTS=$(
         while IFS= read -r native_project; do

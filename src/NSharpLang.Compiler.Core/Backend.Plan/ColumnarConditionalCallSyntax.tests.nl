@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler
 
 import System
+import NSharpLang.Compiler.Columnar
 
 
 // THE NULL-CONDITIONAL CALL, IN THE SHAPE THE BACKEND ACTUALLY BUILDS.

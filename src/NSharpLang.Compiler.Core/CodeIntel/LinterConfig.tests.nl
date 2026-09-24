@@ -4,6 +4,8 @@ import System
 import System.Collections.Generic
 import System.IO
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
+
 
 // CONTRACTS FOR THE LINTER CONFIGURATION (020 slice 8).
 //

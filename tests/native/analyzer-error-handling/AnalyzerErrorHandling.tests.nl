@@ -94,7 +94,7 @@ func EhText(owner: object, memberName: string): string {
 // The production recovery parser, asked with the file name `test.nl` — exactly as the deleted
 // `Parse` helper asked it.
 func EhParse(source: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Syntax")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }

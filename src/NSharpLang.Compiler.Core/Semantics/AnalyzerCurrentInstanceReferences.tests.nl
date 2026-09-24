@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import NSharpLang.Compiler.Columnar
 
 
 // THE CONTRACTS FOR `this` AND `base` AS EXPRESSIONS, END TO END OVER REAL SOURCE.

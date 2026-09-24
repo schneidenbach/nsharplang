@@ -43,7 +43,8 @@ STOP_AFTER="${NSHARP_RESEED_STOP_AFTER:-}"
 CORE_PROJECT="src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
 # Every project the Core build compiles with the seed: Core itself and each slice carved out of it,
 # which Core's `project:` dependencies build first. Building CORE_PROJECT builds them all.
-COMPILER_PROJECT_DIRS=("src/NSharpLang.Compiler.Model" "src/NSharpLang.Compiler.Core")
+COMPILER_PROJECT_DIRS=("src/NSharpLang.Compiler.Model" "src/NSharpLang.Compiler.Syntax" "src/NSharpLang.Compiler.Core")
+ESTATE_PROJECTS=("src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj" "$CORE_PROJECT")
 SEED_PACKAGES=("NSharpLang.Sdk" "NSharpLang.Runtime")
 
 reseed_absolute_path() {
@@ -222,10 +223,15 @@ reseed_rebuild() {
 # STEP 8 -- the estate. The seed is only republishable if the compiler it produces still passes the
 # compiler-service tests, and those need their own restore: `NSharpExcludeTests` is evaluated at
 # RESTORE time, so a `dotnet test` after any other build silently runs zero tests and exits 0.
+# Every compiler project whose own directory holds estate rows runs them (Compiler.Syntax carries its
+# own; the rest still sit in Core's slice directories).
 reseed_estate() {
+    local estate_project
     nsharp_log "Running the compiler-service estate against the new seed"
-    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet restore "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$CORE_PROJECT" -p:NSharpExcludeTests=false --force-evaluate -v q
-    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet test "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$CORE_PROJECT" -p:NSharpExcludeTests=false --no-restore -v q --nologo
+    for estate_project in "${ESTATE_PROJECTS[@]}"; do
+        nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet restore "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$estate_project" -p:NSharpExcludeTests=false --force-evaluate -v q
+        nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet test "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$estate_project" -p:NSharpExcludeTests=false --no-restore -v q --nologo
+    done
 }
 
 nsharp_log "Reseeding $BOOTSTRAP_DIR from $NSHARP_REPO_ROOT"

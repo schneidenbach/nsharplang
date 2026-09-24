@@ -139,6 +139,7 @@ Do not add project settings to a hand-authored `.csproj`; fix the SDK/project.ym
 ```text
 src/
 ├── NSharpLang.Compiler.Model/    # N# compiler model: AST, types, diagnostics, project config
+├── NSharpLang.Compiler.Syntax/   # N# compiler syntax: lexer, preprocessor, parser kernels, node table
 ├── NSharpLang.Compiler.Core/     # N# compiler core and EmitIlAssembly task
 ├── NSharpLang.Build.Tasks/       # C# project-configuration bootstrap tasks
 │   └── NSharpLang.Build.targets

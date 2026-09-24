@@ -6,8 +6,9 @@ import System.IO
 
 // THE COMPILER'S OWN PROJECTS, READ THROUGH ITS SLICE LAYOUT.
 //
-// Compiler.Core is carved into slice projects lowest first (`src/NSharpLang.Compiler.Model` is
-// carved), and Core reaches every carved slice through a `project:` dependency in its project.yml.
+// Compiler.Core is carved into slice projects lowest first (`src/NSharpLang.Compiler.Model` and
+// `src/NSharpLang.Compiler.Syntax` are carved), and Core reaches every carved slice through the
+// `project:` dependencies of its project.yml, transitively.
 // A row that reads the compiler's own source or build output finds it by following that graph, never
 // by assuming it sits under Core: a file carved into a slice project is still the compiler's, and a
 // row that looks only under Core stops seeing it -- or, worse, reads a stale copy left behind.

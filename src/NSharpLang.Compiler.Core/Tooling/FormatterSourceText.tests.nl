@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 
 // THE FORMATTER READ THROUGH ITS OWN FRONT DOOR: SOURCE TEXT IN, CANONICAL SOURCE TEXT OUT.

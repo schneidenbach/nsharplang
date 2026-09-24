@@ -87,7 +87,7 @@ func BindingText(owner: object, memberName: string): string {
 // The production recovery parser — the same entry point the estate's finder contracts drive, asked
 // here through reflection because this project reaches the estate as a compiled assembly.
 func ParseUnit(source: string, fileName: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Syntax")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }

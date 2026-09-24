@@ -77,7 +77,7 @@ func BindingText(owner: object, memberName: string): string {
 // The production recovery parser, asked with the file name the deleted helper passed — which is the
 // same name every lookup below passes, and the reason the lookups find anything at all.
 func BindingParse(source: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Syntax")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }

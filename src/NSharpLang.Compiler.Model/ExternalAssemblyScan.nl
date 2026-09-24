@@ -950,9 +950,10 @@ class ExternalAssemblyScan {
 
     // THE COMPILER IS SEVERAL ASSEMBLIES. Compiler.Core is being carved into slice projects, lowest
     // first, and each slice is a separately built assembly of the one compiler: this one
-    // (`NSharpLang.Compiler.Model`) and Core above it. `Compiler` is the facade over them, not a slice.
+    // (`NSharpLang.Compiler.Model`), `NSharpLang.Compiler.Syntax` above it, and Core above both.
+    // `Compiler` is the facade over them, not a slice.
     static func CompilerSliceAssemblyNames(): string[] {
-        return ["NSharpLang.Compiler.Model", "NSharpLang.Compiler.Core"]
+        return ["NSharpLang.Compiler.Model", "NSharpLang.Compiler.Syntax", "NSharpLang.Compiler.Core"]
     }
 
     static func IsCompilerSliceAssemblyName(name: string): bool {

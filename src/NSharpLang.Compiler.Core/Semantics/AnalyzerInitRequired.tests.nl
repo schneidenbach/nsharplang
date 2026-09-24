@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import NSharpLang.Compiler.Columnar
 
 
 // Product-path semantic contracts for `init` and `required`. These parse real N# source and drive

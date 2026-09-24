@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 
 // CONTRACTS FOR THE FORMATTER ITSELF (task 019 slice 20). These are the semantic assertions that
