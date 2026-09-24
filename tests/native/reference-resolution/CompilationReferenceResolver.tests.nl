@@ -175,3 +175,36 @@ test "query does not build a referenced project that the next normal build does 
         Directory.Delete(projectRoot, true)
     }
 }
+
+// A PROJECT REFERENCE'S OWN PROJECT REFERENCES ARE COMPILED AGAINST, as MSBuild's transitive
+// `ProjectReference` compiles them: A -> B -> C lets A name C's types, and `dotnet build` builds A
+// that way. `nlc` used to hand A only B's output, with C's copied beside it as a runtime asset, so
+// `nlc check` and `nlc build` refused the program at every C name (NL201) -- found when
+// Compiler.Core began reaching Compiler.Model only through Compiler.Syntax, and its own front door
+// reported 36,701 diagnostics.
+test "a project reference's own project references are this project's compile references too" {
+    scratch := ResolverNewTempDirectory("transitive-projects")
+    try {
+        cRoot := Path.Combine(scratch, "C")
+        bRoot := Path.Combine(scratch, "B")
+        aRoot := Path.Combine(scratch, "A")
+        ResolverWrite(Path.Combine(cRoot, "project.yml"), "name: ChainBottom\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        ResolverWrite(Path.Combine(cRoot, "Bottom.nl"), "namespace Chain\n\nclass Bottom {\n    Value: int = 7\n}\n")
+        ResolverWrite(Path.Combine(bRoot, "project.yml"), "name: ChainMiddle\nbackend: il\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../C/project.yml\n")
+        ResolverWrite(Path.Combine(bRoot, "Middle.nl"), "namespace Chain\n\nclass Middle {\n    Inner: Bottom = new Bottom()\n}\n")
+        ResolverWrite(Path.Combine(aRoot, "project.yml"), "name: ChainTop\nbackend: il\noutputType: exe\ntargetFramework: net10.0\nentry: Top.nl\ndependencies:\n  - project: ../B/project.yml\n")
+        ResolverWrite(Path.Combine(aRoot, "Top.nl"), "namespace Chain\n\nfunc main() {\n    direct := new Bottom()\n    middle := new Middle()\n    print direct.Value + middle.Inner.Value\n}\n")
+
+        check := ResolverRunCli("check --project " + ResolverQuote(aRoot), aRoot)
+        assert check.ExitCode == 0, check.Stdout + check.Stderr
+        document := JsonDocument.Parse(check.Stdout)
+        assert document.RootElement.GetProperty("results").GetArrayLength() == 0, check.Stdout
+        document.Dispose()
+
+        run := ResolverRunCli("run", aRoot)
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert run.Stdout.Contains("14"), run.Stdout + run.Stderr
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}

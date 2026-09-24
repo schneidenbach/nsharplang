@@ -128,6 +128,17 @@ sealed class CompilationReferenceResolver {
             )
 
             AddDllReference(config, referencedOutput.OutputAssemblyPath)
+            result.AddProjectOutput(referencedOutput.OutputAssemblyPath)
+            // A PROJECT REFERENCE'S OWN PROJECT REFERENCES ARE THIS PROJECT'S REFERENCES TOO, as they
+            // are to MSBuild's transitive `ProjectReference`: A -> B -> C lets A name C's types, and
+            // `dotnet build` compiles A that way. Before this they reached A only as runtime assets
+            // copied beside its output, so `nlc check`/`nlc build` refused a program `dotnet build`
+            // compiled -- NL201/NL301 at every C name -- and Compiler.Core's own front door reported
+            // 36,701 diagnostics the day Core reached Compiler.Model only through Compiler.Syntax.
+            for transitiveOutput in referencedOutput.References.ProjectOutputAssemblies {
+                AddDllReference(config, transitiveOutput)
+                result.AddProjectOutput(transitiveOutput)
+            }
             result.AddRuntimeAsset(referencedOutput.OutputAssemblyPath)
             result.Add(referencedOutput.References)
             config.Dependencies.Remove(projectReference)

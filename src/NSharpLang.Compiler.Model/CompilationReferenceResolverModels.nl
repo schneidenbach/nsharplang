@@ -90,6 +90,14 @@ class ReferenceResolutionOptions {
 
 class ReferenceResolutionResult {
     runtimeAssets: HashSet<string>?
+    projectOutputs: List<string>?
+
+    // EVERY PROJECT THIS PROJECT REFERENCES, TRANSITIVELY: the output assembly of each `project:`
+    // reference and of each of ITS project references, in the order they were first reached. A project
+    // compiles against all of them, as MSBuild's transitive `ProjectReference` does -- a type of C that
+    // A names through A -> B -> C is a type A's compilation must be able to see, not only a file copied
+    // beside A's output.
+    ProjectOutputAssemblies: IReadOnlyList<string> => ProjectOutputList
 
     RuntimeAssets: IReadOnlyList<string> => BuildRuntimeAssets()
 
@@ -114,6 +122,22 @@ class ReferenceResolutionResult {
         for asset in other.RuntimeAssets {
             AddRuntimeAsset(asset)
         }
+    }
+
+    // One referenced project's output, once, by full path.
+    func AddProjectOutput(path: string) {
+        if string.IsNullOrWhiteSpace(path) {
+            return
+        }
+
+        fullPath := Path.GetFullPath(path)
+        for existing in ProjectOutputList {
+            if string.Equals(existing, fullPath, StringComparison.OrdinalIgnoreCase) {
+                return
+            }
+        }
+
+        ProjectOutputList.Add(fullPath)
     }
 
     func CopyRuntimeAssets(outputDirectory: string) {
@@ -211,6 +235,16 @@ class ReferenceResolutionResult {
             }
 
             return runtimeAssets
+        }
+    }
+
+    ProjectOutputList: List<string> {
+        get {
+            if projectOutputs == null {
+                projectOutputs = new List<string>()
+            }
+
+            return projectOutputs
         }
     }
 }
