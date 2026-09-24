@@ -73,6 +73,22 @@ the eight directories. The estate's own reaches upward (171: rows in a lower sli
 subject, and helpers another slice's rows call -- 111 of them from `Model/`) are a ceiling that may
 only fall; they are the split's fixture-hoisting work.
 
+**One `Program` holder per namespace per slice, and no per-slice estate namespace.** The emitter puts
+a namespace's free functions on one `<namespace>.Program` per assembly (`ColumnarFreeFunctionHolders`),
+and the estate declares ~4,000 free functions across every slice -- so once the slices are
+assemblies each slice's tests-included build emits its own `NSharpLang.Compiler.Program`, and so on.
+Those never meet: a slice's tests-included build references every lower slice PRODUCT-ONLY (the
+SDK's `_NSharpTestedProject` scoping, in the seed since `1f1d05542`), and a lowered `test` block lands
+on its own file's `<namespace>.<stem>Tests` type, unique because basenames are. The only product
+holder is the global one the parser kernels write in `Syntax/`, and no `.tests.nl` is in the global
+namespace. So the plan's per-slice estate namespaces (F2) buy nothing against holders, and renaming
+now would cut the 558 helper reaches (69 file pairs) that cross slices inside the one assembly; if
+wanted for hygiene they belong with the fixture hoisting. What CAN collide is held at the source by
+the same native project: no namespace's holder written by two slices' product code (two shipped
+`X.Program`s are CS0433 in every C# consumer -- `census-free-function-identity`'s shipped-holder rows
+see that only in a seed built after the split), and no slice's estate declaring free functions in a
+namespace a LOWER slice's product code holds.
+
 ## Data Flow
 
 ### Tokenization

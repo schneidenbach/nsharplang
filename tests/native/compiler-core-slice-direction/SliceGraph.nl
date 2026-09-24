@@ -319,20 +319,52 @@ static class SliceLines {
         return false
     }
 
-    // The name a column-0 line declares at the top level, or "".
-    static func TopLevelName(line: string): string {
-        if line.Length == 0 || IsIndented(line) {
+    // The keyword of a column-0 declaration (`class`, `func`, ...) or "".
+    static func TopLevelKeyword(line: string): string {
+        words := Words(line)
+        position := TopLevelKeywordPosition(line, words)
+        if position < 0 {
             return ""
         }
+        return words[position].Text
+    }
+
+    // The name a column-0 line declares at the top level, or "".
+    static func TopLevelName(line: string): string {
         words := Words(line)
+        position := TopLevelKeywordPosition(line, words)
+        if position < 0 {
+            return ""
+        }
+        return words[position + 1].Text
+    }
+
+    static func TopLevelKeywordPosition(line: string, words: List<SliceWord>): int {
+        if line.Length == 0 || IsIndented(line) {
+            return -1
+        }
         position := 0
         while position < words.Count && IsDeclarationModifier(words[position].Text) {
             position = position + 1
         }
         if position + 1 < words.Count && (IsTypeKeyword(words[position].Text) || words[position].Text == "func") {
-            return words[position + 1].Text
+            return position
         }
-        return ""
+        return -1
+    }
+
+    // The namespace a `namespace` line names, or "" for any other line.
+    static func NamespaceName(line: string): string {
+        trimmed := line.Trim()
+        if !StartsWithWord(trimmed, "namespace") {
+            return ""
+        }
+        name := trimmed.Substring(9).Trim()
+        end := 0
+        while end < name.Length && (IsIdentifierPart(name[end]) || name[end] == '.') {
+            end = end + 1
+        }
+        return name.Substring(0, end)
     }
 
     // The name an indented line declares as a member of what encloses it, or "": `func Name`,
@@ -380,6 +412,10 @@ class SliceSourceFile {
     Lines: string[]
     Declared: HashSet<string>
     Shadowed: HashSet<string>
+    // The file's namespace ("" for the global one) and how many free functions it declares there -
+    // the members the emitter places on that namespace's `Program` holder.
+    Namespace: string
+    FreeFunctionCount: int
 
     constructor(relativePath: string, text: string) {
         RelativePath = relativePath
@@ -388,7 +424,20 @@ class SliceSourceFile {
         Lines = SliceSourceText.CodeOnly(text).Replace("\r", "").Split('\n')
         Declared = new HashSet<string>(StringComparer.Ordinal)
         Shadowed = new HashSet<string>(StringComparer.Ordinal)
+        Namespace = ""
+        FreeFunctionCount = 0
+        namespaceRead := false
         for line in Lines {
+            if !namespaceRead {
+                declaredNamespace := SliceLines.NamespaceName(line)
+                if declaredNamespace.Length > 0 {
+                    Namespace = declaredNamespace
+                    namespaceRead = true
+                }
+            }
+            if SliceLines.TopLevelKeyword(line) == "func" {
+                FreeFunctionCount = FreeFunctionCount + 1
+            }
             topLevel := SliceLines.TopLevelName(line)
             if topLevel.Length > 0 {
                 Declared.Add(topLevel)
@@ -493,6 +542,108 @@ class SliceGraph {
             files.Add(new SliceSourceFile(relative, File.ReadAllText(Path.Combine(coreRoot, relative))))
         }
         return new SliceGraph(files)
+    }
+
+    // THE FREE-FUNCTION HOLDERS, ONE PER NAMESPACE PER ASSEMBLY.
+    //
+    // The emitter places a namespace's free functions on ONE public `Program` type in that namespace
+    // (`ColumnarFreeFunctionHolders`), per emitted assembly. So once each slice is an assembly:
+    //
+    //   * two slices whose PRODUCT code declares free functions in one namespace both ship
+    //     `<namespace>.Program`, and every C# consumer referencing both - Cli, LanguageServer,
+    //     Playground - fails CS0433 on it;
+    //   * a slice whose ESTATE declares free functions in a namespace a LOWER slice's product code
+    //     already holds compiles a second `<namespace>.Program` into its tests-included assembly
+    //     beside the one it references.
+    //
+    // Nothing else can meet: a slice's tests-included build references every lower slice
+    // PRODUCT-ONLY (the SDK's `_NSharpTestedProject` scoping), so two slices' estates never share a
+    // compilation, and a lowered `test` block lands on its own file's `<namespace>.<stem>Tests` type.
+    // Answers one line per violation.
+    func HolderViolations(): List<string> {
+        productHolders := ProductHolders()
+        violations := new List<string>()
+        for entry in productHolders {
+            ranks := new SortedSet<int>()
+            for holder in entry.Value {
+                ranks.Add(holder.Rank)
+            }
+            if ranks.Count > 1 {
+                violations.Add(HolderDisplay(entry.Key) + " is written by the product code of " + ranks.Count.ToString() + " slices: " + HolderFiles(entry.Value))
+            }
+        }
+        for file in Files {
+            if !file.IsEstate || file.FreeFunctionCount == 0 {
+                continue
+            }
+            holders: List<SliceSourceFile>? = null
+            if productHolders.TryGetValue(file.Namespace, out holders) && holders != null {
+                for holder in holders {
+                    if holder.Rank < file.Rank {
+                        violations.Add(file.RelativePath + " [" + SliceName(file.Rank) + "] declares free functions in " + HolderDisplay(file.Namespace) + ", which " + holder.RelativePath + " [" + SliceName(holder.Rank) + "] already ships")
+                        break
+                    }
+                }
+            }
+        }
+        return violations
+    }
+
+    // Namespace -> the product files that declare free functions in it.
+    func ProductHolders(): Dictionary<string, List<SliceSourceFile>> {
+        holders := new Dictionary<string, List<SliceSourceFile>>(StringComparer.Ordinal)
+        for file in Files {
+            if file.IsEstate || file.FreeFunctionCount == 0 {
+                continue
+            }
+            existing: List<SliceSourceFile>? = null
+            if !holders.TryGetValue(file.Namespace, out existing) || existing == null {
+                existing = new List<SliceSourceFile>()
+                holders[file.Namespace] = existing
+            }
+            existing.Add(file)
+        }
+        return holders
+    }
+
+    // The slices whose product code writes a namespace's holder, lowest first, comma-separated.
+    func ProductHolderSlices(namespaceName: string): string {
+        ranks := new SortedSet<int>()
+        for file in Files {
+            if !file.IsEstate && file.FreeFunctionCount > 0 && file.Namespace == namespaceName {
+                ranks.Add(file.Rank)
+            }
+        }
+        names := new List<string>()
+        for rank in ranks {
+            names.Add(SliceName(rank))
+        }
+        return string.Join(",", names)
+    }
+
+    func EstateFreeFunctionCount(): int {
+        count := 0
+        for file in Files {
+            if file.IsEstate {
+                count = count + file.FreeFunctionCount
+            }
+        }
+        return count
+    }
+
+    static func HolderDisplay(namespaceName: string): string {
+        if namespaceName.Length == 0 {
+            return "the global `Program`"
+        }
+        return "`" + namespaceName + ".Program`"
+    }
+
+    static func HolderFiles(files: List<SliceSourceFile>): string {
+        names := new List<string>()
+        for file in files {
+            names.Add(file.RelativePath + " [" + SliceName(file.Rank) + "]")
+        }
+        return string.Join(", ", names)
     }
 
     func Unplaced(): List<string> {
