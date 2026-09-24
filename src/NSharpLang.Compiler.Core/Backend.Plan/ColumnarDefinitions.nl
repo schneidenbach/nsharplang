@@ -515,6 +515,10 @@ class ColumnarStructDef {
     IsRecord: bool
     IsNewtype: bool
     IsInterface: bool
+    // A `duck interface`: the one kind of source interface the structural registration pass may
+    // attach to a type that does not name it. False on every plain (nominal) interface and on every
+    // type that is not an interface.
+    IsDuckInterface: bool
     InterfaceBases: List<ColumnarStructDef>
     ImplementedInterfaces: List<ColumnarStructDef>
     ImplementedInterfaceTypes: List<Type>
@@ -592,6 +596,7 @@ class ColumnarStructDef {
         IsRecord = isRecord
         IsNewtype = false
         IsInterface = false
+        IsDuckInterface = false
         InterfaceBases = new List<ColumnarStructDef>()
         ImplementedInterfaces = new List<ColumnarStructDef>()
         ImplementedInterfaceTypes = new List<Type>()

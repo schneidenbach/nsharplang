@@ -111,6 +111,24 @@ test "`ref struct` is decided by TokenType.Ref, and by nothing beside it" {
     assert !ColumnarTokenKindFacts.IsRefStructModifierKind(-1)
 }
 
+test "`duck interface` is decided by TokenType.Duck, and by nothing beside it" {
+    assert Convert.ToInt32(TokenType.Duck) == ColumnarTokenKindFacts.DuckKind
+    assert ColumnarTokenKindFacts.DuckKind == 11
+    assert TokenKindFactsColumnarKindOf("duck") == ColumnarTokenKindFacts.DuckKind
+    assert ColumnarTokenKindFacts.IsDuckInterfaceModifierKind(TokenKindFactsColumnarKindOf("duck"))
+    assert ColumnarTokenKindFacts.IsDuckInterfaceModifierKind(Convert.ToInt32(TokenType.Duck))
+
+    // `Interface` is 11 - 1 and `Union` is 11 + 1: an off-by-one in either direction lands on a real
+    // declaration keyword, and a plain `interface` read as duck is exactly the defect this decision
+    // closes — every class in the assembly used to be given every empty interface.
+    assert !ColumnarTokenKindFacts.IsDuckInterfaceModifierKind(Convert.ToInt32(TokenType.Interface))
+    assert !ColumnarTokenKindFacts.IsDuckInterfaceModifierKind(Convert.ToInt32(TokenType.Union))
+    assert !ColumnarTokenKindFacts.IsDuckInterfaceModifierKind(TokenKindFactsColumnarKindOf("public"))
+    assert !ColumnarTokenKindFacts.IsDuckInterfaceModifierKind(TokenKindFactsColumnarKindOf("]"))
+    assert !ColumnarTokenKindFacts.IsDuckInterfaceModifierKind(Convert.ToInt32(TokenType.Identifier))
+    assert !ColumnarTokenKindFacts.IsDuckInterfaceModifierKind(-1)
+}
+
 test "a synthesized primary constructor is the three declaration keywords, and only those three" {
     assert ColumnarTokenKindFacts.IsSynthesizedPrimaryConstructorKind(Convert.ToInt32(TokenType.Class))
     assert ColumnarTokenKindFacts.IsSynthesizedPrimaryConstructorKind(Convert.ToInt32(TokenType.Struct))

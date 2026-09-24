@@ -30,6 +30,9 @@ class ColumnarTokenKindFacts {
     // `TokenType.Struct` — the `struct` of `struct S { … }`.
     static StructKind: int => 9
 
+    // `TokenType.Duck` — the `duck` of `duck interface I { … }`.
+    static DuckKind: int => 11
+
     // `TokenType.Record` — the `record` of `record R(…)` and `record struct R(…)`.
     static RecordKind: int => 13
 
@@ -47,6 +50,13 @@ class ColumnarTokenKindFacts {
     // answers the remaining half.
     static func IsRefStructModifierKind(kind: int): bool {
         return kind == ColumnarTokenKindFacts.RefKind
+    }
+
+    // A `duck interface` is an interface declaration whose `interface` keyword is immediately
+    // preceded by `duck`. It is the ONLY interface the backend may attach to a type structurally; a
+    // plain `interface` is nominal, and a type implements it only by naming it in its base list.
+    static func IsDuckInterfaceModifierKind(kind: int): bool {
+        return kind == ColumnarTokenKindFacts.DuckKind
     }
 
     // A constructor whose "constructor token" is a TYPE DECLARATION KEYWORD is not a constructor

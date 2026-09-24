@@ -1,0 +1,11 @@
+name: NSharpLang.CensusNominalInterfaces.Tests
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# The analyzer rows drive the production parser and analyzer over source text, the way every
+# analyzer-* native project does, so the freshly built compiler assemblies are referenced here.
+dependencies:
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/Compiler.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Core.dll

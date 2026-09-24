@@ -9,7 +9,8 @@ import System.Threading.Tasks
 
 
 // Owns the declaration-time realization of source interfaces: inheritance order, structural
-// implementation registration, completeness, and base-before-derived metadata finalization.
+// (`duck interface` only) implementation registration, completeness, and base-before-derived
+// metadata finalization.
 class ColumnarInterfaceRealization {
     static func TryComputeInterfaceDepths(
         interfaceDefinitions: List<ColumnarStructDef>,
@@ -56,6 +57,12 @@ class ColumnarInterfaceRealization {
             try {
                 while interfaceEnumerator.MoveNext() {
                     interfaceDefinition := interfaceEnumerator.get_Current()
+                    // A PLAIN INTERFACE IS NOMINAL. Matching it structurally wrote an empty marker
+                    // interface onto every class in the assembly, so `x is IMarker` answered true for
+                    // types that never named it and a common-base search found it everywhere.
+                    if !interfaceDefinition.IsDuckInterface {
+                        continue
+                    }
                     if implementedBuilders.Contains(interfaceDefinition.Builder) {
                         continue
                     }

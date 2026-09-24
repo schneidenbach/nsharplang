@@ -290,6 +290,8 @@ test "interface realization finalizes an interface base before its derived metad
 test "duck registration preserves inherited metadata once and skips default-only requirements" {
     root := SourceCallInterfaceDefinition("InterfaceRealizationDuckRoot")
     derived := SourceCallInterfaceDefinition("InterfaceRealizationDuckDerived")
+    root.IsDuckInterface = true
+    derived.IsDuckInterface = true
     InterfaceRealizationAbstractMethod(
         root,
         "Required",
@@ -374,6 +376,85 @@ test "duck registration preserves inherited metadata once and skips default-only
     derivedRuntime := IdentityBake(derived.Builder)
     assert InterfaceRealizationContainsInterface(sourceRuntime, rootRuntime)
     assert InterfaceRealizationContainsInterface(sourceRuntime, derivedRuntime)
+}
+
+test "duck registration attaches only duck interfaces: a satisfied plain interface and an empty plain marker stay unattached" {
+    plain := SourceCallInterfaceDefinition("InterfaceRealizationPlainGreeter")
+    InterfaceRealizationAbstractMethod(
+        plain,
+        "Greet",
+        typeof(int),
+        InterfaceRealizationNoTypes()
+    )
+    marker := SourceCallInterfaceDefinition("InterfaceRealizationPlainMarker")
+    duckMarker := SourceCallInterfaceDefinition("InterfaceRealizationDuckMarker")
+    duckMarker.IsDuckInterface = true
+    assert !plain.IsDuckInterface
+    assert !marker.IsDuckInterface
+
+    sourceMethods := new List<ColumnarFunctionInput>()
+    sourceMethods.Add(InterfaceRealizationFunctionInput(
+        "Greet",
+        "int",
+        new string[](0),
+        false,
+        false,
+        new string[](0)
+    ))
+    sourceInput := InterfaceRealizationStructInput(
+        "InterfaceRealizationPlainImplementation",
+        sourceMethods
+    )
+    sourceDefinition := SourceCallDefinition(
+        "InterfaceRealizationPlainImplementation",
+        true
+    )
+    concrete := InterfaceRealizationPublicMethod(
+        sourceDefinition,
+        "Greet",
+        typeof(int),
+        InterfaceRealizationNoTypes()
+    )
+    InterfaceRealizationEmitOne(concrete.Builder)
+    resolutions := new ColumnarSemanticTypeResolution[](1)
+    resolutions[0] = InterfaceRealizationSingleResolution(sourceInput, sourceDefinition)
+    interfaces := new List<ColumnarStructDef>()
+    interfaces.Add(plain)
+    interfaces.Add(marker)
+    interfaces.Add(duckMarker)
+
+    // `Greet` satisfies the plain interface and every type satisfies an empty one, so a structural
+    // pass over all three would attach all three. Only the duck marker is attached: a plain
+    // interface is implemented by naming it, which this type does not do.
+    ColumnarInterfaceRealization.RegisterDuckInterfaces(
+        InterfaceRealizationSingleInput(sourceInput),
+        InterfaceRealizationSingleDefinition(sourceDefinition),
+        resolutions,
+        interfaces
+    )
+    assert sourceDefinition.ImplementedInterfaces.Count == 1
+    assert Object.ReferenceEquals(sourceDefinition.ImplementedInterfaces[0], duckMarker)
+}
+
+// The flag the realization pass reads, as the input builder records it from source: `duck` directly
+// before `interface`, whatever modifiers and attributes precede the pair.
+func InterfaceRealizationDuckFlags(source: string): string {
+    sources := new List<string>()
+    sources.Add(source)
+    names := new List<string>()
+    names.Add("/tmp/InterfaceRealizationDuckFlags.nl")
+    program: ColumnarProgramInput = null
+    assert ColumnarProgramInputBuilder.TryBuildMultiFile(sources, names, "/tmp", out program)
+    flags := ""
+    for input in program.Interfaces {
+        flags = flags + input.Name + "=" + input.IsDuck.ToString() + ";"
+    }
+    return flags
+}
+
+test "the input builder marks a `duck interface` duck and a plain `interface` nominal" {
+    source := "duck interface IReads {\n    func Read(): string\n}\n\ninterface IMarker {\n}\n\npublic duck interface IPublicDuck {\n}\n\n[Obsolete]\ninterface IAttributed {\n}\n\n[Obsolete]\npublic duck interface IAttributedDuck {\n}\n\ninterface IDerived : IReads {\n    func Write()\n}\n"
+    assert InterfaceRealizationDuckFlags(source) == "IReads=True;IMarker=False;IPublicDuck=True;IAttributed=False;IAttributedDuck=True;IDerived=False;"
 }
 
 test "duck matching continues past ordinary nonmatches but a reached unresolved candidate is terminal" {

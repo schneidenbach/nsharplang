@@ -1983,7 +1983,8 @@ sealed class ColumnarProgramInputBuilder {
                 interfaceEventNames,
                 interfaceEventHandlers,
                 interfacePropertyNames,
-                interfacePropertyTypes
+                interfacePropertyTypes,
+                interfaceIndex > 0 && ColumnarTokenKindFacts.IsDuckInterfaceModifierKind(ck[interfaceIndex - 1])
             ))
             interfaceSlot = interfaceSlot + 1
         }

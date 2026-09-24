@@ -4629,6 +4629,7 @@ sealed class ColumnarIlEmitter {
                 exactInterfaceName
             )
             interfaceDefValue.IsInterface = true
+            interfaceDefValue.IsDuckInterface = iface.IsDuck
             interfaceDefValue.GenericParameters = interfaceTypeParams
             interfaceDef := interfaceDefValue
             structRegistry[exactInterfaceName] = interfaceDef
@@ -4988,7 +4989,9 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        // PASS 0a'' (duck interfaces): N# owns the complete structural registration pass.
+        // PASS 0a'' (duck interfaces): N# owns the complete structural registration pass. Only a
+        // `duck interface` is registered structurally; a plain interface was attached above, by name,
+        // to exactly the types whose base lists name it.
         ColumnarInterfaceRealization.RegisterDuckInterfaces(
             structs,
             structDefsInOrder,

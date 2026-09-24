@@ -497,8 +497,13 @@ class ColumnarInterfaceInput {
     TypeParamSpecialConstraints: int[]
     TypeParamTypeConstraints: string[][]
     SourceFileId: int
+    // `duck interface` rather than `interface`. ONLY a duck interface is structural: the backend
+    // writes it onto every type whose members satisfy it. A plain interface is NOMINAL — a type
+    // implements it by naming it in its base list and in no other way, so an empty marker interface
+    // is implemented by nothing that does not declare it.
+    IsDuck: bool
 
-    constructor(name: string, baseInterfaceNames: string[], methodNames: string[], methodReturnCanonicals: string[], methodParamNames: string[][], methodParamCanonicals: string[][], methodBodies: ColumnarFunctionInput?[]? = null, typeParamNames: string[]? = null, sourceFileId: int = 0, methodParamModifierKinds: int[][]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, eventNames: string[]? = null, eventHandlerCanonicals: string[]? = null, propertyNames: string[]? = null, propertyTypeCanonicals: string[]? = null) {
+    constructor(name: string, baseInterfaceNames: string[], methodNames: string[], methodReturnCanonicals: string[], methodParamNames: string[][], methodParamCanonicals: string[][], methodBodies: ColumnarFunctionInput?[]? = null, typeParamNames: string[]? = null, sourceFileId: int = 0, methodParamModifierKinds: int[][]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, eventNames: string[]? = null, eventHandlerCanonicals: string[]? = null, propertyNames: string[]? = null, propertyTypeCanonicals: string[]? = null, isDuck: bool = false) {
         Name = name
         BaseInterfaceNames = baseInterfaceNames
         TypeParamNames = typeParamNames ?? new string[](0)
@@ -515,6 +520,7 @@ class ColumnarInterfaceInput {
         TypeParamSpecialConstraints = ColumnarConstraintColumns.SpecialsOrEmpty(typeParamSpecialConstraints, TypeParamNames.Length)
         TypeParamTypeConstraints = ColumnarConstraintColumns.TypesOrEmpty(typeParamTypeConstraints, TypeParamNames.Length)
         SourceFileId = sourceFileId
+        IsDuck = isDuck
     }
 
     static func CreateMethodParamModifierKinds(methodNames: string[], methodParamCanonicals: string[][]): int[][] {
