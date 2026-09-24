@@ -153,6 +153,12 @@ instead of binding the first import written, so the compiler's own eight ties ar
 they alone used (`YamlDotNet.Core` in ColumnarIlEmitter) is gone. Identity diff: zero additions, eight
 NL209 removals.
 
+**Measured 2026-09-24 on `census/xasm`** (referenced-assembly operands and constructor arguments):
+**1,281**, and the gate ceiling is now 1,281. The new external-construction door binds its selection
+to null-checked locals and types its canonical-name slot as the `string` the builder writes, so the
+NL202 and one NL905 the contextual-only door it replaced carried are gone. Identity diff against
+1,283: zero additions, two removals.
+
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
 

@@ -423,13 +423,19 @@ else
     # than binding whichever import was written first; `import YamlDotNet.Core`, whose only use was
     # the tie, goes. Identity diff against 1,291: zero additions, eight NL209 removals.
     #
+    # 2026-09-24, referenced-assembly operands and constructor arguments (`census/xasm`): 1,281. The
+    # external-construction door that replaced the contextual-only one binds its selection to
+    # null-checked locals and declares its canonical-name slot as the `string` the builder writes, so
+    # the NL202 on `out canonical` and an NL905 on the parameter-type index the old door carried are
+    # gone. Identity diff against 1,283: zero additions, two removals (NL202 352 -> 351, NL905 419 -> 418).
+    #
     # -1 means BLOCKED, not clean. `check` on a project that REFERENCES Compiler.Core builds that
     # reference first, and that build fails while Core's own front door is not clean -- so those two
     # produce an error envelope instead of a diagnostic list and there is nothing to count yet. The
     # step prints the reason and moves on; the day Core reaches 0 their ceilings become real numbers
     # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
     SELF_HOST_CEILINGS=(
-        1283
+        1281
         -1
         -1
         0

@@ -3839,6 +3839,25 @@ sealed class ColumnarIlEmitter {
         return EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx, selection, out columnarResolvedType)
     }
 
+    // What `TryEmitOrdinaryRuntimeInstanceCall` would produce for this site, asked without emitting:
+    // the same selection, the same argument admission and the same value-receiver fence.
+    private func TryGetPreflightOrdinaryRuntimeInstanceCallType(callIdx: int, receiverType: Type, member: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (receiverType == null || receiverType.IsByRef || receiverType.IsPointer || receiverType.IsGenericParameter || RuntimeTypeShapeFacts.ContainsBuilderBoundType(receiverType)) {
+            return false
+        }
+        argCount := _nodes.ChildCount(callIdx) - 1
+        selection := SelectOrdinaryRuntimeCall(callIdx, receiverType, member, argCount, false)
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+            return false
+        }
+        if (receiverType.IsValueType && !RuntimeTypeShapeFacts.ExactTypeShapeMatches(selection.DeclaringType, receiverType)) {
+            return false
+        }
+        columnarResolvedType = selection.ReturnType
+        return true
+    }
+
     // The instance form. THE RECEIVER VALUE IS ALREADY ON THE STACK, so a value receiver has to be
     // spilled to reach its address: an instance method on a value type takes a managed pointer.
     private func TryEmitOrdinaryRuntimeInstanceCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
@@ -13543,6 +13562,14 @@ sealed class ColumnarIlEmitter {
                 if (ColumnarNumericFacts.IsIntPromotable(leftType) && ColumnarNumericFacts.IsIntPromotable(rightType)) {
                     opType = typeof(int)
                 } else {
+                    // Two DIFFERENT reference types still compare by identity when one converts to the
+                    // other (`resolved != owner` for a base and a derived operand); see
+                    // `IsPredefinedReferenceEquality`.
+                    if ((op == "==" || op == "!=") && IsPredefinedReferenceEquality(leftType, rightType)) {
+                        EmitComparison(op, false, false)
+                        columnarResolvedType = typeof(bool)
+                        return true
+                    }
                     return false
                 }
             }
@@ -13627,6 +13654,11 @@ sealed class ColumnarIlEmitter {
                         columnarResolvedType = typeof(bool)
                         return true
                     }
+                }
+                if (IsPredefinedReferenceEquality(opType, opType)) {
+                    EmitComparison(op, false, false)
+                    columnarResolvedType = typeof(bool)
+                    return true
                 }
                 // Equality on int, long, ulong, uint, bool, char, double, float, or a baked i4 enum
                 // (Ceq is bit-identical signed/unsigned; on double/float it is the IEEE ordered equal).
@@ -14472,7 +14504,7 @@ sealed class ColumnarIlEmitter {
             // A CONSTRUCTOR ARGUMENT WITH NO TYPE OF ITS OWN — a lambda or a method group — is chosen
             // for by the constructor, not the other way round. Every tier below types its arguments
             // first, so `new Lazy<int>(() => 1)` had nothing to offer them.
-            if (TryEmitContextualConstruction(idx, typeNode, out columnarResolvedType)) {
+            if (HasContextualDelegateArgument(idx, _nodes.ChildCount(idx) - 1) && TryEmitReferencedConstruction(idx, typeNode, out columnarResolvedType)) {
                 return true
             }
             if (_nodes.Kind(typeNode) == ColumnarExpressionNodeKind.IntLiteralExpression) {
@@ -14726,9 +14758,9 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = ctorDef.Builder
                     return true
                 }
-                return false
+                // A type no arm above declares: a referenced assembly's, chosen from its own metadata.
+                return TryEmitReferencedConstruction(idx, typeNode, out columnarResolvedType)
             }
-            // other Simple-type constructors are a host boundary; decline.
 
             // `new Box<int>(args)` — CLOSED construction of a user generic type (type node kind 1).
             // Canonicalize the generic subtree, resolve it (MakeGenericType over the open TypeBuilder),
@@ -14821,7 +14853,7 @@ sealed class ColumnarIlEmitter {
                     return true
                 }
                 if (!ColumnarTypeOfPlanner.IsClosedSourceGeneric(closedType)) {
-                    return false
+                    return TryEmitReferencedConstruction(idx, typeNode, out columnarResolvedType)
                 }
                 let openGenericDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
                 if (!_structRegistry.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, typeNode), out openGenericDef) || openGenericDef.Constructors.Count == 0) {
@@ -15626,35 +15658,10 @@ sealed class ColumnarIlEmitter {
             if (IsValueStructUnionType(testedType)) {
                 return false
             }
-            isAsTypeRoot := Child(idx, 1)
             isTypeTest := _nodes.Kind(idx) == ColumnarExpressionNodeKind.IsExpression
-            targetTestType: Type? = null
-            if (_nodes.Kind(isAsTypeRoot) == ColumnarExpressionNodeKind.IntLiteralExpression) {
-                isAsName := ColumnarNodeTextFacts.Text(_nodes, _source, isAsTypeRoot)
-                let columnarDiscard57: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef = null
-                let columnarDiscard56: string = null
-                if (TryGetUnionCaseByKey(isAsName, out columnarDiscard56, out columnarDiscard57)) {
-                    let columnarDiscard59: System.Type[] = null
-                    let columnarDiscard58: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef = null
-                    if (!TryGetCaseTestType(isAsName, testedType, out columnarDiscard58, out targetTestType, out columnarDiscard59)) {
-                        return false
-                    }
-                } else {
-                    // not a case of the scrutinee's union — the pipeline rejects.
-                    let plainTarget: System.Type? = null
-                    if (TryResolveBodyType(isAsName, out plainTarget) && IsSupportedTypeTestTarget(plainTarget, isTypeTest)) {
-                        targetTestType = plainTarget
-                    }
-                }
-            } else {
-                // A WRITTEN-OUT TYPE that is not a bare name — `obj is Result<TOk, TErr>`, `o is int[]` —
-                // is the SAME question asked of a bigger type tree, so it is canonicalized and resolved
-                // through the body resolver the `new` arm already uses. Only the spelling differed.
-                let constructedCanonical: string? = null
-                let constructedTarget: System.Type? = null
-                if (TryBuildTypeNodeCanonical(isAsTypeRoot, out constructedCanonical) && TryResolveBodyType(constructedCanonical, out constructedTarget) && IsSupportedTypeTestTarget(constructedTarget, isTypeTest)) {
-                    targetTestType = constructedTarget
-                }
+            let targetTestType: System.Type? = null
+            if (!TryResolveTypeTestTarget(idx, testedType, isTypeTest, out targetTestType)) {
+                return false
             }
             // WHETHER A VALUE-TYPE TARGET IS ALLOWED IS THE OPERATOR'S QUESTION, AND IT IS ASKED ABOVE.
             // `IsSupportedTypeTestTarget` answers it per operator — `is` accepts any target because
@@ -15662,9 +15669,6 @@ sealed class ColumnarIlEmitter {
             // while `as` refuses one because it has no null to hand back — and the union-case arm
             // resolves its own tag test. A second, blanket value-type refusal here would overrule that
             // rule for `is` and reject `obj is Result<TOk, TErr> other` inside the struct itself.
-            if (targetTestType == null) {
-                return false
-            }
             // A VALUE-TYPED OPERAND BOXES BEFORE THE REFERENCE TEST. `isinst` reads the top of the stack
             // as an object reference, so over an UNBOXED value it is invalid IL: `(colors as object)` read
             // the enum's integer payload as a pointer and handed back null, and the wider value shapes
@@ -23002,6 +23006,8 @@ sealed class ColumnarIlEmitter {
             }
             columnarResolvedType = mustOperandType
             return true
+        } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.IsExpression || columnarSwitchValue11 == ColumnarExpressionNodeKind.AsExpression {
+            return TryGetPreflightTypeTestType(node, out columnarResolvedType)
         } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.CheckedContextExpression {
             return _nodes.ChildCount(node) == 1 && TryGetPreflightExpressionType(Child(node, 0), out columnarResolvedType)
         } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.SpreadArgumentExpression {
@@ -23009,6 +23015,61 @@ sealed class ColumnarIlEmitter {
         } else {
             return false
         }
+    }
+
+    // THE TYPE AN `is`/`as` TESTS AGAINST, for the operand type already known. The typeRoot resolves a
+    // UNION CASE (closed over a generic scrutinee via the match machinery) or, through the body
+    // resolver the `new` arm uses, any other written type the operator admits
+    // (`IsSupportedTypeTestTarget`). One owner, so the emission arm and its preflight twin cannot
+    // disagree about which type a test names.
+    private func TryResolveTypeTestTarget(idx: int, testedType: Type, isTypeTest: bool, out targetTestType: Type?): bool {
+        targetTestType = null
+        isAsTypeRoot := Child(idx, 1)
+        if (_nodes.Kind(isAsTypeRoot) == ColumnarExpressionNodeKind.IntLiteralExpression) {
+            isAsName := ColumnarNodeTextFacts.Text(_nodes, _source, isAsTypeRoot)
+            let unusedCase: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef = null
+            let unusedCaseKey: string = null
+            if (TryGetUnionCaseByKey(isAsName, out unusedCaseKey, out unusedCase)) {
+                let unusedCaseArguments: System.Type[] = null
+                let unusedClosedCase: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef = null
+                return TryGetCaseTestType(isAsName, testedType, out unusedClosedCase, out targetTestType, out unusedCaseArguments) && targetTestType != null
+            }
+            // not a case of the scrutinee's union — the pipeline rejects.
+            let plainTarget: System.Type? = null
+            if (TryResolveBodyType(isAsName, out plainTarget) && IsSupportedTypeTestTarget(plainTarget, isTypeTest)) {
+                targetTestType = plainTarget
+            }
+            return targetTestType != null
+        }
+        // A WRITTEN-OUT TYPE that is not a bare name — `obj is Result<TOk, TErr>`, `o is int[]` — is
+        // the SAME question asked of a bigger type tree, so it is canonicalized and resolved through
+        // the body resolver the `new` arm already uses. Only the spelling differed.
+        let constructedCanonical: string? = null
+        let constructedTarget: System.Type? = null
+        if (TryBuildTypeNodeCanonical(isAsTypeRoot, out constructedCanonical) && TryResolveBodyType(constructedCanonical, out constructedTarget) && IsSupportedTypeTestTarget(constructedTarget, isTypeTest)) {
+            targetTestType = constructedTarget
+        }
+        return targetTestType != null
+    }
+
+    // WHAT AN `is`/`as` PRODUCES, asked without emitting: `is` is a `bool`, `as` is its target. It is the
+    // emission arm's twin -- the same operand, the same value-struct-union refusal and the same target
+    // resolution -- and it exists because a call that types its arguments before choosing an overload
+    // refused `new TryStatement(block as BlockStatement, ...)` the moment `TryStatement` came from a
+    // referenced assembly, while the same argument emitted at a source constructor.
+    private func TryGetPreflightTypeTestType(node: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let testedType: System.Type? = null
+        if (_nodes.ChildCount(node) != 2 || !TryGetPreflightExpressionType(Child(node, 0), out testedType) || testedType == null || IsValueStructUnionType(testedType)) {
+            return false
+        }
+        isTypeTest := _nodes.Kind(node) == ColumnarExpressionNodeKind.IsExpression
+        let targetTestType: System.Type? = null
+        if (!TryResolveTypeTestTarget(node, testedType, isTypeTest, out targetTestType)) {
+            return false
+        }
+        columnarResolvedType = isTypeTest ? typeof(bool) : targetTestType
+        return true
     }
 
     // THE CLOSED `ValueTuple` A TUPLE LITERAL PRODUCES. The arity families and the element fence are
@@ -23143,6 +23204,10 @@ sealed class ColumnarIlEmitter {
         }
 
         if ((op == "==" || op == "!=") && TypesEquivalent(leftType, rightType) && (leftType == typeof(string) || leftType == typeof(Type) || IsSupportedInterpolationEqualityType(leftType))) {
+            columnarResolvedType = typeof(bool)
+            return true
+        }
+        if ((op == "==" || op == "!=") && IsPredefinedReferenceEquality(leftType, rightType)) {
             columnarResolvedType = typeof(bool)
             return true
         }
@@ -23342,6 +23407,17 @@ sealed class ColumnarIlEmitter {
             out ignoredParameterTypes,
             out columnarResolvedType
         )) {
+            return true
+        }
+        // THE PREFLIGHT TWIN OF `TryEmitOrdinaryRuntimeInstanceCall`. A receiver the direct-call planner
+        // does not type -- `(index - 1).ToString()`, whose receiver is a parenthesized binary -- yields
+        // to that door, which chooses the member by ordinary CLR resolution and emits it; preflight had
+        // no matching answer, so the same call EMITTED but could not be TYPED, and every call that types
+        // its arguments before choosing an overload refused it as an argument
+        // (`new SimpleTypeReference("Depth" + (index - 1).ToString(), line, 5)` against a referenced
+        // assembly). The selection and the admission are the emission door's own, so what this promises
+        // is what that door then writes.
+        if (TryGetPreflightOrdinaryRuntimeInstanceCallType(callIdx, receiverType, member, out columnarResolvedType)) {
             return true
         }
         if (!legacyWholeSubtreePlanning) {
@@ -24744,43 +24820,49 @@ sealed class ColumnarIlEmitter {
         return TrySelectContextualCandidate(callIdx, argCount, bindings, ownerType, false, out closedCandidate)
     }
 
-    // A `new T(...)` WHOSE ARGUMENTS INCLUDE A LAMBDA OR A METHOD GROUP.
+    // A `new T(...)` OF A TYPE THIS COMPILATION DOES NOT DECLARE -- the constructor twin of
+    // `TryEmitOrdinaryRuntimeStaticCall`.
     //
-    // A lambda has no type until the delegate it is passed to is known, so every tier that types its
-    // arguments before it selects an overload had nothing to give this call: `new Lazy<int>(() => 1)`
-    // reached no owner at all. The constructor is therefore selected FIRST — by the arity written, and
-    // among same-arity overloads by whether each written argument can match the declared parameter —
-    // and each argument is then emitted against its declared parameter type, which is exactly what
-    // gives a lambda its contextual shape. An ambiguity is refused rather than guessed, because the
-    // argument types are what would have chosen between the candidates.
+    // A SOURCE type's construction has always had the emitter's own door (`TrySelectUserConstructor`,
+    // then each argument emitted AGAINST its declared parameter through `EmitDeclaredCallArgument`),
+    // and an external CALL has the ordinary runtime call door. An external CONSTRUCTION had neither: it
+    // was served only by the whole-subtree construction planner, so an argument outside the planner's
+    // surface -- an enum `==`, an enum cast, a nested `new` or free-function call, a concatenation over a
+    // call -- declined the construction outright, although the identical argument emits at a call or at
+    // a source constructor. That is exactly the shape a carved-out slice of the compiler creates: the
+    // same `new ByRefTypeInfo(resolved, argument.Modifier == ArgumentModifier.Out)` that emitted while
+    // `ByRefTypeInfo` was a source type declined once it came from a referenced assembly.
+    //
+    // The constructor is chosen by C#'s rules, in the order the call door asks them: the candidates
+    // whose written arguments can all be emitted as their declared parameters (the same predicate the
+    // emission then uses), exact-arity candidates before any that need a metadata default filled in
+    // (ECMA-334 §12.6.4.3's better-function-member tie-break), and among two or more applicable ones the
+    // scoring resolver the construction planner uses, fed the argument types preflight can read. An
+    // ambiguity is refused rather than guessed. A lambda or method-group argument is chosen FOR by the
+    // constructor, which is why this door also runs first for a construction that carries one.
     //
     // Nothing here names a type or a constructor: the candidates come from the resolved type's own
-    // metadata, which is why a delegate-taking constructor in a referenced assembly works on the day
-    // it is referenced.
-    private func TryEmitContextualConstruction(callIdx: int, typeNode: int, out columnarResolvedType: Type): bool {
+    // metadata. A type the compilation DECLARES is not reached at all -- its registry owns those
+    // constructions -- and an external generic closed over a source type reads the DEFINITION's
+    // constructors with the closed arguments substituted, then rebinds the handle onto the closed type.
+    private func TryEmitReferencedConstruction(callIdx: int, typeNode: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         argCount := _nodes.ChildCount(callIdx) - 1
         typeKind := _nodes.Kind(typeNode)
-        if (argCount < 1 || (typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression) || !HasContextualDelegateArgument(callIdx, argCount)) {
+        if (argCount < 0 || (typeKind != ColumnarExpressionNodeKind.IntLiteralExpression && typeKind != ColumnarExpressionNodeKind.FloatLiteralExpression)) {
             return false
         }
 
-        let canonical: System.String? = null
+        canonical := ""
         let constructedType: System.Type? = null
         if (!TryBuildTypeNodeCanonical(typeNode, out canonical) || !TryResolveBodyType(canonical, out constructedType) || constructedType == null) {
             return false
         }
 
-        if (constructedType.IsGenericTypeDefinition || constructedType.IsGenericParameter || constructedType.IsAbstract) {
+        if (constructedType.IsGenericTypeDefinition || constructedType.IsGenericParameter || constructedType.IsAbstract || constructedType.IsInterface || constructedType.IsArray || constructedType.IsByRef || constructedType.IsPointer) {
             return false
         }
 
-        // AN EXTERNAL GENERIC CLOSED OVER A TYPE THIS COMPILATION IS WRITING — `Lazy<Query>` for a
-        // source class `Query` — has no reachable constructor table of its own, exactly as its
-        // interface list has none. The DEFINITION's constructors, with this instantiation's type
-        // arguments substituted into their parameters, are the real closed signatures; the handle is
-        // rebound onto the closed type the same way every other closed-generic member is. A type the
-        // compilation DECLARES is not reached here at all: its own registry owns those calls.
         lookupType := constructedType
         closedTypeArguments := System.Array.Empty<Type>()
         rebindOntoClosedType := false
@@ -24797,53 +24879,108 @@ sealed class ColumnarIlEmitter {
             rebindOntoClosedType = true
         }
 
-        let declared: System.Reflection.ConstructorInfo[]? = null
-        try {
-            declared = lookupType.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
-        } catch {
-            return false
-        }
-        if (declared == null) {
-            return false
-        }
-
+        declared := ColumnarConstructionPlanner.RuntimeConstructorsOrEmpty(lookupType)
+        arity := new Type[argCount]
         let chosen: System.Reflection.ConstructorInfo? = null
         let chosenParameterTypes: System.Type[]? = null
-        chosenCount := 0
-        for candidate in declared {
-            parameters := candidate.GetParameters()
-            if (parameters == null || parameters.Length != argCount) {
-                continue
+        exactCandidates := new List<ConstructorInfo>()
+        exactParameterTypes := new List<Type[]>()
+        ColumnarConstructionPlanner.CollectApplicableRuntimeConstructors(declared, closedTypeArguments, arity, exactCandidates, exactParameterTypes)
+        if (!TrySelectReferencedConstructor(callIdx, argCount, exactCandidates, exactParameterTypes, out chosen, out chosenParameterTypes)) {
+            if (chosen != null) {
+                return false
             }
-            parameterTypes := ColumnarExtensionMethodResolver.ParameterTypesOrNull(parameters)
-            if (parameterTypes == null) {
-                continue
-            }
-            if (rebindOntoClosedType) {
-                for p := 0; p < parameterTypes.Length; p++ {
-                    parameterTypes[p] = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(parameterTypes[p], closedTypeArguments)
-                }
-            }
-            if (!CanEmitOrdinaryRuntimeCallArguments(callIdx, parameterTypes)) {
-                continue
-            }
-            chosen = candidate
-            chosenParameterTypes = parameterTypes
-            chosenCount = chosenCount + 1
-        }
-
-        if (chosenCount != 1) {
-            return false
-        }
-
-        for a := 0; a < argCount; a++ {
-            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), chosenParameterTypes[a], true)) {
+            fillCandidates := new List<ConstructorInfo>()
+            fillParameterTypes := new List<Type[]>()
+            ColumnarConstructionPlanner.CollectOptionalFillRuntimeConstructors(declared, closedTypeArguments, arity, fillCandidates, fillParameterTypes)
+            if (!TrySelectReferencedConstructor(callIdx, argCount, fillCandidates, fillParameterTypes, out chosen, out chosenParameterTypes)) {
                 return false
             }
         }
 
-        _il.Emit(OpCodes.Newobj, rebindOntoClosedType ? TypeBuilder.GetConstructor(constructedType, chosen) : chosen)
+        selected := chosen
+        parameterTypes := chosenParameterTypes
+        if (selected == null || parameterTypes == null) {
+            return false
+        }
+        optionalParameters := selected.GetParameters()
+        if (optionalParameters == null || optionalParameters.Length != parameterTypes.Length) {
+            return false
+        }
+        for a := 0; a < argCount; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), parameterTypes[a], true)) {
+                return false
+            }
+        }
+        // Every parameter past the written arguments is a trailing optional the selection already
+        // proved fillable; its metadata default is written through the one owner that knows which
+        // defaults are constants, after the written arguments -- the order a C# call site evaluates in.
+        for filled := argCount; filled < parameterTypes.Length; filled++ {
+            if (!ColumnarExtensionMethodResolver.TryEmitOptionalDefault(_il, optionalParameters[filled], parameterTypes[filled])) {
+                return false
+            }
+        }
+
+        _il.Emit(OpCodes.Newobj, rebindOntoClosedType ? TypeBuilder.GetConstructor(constructedType, selected) : selected)
         columnarResolvedType = constructedType
+        return true
+    }
+
+    // One tier of the constructor choice: the candidates whose written arguments can all be emitted as
+    // their declared parameters. One is the choice; two or more are ranked by the construction
+    // planner's scorer when every written argument types ahead of emission, and refused otherwise.
+    // `chosen` is left set on a refusal that found applicable candidates, so the caller does not go on
+    // to the optional-fill tier: an exact-arity ambiguity is not resolved by a candidate C# ranks lower.
+    private func TrySelectReferencedConstructor(callIdx: int, argCount: int, candidates: List<ConstructorInfo>, candidateParameterTypes: List<Type[]>, out chosen: ConstructorInfo?, out chosenParameterTypes: Type[]?): bool {
+        chosen = null
+        chosenParameterTypes = null
+        applicable := new List<ConstructorInfo>()
+        applicableParameterTypes := new List<Type[]>()
+        for c := 0; c < candidates.Count; c++ {
+            parameterTypes := candidateParameterTypes[c]
+            if (CanEmitWrittenConstructorArguments(callIdx, argCount, parameterTypes)) {
+                applicable.Add(candidates[c])
+                applicableParameterTypes.Add(parameterTypes)
+            }
+        }
+        if (applicable.Count == 0) {
+            return false
+        }
+        chosen = applicable[0]
+        if (applicable.Count == 1) {
+            chosenParameterTypes = applicableParameterTypes[0]
+            return true
+        }
+
+        argumentTypes := new Type[argCount]
+        for a := 0; a < argCount; a++ {
+            let argumentType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(callIdx, 1 + a), out argumentType) || argumentType == null) {
+                return false
+            }
+            argumentTypes[a] = argumentType
+        }
+        selectedIndex := ColumnarConstructionPlanner.BestSourceConstructorIndex(applicableParameterTypes, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount))
+        if (selectedIndex < 0) {
+            return false
+        }
+        chosen = applicable[selectedIndex]
+        chosenParameterTypes = applicableParameterTypes[selectedIndex]
+        return true
+    }
+
+    // EVERY WRITTEN ARGUMENT IS CHECKED BEFORE THE FIRST ONE IS EMITTED, against the leading
+    // parameters it is written for -- the same predicate `CanEmitOrdinaryRuntimeCallArguments` asks of
+    // a call, which is also the one the emission itself relies on.
+    private func CanEmitWrittenConstructorArguments(callIdx: int, argCount: int, parameterTypes: Type[]): bool {
+        if (parameterTypes.Length < argCount) {
+            return false
+        }
+        for a := 0; a < argCount; a++ {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a + 1), parameterTypes[a], true)) {
+                return false
+            }
+        }
         return true
     }
 
@@ -28836,7 +28973,46 @@ sealed class ColumnarIlEmitter {
             recordDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, typeBuilder)
             return recordDef != null && !recordDef.IsReference && recordDef.IsRecord && recordDef.RecordEquals != null
         }
-        return ColumnarNumericFacts.IsIntPromotable(columnarResolvedType) || columnarResolvedType == typeof(long) || columnarResolvedType == typeof(ulong) || columnarResolvedType == typeof(uint) || columnarResolvedType == typeof(bool) || columnarResolvedType == typeof(double) || columnarResolvedType == typeof(float) || IsKnownEnumType(columnarResolvedType)
+        return ColumnarNumericFacts.IsIntPromotable(columnarResolvedType) || columnarResolvedType == typeof(long) || columnarResolvedType == typeof(ulong) || columnarResolvedType == typeof(uint) || columnarResolvedType == typeof(bool) || columnarResolvedType == typeof(double) || columnarResolvedType == typeof(float) || IsKnownEnumType(columnarResolvedType) || IsPredefinedReferenceEquality(columnarResolvedType, columnarResolvedType)
+    }
+
+    // C#'s PREDEFINED REFERENCE TYPE EQUALITY (ECMA-334 §12.12.7): `==`/`!=` between two reference
+    // values that no user-defined operator claims is IDENTITY -- `ceq` over the two references -- when
+    // one operand's type converts to the other's by identity or by reference.
+    //
+    // WHERE THE TYPE WAS COMPILED IS NOT PART OF THE RULE. The arm this completes granted identity only
+    // to a `TypeBuilder` the registry declares, so the same comparison declined the moment its operand
+    // type came from a REFERENCED assembly -- `object == object` included, and every `a == b` over a
+    // class a carved-out slice of the compiler now declares instead of Core. The relation is the
+    // emitter's one reference-conversion owner, asked in both directions, and a builder operand keeps
+    // the registry's reading of whether it is a reference at all.
+    //
+    // `string` and `System.Type` keep their own operators and are handled ahead of this arm, and any
+    // user-defined `op_Equality`/`op_Inequality` a referenced type declares or inherits makes this
+    // decline rather than silently choose identity over it: C# would consider that operator first.
+    private func IsPredefinedReferenceEquality(leftType: Type?, rightType: Type?): bool {
+        if (leftType == null || rightType == null || !IsReferenceEqualityOperand(leftType) || !IsReferenceEqualityOperand(rightType)) {
+            return false
+        }
+        if (TypesEquivalent(leftType, rightType) && (leftType == typeof(string) || leftType == typeof(Type))) {
+            return false
+        }
+        if (!TypesEquivalent(leftType, rightType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(leftType, rightType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(rightType, leftType)) {
+            return false
+        }
+        return !ColumnarRuntimeOperatorResolver.ResolveBinary("==", leftType, rightType).HasCandidates
+    }
+
+    private func IsReferenceEqualityOperand(operandType: Type): bool {
+        if (operandType.IsGenericParameter || operandType.IsByRef || operandType.IsPointer || ColumnarCodePlanExecutor.IsVoidType(operandType)) {
+            return false
+        }
+        operandBuilder := operandType as TypeBuilder
+        if (operandBuilder != null) {
+            operandDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.Values, operandBuilder)
+            return operandDefinition != null && operandDefinition.IsReference
+        }
+        return !operandType.IsValueType
     }
 
     private func EmitInterpolationCallArgument(plan: ColumnarInterpolationHolePlan): void {
