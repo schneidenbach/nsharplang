@@ -51,13 +51,23 @@ func LexlookEmitLibrary(root: string): string {
     return outputPath
 }
 
-// A consumer project referencing the emitted library, with one source file.
+// A consumer project referencing the emitted library, with one source file. It is a SIBLING of the
+// library's directory, never its parent: a project compiles every `.nl` file under its root, so a
+// consumer above the library would compile the library's source into itself and meet every type as
+// a SOURCE type -- and no row here would be asking about a referenced assembly at all.
 func LexlookConsumer(tag: string, source: string): string {
-    root := LexlookRoot(tag)
-    libraryPath := LexlookEmitLibrary(root)
+    workspace := LexlookRoot(tag)
+    libraryPath := LexlookEmitLibrary(workspace)
+    root := Path.Combine(workspace, "consumer")
+    Directory.CreateDirectory(root)
     LexlookWrite(root, "project.yml", "name: LexlookConsumer\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n\ndependencies:\n  - dll: " + libraryPath + "\n")
     LexlookWrite(root, "Consumer.nl", source)
     return root
+}
+
+// The emitted library beside a consumer.
+func LexlookLibraryPath(root: string): string {
+    return Path.Combine(Path.Combine(Path.GetDirectoryName(root) ?? root, "library"), "LexlookLib.dll")
 }
 
 // Analysis AND the lint rules, the way `nlc build` validates a project: NL010 and NL002 are answered
@@ -102,12 +112,13 @@ func LexlookEmitOnly(root: string): MultiFileCompilationResult {
     return compiler.CompileToIlAssembly("LexlookConsumer", Path.Combine(root, "out", "LexlookConsumer.dll"), false, false)
 }
 
-// The full name of a parameter's type in an emitted assembly, read through a metadata-only load
-// context so nothing is loaded into the test process.
+// A parameter's type in the emitted consumer as `<full name> @ <declaring assembly>`, read through a
+// metadata-only load context so nothing is loaded into the test process. The assembly is part of the
+// answer: a library type must come from the LIBRARY, or the row was not about a referenced assembly.
 func LexlookParameterType(root: string, typeName: string, methodName: string): string {
     paths := new List<string>()
     paths.Add(Path.Combine(root, "out", "LexlookConsumer.dll"))
-    paths.Add(Path.Combine(Path.Combine(root, "library"), "LexlookLib.dll"))
+    paths.Add(LexlookLibraryPath(root))
     for runtimeAssembly in Directory.GetFiles(RuntimeEnvironment.GetRuntimeDirectory(), "*.dll") {
         paths.Add(runtimeAssembly)
     }
@@ -122,17 +133,18 @@ func LexlookParameterType(root: string, typeName: string, methodName: string): s
         if method == null {
             return "<no method " + methodName + ">"
         }
-        return method.GetParameters()[0].ParameterType.FullName ?? "<unnamed>"
+        parameterType := method.GetParameters()[0].ParameterType
+        return (parameterType.FullName ?? "<unnamed>") + " @ " + (parameterType.Assembly.GetName().Name ?? "<unnamed>")
     } finally {
         context.Dispose()
     }
 }
 
-// The full name of a type's base in the emitted assembly, read the same metadata-only way.
+// A type's base in the emitted consumer, `<full name> @ <declaring assembly>`, read the same way.
 func LexlookBaseType(root: string, typeName: string): string {
     paths := new List<string>()
     paths.Add(Path.Combine(root, "out", "LexlookConsumer.dll"))
-    paths.Add(Path.Combine(Path.Combine(root, "library"), "LexlookLib.dll"))
+    paths.Add(LexlookLibraryPath(root))
     for runtimeAssembly in Directory.GetFiles(RuntimeEnvironment.GetRuntimeDirectory(), "*.dll") {
         paths.Add(runtimeAssembly)
     }
@@ -147,7 +159,7 @@ func LexlookBaseType(root: string, typeName: string): string {
         if baseType == null {
             return "<no base>"
         }
-        return baseType.FullName ?? "<unnamed>"
+        return (baseType.FullName ?? "<unnamed>") + " @ " + (baseType.Assembly.GetName().Name ?? "<unnamed>")
     } finally {
         context.Dispose()
     }
@@ -185,8 +197,8 @@ test "the emitter alone binds the same enclosing type and reads a relative quali
     result := LexlookEmitOnly(root)
     assert result.Success, LexlookFailureText(result)
 
-    assert LexlookParameterType(root, "Lexlook.Lib.Consumer.Consumer", "Describe") == "Lexlook.Lib.TypeInfo"
-    assert LexlookParameterType(root, "Lexlook.Lib.Consumer.Consumer", "Kind") == "Lexlook.Lib.Ast.Node"
+    assert LexlookParameterType(root, "Lexlook.Lib.Consumer.Consumer", "Describe") == "Lexlook.Lib.TypeInfo @ LexlookLib"
+    assert LexlookParameterType(root, "Lexlook.Lib.Consumer.Consumer", "Kind") == "Lexlook.Lib.Ast.Node @ LexlookLib"
 }
 
 // Two imports that each supply `Widget` from a referenced assembly, in the order given.
@@ -268,6 +280,6 @@ test "a class base named by a bare name binds the enclosing namespace's referenc
 
     result := LexlookEmitOnly(root)
     assert result.Success, LexlookFailureText(result)
-    assert LexlookParameterType(root, "Lexlook.Lib.Consumer.Derived", "Take") == "Lexlook.Lib.Consumer.Derived"
-    assert LexlookBaseType(root, "Lexlook.Lib.Consumer.Derived") == "Lexlook.Lib.TypeInfo"
+    assert LexlookParameterType(root, "Lexlook.Lib.Consumer.Derived", "Take") == "Lexlook.Lib.Consumer.Derived @ LexlookConsumer"
+    assert LexlookBaseType(root, "Lexlook.Lib.Consumer.Derived") == "Lexlook.Lib.TypeInfo @ LexlookLib"
 }

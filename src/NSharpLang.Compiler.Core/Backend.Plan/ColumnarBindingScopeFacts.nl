@@ -421,6 +421,9 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
     memberNamesByType: Dictionary<string, ColumnarBindingNameSet>
     currentLexicalNamesByType: Dictionary<string, ColumnarBindingNameSet>
     classBaseNameByType: Dictionary<string, string>
+    // The base each `classBaseNameByType` owner WROTE, and the file it wrote it in: what the
+    // precedence rule is asked again once referenced assemblies can answer it.
+    classBaseWrittenByType: Dictionary<string, ColumnarExternalBaseBinding>
     externalBaseBindingByType: Dictionary<string, ColumnarExternalBaseBinding>
     invalidClassBaseOwners: HashSet<string>
     sourceTypeKindsByExactName: Dictionary<string, ColumnarTypeBindingFacts>
@@ -462,6 +465,7 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
         memberNamesByType = new Dictionary<string, ColumnarBindingNameSet>(StringComparer.Ordinal)
         currentLexicalNamesByType = new Dictionary<string, ColumnarBindingNameSet>(StringComparer.Ordinal)
         classBaseNameByType = new Dictionary<string, string>(StringComparer.Ordinal)
+        classBaseWrittenByType = new Dictionary<string, ColumnarExternalBaseBinding>(StringComparer.Ordinal)
         externalBaseBindingByType = new Dictionary<string, ColumnarExternalBaseBinding>(StringComparer.Ordinal)
         invalidClassBaseOwners = new HashSet<string>(StringComparer.Ordinal)
         sourceTypeKindsByExactName = new Dictionary<string, ColumnarTypeBindingFacts>(StringComparer.Ordinal)
@@ -621,6 +625,7 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
         view.memberNamesByType = memberNamesByType
         view.currentLexicalNamesByType = currentLexicalNamesByType
         view.classBaseNameByType = classBaseNameByType
+        view.classBaseWrittenByType = classBaseWrittenByType
         view.externalBaseBindingByType = externalBaseBindingByType
         view.invalidClassBaseOwners = invalidClassBaseOwners
         view.sourceTypeKindsByExactName = sourceTypeKindsByExactName
@@ -654,6 +659,38 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
 
     func PrepareExternalTypeBindings(referenceAssemblyPaths: IReadOnlyList<string>?) {
         assemblyCatalog.Prepare(referenceAssemblyPaths, fileFactsById)
+        ReselectClassBasesWithMetadata()
+    }
+
+    // A CLASS BASE IS A SIMPLE TYPE NAME, SO THE PRECEDENCE RULE IS ASKED OF METADATA TOO.
+    // `AddClassBaseScope` runs while the scope is built, before any referenced assembly can be asked,
+    // so it resolves a base from source alone -- and where the enclosing namespace's type of that name
+    // comes from a referenced assembly, the source type an IMPORT supplies is all it can find. The
+    // emitted parent is selected by `SimpleNamePrecedence` over source and metadata, which binds the
+    // enclosing namespace's referenced type; so once the scan exists the rule is asked again here, and
+    // a base it settles on lexical metadata moves to the external-base fence. Without this the member
+    // fence walks a base the class does not have: the rival's members shadow names inside the class
+    // (a rival member `Environment` refusing `Environment.NewLine`), and the rival is not its parent.
+    func ReselectClassBasesWithMetadata() {
+        if !assemblyCatalog.IsPrepared {
+            return
+        }
+
+        owners := new List<string>(classBaseWrittenByType.Keys)
+        for owner in owners {
+            written := classBaseWrittenByType[owner]
+            facts := new ColumnarSourceBindingFacts()
+            if !fileFactsById.TryGetValue(written.SourceFileId, out facts) {
+                continue
+            }
+
+            selection := written.Name.Contains('.') ? SelectQualifiedName(facts.NamespaceName, written.Name) : SelectSimpleName(facts.NamespaceName, facts.UnaliasedNamespaceImports, written.Name)
+            if selection.IsLexicalMetadata {
+                classBaseNameByType.Remove(owner)
+                classBaseWrittenByType.Remove(owner)
+                externalBaseBindingByType[owner] = written
+            }
+        }
     }
 
     // Member-style calls whose receiver declares no matching instance method may bind to an external
@@ -2643,6 +2680,7 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
             return
         }
         classBaseNameByType[ownerName] = baseName
+        classBaseWrittenByType[ownerName] = new ColumnarExternalBaseBinding(input.BaseNames[0], input.SourceFileId)
     }
 
     func ResolveSourceBaseName(ownerName: string, sourceFileId: int, baseName: string): string {
