@@ -201,8 +201,8 @@ func AttrClassWithMembers(name: string, baseClass: TypeReference?, members: Decl
     return new ClassTypeInfo(name, 1, 1, false, baseClass, AttrNoTypeReferences(), AttrNoTypeParameters(), AttrNoParameters(), members, AttrNoNestedTypes(), true)
 }
 
-func AttrNoModifiers(): ParameterModifier[] {
-    return new ParameterModifier[](0)
+func AttrNoModifiers(): Ast.ParameterModifier[] {
+    return new Ast.ParameterModifier[](0)
 }
 
 func AttrNoConstraints(): GenericConstraint[] {

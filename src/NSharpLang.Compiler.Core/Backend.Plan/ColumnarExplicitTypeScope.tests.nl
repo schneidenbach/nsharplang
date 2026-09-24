@@ -398,7 +398,7 @@ test "exact explicit type scope exposes nested declarations across files only wh
     ExactTypeAssertRejected(scope, bindings, "Outer.hidden")
 }
 
-test "exact explicit type scope resolves local aliases chains arrays and ordered namespaces" {
+test "exact explicit type scope resolves local aliases chains arrays and refuses an import tie" {
     leftBuilder := TypeOfCreateSourceBuilder("Left.Widget", false)
     rightBuilder := TypeOfCreateSourceBuilder("Right.Widget", false)
     boxBuilder := TypeOfCreateSourceBuilder("Left.Box", true)
@@ -438,8 +438,12 @@ test "exact explicit type scope resolves local aliases chains arrays and ordered
     assert intBoxArguments.Length == 1
     assert intBoxArguments[0] == typeof(int)
 
+    // Two imports that each export `Widget` tie: the first one written is not an answer, so the bare
+    // spelling is refused (the analyzer's NL209) and each qualified spelling names its own type.
     callerScope := ExactTypeScope(sources, fileNames, 2)
-    ExactTypeAssertResolved(callerScope, bindings, "Widget", rightBuilder)
+    ExactTypeAssertRejected(callerScope, bindings, "Widget")
+    ExactTypeAssertResolved(callerScope, bindings, "Right.Widget", rightBuilder)
+    ExactTypeAssertResolved(callerScope, bindings, "Left.Widget", leftBuilder)
     ExactTypeAssertRejected(callerScope, bindings, "Wrong.Widget")
 
     cycleScope := ExactTypeSingleScope("type A = B\ntype B = A\n")

@@ -152,3 +152,146 @@ test "a written qualifier is expanded through the lexical chain, never through a
     // Nothing written, nothing to expand.
     assert SimpleNamePrecedence.QualifierNamespaces("App", "").Count == 0
 }
+
+// ── THE SELECTION: which namespace a name binds in, from per-namespace answers ──────────────────
+//
+// A selection is driven by its caller with one (source, metadata) answer per candidate. These rows
+// answer from two tiny tables — the namespaces that declare the name in SOURCE and the ones whose
+// referenced assemblies do — so what is pinned is the rule alone.
+func PrecedenceDrive(selection: SimpleNameSelection, sourceNamespaces: string[], metadataNamespaces: string[]): string {
+    asked := ""
+    while !selection.IsSettled {
+        candidate := selection.Current
+        spelled := candidate.Namespace ?? "<global>"
+        asked = asked + (asked.Length == 0 ? "" : ",") + spelled + (candidate.IsImport ? "(import)" : "")
+        declaresSource := false
+        for sourceNamespace in sourceNamespaces {
+            if sourceNamespace == spelled {
+                declaresSource = true
+            }
+        }
+        declaresMetadata := false
+        if !declaresSource {
+            for metadataNamespace in metadataNamespaces {
+                if metadataNamespace == spelled {
+                    declaresMetadata = true
+                }
+            }
+        }
+        selection.Answer(declaresSource, declaresMetadata)
+    }
+    return asked
+}
+
+func PrecedenceOutcome(selection: SimpleNameSelection): string {
+    kind := "not-found"
+    if selection.Kind == SimpleNameSelectionKind.Source {
+        kind = "source"
+    } else if selection.Kind == SimpleNameSelectionKind.Metadata {
+        kind = "metadata"
+    } else if selection.Kind == SimpleNameSelectionKind.Ambiguous {
+        kind = "ambiguous"
+    }
+    text := kind + ":" + (selection.Namespace ?? "<global>")
+    if selection.FromImport {
+        text = text + "(import)"
+    }
+    if selection.Kind == SimpleNameSelectionKind.Ambiguous {
+        text = text + "|" + (selection.SecondNamespace ?? "<global>")
+    }
+    return text
+}
+
+test "a referenced assembly's type in an enclosing namespace outranks every import" {
+    // `TypeInfo` inside `NSharpLang.Compiler.Columnar`, once `NSharpLang.Compiler` is another
+    // assembly: the chain answers from metadata before `System.Reflection` is asked at all.
+    selection := SimpleNamePrecedence.Select("NSharpLang.Compiler.Columnar", PrecedenceImports(["System.Reflection"]))
+    asked := PrecedenceDrive(selection, [], ["NSharpLang.Compiler", "System.Reflection"])
+    assert asked == "NSharpLang.Compiler.Columnar,NSharpLang.Compiler", asked
+    assert PrecedenceOutcome(selection) == "metadata:NSharpLang.Compiler"
+    assert selection.IsLexicalMetadata
+}
+
+test "a nearer namespace wins whichever assembly declares it, and at one namespace source wins" {
+    // Metadata in the file's OWN namespace outranks source in an enclosing one.
+    nearer := SimpleNamePrecedence.Select("App.Models", PrecedenceImports([]))
+    PrecedenceDrive(nearer, ["App"], ["App.Models"])
+    assert PrecedenceOutcome(nearer) == "metadata:App.Models"
+
+    // Source in an enclosing namespace outranks metadata farther out and in the imports.
+    farther := SimpleNamePrecedence.Select("App.Models", PrecedenceImports(["System"]))
+    PrecedenceDrive(farther, ["App"], ["System"])
+    assert PrecedenceOutcome(farther) == "source:App"
+    assert !farther.IsLexicalMetadata
+
+    // At ONE namespace both answer: the source declaration is the member.
+    same := SimpleNamePrecedence.Select("App", PrecedenceImports([]))
+    PrecedenceDrive(same, ["App"], ["App"])
+    assert PrecedenceOutcome(same) == "source:App"
+}
+
+test "the import tier is one tier: two imports that supply the name tie in any mix and any order" {
+    metadataPair := SimpleNamePrecedence.Select("App", PrecedenceImports(["Left", "Right"]))
+    PrecedenceDrive(metadataPair, [], ["Left", "Right"])
+    assert PrecedenceOutcome(metadataPair) == "ambiguous:Left(import)|Right"
+    assert !metadataPair.FirstIsSource
+    assert !metadataPair.SecondIsSource
+
+    reversed := SimpleNamePrecedence.Select("App", PrecedenceImports(["Right", "Left"]))
+    PrecedenceDrive(reversed, [], ["Left", "Right"])
+    assert PrecedenceOutcome(reversed) == "ambiguous:Right(import)|Left"
+
+    mixed := SimpleNamePrecedence.Select("App", PrecedenceImports(["Left", "Right"]))
+    PrecedenceDrive(mixed, ["Right"], ["Left"])
+    assert PrecedenceOutcome(mixed) == "ambiguous:Left(import)|Right"
+    assert !mixed.FirstIsSource
+    assert mixed.SecondIsSource
+
+    // One import supplying it is the answer; every import is still asked, to prove no rival.
+    single := SimpleNamePrecedence.Select("App", PrecedenceImports(["Left", "Right", "Other"]))
+    asked := PrecedenceDrive(single, [], ["Left"])
+    assert asked == "App,<global>,Left(import),Right(import),Other(import)", asked
+    assert PrecedenceOutcome(single) == "metadata:Left(import)"
+    assert !single.IsLexicalMetadata
+
+    nothing := SimpleNamePrecedence.Select("App", PrecedenceImports(["Left"]))
+    PrecedenceDrive(nothing, [], [])
+    assert PrecedenceOutcome(nothing) == "not-found:<global>"
+}
+
+test "an import of a lexical namespace is not a rival and an import is asked once" {
+    selection := SimpleNamePrecedence.Select("App.Models", PrecedenceImports(["App", "Left", "Left", "App.Models"]))
+    asked := PrecedenceDrive(selection, [], ["Left"])
+    assert asked == "App.Models,App,<global>,Left(import)", asked
+    assert PrecedenceOutcome(selection) == "metadata:Left(import)"
+}
+
+test "a candidate carries the export rule: only the file's own namespace needs none" {
+    selection := SimpleNamePrecedence.Select("App.Models", PrecedenceImports(["Left"]))
+    exportRules := ""
+    while !selection.IsSettled {
+        exportRules = exportRules + (selection.Current.RequiresExport ? "E" : "-")
+        selection.Answer(false, false)
+    }
+    assert exportRules == "-EEE", exportRules
+}
+
+test "a qualified name's candidates climb the chain and keep where each was read" {
+    selection := SimpleNamePrecedence.SelectQualified("NSharpLang.Compiler.Columnar", "Ast")
+    trail := ""
+    while !selection.IsSettled {
+        candidate := selection.Current
+        trail = trail + (trail.Length == 0 ? "" : ",") + (candidate.Namespace ?? "?") + "@" + (candidate.LexicalBase ?? "<global>") + (candidate.IsWrittenSpelling ? "!" : "")
+        selection.Answer(false, false)
+    }
+    assert trail == "NSharpLang.Compiler.Columnar.Ast@NSharpLang.Compiler.Columnar,NSharpLang.Compiler.Ast@NSharpLang.Compiler,NSharpLang.Ast@NSharpLang,Ast@<global>!", trail
+
+    found := SimpleNamePrecedence.SelectQualified("NSharpLang.Compiler.Columnar", "Ast")
+    PrecedenceDrive(found, [], ["NSharpLang.Compiler.Ast"])
+    assert PrecedenceOutcome(found) == "metadata:NSharpLang.Compiler.Ast"
+    assert found.LexicalBase == "NSharpLang.Compiler"
+
+    empty := SimpleNamePrecedence.SelectQualified("App", "")
+    assert empty.IsSettled
+    assert empty.Kind == SimpleNameSelectionKind.NotFound
+}

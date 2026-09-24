@@ -171,4 +171,212 @@ class SimpleNamePrecedence {
         }
         return enclosing
     }
+
+    // THE RULE ITSELF, NOT ONLY ITS ORDER: which namespace a bare type name BINDS in.
+    //
+    // A namespace's members are its types, wherever they were compiled. `NSharpLang.Compiler`'s
+    // `TypeInfo` is a member of `NSharpLang.Compiler` whether this project declares it or a
+    // referenced assembly does, so rules 1 and 2 ask BOTH at every step of the lexical chain, and a
+    // referenced assembly's type in an enclosing namespace outranks an imported one exactly as a
+    // source type does. Until this owner existed the two walks applied rules 1 and 2 to SOURCE
+    // declarations only, so carving a slice of this compiler into its own assembly would have
+    // re-bound 3,552 bare `TypeInfo`s to `System.Reflection.TypeInfo` through an import.
+    //
+    // At ONE namespace a source declaration outranks a metadata type of the same full name (the
+    // shape C# warns about with CS0436 and resolves the same way). The import tier is ONE tier: two
+    // imports that each supply the name — source or metadata, in any mix — are a tie, and a tie is
+    // NL209, never "the first import written wins", because `nlc format` sorts imports and a reorder
+    // must never change what a file means.
+    //
+    // THE CALLER ANSWERS, THIS OWNER DECIDES. Each walk knows how to ask ONE namespace about ONE
+    // spelling — the analyzer asks its project index and its metadata probe, the emitter its source
+    // name tables and its assembly scan — and nothing else. So the selection hands out candidates in
+    // order, takes a (source, metadata) answer for each, and settles as soon as the rule can:
+    //
+    //     selection := SimpleNamePrecedence.Select(currentNamespace, imports)
+    //     while !selection.IsSettled {
+    //         candidate := selection.Current
+    //         source := <does candidate.Namespace declare it in source, honouring RequiresExport>
+    //         metadata := !source && <does a referenced assembly declare it there>
+    //         selection.Answer(source, metadata)
+    //     }
+    static func Select(currentNamespace: string?, importedNamespaces: List<string>): SimpleNameSelection {
+        candidates := new List<SimpleNameCandidate>()
+        lexical := LexicalNamespaces(currentNamespace)
+        for lexicalNamespace in lexical {
+            candidates.Add(new SimpleNameCandidate(lexicalNamespace, lexicalNamespace, false, RequiresExport(currentNamespace, lexicalNamespace), false))
+        }
+
+        seen := new HashSet<string>(StringComparer.Ordinal)
+        for importedNamespace in importedNamespaces {
+            // An import of a lexical namespace is redundant, not a rival: the chain already asked it.
+            if importedNamespace == null || importedNamespace.Length == 0 || IsLexicalNamespace(currentNamespace, importedNamespace) || !seen.Add(importedNamespace) {
+                continue
+            }
+
+            candidates.Add(new SimpleNameCandidate(importedNamespace, importedNamespace, true, true, false))
+        }
+
+        return new SimpleNameSelection(candidates)
+    }
+
+    // THE SAME RULE FOR A QUALIFIED NAME: `Ast.Node` read inside `NSharpLang.Compiler` means
+    // `NSharpLang.Compiler.Ast.Node` when that namespace declares `Node` — in source OR in a
+    // referenced assembly — because the qualifier's leftmost segment climbs the lexical chain
+    // (`QualifierNamespaces`). The chain's last candidate is the written qualifier itself, read as an
+    // absolute namespace; it is marked `IsWrittenSpelling` so a caller that already owns the absolute
+    // reading elsewhere can leave it there. There is no import tier: an import brings in types, not
+    // sub-namespaces.
+    static func SelectQualified(currentNamespace: string?, writtenQualifier: string): SimpleNameSelection {
+        candidates := new List<SimpleNameCandidate>()
+        if writtenQualifier == null || writtenQualifier.Length == 0 {
+            return new SimpleNameSelection(candidates)
+        }
+
+        seen := new HashSet<string>(StringComparer.Ordinal)
+        lexical := LexicalNamespaces(currentNamespace)
+        for lexicalNamespace in lexical {
+            isWritten := lexicalNamespace == null || lexicalNamespace.Length == 0
+            qualifier := isWritten ? writtenQualifier : lexicalNamespace + "." + writtenQualifier
+            if seen.Add(qualifier) {
+                candidates.Add(new SimpleNameCandidate(qualifier, lexicalNamespace, false, RequiresExport(currentNamespace, qualifier), isWritten))
+            }
+        }
+
+        return new SimpleNameSelection(candidates)
+    }
+}
+
+// Which tier a settled selection landed in, and whether a source declaration or a referenced
+// assembly supplied it.
+enum SimpleNameSelectionKind {
+    NotFound,
+    Source,
+    Metadata,
+    Ambiguous
+}
+
+// ONE namespace a selection asks about. `Namespace` null is the global namespace. `RequiresExport`
+// is `SimpleNamePrecedence.RequiresExport`'s answer for it, so a caller never re-derives the export
+// rule; it only matters to a SOURCE answer, since a referenced assembly exposes what it made public.
+//
+// `LexicalBase` is the namespace of the lexical chain the candidate was read INSIDE: the candidate
+// itself for a simple name, and for a qualified one the namespace the written qualifier was appended
+// to (null for the written spelling read absolutely). A metadata answer asks it for
+// `<qualifier>.<name>`, because the qualifier may name a TYPE rather than a namespace
+// (`Outer.Inner` is `Outer+Inner` in metadata) and only the written part can be read as nesting.
+class SimpleNameCandidate {
+    Namespace: string?
+    LexicalBase: string?
+    IsImport: bool
+    RequiresExport: bool
+    IsWrittenSpelling: bool
+
+    constructor(namespaceName: string?, lexicalBase: string?, isImport: bool, requiresExport: bool, isWrittenSpelling: bool) {
+        Namespace = namespaceName
+        LexicalBase = lexicalBase
+        IsImport = isImport
+        RequiresExport = requiresExport
+        IsWrittenSpelling = isWrittenSpelling
+    }
+}
+
+// The decision `SimpleNamePrecedence.Select` drives. It is settled as soon as the rule can settle:
+// at the first lexical candidate that declares the name, at the SECOND import that does, or when the
+// candidates run out. Until then `Current` is the next namespace to ask about.
+class SimpleNameSelection {
+    candidates: List<SimpleNameCandidate>
+    index: int
+    Kind: SimpleNameSelectionKind
+    // The namespace that supplied the name; for an ambiguity, the first import that did. Its
+    // `LexicalBase` is the winning candidate's, for a caller that reads a qualified name there.
+    Namespace: string?
+    LexicalBase: string?
+    FromImport: bool
+    // The rival import of an ambiguity, and whether each side is a source declaration.
+    SecondNamespace: string?
+    FirstIsSource: bool
+    SecondIsSource: bool
+    IsSettled: bool
+    importMatched: bool
+
+    constructor(candidateList: List<SimpleNameCandidate>) {
+        candidates = candidateList
+        index = 0
+        Kind = SimpleNameSelectionKind.NotFound
+        Namespace = null
+        LexicalBase = null
+        FromImport = false
+        SecondNamespace = null
+        FirstIsSource = false
+        SecondIsSource = false
+        IsSettled = candidateList.Count == 0
+        importMatched = false
+    }
+
+    Current: SimpleNameCandidate => candidates[index]
+
+    // Rules 1 and 2 settled it: a lexical namespace declares the name in a referenced assembly and
+    // no nearer namespace declares it in source.
+    IsLexicalMetadata: bool => Kind == SimpleNameSelectionKind.Metadata && !FromImport
+
+    // The answer for `Current`: does its namespace declare the name in source, and (asked only when
+    // it does not) in a referenced assembly.
+    func Answer(declaresSource: bool, declaresMetadata: bool) {
+        if IsSettled {
+            return
+        }
+
+        candidate := candidates[index]
+        found := declaresSource || declaresMetadata
+        if found && !candidate.IsImport {
+            Kind = declaresSource ? SimpleNameSelectionKind.Source : SimpleNameSelectionKind.Metadata
+            Namespace = candidate.Namespace
+            LexicalBase = candidate.LexicalBase
+            FirstIsSource = declaresSource
+            IsSettled = true
+            return
+        }
+
+        if found {
+            if importMatched {
+                SecondNamespace = candidate.Namespace
+                SecondIsSource = declaresSource
+                Kind = SimpleNameSelectionKind.Ambiguous
+                IsSettled = true
+                return
+            }
+
+            importMatched = true
+            Kind = declaresSource ? SimpleNameSelectionKind.Source : SimpleNameSelectionKind.Metadata
+            Namespace = candidate.Namespace
+            LexicalBase = candidate.LexicalBase
+            FromImport = true
+            FirstIsSource = declaresSource
+        }
+
+        index = index + 1
+        if index >= candidates.Count {
+            IsSettled = true
+        }
+    }
+
+    // The full name the selection bound, or the first candidate of an ambiguity.
+    func QualifiedName(name: string): string {
+        selected := Namespace
+        if selected == null || selected.Length == 0 {
+            return name
+        }
+
+        return selected + "." + name
+    }
+
+    func SecondQualifiedName(name: string): string {
+        second := SecondNamespace
+        if second == null || second.Length == 0 {
+            return name
+        }
+
+        return second + "." + name
+    }
 }

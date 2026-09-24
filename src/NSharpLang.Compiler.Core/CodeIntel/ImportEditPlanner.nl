@@ -68,13 +68,19 @@ class ImportEditPlanner {
         }
     }
 
+    // Is a type of this namespace already in scope here without a new `import`? The file's own
+    // namespace and every ENCLOSING one are (`SimpleNamePrecedence` rules 1 and 2 — their types
+    // bind with no import whichever assembly declares them, so offering `import NSharpLang.Compiler`
+    // to a file in `NSharpLang.Compiler.Columnar` would write a redundant line), and so is every
+    // unaliased import. The global namespace is enclosing for every file, but the empty name is
+    // never an import to offer, so it is simply in scope.
     static func IsNamespaceInScope(ast: object?, namespaceName: string): bool {
         unit := ast as CompilationUnit
         if unit == null {
             return false
         }
 
-        if AnalyzerDeclarationFileFacts.GetUnitNamespace(unit) == namespaceName {
+        if SimpleNamePrecedence.IsLexicalNamespace(AnalyzerDeclarationFileFacts.GetUnitNamespace(unit), namespaceName.Length == 0 ? null : namespaceName) {
             return true
         }
 

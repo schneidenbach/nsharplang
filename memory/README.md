@@ -146,6 +146,13 @@ catch now says what falling out of it did -- `return null`, `continue`, or a hel
 fallback), NL010 5, NL002 4, NL012 4 (`_`-named interface parameters) and NL905 2 (a `Try...` helper
 answering null where a catch always left). NL202 352 and NL304 28 unmoved.
 
+**Measured 2026-09-24 on `census/lookup`** (name lookup over referenced assemblies): **1,283**, and the
+gate ceiling is now 1,283. The emitter refuses an import tie the way the analyzer reports it (NL209)
+instead of binding the first import written, so the compiler's own eight ties are spelled in full
+(`System.Version` x4, `System.Reflection.EventInfo`, `Ast.ParameterModifier` x3) and the one import
+they alone used (`YamlDotNet.Core` in ColumnarIlEmitter) is gone. Identity diff: zero additions, eight
+NL209 removals.
+
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
 

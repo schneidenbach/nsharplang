@@ -264,33 +264,142 @@ class ColumnarExternalTypeCatalog {
         return true
     }
 
+    // The import tier on its own. ONE import supplying the spelling answers; a SECOND one is a tie
+    // and answers Unknown — never the first import written. An import that names a lexical namespace
+    // was already asked by the chain and is not a rival. An uninspectable reference met BEFORE any
+    // import answered is Unknown, as it always was; met after one did, it cannot prove a rival.
     static func ResolveImportedOwner(scan: ExternalAssemblyScanResult, facts: ColumnarSourceBindingFacts, ownerName: string): ExternalAssemblyTypeResolution {
-        for unaliasedNamespaceImport2 in facts.UnaliasedNamespaceImports {
-            fullName := unaliasedNamespaceImport2 + "." + ownerName
-            resolution := ExternalAssemblyScan.FindExactOrNestedType(scan, fullName)
-            if resolution.Status != ExternalAssemblyTypeLookupStatus.Missing {
-                return resolution
+        matched := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Missing, "", typeof(object), false)
+        selection := SimpleNamePrecedence.Select(facts.NamespaceName, facts.UnaliasedNamespaceImports)
+        while !selection.IsSettled {
+            candidate := selection.Current
+            declaresMetadata := false
+            if candidate.IsImport {
+                resolution := FindInNamespace(scan, candidate.Namespace, ownerName)
+                if resolution.Status == ExternalAssemblyTypeLookupStatus.Unknown && matched.Status == ExternalAssemblyTypeLookupStatus.Missing {
+                    return resolution
+                }
+                declaresMetadata = resolution.Status == ExternalAssemblyTypeLookupStatus.Found
+                if declaresMetadata && matched.Status == ExternalAssemblyTypeLookupStatus.Missing {
+                    matched = resolution
+                }
             }
+
+            selection.Answer(false, declaresMetadata)
         }
 
-        return new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Missing, "", typeof(object), false)
+        if selection.Kind == SimpleNameSelectionKind.Ambiguous {
+            return new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        }
+
+        return matched
     }
 
+    // THE METADATA HALF OF `SimpleNamePrecedence`, for a spelling no source declaration claimed.
+    //
+    // The file's LEXICAL chain first — its own namespace, each enclosing one, and the global one,
+    // where the spelling is read as written (so an absolute full name answers there): a referenced
+    // assembly's `NSharpLang.Compiler.TypeInfo` is a member of the file's enclosing namespace and
+    // outranks every import, and a qualified `Ast.Node` names `NSharpLang.Compiler.Ast.Node`. Then
+    // the imports as ONE tier: exactly one import supplying the spelling is the answer, and two are a
+    // tie the analyzer reports as NL209 — here an UNKNOWN answer, which every caller declines, because
+    // "the first import written" is not a binding (`nlc format` sorts imports). Only then the
+    // exported-name scan, the project-wide guess.
+    //
+    // AN UNINSPECTABLE REFERENCE PROVES NOTHING ABOUT A NAMESPACE, so an Unknown answer from the
+    // lexical chain is not a member there and the walk goes on — except for a DOTTED spelling read
+    // absolutely, the one reading this resolver made before the chain existed, which keeps its old
+    // "cannot prove identity" answer.
     static func ResolveOwner(scan: ExternalAssemblyScanResult, facts: ColumnarSourceBindingFacts, ownerName: string): ExternalAssemblyTypeResolution {
-        if ownerName.Contains(".") {
-            resolution := ExternalAssemblyScan.FindExactOrNestedType(scan, ownerName)
-            if resolution.Status != ExternalAssemblyTypeLookupStatus.Missing {
+        lexical := SimpleNamePrecedence.LexicalNamespaces(facts.NamespaceName)
+        for lexicalNamespace in lexical {
+            resolution := FindInNamespace(scan, lexicalNamespace, ownerName)
+            if resolution.Status == ExternalAssemblyTypeLookupStatus.Found {
+                return resolution
+            }
+            if resolution.Status == ExternalAssemblyTypeLookupStatus.Unknown && lexicalNamespace == null && ownerName.Contains(".") {
                 return resolution
             }
         }
-        for unaliasedNamespaceImport2 in facts.UnaliasedNamespaceImports {
-            fullName := unaliasedNamespaceImport2 + "." + ownerName
-            resolution := ExternalAssemblyScan.FindExactOrNestedType(scan, fullName)
-            if resolution.Status != ExternalAssemblyTypeLookupStatus.Missing {
-                return resolution
-            }
+
+        imported := ResolveImportedOwner(scan, facts, ownerName)
+        if imported.Status != ExternalAssemblyTypeLookupStatus.Missing {
+            return imported
         }
+
         return ExternalAssemblyScan.FindFirstVisibleType(scan, ownerName)
+    }
+
+    // ONE namespace's member of this spelling: `<namespace>.<name>` exactly, then with the SPELLING's
+    // own trailing dots read as nesting (`Outer.Inner` is `Outer+Inner`) — a dot of the namespace is
+    // never read as nesting, because a namespace is not a type. A type this emission cannot name is
+    // not a member it can bind (`InternalsVisibleToEmissionScope.CanNameType`), exactly as the
+    // analyzer's probe refuses it.
+    static func FindInNamespace(scan: ExternalAssemblyScanResult, namespaceName: string?, name: string): ExternalAssemblyTypeResolution {
+        prefix := ""
+        if namespaceName != null && namespaceName.Length > 0 {
+            prefix = namespaceName + "."
+        }
+
+        resolution := NameableOnly(ExternalAssemblyScan.FindExactType(scan, prefix + name))
+        if resolution.Status != ExternalAssemblyTypeLookupStatus.Missing {
+            return resolution
+        }
+
+        candidate := name
+        searchEnd := candidate.Length
+        while searchEnd > 0 {
+            separator := candidate.LastIndexOf('.', searchEnd - 1)
+            if separator <= 0 {
+                return resolution
+            }
+
+            candidate = candidate.Substring(0, separator) + "+" + candidate.Substring(separator + 1)
+            resolution = NameableOnly(ExternalAssemblyScan.FindExactType(scan, prefix + candidate))
+            if resolution.Status != ExternalAssemblyTypeLookupStatus.Missing {
+                return resolution
+            }
+
+            searchEnd = separator
+        }
+
+        return resolution
+    }
+
+    static func NameableOnly(resolution: ExternalAssemblyTypeResolution): ExternalAssemblyTypeResolution {
+        if resolution.Status == ExternalAssemblyTypeLookupStatus.Found && resolution.HasRuntimeType && !InternalsVisibleToEmissionScope.CanNameType(resolution.RuntimeType) {
+            return new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Missing, "", typeof(object), false)
+        }
+
+        return resolution
+    }
+
+    // Does a referenced assembly declare this spelling in this ONE namespace? The metadata answer a
+    // `SimpleNamePrecedence` selection asks of each candidate. Cached with the owner lookups.
+    func DeclaresInNamespace(namespaceName: string?, name: string): bool {
+        if !IsPrepared || preparedScan == null || name == null || name.Length == 0 {
+            return false
+        }
+
+        resolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        key := "namespace:" + (namespaceName ?? "") + ":" + name
+        if !resolvedOwners.TryGetValue(key, out resolution) {
+            resolution = FindInNamespace(preparedScan, namespaceName, name)
+            resolvedOwners[key] = resolution
+        }
+
+        return resolution.Status == ExternalAssemblyTypeLookupStatus.Found && resolution.HasRuntimeType
+    }
+
+    // The runtime type `DeclaresInNamespace` found.
+    func TryResolveInNamespace(namespaceName: string?, name: string, out runtimeType: Type): bool {
+        runtimeType = typeof(object)
+        if !DeclaresInNamespace(namespaceName, name) {
+            return false
+        }
+
+        runtimeType = resolvedOwners["namespace:" + (namespaceName ?? "") + ":" + name].RuntimeType
+        return true
     }
 
     static func Key(sourceFileId: int, ownerName: string): string {
@@ -906,6 +1015,17 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
             return TryResolveExportedSourceDeclarationNameAtFile(importedFileId, canonical, activeAliases, depth + 1, out exactName)
         }
 
+        // A referenced assembly's type the precedence rule selects first is no source declaration's
+        // name; a tie between imports is claimed and refused.
+        declarationSelection := SelectSimpleName(facts.NamespaceName, facts.UnaliasedNamespaceImports, canonical)
+        if declarationSelection.IsLexicalMetadata {
+            return false
+        }
+        if declarationSelection.Kind == SimpleNameSelectionKind.Ambiguous {
+            claimed = true
+            return false
+        }
+
         currentExactName := ExactNameInFacts(facts, canonical)
         if sourceTypeNames.Contains(currentExactName) || ambiguousSourceTypeNames.Contains(currentExactName) || sourceTypeAliasFileIds.ContainsKey(currentExactName) || ambiguousSourceTypeAliasNames.Contains(currentExactName) {
             claimed = true
@@ -1264,6 +1384,15 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
                 importedNestedClaimed := false
                 return TryResolveExactSourceBinding(importedRootName + "." + tailName, true, bindings, activeAliases, depth + 1, out result, out importedNestedClaimed)
             }
+            // A QUALIFIER READ THROUGH THE LEXICAL CHAIN names a namespace's member whichever
+            // assembly declares it: `Ast.Node` inside `NSharpLang.Compiler` is
+            // `NSharpLang.Compiler.Ast.Node` from a referenced assembly exactly as from source, and a
+            // nearer referenced-assembly candidate outranks a farther source one.
+            qualifiedSelection := SelectQualifiedName(facts.NamespaceName, canonical)
+            if qualifiedSelection.Kind == SimpleNameSelectionKind.Metadata {
+                claimed = true
+                return TryResolveSelectedMetadata(qualifiedSelection, canonical, out result)
+            }
             lexicalNestedName := ""
             if TryFindLexicalNestedSourceName(facts, canonical, out lexicalNestedName) {
                 claimed = true
@@ -1309,6 +1438,21 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
                 return false
             }
             return TryResolveExplicitFileImportType(importedFileId, canonical, bindings, activeAliases, depth + 1, out result)
+        }
+
+        // `SimpleNamePrecedence` over source AND metadata: a referenced assembly's type in this
+        // file's own or an enclosing namespace is nearer than every import, and two imports that
+        // each supply the spelling are a tie this walk refuses (the analyzer's NL209) rather than
+        // binding whichever import was written first. A SOURCE selection is the source walk below's
+        // own answer, in the same order.
+        simpleSelection := SelectSimpleName(facts.NamespaceName, facts.UnaliasedNamespaceImports, canonical)
+        if simpleSelection.IsLexicalMetadata {
+            return TryResolveSelectedMetadata(simpleSelection, canonical, out result)
+        }
+        if simpleSelection.Kind == SimpleNameSelectionKind.Ambiguous {
+            claimed = true
+            RecordAmbiguousName(simpleSelection, canonical)
+            return false
         }
 
         currentNamespaceName := ExactNameInFacts(facts, canonical)
@@ -1450,6 +1594,83 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
             return false
         }
         return TryResolveExplicitAliasTarget(aliasFileId, declarationName, aliasTarget, bindings, activeAliases, depth + 1, out result)
+    }
+
+    // `SimpleNamePrecedence.Select` ANSWERED FROM THIS PROGRAM: the SOURCE answer from the declared
+    // name tables — the file's own namespace takes any declaration, every other namespace only an
+    // exported one — and the METADATA answer from the prepared assembly scan, asked only where no
+    // source declaration answered. The emitter's walks ask it before their source import walk, so a
+    // referenced assembly's type in an enclosing namespace binds ahead of every import, and a tie
+    // between two imports declines instead of binding whichever import was written first. The
+    // analyzer's project discovery drives the same selection from its own index
+    // (`AnalyzerProjectTypeDiscovery.SelectVisibleType`), so the two walks cannot disagree about it.
+    func SelectSimpleName(namespaceName: string, unaliasedImports: List<string>, name: string): SimpleNameSelection {
+        selection := SimpleNamePrecedence.Select(namespaceName, unaliasedImports)
+        while !selection.IsSettled {
+            candidate := selection.Current
+            declaresSource := DeclaresSourceTypeInNamespace(candidate.Namespace, name, candidate.RequiresExport)
+            declaresMetadata := false
+            if !declaresSource {
+                declaresMetadata = assemblyCatalog.DeclaresInNamespace(candidate.Namespace, name)
+            }
+
+            selection.Answer(declaresSource, declaresMetadata)
+        }
+
+        return selection
+    }
+
+    // The same rule for a QUALIFIED spelling: `Ast.Node` inside `NSharpLang.Compiler` asks
+    // `NSharpLang.Compiler.Ast`, then outward, whichever assembly declares the leaf. The written
+    // qualifier read absolutely is left to the callers' own absolute channels for metadata.
+    func SelectQualifiedName(namespaceName: string, qualifiedName: string): SimpleNameSelection {
+        separator := qualifiedName.LastIndexOf('.')
+        if separator <= 0 || separator >= qualifiedName.Length - 1 {
+            return new SimpleNameSelection(new List<SimpleNameCandidate>())
+        }
+
+        leafName := qualifiedName.Substring(separator + 1)
+        selection := SimpleNamePrecedence.SelectQualified(namespaceName, qualifiedName.Substring(0, separator))
+        while !selection.IsSettled {
+            candidate := selection.Current
+            declaresSource := DeclaresSourceTypeInNamespace(candidate.Namespace, leafName, candidate.RequiresExport)
+            declaresMetadata := false
+            if !declaresSource && !candidate.IsWrittenSpelling {
+                declaresMetadata = assemblyCatalog.DeclaresInNamespace(candidate.LexicalBase, qualifiedName)
+            }
+
+            selection.Answer(declaresSource, declaresMetadata)
+        }
+
+        return selection
+    }
+
+    // The source half of the selection: is a type or type alias of this spelling declared in this ONE
+    // namespace, in a form this file may bind (`requireExport` for every namespace but its own)?
+    func DeclaresSourceTypeInNamespace(namespaceName: string?, name: string, requireExport: bool): bool {
+        exactName := name
+        if namespaceName != null && namespaceName.Length > 0 {
+            exactName = namespaceName + "." + name
+        }
+
+        if requireExport {
+            return exportedSourceTypeNames.Contains(exactName) || exportedSourceTypeAliasNames.Contains(exactName)
+        }
+
+        return sourceTypeNames.Contains(exactName) || ambiguousSourceTypeNames.Contains(exactName) || sourceTypeAliasFileIds.ContainsKey(exactName) || ambiguousSourceTypeAliasNames.Contains(exactName)
+    }
+
+    // A tie is a decline, and the decline says which two types tie and how to settle it, in the
+    // analyzer's NL209 words — an emit-only build (the compiler's own source) has no analyzer to say
+    // it for this walk.
+    static func RecordAmbiguousName(selection: SimpleNameSelection, name: string) {
+        written := TypeArityNames.Display(name)
+        ColumnarDeclineTrace.Record("emit.names.ambiguous-import", "'" + written + "' is ambiguous between '" + selection.QualifiedName(written) + "' and '" + selection.SecondQualifiedName(written) + "': both are imported (NL209); write the one you mean in full", -1, 0, ColumnarDeclineTrace.CurrentMemberName())
+    }
+
+    // The runtime type a METADATA selection bound.
+    func TryResolveSelectedMetadata(selection: SimpleNameSelection, name: string, out result: Type): bool {
+        return assemblyCatalog.TryResolveInNamespace(selection.LexicalBase, name, out result)
     }
 
     // A SOURCE TYPE IN AN ENCLOSING NAMESPACE IS PART OF THIS FILE'S OWN SCOPE. The file's own
@@ -2037,9 +2258,24 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
     // global-namespace probe used to sit AFTER the import walk here, which is a second spelling of
     // the order and drifted from it. Source types in UNRELATED named namespaces are still not
     // consulted: they are the auto-discovery fallback and do not shadow a runtime import.
+    //
+    // A REFERENCED ASSEMBLY'S TYPE THAT THE SAME RULE SELECTS IS NOT A SOURCE OWNER AND NOT A BLOCK:
+    // this tier answers false, unblocked, and the external tier — which climbs the same chain first
+    // (`ColumnarExternalTypeCatalog.ResolveOwner`) — binds it. Two imports that each supply the name
+    // block: a tie is not an owner.
     func TryResolveProjectSourceTypeName(name: string, out exactName: string, out blocked: bool): bool {
         exactName = ""
         blocked = false
+        selection := SelectSimpleName(activeNamespaceName, activeUnaliasedNamespaceImports, name)
+        if selection.IsLexicalMetadata {
+            return false
+        }
+        if selection.Kind == SimpleNameSelectionKind.Ambiguous {
+            RecordAmbiguousName(selection, name)
+            blocked = true
+            return false
+        }
+
         activeExactName := name
         if activeNamespaceName.Length > 0 {
             activeExactName = activeNamespaceName + "." + name
@@ -2086,6 +2322,11 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
     // which is how the analyzer's qualified-name channel reads it, and the two must agree.
     func TryResolveQualifiedSourceTypeName(ownerName: string, out exactName: string): bool {
         exactName = ""
+        // A nearer REFERENCED-ASSEMBLY candidate is the external tier's owner, not this one's.
+        if SelectQualifiedName(activeNamespaceName, ownerName).Kind == SimpleNameSelectionKind.Metadata {
+            return false
+        }
+
         candidates := SimpleNamePrecedence.QualifierNamespaces(activeNamespaceName, ownerName)
         index := 0
         while index < candidates.Count {
@@ -2285,6 +2526,17 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
             return false
         }
         if activeDeclaredNames.Contains(rootName) {
+            return true
+        }
+        // The chain and import vetoes below are `SimpleNamePrecedence` asked of source alone; asked
+        // of source and metadata together, a referenced assembly's type in a lexical namespace wins
+        // before any of them is reached, so it does not block the external owner that binds it —
+        // and a tie between imports always does.
+        rootSelection := SelectSimpleName(activeNamespaceName, activeUnaliasedNamespaceImports, rootName)
+        if rootSelection.IsLexicalMetadata {
+            return false
+        }
+        if rootSelection.Kind == SimpleNameSelectionKind.Ambiguous {
             return true
         }
         if activeNamespaceName.Length == 0 && sourceTypeNames.Contains(rootName) {

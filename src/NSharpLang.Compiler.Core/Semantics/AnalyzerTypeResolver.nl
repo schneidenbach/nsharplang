@@ -767,10 +767,13 @@ class AnalyzerTypeResolver {
     //
     // The reference is split at its LAST dot. The leaf keeps any arity suffix, because that suffix
     // IS part of the identity; the prefix is read as a namespace — expanded through the file's
-    // lexical chain, so a CHILD namespace can be named by its last segments — and handed to the
-    // project-type channel, which is the same owner the bare name reaches one step later and applies
-    // the same export rule. Nothing is invented here: this returns project discovery's own answer, so
-    // the two spellings produce the very same `TypeInfo`.
+    // lexical chain, so a CHILD namespace can be named by its last segments — and each candidate is
+    // asked for a project declaration first and a referenced assembly's type second
+    // (`SimpleNamePrecedence.SelectQualified`): `Ast.Node` inside `NSharpLang.Compiler` names
+    // `NSharpLang.Compiler.Ast.Node` whichever assembly declares it. A project answer is project
+    // discovery's own, so the two spellings produce the very same `TypeInfo`; a metadata answer is
+    // the probe's. The written qualifier read ABSOLUTELY stays with the external channels below for
+    // metadata, which already own that reading.
     func TryResolveNamespaceQualifiedType(lookupName: string, writtenName: string, line: int, column: int, out typeInfo: TypeInfo): bool {
         typeInfo = BuiltInTypes.Unknown
         separator := lookupName.LastIndexOf('.')
@@ -781,19 +784,36 @@ class AnalyzerTypeResolver {
         writtenQualifier := lookupName.Substring(0, separator)
         leafName := lookupName.Substring(separator + 1)
         currentNamespace := AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue)
+        selection := SimpleNamePrecedence.SelectQualified(currentNamespace, writtenQualifier)
+        while !selection.IsSettled {
+            candidate := selection.Current
+            declaresSource := projectDiscoveryValue.DeclaresProjectTypeInNamespace(leafName, candidate.Namespace, candidate.RequiresExport)
+            declaresMetadata := false
+            if !declaresSource && !candidate.IsWrittenSpelling {
+                declaresMetadata = externalTypeProbeValue.NamespaceDeclares(candidate.LexicalBase, lookupName)
+            }
+
+            selection.Answer(declaresSource, declaresMetadata)
+        }
+
+        if selection.Kind == SimpleNameSelectionKind.Metadata {
+            metadataType := externalTypeProbeValue.ResolveInNamespace(selection.LexicalBase, lookupName)
+            if metadataType == null {
+                return false
+            }
+
+            semanticModelValue.RecordType(lookupName, metadataType)
+            typeInfo = metadataType
+            return true
+        }
+
+        if selection.Kind != SimpleNameSelectionKind.Source {
+            return false
+        }
+
         projectType: TypeInfo = BuiltInTypes.Unknown
         projectDeclaration: SymbolDeclaration? = null
-        // The qualifier is read through the LEXICAL chain, so `Ast.Node` inside `App` finds
-        // `App.Ast.Node` before it falls through to the absolute `Ast.Node`. One owner spells that
-        // chain (`SimpleNamePrecedence`), the same one the bare-name walk above reads.
-        qualifiers := SimpleNamePrecedence.QualifierNamespaces(currentNamespace, writtenQualifier)
-        resolvedQualified := false
-        qualifierIndex := 0
-        while qualifierIndex < qualifiers.Count && !resolvedQualified {
-            resolvedQualified = projectDiscoveryValue.ResolveNamespaceQualifiedProjectType(qualifiers[qualifierIndex], leafName, currentNamespace, out projectType, out projectDeclaration)
-            qualifierIndex = qualifierIndex + 1
-        }
-        if !resolvedQualified {
+        if !projectDiscoveryValue.ResolveNamespaceQualifiedProjectType(selection.Namespace ?? writtenQualifier, leafName, currentNamespace, out projectType, out projectDeclaration) {
             return false
         }
 

@@ -1365,23 +1365,38 @@ class AnalyzerDeclarationContext {
             // the name means, even when it does not resolve); an ENCLOSING namespace requires an
             // export and, when it has none, is walked past rather than claiming — the file never
             // asked for that namespace, so a private declaration there must not take a name the file
-            // explicitly imported.
-            lexical := SimpleNamePrecedence.LexicalNamespaces(facts.NamespaceName)
-            lexicalIndex := 0
-            while lexicalIndex < lexical.Count {
-                lexicalNamespace := lexical[lexicalIndex]
-                lexicalIndex = lexicalIndex + 1
-                isOwnNamespace := string.Equals(lexicalNamespace, facts.NamespaceName, StringComparison.Ordinal)
-                lexicalType := BuiltInTypes.Unknown as TypeInfo
+            // explicitly imported. A referenced assembly's type in any of those namespaces is a
+            // member of it too, and wins over every import exactly as a source declaration there
+            // does. Only the lexical tier is decided here: file imports come next, then the
+            // namespace imports.
+            selection := SimpleNamePrecedence.Select(facts.NamespaceName, UnaliasedNamespaceImports(facts))
+            lexicalType := BuiltInTypes.Unknown as TypeInfo
+            lexicalResolved := false
+            while !selection.IsSettled && !selection.Current.IsImport {
+                candidate := selection.Current
+                isOwnNamespace := !candidate.RequiresExport
                 lexicalClaimed := false
-                if TryResolveDeclarationInNamespace(name, lexicalNamespace, !isOwnNamespace, activeAliases, out lexicalType, out lexicalClaimed) {
-                    claimed = true
+                lexicalResolved = TryResolveDeclarationInNamespace(name, candidate.Namespace, candidate.RequiresExport, activeAliases, out lexicalType, out lexicalClaimed)
+                declaresSource := lexicalResolved || (lexicalClaimed && isOwnNamespace)
+                declaresMetadata := false
+                if !declaresSource {
+                    metadataType := BuiltInTypes.Unknown as TypeInfo
+                    declaresMetadata = TryResolveExternalInNamespace(candidate.LexicalBase, name, out metadataType)
+                    if declaresMetadata {
+                        lexicalType = metadataType
+                    }
+                }
+
+                selection.Answer(declaresSource, declaresMetadata)
+            }
+
+            if selection.IsSettled && !selection.FromImport && selection.Kind != SimpleNameSelectionKind.NotFound {
+                claimed = true
+                if selection.Kind == SimpleNameSelectionKind.Metadata || lexicalResolved {
                     return lexicalType
                 }
-                if lexicalClaimed && isOwnNamespace {
-                    claimed = true
-                    return BuiltInTypes.Unknown
-                }
+
+                return BuiltInTypes.Unknown
             }
 
             for fileImport in facts.FileImports {
@@ -1412,6 +1427,19 @@ class AnalyzerDeclarationContext {
                 return BuiltInTypes.Unknown
             }
 
+            // AN EXPLICIT IMPORT IS NOT A LAST RESORT, AND THE UNIQUE-EXPORTED FALLBACK IS: a CLR type
+            // an import supplies outranks a project type the file never named, exactly as it does in
+            // the analyzer's own type channel (`AnalyzerProjectTypeDiscovery.ResolveVisibleProjectType`).
+            for importFacts in facts.NamespaceImports {
+                if importFacts.Alias == null {
+                    runtimeType := BuiltInTypes.Unknown as TypeInfo
+                    if TryResolveExternal(importFacts.Namespace + "." + name, out runtimeType) {
+                        claimed = true
+                        return runtimeType
+                    }
+                }
+            }
+
             uniqueType := BuiltInTypes.Unknown as TypeInfo
             uniqueClaimed := false
             if TryResolveUniqueExported(name, activeAliases, out uniqueType, out uniqueClaimed) {
@@ -1421,16 +1449,6 @@ class AnalyzerDeclarationContext {
             if uniqueClaimed {
                 claimed = true
                 return BuiltInTypes.Unknown
-            }
-
-            for importFacts in facts.NamespaceImports {
-                if importFacts.Alias == null {
-                    runtimeType := BuiltInTypes.Unknown as TypeInfo
-                    if TryResolveExternal(importFacts.Namespace + "." + name, out runtimeType) {
-                        claimed = true
-                        return runtimeType
-                    }
-                }
             }
             runtimeType := BuiltInTypes.Unknown as TypeInfo
             if TryResolveExternal(name, out runtimeType) {
@@ -1525,19 +1543,36 @@ class AnalyzerDeclarationContext {
         // absolute `Ast.Node`, because the leftmost segment of a namespace-or-type-name is looked up
         // the way a simple name is. The written spelling is the chain's last candidate, so an
         // absolute qualifier still resolves. This walk resolves a declaration's types against the
-        // file that WROTE them, so the chain is that file's and not the reader's.
-        qualifierCandidates := SimpleNamePrecedence.QualifierNamespaces(facts.NamespaceName, name)
-        for qualifierCandidate in qualifierCandidates {
-            qualifiedType := BuiltInTypes.Unknown as TypeInfo
+        // file that WROTE them, so the chain is that file's and not the reader's. Each candidate is
+        // asked of this project first and of the referenced assemblies second
+        // (`SimpleNamePrecedence.SelectQualified`), so `Ast.Node` names `App.Ast.Node` whichever
+        // assembly declares it; the written spelling read absolutely keeps its metadata reading below.
+        qualifiedSelection := SimpleNamePrecedence.SelectQualified(facts.NamespaceName, name)
+        qualifiedType := BuiltInTypes.Unknown as TypeInfo
+        qualifiedResolved := false
+        while !qualifiedSelection.IsSettled {
+            candidate := qualifiedSelection.Current
             qualifiedClaimed := false
-            if TryResolveQualifiedProjectType(qualifierCandidate, facts.NamespaceName, activeAliases, out qualifiedType, out qualifiedClaimed) {
-                claimed = true
+            qualifiedResolved = TryResolveQualifiedProjectType(candidate.Namespace ?? name, facts.NamespaceName, activeAliases, out qualifiedType, out qualifiedClaimed)
+            declaresSource := qualifiedResolved || qualifiedClaimed
+            declaresMetadata := false
+            if !declaresSource && !candidate.IsWrittenSpelling {
+                metadataType := BuiltInTypes.Unknown as TypeInfo
+                declaresMetadata = TryResolveExternalInNamespace(candidate.LexicalBase, name, out metadataType)
+                if declaresMetadata {
+                    qualifiedType = metadataType
+                }
+            }
+
+            qualifiedSelection.Answer(declaresSource, declaresMetadata)
+        }
+        if qualifiedSelection.Kind != SimpleNameSelectionKind.NotFound {
+            claimed = true
+            if qualifiedSelection.Kind == SimpleNameSelectionKind.Metadata || qualifiedResolved {
                 return qualifiedType
             }
-            if qualifiedClaimed {
-                claimed = true
-                return BuiltInTypes.Unknown
-            }
+
+            return BuiltInTypes.Unknown
         }
         runtimeType := BuiltInTypes.Unknown as TypeInfo
         if TryResolveExternal(name, out runtimeType) {
@@ -1546,6 +1581,19 @@ class AnalyzerDeclarationContext {
         }
         claimed = false
         return BuiltInTypes.Unknown
+    }
+
+    // The file's `import X` namespaces, in import order — `SimpleNamePrecedence`'s import tier. An
+    // aliased import brings in a name for the namespace, not its types.
+    static func UnaliasedNamespaceImports(facts: AnalyzerDeclarationFileFacts): List<string> {
+        imports := new List<string>()
+        for importFacts in facts.NamespaceImports {
+            if importFacts.Alias == null {
+                imports.Add(importFacts.Namespace)
+            }
+        }
+
+        return imports
     }
 
     func TryResolveDeclarationInFile(facts: AnalyzerDeclarationFileFacts, name: string, requireExported: bool, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out declaration: object?, out claimed: bool): bool {
@@ -2309,6 +2357,77 @@ class AnalyzerDeclarationContext {
         }
         missingExternalTypes.Add(fullName)
         typeInfo = BuiltInTypes.Unknown
+        return false
+    }
+
+    // A referenced assembly's type IN ONE NAMESPACE, read exactly: `<namespace>.<name>`, nested
+    // spellings included (`TryResolveExternal` reads `Outer.Inner` as `Outer+Inner`). Unlike
+    // `TryResolveExternal`, a bare name in the global namespace is never widened into a simple-name
+    // scan: "does the global namespace declare `TypeInfo`" is a question about `TypeInfo`, not about
+    // `System.Reflection.TypeInfo`.
+    func TryResolveExternalInNamespace(namespaceName: string?, name: string, out typeInfo: TypeInfo): bool {
+        fullName := name
+        if namespaceName != null && namespaceName.Length > 0 {
+            fullName = namespaceName + "." + name
+        }
+
+        if fullName.Contains(".") {
+            return TryResolveExternal(fullName, out typeInfo)
+        }
+
+        // Memoised beside `TryResolveExternal`'s own entries under a key no full name can collide
+        // with, because the answer differs from that resolver's bare-name scan.
+        globalKey := "global::" + fullName
+        cached := new TypeInfo()
+        if externalTypes.TryGetValue(globalKey, out cached) {
+            typeInfo = cached
+            return true
+        }
+        if missingExternalTypes.Contains(globalKey) {
+            typeInfo = BuiltInTypes.Unknown
+            return false
+        }
+
+        exactType := typeof(object)
+        if TryResolveExactBareExternal(fullName, out exactType) {
+            typeInfo = new ReflectionTypeInfo(exactType)
+            externalTypes[globalKey] = typeInfo
+            return true
+        }
+
+        missingExternalTypes.Add(globalKey)
+        typeInfo = BuiltInTypes.Unknown
+        return false
+    }
+
+    // What this compilation may spell: the friend rule when the analyzer handed one in, the public
+    // surface otherwise.
+    func IsNameableExternal(candidate: Type): bool {
+        grants := friendGrants
+        if grants != null {
+            return grants.IsNameableType(candidate)
+        }
+
+        return candidate.IsVisible
+    }
+
+    // A GLOBAL-namespace type of exactly this name, from any loaded assembly.
+    func TryResolveExactBareExternal(name: string, out runtimeType: Type): bool {
+        runtimeType = typeof(object)
+        for assembly in assemblies {
+            candidate: Type? = null
+            try {
+                candidate = assembly.GetType(name)
+            } catch {
+                candidate = null
+            }
+
+            if candidate != null && IsNameableExternal(candidate) {
+                runtimeType = candidate
+                return true
+            }
+        }
+
         return false
     }
 

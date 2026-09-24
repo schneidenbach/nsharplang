@@ -943,7 +943,7 @@ class AnalyzerVariableDeclaration {
         }
 
         for modifier in modifiers {
-            if modifier != ParameterModifier.Out {
+            if modifier != Ast.ParameterModifier.Out {
                 return false
             }
         }

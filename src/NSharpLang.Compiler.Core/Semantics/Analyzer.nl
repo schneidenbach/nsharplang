@@ -810,6 +810,8 @@ class Analyzer: IDisposable {
         TerminatingCalls.BeginAnalysis()
         Ambient.BeginAnalysis()
         ProjectSources.BeginAnalysis(projectRoot)
+        ProjectDiscovery.BeginAnalysis()
+        ExternalTypeProbe.BeginAnalysis(AnalyzerProjectSourceProvider.UnitNamespace(unit))
         Diagnostics.BeginAnalysis(currentFilePath, sourceCode)
         TypeResolver.BeginAnalysis(currentFilePath, unit, SemanticModel, BindingMap)
         IdentifierResolution.BeginAnalysis(unit, SemanticModel, BindingMap)

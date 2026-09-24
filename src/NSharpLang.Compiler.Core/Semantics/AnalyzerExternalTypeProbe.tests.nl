@@ -108,32 +108,67 @@ test "a name no import prefixes still resolves by exported simple name or full n
     assert probe.ResolveExternalType("Some.Unknown.Thing") == null
 }
 
-test "the cache is consulted BEFORE the imports, so a resolved spelling is never reconsidered" {
+test "the scan's remembered guess never outranks an import the file wrote" {
     assemblies := ProbeAssemblies()
     namespaces := ProbeNamespaces([])
     probe := new AnalyzerExternalTypeProbe(assemblies, namespaces)
 
-    // Resolved with no imports at all, so this came from the exported-name scan and is now cached
-    // under the BARE spelling.
+    // Resolved with no imports at all, so this came from the exported-name scan — whichever CoreLib
+    // type named `Aes` it meets first — and is remembered under the BARE spelling.
+    assert ProbeTypeName(probe.ResolveExternalType("Aes")) == "System.Runtime.Intrinsics.Arm.Aes"
+
+    // A file that IMPORTS the other `Aes` means that one. The remembered guess is asked only after
+    // the file's own chain and its imports, so it cannot answer for a file that named a nearer one —
+    // before `SimpleNamePrecedence` reached the metadata probe it did, and every later file inherited
+    // the first file's guess.
+    namespaces.Add("System.Runtime.Intrinsics.X86")
+    assert ProbeTypeName(probe.ResolveExternalType("Aes")) == "System.Runtime.Intrinsics.X86.Aes"
+}
+
+test "the scan's guess is remembered: it still answers once its assemblies are gone" {
+    assemblies := ProbeAssemblies()
+    namespaces := ProbeNamespaces([])
+    probe := new AnalyzerExternalTypeProbe(assemblies, namespaces)
+
     assert ProbeTypeName(probe.ResolveExternalType("Encoding")) == "System.Text.Encoding"
 
-    // Now take away everything the probe could resolve FROM, and add an import. Both live lists are
-    // the analyzer's own, so the probe sees both changes — and it still answers, which is only
-    // possible if the cache is consulted before the import loop and before the exported-name scan.
-    // That is why this cache cannot be dropped or rebuilt part-way through an analysis: history, not
-    // just inputs, decides the answer.
+    // Take away everything the probe could resolve FROM. Both live lists are the analyzer's own, so
+    // the probe sees the change — and it still answers from what it remembered.
     assemblies.Clear()
-    namespaces.Add("System.Text")
     assert ProbeTypeName(probe.ResolveExternalType("Encoding")) == "System.Text.Encoding"
 
     // A probe with the same (now empty) inputs and no history answers nothing.
     fresh := new AnalyzerExternalTypeProbe(assemblies, namespaces)
     assert fresh.ResolveExternalType("Encoding") == null
 
-    // A MISS is not cached, so it is genuinely retried once the inputs come back.
+    // A MISS is not remembered past the assembly count that proved it, so it is genuinely retried
+    // once the inputs come back.
     assert probe.ResolveExternalType("Rune") == null
     assemblies.Add(typeof(object).get_Assembly())
     assert ProbeTypeName(probe.ResolveExternalType("Rune")) == "System.Text.Rune"
+}
+
+test "the file's own and enclosing namespaces answer before any import" {
+    namespaces := ProbeNamespaces(["System.Runtime.Intrinsics.X86"])
+    probe := new AnalyzerExternalTypeProbe(ProbeAssemblies(), namespaces)
+
+    // Rules 1 and 2 of `SimpleNamePrecedence`, over metadata: a file in
+    // `System.Runtime.Intrinsics.Arm.Probe` sits inside `System.Runtime.Intrinsics.Arm`, whose `Aes`
+    // is nearer than the imported `X86.Aes`.
+    probe.BeginAnalysis("System.Runtime.Intrinsics.Arm.Probe")
+    assert ProbeTypeName(probe.ResolveExternalType("Aes")) == "System.Runtime.Intrinsics.Arm.Aes"
+    // And a qualifier is read through the same chain: `Arm.Aes` inside `System.Runtime.Intrinsics`.
+    probe.BeginAnalysis("System.Runtime.Intrinsics.Probe")
+    assert ProbeTypeName(probe.ResolveExternalType("Arm.Aes")) == "System.Runtime.Intrinsics.Arm.Aes"
+    assert ProbeTypeName(probe.ResolveExternalType("X86.Aes")) == "System.Runtime.Intrinsics.X86.Aes"
+
+    // A file elsewhere has no such chain, so the import answers.
+    probe.BeginAnalysis("Elsewhere")
+    assert ProbeTypeName(probe.ResolveExternalType("Aes")) == "System.Runtime.Intrinsics.X86.Aes"
+    // `NamespaceDeclares` asks exactly one namespace, never widening a bare name into a scan.
+    assert probe.NamespaceDeclares("System.Runtime.Intrinsics.Arm", "Aes")
+    assert !probe.NamespaceDeclares(null, "Aes")
+    assert !probe.NamespaceDeclares("System.Runtime", "Aes")
 }
 
 test "the assembly list is live: an assembly loaded after construction is visible" {
@@ -158,8 +193,8 @@ test "an INVISIBLE metadata type is no answer: System.TokenType is internal to C
     // not resolve a qualified spelling and must not make a source `TokenType` ambiguous (NL209).
     probe := new AnalyzerExternalTypeProbe(ProbeAssemblies(), ProbeNamespaces(["System"]))
     assert probe.ResolveExactExternalType("System.TokenType") == null
-    assert probe.ImportedNamespaceDeclares("System", "TokenType") == false
-    assert probe.ImportedNamespaceDeclares("System", "TimeSpan") == true
+    assert probe.NamespaceDeclares("System", "TokenType") == false
+    assert probe.NamespaceDeclares("System", "TimeSpan") == true
     assert ProbeExactName(probe.ResolveExactExternalType("System.TimeSpan")) == "System.TimeSpan"
 }
 
@@ -271,13 +306,13 @@ test "one imported namespace is asked at a time, so the caller owns the order an
     // asked of each namespace on its own: that is what lets NL209's owner skip an import that merely
     // names a lexical namespace, or the one a source declaration already claimed, and still walk the
     // rest in import order.
-    assert probe.ImportedNamespaceDeclares("System.Text", "StringBuilder")
-    assert !probe.ImportedNamespaceDeclares("System", "StringBuilder")
+    assert probe.NamespaceDeclares("System.Text", "StringBuilder")
+    assert !probe.NamespaceDeclares("System", "StringBuilder")
 
     // A name no imported namespace declares answers nothing, whatever the assemblies export — the
     // exported-name scan is `ResolveExternalType`'s last step and is not behind this question.
-    assert !probe.ImportedNamespaceDeclares("System.Text", "XDocument")
-    assert !probe.ImportedNamespaceDeclares("System", "XDocument")
+    assert !probe.NamespaceDeclares("System.Text", "XDocument")
+    assert !probe.NamespaceDeclares("System", "XDocument")
 }
 
 test "a remembered miss is retried once another assembly is loaded" {
@@ -287,11 +322,11 @@ test "a remembered miss is retried once another assembly is loaded" {
     assemblies := new List<Assembly>()
     probe := new AnalyzerExternalTypeProbe(assemblies, ProbeNamespaces(["System.Text"]))
 
-    assert !probe.ImportedNamespaceDeclares("System.Text", "StringBuilder")
+    assert !probe.NamespaceDeclares("System.Text", "StringBuilder")
 
     for loaded in ProbeAssemblies() {
         assemblies.Add(loaded)
     }
 
-    assert probe.ImportedNamespaceDeclares("System.Text", "StringBuilder")
+    assert probe.NamespaceDeclares("System.Text", "StringBuilder")
 }

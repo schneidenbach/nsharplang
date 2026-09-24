@@ -35,6 +35,9 @@ class AnalyzerImportUsageCredit {
     declarationContext: AnalyzerDeclarationContext
     usingAliases: Dictionary<string, string>
     facts: ImportUsageFacts?
+    // The namespace the file under analysis declares. A metadata type supplied by it or by an
+    // enclosing namespace needed no import (`SimpleNamePrecedence` rules 1 and 2).
+    currentNamespace: string?
 
     // EVERY RESOLVED NAME IN EVERY FILE COMES THROUGH HERE, so the two metadata reads this rule needs
     // are memoised against the `Type` rather than paid per resolution. `Type.get_Namespace` and
@@ -49,6 +52,7 @@ class AnalyzerImportUsageCredit {
         declarationContext = context
         usingAliases = aliases
         facts = null
+        currentNamespace = null
         namespacesByType = new Dictionary<Type, string>()
         fullNamesByType = new Dictionary<Type, string>()
     }
@@ -56,6 +60,7 @@ class AnalyzerImportUsageCredit {
     // One call per `Analyze`, with the unit's own (fresh) facts. A null unit — an in-memory probe —
     // credits nothing, which costs nothing to ask.
     func BeginAnalysis(unit: CompilationUnit?) {
+        currentNamespace = AnalyzerProjectSourceProvider.UnitNamespace(unit)
         if unit == null {
             facts = null
             return
@@ -260,6 +265,14 @@ class AnalyzerImportUsageCredit {
         }
 
         if declarationContext.DeclaresTypeNamed(writtenName) {
+            ledger.CreditNamespace(supplier)
+            return
+        }
+
+        // A NAMESPACE THE FILE SITS IN SUPPLIES ITS TYPES WITH NO IMPORT, whichever assembly declares
+        // them: NL002 must not ask for `import NSharpLang.Compiler` in `NSharpLang.Compiler.Columnar`.
+        // An import of it that is written anyway is still credited, as it always was.
+        if SimpleNamePrecedence.IsLexicalNamespace(currentNamespace, supplier.Length == 0 ? null : supplier) {
             ledger.CreditNamespace(supplier)
             return
         }

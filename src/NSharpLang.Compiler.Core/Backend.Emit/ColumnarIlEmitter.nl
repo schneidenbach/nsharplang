@@ -12,7 +12,6 @@ import System.Text
 import System.Text.Json
 import System.Threading
 import NSharpLang.Compiler
-import YamlDotNet.Core
 import YamlDotNet.Core.Events
 import YamlDotNet.Serialization
 
@@ -14060,8 +14059,8 @@ sealed class ColumnarIlEmitter {
                 } else if (!EmitExpression(Child(idx, 0), out structReceiverType)) {
                     return false
                 }
-                if (structReceiverType == typeof(Version) && (member == "Major" || member == "Minor" || member == "Build" || member == "Revision")) {
-                    _il.Emit(OpCodes.Callvirt, typeof(Version).GetProperty(member).GetGetMethod())
+                if (structReceiverType == typeof(System.Version) && (member == "Major" || member == "Minor" || member == "Build" || member == "Revision")) {
+                    _il.Emit(OpCodes.Callvirt, typeof(System.Version).GetProperty(member).GetGetMethod())
                     columnarResolvedType = typeof(int)
                     return true
                 }
@@ -14551,8 +14550,8 @@ sealed class ColumnarIlEmitter {
                     if (_nodes.ChildCount(idx) != 5 || !EmitArg(idx, 1, typeof(int)) || !EmitArg(idx, 2, typeof(int)) || !EmitArg(idx, 3, typeof(int)) || !EmitArg(idx, 4, typeof(int))) {
                         return false
                     }
-                    _il.Emit(OpCodes.Newobj, typeof(Version).GetConstructor([typeof(int), typeof(int), typeof(int), typeof(int)]))
-                    columnarResolvedType = typeof(Version)
+                    _il.Emit(OpCodes.Newobj, typeof(System.Version).GetConstructor([typeof(int), typeof(int), typeof(int), typeof(int)]))
+                    columnarResolvedType = typeof(System.Version)
                     return true
                 }
                 if (newTypeName == "object") {
@@ -29245,7 +29244,7 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    private static func FindEventOnChain(ownerType: Type, eventName: string, staticOnly: bool): EventInfo {
+    private static func FindEventOnChain(ownerType: Type, eventName: string, staticOnly: bool): System.Reflection.EventInfo {
         flags := BindingFlags.Public | BindingFlags.FlattenHierarchy
         if (staticOnly) {
             flags = flags | BindingFlags.Static

@@ -3785,6 +3785,30 @@ namespace win by nearness rather than by being imported", `EnclosingNamespaceNam
 the emitter's `""`-for-global spelling, and `QualifierNamespaces` applies the same chain to the
 LEFTMOST segment of a qualified name.
 
+**THE RULE, NOT ONLY THE ORDER (2026-09-24): `SimpleNamePrecedence.Select` / `SelectQualified`.** A
+namespace's members are its types WHEREVER THEY WERE COMPILED, so steps 2-3 ask SOURCE and METADATA at
+every candidate: the caller drives a `SimpleNameSelection` with one `(declaresSource,
+declaresMetadata)` answer per candidate and the owner settles it — the first lexical namespace that
+declares the name wins (source before metadata AT ONE namespace, CS0436-style), and the import tier is
+ONE tier: two imports supplying it, in any source/metadata mix, is `Ambiguous` (NL209), never "first
+import written" — `nlc format` sorts imports, so order must decide nothing. The drivers:
+`AnalyzerProjectTypeDiscovery.SelectVisibleType` (memoised per analysis; `ResolveVisibleProjectType`
+materialises its source answer and STEPS ASIDE for lexical metadata; `TryFindAmbiguousImportedType` is
+its `Ambiguous`), `AnalyzerExternalTypeProbe` (lexical chain -> imports -> scan cache -> scan; the scan's
+bare-name guesses live in their own `scanCache` so they never pre-empt a later file's chain or
+imports), `AnalyzerDeclarationContext.ResolveTypeNameWalk` (lexical tier + qualified; an imported CLR
+type now outranks its unique-exported fallback), the type resolver's and member access's qualified
+channels, and in the emitter `ColumnarBindingScopeFacts.SelectSimpleName/SelectQualifiedName` (gates
+in the explicit-type walk, the source-declaration-name walk, `TryResolveProjectSourceTypeName`,
+`TryResolveQualifiedSourceTypeName`, `BlocksSourceType`) plus `ColumnarExternalTypeCatalog.ResolveOwner`
+(lexical -> import tier, a tie answers Unknown and declines with `emit.names.ambiguous-import` -> scan).
+NL002 (`AnalyzerImportUsageCredit.RecordMetadataName`) and completion's auto-import
+(`ImportEditPlanner.IsNamespaceInScope`) treat a lexical namespace as needing no import. Found carving
+`Compiler.Model` out of Core: before this, `TypeInfo` inside `NSharpLang.Compiler.Columnar` bound
+`System.Reflection.TypeInfo` once Model was another assembly, and `Ast.X` did not resolve. Contracts:
+`Driver/ExternalLexicalLookup.tests.nl` (analysis, emit-only, formatter-order, code intel over an
+emitted library), `SimpleNamePrecedence.tests.nl`, `tests/native/census-external-lookup`.
+
 FOUR WALKS READ IT AND USED TO SPELL IT THEMSELVES: `AnalyzerTypeReferenceFacts.VisibleTypeNamespaces`
 (now a delegation), `AnalyzerProjectTypeDiscovery` (the ambiguity gate and the inaccessible-declaration
 probe, which now stands down for the whole chain), `AnalyzerDeclarationContext.ResolveTypeName` (the

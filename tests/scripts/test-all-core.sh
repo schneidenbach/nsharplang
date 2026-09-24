@@ -416,13 +416,20 @@ else
     # NL905 2, every one in a Model product file. NL905 421 -> 419, NL002 238 -> 234, NL010 165 ->
     # 160, NL012 38 -> 34, NL011 30 -> 22; NL202 352 and NL304 28 are unmoved.
     #
+    # 2026-09-24, name lookup over referenced assemblies (`SimpleNamePrecedence.Select`): 1,283. The
+    # eight NL209 ties the compiler's own source carried -- `Version` and `EventInfo` between System
+    # and YamlDotNet, `ParameterModifier` between the Ast and System.Reflection -- are spelled in
+    # full, because the emitter now refuses a tie the way the analyzer always reported it rather
+    # than binding whichever import was written first; `import YamlDotNet.Core`, whose only use was
+    # the tie, goes. Identity diff against 1,291: zero additions, eight NL209 removals.
+    #
     # -1 means BLOCKED, not clean. `check` on a project that REFERENCES Compiler.Core builds that
     # reference first, and that build fails while Core's own front door is not clean -- so those two
     # produce an error envelope instead of a diagnostic list and there is nothing to count yet. The
     # step prints the reason and moves on; the day Core reaches 0 their ceilings become real numbers
     # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
     SELF_HOST_CEILINGS=(
-        1291
+        1283
         -1
         -1
         0

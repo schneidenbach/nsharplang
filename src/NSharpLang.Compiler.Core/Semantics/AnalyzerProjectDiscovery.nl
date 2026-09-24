@@ -312,6 +312,8 @@ class AnalyzerProjectTypeDiscovery {
     // that namespace is known HERE and nowhere else: the resolved type carries its own name and not
     // the namespace that answered for it.
     importUsageCredit: AnalyzerImportUsageCredit?
+    // `SelectVisibleType`'s answers for the analysis in progress, keyed by everything they depend on.
+    selectionMemo: Dictionary<string, SimpleNameSelection>
 
     constructor(sourceProvider: AnalyzerProjectSourceProvider, context: AnalyzerDeclarationContext, usingNamespaceNames: List<string>, declarationFiles: Dictionary<string, string>, externalProbe: AnalyzerExternalTypeProbe? = null) {
         sources = sourceProvider
@@ -320,10 +322,17 @@ class AnalyzerProjectTypeDiscovery {
         typeDeclarationFiles = declarationFiles
         externalTypeProbe = externalProbe
         importUsageCredit = null
+        selectionMemo = new Dictionary<string, SimpleNameSelection>(StringComparer.Ordinal)
     }
 
     func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
         importUsageCredit = credit
+    }
+
+    // One call per analysis: the selections were decided against the previous file's namespace,
+    // imports and sources.
+    func BeginAnalysis() {
+        selectionMemo.Clear()
     }
 
     // THE TYPE CHANNEL, whole. Three outcomes in one call, because their ORDER is the semantics
@@ -337,18 +346,46 @@ class AnalyzerProjectTypeDiscovery {
     // middle outcome cannot be reported and is not looked for.
     func ResolveVisibleProjectType(name: string, currentNamespace: string?, probeInaccessible: bool, out typeInfo: TypeInfo, out declaration: SymbolDeclaration?, out inaccessibleFilePath: string?): bool {
         inaccessibleFilePath = null
-        visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
-        for visibleItem in visible {
-            if TryResolveProjectTypeInNamespace(name, visibleItem, currentNamespace, out typeInfo, out declaration) {
+
+        // THE SELECTION DECIDES, AND THIS CHANNEL MATERIALISES ITS SOURCE ANSWER. The file's own
+        // namespace, each enclosing one and then its imports are asked in `SimpleNamePrecedence`
+        // order, and a SOURCE declaration found there is this channel's answer: the nearest one, or —
+        // when two imports tie, which the caller reports as NL209 — the first import whose supplier
+        // is source, so the tie still binds something while it is reported.
+        //
+        // A REFERENCED ASSEMBLY'S TYPE THAT WINS IS NOT A PROJECT TYPE AND IS NOT A MISS. In the
+        // file's own or an enclosing namespace it is the nearest declaration of the name, so no
+        // import, no inaccessible declaration and no project-wide fallback may answer in its place:
+        // this channel steps aside and the external channel, which climbs the same chain first, binds
+        // it. From an import it is exactly what the fallback guard below already defers to.
+        selection := SelectVisibleType(name, currentNamespace)
+        if selection.IsLexicalMetadata {
+            typeInfo = BuiltInTypes.Unknown
+            declaration = null
+            return false
+        }
+
+        sourceNamespace: string? = null
+        hasSourceNamespace := false
+        if selection.Kind == SimpleNameSelectionKind.Source || (selection.Kind == SimpleNameSelectionKind.Ambiguous && selection.FirstIsSource) {
+            sourceNamespace = selection.Namespace
+            hasSourceNamespace = true
+        } else if selection.Kind == SimpleNameSelectionKind.Ambiguous && selection.SecondIsSource {
+            sourceNamespace = selection.SecondNamespace
+            hasSourceNamespace = true
+        }
+
+        if hasSourceNamespace {
+            if TryResolveProjectTypeInNamespace(name, sourceNamespace, currentNamespace, out typeInfo, out declaration) {
                 RecordDeclarationFile(name, declaration)
                 // NL010: THE NAMESPACE THAT ANSWERED IS THE IMPORT THAT SUPPLIED THE NAME. The
-                // sweep walks the file's own namespace, its enclosing ones and its imports in
+                // selection walks the file's own namespace, its enclosing ones and its imports in
                 // order, so the entry that answered is exactly the one a reader would point at —
                 // and an `import TaskCli.Services` beside `service: TaskService` is used, even
                 // though the project-wide fallback below would also have found the type.
                 credit := importUsageCredit
                 if credit != null {
-                    credit.CreditNamespaceSupplier(visibleItem)
+                    credit.CreditNamespaceSupplier(sourceNamespace)
                 }
 
                 return true
@@ -400,107 +437,86 @@ class AnalyzerProjectTypeDiscovery {
         return false
     }
 
-    // TWO IMPORTS THAT SUPPLY ONE NAME, which is an error rather than a race: C# reports CS0104 for
-    // exactly this shape and so does N#, because whichever import happened to be written first is
-    // not what the developer meant to select.
+    // `SimpleNamePrecedence.Select`, answered from this project's sources and its referenced
+    // assemblies. The SOURCE answer is the one the sweeps here take — the file's own namespace needs no
+    // export, every other one does — and the METADATA answer is the probe's, asked only where no source
+    // declaration answered, because at one namespace the source declaration wins. Nothing is
+    // materialised and nothing is recorded; the caller decides what the selection means.
     //
-    // WHAT IS *NOT* AMBIGUOUS, and every exclusion is C#'s: the file's own namespace and each
-    // ENCLOSING namespace outward win outright over any import (a lexically closer declaration is not
-    // a tie — `SimpleNamePrecedence` rules 1 and 2), and the project-wide auto-discovery fallback is
-    // never a candidate (it is what runs when NO import supplies the name). So this asks only about
-    // the genuinely IMPORTED namespaces, and only once a name has already resolved through one of
-    // them — a name that resolves lexically or from a local scope never reaches it. An `import` that
-    // merely names an enclosing namespace is redundant, not a rival, so it is skipped here too.
-    //
-    // The two candidates come back FULLY QUALIFIED, in import order, so the report can name both and
-    // suggest the qualification that settles it.
-    func TryFindAmbiguousImportedType(name: string, currentNamespace: string?, out firstCandidate: string, out secondCandidate: string): bool {
-        firstCandidate = ""
-        secondCandidate = ""
-        writtenName := TypeArityNames.Display(name)
-
-        lexical := SimpleNamePrecedence.LexicalNamespaces(currentNamespace)
-        for lexicalItem in lexical {
-            lexicalType: TypeInfo = BuiltInTypes.Unknown
-            lexicalDeclaration: SymbolDeclaration? = null
-            if TryResolveProjectTypeInNamespace(name, lexicalItem, currentNamespace, out lexicalType, out lexicalDeclaration) {
-                return false
-            }
+    // MEMOISED FOR THE ANALYSIS. The type channel and the NL209 gate both ask it of every name that
+    // reaches them, and each source answer is a sweep of the project's files, so the second asking is
+    // a lookup. The key carries everything the answer depends on that can move inside one analysis:
+    // the asking namespace, the import list (it grows as a file's imports are read) and the loaded
+    // assembly count (an import can load a reference). `BeginAnalysis` drops it with the sources.
+    func SelectVisibleType(name: string, currentNamespace: string?): SimpleNameSelection {
+        probe := externalTypeProbe
+        assemblyCount := 0
+        if probe != null {
+            assemblyCount = probe.AssemblyCount
         }
 
-        matchedNamespace: string? = null
-        index := 0
-        while index < usingNamespaces.Count {
-            candidateNamespace := usingNamespaces[index]
-            index = index + 1
-            if SimpleNamePrecedence.IsLexicalNamespace(currentNamespace, candidateNamespace) {
-                continue
-            }
-
-            candidateType: TypeInfo = BuiltInTypes.Unknown
-            candidateDeclaration: SymbolDeclaration? = null
-            if !TryResolveProjectTypeInNamespace(name, candidateNamespace, currentNamespace, out candidateType, out candidateDeclaration) {
-                continue
-            }
-
-            if matchedNamespace == null {
-                matchedNamespace = candidateNamespace
-                firstCandidate = candidateNamespace + "." + writtenName
-                continue
-            }
-
-            secondCandidate = candidateNamespace + "." + writtenName
-            return true
+        key := (currentNamespace ?? "") + "|" + usingNamespaces.Count.ToString() + "|" + assemblyCount.ToString() + "|" + name
+        memo := new SimpleNameSelection(new List<SimpleNameCandidate>())
+        if selectionMemo.TryGetValue(key, out memo) {
+            return memo
         }
 
-        // THE METADATA HALF, AND IT IS NO LONGER A HALF. This used to be asked only once the SOURCE
-        // sweep above had already matched, because an assembly sweep re-ran every miss and putting
-        // that on `Console`, `List` and every other ordinary CLR spelling was not affordable — so two
-        // IMPORTED CLR namespaces declaring one spelling resolved first-import-wins and said nothing.
-        // That was a cost, never a rule: C# reports CS0104 for that shape too. The probe now remembers
-        // a miss against the assembly count that proved it (`TryResolveFullName`), so the sweep the
-        // resolver was going to take a step later is what answers here, and the tie is reported
-        // wherever it occurs — source against source, source against metadata, metadata against
-        // metadata.
-        //
-        // THE PROBE NAME CARRIES ITS ARITY AND THE REPORT CARRIES THE WRITTEN ONE. ``List`1`` and
-        // `List` are different identities in metadata, so the question asked of the assemblies is the
-        // LOOKUP name; the two candidates a reader is shown are spelled the way the file spells them.
-        ambiguityProbe := externalTypeProbe
-        if ambiguityProbe == null {
+        selection := SimpleNamePrecedence.Select(currentNamespace, usingNamespaces)
+        while !selection.IsSettled {
+            candidate := selection.Current
+            declaresSource := DeclaresProjectTypeInNamespace(name, candidate.Namespace, candidate.RequiresExport)
+            declaresMetadata := false
+            if !declaresSource && probe != null {
+                declaresMetadata = probe.NamespaceDeclares(candidate.Namespace, name)
+            }
+
+            selection.Answer(declaresSource, declaresMetadata)
+        }
+
+        selectionMemo[key] = selection
+        return selection
+    }
+
+    // The SOURCE answer a selection asks of one namespace: exactly the condition under which
+    // `TryResolveProjectTypeInNamespace` would materialise a declaration there, without materialising
+    // it.
+    func DeclaresProjectTypeInNamespace(name: string, namespaceName: string?, requireExported: bool): bool {
+        sourceSelection := new AnalyzerSourceTypeSelection(BuiltInTypes.Unknown, null, null, false)
+        if !declarationContext.TryResolveProjectTypeInNamespace(name, namespaceName, requireExported, out sourceSelection) {
             return false
         }
 
-        metadataIndex := 0
-        while metadataIndex < usingNamespaces.Count {
-            candidateNamespace := usingNamespaces[metadataIndex]
-            metadataIndex = metadataIndex + 1
-            if SimpleNamePrecedence.IsLexicalNamespace(currentNamespace, candidateNamespace) {
-                continue
-            }
+        return sourceSelection.Declaration as Declaration != null && !string.IsNullOrWhiteSpace(sourceSelection.FilePath)
+    }
 
-            // The namespace a SOURCE declaration already claimed is this same candidate, not a second
-            // one: a metadata type of the same spelling there would be the same import, and an import
-            // does not tie with itself.
-            if string.Equals(candidateNamespace, matchedNamespace, StringComparison.Ordinal) {
-                continue
-            }
-
-            if !ambiguityProbe.ImportedNamespaceDeclares(candidateNamespace, name) {
-                continue
-            }
-
-            if matchedNamespace == null {
-                matchedNamespace = candidateNamespace
-                firstCandidate = candidateNamespace + "." + writtenName
-                continue
-            }
-
-            secondCandidate = candidateNamespace + "." + writtenName
-            return true
+    // TWO IMPORTS THAT SUPPLY ONE NAME, which is an error rather than a race: C# reports CS0104 for
+    // exactly this shape and so does N#, because whichever import happened to be written first is
+    // not what the developer meant to select — and `nlc format` sorts imports, so "first" is not even
+    // the developer's to choose.
+    //
+    // WHAT IS *NOT* AMBIGUOUS, and every exclusion is C#'s and `SimpleNamePrecedence`'s: a
+    // declaration in the file's own namespace or an ENCLOSING one — from source OR from a referenced
+    // assembly — wins outright over every import, and the project-wide auto-discovery fallback is
+    // never a candidate. At ONE imported namespace a source declaration and a metadata type of the
+    // same full name are one candidate, not two. The tie itself is source against source, source
+    // against metadata or metadata against metadata; the selection does not care which.
+    //
+    // THE PROBE NAME CARRIES ITS ARITY AND THE REPORT CARRIES THE WRITTEN ONE. ``List`1`` and `List`
+    // are different identities in metadata, so the question asked is the LOOKUP name; the two
+    // candidates a reader is shown are spelled the way the file spells them, FULLY QUALIFIED, in
+    // import order.
+    func TryFindAmbiguousImportedType(name: string, currentNamespace: string?, out firstCandidate: string, out secondCandidate: string): bool {
+        firstCandidate = ""
+        secondCandidate = ""
+        selection := SelectVisibleType(name, currentNamespace)
+        if selection.Kind != SimpleNameSelectionKind.Ambiguous {
+            return false
         }
 
-        return false
+        writtenName := TypeArityNames.Display(name)
+        firstCandidate = selection.QualifiedName(writtenName)
+        secondCandidate = selection.SecondQualifiedName(writtenName)
+        return true
     }
 
     // A NAMESPACE-QUALIFIED PROJECT TYPE — the `Example` half of `Example.Handle`.

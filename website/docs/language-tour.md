@@ -3218,13 +3218,14 @@ A bare name is resolved in this order, and the first channel that answers wins:
    imported, so it wins outright and there is nothing to disambiguate. This is why a file in
    `App.Models` reads a bare `Person` as `App.Person` when `App` declares one, even with
    `import System` in scope.
-3. **Your imports, in the order you wrote them** — a source namespace and a .NET namespace count
-   equally here. If two imports supply the same name, that is [NL209](errors/NL209.md): neither is
-   closer, so the compiler asks you to say which one you mean. "Equally" is literal: two *referenced
-   assembly* namespaces that both declare `Range` tie exactly as two of your own namespaces would,
-   and so does one of yours against one of theirs. The tie is reported wherever the name is written —
-   an annotation, a `new`, a type argument, a `typeof`, an `is`/`as`, a static receiver, or an
-   attribute's brackets.
+3. **Your imports, all at once** — a source namespace and a .NET namespace count equally here, and
+   so does the order you wrote them in: none. If two imports supply the same name, that is
+   [NL209](errors/NL209.md): neither is closer, so the compiler asks you to say which one you mean.
+   "Equally" is literal: two *referenced assembly* namespaces that both declare `Range` tie exactly
+   as two of your own namespaces would, and so does one of yours against one of theirs. The tie is
+   reported wherever the name is written — an annotation, a `new`, a type argument, a `typeof`, an
+   `is`/`as`, a static receiver, or an attribute's brackets. Because nothing depends on import order,
+   `nlc format` sorting your imports can never change what a file means.
 4. **Project-wide auto-discovery.** An exported type anywhere in your project is usable by its bare
    name without an import, as long as exactly one declaration has that name. This is a convenience,
    so it ranks *below* anything you imported explicitly — a `class Version` of your own in a
@@ -3235,6 +3236,13 @@ Steps 1 and 2 are the *lexical* half of the rule: they are about where your file
 what it asked for. Everything after them is about what the file asked for. A **sibling** namespace is
 not lexical — `App.Ast` neither contains nor is contained by `App.Columnar` — so it reaches you only
 through an import and competes at step 3 like any other.
+
+A namespace's members are its types **wherever they were compiled**. Steps 1 and 2 ask your own
+project *and* every assembly you reference, so when `App` is a library you depend on — or a slice of
+your codebase you split into its own project — a file in `App.Models` still reads a bare `Person` as
+`App.Person`, ahead of anything its imports supply, and `Ast.Node` from inside `App` still names
+`App.Ast.Node`. Moving a type into another assembly never changes what a name means. At one namespace
+a declaration in your own sources wins over a referenced assembly's type of the same full name.
 
 When two declarations tie, or when auto-discovery picks up a name you did not mean, write the
 qualified name. It is never ambiguous.

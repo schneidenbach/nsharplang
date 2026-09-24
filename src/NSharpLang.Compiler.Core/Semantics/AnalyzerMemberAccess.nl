@@ -948,20 +948,41 @@ class AnalyzerMemberAccess {
     //
     // The namespace half is read through the file's LEXICAL chain (`SimpleNamePrecedence`), the same
     // owner the declared-type resolver uses, so `Ast.Node` written inside `App` finds `App.Ast.Node`
-    // in expression position exactly as it does at a type position.
+    // in expression position exactly as it does at a type position — and finds it whether `App.Ast`
+    // is declared by this project or by a referenced assembly (`SelectQualified`). The written
+    // qualifier read absolutely stays with the assembly resolver below for metadata.
     func TryResolveTypeInNamespaceOrAssemblies(qualifiedName: string, out resolvedType: TypeInfo): bool {
         resolvedType = BuiltInTypes.Unknown
         separator := qualifiedName.LastIndexOf(".")
         if separator > 0 {
             currentNamespace := UnitNamespace()
             leafName := qualifiedName.Substring(separator + 1)
-            qualifiers := SimpleNamePrecedence.QualifierNamespaces(currentNamespace, qualifiedName.Substring(0, separator))
-            for qualifier in qualifiers {
+            selection := SimpleNamePrecedence.SelectQualified(currentNamespace, qualifiedName.Substring(0, separator))
+            while !selection.IsSettled {
+                candidate := selection.Current
+                declaresSource := projectDiscoveryValue.DeclaresProjectTypeInNamespace(leafName, candidate.Namespace, candidate.RequiresExport)
+                declaresMetadata := false
+                if !declaresSource && !candidate.IsWrittenSpelling {
+                    declaresMetadata = externalTypeProbeValue.NamespaceDeclares(candidate.LexicalBase, qualifiedName)
+                }
+
+                selection.Answer(declaresSource, declaresMetadata)
+            }
+
+            if selection.Kind == SimpleNameSelectionKind.Source {
                 projectType: TypeInfo = BuiltInTypes.Unknown
                 projectDeclaration: SymbolDeclaration? = null
-                if projectDiscoveryValue.TryResolveProjectTypeInNamespace(leafName, qualifier, currentNamespace, out projectType, out projectDeclaration) {
+                if projectDiscoveryValue.TryResolveProjectTypeInNamespace(leafName, selection.Namespace, currentNamespace, out projectType, out projectDeclaration) {
                     resolvedType = declarationContextValue.ResolveDeclaredAlias(projectType)
                     return !BuiltInTypes.IsUnknown(resolvedType)
+                }
+            }
+
+            if selection.Kind == SimpleNameSelectionKind.Metadata {
+                metadataType := externalTypeProbeValue.ResolveInNamespace(selection.LexicalBase, qualifiedName)
+                if metadataType != null {
+                    resolvedType = metadataType
+                    return true
                 }
             }
         }

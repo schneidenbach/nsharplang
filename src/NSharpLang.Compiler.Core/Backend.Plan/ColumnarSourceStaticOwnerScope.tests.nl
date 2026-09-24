@@ -70,7 +70,11 @@ test "source static owner scope resolves active and current-namespace types exac
     SourceOwnerAssertResolved(currentScope, "", "Owner", "Owner", "Demo.Owner")
 }
 
-test "source static owner scope honors namespace import order and export visibility" {
+// TWO IMPORTS THAT EACH EXPORT `Owner` ARE A TIE, NOT "THE FIRST ONE WRITTEN". `nlc format` sorts
+// imports, so an owner chosen by import order would change meaning under the formatter; the tie
+// blocks in either order (the analyzer's NL209), and an import that does not EXPORT the name is no
+// rival, so the other one owns it.
+test "source static owner scope blocks a tie between imports in either order and honors export visibility" {
     sources := new string[](3)
     fileNames := new string[](3)
     sources[0] = "namespace Left\nclass Owner {}\n"
@@ -80,9 +84,12 @@ test "source static owner scope honors namespace import order and export visibil
     fileNames[1] = "right.nl"
     fileNames[2] = "caller.nl"
 
-    ordered := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 2)
+    tied := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 2)
+    SourceOwnerAssertBlocked(tied, "", "Owner", "Owner", new string[](0))
 
-    SourceOwnerAssertResolved(ordered, "", "Owner", "Owner", "Right.Owner")
+    sources[2] = "namespace Caller\nimport Left\nimport Right\n"
+    reordered := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 2)
+    SourceOwnerAssertBlocked(reordered, "", "Owner", "Owner", new string[](0))
 
     sources[1] = "namespace Right\nprivate class Owner {}\n"
     exported := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 2)

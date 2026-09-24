@@ -20,18 +20,21 @@ import System.Reflection
 // import's question, not a type reference's, and it lives with the rest of the import family in
 // `AnalyzerImports` — with its own cache, because that cache is per-analysis while this one is not.
 //
-// THE PROBE ORDER IS BEHAVIOUR, NOT AN OPTIMISATION, and the cache participates in it:
+// THE PROBE ORDER IS BEHAVIOUR, NOT AN OPTIMISATION, and it is `SimpleNamePrecedence`'s:
 //
-//   1. the bare name as previously cached,
-//   2. for each imported namespace IN IMPORT ORDER, "<namespace>.<name>" as previously cached, then
-//      resolved against every loaded assembly in load order,
-//   3. failing all of that, the first assembly (in load order) that EXPORTS a type whose simple name
+//   1. the file's LEXICAL chain — its own namespace, each enclosing one outward, then the global
+//      namespace, where the spelling is read as written — "<namespace>.<name>" resolved against every
+//      loaded assembly in load order,
+//   2. for each imported namespace IN IMPORT ORDER, "<namespace>.<name>" the same way,
+//   3. the bare name as previously cached by step 4,
+//   4. failing all of that, the first assembly (in load order) that EXPORTS a type whose simple name
 //      or full name equals the spelling.
 //
-// Step 3 caches under the BARE name, so a later call takes step 1 and never reconsiders step 2 —
-// which means dropping this cache mid-analysis can change an answer. That is why the cache lives
-// with the probe and the probe is never rebuilt, and why the analyzer never clears it between
-// `Analyze` calls: the assemblies it answers from outlive any single file.
+// Steps 1 and 2 are per FILE (its namespace and its imports) and are asked before the bare-name
+// cache, so a guess step 4 made for one file never answers for another that has a nearer candidate.
+// The full-name memo behind every step lives with the probe and the probe is never rebuilt, and the
+// analyzer never clears it between `Analyze` calls: the assemblies it answers from outlive any
+// single file.
 //
 // This owner is SILENT: it reports no diagnostic and records nothing into the semantic model. A name
 // it cannot resolve is a null answer, and the caller decides what that means. Do not reintroduce any
@@ -44,6 +47,12 @@ class AnalyzerExternalTypeProbe {
     assemblies: List<Assembly>
     usingNamespaces: List<string>
     typeCache: Dictionary<string, Type>
+
+    // THE SCAN'S GUESSES, kept apart from the full-name memo above. A full name answers the same in
+    // every file; a scan hit (`TypeInfo` -> whichever assembly exported one first) is a guess that a
+    // file's own chain or its imports must still be able to overrule, so it may not sit where a
+    // full-name lookup of the same spelling would find it.
+    scanCache: Dictionary<string, Type>
 
     // THE FRIEND RULE'S ONE OWNER, handed in by the analyzer so that the probe, member resolution and
     // completion all answer from the same grants. It is the analyzer's live instance, not a copy: the
@@ -67,6 +76,12 @@ class AnalyzerExternalTypeProbe {
     // comment was protecting, kept without paying for it twice.
     missedFullNames: Dictionary<string, int>
 
+    // THE NAMESPACE THE FILE UNDER ANALYSIS DECLARES, for `SimpleNamePrecedence` rules 1 and 2. A
+    // referenced assembly's type in that namespace, or in any enclosing one, is a member of the
+    // file's own scope and outranks every import, exactly as a source declaration there does. Set per
+    // analysis with the import list; null is the global namespace.
+    currentNamespace: string?
+
     // A PROBE WITH NO PROJECT BEHIND IT IS THE FRIEND OF NOTHING. The analyzer hands in its own
     // grants; a caller that builds a probe over a bare assembly list has no assembly identity to be
     // named by an `InternalsVisibleTo`, so it gets an unnamed instance and sees exactly the visible
@@ -78,9 +93,21 @@ class AnalyzerExternalTypeProbe {
         assemblies = mlcAssemblies
         usingNamespaces = importedNamespaces
         typeCache = new Dictionary<string, Type>()
+        scanCache = new Dictionary<string, Type>(StringComparer.Ordinal)
         missedFullNames = new Dictionary<string, int>(StringComparer.Ordinal)
         grants = friendGrants
+        currentNamespace = null
     }
+
+    // One call per analysis: the file's namespace is the start of the lexical chain every bare
+    // spelling below climbs before it asks an import.
+    func BeginAnalysis(namespaceName: string?) {
+        currentNamespace = namespaceName
+    }
+
+    // How many assemblies the probe answers from. The list only grows, so a caller that memoises an
+    // answer keys it on this and is invalidated exactly when a new reference could change it.
+    AssemblyCount: int => assemblies.Count
 
     Grants: InternalsVisibleToGrants {
         get {
@@ -178,15 +205,33 @@ class AnalyzerExternalTypeProbe {
 
     // The ordered probe. A fresh ReflectionTypeInfo per call, exactly as the analyzer's own resolver
     // produced: callers compare these by TYPE identity, never by reference.
+    //
+    // THE LEXICAL CHAIN COMES FIRST (`SimpleNamePrecedence` rules 1 and 2): the file's own namespace
+    // and each enclosing one declare their referenced-assembly types exactly as they declare their
+    // source ones, so `TypeInfo` inside `NSharpLang.Compiler.Columnar` names
+    // `NSharpLang.Compiler.TypeInfo` from a referenced assembly before `import System.Reflection` is
+    // asked, and a qualified `Ast.Node` there names `NSharpLang.Compiler.Ast.Node`. Only then the
+    // imports in order, and only after every import the bare-name cache and the exported-name scan —
+    // the cache is filled by the SCAN, which answers the same for every file, so consulting it before
+    // a file's own chain and imports would hand one file's guess to the next.
     func ResolveExternalType(name: string): TypeInfo? {
-        cachedType := typeof(object)
-        if typeCache.TryGetValue(name, out cachedType) {
-            return new ReflectionTypeInfo(cachedType)
+        if name == null || name.Length == 0 {
+            return null
+        }
+
+        lexical := ResolveLexicalExternalType(name)
+        if lexical != null {
+            return lexical
         }
 
         imported := ResolveImportedExternalType(name)
         if imported != null {
             return imported
+        }
+
+        cachedType := typeof(object)
+        if scanCache.TryGetValue(name, out cachedType) {
+            return new ReflectionTypeInfo(cachedType)
         }
 
         for assembly in assemblies {
@@ -204,7 +249,7 @@ class AnalyzerExternalTypeProbe {
             while exportedIndex < scanned.Length {
                 candidate := scanned[exportedIndex]
                 if (candidate.Name == name || candidate.FullName == name) && grants.IsNameableType(candidate) {
-                    typeCache[name] = candidate
+                    scanCache[name] = candidate
                     return new ReflectionTypeInfo(candidate)
                 }
                 exportedIndex = exportedIndex + 1
@@ -234,15 +279,75 @@ class AnalyzerExternalTypeProbe {
         return null
     }
 
-    // DOES THIS ONE NAMESPACE DECLARE THIS SPELLING — the single step both sweeps above are built
-    // from, exposed so a caller that owns its own namespace ORDER and its own exclusions can take the
-    // walk itself. `AnalyzerProjectTypeDiscovery` needs exactly that for NL209: it skips an import
-    // that merely names a LEXICAL namespace (redundant, not a rival — `SimpleNamePrecedence` rules 1
-    // and 2) and the namespace a source declaration already claimed, which is not something a single
-    // `skipNamespace` argument can say.
-    func ImportedNamespaceDeclares(namespaceName: string, name: string): bool {
+    // RULES 1 AND 2 ON THEIR OWN: the first namespace of the file's lexical chain — its own, then
+    // each enclosing one, ending at the global namespace — whose referenced assemblies declare this
+    // spelling. The global end is the spelling read as written, so an absolute full name resolves
+    // here too.
+    func ResolveLexicalExternalType(name: string): TypeInfo? {
+        lexical := SimpleNamePrecedence.LexicalNamespaces(currentNamespace)
+        for lexicalNamespace in lexical {
+            resolved := ResolveInNamespace(lexicalNamespace, name)
+            if resolved != null {
+                return resolved
+            }
+        }
+
+        return null
+    }
+
+    // DOES THIS ONE NAMESPACE DECLARE THIS SPELLING — the metadata answer `SimpleNamePrecedence`
+    // asks of every candidate namespace, exposed so the walks that own the SOURCE answer can drive the
+    // selection themselves. Null is the global namespace.
+    func NamespaceDeclares(namespaceName: string?, name: string): bool {
         resolved := typeof(object)
-        return TryResolveFullName(namespaceName + "." + name, out resolved)
+        return TryResolveInNamespace(namespaceName, name, out resolved)
+    }
+
+    // The type that `NamespaceDeclares` found, or null.
+    func ResolveInNamespace(namespaceName: string?, name: string): TypeInfo? {
+        resolved := typeof(object)
+        if TryResolveInNamespace(namespaceName, name, out resolved) {
+            return new ReflectionTypeInfo(resolved)
+        }
+
+        return null
+    }
+
+    // The spelling as written inside the namespace, then with ITS OWN trailing dots read as nesting
+    // one at a time — `Outer.Inner` is `Outer+Inner` in metadata. A dot of the namespace is never
+    // read as nesting: a namespace is not a type. Every attempt shares the probe's one memo.
+    func TryResolveInNamespace(namespaceName: string?, name: string, out resolved: Type): bool {
+        resolved = typeof(object)
+        if name == null || name.Length == 0 {
+            return false
+        }
+
+        prefix := ""
+        if namespaceName != null && namespaceName.Length > 0 {
+            prefix = namespaceName + "."
+        }
+
+        if TryResolveFullName(prefix + name, out resolved) {
+            return true
+        }
+
+        candidate := name
+        searchEnd := candidate.Length
+        while searchEnd > 0 {
+            separator := candidate.LastIndexOf('.', searchEnd - 1)
+            if separator <= 0 {
+                return false
+            }
+
+            candidate = candidate.Substring(0, separator) + "+" + candidate.Substring(separator + 1)
+            if TryResolveFullName(prefix + candidate, out resolved) {
+                return true
+            }
+
+            searchEnd = separator
+        }
+
+        return false
     }
 
     // The EXACT probe: no using-namespace prefixing and no exported-name scan, so it answers only

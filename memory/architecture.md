@@ -92,21 +92,26 @@ the same native project: no namespace's holder written by two slices' product co
 see that only in a seed built after the split), and no slice's estate declaring free functions in a
 namespace a LOWER slice's product code holds.
 
-**Carving a slice turns its types EXTERNAL to every slice above it, and name lookup does not treat
-external types the way it treats source ones** (found carving Model, 2026-09-24; the wiring is parked
-on `census/model-carve-wip`). `SimpleNamePrecedence` rules 1-2 (the file's own namespace, then each
-enclosing one, before any import) and the lexically-relative qualifier (`Ast.X` inside
-`NSharpLang.Compiler`) are applied to SOURCE declarations only, in the analyzer and in the emitter's
-binding scope alike, and rule 4 (auto-discovery) finds only project types. So once Model is an
-assembly: a Core file in `NSharpLang.Compiler.Columnar` naming a `NSharpLang.Compiler` Model type is
-NL002; `Ast.ParameterModifier` does not resolve in the pinned seed; and `TypeInfo` (3,552 bare uses in
-193 Core files) binds `System.Reflection.TypeInfo` instead of the own-namespace Model type C# would
-pick -- through `import System.Reflection`, and even without it the analyzer answers NL002 naming
-`System.Reflection` (a two-project probe reproduces both with the tip CLI). Two
-imports supplying one external simple name are not NL209 either: the FIRST import wins, and
-`nlc format` sorts imports, so reordering them to steer the binding is changed back by the format
-gate. The carve therefore needs rules 1-2 and relative qualification for external types in both walks,
-republished in the seed, before any slice below the top is carved.
+**Carving a slice turns its types EXTERNAL to every slice above it, and name lookup now treats
+external types the way it treats source ones** (found carving Model, 2026-09-24; fixed on
+`census/lookup`; the wiring is parked on `census/model-carve-wip`). Before the fix `SimpleNamePrecedence`
+rules 1-2 (the file's own namespace, then each enclosing one, before any import) and the
+lexically-relative qualifier (`Ast.X` inside `NSharpLang.Compiler`) applied to SOURCE declarations only,
+in the analyzer and in the emitter's binding scope alike, so once Model was an assembly `TypeInfo`
+(3,552 bare uses in 193 Core files) bound `System.Reflection.TypeInfo` through an import, `Ast.X` did
+not resolve, and two imports supplying one external name resolved first-import-wins in the emitter
+(which `nlc format`'s import sort could silently flip). Now `SimpleNamePrecedence.Select` /
+`SelectQualified` own the RULE: every candidate namespace is asked of source and metadata, the first
+lexical one that declares the name wins, and the import tier is one tier whose ties are NL209 in the
+analyzer and a named `emit.names.ambiguous-import` decline in the emitter (see
+`memory/components/analyzer.md`, "THE RULE, NOT ONLY THE ORDER"). The fix changes how Core compiles
+ITSELF (the emit-only path has no analyzer), so a slice carve needs it republished in the seed first.
+A class's EMITTED parent is selected through the same gated walk, so a bare base binds the enclosing
+namespace's referenced-assembly type over an imported source one (`ExternalLexicalLookup`'s base row).
+Known limit: the binding scope's member-name FENCE (`AddClassBaseScope` -> `classBaseNameByType`) is
+built at `Create`, before the assembly scan exists, and still records that imported source base; no
+emitted program was found whose binding it changes (it can only refuse, never re-bind), but a fence
+that disagrees with the parent is debt.
 
 ## Data Flow
 
