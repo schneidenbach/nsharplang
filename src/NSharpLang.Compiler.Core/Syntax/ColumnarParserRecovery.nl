@@ -1807,7 +1807,7 @@ class ColumnarParserRecovery {
     // name parser can hang a POPULATED Members list on its declaration node. A fresh list is pushed as the
     // active member target for the duration of the body (so members + nested types append to it) and popped
     // on exit, restoring the enclosing type's target for NESTED-type placement.
-    func ParseTypeBody(name: string, typeBodyDiagnosticSpan: RecoverySpan): List<Declaration> {
+    func ParseTypeBody(typeBodyDiagnosticSpan: RecoverySpan): List<Declaration> {
         members := new List<Declaration>()
         TypeMemberStack.Add(members)
         ConsumeToken(TokenType.LeftBrace, "Expected '{'", "{")
@@ -2782,7 +2782,7 @@ class ColumnarParserRecovery {
         // piece, only the call.
         constraints := ParseGenericConstraints()
         constraintsOk := ConstraintsMaterializable
-        members := ParseTypeBody(name, typeBodyDiagnosticSpan)
+        members := ParseTypeBody(typeBodyDiagnosticSpan)
         // N+1c tranche 2/3/4/6: materialize the ClassDeclaration (Parser.cs :973). Line/Column anchor the class
         // keyword (Parser.cs :933-934). TypeParameters + BaseClass + Interfaces are the tranche-6 materialized
         // values (null / null / empty when absent, matching Parser.cs); Modifiers + Attributes the tranche-4
@@ -2831,7 +2831,7 @@ class ColumnarParserRecovery {
         // piece, only the call.
         constraints := ParseGenericConstraints()
         constraintsOk := ConstraintsMaterializable
-        members := ParseTypeBody(name, typeBodyDiagnosticSpan)
+        members := ParseTypeBody(typeBodyDiagnosticSpan)
         // N+1c tranche 1/3/4/6: materialize the StructDeclaration (Parser.cs :1010). Stage N+1c tranche 11
         // threads `isRefStruct` from the two `ref struct` dispatch arms (Parser.cs :221-225 top level / :1443-
         // :1447 nested), which consume the `ref` and pass `isRefStruct: true`. TypeParameters + Interfaces are the
@@ -2886,7 +2886,7 @@ class ColumnarParserRecovery {
         // piece, only the call.
         constraints := ParseGenericConstraints()
         constraintsOk := ConstraintsMaterializable
-        members := ParseTypeBody(name, typeBodyDiagnosticSpan)
+        members := ParseTypeBody(typeBodyDiagnosticSpan)
         // N+1c tranche 1/3/4/6: materialize the RecordDeclaration (Parser.cs :1055). IsStruct reflects the
         // consumed `record struct`. TypeParameters + Interfaces are the tranche-6 materialized values;
         // Modifiers/Attributes the tranche-4 values; PrimaryConstructorParameters the captured Parameter list
@@ -2983,7 +2983,7 @@ class ColumnarParserRecovery {
         // piece, only the call.
         constraints := ParseGenericConstraints()
         constraintsOk := ConstraintsMaterializable
-        members := ParseTypeBody(name, typeBodyDiagnosticSpan)
+        members := ParseTypeBody(typeBodyDiagnosticSpan)
         // N+1c tranche 1/3/4/6: materialize the InterfaceDeclaration (Parser.cs :1150-return). Line/Column = the
         // first-token position (`duck` if present, else `interface`). TypeParameters + BaseInterfaces are the
         // tranche-6 materialized values; Modifiers/Attributes the tranche-4 values. A malformed type-param or

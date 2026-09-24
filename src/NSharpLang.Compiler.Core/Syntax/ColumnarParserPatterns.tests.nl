@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System.Collections.Generic
-import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 

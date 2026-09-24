@@ -618,7 +618,7 @@ class AstEq {
 // ---- corpus harness helpers ----
 
 func RunAst(source: string): CompilationUnit {
-    return ColumnarParserRecovery.ParseFileAst(source, "a.nl").CompilationUnit
+    return must ColumnarParserRecovery.ParseFileAst(source, "a.nl").CompilationUnit
 }
 
 func NoDecls(): List<Declaration> {
@@ -4964,10 +4964,10 @@ test "016 N+1c tranche 10: `foreach i in items` materializes a bare ForeachState
 // The one statement a `RunBody` source carries, read back off the tree so a contract can assert a
 // SHAPE rather than a whole golden unit.
 func TypedForeachProbeStatement(unit: CompilationUnit): Statement {
-    declaration := must (unit.Declarations[0] as ClassDeclaration)
-    field := must (declaration.Members[0] as FieldDeclaration)
-    lambda := must (field.Initializer as LambdaExpression)
-    block := must (lambda.BlockBody as BlockStatement)
+    declaration := (ClassDeclaration)unit.Declarations[0]
+    field := (FieldDeclaration)declaration.Members[0]
+    lambda := (LambdaExpression)(must field.Initializer)
+    block := must lambda.BlockBody
     return block.Statements[0]
 }
 

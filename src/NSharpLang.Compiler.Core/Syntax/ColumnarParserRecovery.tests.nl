@@ -5209,8 +5209,9 @@ test "016 test-dsl: a non-string test description reports the ExpectedToken dire
     assert e.HumanExplanation == "Test declarations require a string literal describing what the test does."
     assert e.ContextualHint == "A test should start with the 'test' keyword followed by a string in quotes."
     assert e.Suggestion == "Example: test \"should calculate sum correctly\" { ... }"
-    assert e.Suggestions.Count == 2
-    assert e.Suggestions[1] == "Example: test \"validates user input\" { ... }"
+    suggestions := must e.Suggestions
+    assert suggestions.Count == 2
+    assert suggestions[1] == "Example: test \"validates user input\" { ... }"
 }
 
 test "016 test-dsl: two malformed test declarations BOTH report — the declaration-boundary panic reset" {
