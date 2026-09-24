@@ -57,7 +57,21 @@ func ImportAmbiguityEmitTwoNamespaceLibrary(root: string): string {
     return outputPath
 }
 
+// A consumer project referencing the emitted library. It is a SIBLING of the library's directory,
+// never its parent: a consumer above the library would compile the library's source into itself,
+// and the two colliding namespaces would be source declarations rather than the metadata this file
+// is about (`NestedProjectLayout`).
+func ImportAmbiguityConsumer(tag: string): string {
+    workspace := ImportAmbiguityRoot(tag)
+    libraryPath := ImportAmbiguityEmitTwoNamespaceLibrary(workspace)
+    root := Path.Combine(workspace, "consumer")
+    Directory.CreateDirectory(root)
+    ImportAmbiguityWrite(root, "project.yml", "name: AmbiguityConsumer\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n\ndependencies:\n  - dll: " + libraryPath + "\n")
+    return root
+}
+
 func ImportAmbiguityErrors(root: string): IReadOnlyList<CompilerError> {
+    AssertCompilesOnlyItsOwnSources(root)
     config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
     compiler := new MultiFileCompiler(root, config)
     compiler.CompileForAnalysis()
@@ -96,9 +110,7 @@ func ImportAmbiguityMessages(errors: IReadOnlyList<CompilerError>): string {
 // One fixture, one body: the consumer project always imports both halves of the emitted library and
 // writes `body` inside a class, so each position under test differs by one line.
 func ImportAmbiguityForBody(tag: string, body: string): IReadOnlyList<CompilerError> {
-    root := ImportAmbiguityRoot(tag)
-    libraryPath := ImportAmbiguityEmitTwoNamespaceLibrary(root)
-    ImportAmbiguityWrite(root, "project.yml", "name: AmbiguityConsumer\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n\ndependencies:\n  - dll: " + libraryPath + "\n")
+    root := ImportAmbiguityConsumer(tag)
     ImportAmbiguityWrite(root, "Consumer.nl", "namespace AmbiguityConsumer\n\nimport AmbiguityLeft\nimport AmbiguityRight\n\nclass Consumer {\n" + body + "\n}\n")
     return ImportAmbiguityErrors(root)
 }
@@ -149,9 +161,7 @@ test "a qualified spelling is never ambiguous, however many imports supply the s
 }
 
 test "a declaration in the file's own namespace wins outright over two colliding imports" {
-    root := ImportAmbiguityRoot("lexical")
-    libraryPath := ImportAmbiguityEmitTwoNamespaceLibrary(root)
-    ImportAmbiguityWrite(root, "project.yml", "name: AmbiguityConsumer\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n\ndependencies:\n  - dll: " + libraryPath + "\n")
+    root := ImportAmbiguityConsumer("lexical")
     ImportAmbiguityWrite(root, "Own.nl", "namespace AmbiguityConsumer\n\nclass Marker {\n    func Side(): string {\n        return \"own\"\n    }\n}\n")
     ImportAmbiguityWrite(root, "Consumer.nl", "namespace AmbiguityConsumer\n\nimport AmbiguityLeft\nimport AmbiguityRight\n\nclass Consumer {\n    static func Read(): string {\n        return new Marker().Side()\n    }\n}\n")
 

@@ -122,6 +122,9 @@ class is emitted with. Before that, a bare base whose enclosing namespace's type
 assembly kept the imported SOURCE rival in the fence, and the rival's members shadowed names inside the
 class (`Environment.NewLine` refused beside a rival member `Environment`) -- invisible until
 `ExternalLexicalLookup`'s rows stopped compiling their library as source.
+A base two imports supply equally is a tie there too: the walk drops it from the fence
+(`invalidClassBaseOwners`) instead of keeping the first import written, and the emitted parent is
+refused with the NL209 wording (`ExternalLexicalLookup`'s class-base tie row).
 
 **Compiler.Model is carved** (2026-09-24, `census/model`, on the tenth seed, whose compiler carries
 the cross-assembly lookup rule and the referenced-assembly emit paths G1-G6). What the carve is:

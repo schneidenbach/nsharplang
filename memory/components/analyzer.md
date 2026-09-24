@@ -4029,6 +4029,12 @@ NL002 (`AnalyzerImportUsageCredit.RecordMetadataName`) and completion's auto-imp
 `System.Reflection.TypeInfo` once Model was another assembly, and `Ast.X` did not resolve. Contracts:
 `Driver/ExternalLexicalLookup.tests.nl` (analysis, emit-only, formatter-order, code intel over an
 emitted library), `SimpleNamePrecedence.tests.nl`, `tests/native/census-external-lookup`.
+A CLASS BASE's member scope (`ColumnarBindingScopeFacts.AddClassBaseScope`) is recorded while the
+source scan is built, before any reference can be asked, so it can only pick among SOURCE types;
+`ReselectClassBasesWithMetadata` (run by `PrepareExternalTypeBindings`) asks each written base again
+once the references are scanned — a lexical metadata win moves it to the external channel, and a TIE
+between imports leaves the class with no vouched base (it had kept the first import written, which is
+import order deciding). See memory/architecture.md for the shadowing it fixed.
 
 FOUR WALKS READ IT AND USED TO SPELL IT THEMSELVES: `AnalyzerTypeReferenceFacts.VisibleTypeNamespaces`
 (now a delegation), `AnalyzerProjectTypeDiscovery` (the ambiguity gate and the inaccessible-declaration

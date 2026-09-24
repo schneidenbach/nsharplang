@@ -74,6 +74,7 @@ func LexlookLibraryPath(root: string): string {
 // Analysis AND the lint rules, the way `nlc build` validates a project: NL010 and NL002 are answered
 // from the analyzer's import-usage facts, so they are part of what a binding decides.
 func LexlookErrors(root: string): List<CompilerError> {
+    AssertCompilesOnlyItsOwnSources(root)
     config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
     compiler := new MultiFileCompiler(root, config)
     compiler.AotMode = false
@@ -107,6 +108,7 @@ func LexlookCount(errors: List<CompilerError>, diagnosticId: string): int {
 // The consumer emitted WITHOUT analysis — `CompileToIlAssembly(..., validateWithLegacyAnalysis:
 // false)`, the path the compiler's own source takes — so only the emitter's binding walk decides.
 func LexlookEmitOnly(root: string): MultiFileCompilationResult {
+    AssertCompilesOnlyItsOwnSources(root)
     config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
     compiler := new MultiFileCompiler(root, config)
     compiler.AotMode = false

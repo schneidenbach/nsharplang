@@ -918,6 +918,22 @@ reference image through `ExternalHostProjectDirectory()` / `ExternalHostReferenc
 both ways with THIS tree's SDK and pairs each image, so the next layout change fails there, before any
 reseed.
 
+### 4c. A Consumer Sits Beside Its Library, Never Above It
+A project compiles every `.nl` file under its root, including a directory holding ANOTHER project's
+`project.yml`. An estate row that emits a library into `<root>/library` and compiles a consumer at
+`<root>` compiles the library's source into the consumer too, so every "referenced-assembly" type it
+asserts on is a source type and the cross-assembly path never runs. MEASURED (2026-09-24, an audit of
+every root `ProjectConfig.GetSourceFiles` enumerated across the estate and the native sweep):
+`Driver/ExternalLexicalLookup` and `Driver/AnalyzerImportAmbiguity` (16 roots) were laid out that way;
+moving `ExternalLexicalLookup`'s consumer beside the library turned one row red on a real emitter gap
+(a class base settled before the references were scanned). Write `<workspace>/library` and
+`<workspace>/consumer`, and call `AssertCompilesOnlyItsOwnSources(root)`
+(`src/NSharpLang.Compiler.Driver/NestedProjectLayout.tests.nl`) before compiling a consumer. The same audit found the
+SDK project-reference fixtures in `tests/native/compilation-backend` and `tests/native/reference-resolution`
+nest `Shared/project.yml` inside the app that depends on it, so the app compiles `Shared.nl` as source
+as well as referencing it — a product question (does a nested project.yml bound the enclosing
+project's sources?), not a fixture one.
+
 ### 5. The Product Gate Skips Steps With Unchanged Inputs
 Within a plain fresh isolated `./scripts/test-all.sh` development run, a gate step is skipped when
 its ENTIRE input set is byte-identical to inputs that previously PASSED that step on the same

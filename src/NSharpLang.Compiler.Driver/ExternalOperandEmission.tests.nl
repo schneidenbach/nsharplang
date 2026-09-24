@@ -74,6 +74,7 @@ func XopText(result: MultiFileCompilationResult): string {
 }
 
 func XopCompile(root: string, validateWithLegacyAnalysis: bool): MultiFileCompilationResult {
+    AssertCompilesOnlyItsOwnSources(root)
     config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
     compiler := new MultiFileCompiler(root, config)
     compiler.AotMode = false
