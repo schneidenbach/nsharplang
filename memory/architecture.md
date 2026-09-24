@@ -146,12 +146,13 @@ Measured edit -> test (`./scripts/dev.sh --estate <file>Tests`, a one-line body 
 another session's gate running on the box): a Model file 330 / 216 s before the carve, **13.3 / 12.6 s**
 after -- a body edit leaves Model's reference assembly unchanged, so neither Core nor its tests-included
 build re-emits; a Core file (`Driver/RunCommandKernels.nl`) 209 / 217 s before, 253 / 249 s after. The
-Core product emit is unchanged (1:10 -> 1:15); the extra ~35 s is Core's tests-included emit, which
-now binds Model's ~47 estate files' thousands of Model names through the referenced assembly rather
-than source tables -- the cost to look at before the next carve multiplies it.
-The next carve (Syntax) follows the same list: add its project to Core's `project:` graph (the layout
-helpers, the emit-only row and `CompilerSliceAssemblyNames` then need its name), and bring its product
-files' front door to zero first, because a diagnostic in a referenced slice BLOCKS Core's check.
+extra time was Core's tests-included emit (`EmitIlAssembly` 135.9 s -> 164.2 s under the committed
+seed), and sampling its thread with `dotnet-stack` put all of it in `ExternalAssemblyScan.FindExactType`
+misses (already 55% of the thread at the base): the emitter's owner walk cached per (file, spelling)
+and so re-asked every referenced assembly for the same `<namespace>.<name>` pairs in every file.
+`ColumnarExternalTypeCatalog.FindInNamespaceCached` shares that answer across files; with a scratch
+stage-2 seed the same emit is **96.1 / 95.3 s**. The emit runs in the SEED's SDK task, so dev.sh sees
+it after the next republish.
 
 ## Data Flow
 
