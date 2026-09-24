@@ -335,7 +335,7 @@ test "an expanded params element is converted from its recorded element type" {
         ConversionArgument(),
         1
     )
-    expandedType := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
+    expandedType := AnalyzerReflectionArgumentBinder.ConvertSuppliedArgumentType(
         expanded,
         tail,
         new Dictionary<Type, Type>(),
@@ -352,7 +352,7 @@ test "an expanded params element is converted from its recorded element type" {
         ConversionArgument(),
         1
     )
-    directType := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
+    directType := AnalyzerReflectionArgumentBinder.ConvertSuppliedArgumentType(
         direct,
         tail,
         new Dictionary<Type, Type>(),
@@ -376,7 +376,7 @@ test "an ordinary position is converted from the parameter, not the recorded typ
         ConversionArgument(),
         0
     )
-    answered := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(
+    answered := AnalyzerReflectionArgumentBinder.ConvertSuppliedArgumentType(
         supplied,
         head,
         new Dictionary<Type, Type>(),

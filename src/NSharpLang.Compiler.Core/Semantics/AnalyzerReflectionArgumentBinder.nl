@@ -1788,6 +1788,20 @@ class AnalyzerReflectionArgumentBinder {
         }
     }
 
+    // The type a written argument is EXPECTED to have, once the candidate's inference is known.
+    //
+    // THE ONE DECISION IS WHICH SPELLING OF THE PARAMETER TO ASK ABOUT. An EXPANDED params tail
+    // records the ELEMENT type as its open parameter type while the `ParameterInfo` still declares
+    // the ARRAY, so the tail must be converted from the recorded type; every other position reads
+    // the parameter itself, which is what carries the declaration's nullability metadata.
+    static func ConvertSuppliedArgumentType(supplied: SuppliedReflectionBoundArgument, parameter: ParameterInfo, workingBindings: Dictionary<Type, Type>, workingTypeInfoBindings: Dictionary<Type, TypeInfo>, hasTypeInfoOverrides: bool): TypeInfo {
+        if AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(supplied, parameter) {
+            return AnalyzerReflectionTypeConversion.ConvertBoundType(supplied.OpenParameterType, workingTypeInfoBindings, workingBindings, hasTypeInfoOverrides)
+        }
+
+        return AnalyzerReflectionTypeConversion.ConvertBoundParameter(parameter, workingTypeInfoBindings, workingBindings, hasTypeInfoOverrides)
+    }
+
     // One phase-two position: record the type the parameter EXPECTS, then say whether an analysis is
     // still needed. A method-group position is settled here and needs none — the selection was made
     // when the candidate bound, and all that is left is whether it fits the now-bound signature.
@@ -1809,7 +1823,7 @@ class AnalyzerReflectionArgumentBinder {
             return new ReflectionAnalysisRequest(lambda, lambda, expectedSignature, AnalyzerFunctionTypeFactory.IsExpressionTreeLambdaTarget(supplied.OpenParameterType))
         }
 
-        expectedType := AnalyzerReflectionTypeConversion.ConvertSuppliedArgumentType(supplied, parameter, state.WorkingBindings, state.WorkingTypeInfoBindings, state.HasTypeInfoOverrides)
+        expectedType := ConvertSuppliedArgumentType(supplied, parameter, state.WorkingBindings, state.WorkingTypeInfoBindings, state.HasTypeInfoOverrides)
         state.ParameterTypes.Add(expectedType)
 
         selectedMethodGroup: FunctionTypeInfo? = null
