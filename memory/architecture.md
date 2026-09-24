@@ -65,8 +65,11 @@ basename, so moving a file between directories changes no byte of any assembly. 
 **No product file reaches upward.** The last reach -- the node table's binding context -- is held as
 `ColumnarBindingScope`, an empty Syntax base that `ColumnarBindingScopeFacts` (Backend.Plan) derives
 from, and planners read it back through `ColumnarBindingScopeFacts.Of(nodes)`. (A base class, not a
-marker interface: the columnar emitter registers every source interface structurally, `duck` or
-not, so an empty interface lands on every class in the assembly.) `tests/native/compiler-core-slice-direction`
+marker interface: the committed seed's columnar emitter registers every source interface
+structurally, `duck` or not, so an empty interface lands on every class in the assembly. The tip
+emitter registers only `duck interface`s since `ae7daa9a4`, pinned by
+`tests/native/census-nominal-interfaces`; the base can collapse to a marker after the next reseed.)
+`tests/native/compiler-core-slice-direction`
 holds the rule until the slices are projects: a product file under slice k naming a top-level name a
 file under slice j > k owns fails it with the file, line and name, and so does a Core file outside
 the eight directories. The estate's own reaches upward (171: rows in a lower slice than their

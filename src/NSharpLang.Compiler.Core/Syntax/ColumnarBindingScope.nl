@@ -17,5 +17,8 @@ namespace NSharpLang.Compiler.Columnar
 // A BASE CLASS, NOT AN INTERFACE. The columnar emitter registers every source interface
 // structurally, `duck` or not, and an interface that declares nothing is satisfied by every type -
 // so a marker interface here would be written onto every class in the assembly.
+// SEED: duckfix ae7daa9a4 - the tip emitter registers only `duck interface`s structurally, so a
+// plain marker interface is nominal. Core is compiled by the committed seed, which predates that
+// fix; after the next reseed this base may collapse to `interface IColumnarBindingScope {}`.
 class ColumnarBindingScope {
 }
