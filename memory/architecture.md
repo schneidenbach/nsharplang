@@ -220,5 +220,15 @@ ships no test type and no second `Program` holder, with B-tested-directly as the
 SDK's `tools/` ships - the committed seed, or the one `NSHARP_BOOTSTRAP_DIR` names, and this tree's
 next payload - to one holder per namespace, none empty.
 
+The tested project itself builds into trees of its own: `obj/tests-included/` AND
+`bin/tests-included/` (Sdk.props, both decided before the base SDK's props). Its product build keeps
+`obj/` and `bin/`. Sharing `bin/` let whichever configuration wrote last win - the timestamp-gated
+deps file and assembly copy - so the product output carried the test types and a deps file naming
+xunit, and a stale product deps file aborted Compiler.Core's estate host
+(Microsoft.TestPlatform.CoreUtilities) until `rm -rf bin`. `dotnet test <csproj>` finds the new
+path by itself; nothing reads the tests-included assembly by path.
+`TestsIncludedOutput.tests.nl` in the same project interleaves product and tests-included builds
+twice and pins both trees; against the SDK without the split it fails on the product `Lib.dll`.
+
 Use `./scripts/dev.sh <pattern>` for focused backend/compiler iteration and the appropriate
 `./scripts/test-all.sh --commit` gate at integration checkpoints, as described in `AGENTS.md`.

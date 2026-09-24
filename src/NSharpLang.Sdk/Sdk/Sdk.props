@@ -135,6 +135,19 @@
   <PropertyGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpExcludeTests)' == 'false' And '$(_NSharpReferencedByTestedProject)' != 'true' And '$(BaseIntermediateOutputPath)' == ''">
     <BaseIntermediateOutputPath>obj/tests-included/</BaseIntermediateOutputPath>
   </PropertyGroup>
+  <!-- AND ITS OWN OUTPUT TREE. Separating `obj/` alone left both configurations copying into one
+       `bin/$(Configuration)/$(TargetFramework)/`, whose files are written by incremental targets that
+       compare TIMESTAMPS against each configuration's OWN inputs. `<name>.deps.json` is regenerated
+       only when that configuration's assets file or assets cache is newer than it, so whichever
+       configuration wrote it last wins: a product deps file newer than the tests-included assets
+       survives a tests-included build, names no test framework, and the test host aborts loading
+       Microsoft.TestPlatform.CoreUtilities (Compiler.Core's estate, after a product build, until a
+       manual `rm -rf bin`); the other way round, the product `bin/` ships a deps file naming xunit
+       beside an assembly that carries the test types. Each configuration now owns its output as well
+       as its intermediates, decided at the same point and for the same projects. -->
+  <PropertyGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpExcludeTests)' == 'false' And '$(_NSharpReferencedByTestedProject)' != 'true' And '$(BaseOutputPath)' == ''">
+    <BaseOutputPath>bin/tests-included/</BaseOutputPath>
+  </PropertyGroup>
 
   <!-- Import base SDK props (dynamic based on project.yml sdk field) -->
   <Import Project="Sdk.props" Sdk="$(_NSharpBaseSdk)" />

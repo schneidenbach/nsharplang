@@ -27,9 +27,12 @@ class IncrementalityRun {
     }
 }
 
+// ONE PACK PER PROCESS, UNDER A LOCK. Every `.tests.nl` file here is its own test class and the
+// classes run in parallel, so without the lock two rows that both find the cache empty pack at once.
 class IncrementalityFeed {
     static Root: string = ""
     static Version: string = ""
+    static Gate: object = new object()
 }
 
 func IncrementalityRepositoryRoot(): string {
@@ -77,10 +80,14 @@ func IncrementalityPrepareFeed(root: string) {
         return
     }
 
-    if IncrementalityFeed.Root.Length > 0 {
-        return
+    lock IncrementalityFeed.Gate {
+        if IncrementalityFeed.Root.Length == 0 {
+            IncrementalityPackFeed(root)
+        }
     }
+}
 
+func IncrementalityPackFeed(root: string) {
     feed := Path.Combine(Path.Combine(root, "artifacts"), "sdk-reference-incrementality-feed-" + Guid.NewGuid().ToString("N"))
     Directory.CreateDirectory(feed)
     on AppDomain.CurrentDomain.ProcessExit (sender, args) => {

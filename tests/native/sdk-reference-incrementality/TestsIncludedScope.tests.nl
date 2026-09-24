@@ -112,8 +112,9 @@ test "testing a project builds its project references product-only, so no refere
         assert !Directory.Exists(ScopeObj(scratch, "B", "tests-included")), "B was restored or built tests-included"
         assert File.Exists(ScopeObj(scratch, "B", "project.assets.json")), "B's product-only restore is missing"
 
-        // The B that A was compiled against and ships beside it declares nothing from B's tests.
-        shippedLibrary := Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(scratch, "A"), "bin"), "Debug"), "net10.0"), "B.dll")
+        // The B that A was compiled against and ships beside it - in A's own tests-included output
+        // tree - declares nothing from B's tests.
+        shippedLibrary := Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(scratch, "A"), "bin"), "tests-included"), "Debug"), "net10.0"), "B.dll")
         libraryNames := ScopeTypeNames(shippedLibrary)
         assert libraryNames.Contains("LabB.Greeter"), string.Join(",", libraryNames)
         assert ScopeNamesIn(libraryNames, "Shared.Checks.") == "", ScopeNamesIn(libraryNames, "Shared.Checks.")
@@ -121,7 +122,7 @@ test "testing a project builds its project references product-only, so no refere
         // And across everything A's output directory holds, each holder is declared exactly once.
         holders := new HashSet<string>(StringComparer.Ordinal)
         duplicates := new List<string>()
-        for assemblyPath in [Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(scratch, "A"), "bin"), "Debug"), "net10.0"), "A.dll"), shippedLibrary] {
+        for assemblyPath in [Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(scratch, "A"), "bin"), "tests-included"), "Debug"), "net10.0"), "A.dll"), shippedLibrary] {
             for name in ScopeTypeNames(assemblyPath) {
                 if name.EndsWith(".Program", StringComparison.Ordinal) || name.EndsWith(".<Program>", StringComparison.Ordinal) {
                     if !holders.Add(name) {
