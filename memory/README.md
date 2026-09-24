@@ -70,7 +70,7 @@ C# consumer of the self-compiled assemblies (`Cli`, `Build.Tasks`, `LanguageServ
 against the stage-2 seed before believing it.**
 
 `Step 2d: Self-Host Front Door` in `tests/scripts/test-all-core.sh` closes that blind spot. It runs
-`nlc check --json` over `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler`,
+`nlc check --json` over `src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler`,
 `src/NSharpLang.Playground` and `src/NSharpLang.Build.Tasks` with the CLI the gate just built and
 fails on any INCREASE over the committed ceilings. **The ceilings are a backlog, not a target**: the
 front door reports diagnostics on Core's own source that the emit-only path never asked about
@@ -158,6 +158,22 @@ NL209 removals.
 to null-checked locals and types its canonical-name slot as the `string` the builder writes, so the
 NL202 and one NL905 the contextual-only door it replaced carried are gone. Identity diff against
 1,283: zero additions, two removals.
+
+**Measured 2026-09-24 on `census/model`** (Compiler.Model carved out of Core into its own project):
+Step 2d checks **Model first, ceiling 0** -- Core builds it as a `project:` reference, so a Model
+diagnostic would BLOCK Core's check instead of counting in it -- and **Core at 1,214**, the new
+ceiling. The same tip CLI over the base tree reports 1,281; the identity diff is **one addition and 68
+removals, and neither is a source change**. The 68 are NL202 nullable-argument reports
+(`Expression?`, `Statement?`, `TypeInfo?`, a `string?` member of a Model type ...) whose types now
+come from a REFERENCED assembly: `AnalyzerAssignability`'s mixed CLR bridge converts `T?` over a
+reference type to the bare CLR `T` (`WrapInNullable`) and accepts, so reference nullability is not
+checked for a reflected CLASS type -- only for `string` and source types. The addition is NL402 on
+`Enumerable.ToDictionary<string, string, string>(compilationUnits.Keys, ...)` in SystemsAnalyzer.nl:
+`Keys` of a dictionary closed over a referenced type is typed from the scan's metadata universe and
+misses the runtime `IEnumerable<TSource>` of an overloaded call (a declared `IEnumerable<string>`
+local, or a one-overload `ToList`, passes). Both reproduce with any two-project N# program; both are
+analyzer work for the next lane, and closing the nullability gap brings these 68 back as exactly
+these identities.
 
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.

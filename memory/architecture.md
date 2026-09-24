@@ -37,17 +37,19 @@ separately. Historical allowlist labels below do not establish current completio
 3. **Analyzer** - type checking and semantic analysis (`src/NSharpLang.Compiler.Core/Semantics/Analyzer.nl`, with the N# owners `AnalyzerDeclarationContext.nl`, `TypeInfoIdentityFacts.nl`, `AnalyzerConversionFacts.nl`, `AnalyzerCallableReferenceFacts.nl`, `AnalyzerWellKnownTypes.nl`, `AnalyzerWellKnownTypeFacts.nl`, `AnalyzerClrTypeConversion.nl`, `AnalyzerAssignabilityFacts.nl`, `AnalyzerExternalTypeProbe.nl`, `AnalyzerTypeReferenceFacts.nl`, `AnalyzerScopeStack.nl`, `AnalyzerProjectDiscovery.nl`, `AnalyzerTypeResolver.nl`, `AnalyzerTypeSubstitution.nl`, `AnalyzerStructuralAssignability.nl`, `AnalyzerDiagnosticSink.nl`, `AnalyzerStateModels.nl`, `AnalyzerDiagnostics.nl`, `NullabilityMetadataCore.nl`, `NullabilityMetadataReflection.nl`, `AnalyzerReflectionTypeConversion.nl`, `AnalyzerFunctionTypeFactory.nl`, `AnalyzerAssignability.nl`)
 4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler.Core/Backend.Emit/ColumnarIlEmitter.nl`)
 5. **CLI** - command-line workflows (`src/NSharpLang.Cli/`)
-6. **Error reporting** - diagnostics and suggestions (`src/NSharpLang.Compiler.Core/Model/CompilerError.nl`, `ErrorCode.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, N#)
+6. **Error reporting** - diagnostics and suggestions (`src/NSharpLang.Compiler.Model/CompilerError.nl`, `ErrorCode.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, N#)
 
 ## Compiler.Core slice directories
 
-`src/NSharpLang.Compiler.Core` is ONE project whose sources sit in eight slice directories, named
-for the projects the Compiler.Core split carves out of it and ordered so a file names only its own
-slice or a lower one:
+`src/NSharpLang.Compiler.Core` is being carved into eight slice projects, lowest first, and ordered so
+a file names only its own slice or a lower one. **S0 is carved**: `src/NSharpLang.Compiler.Model` is
+its own N#-SDK project (one-line csproj, `project.yml`, the SDK's `global.json` pin), Core takes it
+with `project: ../NSharpLang.Compiler.Model/project.yml`, and every consumer builds the Model -> Core
+DAG through that edge. The other seven are still directories of Core:
 
 | directory | slice | holds |
 |---|---|---|
-| `Model/` | S0 | the AST, the type, diagnostic and project-config models, and the shared facts every slice reads |
+| `src/NSharpLang.Compiler.Model/` (Core's `Model/` holds only its estate) | S0 | the AST, the type, diagnostic and project-config models, and the shared facts every slice reads |
 | `Syntax/` | S1 | lexer, preprocessor, the columnar parser kernels and node table |
 | `Semantics/` | S2 | the analyzer, the systems analyzer, flow and nullability |
 | `Backend.Plan/` | S3 | the columnar planners and binding scope, and the metadata-blob writers |
@@ -94,7 +96,7 @@ namespace a LOWER slice's product code holds.
 
 **Carving a slice turns its types EXTERNAL to every slice above it, and name lookup now treats
 external types the way it treats source ones** (found carving Model, 2026-09-24; fixed on
-`census/lookup`; the wiring is parked on `census/model-carve-wip`). Before the fix `SimpleNamePrecedence`
+`census/lookup`; the carve landed on `census/model`). Before the fix `SimpleNamePrecedence`
 rules 1-2 (the file's own namespace, then each enclosing one, before any import) and the
 lexically-relative qualifier (`Ast.X` inside `NSharpLang.Compiler`) applied to SOURCE declarations only,
 in the analyzer and in the emitter's binding scope alike, so once Model was an assembly `TypeInfo`
@@ -108,39 +110,41 @@ analyzer and a named `emit.names.ambiguous-import` decline in the emitter (see
 ITSELF (the emit-only path has no analyzer), so a slice carve needs it republished in the seed first.
 A class's EMITTED parent is selected through the same gated walk, so a bare base binds the enclosing
 namespace's referenced-assembly type over an imported source one (`ExternalLexicalLookup`'s base row).
-Known limit: the binding scope's member-name FENCE (`AddClassBaseScope` -> `classBaseNameByType`) is
-built at `Create`, before the assembly scan exists, and still records that imported source base; no
-emitted program was found whose binding it changes (it can only refuse, never re-bind), but a fence
-that disagrees with the parent is debt.
+The binding scope's member-name FENCE (`AddClassBaseScope` -> `classBaseNameByType`) is built at
+`Create`, before the assembly scan exists, so it resolves a base from source alone; once the scan is
+prepared, `ReselectClassBasesWithMetadata` asks the same precedence rule of every written base and
+moves one it settles on lexical metadata to the external-base fence, so the fence walks the parent the
+class is emitted with. Before that, a bare base whose enclosing namespace's type came from a referenced
+assembly kept the imported SOURCE rival in the fence, and the rival's members shadowed names inside the
+class (`Environment.NewLine` refused beside a rival member `Environment`) -- invisible until
+`ExternalLexicalLookup`'s rows stopped compiling their library as source.
 
-**What the Model carve still needs** (re-proved 2026-09-24 on throwaway `census/xasm-carve` = `census/xasm`
-+ the two `census/model-carve-wip` commits + the lookup lane's restoration of the 167 relative `Ast.X`
-spellings, built with a scratch stage-2 seed from `census/xasm`): the carved Model, Core and the CLI build
-end to end with **no source workarounds** -- the ~113 (13 product, ~100 test) the lookup lane needed are
-gone. The six gaps it recorded were three emitter roots and one host root, all fixed on `census/xasm`:
-(G1) `ColumnarIlEmitter`'s residual `==`/`!=` granted identity only to a registry `TypeBuilder`;
-`IsPredefinedReferenceEquality` is C#'s predefined reference equality over the one reference-conversion
-owner, declining whenever a referenced type declares `op_Equality` (preflight and interpolation ask the
-same predicate). (G2-G5) an external CONSTRUCTION had no emitter door, only the whole-subtree construction
-planner, so any argument outside its surface declined the whole `new`; `TryEmitReferencedConstruction`
-(the constructor twin of the ordinary runtime call door) chooses from the type's metadata -- applicable by
-the call path's own argument predicate, exact arity before optional fill, the planner's scorer among
-several -- and emits each argument against its parameter, then the defaults. Two preflight arms had no
-typing twin (the ordinary runtime instance call, `(index - 1).ToString()`; `is`/`as`). (G6) only through
-`dotnet build`: the compiler's owned reference context resolved a referenced assembly's dependency on an
-identity the COMPILER references through the default context (the SDK directory's build) while the
-reference set paired it with the compiler context's build, so `scan.Context` was a second
-`MetadataLoadContext`; `ExactIdentityReferenceLoadContext.Load` answers those identities with the
-compiler context's handle. Regressions: `tests/native/census-external-operands` (analysis and emit-only
-over a two-assembly fixture), estate `Driver/ExternalOperandEmission` and two `ExternalAssemblyScan`
-rows, and `sdk-emit-path-parity`'s scan row. What the carve still owes is wiring, not the compiler: the
-carved estate is 9,638/9,651 -- the 13 are the rows that read Model's files under Core
-(`AstChildrenCore` x7, the SZArray-predicate scan x1) or Model's reference image under Core's `obj`
-(`ExternalAssemblyScan`/`ExternalAssemblyRuntimePairing` x5) -- plus `compiler-core-slice-direction`'s
-estate-reach ceiling (172 against 171), gate-script-contracts' package-loop trace (Model is packed),
-`census-nominal-interfaces` loading the analyzer types without Model.dll, `sdk-reference-incrementality`
-packing its private SDK with the committed seed (needs a real reseed), and the wiring's own NU1504
-duplicate `NSharpLang.Runtime` reference in Model's project.
+**Compiler.Model is carved** (2026-09-24, `census/model`, on the tenth seed, whose compiler carries
+the cross-assembly lookup rule and the referenced-assembly emit paths G1-G6). What the carve is:
+- the product files as pure renames into `src/NSharpLang.Compiler.Model/`; Model's own estate (47 files)
+  stays in Core's `Model/` directory, because its rows still reach the slices above it -- moving it is
+  the fixture-hoisting work, and until then Core's tests-included build hosts Model's rows;
+- the SDK packs `NSharpLang.Compiler.Model.dll` into `tools/` and names it in the emit target's
+  `Inputs`; `Sdk.targets`' emit-only switch names every compiler project, not just Core (the seed
+  compiles the compiler emit-only; analysis is Step 2d's job), pinned by gate-script-contracts'
+  `SdkEmitStampPaths` row against Core's `project:` closure and `reseed.sh`'s `COMPILER_PROJECT_DIRS`;
+  Model takes its runtime edge the ordinary way (no runtime package in its project.yml, no SDK name
+  exception -- the old pair was the NU1504 duplicate);
+- the compiler is several assemblies at run time: `ExternalAssemblyScan.CompilerSliceAssemblyNames`
+  names Model and Core, `CompilerAssemblyReferencesIdentity` unions every slice's references, and
+  `IsCompilerProductAssembly` names both;
+- rows that read the compiler's own source find it through the slice layout
+  (`CompilerSourceFiles`/`CompilerProjectDirectories` in Core's `Model/CompilerProjectLayout.tests.nl`,
+  which follow Core's `project:` graph), and rows that need the estate HOST's own reference image
+  name the host by a type it declares (`ExternalScanHost`), never by a Model type, which the host only
+  runs a copy of;
+- `dll:` consumers take `NSharpLang.Compiler.Model.dll` beside `NSharpLang.Compiler.Core.dll`, and an
+  assembly-qualified Model type name says `NSharpLang.Compiler.Model`;
+- Step 2d checks Model (ceiling 0) before Core; the compile-time bench keeps Core (the façade that now
+  builds the Model -> Core DAG) as its subject.
+The next carve (Syntax) follows the same list: add its project to Core's `project:` graph (the layout
+helpers, the emit-only row and `CompilerSliceAssemblyNames` then need its name), and bring its product
+files' front door to zero first, because a diagnostic in a referenced slice BLOCKS Core's check.
 
 ## Data Flow
 

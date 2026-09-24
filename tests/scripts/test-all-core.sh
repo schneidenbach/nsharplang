@@ -367,6 +367,9 @@ section "Step 2d: Self-Host Front Door"
 # `src/NSharpLang.Build.Tasks` has no N# sources yet (it is MSBuild targets plus C# tasks), so it is
 # listed and checked rather than assumed: the day it grows one, this step covers it.
 #
+# `src/NSharpLang.Compiler.Model`, the first slice carved out of Core, is checked before it: Core
+# builds it as a project reference, so Model's own count must stay 0 for Core's to be readable.
+#
 # COST: the whole step is dominated by Core, whose front door walks 952 files. It sits inside the
 # validated step cache on the UNIT input set, so it runs only when the compiler's own sources move.
 if step_cache_hit "self-host-front-door" "$UNIT_INPUTS_HASH"; then
@@ -375,6 +378,7 @@ if step_cache_hit "self-host-front-door" "$UNIT_INPUTS_HASH"; then
 else
     echo "Checking the compiler's own projects with the CLI this gate built..."
     SELF_HOST_PROJECTS=(
+        "src/NSharpLang.Compiler.Model"
         "src/NSharpLang.Compiler.Core"
         "src/NSharpLang.Compiler"
         "src/NSharpLang.Playground"
@@ -430,13 +434,29 @@ else
     # the NL202 on `out canonical` and an NL905 on the parameter-type index the old door carried are
     # gone. Identity diff against 1,283: zero additions, two removals (NL202 352 -> 351, NL905 419 -> 418).
     #
+    # 2026-09-24, Compiler.Model carved out of Core into its own project (`census/model`): Model 0,
+    # checked FIRST, because Core takes it as a `project:` reference and a diagnostic in Model would
+    # BLOCK Core's check rather than count in it -- its zero is what keeps Core's number a number.
+    # Core 1,214. The identity diff against 1,281 (the same tip CLI over the base tree) is ONE
+    # addition and 68 removals, and neither is a source change. The 68 are NL202 nullable-argument
+    # reports whose types (`Expression?`, `Statement?`, `TypeInfo?`, `string?` members of Model
+    # types) now come from a REFERENCED assembly: the analyzer's reference-nullability check does not
+    # cover a reflected class type (the mixed CLR bridge in `AnalyzerAssignability` drops the
+    # annotation), so the same calls that were NL202 over source types pass over metadata. The one
+    # addition is NL402 on `Enumerable.ToDictionary<string, string, string>(compilationUnits.Keys,
+    # ...)` in SystemsAnalyzer.nl: `Keys` of a dictionary closed over a referenced type is typed from
+    # the scan's metadata universe and no longer matches the runtime `IEnumerable<TSource>` of an
+    # overloaded call. Both reproduce with any two-project N# program; both are analyzer work, and
+    # when the nullability gap closes these 68 come back as exactly these identities.
+    #
     # -1 means BLOCKED, not clean. `check` on a project that REFERENCES Compiler.Core builds that
     # reference first, and that build fails while Core's own front door is not clean -- so those two
     # produce an error envelope instead of a diagnostic list and there is nothing to count yet. The
     # step prints the reason and moves on; the day Core reaches 0 their ceilings become real numbers
     # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
     SELF_HOST_CEILINGS=(
-        1281
+        0
+        1214
         -1
         -1
         0
