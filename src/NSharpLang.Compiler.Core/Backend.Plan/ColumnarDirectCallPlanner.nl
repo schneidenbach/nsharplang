@@ -386,7 +386,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         if scope == null {
             return false
         }
@@ -631,7 +631,7 @@ class ColumnarDirectCallPlanner {
         ownerName := ""
         rootName := ""
         if ColumnarPlannerSupport.TryGetQualifiedName(nodes, source, receiverNode, 0, true, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) {
-            scope := nodes.BindingScope
+            scope := ColumnarBindingScopeFacts.Of(nodes)
             exactOwnerName := ownerName
             ownerBlocked := false
             if scope == null || scope.TryResolveSourceStaticOwner(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out exactOwnerName, out ownerBlocked) {
@@ -867,7 +867,7 @@ class ColumnarDirectCallPlanner {
         isStatic := false
         ownerName := ""
         rootName := ""
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         if ColumnarPlannerSupport.TryGetQualifiedName(nodes, source, receiverNode, 0, true, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) && scope != null && scope.TryResolveExternalStaticOwnerType(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out lookupType) {
             isStatic = true
         } else {
@@ -1031,7 +1031,7 @@ class ColumnarDirectCallPlanner {
         }
         memberName := nodes.Text(source, callee)
         receiverNode := nodes.Child(callee, 0)
-        extensionScope := nodes.BindingScope
+        extensionScope := ColumnarBindingScopeFacts.Of(nodes)
         if extensionScope != null {
             for extension in extensionScope.ExtensionCandidates(memberName) {
                 ColumnarNamedArgumentBinder.AddCandidate(candidates, ColumnarNamedArgumentBinder.ReflectedExtensionParameterNames(extension.Method), arity)
@@ -1040,7 +1040,7 @@ class ColumnarDirectCallPlanner {
         ownerName := ""
         rootName := ""
         if ColumnarPlannerSupport.TryGetQualifiedName(nodes, source, receiverNode, 0, true, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) {
-            scope := nodes.BindingScope
+            scope := ColumnarBindingScopeFacts.Of(nodes)
             exactSourceOwnerName := ownerName
             sourceOwnerBlocked := false
             if scope == null || scope.TryResolveSourceStaticOwner(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out exactSourceOwnerName, out sourceOwnerBlocked) {
@@ -1118,7 +1118,7 @@ class ColumnarDirectCallPlanner {
 
         memberName := nodes.Text(source, callee)
         receiverNode := nodes.Child(callee, 0)
-        extensionScope := nodes.BindingScope
+        extensionScope := ColumnarBindingScopeFacts.Of(nodes)
         if extensionScope != null {
             for extension in extensionScope.ExtensionCandidates(memberName) {
                 ColumnarNamedArgumentBinder.AddTypedCandidate(candidates, ColumnarNamedArgumentBinder.ReflectedExtensionParameterNames(extension.Method), ColumnarNamedArgumentBinder.ReflectedExtensionParameterTypes(extension.Method), arity)
@@ -1131,7 +1131,7 @@ class ColumnarDirectCallPlanner {
         ownerName := ""
         rootName := ""
         if ColumnarPlannerSupport.TryGetQualifiedName(nodes, source, receiverNode, 0, true, out ownerName, out rootName) && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) {
-            scope := nodes.BindingScope
+            scope := ColumnarBindingScopeFacts.Of(nodes)
             exactSourceOwnerName := ownerName
             sourceOwnerBlocked := false
             if scope == null || scope.TryResolveSourceStaticOwner(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out exactSourceOwnerName, out sourceOwnerBlocked) {
@@ -1373,7 +1373,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         if scope == null {
             legacyWholeSubtreePlanning = true
             return false
@@ -1540,7 +1540,7 @@ class ColumnarDirectCallPlanner {
         if !owner.StaticMethods.TryGetValue(memberName, out candidates) || candidates == null {
             return false
         }
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         if scope == null {
             return false
         }
@@ -1660,7 +1660,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         if scope != null && scope.IsFileImportAliasRoot(rootName) {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
@@ -2413,7 +2413,7 @@ class ColumnarDirectCallPlanner {
         }
 
         staticSyntax := qualifiedOwner && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) && !bindings.Enums.ContainsKey(ownerName) && !bindings.Enums.ContainsKey(rootName)
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
 
         if staticSyntax {
 
@@ -2629,7 +2629,7 @@ class ColumnarDirectCallPlanner {
         ownership = ColumnarDirectCallOwnership.NotOwned
         legacyWholeSubtreePlanning = false
         resultType = typeof(int)
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         receiverType := typeof(int)
         receiverOwnership := ColumnarDirectCallOwnership.NotOwned
         // The RECEIVER surface stays the plain one: its append side (`AppendReceiver`) is the plain

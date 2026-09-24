@@ -109,7 +109,7 @@ class ColumnarGenericTypeReceiverFacts {
             return false
         }
 
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         if scope == null {
             return false
         }
@@ -160,7 +160,7 @@ class ColumnarGenericTypeReceiverFacts {
             return false
         }
 
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         if scope == null {
             return false
         }

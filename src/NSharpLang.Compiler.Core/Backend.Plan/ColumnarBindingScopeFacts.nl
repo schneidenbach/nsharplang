@@ -301,7 +301,7 @@ class ColumnarExternalTypeCatalog {
 // Immutable program binding facts stamped onto every body node table. They are intentionally
 // reusable across expression planners: C# never computes a shadowing boolean or reconstructs
 // source/import/type scope inside an emitter.
-class ColumnarBindingScopeFacts {
+class ColumnarBindingScopeFacts: ColumnarBindingScope {
     projectRoot: string
     sourceTypeNames: HashSet<string>
     exportedSourceTypeNames: HashSet<string>
@@ -372,6 +372,13 @@ class ColumnarBindingScopeFacts {
         hasActiveFileFacts = false
         activeSourceFileId = -1
         sourceScanComplete = true
+    }
+
+    // The facts a body's node table was stamped with, or null when the table carries none. The table
+    // holds them as `ColumnarBindingScope` because it sits in the syntax slice, below this model;
+    // this is the one place a planner reads them back as what they are.
+    static func Of(nodes: ColumnarNodeTable): ColumnarBindingScopeFacts? {
+        return nodes.BindingScope as ColumnarBindingScopeFacts
     }
 
     static func Create(sources: ColumnarSourceFile[], enums: IReadOnlyList<ColumnarEnumInput>, structs: IReadOnlyList<ColumnarStructInput>, unions: IReadOnlyList<ColumnarUnionInput>, interfaces: IReadOnlyList<ColumnarInterfaceInput>, projectRootValue: string? = null): ColumnarBindingScopeFacts {

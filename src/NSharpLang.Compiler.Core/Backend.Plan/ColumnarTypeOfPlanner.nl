@@ -186,7 +186,7 @@ class ColumnarTypeOfPlanner {
             selected = bindings.StructuralTypeReferences.SelectRuntimeType(RequiredVoidType())
             return true
         }
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         if scope != null && !canonical.Contains("|") {
             claimed := false
             targetType := typeof(object)

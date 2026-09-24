@@ -3466,7 +3466,7 @@ class ColumnarIteratorBodyPlanner {
     static func TryResolveIteratorEventOwnerTypeName(emit: ColumnarMoveNextEmit, receiverNode: int, out ownerType: Type): bool {
         ownerType = null
         nodes := emit.Context.Nodes
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         ownerName := ""
         rootName := ""
         if scope == null || !ColumnarPlannerSupport.TryGetQualifiedName(nodes, emit.Context.Source, receiverNode, 0, true, out ownerName, out rootName) {

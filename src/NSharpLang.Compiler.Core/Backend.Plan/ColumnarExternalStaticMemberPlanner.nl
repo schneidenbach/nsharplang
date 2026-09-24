@@ -144,7 +144,7 @@ class ColumnarExternalStaticMemberPlanner {
 
         checkpoint := plan.CreateCheckpoint()
         try {
-            scope := nodes.BindingScope
+            scope := ColumnarBindingScopeFacts.Of(nodes)
             declaringType := typeof(object)
             if nodes.HasAdditionalRootBinding(rootName) || scope == null || !scope.TryResolveExternalStaticOwner(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, selection.DeclaringTypeName, out declaringType) {
                 plan.Rollback(checkpoint)
@@ -343,7 +343,7 @@ class ColumnarExternalStaticMemberPlanner {
     // `ulong` backings decline here and reach the ordinary owner, which is a decline the trace shows.
     static func TryAppendExternalEnumMember(nodes: ColumnarNodeTable, plan: ColumnarCodePlan, ownerName: string, rootName: string, memberName: string, out resultType: Type): bool {
         resultType = typeof(int)
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         ownerType := typeof(object)
         if nodes.HasAdditionalRootBinding(rootName) || scope == null {
             return false
@@ -399,7 +399,7 @@ class ColumnarExternalStaticMemberPlanner {
     // because the declaring identity is a separate admission from the receiving type's.
     static func TryAppendResolvedExternalStaticMember(nodes: ColumnarNodeTable, plan: ColumnarCodePlan, ownerName: string, rootName: string, memberName: string, out resultType: Type): bool {
         resultType = typeof(int)
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         ownerType := typeof(object)
         if nodes.HasAdditionalRootBinding(rootName) || scope == null || memberName.Length == 0 {
             return false

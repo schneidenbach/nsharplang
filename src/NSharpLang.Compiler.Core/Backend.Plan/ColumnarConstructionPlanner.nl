@@ -2711,7 +2711,7 @@ class ColumnarConstructionPlanner {
     static func TryResolveConstructorDefaultOwner(nodes: ColumnarNodeTable, expectedType: Type, ownerName: string, bindings: ColumnarFragmentBindings, out ownerType: Type, out resolvedByScope: bool): bool {
         ownerType = expectedType
         resolvedByScope = false
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         if scope == null {
             return true
         }
@@ -2823,7 +2823,7 @@ class ColumnarConstructionPlanner {
     }
 
     static func ExactScopeSelectsEnumDefinition(nodes: ColumnarNodeTable, ownerName: string, definition: ColumnarEnumDef, bindings: ColumnarFragmentBindings): bool {
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         if scope == null {
             return true
         }
@@ -2907,7 +2907,7 @@ class ColumnarConstructionPlanner {
             claimed = true
             return false
         }
-        scope := nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(nodes)
         return scope != null && scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out resultType, out claimed)
     }
 

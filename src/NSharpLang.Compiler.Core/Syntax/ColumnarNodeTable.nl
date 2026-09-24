@@ -9,14 +9,14 @@ class ColumnarNodeTable {
     childIndices: int[]
     spanStarts: int[]?
     spanLengths: int[]?
-    bindingScope: ColumnarBindingScopeFacts?
+    bindingScope: ColumnarBindingScope?
     enclosingTypeName: string
     visibleTypeParameterNames: string[]
     additionalRootBindingNames: string[]
 
     Kinds: int[] => kinds
     ValueLengths: int[] => valueLengths
-    BindingScope: ColumnarBindingScopeFacts? => bindingScope
+    BindingScope: ColumnarBindingScope? => bindingScope
     EnclosingTypeName: string => enclosingTypeName
     VisibleTypeParameterNames: string[] => visibleTypeParameterNames
 
@@ -35,7 +35,7 @@ class ColumnarNodeTable {
         this.additionalRootBindingNames = new string[](0)
     }
 
-    func SetBindingContext(scope: ColumnarBindingScopeFacts, enclosingType: string, typeParameterNames: string[], additionalRootBindingNames: string[]?) {
+    func SetBindingContext(scope: ColumnarBindingScope, enclosingType: string, typeParameterNames: string[], additionalRootBindingNames: string[]?) {
         if scope == null || enclosingType == null || typeParameterNames == null {
             throw new System.InvalidOperationException("Columnar binding context cannot contain null values.")
         }

@@ -17188,7 +17188,7 @@ sealed class ColumnarIlEmitter {
         exactKey = ""
         claimed = false
         separator := qualifiedCase.LastIndexOf('.')
-        scope := _nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(_nodes)
         if (separator <= 0 || separator >= qualifiedCase.Length - 1 || scope == null) {
             return false
         }
@@ -17723,7 +17723,7 @@ sealed class ColumnarIlEmitter {
     // rather than guessing a second answer for it.
     private func TryGetPreflightExplicitGenericCallType(callNode: int, callee: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
-        scope := _nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(_nodes)
         receiverNode := ColumnarGenericCalleeFacts.ReceiverNode(_nodes, callee)
         typeArgCount := ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee)
         if (scope == null || receiverNode < 0 || typeArgCount <= 0) {
@@ -17781,7 +17781,7 @@ sealed class ColumnarIlEmitter {
 
     private func TryEmitExplicitGenericExtensionCall(callIdx: int, callee: int, out resolvedClrType: Type): bool {
         resolvedClrType = null
-        scope := _nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(_nodes)
         if (scope == null) {
             return false
         }
@@ -24669,7 +24669,7 @@ sealed class ColumnarIlEmitter {
 
     private func TryResolveContextualExtensionCandidate(callIdx: int, receiverType: Type, member: string, argCount: int, out closedCandidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate): bool {
         closedCandidate = null
-        scope := _nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(_nodes)
         // NO DELEGATE-ARGUMENT GATE HERE, deliberately. The extension tier below this one cannot
         // widen a receiver through its interfaces, so `values.Count()` — no arguments at all — needs
         // this walk just as much as `values.Count(predicate)` does; the two are the same resolution
@@ -29215,7 +29215,7 @@ sealed class ColumnarIlEmitter {
     // detach.
     private func TryResolveEventOwnerTypeName(receiverNode: int, out ownerType: Type): bool {
         ownerType = null
-        scope := _nodes.BindingScope
+        scope := ColumnarBindingScopeFacts.Of(_nodes)
         ownerName := ""
         rootName := ""
         if (scope == null || !ColumnarPlannerSupport.TryGetQualifiedName(_nodes, _source, receiverNode, 0, true, out ownerName, out rootName)) {
