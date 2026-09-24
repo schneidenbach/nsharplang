@@ -605,10 +605,19 @@ class AnalyzerMemberResolution {
     // above: that one exists because the arguments only bound as surrogates, this one because the
     // arguments' NULLABILITY is in the spelling and not in the CLR type they convert to.
     //
-    // It answers for nothing else. A member whose type does not mention a type parameter reads
-    // identically off the closed type, and an INHERITED one is spelled in its BASE's parameters,
-    // which the receiver's arguments do not index — so both fall through to the ordinary reflection
-    // arm, which is where they were answered before.
+    // A member whose type MENTIONS a parameter without being one -- `IReadOnlyDictionary<K, V>.Keys`
+    // is `IEnumerable<K>` -- is answered the same way, because the closed type is just as wrong about
+    // the nested position: `NullabilityInfoContext` reports a substituted `K` inside a constructed
+    // type as maybe-null, so `Keys` of an `IReadOnlyDictionary<string, Node>` read `IEnumerable<string?>`
+    // and every overloaded call taking it (`Enumerable.ToDictionary<string, string>(units.Keys, ...)`)
+    // found no applicable candidate. That surfaced once `Node` came from a referenced assembly: over a
+    // SOURCE `Node` the receiver has only a surrogate CLR type and `TryResolveConstructedGenericPropertyOrField`
+    // already answered from the definition.
+    //
+    // It answers for nothing else. A member whose type mentions no type parameter reads identically
+    // off the closed type, and an INHERITED one is spelled in its BASE's parameters, which the
+    // receiver's arguments do not index — so both fall through to the ordinary reflection arm, which
+    // is where they were answered before.
     static func TryResolveSpelledTypeParameterMember(closedClrType: Type, genericType: GenericTypeInfo, memberName: string, includeStaticMembers: bool, out memberType: TypeInfo): bool {
         memberType = BuiltInTypes.Unknown
         if !closedClrType.IsGenericType || closedClrType.IsGenericTypeDefinition {
@@ -622,18 +631,22 @@ class AnalyzerMemberResolution {
 
         memberFlags := GetReflectionMemberFlags(includeStaticMembers)
         property := definition.GetProperty(memberName, memberFlags)
-        if property != null && property.DeclaringType == definition && NullabilityGenericSubstitution.IsTypeParameterPosition(property.PropertyType) {
+        if property != null && property.DeclaringType == definition && MentionsTypeParameter(property.PropertyType) {
             memberType = NullabilityMetadataReflection.ConvertPropertyWithOverride(property, AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericType))
             return true
         }
 
         field := definition.GetField(memberName, memberFlags)
-        if field != null && field.DeclaringType == definition && NullabilityGenericSubstitution.IsTypeParameterPosition(field.FieldType) {
+        if field != null && field.DeclaringType == definition && MentionsTypeParameter(field.FieldType) {
             memberType = NullabilityMetadataReflection.ConvertFieldWithOverride(field, AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericType))
             return true
         }
 
         return false
+    }
+
+    static func MentionsTypeParameter(openType: Type): bool {
+        return NullabilityGenericSubstitution.IsTypeParameterPosition(openType) || openType.ContainsGenericParameters
     }
 
     static func GetReflectionMemberFlags(includeStaticMembers: bool): BindingFlags {

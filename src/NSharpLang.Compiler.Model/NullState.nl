@@ -12,9 +12,16 @@ class NullStateFacts {
 
     // THE STATE A TYPE IMPLIES WITH NO FLOW FACT AT ALL, over a type whose declared aliases the
     // caller has ALREADY resolved. The reflected arm is the interesting one: a CLR value type that is
-    // not `Nullable<T>` can never be null and is NOT-NULL, while every other reflected type is
-    // OBLIVIOUS rather than not-null — external metadata the analyzer has not been told the
-    // nullability of must not produce a confident answer in either direction.
+    // not `Nullable<T>` can never be null and is NOT-NULL, while a reflected SHARED-FRAMEWORK class
+    // type is OBLIVIOUS rather than not-null — the analyzer has never enforced the framework's own
+    // reference annotations, and must not produce a confident answer about them in either direction.
+    //
+    // A class type from ANY OTHER referenced assembly is not-null, exactly as the same declaration is
+    // in source: its metadata's maybe-null positions arrive as `NullableTypeInfo` and its unstated ones
+    // as `ObliviousTypeInfo` (see `NullabilityMetadataReflection`), so a bare reflected type is one
+    // that says not-null. Without this a program split into two projects meant something different:
+    // `if map.TryGetValue(key, out found) { return found }` left `found` oblivious over a referenced
+    // `Node` and not-null over a source one, and the return reported NL202.
     //
     // It lives here rather than on the null-flow owner because TWO owners need it and they must not
     // drift: what a dereference is judged against, and what an `out` parameter leaves in the
@@ -37,6 +44,10 @@ class NullStateFacts {
         reflectionType := resolved as ReflectionTypeInfo
         if reflectionType != null {
             if reflectionType.Type.IsValueType && System.Nullable.GetUnderlyingType(reflectionType.Type) == null {
+                return NullState.NotNull
+            }
+
+            if !ExternalAssemblyScan.IsSharedFrameworkAssembly(reflectionType.Type.Assembly) {
                 return NullState.NotNull
             }
 

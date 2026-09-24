@@ -1037,6 +1037,46 @@ class ExternalAssemblyScan {
         return string.Equals(Path.GetFileName(referenceRoot ?? ""), "ref", StringComparison.OrdinalIgnoreCase) && string.Equals(Path.GetFileName(packsDirectory ?? ""), "packs", StringComparison.OrdinalIgnoreCase) && packName.Length > 4 && string.Equals(packName.Substring(packName.Length - 4), ".Ref", StringComparison.OrdinalIgnoreCase)
     }
 
+    // WHETHER AN ASSEMBLY IS ONE A .NET INSTALLATION SHIPS: a shared-framework implementation
+    // (`<dotnet>/shared/<framework>/<version>/X.dll`) or a targeting-pack reference image
+    // (`<dotnet>/packs/<framework>.Ref/<version>/ref/<tfm>/X.dll`). Read from where the assembly was
+    // loaded, because both the runtime handles the compiler holds and the metadata the scan loads
+    // answer `Location` with the file they came from. An assembly with no file (in-memory, dynamic)
+    // answers yes: nothing says it is a program's own, and the caller keeps its framework behaviour.
+    //
+    // The analyzer asks it for exactly one rule: reference nullability the framework's metadata
+    // states for a CLASS type is not enforced (it never was), while the same metadata from any other
+    // referenced assembly -- an N# library a program was split into, above all -- is enforced exactly
+    // as the same declaration would be in source.
+    static func IsSharedFrameworkAssembly(assembly: Assembly?): bool {
+        if assembly == null {
+            return true
+        }
+
+        location := ""
+        try {
+            if assembly.IsDynamic {
+                return true
+            }
+            location = assembly.Location
+        } catch {
+            return true
+        }
+
+        if location == null || location.Length == 0 {
+            return true
+        }
+
+        if IsFrameworkPackReferencePath(location) {
+            return true
+        }
+
+        versionDirectory := Path.GetDirectoryName(Path.GetFullPath(location)) ?? ""
+        frameworkDirectory := Path.GetDirectoryName(versionDirectory) ?? ""
+        sharedDirectory := Path.GetDirectoryName(frameworkDirectory) ?? ""
+        return string.Equals(Path.GetFileName(sharedDirectory), "shared", StringComparison.OrdinalIgnoreCase) && Path.GetFileName(frameworkDirectory).StartsWith("Microsoft.", StringComparison.Ordinal)
+    }
+
     static func IsHostDependencyReferencePath(path: string): bool {
         if !IsReferenceAssemblyPath(path) || IsProjectReferenceAssemblyPath(path) {
             return false

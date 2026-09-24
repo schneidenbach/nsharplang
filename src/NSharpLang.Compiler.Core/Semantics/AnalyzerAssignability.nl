@@ -231,6 +231,40 @@ class AnalyzerAssignability {
         return inner
     }
 
+    // A reference nullable annotation on the source and none on the target: the one pair the CLR's
+    // type relation cannot see, because the annotation is not a runtime type. An OBLIVIOUS target
+    // (a parameter whose assembly states no nullability) promises nothing either way and accepts it.
+    //
+    // THE SHARED FRAMEWORK KEEPS ITS OLD ANSWER. A maybe-null value of a framework CLASS type
+    // (`Type?`, `MethodInfo?`) reaching a not-null one has always been accepted here, and enforcing it
+    // is a separate decision: measured on Compiler.Core alone it is 860 new NL202s, every one a
+    // framework reflection type. What must not differ is a program split into two projects: a type
+    // from any OTHER referenced assembly -- an N# library above all -- is judged exactly as the same
+    // declaration is in source, which is what `ExternalAssemblyScan.IsSharedFrameworkAssembly` decides.
+    func IsMaybeNullIntoNotNull(target: TypeInfo, source: TypeInfo): bool {
+        resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
+        inner := ReferenceNullableInnerType(source)
+        if inner == null || target is ObliviousTypeInfo || resolvedTarget is NullableTypeInfo || resolvedTarget is ObliviousTypeInfo {
+            return false
+        }
+
+        reflectedInner := inner as ReflectionTypeInfo
+        return reflectedInner == null || !ExternalAssemblyScan.IsSharedFrameworkAssembly(reflectedInner.Type.Assembly)
+    }
+
+    // Whether the relation refuses a MAYBE-NULL reference value for a target that states not-null:
+    // the source carries a reference `?`, the target carries neither a `?` nor an oblivious shell,
+    // and the relation -- which keeps the annotation -- says no. A reflected call's applicability
+    // peels the `?`; this is the question put back once its candidate is chosen.
+    func RefusesMaybeNull(target: TypeInfo, source: TypeInfo): bool {
+        resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
+        if ReferenceNullableInnerType(source) == null || target is ObliviousTypeInfo || resolvedTarget is NullableTypeInfo || resolvedTarget is ObliviousTypeInfo || BuiltInTypes.IsUnknown(resolvedTarget) {
+            return false
+        }
+
+        return !IsAssignable(target, source)
+    }
+
     // The same type with a REFERENCE nullable annotation dropped, and every other type unchanged.
     // `string?` becomes `string`; `int?` stays `int?`, because that one is `Nullable<int>` and losing
     // it would be losing a CLR type rather than an annotation.
@@ -457,7 +491,18 @@ class AnalyzerAssignability {
         // match. Only an ACCEPTANCE is taken: a CLR refusal falls through, so every later arm
         // (numeric widening, span views, collection expressions, user-defined conversions) keeps
         // its say.
-        if sourceReflection != null || targetReflection != null {
+        //
+        // A REFERENCE NULLABLE ANNOTATION IS NOT A CLR TYPE, SO THE CLR CANNOT JUDGE IT. `Node?` and
+        // `Node` are one runtime type, and the conversion below erases the annotation (`WrapInNullable`
+        // answers the bare type for a reference inner), so a `Node?` argument for a `Node` parameter
+        // was ACCEPTED whenever `Node` came from a referenced assembly -- the same call over a source
+        // `Node` is refused, and `string?` for `string` never reached this bridge at all. Carving
+        // Compiler.Model out of Core turned 68 of Core's own NL202s into silence that way. The bridge
+        // now keeps the annotation's meaning: a maybe-null source reaches a target that accepts null
+        // through the nullable arms above, never through the CLR's type relation. An OBLIVIOUS source
+        // (no nullability metadata) carries no `NullableTypeInfo` and is unaffected, and so is a
+        // shared-framework class type (see `IsMaybeNullIntoNotNull`).
+        if (sourceReflection != null || targetReflection != null) && !IsMaybeNullIntoNotNull(target, resolvedSource) {
             bridgeTargetType := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTarget)
             bridgeSourceType := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedSource)
             if bridgeTargetType != null && bridgeSourceType != null && AnalyzerConversionFacts.IsReflectionAssignableFrom(bridgeTargetType, bridgeSourceType) {

@@ -437,17 +437,11 @@ else
     # 2026-09-24, Compiler.Model carved out of Core into its own project (`census/model`): Model 0,
     # checked FIRST, because Core takes it as a `project:` reference and a diagnostic in Model would
     # BLOCK Core's check rather than count in it -- its zero is what keeps Core's number a number.
-    # Core 1,214. The identity diff against 1,281 (the same tip CLI over the base tree) is ONE
-    # addition and 68 removals, and neither is a source change. The 68 are NL202 nullable-argument
-    # reports whose types (`Expression?`, `Statement?`, `TypeInfo?`, `string?` members of Model
-    # types) now come from a REFERENCED assembly: the analyzer's reference-nullability check does not
-    # cover a reflected class type (the mixed CLR bridge in `AnalyzerAssignability` drops the
-    # annotation), so the same calls that were NL202 over source types pass over metadata. The one
-    # addition is NL402 on `Enumerable.ToDictionary<string, string, string>(compilationUnits.Keys,
-    # ...)` in SystemsAnalyzer.nl: `Keys` of a dictionary closed over a referenced type is typed from
-    # the scan's metadata universe and no longer matches the runtime `IEnumerable<TSource>` of an
-    # overloaded call. Both reproduce with any two-project N# program; both are analyzer work, and
-    # when the nullability gap closes these 68 come back as exactly these identities.
+    # Core 1,281, unchanged, and the identity diff against the base tree through the same tip CLI is
+    # zero additions and zero removals. The carve first measured 1,214 -- 68 NL202s gone and one false
+    # NL402 added -- because the analyzer judged a REFERENCED class type more loosely than a source
+    # one; that was fixed in the analyzer (a maybe-null value of a non-framework referenced class
+    # type is refused where the same source type is, and a bare one is not-null), not ratcheted.
     #
     # -1 means BLOCKED, not clean. `check` on a project that REFERENCES Compiler.Core builds that
     # reference first, and that build fails while Core's own front door is not clean -- so those two
@@ -456,7 +450,7 @@ else
     # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
     SELF_HOST_CEILINGS=(
         0
-        1214
+        1281
         -1
         -1
         0

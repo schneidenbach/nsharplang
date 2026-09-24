@@ -920,6 +920,42 @@ members THIS program declares; a `[DoesNotReturn]` member of a referenced assemb
 external call plan and is not read there, so such a body declines at emission — a decline, never a
 wrong answer, and the diagnostics pass reads both.
 
+### A PROGRAM SPLIT INTO TWO PROJECTS (2026-09-24, the Compiler.Model carve)
+
+A class type declared in a REFERENCED assembly is judged exactly as the same declaration is in
+source, unless that assembly is the shared framework's. Carving `Compiler.Model` out of Core found three
+places that judged a referenced class type more loosely -- 68 of Core's own NL202s vanished and one
+false NL402 appeared, with no source change -- and each rule now lives in its owner:
+
+- **The CLR bridge** (`AnalyzerAssignability.IsAssignableCore`, the mixed reflected arm): a reference
+  `?` is not a CLR type, so asking the CLR whether `Node?` converts to `Node` erased the annotation and
+  said yes. `IsMaybeNullIntoNotNull` keeps a maybe-null source of a non-framework referenced class
+  type away from a not-null target there (an oblivious target still accepts it).
+- **A reflected call's chosen signature** (`AnalyzerReflectionArgumentBinder.RefusesMaybeNullArgument`,
+  reported by `AnalyzerCallAnalysis.ReportReflectionNullabilityMismatches` through the source call's own
+  NL202 reporter): applicability peels a `?` on purpose (nullability never picks an overload), and
+  nothing asked afterwards. Once a candidate of a non-framework method is accepted, each written
+  argument the plain relation refuses is NL202 -- `string?` into a referenced `string` included.
+- **The default flow state** (`NullStateFacts.DefaultFor`): every reflected class type was OBLIVIOUS,
+  so a written `node: Node` over a referenced `Node`, or the narrowed `out` of
+  `map.TryGetValue(key, out found)`, was never not-null. A bare non-framework reflected class type is
+  not-null now: its metadata's maybe-null positions already arrive as `NullableTypeInfo` and its
+  unstated ones as `ObliviousTypeInfo`.
+
+The fourth defect was the member reader: `TryResolveSpelledTypeParameterMember` answered a closed
+generic's member from the definition only when the member's type IS a type parameter, so
+`IReadOnlyDictionary<string, Node>.Keys` (`IEnumerable<TKey>`) was read off the closed type, where
+`NullabilityInfoContext` reports the substituted `TKey` maybe-null -- `IEnumerable<string?>` -- and an
+overloaded call taking it (`ToDictionary`, six candidates) found none. A member that MENTIONS a type
+parameter is answered from the definition now too.
+
+"Shared framework" is `ExternalAssemblyScan.IsSharedFrameworkAssembly`: loaded from
+`<dotnet>/shared/Microsoft.*/<version>/` or a `packs/*.Ref` reference image. Its class-type annotations
+keep the old leniency, because enforcing them is a separate decision: measured on Compiler.Core alone
+it adds 860 NL202s (`Type?` 673, `MethodInfo?` 65, `FieldInfo?` 65, `ConstructorInfo?` 23, ...).
+`tests/native/census-external-nullability` analyses one consumer beside the library source and against
+the library's built assembly and requires the same findings, plus the framework and oblivious controls.
+
 ### `out` nullability, and the by-ref relaxation that carries it
 
 `ByRefTypeInfo.IsOutArgument` is a fact about the CALL SITE, set in `AnalyzerCallAnalysis.CompleteArgument`

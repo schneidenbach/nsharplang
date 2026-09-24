@@ -34,6 +34,21 @@ class ReflectionAnalysisRequest {
     }
 }
 
+// One written argument whose maybe-null value the selected signature's not-null parameter refuses.
+class ReflectionNullabilityMismatch {
+    ArgumentIndex: int
+    ParameterIndex: int
+    ExpectedType: TypeInfo
+    ArgumentType: TypeInfo
+
+    constructor(argumentIndex: int, parameterIndex: int, expectedType: TypeInfo, argumentType: TypeInfo) {
+        ArgumentIndex = argumentIndex
+        ParameterIndex = parameterIndex
+        ExpectedType = expectedType
+        ArgumentType = argumentType
+    }
+}
+
 // THE FINALISING WALK'S WHOLE STATE, SUSPENDED BETWEEN TWO ANALYSES.
 //
 // The walk is a two-phase fold and it CANNOT be flattened into a schedule computed up front. Phase
@@ -109,6 +124,19 @@ class ReflectionCallFinalizeState {
     // validation has that §10.2.11 applies, and by then the walk no longer has the expression.
     PendingConstant: ConstantOperandFacts
 
+    // The written argument and the parameter the outstanding expression was bound to, or -1 when it
+    // is not a plain positional argument (a `params` element, a default).
+    PendingArgumentIndex: int
+    PendingParameterIndex: int
+
+    // WRITTEN ARGUMENTS THAT PASS A MAYBE-NULL VALUE WHERE THE SELECTED SIGNATURE STATES NOT-NULL.
+    // Applicability ignores reference nullability on purpose (a `?` never picks an overload); this is
+    // the question asked once the candidate IS chosen, and only of a method whose assembly is not the
+    // shared framework's -- the same call written against the same declaration in source reports NL202,
+    // so a program split into two projects must too. Held, like `Postconditions`, until the call's walk
+    // accepts the candidate.
+    NullabilityMismatches: List<ReflectionNullabilityMismatch>
+
     // The finalised call type, or null while the walk is unfinished and forever if it failed.
     Result: FunctionTypeInfo?
 
@@ -153,6 +181,9 @@ class ReflectionCallFinalizeState {
         PendingOpenParameterType = null
         PendingExpectedType = null
         PendingConstant = ConstantOperandFacts.None()
+        PendingArgumentIndex = -1
+        PendingParameterIndex = -1
+        NullabilityMismatches = new List<ReflectionNullabilityMismatch>()
         Result = null
         Postconditions = null
         NotNullIfNotNullArgumentIndex = -1

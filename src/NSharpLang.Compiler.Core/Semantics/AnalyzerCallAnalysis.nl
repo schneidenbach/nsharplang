@@ -1282,6 +1282,27 @@ class AnalyzerCallAnalysis {
     // bind is an unbound call. A GROUP candidate that did not bind has its diagnostics WITHDRAWN and
     // the next candidate is tried — which is the whole reason the sink has a rollback door, and the
     // whole reason the order above must be stable.
+    // Reported through the source call's own NL202 reporter, so the two spellings of one call -- a
+    // declaration in this compilation and the same declaration in a referenced assembly -- read alike.
+    func ReportReflectionNullabilityMismatches(call: CallExpression, finalizeState: ReflectionCallFinalizeState) {
+        if finalizeState.NullabilityMismatches.Count == 0 {
+            return
+        }
+
+        signature := new FunctionTypeInfo()
+        names := new List<string>()
+        for parameter in finalizeState.OpenParameters {
+            names.Add(parameter.Name ?? "")
+        }
+        signature.ParameterNames = names
+        signature.ParameterTypes = finalizeState.ParameterTypes
+        for mismatch in finalizeState.NullabilityMismatches {
+            if mismatch.ArgumentIndex < call.Arguments.Count {
+                syntheticCallValidator.ReportWrongArgumentType(signature, call, finalizeState.OpenMethod.Name, mismatch.ArgumentIndex, mismatch.ParameterIndex, mismatch.ExpectedType, mismatch.ArgumentType)
+            }
+        }
+    }
+
     func AdvanceFinalizeReflectionCall(state: CallAnalysisState): CallAnalysisRequest? {
         finalizeState := state.FinalizeState
         if finalizeState == null {
@@ -1316,6 +1337,10 @@ class AnalyzerCallAnalysis {
             if AnalyzerMemberResolution.IsRuntimeFinalizerMethod(finalizeState.RuntimeMethod) {
                 ReportFinalizerCall(state.Call)
             }
+
+            // A maybe-null argument the chosen signature states not-null is the NL202 the same call
+            // reports against the same declaration in source (see `RefusesMaybeNullArgument`).
+            ReportReflectionNullabilityMismatches(state.Call, finalizeState)
 
             // The candidate is the call's now, so its postconditions become the flow's. A candidate
             // that failed has already had its diagnostics withdrawn and leaves nothing behind.

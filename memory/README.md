@@ -161,19 +161,14 @@ NL202 and one NL905 the contextual-only door it replaced carried are gone. Ident
 
 **Measured 2026-09-24 on `census/model`** (Compiler.Model carved out of Core into its own project):
 Step 2d checks **Model first, ceiling 0** -- Core builds it as a `project:` reference, so a Model
-diagnostic would BLOCK Core's check instead of counting in it -- and **Core at 1,214**, the new
-ceiling. The same tip CLI over the base tree reports 1,281; the identity diff is **one addition and 68
-removals, and neither is a source change**. The 68 are NL202 nullable-argument reports
-(`Expression?`, `Statement?`, `TypeInfo?`, a `string?` member of a Model type ...) whose types now
-come from a REFERENCED assembly: `AnalyzerAssignability`'s mixed CLR bridge converts `T?` over a
-reference type to the bare CLR `T` (`WrapInNullable`) and accepts, so reference nullability is not
-checked for a reflected CLASS type -- only for `string` and source types. The addition is NL402 on
-`Enumerable.ToDictionary<string, string, string>(compilationUnits.Keys, ...)` in SystemsAnalyzer.nl:
-`Keys` of a dictionary closed over a referenced type is typed from the scan's metadata universe and
-misses the runtime `IEnumerable<TSource>` of an overloaded call (a declared `IEnumerable<string>`
-local, or a one-overload `ToList`, passes). Both reproduce with any two-project N# program; both are
-analyzer work for the next lane, and closing the nullability gap brings these 68 back as exactly
-these identities.
+diagnostic would BLOCK Core's check instead of counting in it -- and **Core at 1,281, unchanged**: the
+identity diff against the base tree through the same tip CLI is zero additions and zero removals. The
+carve's first measurement was 1,214 (68 NL202s gone, one false NL402 added), and that was an analyzer
+defect, not a source improvement: a REFERENCED class type was judged more loosely than the same type in
+source. Three owners now give a split program the one-project answer -- see
+`memory/components/analyzer.md`, "A PROGRAM SPLIT INTO TWO PROJECTS". The shared framework keeps its
+old answer: enforcing its own class-type annotations the same way adds **860 NL202s to Core alone**
+(`Type?` 673, `MethodInfo?`/`FieldInfo?` 65 each, ...), a separate decision.
 
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.

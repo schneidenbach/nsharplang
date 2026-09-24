@@ -1649,12 +1649,16 @@ class AnalyzerReflectionArgumentBinder {
             expectedType := state.PendingExpectedType
             if expectedType == null || !IsAcceptedReflectionArgument(expectedType, analyzedType, state.PendingConstant) {
                 state.Failed = true
+            } else if state.PendingArgumentIndex >= 0 && RefusesMaybeNullArgument(state, expectedType, analyzedType) {
+                state.NullabilityMismatches.Add(new ReflectionNullabilityMismatch(state.PendingArgumentIndex, state.PendingParameterIndex, expectedType, analyzedType))
             }
         }
 
         state.PendingKind = 0
         state.PendingExpectedType = null
         state.PendingConstant = ConstantOperandFacts.None()
+        state.PendingArgumentIndex = -1
+        state.PendingParameterIndex = -1
         state.PendingOpenParameterType = null
     }
 
@@ -1686,6 +1690,22 @@ class AnalyzerReflectionArgumentBinder {
         }
 
         return TypeInfoIdentityFacts.AreEqual(expectedReturn, lambdaReturn)
+    }
+
+    // WHETHER AN ACCEPTED ARGUMENT WAS ACCEPTED ONLY BY IGNORING ITS `?`. Applicability admits a
+    // maybe-null reference argument for a not-null parameter (`IsAssignableReflectionArgument` peels
+    // the annotation), because nullability never selects an overload. Once the candidate is chosen,
+    // a method outside the shared framework is held to what its metadata states, exactly as the same
+    // declaration in source is: the plain relation, which keeps the annotation, must accept it too.
+    // The shared framework keeps its old answer -- a separate decision, measured in
+    // `AnalyzerAssignability.IsMaybeNullIntoNotNull`.
+    func RefusesMaybeNullArgument(state: ReflectionCallFinalizeState, expectedType: TypeInfo, analyzedType: TypeInfo): bool {
+        declaringType := state.OpenMethod.DeclaringType
+        if declaringType == null || ExternalAssemblyScan.IsSharedFrameworkAssembly(declaringType.Assembly) {
+            return false
+        }
+
+        return assignability.RefusesMaybeNull(expectedType, analyzedType)
     }
 
     // THE CONVERSION THE FINALISING WALK VALIDATES, WITH THE CONSTANT STILL IN HAND.
@@ -1839,6 +1859,10 @@ class AnalyzerReflectionArgumentBinder {
         state.PendingKind = 3
         state.PendingExpectedType = expectedType
         state.PendingConstant = ConstantOperandFacts.FromExpression(supplied.Argument.Value)
+        if !AnalyzerOverloadFacts.IsExpandedReflectionParamsArgument(supplied, parameter) {
+            state.PendingArgumentIndex = supplied.ArgumentIndex
+            state.PendingParameterIndex = supplied.ParameterIndex
+        }
         return new ReflectionAnalysisRequest(supplied.Argument.Value, null, expectedType, false)
     }
 
