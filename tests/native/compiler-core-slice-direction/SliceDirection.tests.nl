@@ -31,8 +31,9 @@ func RepositoryRoot(): string {
     throw new InvalidOperationException("Could not locate the N# repository root from " + AppContext.BaseDirectory + ".")
 }
 
+// Compiler.Core and every slice already carved out of it into its own project.
 func CoreSliceGraph(): SliceGraph {
-    return SliceGraph.Load(Path.Combine(Path.Combine(RepositoryRoot(), "src"), "NSharpLang.Compiler.Core"))
+    return SliceGraph.LoadCompiler(Path.Combine(RepositoryRoot(), "src"))
 }
 
 // THE ESTATE'S REACHES UPWARD, A CEILING TO DRIVE TO ZERO. A `.tests.nl` compiles into its slice's
@@ -54,6 +55,25 @@ test "every Compiler.Core source file sits in one of the eight slice directories
     for rank := 0; rank < SliceNames().Length; rank++ {
         assert graph.ProductFileCount(rank) > 0, SliceName(rank) + " holds no product file"
     }
+}
+
+test "a carved slice's product is read from its own project, and none of it is left in Core" {
+    graph := CoreSliceGraph()
+    carvedProduct := 0
+    coreModelEstate := 0
+    for file in graph.Files {
+        if file.Rank == 0 && !file.IsEstate {
+            assert IsInSliceProject(file.RelativePath), file.RelativePath + " is Model product outside src/NSharpLang.Compiler.Model"
+            carvedProduct = carvedProduct + 1
+        }
+        if file.Rank == 0 && file.IsEstate && !IsInSliceProject(file.RelativePath) {
+            coreModelEstate = coreModelEstate + 1
+        }
+    }
+    // Model's product is its own project; its estate stays in Core's `Model/` until the fixture
+    // hoisting, because its rows still reach the slices above it.
+    assert carvedProduct > 90, carvedProduct.ToString()
+    assert coreModelEstate > 40, coreModelEstate.ToString()
 }
 
 test "no Compiler.Core product file reaches a top-level name a higher slice owns" {
@@ -121,6 +141,30 @@ test "a reach into a higher slice is reported by file, line and name, and nothin
         // The estate reader counts a row in a low slice that constructs a higher slice's type.
         estateUpward := SliceGraph.Upward(graph.EstateReferences)
         assert estateUpward.Count == 1 && estateUpward[0].Text == "Syntax/Shadow.tests.nl:4 [Syntax] reaches `Emitter` in Backend.Emit/Emitter.nl [Backend.Emit]", SliceGraph.Report(estateUpward, 5)
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "a carved slice keeps its rank: its reach into a slice still in Core is upward, and a product file left behind is reported" {
+    root := Path.Combine(Path.GetTempPath(), "nsharp-slice-carve-" + Guid.NewGuid().ToString("N"))
+    try {
+        ControlWrite(root, "NSharpLang.Compiler.Core/Syntax/Parser.nl", "namespace Demo\n\nclass Parser {\n    token: Token?\n}\n")
+        ControlWrite(root, "NSharpLang.Compiler.Core/Model/Token.tests.nl", "namespace Demo\n\ntest \"reaches up\" {\n    assert new Parser() != null\n}\n")
+        ControlWrite(root, "NSharpLang.Compiler.Model/Token.nl", "namespace Demo\n\nclass Token {\n    parser: Parser?\n}\n")
+        graph := SliceGraph.LoadCompiler(root)
+        assert graph.Unplaced().Count == 0, string.Join(",", graph.Unplaced())
+
+        upward := SliceGraph.Upward(graph.ProductReferences)
+        assert upward.Count == 1 && upward[0].Text == "NSharpLang.Compiler.Model/Token.nl:4 [Model] reaches `Parser` in Syntax/Parser.nl [Syntax]", SliceGraph.Report(upward, 5)
+        estateUpward := SliceGraph.Upward(graph.EstateReferences)
+        assert estateUpward.Count == 1 && estateUpward[0].Text == "Model/Token.tests.nl:4 [Model] reaches `Parser` in Syntax/Parser.nl [Syntax]", SliceGraph.Report(estateUpward, 5)
+
+        // Model's product left in Core's `Model/` after the carve is reported; a slice not yet
+        // carved keeps its product in Core's directory without complaint.
+        ControlWrite(root, "NSharpLang.Compiler.Core/Model/Stale.nl", "namespace Demo\n\nclass Stale {\n}\n")
+        unplaced := SliceGraph.LoadCompiler(root).Unplaced()
+        assert string.Join(",", unplaced) == "Model/Stale.nl (Model is carved into NSharpLang.Compiler.Model)", string.Join(",", unplaced)
     } finally {
         Directory.Delete(root, true)
     }

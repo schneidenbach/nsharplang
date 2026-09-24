@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import System.Runtime.InteropServices
+import NSharpLang.Compiler.CodeIntelligence
 
 
 // THE EDITOR'S TYPE UNIVERSE IS THE ANALYZER'S, AND IT GROWS WHILE THE EDITOR IS OPEN.

@@ -845,7 +845,7 @@ single pin dies with the process — but it is the thing to fix before several p
 process.
 - The compiler side holds the matching guarantee: external-type/doc resolution enumerates loaded
   assemblies through the N# `ExternalAssemblyScan.Loaded()` owner
-  (`src/NSharpLang.Compiler.Core/Model/ExternalAssemblyScan.nl`),
+  (`src/NSharpLang.Compiler.Model/ExternalAssemblyScan.nl`),
   which skips dynamic and collectible assemblies — so a briefly-loaded emitted assembly can no longer
   hijack a concurrent in-process compile's bare-name lookup (the "MemoryCopy not found on type Buffer"
   flake). Never resolve external types via a raw `AppDomain.CurrentDomain.GetAssemblies()` scan.
@@ -1018,8 +1018,10 @@ narrowing. A Compiler.Core change maps by its SLICE DIRECTORY: `Syntax/`,
 `Backend.Plan/` and `Backend.Emit/` select the estate's `Columnar` rows and the
 columnar native projects, `Semantics/` the `Analyzer` ones, `CodeIntel/` the
 completion/query/doc/LanguageServer ones, `Driver/` the cli/daemon ones,
-`Tooling/` the whole estate, and `Model/` (the AST and shared model every slice
-reads) or any Core file outside a slice directory runs everything.
+`Tooling/` the whole estate, and `src/NSharpLang.Compiler.Model/` (the carved
+project holding the AST and shared model every slice reads), Core's `Model/`
+directory (Model's estate, which stays in Core until its rows stop reaching up)
+or any Core file outside a slice directory runs everything.
 `tests/native/gate-script-contracts/DevScript.tests.nl` pins each mapping. For
 backend-only commit verification, the required final command is still:
 

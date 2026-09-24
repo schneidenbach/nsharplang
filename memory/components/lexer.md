@@ -40,7 +40,7 @@ Converts raw source code text into a stream of tokens for the parser.
 
 ## Token Types
 
-See `src/NSharpLang.Compiler.Core/Model/Token.nl` for the complete live token model and
+See `src/NSharpLang.Compiler.Model/Token.nl` for the complete live token model and
 token-type enum.
 
 Notable tokens:

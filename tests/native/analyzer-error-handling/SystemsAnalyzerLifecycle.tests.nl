@@ -40,15 +40,15 @@ func SaSystemsAnalyzerType(): Type {
 }
 
 func SaCompilationUnitType(): Type {
-    return SaRequiredType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    return SaRequiredType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
 }
 
 func SaProjectConfigType(): Type {
-    return SaRequiredType("NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Core")
+    return SaRequiredType("NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Model")
 }
 
 func SaPerformanceFactStoreType(): Type {
-    return SaRequiredType("NSharpLang.Compiler.Performance.PerformanceFactStore, NSharpLang.Compiler.Core")
+    return SaRequiredType("NSharpLang.Compiler.Performance.PerformanceFactStore, NSharpLang.Compiler.Model")
 }
 
 func SaSemanticModelType(): Type {

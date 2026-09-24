@@ -150,7 +150,7 @@ func EhAnalyze(source: string): object {
     unit := EhParseUnit(source)
 
     analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -209,7 +209,7 @@ func EhAnalyzeRetainedWith(parsed: object, source: string?, soaEnabled: bool): o
     unit := EhRequiredMember(parsed, "CompilationUnit")
 
     analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -375,7 +375,7 @@ func EhLint(source: string): IList {
     unit := EhParseUnit(source)
 
     linterType := Type.GetType("NSharpLang.Compiler.Linter, NSharpLang.Compiler.Core")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     if linterType == null || unitType == null {
         throw new InvalidOperationException("The production linter types were not loadable.")
     }

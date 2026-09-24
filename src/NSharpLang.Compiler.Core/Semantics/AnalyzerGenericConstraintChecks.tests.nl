@@ -1,5 +1,7 @@
 namespace NSharpLang.Compiler
 
+import NSharpLang.Compiler.Ast
+
 
 // THE CONSTRAINT PREDICATES AND SENTENCES, CROSSED WITHOUT AN ANALYZER.
 //

@@ -108,7 +108,7 @@ func CompileLambdaFixture(source: string): LambdaFixtureResult {
 
     compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.Core")
     projectConfigType := Type.GetType(
-        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Core"
+        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Model"
     )
     if compilerType == null || projectConfigType == null {
         throw new InvalidOperationException("The production compiler types were not loadable.")

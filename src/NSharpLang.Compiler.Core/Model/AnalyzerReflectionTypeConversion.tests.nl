@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.Reflection
+import NSharpLang.Compiler.Ast
 
 // Native contracts for the CLR `Type` → `TypeInfo` conversion and its substitution variant.
 //

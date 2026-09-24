@@ -1,5 +1,7 @@
 namespace NSharpLang.Cli.Commands
 
+import NSharpLang.Compiler
+
 // THE `nlc init` OPTION KERNEL AND THE THREE FILES IT WRITES.
 //
 // This replaces `InitCommandKernels_SummarizesOptions`, deleted whole from

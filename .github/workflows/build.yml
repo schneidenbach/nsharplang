@@ -51,7 +51,7 @@ jobs:
 
     - name: Canonical formatting
       run: |
-        for project in examples templates tests/fixtures/issue-tracker src/NSharpLang.Compiler.Core; do
+        for project in examples templates tests/fixtures/issue-tracker src/NSharpLang.Compiler.Model src/NSharpLang.Compiler.Core; do
           dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll format --project "$project" --check
         done
 

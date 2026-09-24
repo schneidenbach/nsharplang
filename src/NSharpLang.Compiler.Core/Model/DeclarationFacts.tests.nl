@@ -1,5 +1,7 @@
 namespace NSharpLang.Compiler
 
+import NSharpLang.Compiler.Ast
+
 // ── THE MEMBER VOCABULARY ─────────────────────────────────────────────────────
 //
 // AN INTERFACE HAS NO INSTANCE FIELDS. A value member written `Area: double` inside an `interface`

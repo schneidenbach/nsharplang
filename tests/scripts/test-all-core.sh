@@ -311,6 +311,7 @@ format_rc=0
     dotnet "$CLI_DLL" format --project examples --check || format_rc=1
     dotnet "$CLI_DLL" format --project templates --check || format_rc=1
     dotnet "$CLI_DLL" format --project tests/fixtures/issue-tracker --check || format_rc=1
+    dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.Model --check || format_rc=1
     dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.Core --check || format_rc=1
 } > "$FORMAT_OUTPUT" 2>&1
 cat "$FORMAT_OUTPUT"

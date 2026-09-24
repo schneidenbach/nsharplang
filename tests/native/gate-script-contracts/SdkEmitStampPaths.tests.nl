@@ -1,6 +1,8 @@
 namespace NSharpLang.GateScriptContracts.Tests
 
+import System.Collections.Generic
 import System.IO
+import System.Text.RegularExpressions
 
 // ─── THE SHIPPED MSBUILD SDK'S INTERMEDIATE PATHS AND EMIT STAMP ──────────────────────────────
 //
@@ -69,4 +71,66 @@ test "splitting the intermediate paths did not relax the emit stamp's content id
     emit := RequireMatch(targets, "<Target Name=\"EmitNSharpIlAssembly\"(?<body>.*?)>", "Could not find the EmitNSharpIlAssembly target in Sdk.targets.").Groups["body"].Value
     assert emit.Contains("Inputs=\"@(NSharpCompile);@(NSharpTestFiles);")
     assert emit.Contains("Outputs=\"$(_NSharpEmitStamp);@(IntermediateAssembly)\"")
+}
+
+// ─── THE COMPILER'S OWN PROJECTS ARE COMPILED EMIT-ONLY, AND THE RESEED REBUILDS EVERY ONE ────────
+//
+// The seed compiles Compiler.Core and every slice carved out of it through the emit-only path; their
+// analysis is the self-host front door's job (test-all-core.sh Step 2d). `Sdk.targets` decides that
+// by project NAME, so a carved slice the condition does not name is silently compiled WITH analysis
+// -- slower, and a different pipeline from the one that compiles the rest of the compiler. And the
+// reseed's clean self-rebuild deletes each project's `obj`/`bin` from its own list: a slice it does
+// not name keeps a `project.assets.json` pinned to the OLD seed, and the rebuild proves nothing about
+// it. Both lists must be exactly Core and the projects Core's project.yml reaches through `project:`.
+func CompilerProjectDirectoriesFromCore(): List<string> {
+    directories := new List<string>()
+    directories.Add("src/NSharpLang.Compiler.Core")
+    index := 0
+    while index < directories.Count {
+        projectDirectory := Path.Combine(RepositoryRoot(), directories[index])
+        yaml := File.ReadAllText(Path.Combine(projectDirectory, "project.yml"))
+        projectMatches := Regex.Matches(yaml, "- project:\\s*(?<path>\\S+)")
+        matchIndex := 0
+        while matchIndex < projectMatches.Count {
+            projectFile := Path.GetFullPath(Path.Combine(projectDirectory, projectMatches[matchIndex].Groups["path"].Value))
+            referenced := Path.GetRelativePath(RepositoryRoot(), Path.GetDirectoryName(projectFile) ?? "").Replace('\\', '/')
+            if !directories.Contains(referenced) {
+                directories.Add(referenced)
+            }
+            matchIndex = matchIndex + 1
+        }
+        index = index + 1
+    }
+
+    return directories
+}
+
+test "every compiler project the seed builds is compiled emit-only and cleaned by the reseed" {
+    compilerProjects := CompilerProjectDirectoriesFromCore()
+    assert compilerProjects.Contains("src/NSharpLang.Compiler.Model"), "Core must reach the carved Compiler.Model through project.yml: " + string.Join(", ", compilerProjects)
+
+    targets := ReadSdkFile("Sdk.targets")
+    emitOnly := RequireMatch(
+        targets,
+        "<NSharpEmitValidateWithLegacyAnalysis Condition=\"'\\$\\(NSharpEmitValidateWithLegacyAnalysis\\)' == '' And \\((?<names>[^\"]*)\\)\">false</NSharpEmitValidateWithLegacyAnalysis>",
+        "Could not find the SDK's emit-only switch for the compiler's own projects in Sdk.targets."
+    ).Groups["names"].Value
+    named := new List<string>()
+    nameMatches := Regex.Matches(emitOnly, "'\\$\\(MSBuildProjectName\\)' == '(?<name>[^']+)'")
+    nameIndex := 0
+    while nameIndex < nameMatches.Count {
+        named.Add(nameMatches[nameIndex].Groups["name"].Value)
+        nameIndex = nameIndex + 1
+    }
+
+    reseed := File.ReadAllText(Path.Combine(Path.Combine(RepositoryRoot(), "scripts"), "reseed.sh"))
+    cleaned := QuotedStrings(RequireMatch(reseed, "COMPILER_PROJECT_DIRS=\\((?<body>[^)]*)\\)", "Could not find COMPILER_PROJECT_DIRS in scripts/reseed.sh.").Groups["body"].Value)
+
+    for project in compilerProjects {
+        name := Path.GetFileName(project)
+        assert named.Contains(name), name + " is a compiler project the seed builds but Sdk.targets does not compile it emit-only: " + string.Join(", ", named)
+        assert cleaned.Contains(project), project + " is a compiler project the seed builds but the reseed's clean self-rebuild keeps its obj/bin: " + string.Join(", ", cleaned)
+    }
+    assert named.Count == compilerProjects.Count, "Sdk.targets compiles a project emit-only that is not one of the compiler's own: " + string.Join(", ", named)
+    assert cleaned.Count == compilerProjects.Count, "The reseed cleans a project that is not one of the compiler's own: " + string.Join(", ", cleaned)
 }

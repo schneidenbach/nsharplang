@@ -56,7 +56,7 @@ func CompileExternalBaseFixtureFiles(names: string[], contents: string[]): Exter
 
     compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.Core")
     projectFileParserType := Type.GetType(
-        "NSharpLang.Compiler.ProjectFileParser, NSharpLang.Compiler.Core"
+        "NSharpLang.Compiler.ProjectFileParser, NSharpLang.Compiler.Model"
     )
     if compilerType == null || projectFileParserType == null {
         throw new InvalidOperationException("The production compiler types were not loadable.")

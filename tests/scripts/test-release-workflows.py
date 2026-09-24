@@ -101,12 +101,12 @@ class PackageClosureTests(unittest.TestCase):
     def validate(self, omit='', core_version='1.0.0', duplicate=False, missing_loader=False):
         import zipfile
         with tempfile.TemporaryDirectory() as d:
-            names=['Sdk', 'Runtime', 'Templates', 'Compiler', 'Compiler.Core']
+            names=['Sdk', 'Runtime', 'Templates', 'Compiler', 'Compiler.Core', 'Compiler.Model']
             for name in names:
                 if name == omit:
                     continue
                 version=core_version if name == 'Compiler.Core' else '1.0.0'
-                dependency='<dependencies><dependency id="NSharpLang.Compiler.Core" version="1.0.0" /></dependencies>' if name == 'Compiler' else ''
+                dependency=f'<dependencies><dependency id="NSharpLang.Compiler.{"Core" if name == "Compiler" else "Model"}" version="1.0.0" /></dependencies>' if name in ('Compiler', 'Compiler.Core') else ''
                 content=f'<package><metadata><id>NSharpLang.{name}</id><version>{version}</version>{dependency}</metadata></package>'
                 with zipfile.ZipFile(Path(d)/f'{name}.nupkg','w') as archive:
                     archive.writestr(f'{name}.nuspec',content)
@@ -119,8 +119,8 @@ class PackageClosureTests(unittest.TestCase):
     def test_complete_release_resolves_internal_dependencies(self):
         result=self.validate()
         self.assertEqual(result.returncode,0,result.stderr)
-    def test_missing_core_is_rejected(self):
-        self.assertNotEqual(self.validate(omit='Compiler.Core').returncode,0)
+    def test_missing_compiler_package_is_rejected(self):
+        self.assertTrue(all(self.validate(omit=name).returncode != 0 for name in ('Compiler.Core', 'Compiler.Model')))
     def test_wrong_core_version_is_rejected(self):
         self.assertNotEqual(self.validate(core_version='2.0.0').returncode,0)
     def test_missing_sdk_loader_is_rejected(self):

@@ -1,6 +1,7 @@
 namespace NSharpLang.Cli
 
 import System.IO
+import NSharpLang.Compiler
 
 class RunOptionSummary {
     BackendOption: string?

@@ -36,43 +36,14 @@ import System.IO
 // unvisited slots are constructed and walked below.
 
 // ── locating the two sources ──────────────────────────────────────────────────
-func AstGuardRepositoryRoot(): string {
-    current: string? = AppContext.BaseDirectory
-    while current != null {
-        directory := current ?? ""
-        if File.Exists(Path.Combine(directory, "NSharpLang.sln")) && Directory.Exists(Path.Combine(directory, "src")) && Directory.Exists(Path.Combine(directory, "tests")) {
-            return directory
-        }
-
-        parent := Path.GetDirectoryName(directory)
-        if parent == null || parent == "" || parent == directory {
-            current = null
-        } else {
-            current = parent
-        }
-    }
-
-    throw new InvalidOperationException("Could not locate the repository root above the estate's output directory.")
-}
-
-// The source is found by NAME anywhere under the project, not at a fixed path: Compiler.Core's files
-// sit in slice directories, and a basename is unique across the project (pinned by
-// `tests/native/canonical-source-order`), so the name alone says which file is meant wherever it sits.
+// The source is found by NAME in the compiler's projects, not at a fixed path: the AST is carved into
+// `NSharpLang.Compiler.Model` and Core's files sit in slice directories, and a basename is unique
+// across them (pinned by `tests/native/canonical-source-order`), so the name alone says which file is
+// meant wherever it sits. `CompilerSourceFiles` walks the slice layout Core's project.yml declares.
 func AstGuardSourceText(fileName: string): string {
-    root := AstGuardRepositoryRoot()
-    core := Path.Combine(Path.Combine(root, "src"), "NSharpLang.Compiler.Core")
-    found := new List<string>()
-    if Directory.Exists(core) {
-        for candidate in Directory.GetFiles(core, fileName, SearchOption.AllDirectories) {
-            relative := Path.GetRelativePath(core, candidate).Replace('\\', '/')
-            if !relative.StartsWith("bin/", StringComparison.Ordinal) && !relative.StartsWith("obj/", StringComparison.Ordinal) {
-                found.Add(candidate)
-            }
-        }
-    }
-
+    found := CompilerSourceFiles(fileName)
     if found.Count != 1 {
-        throw new InvalidOperationException("The AST guard expected exactly one '" + fileName + "' under the estate's project and found " + found.Count.ToString() + ".")
+        throw new InvalidOperationException("The AST guard expected exactly one '" + fileName + "' in the compiler's projects and found " + found.Count.ToString() + ".")
     }
 
     return File.ReadAllText(found[0])

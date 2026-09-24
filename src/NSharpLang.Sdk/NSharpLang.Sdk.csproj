@@ -26,6 +26,7 @@
   <ItemGroup>
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Build.Tasks.dll" Pack="true" PackagePath="tools/" />
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/Compiler.dll" Pack="true" PackagePath="tools/" />
+    <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Compiler.Model.dll" Pack="true" PackagePath="tools/" />
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Compiler.Core.dll" Pack="true" PackagePath="tools/" />
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Runtime.dll" Pack="true" PackagePath="tools/" />
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/System.Reflection.MetadataLoadContext.dll" Pack="true" PackagePath="tools/" />

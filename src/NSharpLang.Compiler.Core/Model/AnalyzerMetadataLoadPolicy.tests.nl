@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import System.IO
+import NSharpLang.Cli
 
 
 // THE CONTRACT FOR EVERY DECISION THE ANALYZER'S METADATA-LOADING SURFACE MAKES.

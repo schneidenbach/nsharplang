@@ -87,12 +87,12 @@ From highest to lowest:
 
 ## AST Node Types
 
-The AST is N#-owned. The node families live in `src/NSharpLang.Compiler.Core/`
+The AST is N#-owned. The node families live in `src/NSharpLang.Compiler.Model/`
 (`Expressions.nl`, `Statements.nl`, `Declarations.nl`); the former C# `Ast/Declarations.cs`,
 `Ast/Expressions.cs`, `Ast/Statements.cs` and `Ast/AstChildren.cs` were deleted whole.
 
 **Adding an expression node or a new Expression-typed child?** Update
-`AstChildrenCore.Of` (`src/NSharpLang.Compiler.Core/Model/AstChildrenCore.nl`) — the N#-owned
+`AstChildrenCore.Of` (`src/NSharpLang.Compiler.Model/AstChildrenCore.nl`) — the N#-owned
 shared exhaustive child enumeration that the linter, definite assignment, capture/escape scans and
 performance analyzers recurse through. It is called directly, with no C# adapter.
 `AstChildrenCore.tests.nl` fails until every Expression-typed slot (including slots inside

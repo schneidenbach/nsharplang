@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Text.Json
+import NSharpLang.Cli
 
 
 // ONE REQUEST THE ANALYZER'S LOAD SURFACE IS ASKED TO PERFORM.

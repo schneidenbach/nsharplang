@@ -7,6 +7,7 @@ import System.IO
 import System.Reflection
 import System.Runtime.CompilerServices
 import System.Threading
+import NSharpLang.Cli
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.CodeIntelligence
 import NSharpLang.Compiler.Columnar

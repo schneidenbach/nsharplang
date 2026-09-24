@@ -4,6 +4,7 @@ import System
 import System.IO
 import System.Reflection
 import System.Runtime.InteropServices
+import NSharpLang.Compiler.Ast
 
 
 // 023/1e — THE TWO CONSTANT CONVERSIONS, AND THE THREE CAPS THAT ARE NOT THE SPEC'S.

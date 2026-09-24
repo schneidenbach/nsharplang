@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import NSharpLang.Compiler.Ast
 
 
 // THE ANALYZER'S ASSIGNABILITY DECISION — the whole strongly-connected component, in one owner.

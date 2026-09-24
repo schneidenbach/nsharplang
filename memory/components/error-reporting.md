@@ -1,6 +1,6 @@
 # Error Reporting Component
 
-**Owner:** `src/NSharpLang.Compiler.Core/Model/CompilerError.nl`, `ErrorCode.nl`,
+**Owner:** `src/NSharpLang.Compiler.Model/CompilerError.nl`, `ErrorCode.nl`,
 `ErrorSeverity.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, `ErrorSuggestionHelpers.nl` (N#).
 The former C# `src/NSharpLang.Compiler/ErrorReporting.cs` was deleted with `Parser.cs` (task 016);
 the `ParseResult` record it held retired with the C# parser.
@@ -220,7 +220,7 @@ AOT categories asserted at ZERO, so a row cannot come back without a producer.
 
 N# is **near-zero-warnings**. The single rule: correctness/safety/hygiene issues are build-blocking errors; pure style is handled by `nlc format`, not by diagnostics. There is intentionally no large tier of ignorable warnings.
 
-`DiagnosticCatalog` (`src/NSharpLang.Compiler.Core/Model/DiagnosticCatalog.nl`) is the authoritative policy surface — default severity, category, and build-blocking behavior for every code across compiler, linter, CLI, MSBuild, and LSP.
+`DiagnosticCatalog` (`src/NSharpLang.Compiler.Model/DiagnosticCatalog.nl`) is the authoritative policy surface — default severity, category, and build-blocking behavior for every code across compiler, linter, CLI, MSBuild, and LSP.
 
 ### New strict checks
 

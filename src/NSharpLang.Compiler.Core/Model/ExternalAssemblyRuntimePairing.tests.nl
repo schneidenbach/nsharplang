@@ -7,6 +7,7 @@ import System.Reflection
 import System.Reflection.Emit
 import System.Runtime.Loader
 import Microsoft.Build.Framework
+import NSharpLang.Cli
 
 // The reference packs sit in `<dotnet root>/packs` beside the `shared` directory the running
 // framework lives in. Counting parent directories off `GetRuntimeDirectory()` gets this wrong,
@@ -196,7 +197,7 @@ test "metadata module version selects the matching same-identity build" {
 }
 
 test "exact NuGet ref and lib pairing wins before host dependency preservation" {
-    runtimeSourcePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    runtimeSourcePath := ExternalHostAssembly().get_Location()
     referenceSourcePath := ExternalHostReferenceImagePath()
 
     root := Path.Combine(Path.GetTempPath(), "nsharp-runtime-pairing-paired-" + Guid.NewGuid().ToString("N"))
@@ -210,7 +211,7 @@ test "exact NuGet ref and lib pairing wins before host dependency preservation" 
         identity := AssemblyName.GetAssemblyName(referencePath).get_FullName()
         candidates := new Assembly[](1)
         candidates[0] = foreignRuntime
-        selected := ExternalAssemblyScan.SelectRuntimeAssemblyByMetadata(candidates, typeof(ExternalAssemblyScan).get_Assembly(), identity, referencePath)
+        selected := ExternalAssemblyScan.SelectRuntimeAssemblyByMetadata(candidates, ExternalHostAssembly(), identity, referencePath)
         assert Object.ReferenceEquals(selected, foreignRuntime)
     } finally {
         if Directory.Exists(root) {
@@ -330,6 +331,12 @@ func RuntimePairingInvokeHostedStatic(host: Assembly, methodName: string, argume
     return method.Invoke(null, arguments)
 }
 
+func RuntimePairingSingle(only: object?): object?[] {
+    arguments := new object?[](1)
+    RuntimePairingSetObject(arguments, 0, only)
+    return arguments
+}
+
 func RuntimePairingPair(first: object?, second: object?): object?[] {
     arguments := new object?[](2)
     RuntimePairingSetObject(arguments, 0, first)
@@ -352,13 +359,26 @@ func RuntimePairingTriple(first: object?, second: object?, third: object?): obje
 // OWN but does BIND; a load-context object comparison answers no, the contract is left with no
 // executable implementation, and the field type `ITaskItem[]` resolves to nothing.
 //
-// The topology is reproduced rather than modelled: a second copy of this library is loaded into a
-// context of its own, so inside that copy `CompilerLoadContext()` is that context while the host's
-// `Microsoft.Build.Framework` stays in the context it defers to. Both the pairing decision and the
-// reference-contract lookup that consumes it are then asked of the hosted copy.
+// The topology is reproduced rather than modelled: a second copy of the compiler - Model, which
+// owns this library, and Core, whose task MSBuild actually loads and whose references carry
+// `Microsoft.Build.Framework` - is loaded into a context of its own, so inside that copy
+// `CompilerLoadContext()` is that context while the host's `Microsoft.Build.Framework` stays in the
+// context it defers to. Both the pairing decision and the reference-contract lookup that consumes it
+// are then asked of the hosted copy.
 test "a compiler hosted in a delegating load context pairs a package reference with its host implementation" {
-    corePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
-    assert corePath.Length > 0 && File.Exists(corePath)
+    modelPath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    assert modelPath.Length > 0 && File.Exists(modelPath)
+    // Core is found the way the compiler finds its own slices, not by naming one of its types: this
+    // row belongs to Model's estate, and a Model row that names a higher slice's type cannot build
+    // once Model's estate is Model's own assembly.
+    corePath := ""
+    for slice in ExternalAssemblyScan.CompilerSliceAssemblies() {
+        if slice.GetName().Name == "NSharpLang.Compiler.Core" {
+            corePath = slice.get_Location()
+        }
+    }
+    assert corePath.Length > 0 && File.Exists(corePath), "The compiler's load context carries its Core slice."
+    assert corePath != modelPath, "Model and Core are separate assemblies of the compiler."
 
     referencePath := RuntimePairingFindNuGetReferenceAssembly("microsoft.build.framework", "Microsoft.Build.Framework")
     assert referencePath.Length > 0
@@ -371,17 +391,22 @@ test "a compiler hosted in a delegating load context pairs a package reference w
     assert Path.GetFullPath(hostRuntime.get_Location()) != Path.GetFullPath(ExternalAssemblyScan.RuntimePathForReferenceContract(referencePath)), "The host implementation must come from a different file than the package's own runtime asset."
 
     hostedContext := RuntimePairingCreateNonCollectibleContext()
+    hostedModel := RuntimePairingLoadAssembly(hostedContext, modelPath)
     hostedCore := RuntimePairingLoadAssembly(hostedContext, corePath)
-    assert !Object.ReferenceEquals(hostedCore, typeof(ExternalAssemblyScan).get_Assembly()), "The hosted copy must be a distinct load of this library."
-    assert !Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(hostedCore), AssemblyLoadContext.GetLoadContext(hostRuntime)), "A context-object comparison must answer no for this pair; only the binder question can answer yes."
+    assert !Object.ReferenceEquals(hostedModel, typeof(ExternalAssemblyScan).get_Assembly()), "The hosted copy must be a distinct load of this library."
+    assert Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(hostedCore), AssemblyLoadContext.GetLoadContext(hostedModel)), "Both slices of the hosted compiler share its context."
+    assert !Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(hostedModel), AssemblyLoadContext.GetLoadContext(hostRuntime)), "A context-object comparison must answer no for this pair; only the binder question can answer yes."
+    assert Convert.ToBoolean(
+        RuntimePairingInvokeHostedStatic(hostedModel, "CompilerAssemblyReferencesIdentity", RuntimePairingSingle(identity))
+    ), "The hosted compiler references the host dependency through Core, the slice that declares it."
 
     assert Convert.ToBoolean(
-        RuntimePairingInvokeHostedStatic(hostedCore, "IsCompilerBoundRuntimeAssembly", RuntimePairingPair(hostRuntime, identity))
+        RuntimePairingInvokeHostedStatic(hostedModel, "IsCompilerBoundRuntimeAssembly", RuntimePairingPair(hostRuntime, identity))
     ), "A compiler context that defers a name it does not carry binds the handle its host owns."
 
     byIdentity := new Dictionary<string, Assembly>(StringComparer.Ordinal)
     byIdentity[identity] = hostRuntime
-    hostedSelection := RuntimePairingInvokeHostedStatic(hostedCore, "TryLoadExactRuntimeAssembly", RuntimePairingTriple(byIdentity, referencePath, identity)) as Assembly
+    hostedSelection := RuntimePairingInvokeHostedStatic(hostedModel, "TryLoadExactRuntimeAssembly", RuntimePairingTriple(byIdentity, referencePath, identity)) as Assembly
     assert Object.ReferenceEquals(hostedSelection, hostRuntime), "The package reference contract must keep the implementation the hosted compiler executes against."
 
     foreignContext := RuntimePairingCreateNonCollectibleContext()
@@ -389,12 +414,12 @@ test "a compiler hosted in a delegating load context pairs a package reference w
     assert !Object.ReferenceEquals(foreignRuntime, hostRuntime)
     assert foreignRuntime.GetName().get_FullName() == identity
     assert !Convert.ToBoolean(
-        RuntimePairingInvokeHostedStatic(hostedCore, "IsCompilerBoundRuntimeAssembly", RuntimePairingPair(foreignRuntime, identity))
+        RuntimePairingInvokeHostedStatic(hostedModel, "IsCompilerBoundRuntimeAssembly", RuntimePairingPair(foreignRuntime, identity))
     ), "A same-identity build loaded into an unrelated context is not what the hosted compiler binds."
 
     wrongIdentity := "Microsoft.Build.Framework, Version=0.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a"
     assert !Convert.ToBoolean(
-        RuntimePairingInvokeHostedStatic(hostedCore, "IsCompilerBoundRuntimeAssembly", RuntimePairingPair(hostRuntime, wrongIdentity))
+        RuntimePairingInvokeHostedStatic(hostedModel, "IsCompilerBoundRuntimeAssembly", RuntimePairingPair(hostRuntime, wrongIdentity))
     ), "The binder question stays exact; a different identity cannot be satisfied."
 }
 

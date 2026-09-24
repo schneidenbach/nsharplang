@@ -2,8 +2,8 @@
 
 **Files:** `src/NSharpLang.Compiler/Analyzer.cs`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerDeclarationContext.nl`,
-`src/NSharpLang.Compiler.Core/Model/TypeInfoIdentityFacts.nl`,
-`src/NSharpLang.Compiler.Core/Model/AnalyzerConversionFacts.nl`,
+`src/NSharpLang.Compiler.Model/TypeInfoIdentityFacts.nl`,
+`src/NSharpLang.Compiler.Model/AnalyzerConversionFacts.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerCallableReferenceFacts.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerWellKnownTypes.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerWellKnownTypeFacts.nl`,
@@ -14,7 +14,7 @@
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerScopeStack.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerProjectDiscovery.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerTypeResolver.nl`,
-`src/NSharpLang.Compiler.Core/Model/TypeArityNames.nl`,
+`src/NSharpLang.Compiler.Model/TypeArityNames.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerTypeSubstitution.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerStructuralAssignability.nl`,
 `src/NSharpLang.Compiler.Core/Semantics/AnalyzerDiagnosticSink.nl`,
@@ -1702,7 +1702,7 @@ The stack is `AnalyzerScopeStack` (N#, see "The scope stack" above); the shell's
 
 ## Type System
 
-See `src/NSharpLang.Compiler.Core/Model/TypeInfoModels.nl` (with `TypeInfoFactories.nl` and
+See `src/NSharpLang.Compiler.Model/TypeInfoModels.nl` (with `TypeInfoFactories.nl` and
 `TypeInfoIdentityFacts.nl`) for type representations:
 
 ### Built-in Types
@@ -4821,7 +4821,7 @@ declined at the extension call. Element NAMES still do not survive an `IGrouping
 
 ## Import usage is a binding fact, and both import rules read it (census 2026-09-13, TOOL3)
 
-`ImportUsageFacts` (`src/NSharpLang.Compiler.Core/Model/ImportUsageFacts.nl`) is a per-file ledger the
+`ImportUsageFacts` (`src/NSharpLang.Compiler.Model/ImportUsageFacts.nl`) is a per-file ledger the
 analyzer stamps on the `CompilationUnit` it analyses. It records two things: every namespace some
 written name resolved THROUGH, and, for a name that resolved to a METADATA type, which namespace
 supplied it. The linter's two import rules are that one measurement read from two sides — an import

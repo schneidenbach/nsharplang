@@ -17,4 +17,5 @@ dependencies:
     version: 9.0.0
   - nuget: Serilog.Extensions.Logging.File
     version: 3.0.0
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Model.dll
   - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Core.dll

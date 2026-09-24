@@ -98,7 +98,7 @@ func EmitterCanonicalCompilerType(): Type {
 
 func EmitterCanonicalParseProject(projectFile: string): object {
     owner := Type.GetType(
-        "NSharpLang.Compiler.ProjectFileParser, NSharpLang.Compiler.Core"
+        "NSharpLang.Compiler.ProjectFileParser, NSharpLang.Compiler.Model"
     )
     if owner == null {
         throw new InvalidOperationException("The N# project parser was not loadable")

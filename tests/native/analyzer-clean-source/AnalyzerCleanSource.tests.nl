@@ -265,7 +265,7 @@ func AcAnalyze(source: string): object {
     unit := AcParseUnit(source)
 
     analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -422,7 +422,7 @@ func AcAnalyzeWithSource(source: string): object {
     unit := AcParseUnit(source)
 
     analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -705,7 +705,7 @@ func AcUnitShape(source: string): string {
 // route is pinned on BOTH entry points exactly as the config-free route already is.
 
 func AcProjectConfig(sdk: string, targetFramework: string): object {
-    configType := Type.GetType("NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Core")
+    configType := Type.GetType("NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Model")
     if configType == null {
         throw new InvalidOperationException("The production project-config type was not loadable.")
     }
@@ -752,7 +752,7 @@ func AcConfigShape(sdk: string, targetFramework: string): string {
 }
 
 func AcLoadProjectConfig(analyzerType: Type, analyzer: object, sdk: string, targetFramework: string) {
-    configType := Type.GetType("NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Core")
+    configType := Type.GetType("NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Model")
     if configType == null {
         throw new InvalidOperationException("The production project-config type was not loadable.")
     }
@@ -775,7 +775,7 @@ func AcAnalyzeWithConfig(source: string, sdk: string, targetFramework: string): 
     unit := AcParseUnit(source)
 
     analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -827,7 +827,7 @@ func AcAnalyzeWithSourceAndConfig(source: string, sdk: string, targetFramework: 
     unit := AcParseUnit(source)
 
     analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -1142,7 +1142,7 @@ func AcParseNamedAsSuccess(source: string, fileName: string): string {
 
 func AcAnalyzeUnitAt(unit: object, path: string, projectRoot: string?, source: string, loadSystemAssemblies: bool): object {
     analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -1277,7 +1277,7 @@ func AcDirectoryReport(mainName: string, mainSource: string, sidecarName: string
 }
 
 func AcAstType(simpleName: string): Type {
-    astType := Type.GetType("NSharpLang.Compiler.Ast." + simpleName + ", NSharpLang.Compiler.Core")
+    astType := Type.GetType("NSharpLang.Compiler.Ast." + simpleName + ", NSharpLang.Compiler.Model")
     if astType == null {
         throw new InvalidOperationException("The production AST type '" + simpleName + "' was not loadable.")
     }
@@ -1435,7 +1435,7 @@ func AcPlaceholderUnit(lengthName: string): object {
 
 func AcAnalyzeUnit(unit: object): object {
     analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }

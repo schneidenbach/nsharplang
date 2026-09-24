@@ -16,7 +16,8 @@
 #   * the ESTATE — the compiler-service contracts that live beside their owners as
 #     `src/NSharpLang.Compiler.Core/<slice>/*.tests.nl`, run through that project with
 #     `-p:NSharpExcludeTests=false`. This is the slow one: it re-restores and rebuilds
-#     Compiler Core with its tests included.
+#     Compiler Core with its tests included. `src/NSharpLang.Compiler.Model` (carved out of
+#     Core) has no rows of its own yet: its estate stays in Core's `Model/` directory.
 #   * the NATIVE PROJECTS — every `tests/native/<dir>` with a `project.yml` and a
 #     `*.tests.nl` beside it, each run by the freshly built `nlc test`. These are seconds
 #     apiece, and a pattern usually wants only one or two of them.
@@ -274,7 +275,11 @@ derive_slices_from_diff() {
   - $f (runtime/SDK — also run the gate for template/example coverage)" ;;
             # --- the N# compiler: its SLICE DIRECTORY names the subsystem. A case glob's `*` also
             #     matches `/`, so every slice is spelled before the Compiler.Core catch-all. ---
-            # Model is the AST and the shared compiler model every other slice reads: central.
+            # Model is the AST and the shared compiler model every other slice reads: central. Its
+            # product is its own project; its estate still sits in Core's `Model/` directory.
+            src/NSharpLang.Compiler.Model/*)
+                full=1; reasons="$reasons
+  - $f (Compiler.Model: the AST and shared model every slice reads)" ;;
             src/NSharpLang.Compiler.Core/Model/*)
                 full=1; reasons="$reasons
   - $f (Compiler.Core Model slice: the AST and shared model every slice reads)" ;;

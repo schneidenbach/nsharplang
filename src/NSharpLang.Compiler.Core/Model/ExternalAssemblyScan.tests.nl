@@ -47,8 +47,19 @@ func ExternalContainsPath(paths: IReadOnlyList<string>, expected: string): bool 
 // the host assumed the first shape: under a seed whose SDK gives the tested project its own trees it
 // named `bin/obj/...`, and under the seed before it (own `obj/` only) it silently read a PRODUCT build's
 // `obj/<configuration>/<tfm>/refint/` - a different compilation that merely shared the identity.
+//
+// THE HOST IS NAMED BY A TYPE IT DECLARES, `ExternalScanHost`, not by `ExternalAssemblyScan`: the
+// carved `NSharpLang.Compiler.Model` compiles that one, so the host runs only a copy of it, copied
+// beside its own assembly, with no reference image below the host's `obj`.
+class ExternalScanHost {
+}
+
+func ExternalHostAssembly(): Assembly {
+    return typeof(ExternalScanHost).get_Assembly()
+}
+
 func ExternalHostProjectDirectory(): string {
-    runtimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    runtimePath := ExternalHostAssembly().get_Location()
     outputRoot := Path.GetDirectoryName(runtimePath) ?? ""
     while outputRoot.Length > 0 && !string.Equals(Path.GetFileName(outputRoot), "bin", StringComparison.OrdinalIgnoreCase) {
         outputRoot = Path.GetDirectoryName(outputRoot) ?? ""
@@ -63,7 +74,7 @@ func ExternalHostProjectDirectory(): string {
 }
 
 func ExternalHostReferenceImagePath(): string {
-    runtimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    runtimePath := ExternalHostAssembly().get_Location()
     outputRelative := Path.GetRelativePath(Path.Combine(ExternalHostProjectDirectory(), "bin"), Path.GetDirectoryName(runtimePath) ?? "")
     referencePath := Path.Combine(Path.Combine(Path.Combine(Path.Combine(ExternalHostProjectDirectory(), "obj"), outputRelative), "refint"), Path.GetFileName(runtimePath))
     if !File.Exists(referencePath) {
@@ -178,7 +189,7 @@ test "external assembly scan stops before an unrelated broken reference" {
 }
 
 test "external assembly scan resolves an MSBuild reference-only path to its project runtime output" {
-    runtimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    runtimePath := ExternalHostAssembly().get_Location()
     projectDirectory := ExternalHostProjectDirectory()
     referencePath := ExternalHostReferenceImagePath()
 
@@ -188,18 +199,18 @@ test "external assembly scan resolves an MSBuild reference-only path to its proj
     dependencies.Add(reference)
     paths := ExternalAssemblyScan.ResolveReferencePaths(projectDirectory, dependencies)
 
-    assert paths.Count == 2
-    assert paths[0] == Path.GetFullPath(referencePath)
-    assert paths[1] == Path.GetFullPath(runtimePath)
+    assert paths.Count == 2, string.Join(", ", paths)
+    assert paths[0] == Path.GetFullPath(referencePath), paths[0]
+    assert paths[1] == Path.GetFullPath(runtimePath), paths[1]
 
     scan := ExternalAssemblyScan.OpenWithReferences(paths)
     try {
-        resolved := ExternalAssemblyScan.FindExactType(scan, "NSharpLang.Compiler.ExternalAssemblyScan")
+        resolved := ExternalAssemblyScan.FindExactType(scan, "NSharpLang.Compiler.ExternalScanHost")
 
-        assert resolved.Status == ExternalAssemblyTypeLookupStatus.Found
-        assert resolved.HasRuntimeType
-        assert resolved.RuntimeType == typeof(ExternalAssemblyScan)
-        assert resolved.SemanticTypeIdentity == typeof(ExternalAssemblyScan).get_AssemblyQualifiedName()
+        assert resolved.Status == ExternalAssemblyTypeLookupStatus.Found, resolved.Status.ToString()
+        assert resolved.HasRuntimeType, "the host's own reference image found no runtime type"
+        assert resolved.RuntimeType == typeof(ExternalScanHost)
+        assert resolved.SemanticTypeIdentity == typeof(ExternalScanHost).get_AssemblyQualifiedName(), resolved.SemanticTypeIdentity
     } finally {
         scan.Dispose()
     }
@@ -247,7 +258,7 @@ test "a project reference image pairs with the implementation at its own relativ
 }
 
 test "external reference paths put NuGet metadata before its runtime implementation" {
-    bootstrapRuntimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    bootstrapRuntimePath := ExternalHostAssembly().get_Location()
     bootstrapReferencePath := ExternalHostReferenceImagePath()
 
     packageVersionDirectory := Path.GetFullPath("obj/nsharp-reference-pair-contract/package/1.0.0")
@@ -275,7 +286,7 @@ test "external reference paths put NuGet metadata before its runtime implementat
 }
 
 test "external reference paths reject a conventionally located runtime with a different assembly identity" {
-    bootstrapRuntimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    bootstrapRuntimePath := ExternalHostAssembly().get_Location()
     bootstrapReferencePath := ExternalHostReferenceImagePath()
 
     packageVersionDirectory := Path.GetFullPath("obj/nsharp-reference-mismatch-contract/package/1.0.0")
@@ -300,7 +311,7 @@ test "external reference paths reject a conventionally located runtime with a di
 
     referenceIdentity := AssemblyName.GetAssemblyName(referencePath).get_FullName()
     byIdentity := new Dictionary<string, Assembly>(StringComparer.Ordinal)
-    byIdentity[referenceIdentity] = typeof(ExternalAssemblyScan).get_Assembly()
+    byIdentity[referenceIdentity] = ExternalHostAssembly()
     loadedReference := ExternalAssemblyScan.TryLoadExactRuntimeAssembly(byIdentity, referencePath, referenceIdentity)
     assert loadedReference == null, "A NuGet ref/<tfm> image must never be loaded for execution when its lib companion is unavailable."
 }
@@ -371,7 +382,7 @@ test "configured DLL runtime assets deploy implementations and retain metadata-o
 
     metadataOnlyPath := Path.Combine(root, "packages/metadata/1.0.0/ref/net10.0/MetadataOnly.dll")
 
-    bootstrapRuntimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    bootstrapRuntimePath := ExternalHostAssembly().get_Location()
     bootstrapReferencePath := ExternalHostReferenceImagePath()
 
     ExternalCopyAsset(bootstrapRuntimePath, normalPath)

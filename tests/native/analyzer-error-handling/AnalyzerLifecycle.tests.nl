@@ -48,7 +48,7 @@ func AlNewAnalyzer(): object {
 
 func AlAnalyzeAt(analyzer: object, source: string, filePath: string, projectRoot: string?): object {
     unit := EhParseUnit(source)
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     if unitType == null {
         throw new InvalidOperationException("The production CompilationUnit type was not loadable.")
     }

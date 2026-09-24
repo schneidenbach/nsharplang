@@ -211,30 +211,11 @@ func TypeEquivalenceHandleIsRefused(candidate: Type): bool {
 // so this guard states that every other owner goes through it. The one raw call is the one INSIDE the
 // predicate, which has already ruled the parameter out.
 
-func SzArrayGuardRepositoryRoot(): string {
-    current: string? = AppContext.BaseDirectory
-    while current != null {
-        directory := current ?? ""
-        if File.Exists(Path.Combine(directory, "NSharpLang.sln")) && Directory.Exists(Path.Combine(directory, "src")) {
-            return directory
-        }
-
-        parent := Path.GetDirectoryName(directory)
-        if parent == null || parent == "" || parent == directory {
-            current = null
-        } else {
-            current = parent
-        }
-    }
-
-    throw new InvalidOperationException("Could not locate the repository root above the estate's output directory.")
-}
-
+// Every compiler PRODUCT source, in every project of the compiler's slice layout: an owner carved
+// into a slice project is still an owner the guard must read.
 func SzArrayGuardCompilerSources(): List<string> {
-    root := SzArrayGuardRepositoryRoot()
-    core := Path.Combine(Path.Combine(root, "src"), "NSharpLang.Compiler.Core")
     collected := new List<string>()
-    for path in Directory.GetFiles(core, "*.nl", SearchOption.AllDirectories) {
+    for path in CompilerSourceFiles("*.nl") {
         if !path.EndsWith(".tests.nl", StringComparison.Ordinal) {
             collected.Add(path)
         }

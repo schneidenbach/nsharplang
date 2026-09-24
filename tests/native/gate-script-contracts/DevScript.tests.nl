@@ -201,6 +201,14 @@ test "dev since treats a Compiler.Core Model change as central and runs everythi
     assert run.Stderr.Contains("src/NSharpLang.Compiler.Core/Model/Probe.nl (Compiler.Core Model slice: the AST and shared model every slice reads)"), run.Report()
 }
 
+test "dev since treats a change to the carved Compiler.Model project as central and runs everything" {
+    run := DevSinceRun("src/NSharpLang.Compiler.Model/Probe.nl")
+
+    assert run.ExitCode == 0, run.Report()
+    assert run.Stderr.Contains("Change-aware selection: EVERYTHING (fail-safe). Triggers:"), run.Report()
+    assert run.Stderr.Contains("src/NSharpLang.Compiler.Model/Probe.nl (Compiler.Model: the AST and shared model every slice reads)"), run.Report()
+}
+
 test "dev since still runs everything for a Compiler.Core file outside every slice directory" {
     run := DevSinceRun("src/NSharpLang.Compiler.Core/Stray.nl")
 

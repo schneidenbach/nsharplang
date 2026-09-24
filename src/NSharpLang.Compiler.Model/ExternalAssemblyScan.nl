@@ -930,11 +930,11 @@ class ExternalAssemblyScan {
     // `LanguageServer` and `NSharpLang.Playground` all began declining calls into the compiler they
     // reference, and only a republished seed could see it.
     //
-    // The two compiler assemblies are named rather than inferred, deliberately: every OTHER identity
+    // The compiler's assemblies are named rather than inferred, deliberately: every OTHER identity
     // the host carries -- `YamlDotNet`, `Mono.Cecil`, `Microsoft.Build.*` -- is the same FILE the
     // project resolves, and for those the shortcut is not an optimization but the thing that keeps
     // one identity from being loaded into two contexts. Only the compiler ships a second, separately
-    // built copy of itself.
+    // built copy of itself -- of every slice of itself.
     static func IsCompilerProductAssembly(assembly: Assembly?): bool {
         if assembly == null {
             return false
@@ -942,10 +942,58 @@ class ExternalAssemblyScan {
 
         try {
             name := assembly.GetName().Name ?? ""
-            return name == "NSharpLang.Compiler.Core" || name == "Compiler"
+            return IsCompilerSliceAssemblyName(name) || name == "Compiler"
         } catch {
             return false
         }
+    }
+
+    // THE COMPILER IS SEVERAL ASSEMBLIES. Compiler.Core is being carved into slice projects, lowest
+    // first, and each slice is a separately built assembly of the one compiler: this one
+    // (`NSharpLang.Compiler.Model`) and Core above it. `Compiler` is the facade over them, not a slice.
+    static func CompilerSliceAssemblyNames(): string[] {
+        return ["NSharpLang.Compiler.Model", "NSharpLang.Compiler.Core"]
+    }
+
+    static func IsCompilerSliceAssemblyName(name: string): bool {
+        for slice in CompilerSliceAssemblyNames() {
+            if name == slice {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    // Every slice of the compiler this copy of it runs beside: this assembly, and each other slice the
+    // compiler's own load context carries. A slice is loaded as soon as any of its code has run, and
+    // the code that asks the questions below is Core's, so under the CLI (the default context),
+    // MSBuild (the task's plugin context) and a test host alike the answer is the whole compiler.
+    static func CompilerSliceAssemblies(): List<Assembly> {
+        own := typeof(ExternalAssemblyScan).Assembly
+        slices := new List<Assembly>()
+        slices.Add(own)
+        context := CompilerLoadContext()
+        if context == null {
+            return slices
+        }
+
+        for candidate in context.Assemblies {
+            if candidate.IsDynamic || Object.ReferenceEquals(candidate, own) {
+                continue
+            }
+
+            try {
+                if IsCompilerSliceAssemblyName(candidate.GetName().Name ?? "") {
+                    slices.Add(candidate)
+                }
+            } catch {
+                // An assembly whose name cannot be read is not one of the compiler's slices.
+                continue
+            }
+        }
+
+        return slices
     }
 
     static func IsReferenceAssemblyPath(path: string): bool {
@@ -1010,15 +1058,20 @@ class ExternalAssemblyScan {
         return GetRuntimePathCandidate(path)
     }
 
+    // Whether the COMPILER references an identity: any of its slices, not just the one this code is
+    // compiled into. Model alone references neither `Microsoft.Build.Framework` nor `Mono.Cecil`;
+    // the compiler does, through Core, and a host-dependency reference the compiler binds must keep
+    // pairing with the host's handle whichever slice declares the edge.
     static func CompilerAssemblyReferencesIdentity(identity: string): bool {
         if identity == null || identity.Length == 0 {
             return false
         }
 
-        references := typeof(ExternalAssemblyScan).Assembly.GetReferencedAssemblies()
-        for reference in references {
-            if reference.FullName == identity {
-                return true
+        for slice in CompilerSliceAssemblies() {
+            for reference in slice.GetReferencedAssemblies() {
+                if reference.FullName == identity {
+                    return true
+                }
             }
         }
 

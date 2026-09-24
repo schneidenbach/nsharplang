@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import NSharpLang.Compiler
+import NSharpLang.Compiler.Ast
 
 
 // 023/1e — THE TWO IMPLICIT CONSTANT CONVERSIONS, IN ONE N#-OWNED PLACE.

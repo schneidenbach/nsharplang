@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import NSharpLang.Compiler.CodeIntelligence
 
 
 // The analyzer's diagnostic sink: the single authority for turning a semantic finding into a

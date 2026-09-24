@@ -52,7 +52,7 @@ func MultiFileOwnerRequiredNestedType(value: Type?, description: string): Type {
 func MultiFileOwnerNewWithNullConfig(projectRoot: string): object {
     owner := EmitterCanonicalCompilerType()
     configType := MultiFileOwnerRequiredType(
-        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Core"
+        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Model"
     )
     parameterTypes := new Type[](2)
     parameterTypes[0] = typeof(string)
@@ -206,7 +206,7 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     ) == null
 
     configType := MultiFileOwnerRequiredType(
-        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Core"
+        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Model"
     )
     overridesType := typeof(IReadOnlyDictionary<string, string>)
     sourceFilesType := typeof(IEnumerable<string>)

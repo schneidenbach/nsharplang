@@ -41,6 +41,9 @@ BOOTSTRAP_DIR="${NSHARP_RESEED_BOOTSTRAP_DIR:-$NSHARP_REPO_ROOT/bootstrap}"
 STAGE_ROOT="${NSHARP_RESEED_STAGE_ROOT:-$NSHARP_REPO_ROOT/artifacts/reseed}"
 STOP_AFTER="${NSHARP_RESEED_STOP_AFTER:-}"
 CORE_PROJECT="src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
+# Every project the Core build compiles with the seed: Core itself and each slice carved out of it,
+# which Core's `project:` dependencies build first. Building CORE_PROJECT builds them all.
+COMPILER_PROJECT_DIRS=("src/NSharpLang.Compiler.Model" "src/NSharpLang.Compiler.Core")
 SEED_PACKAGES=("NSharpLang.Sdk" "NSharpLang.Runtime")
 
 reseed_absolute_path() {
@@ -202,10 +205,15 @@ reseed_verify() {
 # STEP 5 / 7 -- rebuild the compiler FROM SCRATCH with the seed just installed. `obj` carries the
 # restored SDK's resolved path in `project.assets.json`, so a rebuild that keeps it can run the old
 # seed's tasks against the new packages and report a success that no clean machine can reproduce.
+# That holds for EVERY project the Core build compiles: one stale carved slice would be emitted by
+# the old seed and handed to Core as a reference, and the rebuild would prove nothing about it.
 reseed_rebuild() {
     local label="$1"
+    local project_dir
     nsharp_log "Clean self-rebuild of the compiler ($label)"
-    nsharp_run rm -rf "$NSHARP_REPO_ROOT/src/NSharpLang.Compiler.Core/obj" "$NSHARP_REPO_ROOT/src/NSharpLang.Compiler.Core/bin"
+    for project_dir in "${COMPILER_PROJECT_DIRS[@]}"; do
+        nsharp_run rm -rf "$NSHARP_REPO_ROOT/$project_dir/obj" "$NSHARP_REPO_ROOT/$project_dir/bin"
+    done
     nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet restore "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$CORE_PROJECT" --force-evaluate -v q
     reseed_verify_restored_packages
     nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet build "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$CORE_PROJECT" --no-restore -v q

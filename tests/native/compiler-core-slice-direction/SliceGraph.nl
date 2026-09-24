@@ -8,11 +8,12 @@ import System.Text
 // THE SLICE DIRECTION OF `src/NSharpLang.Compiler.Core`, READ FROM ITS SOURCE.
 //
 // Compiler.Core's files sit in eight slice directories, lowest first: Model, Syntax, Semantics,
-// Backend.Plan, Backend.Emit, CodeIntel, Tooling, Driver. Each directory is the project a later PR
-// carves it into, so a file may read a top-level name declared in its own slice or in a LOWER one,
-// and never in a higher one - once the slices are assemblies, a reach upward is a reference cycle
-// and the carve-out cannot build. Until they are assemblies nothing but this walk sees such a reach:
-// one project compiles every direction alike.
+// Backend.Plan, Backend.Emit, CodeIntel, Tooling, Driver. Each directory is the project a PR carves
+// it into (`src/NSharpLang.Compiler.<Slice>`; Model is carved), so a file may read a top-level name
+// declared in its own slice or in a LOWER one, and never in a higher one - between assemblies a reach
+// upward is a reference cycle and the build cannot exist. Inside Core nothing but this walk sees such
+// a reach, because one project compiles every direction alike, so the walk reads Core and every
+// carved project together, each file ranked by the slice it belongs to.
 //
 // THE WALK IS THE SPLIT PLAN'S OWN NAME GRAPH (census-briefs/fable-split-scripts/pr1-edges.py),
 // written in N#. A top-level name is a column-0 `class`/`struct`/`enum`/`record`/`interface`/
@@ -29,7 +30,14 @@ func SliceNames(): string[] {
     return ["Model", "Syntax", "Semantics", "Backend.Plan", "Backend.Emit", "CodeIntel", "Tooling", "Driver"]
 }
 
-// The slice a Core-relative path (always `/`-separated) sits in, or -1 outside every slice.
+// The project a slice becomes once it is carved out of Compiler.Core: `src/NSharpLang.Compiler.<Slice>`.
+func SliceProjectName(rank: int): string {
+    return "NSharpLang.Compiler." + SliceNames()[rank]
+}
+
+// The slice a path (always `/`-separated) sits in, or -1 outside every slice. A path is either
+// Core-relative, headed by the slice DIRECTORY (`Syntax/Lexer.nl`), or `src`-relative inside a
+// carved slice's own PROJECT (`NSharpLang.Compiler.Model/Token.nl`).
 func SliceRank(relativePath: string): int {
     separator := relativePath.IndexOf('/')
     if separator <= 0 {
@@ -38,11 +46,16 @@ func SliceRank(relativePath: string): int {
     head := relativePath.Substring(0, separator)
     names := SliceNames()
     for rank := 0; rank < names.Length; rank++ {
-        if names[rank] == head {
+        if names[rank] == head || SliceProjectName(rank) == head {
             return rank
         }
     }
     return -1
+}
+
+// Whether a path sits in a carved slice's own project rather than in Compiler.Core.
+func IsInSliceProject(relativePath: string): bool {
+    return relativePath.StartsWith("NSharpLang.Compiler.", StringComparison.Ordinal)
 }
 
 func SliceName(rank: int): string {
@@ -529,19 +542,41 @@ class SliceGraph {
 
     // Every `.nl` file under `coreRoot` except build output, in ordinal path order.
     static func Load(coreRoot: string): SliceGraph {
+        files := new List<SliceSourceFile>()
+        AddSourceFiles(files, coreRoot, "")
+        return new SliceGraph(files)
+    }
+
+    // THE COMPILER AS IT IS BUILT: Compiler.Core under `sourceRoot` (`src/`), whose slice directories
+    // hold what is not carved yet, and every slice already carved into its own project beside it. A
+    // carved slice keeps its rank, so a reach from its project into a slice still inside Core is as
+    // upward as it was when both were directories.
+    static func LoadCompiler(sourceRoot: string): SliceGraph {
+        files := new List<SliceSourceFile>()
+        AddSourceFiles(files, Path.Combine(sourceRoot, "NSharpLang.Compiler.Core"), "")
+        for rank := 0; rank < SliceNames().Length; rank++ {
+            project := Path.Combine(sourceRoot, SliceProjectName(rank))
+            if Directory.Exists(project) {
+                AddSourceFiles(files, project, SliceProjectName(rank) + "/")
+            }
+        }
+        return new SliceGraph(files)
+    }
+
+    // Every `.nl` file under `root` except build output, in ordinal path order, named `prefix` plus
+    // its `/`-separated path under `root`.
+    static func AddSourceFiles(files: List<SliceSourceFile>, root: string, prefix: string) {
         paths := new List<string>()
-        for path in Directory.GetFiles(coreRoot, "*.nl", SearchOption.AllDirectories) {
-            relative := Path.GetRelativePath(coreRoot, path).Replace('\\', '/')
+        for path in Directory.GetFiles(root, "*.nl", SearchOption.AllDirectories) {
+            relative := Path.GetRelativePath(root, path).Replace('\\', '/')
             if !relative.StartsWith("bin/", StringComparison.Ordinal) && !relative.StartsWith("obj/", StringComparison.Ordinal) && relative.IndexOf("/bin/", StringComparison.Ordinal) < 0 && relative.IndexOf("/obj/", StringComparison.Ordinal) < 0 {
                 paths.Add(relative)
             }
         }
         paths.Sort(StringComparer.Ordinal)
-        files := new List<SliceSourceFile>()
         for relative in paths {
-            files.Add(new SliceSourceFile(relative, File.ReadAllText(Path.Combine(coreRoot, relative))))
+            files.Add(new SliceSourceFile(prefix + relative, File.ReadAllText(Path.Combine(root, relative))))
         }
-        return new SliceGraph(files)
     }
 
     // THE FREE-FUNCTION HOLDERS, ONE PER NAMESPACE PER ASSEMBLY.
@@ -646,11 +681,23 @@ class SliceGraph {
         return string.Join(", ", names)
     }
 
+    // Files outside every slice, and PRODUCT files left in Compiler.Core's directory for a slice that
+    // already has its own project: once a slice is carved its product lives in that project and
+    // nowhere else, so a product file in the old directory would build into Core under the lower
+    // slice's name. Its estate may stay behind in the directory until the fixture hoisting moves it.
     func Unplaced(): List<string> {
+        carved := new HashSet<int>()
+        for file in Files {
+            if file.Rank >= 0 && IsInSliceProject(file.RelativePath) {
+                carved.Add(file.Rank)
+            }
+        }
         unplaced := new List<string>()
         for file in Files {
             if file.Rank < 0 {
                 unplaced.Add(file.RelativePath)
+            } else if !file.IsEstate && !IsInSliceProject(file.RelativePath) && carved.Contains(file.Rank) {
+                unplaced.Add(file.RelativePath + " (" + SliceName(file.Rank) + " is carved into " + SliceProjectName(file.Rank) + ")")
             }
         }
         return unplaced

@@ -582,7 +582,7 @@ func PgRunFiles(code: string, activeFile: string): object {
 // earlier value before Run selects the final dictionary entry.
 func PgRunDuplicateEntryPoint(): object {
     parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     runnerType := Type.GetType("NSharpLang.Playground.PlaygroundRunner, NSharpLang.Playground")
     if parserType == null || unitType == null || runnerType == null {
         throw new InvalidOperationException("The production parser, compilation unit, or playground runner was not loadable.")

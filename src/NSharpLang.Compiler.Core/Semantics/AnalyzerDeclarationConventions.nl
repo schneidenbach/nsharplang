@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler
 
 import System
+import NSharpLang.Compiler.Ast
 
 
 // THE NAMING CONVENTION EVERY DECLARATION IN THE LANGUAGE IS HELD TO, AND THE ONE REPORT IT MAKES.

@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import NSharpLang.Compiler.Ast
 
 
 // WHETHER A TYPE ARGUMENT SATISFIES A `where` CLAUSE, ASKED THE SAME WAY FOR BOTH OWNERS.

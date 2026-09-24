@@ -285,6 +285,7 @@ func UpdateHash(hash: HashAlgorithm, value: string) {
 func EnumerateSdkFeedInputs(repositoryRoot: string): List<string> {
     sourceRoot := Path.Combine(repositoryRoot, "src")
     roots := [
+        Path.Combine(sourceRoot, "NSharpLang.Compiler.Model"),
         Path.Combine(sourceRoot, "NSharpLang.Compiler.Core"),
         Path.Combine(sourceRoot, "NSharpLang.Compiler"),
         Path.Combine(sourceRoot, "NSharpLang.Build.Tasks"),
