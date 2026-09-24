@@ -1153,7 +1153,7 @@ test "the named override modifier owner preserves the parser bit without admitti
     assert !ColumnarFunctionInput.HasOverrideModifier(0)
     assert ColumnarFunctionInput.HasOverrideModifier(65536)
     assert ColumnarFunctionInput.HasOverrideModifier(65537)
-    assert !ColumnarFunctionInput.HasOverrideModifier(ColumnarFunctionInput.NativeImportModifierFlag())
+    assert !ColumnarFunctionInput.HasOverrideModifier(ColumnarFunctionModifierFlags.NativeImportModifierFlag())
 }
 
 test "ordinary override completion owns all four exact MethodAttributes outcomes" {

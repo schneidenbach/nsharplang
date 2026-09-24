@@ -5182,7 +5182,7 @@ sealed class ColumnarIlEmitter {
                         if (m.IsAsync) {
                             return DeclineStatic("emit.declaration.method-return", "generic async static method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
-                        if (ColumnarFunctionInput.HasNativeImportModifier(m.ModifierFlags)) {
+                        if (ColumnarFunctionModifierFlags.HasNativeImportModifier(m.ModifierFlags)) {
                             return DeclineStatic("emit.declaration.method-generic", "native-import method '" + structs[s].Name + "." + m.Name + "' cannot declare type parameters", structs[s].Name, -1, 0)
                         }
                         let declaredStaticBuilder: System.Reflection.Emit.MethodBuilder = null

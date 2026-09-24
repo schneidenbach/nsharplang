@@ -818,7 +818,7 @@ sealed class ColumnarProgramInputBuilder {
                     ColumnarStructMethodFlagIsAsync(methodModifierFlags),
                     false,
                     methodModifierFlags,
-                    ColumnarFunctionInput.HasNativeImportModifier(methodModifierFlags),
+                    ColumnarFunctionModifierFlags.HasNativeImportModifier(methodModifierFlags),
                     ColumnarStructMethodFlagIsAbstract(methodModifierFlags) && !ColumnarStructMethodFlagIsStatic(methodModifierFlags)
                 ) {
                     return DeclineAtToken(

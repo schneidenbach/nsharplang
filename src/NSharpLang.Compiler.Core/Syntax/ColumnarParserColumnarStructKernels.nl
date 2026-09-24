@@ -537,7 +537,7 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
 
     for i := 0; i < methodCount; i++ {
         result.Values[8] = 0
-        nativeImportMethod := ColumnarFunctionInput.HasNativeImportModifier(outputs.MethodStaticFlags[i])
+        nativeImportMethod := ColumnarFunctionModifierFlags.HasNativeImportModifier(outputs.MethodStaticFlags[i])
         abstractMethod := ColumnarStructMethodFlagIsAbstract(outputs.MethodStaticFlags[i]) && !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i])
         paramCount := 0
         if nativeImportMethod {

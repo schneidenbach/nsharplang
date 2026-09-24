@@ -132,15 +132,6 @@ class ColumnarFunctionInput {
         return (flags & OverrideModifierFlag()) != 0
     }
 
-    // The parser and declaration planner share this input flag. It is not a Modifiers enum member.
-    static func NativeImportModifierFlag(): int {
-        return 131072
-    }
-
-    static func HasNativeImportModifier(flags: int): bool {
-        return (flags & NativeImportModifierFlag()) != 0
-    }
-
     // The three INHERITANCE words a member may carry, read out of the same source modifier column
     // the override request is. `abstract` and `virtual` each open a new virtual slot — the first
     // without a body, the second with one — and `sealed` closes the slot an `override` reused.

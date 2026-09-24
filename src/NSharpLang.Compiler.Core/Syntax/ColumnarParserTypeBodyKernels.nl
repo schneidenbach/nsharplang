@@ -469,7 +469,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                     return -1
                 }
 
-                methodFlags = methodFlags | ColumnarFunctionInput.NativeImportModifierFlag()
+                methodFlags = methodFlags | ColumnarFunctionModifierFlags.NativeImportModifierFlag()
                 decl.MethodFuncIndices[methodCount] = memberStart
                 decl.MethodStaticFlags[methodCount] = methodFlags
                 if decl.MethodModifierFlags.Length > methodCount {

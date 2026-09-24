@@ -986,7 +986,7 @@ class ColumnarDeclarationPlan {
 
 class ColumnarDeclarationPlanner {
     static func IsValidPInvoke(method: ColumnarFunctionInput): bool {
-        return ColumnarFunctionInput.HasNativeImportModifier(method.ModifierFlags) && !string.IsNullOrEmpty(method.NativeImportLibraryName) && !string.IsNullOrEmpty(method.NativeImportEntryPoint) && method.TypeParamNames.Length == 0 && !method.IsAsync
+        return ColumnarFunctionModifierFlags.HasNativeImportModifier(method.ModifierFlags) && !string.IsNullOrEmpty(method.NativeImportLibraryName) && !string.IsNullOrEmpty(method.NativeImportEntryPoint) && method.TypeParamNames.Length == 0 && !method.IsAsync
     }
 
     static func BuildPInvokes(program: ColumnarProgramInput, methodRows: ColumnarMethodRows): ColumnarPInvokeRows {

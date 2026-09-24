@@ -2624,8 +2624,9 @@ test "the case label names the plain description or the description plus its row
 // though THREE of the accessors below already shipped here and the caller simply did not use them.
 //
 // `131072` deserves naming: it is `1 << 17`, one bit past `Modifiers.Override` (65536), and it is
-// NOT a member of `Modifiers` at all. It exists only as `ColumnarFunctionInput.NativeImportModifierFlag()`,
-// which is why every caller must ask rather than remember.
+// NOT a member of `Modifiers` at all. It exists only as
+// `ColumnarFunctionModifierFlags.NativeImportModifierFlag()`, which is why every caller must ask
+// rather than remember.
 
 test "the field flag word separates static readonly private and ThreadStatic across its whole domain" {
     // The scan packs five independent booleans, so all thirty-two words must decode without equality
@@ -2713,12 +2714,12 @@ test "the method flag word names `static`, `async` and the LibraryImport bit rat
 
     // `Modifiers.Override` is 65536 and the LibraryImport bit is the NEXT one up, 131072, which is
     // not a `Modifiers` member at all. Neighbour bits must not answer for it.
-    assert ColumnarFunctionInput.NativeImportModifierFlag() == 131072
-    assert ColumnarFunctionInput.NativeImportModifierFlag() == Convert.ToInt32(Modifiers.Override) * 2
-    assert ColumnarFunctionInput.HasNativeImportModifier(ColumnarFunctionInput.NativeImportModifierFlag())
-    assert !ColumnarFunctionInput.HasNativeImportModifier(Convert.ToInt32(Modifiers.Override))
-    assert !ColumnarFunctionInput.HasNativeImportModifier(both)
-    assert !ColumnarStructMethodFlagIsStatic(ColumnarFunctionInput.NativeImportModifierFlag())
+    assert ColumnarFunctionModifierFlags.NativeImportModifierFlag() == 131072
+    assert ColumnarFunctionModifierFlags.NativeImportModifierFlag() == Convert.ToInt32(Modifiers.Override) * 2
+    assert ColumnarFunctionModifierFlags.HasNativeImportModifier(ColumnarFunctionModifierFlags.NativeImportModifierFlag())
+    assert !ColumnarFunctionModifierFlags.HasNativeImportModifier(Convert.ToInt32(Modifiers.Override))
+    assert !ColumnarFunctionModifierFlags.HasNativeImportModifier(both)
+    assert !ColumnarStructMethodFlagIsStatic(ColumnarFunctionModifierFlags.NativeImportModifierFlag())
 }
 
 test "the generator column becomes the Modifiers.Generator word, and nothing else does" {
