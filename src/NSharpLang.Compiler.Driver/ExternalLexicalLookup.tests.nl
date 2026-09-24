@@ -284,3 +284,13 @@ test "a class base named by a bare name binds the enclosing namespace's referenc
     assert LexlookParameterType(root, "Lexlook.Lib.Consumer.Derived", "Take") == "Lexlook.Lib.Consumer.Derived @ LexlookConsumer"
     assert LexlookBaseType(root, "Lexlook.Lib.Consumer.Derived") == "Lexlook.Lib.TypeInfo @ LexlookLib"
 }
+
+test "the emitter alone refuses a class base tied between two imports and names both candidates" {
+    // Neither `Widget` is nearer than the other, so the base has no binding — neither for the emitted
+    // parent nor for the member scope a bare name in the class body is read through.
+    result := LexlookEmitOnly(LexlookConsumer("emit-base-tie", "namespace Lexlook.Consumer\n\nimport Lexlook.Lib.Right\nimport Lexlook.Lib.Left\n\nclass Derived: Widget {\n    func Twice(): string {\n        return Who() + Who()\n    }\n}\n"))
+
+    assert !result.Success
+    text := LexlookFailureText(result)
+    assert text.Contains("'Widget' is ambiguous between 'Lexlook.Lib.Right.Widget' and 'Lexlook.Lib.Left.Widget'"), text
+}

@@ -753,6 +753,12 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
     // a base it settles on lexical metadata moves to the external-base fence. Without this the member
     // fence walks a base the class does not have: the rival's members shadow names inside the class
     // (a rival member `Environment` refusing `Environment.NewLine`), and the rival is not its parent.
+    //
+    // A TIE BETWEEN IMPORTS IS NO BASE AT ALL. `ResolveSourceBaseName` takes the first import that
+    // supplies the name, which is import ORDER deciding — the one thing `SimpleNamePrecedence` refuses
+    // (`nlc format` sorts imports). When the rule answers `Ambiguous` the class has no base this walk
+    // can vouch for, so neither import's members become its scope; the emitted parent is refused with
+    // the tie's own NL209 wording.
     func ReselectClassBasesWithMetadata() {
         if !assemblyCatalog.IsPrepared {
             return
@@ -771,6 +777,10 @@ class ColumnarBindingScopeFacts: ColumnarBindingScope {
                 classBaseNameByType.Remove(owner)
                 classBaseWrittenByType.Remove(owner)
                 externalBaseBindingByType[owner] = written
+            } else if selection.Kind == SimpleNameSelectionKind.Ambiguous {
+                classBaseNameByType.Remove(owner)
+                classBaseWrittenByType.Remove(owner)
+                invalidClassBaseOwners.Add(owner)
             }
         }
     }

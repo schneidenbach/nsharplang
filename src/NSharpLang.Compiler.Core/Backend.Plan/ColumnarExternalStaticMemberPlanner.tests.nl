@@ -979,10 +979,13 @@ test "external binding class scope follows analyzer first-base semantics" {
     orderedSources[2] = "namespace Demo\nimport Right\nimport Left\nclass Reader: Base {}\n"
     orderedScope := ExternalScopeForSources(orderedSources, orderedStructs, ExternalEmptyInterfaces()).ForSourceFile(2)
 
+    // Both imports supply `Base`, and import order decides nothing (`nlc format` sorts imports): the
+    // base is a tie (NL209), so neither import's members are the class's scope and `Environment`
+    // cannot be proved to name `System.Environment` — Left.Base declares a member of that name.
     orderedTree := ExternalStaticMemberTree("Environment", "NewLine")
     orderedTree.Nodes.SetBindingContext(orderedScope, "Demo.Reader", new string[](0), new string[](0))
 
-    _orderedBasePlan := ExternalPlan(orderedTree, ColumnarRangePlannerEmptyBindings())
+    ExternalAssertDeclines(orderedTree, ColumnarRangePlannerEmptyBindings())
 
     ambiguousTree := ExternalStaticMemberTree("Environment", "NewLine")
     ambiguousTree.Nodes.SetBindingContext(qualifiedScope, "AmbiguousReader", new string[](0), new string[](0))
