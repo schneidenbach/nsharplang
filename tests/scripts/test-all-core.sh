@@ -450,7 +450,7 @@ else
     # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
     SELF_HOST_CEILINGS=(
         0
-        1281
+        1279
         -1
         -1
         0
