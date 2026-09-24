@@ -229,7 +229,7 @@ class ColumnarExternalTypeCatalog {
         if preparedScan == null {
             return false
         }
-        resolution = ResolveOwner(preparedScan, facts, ownerName)
+        resolution = ResolveOwner(facts, ownerName)
         resolvedOwners[key] = resolution
         return true
     }
@@ -259,7 +259,7 @@ class ColumnarExternalTypeCatalog {
             return false
         }
 
-        resolution = ResolveImportedOwner(preparedScan, facts, ownerName)
+        resolution = ResolveImportedOwner(facts, ownerName)
         resolvedOwners[key] = resolution
         return true
     }
@@ -268,14 +268,14 @@ class ColumnarExternalTypeCatalog {
     // and answers Unknown — never the first import written. An import that names a lexical namespace
     // was already asked by the chain and is not a rival. An uninspectable reference met BEFORE any
     // import answered is Unknown, as it always was; met after one did, it cannot prove a rival.
-    static func ResolveImportedOwner(scan: ExternalAssemblyScanResult, facts: ColumnarSourceBindingFacts, ownerName: string): ExternalAssemblyTypeResolution {
+    func ResolveImportedOwner(facts: ColumnarSourceBindingFacts, ownerName: string): ExternalAssemblyTypeResolution {
         matched := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Missing, "", typeof(object), false)
         selection := SimpleNamePrecedence.Select(facts.NamespaceName, facts.UnaliasedNamespaceImports)
         while !selection.IsSettled {
             candidate := selection.Current
             declaresMetadata := false
             if candidate.IsImport {
-                resolution := FindInNamespace(scan, candidate.Namespace, ownerName)
+                resolution := FindInNamespaceCached(candidate.Namespace, ownerName)
                 if resolution.Status == ExternalAssemblyTypeLookupStatus.Unknown && matched.Status == ExternalAssemblyTypeLookupStatus.Missing {
                     return resolution
                 }
@@ -310,10 +310,10 @@ class ColumnarExternalTypeCatalog {
     // lexical chain is not a member there and the walk goes on — except for a DOTTED spelling read
     // absolutely, the one reading this resolver made before the chain existed, which keeps its old
     // "cannot prove identity" answer.
-    static func ResolveOwner(scan: ExternalAssemblyScanResult, facts: ColumnarSourceBindingFacts, ownerName: string): ExternalAssemblyTypeResolution {
+    func ResolveOwner(facts: ColumnarSourceBindingFacts, ownerName: string): ExternalAssemblyTypeResolution {
         lexical := SimpleNamePrecedence.LexicalNamespaces(facts.NamespaceName)
         for lexicalNamespace in lexical {
-            resolution := FindInNamespace(scan, lexicalNamespace, ownerName)
+            resolution := FindInNamespaceCached(lexicalNamespace, ownerName)
             if resolution.Status == ExternalAssemblyTypeLookupStatus.Found {
                 return resolution
             }
@@ -322,12 +322,41 @@ class ColumnarExternalTypeCatalog {
             }
         }
 
-        imported := ResolveImportedOwner(scan, facts, ownerName)
+        imported := ResolveImportedOwner(facts, ownerName)
         if imported.Status != ExternalAssemblyTypeLookupStatus.Missing {
             return imported
         }
 
-        return ExternalAssemblyScan.FindFirstVisibleType(scan, ownerName)
+        key := "visible:" + ownerName
+        visible := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        scan := preparedScan
+        if scan != null && !resolvedOwners.TryGetValue(key, out visible) {
+            visible = ExternalAssemblyScan.FindFirstVisibleType(scan, ownerName)
+            resolvedOwners[key] = visible
+        }
+        return visible
+    }
+
+    // ONE NAMESPACE'S MEMBER OF ONE SPELLING, ASKED ONCE PER PREPARED SCAN. The answer is a function of
+    // the scan and the two strings alone -- not of the file asking -- and the scan is immutable while
+    // the catalog is prepared, so every file shares it. The per-file owner cache above keys on the
+    // FILE as well, because the precedence walk that consumes these answers is the file's; before
+    // this, each of a project's files walked its lexical chain and its imports and re-asked every
+    // referenced assembly `GetType("<namespace>.<name>")` for the same pairs. Measured on
+    // Compiler.Core's tests-included emit once Compiler.Model was carved out of it: `FindExactType`
+    // was 55% of the emit thread at the base and grew by 29 of 94 samples when Model's types became
+    // referenced ones -- most of it misses, where a MetadataLoadContext formats a type-load message
+    // for every assembly it asks.
+    func FindInNamespaceCached(namespaceName: string?, name: string): ExternalAssemblyTypeResolution {
+        resolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        key := "namespace:" + (namespaceName ?? "") + ":" + name
+        scan := preparedScan
+        if scan != null && !resolvedOwners.TryGetValue(key, out resolution) {
+            resolution = FindInNamespace(scan, namespaceName, name)
+            resolvedOwners[key] = resolution
+        }
+
+        return resolution
     }
 
     // ONE namespace's member of this spelling: `<namespace>.<name>` exactly, then with the SPELLING's
@@ -381,13 +410,7 @@ class ColumnarExternalTypeCatalog {
             return false
         }
 
-        resolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
-        key := "namespace:" + (namespaceName ?? "") + ":" + name
-        if !resolvedOwners.TryGetValue(key, out resolution) {
-            resolution = FindInNamespace(preparedScan, namespaceName, name)
-            resolvedOwners[key] = resolution
-        }
-
+        resolution := FindInNamespaceCached(namespaceName, name)
         return resolution.Status == ExternalAssemblyTypeLookupStatus.Found && resolution.HasRuntimeType
     }
 
