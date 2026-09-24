@@ -11,6 +11,7 @@ class ReferenceResolutionOptions {
     buildProjectReferencesValue: bool
     quietValue: bool
     aotModeValue: bool
+    packagesFolderValue: string?
 
     constructor() {
         configurationValue = "Debug"
@@ -62,6 +63,19 @@ class ReferenceResolutionOptions {
         }
         set {
             aotModeValue = value
+        }
+    }
+
+    // THE NUGET GLOBAL PACKAGES FOLDER THIS RESOLUTION READS. Null is NuGet's own rule --
+    // `NUGET_PACKAGES`, else `~/.nuget/packages` -- read once when the resolution begins. A caller that
+    // resolves against a different cache names it here instead of rewriting the process environment,
+    // which every other reader in the process would see too.
+    PackagesFolder: string? {
+        get {
+            return packagesFolderValue
+        }
+        set {
+            packagesFolderValue = value
         }
     }
 
@@ -202,9 +216,45 @@ class ReferenceResolutionResult {
 }
 
 class ResolutionContext {
+    packagesRootValue: string
     packageAssetsValue: Dictionary<string, NuGetPackageAssets>?
     projectOutputsValue: Dictionary<string, ResolvedProjectReference>?
     activeProjectRootsValue: Stack<string>?
+
+    // ONE RESOLUTION READS ONE PACKAGES FOLDER, decided when it begins. It used to be re-read from
+    // `NUGET_PACKAGES` at every package the walk touched, so the only way to point a resolution at a
+    // fixture cache was to rewrite that variable -- and the process environment is shared by every
+    // thread in it. The compiler-service estate runs its test classes in parallel, and a resolver row
+    // that did exactly that sent `ExternalAssemblyRuntimePairing`'s concurrent NuGet lookups into its
+    // temporary cache, where `microsoft.build.framework` does not exist. The folder is state of the
+    // resolution, so it lives here with the rest of it, and a project reference built inside this
+    // resolution reads the same cache as the project that references it.
+    constructor() {
+        packagesRootValue = CompilationReferenceResolverKernels.GetGlobalPackagesFolder(
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES"),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+        )
+    }
+
+    // A named folder wins; null or blank falls back to NuGet's own rule, exactly as the parameterless
+    // constructor decides it.
+    constructor(packagesFolder: string?) {
+        configuredPackagesFolder := packagesFolder
+        if string.IsNullOrWhiteSpace(configuredPackagesFolder ?? "") {
+            configuredPackagesFolder = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
+        }
+
+        packagesRootValue = CompilationReferenceResolverKernels.GetGlobalPackagesFolder(
+            configuredPackagesFolder,
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+        )
+    }
+
+    PackagesRoot: string {
+        get {
+            return packagesRootValue
+        }
+    }
 
     PackageAssets: Dictionary<string, NuGetPackageAssets> {
         get {

@@ -363,7 +363,9 @@ class CompilationReferenceResolverKernels {
     }
 
     static func GetProjectReferenceResolutionOptions(options: ReferenceResolutionOptions): ReferenceResolutionOptions {
-        return new ReferenceResolutionOptions(options.Configuration, false, options.BuildProjectReferences, options.Quiet, options.AotMode)
+        projectReferenceOptions := new ReferenceResolutionOptions(options.Configuration, false, options.BuildProjectReferences, options.Quiet, options.AotMode)
+        projectReferenceOptions.PackagesFolder = options.PackagesFolder
+        return projectReferenceOptions
     }
 
     static func ShouldUseRuntimeAssembliesForCompile(compileAssemblyCount: int): bool {

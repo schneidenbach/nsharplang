@@ -295,11 +295,12 @@ func ResolverPackageAssets(packageName: string, version: string?, targetFramewor
     return result
 }
 
-func ResolverEnsurePackage(packageName: string, version: string?): string {
-    method := ResolverPrivateMethod("EnsurePackageAvailable", 2)
-    arguments := new object?[](2)
-    ResolverSetObject(arguments, 0, packageName)
-    ResolverSetObject(arguments, 1, version)
+func ResolverEnsurePackage(packagesRoot: string, packageName: string, version: string?): string {
+    method := ResolverPrivateMethod("EnsurePackageAvailable", 3)
+    arguments := new object?[](3)
+    ResolverSetObject(arguments, 0, packagesRoot)
+    ResolverSetObject(arguments, 1, packageName)
+    ResolverSetObject(arguments, 2, version)
     result := ResolverInvoke(method, arguments) as string
     if result == null {
         throw new InvalidOperationException("EnsurePackageAvailable returned no package directory.")

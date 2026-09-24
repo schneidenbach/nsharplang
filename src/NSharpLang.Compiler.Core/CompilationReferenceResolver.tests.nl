@@ -70,8 +70,8 @@ test "CompilationReferenceResolver has exactly the two cross assembly entries an
         }
         privateMethodIndex = privateMethodIndex + 1
     }
-    assert privateMethodCount == 23
-    expectedPrivateMethods := new string[](23)
+    assert privateMethodCount == 22
+    expectedPrivateMethods := new string[](22)
     // Declaration order. `SelectNuGetPackageVersions` is the level-order pass that decides one
     // version per package id before `ResolveNuGetPackage` takes a single asset.
     expectedPrivateMethods[0] = "CreateHttpClient"
@@ -95,8 +95,7 @@ test "CompilationReferenceResolver has exactly the two cross assembly entries an
     expectedPrivateMethods[18] = "ReadPackageDependencies"
     expectedPrivateMethods[19] = "SelectBestAssetAssemblies"
     expectedPrivateMethods[20] = "AddDllReference"
-    expectedPrivateMethods[21] = "GetGlobalPackagesFolder"
-    expectedPrivateMethods[22] = "FindSharedFrameworkDirectory"
+    expectedPrivateMethods[21] = "FindSharedFrameworkDirectory"
     expectedPrivateIndex := 0
     while expectedPrivateIndex < expectedPrivateMethods.Length {
         expectedPrivateMethod := owner.GetMethod(
@@ -169,14 +168,15 @@ test "project and local NuGet resolution mutates dependencies in package then pr
     previousPackages := Environment.GetEnvironmentVariable("NUGET_PACKAGES")
     try {
         ResolverPrepareNewtonsoftCache(packagesRoot)
-        Environment.SetEnvironmentVariable("NUGET_PACKAGES", packagesRoot)
         ResolverWriteProjectReferenceFixture(projectRoot)
 
         config := ResolverParseProject(projectRoot)
         projectReference := config.Dependencies[0]
         assert projectReference.Project == "Shared/project.yml"
         assert config.Dependencies[1].Nuget == "Newtonsoft.Json"
-        result := CompilationReferenceResolver.AddResolvedDllReferences(projectRoot, config, null)
+        options := new ReferenceResolutionOptions()
+        options.PackagesFolder = packagesRoot
+        result := CompilationReferenceResolver.AddResolvedDllReferences(projectRoot, config, options)
 
         assert CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config) == "App"
         assert !ResolverContainsProjectIdentity(config, projectReference)
@@ -197,16 +197,14 @@ test "project and local NuGet resolution mutates dependencies in package then pr
         }
         assert runtimeAssetFound
     } finally {
-        Environment.SetEnvironmentVariable("NUGET_PACKAGES", previousPackages)
         Directory.Delete(projectRoot, true)
     }
-    assert Environment.GetEnvironmentVariable("NUGET_PACKAGES") == previousPackages
+    assert Environment.GetEnvironmentVariable("NUGET_PACKAGES") == previousPackages, "Resolving against a named packages folder must leave the process environment alone."
 }
 
 test "package recursion caches before descent preserves identity and keeps aggregate ref preference" {
     scratch := ResolverNewTempDirectory("package-graph")
     packagesRoot := Path.Combine(scratch, "packages")
-    previousPackages := Environment.GetEnvironmentVariable("NUGET_PACKAGES")
     try {
         rootRef := ResolverFrameworkAssembly("System.Text.Json.dll")
         rootRuntime := ResolverFrameworkAssembly("System.Xml.Linq.dll")
@@ -254,8 +252,8 @@ test "package recursion caches before descent preserves identity and keeps aggre
         ResolverWritePackage(packagesRoot, "Versioned.Pkg", "1.0.0", "", null, null)
         ResolverWritePackage(packagesRoot, "Versioned.Pkg", "2.0.0", "", null, null)
 
-        Environment.SetEnvironmentVariable("NUGET_PACKAGES", packagesRoot)
-        context := new ResolutionContext()
+        context := new ResolutionContext(packagesRoot)
+        assert context.PackagesRoot == Path.GetFullPath(packagesRoot)
         assets := ResolverPackageAssets("Root.Pkg", "1.0.0", "net10.0", context)
         sameAssets := ResolverPackageAssets("ROOT.PKG", "1.0.0", "net10.0", context)
         assert Object.ReferenceEquals(assets, sameAssets)
@@ -280,23 +278,22 @@ test "package recursion caches before descent preserves identity and keeps aggre
         assert assets.RuntimeAssemblies.Contains(rootRuntimePath)
         assert assets.CompileAssemblies.Contains(Path.Combine(Path.Combine(Path.Combine(Path.Combine(packagesRoot, "shared.pkg/1.0.0"), "lib"), "net10.0"), Path.GetFileName(sharedRuntime)))
 
-        libOnly := ResolverPackageAssets("Lib.Only", "1.0.0", "net10.0", new ResolutionContext())
+        libOnly := ResolverPackageAssets("Lib.Only", "1.0.0", "net10.0", new ResolutionContext(packagesRoot))
         libOnlyPath := Path.Combine(Path.Combine(Path.Combine(libOnlyDirectory, "lib"), "net10.0"), Path.GetFileName(rightRuntime))
         assert libOnly.CompileAssemblies.Contains(libOnlyPath)
         assert libOnly.RuntimeAssemblies.Contains(libOnlyPath)
 
-        aggregate := ResolverPackageAssets("Aggregate.Pkg", "1.0.0", "net10.0", new ResolutionContext())
+        aggregate := ResolverPackageAssets("Aggregate.Pkg", "1.0.0", "net10.0", new ResolutionContext(packagesRoot))
         aggregateRuntimePath := Path.Combine(Path.Combine(Path.Combine(aggregateDirectory, "lib"), "net10.0"), Path.GetFileName(aggregateRuntime))
         assert !aggregate.CompileAssemblies.Contains(aggregateRuntimePath)
         assert aggregate.RuntimeAssemblies.Contains(aggregateRuntimePath)
         assert aggregate.CompileAssemblies.Contains(rootRefPath)
 
-        selectedLatest := ResolverEnsurePackage("Versioned.Pkg", null)
-        selectedExplicit := ResolverEnsurePackage("Versioned.Pkg", "1.0.0")
+        selectedLatest := ResolverEnsurePackage(context.PackagesRoot, "Versioned.Pkg", null)
+        selectedExplicit := ResolverEnsurePackage(context.PackagesRoot, "Versioned.Pkg", "1.0.0")
         assert string.Equals(Path.GetFileName(selectedLatest), "2.0.0", StringComparison.Ordinal)
         assert string.Equals(Path.GetFileName(selectedExplicit), "1.0.0", StringComparison.Ordinal)
     } finally {
-        Environment.SetEnvironmentVariable("NUGET_PACKAGES", previousPackages)
         Directory.Delete(scratch, true)
     }
 }
@@ -378,4 +375,34 @@ test "AOT project reference failure retains the source row and adds no child out
     } finally {
         Directory.Delete(scratch, true)
     }
+}
+
+// THE PACKAGES FOLDER IS STATE OF ONE RESOLUTION, NOT OF THE PROCESS. A named folder is how a caller
+// resolves against another cache; rewriting `NUGET_PACKAGES` instead leaked into every thread of the
+// parallel estate. The default is decided exactly as NuGet decides it, and a project reference's
+// options carry the named folder into the resolution it starts.
+test "a resolution context decides its packages folder once and a named folder wins without touching the environment" {
+    previousPackages := Environment.GetEnvironmentVariable("NUGET_PACKAGES")
+    nugetRule := CompilationReferenceResolverKernels.GetGlobalPackagesFolder(
+        previousPackages,
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+    )
+    defaultContext := new ResolutionContext()
+    unnamedContext := new ResolutionContext(null)
+    blankContext := new ResolutionContext("  ")
+    assert defaultContext.PackagesRoot == nugetRule
+    assert unnamedContext.PackagesRoot == nugetRule
+    assert blankContext.PackagesRoot == nugetRule
+
+    namedFolder := Path.Combine(Path.GetTempPath(), "nsharp-reference-resolution-named-packages")
+    namedContext := new ResolutionContext(namedFolder)
+    assert namedContext.PackagesRoot == Path.GetFullPath(namedFolder)
+
+    options := new ReferenceResolutionOptions()
+    assert options.PackagesFolder == null
+    options.PackagesFolder = namedFolder
+    projectReferenceOptions := CompilationReferenceResolverKernels.GetProjectReferenceResolutionOptions(options)
+    assert projectReferenceOptions.PackagesFolder == namedFolder
+    assert !projectReferenceOptions.IncludeTests
+    assert Environment.GetEnvironmentVariable("NUGET_PACKAGES") == previousPackages
 }

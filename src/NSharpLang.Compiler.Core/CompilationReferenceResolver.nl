@@ -28,7 +28,7 @@ sealed class CompilationReferenceResolver {
         options: ReferenceResolutionOptions? = null
     ): ReferenceResolutionResult {
         resolvedOptions := options ?? new ReferenceResolutionOptions()
-        context := new ResolutionContext()
+        context := new ResolutionContext(resolvedOptions.PackagesFolder)
         projectRoot := CompilationReferenceResolverKernels.GetProjectRoot(projectDir)
         return ResolveProjectReferences(projectRoot, config, resolvedOptions, context)
     }
@@ -80,7 +80,7 @@ sealed class CompilationReferenceResolver {
         // Walking each root's closure and keeping whatever version was reached first makes the
         // order of the `nuget:` list decide the answer; NuGet's rule is nearest-wins, so the
         // selection is a level-order pass of its own and the asset walk below reads its result.
-        selectedVersions := SelectNuGetPackageVersions(packageReferences, config.TargetFramework)
+        selectedVersions := SelectNuGetPackageVersions(packageReferences, config.TargetFramework, context.PackagesRoot)
 
         for packageReference in packageReferences {
             packageAssets := ResolveNuGetPackage(
@@ -334,7 +334,8 @@ sealed class CompilationReferenceResolver {
     // and the versions reachable for an id are a finite set the nuspecs fix.
     private static func SelectNuGetPackageVersions(
         packageReferences: List<Reference>,
-        targetFramework: string
+        targetFramework: string,
+        packagesRoot: string
     ): Dictionary<string, string> {
         selectedVersions := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         selectedDirect := new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
@@ -353,7 +354,7 @@ sealed class CompilationReferenceResolver {
             cursor = cursor + 1
 
             normalizedId := CompilationReferenceResolverKernels.NormalizeNuGetPackageId(node.Id)
-            versionDirectory := EnsurePackageAvailable(node.Id, node.Version)
+            versionDirectory := EnsurePackageAvailable(packagesRoot, node.Id, node.Version)
             candidateVersion := CompilationReferenceResolverKernels.GetInstalledNuGetPackageVersion(
                 versionDirectory
             )
@@ -411,7 +412,7 @@ sealed class CompilationReferenceResolver {
             resolvedVersion = selectedVersion
         }
 
-        versionDirectory := EnsurePackageAvailable(packageName, resolvedVersion)
+        versionDirectory := EnsurePackageAvailable(context.PackagesRoot, packageName, resolvedVersion)
         declaredIdentity := ReadPackageIdentity(versionDirectory)
         packageIdentity := CompilationReferenceResolverKernels.ResolveNuGetPackageIdentity(
             versionDirectory,
@@ -469,8 +470,7 @@ sealed class CompilationReferenceResolver {
         return assets
     }
 
-    private static func EnsurePackageAvailable(packageName: string, version: string?): string {
-        packagesRoot := GetGlobalPackagesFolder()
+    private static func EnsurePackageAvailable(packagesRoot: string, packageName: string, version: string?): string {
         packageDirectory := CompilationReferenceResolverKernels.GetNuGetPackageDirectory(
             packagesRoot,
             packageName
@@ -834,15 +834,6 @@ sealed class CompilationReferenceResolver {
         if CompilationReferenceResolverKernels.ShouldAddDllReference(config.Dependencies, fullPath) {
             config.Dependencies.Add(new Reference { Dll: fullPath })
         }
-    }
-
-    private static func GetGlobalPackagesFolder(): string {
-        configuredPackagesFolder := Environment.GetEnvironmentVariable("NUGET_PACKAGES")
-        userProfileFolder := Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
-        return CompilationReferenceResolverKernels.GetGlobalPackagesFolder(
-            configuredPackagesFolder,
-            userProfileFolder
-        )
     }
 
     private static func FindSharedFrameworkDirectory(

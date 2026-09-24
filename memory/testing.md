@@ -850,6 +850,19 @@ process.
   hijack a concurrent in-process compile's bare-name lookup (the "MemoryCopy not found on type Buffer"
   flake). Never resolve external types via a raw `AppDomain.CurrentDomain.GetAssemblies()` scan.
 
+### 4a. Estate Rows Never Rewrite Process-Global State
+The compiler-service estate is ONE xunit process whose test classes (one per `.tests.nl` file) run
+IN PARALLEL. An environment variable, the current directory or any other process-global setting a
+row rewrites — even inside `try`/`finally` — is visible to every row running beside it. MEASURED
+(2026-09-23): two `CompilationReferenceResolver.tests.nl` rows pointed `NUGET_PACKAGES` at a
+temporary fixture cache, and `ExternalAssemblyRuntimePairing.tests.nl`'s NuGet lookups running at
+the same moment threw `DirectoryNotFoundException` on `<temp>/packages/microsoft.build.framework`:
+1 estate run in 10 under load, 35 in 40 with the two classes alone, and one failed VS-enabled gate.
+Give the code under test the value as an input instead — the resolver's packages folder is now
+`ReferenceResolutionOptions.PackagesFolder` / `ResolutionContext(packagesFolder)`, decided once per
+resolution. A row whose claim really is about process-global state belongs in a native project,
+which is its own process.
+
 ### 5. The Product Gate Skips Steps With Unchanged Inputs
 Within a plain fresh isolated `./scripts/test-all.sh` development run, a gate step is skipped when
 its ENTIRE input set is byte-identical to inputs that previously PASSED that step on the same
