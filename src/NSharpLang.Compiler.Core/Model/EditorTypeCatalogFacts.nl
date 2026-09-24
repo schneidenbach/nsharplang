@@ -121,7 +121,7 @@ class EditorTypeCatalogFacts {
     }
 
     static func KnownReceiverFullName(nsharpSpelling: string): string? {
-        resolved := CompletionReflectionFacts.KnownReceiverType(nsharpSpelling)
+        resolved := KnownReceiverSpellings.KnownReceiverType(nsharpSpelling)
         if resolved == null {
             return null
         }
@@ -130,7 +130,7 @@ class EditorTypeCatalogFacts {
     }
 
     static func KnownDefinitionFullName(nsharpSpelling: string): string? {
-        resolved := CompletionReflectionFacts.KnownReceiverGenericDefinition(nsharpSpelling)
+        resolved := KnownReceiverSpellings.KnownReceiverGenericDefinition(nsharpSpelling)
         if resolved == null {
             return null
         }

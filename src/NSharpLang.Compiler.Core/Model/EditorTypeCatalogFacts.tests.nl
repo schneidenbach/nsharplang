@@ -143,10 +143,10 @@ test "eight of the twelve full names are DERIVED from CompletionReflectionFacts 
     assert EditorTypeCatalogFacts.CommonShortTypeFullName("IEnumerable") == "System.Collections.Generic.IEnumerable`1"
 
     // And they really are the other owner's answers, not a coincidence of spelling.
-    assert EditorTypeCatalogFacts.CommonShortTypeFullName("Console") == EtcFullNameOf(CompletionReflectionFacts.KnownReceiverType("Console"))
-    assert EditorTypeCatalogFacts.CommonShortTypeFullName("String") == EtcFullNameOf(CompletionReflectionFacts.KnownReceiverType("string"))
-    assert EditorTypeCatalogFacts.CommonShortTypeFullName("List") == EtcFullNameOf(CompletionReflectionFacts.KnownReceiverGenericDefinition("List"))
-    assert EditorTypeCatalogFacts.CommonShortTypeFullName("IEnumerable") == EtcFullNameOf(CompletionReflectionFacts.KnownReceiverGenericDefinition("IEnumerable"))
+    assert EditorTypeCatalogFacts.CommonShortTypeFullName("Console") == EtcFullNameOf(KnownReceiverSpellings.KnownReceiverType("Console"))
+    assert EditorTypeCatalogFacts.CommonShortTypeFullName("String") == EtcFullNameOf(KnownReceiverSpellings.KnownReceiverType("string"))
+    assert EditorTypeCatalogFacts.CommonShortTypeFullName("List") == EtcFullNameOf(KnownReceiverSpellings.KnownReceiverGenericDefinition("List"))
+    assert EditorTypeCatalogFacts.CommonShortTypeFullName("IEnumerable") == EtcFullNameOf(KnownReceiverSpellings.KnownReceiverGenericDefinition("IEnumerable"))
 }
 
 test "the four with no owner are spelled here and the roster Task is the NON-generic one" {
@@ -157,7 +157,7 @@ test "the four with no owner are spelled here and the roster Task is the NON-gen
     // This is why the derivation stops at eight: the other owner's `Task` is `Task`1`, a DIFFERENT
     // type from the one an editor offers under the bare name `Task`.
     assert EditorTypeCatalogFacts.CommonShortTypeFullName("Task") == "System.Threading.Tasks.Task"
-    assert EtcFullNameOf(CompletionReflectionFacts.KnownReceiverGenericDefinition("Task")) == "System.Threading.Tasks.Task`1"
+    assert EtcFullNameOf(KnownReceiverSpellings.KnownReceiverGenericDefinition("Task")) == "System.Threading.Tasks.Task`1"
 }
 
 test "a name outside the roster has no full name and the lookup is ORDINAL" {

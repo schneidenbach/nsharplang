@@ -406,7 +406,7 @@ class CodeIntelligenceTypeResolution {
     static func ReflectedMemberOfTypeForCall(receiverType: TypeInfo, memberName: string, argumentTypes: TypeInfo?[]?): ReflectedMemberHandle? {
         genericType := UnwrapGenericReceiver(receiverType)
         if genericType != null {
-            definition := CompletionReflectionFacts.KnownReceiverGenericDefinition(genericType.Name)
+            definition := KnownReceiverSpellings.KnownReceiverGenericDefinition(genericType.Name)
             if definition != null && definition.GetGenericArguments().Length == genericType.TypeArguments.Count {
                 return ReflectedMemberOfClrType(definition, memberName, argumentTypes, BuildGenericArgumentOverride(definition, genericType))
             }

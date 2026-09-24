@@ -8,7 +8,7 @@ import NSharpLang.Compiler
 // CONTRACTS FOR THE HOVER SIGNATURE — IDE DEFECT D2.
 //
 // These run against the LIVE type universe: every receiver below resolves through
-// `CompletionReflectionFacts.KnownReceiverType`, which answers with a `typeof`. The OTHER universe —
+// `KnownReceiverSpellings.KnownReceiverType`, which answers with a `typeof`. The OTHER universe —
 // the `MetadataLoadContext` the CLI loads external assemblies into — is pinned by
 // `tests/native/query-integration`, which asks the same questions through a real project on disk.
 // Both are needed and neither substitutes for the other: `NullabilityInfoContext.Create` is the

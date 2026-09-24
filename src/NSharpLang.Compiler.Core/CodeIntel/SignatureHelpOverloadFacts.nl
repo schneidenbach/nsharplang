@@ -407,7 +407,7 @@ class SignatureHelpOverloadFacts {
     // registry, so a package the project depends on answers here exactly as it answers for
     // completion; the built-in receiver table answers for the names the analyzer models directly.
     static func ResolveTypeReceiver(receiverName: string, catalog: EditorTypeCatalog?): Type? {
-        known := CompletionReflectionFacts.KnownReceiverType(receiverName)
+        known := KnownReceiverSpellings.KnownReceiverType(receiverName)
         if known != null {
             return known
         }

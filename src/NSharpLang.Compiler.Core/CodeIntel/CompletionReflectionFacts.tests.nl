@@ -226,41 +226,41 @@ test "no FlattenHierarchy means INHERITED STATICS are NOT offered" {
 // ── which receivers reflect ──────────────────────────────────────────────────────────────────
 
 test "the eleven reflection receivers answer in both the N# spelling and the CLR one" {
-    assert CompletionReflectionFacts.KnownReceiverType("string") == typeof(string)
-    assert CompletionReflectionFacts.KnownReceiverType("System.String") == typeof(string)
-    assert CompletionReflectionFacts.KnownReceiverType("int") == typeof(int)
-    assert CompletionReflectionFacts.KnownReceiverType("System.Int32") == typeof(int)
-    assert CompletionReflectionFacts.KnownReceiverType("long") == typeof(long)
-    assert CompletionReflectionFacts.KnownReceiverType("System.Int64") == typeof(long)
-    assert CompletionReflectionFacts.KnownReceiverType("bool") == typeof(bool)
-    assert CompletionReflectionFacts.KnownReceiverType("System.Boolean") == typeof(bool)
-    assert CompletionReflectionFacts.KnownReceiverType("double") == typeof(double)
-    assert CompletionReflectionFacts.KnownReceiverType("System.Double") == typeof(double)
-    assert CompletionReflectionFacts.KnownReceiverType("float") == typeof(float)
-    assert CompletionReflectionFacts.KnownReceiverType("System.Single") == typeof(float)
-    assert CompletionReflectionFacts.KnownReceiverType("char") == typeof(char)
-    assert CompletionReflectionFacts.KnownReceiverType("System.Char") == typeof(char)
-    assert CompletionReflectionFacts.KnownReceiverType("object") == typeof(object)
-    assert CompletionReflectionFacts.KnownReceiverType("System.Object") == typeof(object)
-    assert CompletionReflectionFacts.KnownReceiverType("DateTime") == typeof(DateTime)
-    assert CompletionReflectionFacts.KnownReceiverType("System.DateTime") == typeof(DateTime)
+    assert KnownReceiverSpellings.KnownReceiverType("string") == typeof(string)
+    assert KnownReceiverSpellings.KnownReceiverType("System.String") == typeof(string)
+    assert KnownReceiverSpellings.KnownReceiverType("int") == typeof(int)
+    assert KnownReceiverSpellings.KnownReceiverType("System.Int32") == typeof(int)
+    assert KnownReceiverSpellings.KnownReceiverType("long") == typeof(long)
+    assert KnownReceiverSpellings.KnownReceiverType("System.Int64") == typeof(long)
+    assert KnownReceiverSpellings.KnownReceiverType("bool") == typeof(bool)
+    assert KnownReceiverSpellings.KnownReceiverType("System.Boolean") == typeof(bool)
+    assert KnownReceiverSpellings.KnownReceiverType("double") == typeof(double)
+    assert KnownReceiverSpellings.KnownReceiverType("System.Double") == typeof(double)
+    assert KnownReceiverSpellings.KnownReceiverType("float") == typeof(float)
+    assert KnownReceiverSpellings.KnownReceiverType("System.Single") == typeof(float)
+    assert KnownReceiverSpellings.KnownReceiverType("char") == typeof(char)
+    assert KnownReceiverSpellings.KnownReceiverType("System.Char") == typeof(char)
+    assert KnownReceiverSpellings.KnownReceiverType("object") == typeof(object)
+    assert KnownReceiverSpellings.KnownReceiverType("System.Object") == typeof(object)
+    assert KnownReceiverSpellings.KnownReceiverType("DateTime") == typeof(DateTime)
+    assert KnownReceiverSpellings.KnownReceiverType("System.DateTime") == typeof(DateTime)
 }
 
 test "the two STATIC-CLASS receivers are loaded by metadata name and are the real runtime types" {
     // `typeof(Console)` and `typeof(Math)` do not emit, so these are loaded by name — and this is
     // the assertion that the name route did not quietly answer a DIFFERENT type.
-    consoleType := CompletionReflectionFacts.KnownReceiverType("Console")
+    consoleType := KnownReceiverSpellings.KnownReceiverType("Console")
     assert consoleType != null
     assert consoleType.get_FullName() == "System.Console"
     consoleAssembly := consoleType.get_Assembly()
     consoleAssemblyName := consoleAssembly.GetName()
     assert consoleAssemblyName.get_Name() == "System.Console"
-    assert CompletionReflectionFacts.KnownReceiverType("System.Console") == consoleType
+    assert KnownReceiverSpellings.KnownReceiverType("System.Console") == consoleType
 
-    mathType := CompletionReflectionFacts.KnownReceiverType("Math")
+    mathType := KnownReceiverSpellings.KnownReceiverType("Math")
     assert mathType != null
     assert mathType.get_FullName() == "System.Math"
-    assert CompletionReflectionFacts.KnownReceiverType("System.Math") == mathType
+    assert KnownReceiverSpellings.KnownReceiverType("System.Math") == mathType
 
     // Both really are static classes, which is exactly why `typeof` could not spell them.
     assert consoleType.get_IsAbstract() && consoleType.get_IsSealed()
@@ -268,47 +268,47 @@ test "the two STATIC-CLASS receivers are loaded by metadata name and are the rea
 }
 
 test "a name that is not one of the eleven is not a reflection receiver" {
-    assert CompletionReflectionFacts.KnownReceiverType("Person") == null
-    assert CompletionReflectionFacts.KnownReceiverType("decimal") == null
-    assert CompletionReflectionFacts.KnownReceiverType("byte") == null
-    assert CompletionReflectionFacts.KnownReceiverType("") == null
-    assert CompletionReflectionFacts.KnownReceiverType("System.Text.StringBuilder") == null
+    assert KnownReceiverSpellings.KnownReceiverType("Person") == null
+    assert KnownReceiverSpellings.KnownReceiverType("decimal") == null
+    assert KnownReceiverSpellings.KnownReceiverType("byte") == null
+    assert KnownReceiverSpellings.KnownReceiverType("") == null
+    assert KnownReceiverSpellings.KnownReceiverType("System.Text.StringBuilder") == null
 }
 
 test "all fifteen generic definitions load, are open, and carry the arity their name implies" {
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("List").get_FullName() == "System.Collections.Generic.List`1"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("IEnumerable").get_FullName() == "System.Collections.Generic.IEnumerable`1"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("ICollection").get_FullName() == "System.Collections.Generic.ICollection`1"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("IList").get_FullName() == "System.Collections.Generic.IList`1"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("IReadOnlyCollection").get_FullName() == "System.Collections.Generic.IReadOnlyCollection`1"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("IReadOnlyList").get_FullName() == "System.Collections.Generic.IReadOnlyList`1"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("Dictionary").get_FullName() == "System.Collections.Generic.Dictionary`2"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("IDictionary").get_FullName() == "System.Collections.Generic.IDictionary`2"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("IReadOnlyDictionary").get_FullName() == "System.Collections.Generic.IReadOnlyDictionary`2"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("HashSet").get_FullName() == "System.Collections.Generic.HashSet`1"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("Queue").get_FullName() == "System.Collections.Generic.Queue`1"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("Stack").get_FullName() == "System.Collections.Generic.Stack`1"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("Nullable").get_FullName() == "System.Nullable`1"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("Task").get_FullName() == "System.Threading.Tasks.Task`1"
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("ValueTask").get_FullName() == "System.Threading.Tasks.ValueTask`1"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("List").get_FullName() == "System.Collections.Generic.List`1"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("IEnumerable").get_FullName() == "System.Collections.Generic.IEnumerable`1"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("ICollection").get_FullName() == "System.Collections.Generic.ICollection`1"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("IList").get_FullName() == "System.Collections.Generic.IList`1"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("IReadOnlyCollection").get_FullName() == "System.Collections.Generic.IReadOnlyCollection`1"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("IReadOnlyList").get_FullName() == "System.Collections.Generic.IReadOnlyList`1"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Dictionary").get_FullName() == "System.Collections.Generic.Dictionary`2"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("IDictionary").get_FullName() == "System.Collections.Generic.IDictionary`2"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("IReadOnlyDictionary").get_FullName() == "System.Collections.Generic.IReadOnlyDictionary`2"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("HashSet").get_FullName() == "System.Collections.Generic.HashSet`1"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Queue").get_FullName() == "System.Collections.Generic.Queue`1"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Stack").get_FullName() == "System.Collections.Generic.Stack`1"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Nullable").get_FullName() == "System.Nullable`1"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Task").get_FullName() == "System.Threading.Tasks.Task`1"
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("ValueTask").get_FullName() == "System.Threading.Tasks.ValueTask`1"
 
     // Every one is an OPEN definition — that is what makes the close below legal.
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("List").get_IsGenericTypeDefinition()
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("Dictionary").GetGenericArguments().Length == 2
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("List").GetGenericArguments().Length == 1
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("List").get_IsGenericTypeDefinition()
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Dictionary").GetGenericArguments().Length == 2
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("List").GetGenericArguments().Length == 1
 
     // `Stack` is the one that does NOT live in the core library, so its name carries its assembly.
-    stackAssembly := CompletionReflectionFacts.KnownReceiverGenericDefinition("Stack").get_Assembly()
+    stackAssembly := KnownReceiverSpellings.KnownReceiverGenericDefinition("Stack").get_Assembly()
     stackAssemblyName := stackAssembly.GetName()
     assert stackAssemblyName.get_Name() == "System.Collections"
 }
 
 test "the fully qualified generic spellings answer the same definitions as the short ones" {
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("System.Collections.Generic.List") == CompletionReflectionFacts.KnownReceiverGenericDefinition("List")
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("System.Collections.Generic.IReadOnlyDictionary") == CompletionReflectionFacts.KnownReceiverGenericDefinition("IReadOnlyDictionary")
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("System.Nullable") == CompletionReflectionFacts.KnownReceiverGenericDefinition("Nullable")
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("System.Threading.Tasks.ValueTask") == CompletionReflectionFacts.KnownReceiverGenericDefinition("ValueTask")
-    assert CompletionReflectionFacts.KnownReceiverGenericDefinition("Span") == null
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("System.Collections.Generic.List") == KnownReceiverSpellings.KnownReceiverGenericDefinition("List")
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("System.Collections.Generic.IReadOnlyDictionary") == KnownReceiverSpellings.KnownReceiverGenericDefinition("IReadOnlyDictionary")
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("System.Nullable") == KnownReceiverSpellings.KnownReceiverGenericDefinition("Nullable")
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("System.Threading.Tasks.ValueTask") == KnownReceiverSpellings.KnownReceiverGenericDefinition("ValueTask")
+    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Span") == null
 }
 
 // ── resolving a receiver's CLR type ──────────────────────────────────────────────────────────
@@ -394,7 +394,7 @@ test "the sixteen built-in arguments answer their CLR types in both spellings" {
 test "the ARGUMENT table is wider than the RECEIVER table, and everything else is object" {
     // `decimal` and `byte` are arguments but NOT receivers, and that difference is deliberate.
     assert CompletionReflectionFacts.GetReflectionTypeArgumentOrObject(CrfSimple("decimal")) == typeof(decimal)
-    assert CompletionReflectionFacts.KnownReceiverType("decimal") == null
+    assert KnownReceiverSpellings.KnownReceiverType("decimal") == null
 
     // An argument the table cannot spell widens to `object` rather than failing the close.
     assert CompletionReflectionFacts.GetReflectionTypeArgumentOrObject(CrfSimple("Person")) == typeof(object)
@@ -552,7 +552,7 @@ test "a LIVE definition closed over a METADATA argument is POISONED, and the fam
 
         // What the CLR really does with the mix, asserted here so a platform change fails this
         // contract rather than silently reopening the crash: it does NOT throw, it POISONS.
-        definition := CompletionReflectionFacts.KnownReceiverGenericDefinition("List")
+        definition := KnownReceiverSpellings.KnownReceiverGenericDefinition("List")
         assert definition != null
         arguments := new Type[](1)
         arguments[0] = metadataInt
@@ -697,7 +697,7 @@ test "text that is not a literal is not a string literal receiver" {
 
 test "the filter a receiver chooses is the filter the reflected read then uses" {
     // The two halves of this file joined: what the receiver asks for, and what that asks the CLR.
-    consoleType: TypeInfo = new ReflectionTypeInfo(CompletionReflectionFacts.KnownReceiverType("Console"))
+    consoleType: TypeInfo = new ReflectionTypeInfo(KnownReceiverSpellings.KnownReceiverType("Console"))
 
     staticFilter := CompletionReflectionFacts.GetMemberFilter("Console", consoleType)
     assert staticFilter == CompletionMemberFilter.StaticOnly

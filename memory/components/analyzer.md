@@ -2049,14 +2049,15 @@ cannot name one.**
 Closing that gap means serving the editor from the analyzer's universe, which is a
 `MetadataLoadContext` — the AOT type-model verdict above is what currently blocks it. **Do not paper
 over it by adding a fifth seed name.** The seed names are metadata names rather than `typeof` for the
-reason `CompletionReflectionFacts` gives: `typeof` of a static class does not emit and an open
+reason `KnownReceiverSpellings` gives: `typeof` of a static class does not emit and an open
 `typeof(List<>)` does not parse.
 
 Two owners are consulted rather than copied:
 
-- **Eight of the twelve short-name spellings** are `CompletionReflectionFacts`'s answers, not a
-  second table: `Console`, `String`, `Math` and `DateTime` come from `KnownReceiverType`, and
-  `List`, `Dictionary`, `HashSet` and `IEnumerable` from `KnownReceiverGenericDefinition` — which is
+- **Eight of the twelve short-name spellings** are `KnownReceiverSpellings`'s answers (the table
+  completion reflects over), not a second table: `Console`, `String`, `Math` and `DateTime` come from
+  `KnownReceiverType`, and `List`, `Dictionary`, `HashSet` and `IEnumerable` from
+  `KnownReceiverGenericDefinition` — which is
   also where the arity suffixes come from. The other four (`Guid`, `Exception`, the NON-generic
   `Task`, `CancellationToken`) have no owner and are spelled once. The contracts assert each derived
   answer equals the literal it replaced, so a drift in the other owner fails there rather than
