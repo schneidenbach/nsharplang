@@ -117,6 +117,16 @@ class ColumnarTypeEquivalenceFacts {
         return true
     }
 
+    // The open `System.Nullable<T>` definition, loaded by metadata name; its absence is a broken runtime.
+    static func RequiredNullableDefinition(): Type {
+        result := Type.GetType("System.Nullable`1")
+        if result == null {
+            throw new InvalidOperationException("System.Nullable<T> runtime type was not found.")
+        }
+
+        return result
+    }
+
     // `IsByRef` is answerable for every baked type and throws for some unbaked emit-time shapes. A throw
     // means "not known to be by-ref", which is the same answer the caller needs.
     // TWO INFERENCE BOUNDS THAT DIFFER ONLY BY THE NULLABLE LIFT. `X` converts to `X?` and `X?` does
@@ -134,7 +144,7 @@ class ColumnarTypeEquivalenceFacts {
 
         arguments: Type[]? = null
         try {
-            if !candidate.IsGenericType || candidate.IsGenericTypeDefinition || candidate.GetGenericTypeDefinition() != ColumnarNullableArgumentLowering.RequiredNullableDefinition() {
+            if !candidate.IsGenericType || candidate.IsGenericTypeDefinition || candidate.GetGenericTypeDefinition() != RequiredNullableDefinition() {
                 return false
             }
 

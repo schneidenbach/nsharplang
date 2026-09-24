@@ -33,7 +33,7 @@ class ColumnarNullableArgumentLowering {
     static func TryGetSupportedNullableElement(targetType: Type, out elementType: Type): bool {
         ValidateType(targetType, "targetType")
         elementType = typeof(int)
-        nullableDefinition := RequiredNullableDefinition()
+        nullableDefinition := ColumnarTypeEquivalenceFacts.RequiredNullableDefinition()
         if !targetType.IsGenericType || targetType.IsGenericTypeDefinition || targetType.GetGenericTypeDefinition() != nullableDefinition {
             return false
         }
@@ -241,15 +241,6 @@ class ColumnarNullableArgumentLowering {
     // list, and three copies of a list are three chances to disagree about a type.
     static func IsLiftableNullableElement(valueType: Type): bool {
         return ColumnarTypeOfPlanner.IsLiftableNullableElement(valueType)
-    }
-
-    static func RequiredNullableDefinition(): Type {
-        result := Type.GetType("System.Nullable`1")
-        if result == null {
-            throw new InvalidOperationException("System.Nullable<T> runtime type was not found.")
-        }
-
-        return result
     }
 
     static func ValidatePlan(plan: ColumnarCodePlan) {
