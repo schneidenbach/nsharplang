@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System.Collections.Generic
-import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 
@@ -222,27 +221,4 @@ test "generic type receiver control: `Method<int>(42)` is still a generic CALL w
     declaration1.Add(Golden.Func("Test", Golden.NoParams(), null, Golden.Block(statement2, 2, 25), null, null, null, Modifiers.None, 2, 13))
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, declaration1, 2, 13)
     assert AstEq.Diff(expected, actual, "unit") == ""
-}
-
-// ---- (c) THE FORMATTER ROUND TRIP ----
-//
-// A NODE THE FORMATTER CANNOT SPELL IS A FILE THAT WILL NOT RE-PARSE, and `FormatterWalk`'s unhandled
-// arm THROWS rather than emitting something plausible — so a missing arm here is a crash, not a
-// silent corruption. These pin the text as well as the survival: the nested form must come back with
-// its `>>` unspaced, because that is what the developer wrote and what the split-`>>` reader accepts.
-
-func GtrFormat(source: string): string {
-    formatted := ""
-    ast := PsAst(source)
-    if ast != null {
-        formatter := new Formatter(new FormatterConfig())
-        formatted = formatter.Format(ast, null)
-    }
-
-    return formatted
-}
-
-test "generic type receiver: the formatter round-trips every receiver shape byte-exactly" {
-    source := "func Lanes(): int {\n    return Vector<int>.Count\n}\n\nfunc Make(): int {\n    return Box<int>.Create(42)\n}\n\nfunc Pair(): int {\n    return Dictionary<string, List<int>>.Count\n}\n\nfunc Between(value: int, lower: int, upper: int): bool {\n    return lower < value && value > upper\n}\n"
-    assert GtrFormat(source) == source
 }

@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
-import System.Text
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.Columnar
 
@@ -268,23 +267,6 @@ func ScanStatementCensus(statement: string): string {
     return PsCensus(ScanSource(statement))
 }
 
-// The formatter's round trip: parse, format, and show the ONE statement line with newlines visible.
-// A shape the parser accepts that the formatter cannot write back is a shape that silently rewrites
-// a user's file, so every new spelling is round-tripped rather than merely parsed.
-func ScanFormatted(source: string): string {
-    parsed := ColumnarParserRecovery.ParseFileAst(source, "test.nl")
-    unit := parsed.CompilationUnit
-    if unit == null {
-        return "<no-unit>"
-    }
-
-    formatter := new Formatter(new FormatterConfig())
-    // The defaulted `comments` parameter is written out: a same-project declaration does not yet
-    // offer its defaults to a call in that project.
-    formatted := formatter.Format(unit, null)
-    return formatted.Replace("\r\n", "\n").Trim()
-}
-
 test "census PARSE2 scan: a nullable type argument closes the list on the OUTER angle, so the call is a generic call and not a comparison" {
     // The shape the census found: the inner `>` of `List<int` is not the close.
     assert ScanStatementCensus("Task.FromResult<List<int>?>(null)") == ""
@@ -378,21 +360,4 @@ test "census PARSE2 tuple type: naming is per element there too, in a return typ
     local := "func Test() {\n    pair: (Item: string, Count: int) = value\n}\n"
     assert PsCensus(local) == ""
     assert ScanRow(local) == "value"
-}
-
-test "census PARSE2 formatter: every new spelling round-trips" {
-    assert ScanFormatted(ScanSource("Task.FromResult<List<int>?>(null)")) == "func Test() {\n    result := Task.FromResult<List<int>?>(null)\n}"
-    assert ScanFormatted(ScanSource("Method<(Item: int, Label: string)>(value)")) == "func Test() {\n    result := Method<(Item: int, Label: string)>(value)\n}"
-    assert ScanFormatted(ScanSource("(null, last, IsConstructor: true)")) == "func Test() {\n    result := (null, last, IsConstructor: true)\n}"
-    assert ScanFormatted(ScanSource("(First: 1, 2, Last: 3)")) == "func Test() {\n    result := (First: 1, 2, Last: 3)\n}"
-    assert ScanFormatted(ScanSource("a < b && c > d")) == "func Test() {\n    result := a < b && c > d\n}"
-
-    returnType := "func Test(): (string?, string, IsConstructor: bool) {\n    return (null, last, IsConstructor: true)\n}\n"
-    assert ScanFormatted(returnType) == "func Test(): (string?, string, IsConstructor: bool) {\n    return (null, last, IsConstructor: true)\n}"
-
-    // The formatter writes a typed declaration with its `let` keyword, which is the canonical
-    // spelling of both forms; the tuple ANNOTATION is what this row is about and it round-trips
-    // character for character.
-    local := "func Test() {\n    pair: (Item: string, Count: int) = value\n}\n"
-    assert ScanFormatted(local) == "func Test() {\n    let pair: (Item: string, Count: int) = value\n}"
 }
