@@ -98,20 +98,18 @@ test "the fixture packs this checkout and publishes the toolset into a Docker bu
     assert Directory.Exists(toolsetDirectory), toolsetDirectory
     assert File.Exists(Path.Combine(buildContextDirectory, "Dockerfile.toolchain")), buildContextDirectory
 
-    // The packages a generated project restores, plus the template package `dotnet new install`
-    // reads from `/root/.nsharp/packages`.
-    packageNames: string[] = [
-        "NSharpLang.Runtime",
-        "NSharpLang.Compiler.Model",
-        "NSharpLang.Compiler.Syntax",
-        "NSharpLang.Compiler.Core",
-        "NSharpLang.Compiler",
-        "NSharpLang.Sdk",
-        "NSharpLang.Templates"
-    ]
-    for packageName in packageNames {
+    // THE RELEASE SET, every package of it — read from `scripts/lib/packages.sh`, the one owner, not
+    // restated here: a list kept in this row is how the Model and Syntax carves shipped a context
+    // whose packages the release path packs but this fixture never did.
+    for packageName in ToolchainReleasePackageIds() {
         assert Directory.GetFiles(packagesDirectory, packageName + ".*.nupkg").Length > 0, "no " + packageName + " package in " + packagesDirectory
     }
+
+    // AND THE FEED IS CLOSED under what the packages themselves declare. `NSharpLang.Compiler`'s
+    // nuspec requires `NSharpLang.Compiler.Core`, which requires every slice carved out of it; a feed
+    // missing one restores nothing that reaches it on a machine with no `~/.nuget` to fall back on.
+    unresolved := ToolchainUnresolvedPackageDependencies(packagesDirectory)
+    assert unresolved.Count == 0, "the staged feed cannot satisfy: " + string.Join(", ", unresolved)
 
     // The two launchers `publish-toolset.sh` reports writing, and the packages it bundles beside
     // them: `Dockerfile.toolchain` puts `/root/.nsharp/bin` on PATH and installs the template package

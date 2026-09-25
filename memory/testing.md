@@ -1202,23 +1202,33 @@ rows moved whole, and the fixture's pack-once contract moved with them.
 | half | rows | what it proves |
 |---|---|---|
 | `InstalledToolchain.tests.nl` | 13, all `[DockerFact]` | the twelve ported rows — template listing, the canonical csproj-free shape, `nlc new`/`dotnet new` parity, console scaffold/build/run, library build, `nlc test` of the test template, the web API build, every `templates/README.md` quickstart replayed, `nlc --version`, and `nsharp-lsp` on PATH — plus the fixture's own pack-and-publish step, which needs no container and is what CI run 35806417973 failed |
-| `ToolchainCommandContracts.tests.nl` | 14, ungated | every `docker` argv, the six pack/build command lines, the `publish-toolset.sh` flags, the Dockerfile's description of the fresh machine, the quickstart document's parse and rewrites, and the gate's own three-state decision |
+| `ToolchainCommandContracts.tests.nl` | 15, ungated | every `docker` argv, the pack/build command lines against the release path's own dry run, the release set against the compiler's `project:` graph, the `publish-toolset.sh` flags, the Dockerfile's description of the fresh machine, the quickstart document's parse and rewrites, and the gate's own three-state decision |
 
 **The conversion fixed a defect the C# fixture carried, and the fix is held by a row.** Direct N# IL
 emission writes no `.pdb`, the base SDK defaults `DebugType` to `portable`, and pack then demands the
 file — NU5026. `scripts/lib/packages.sh`, the release path CI's `pack-nuget.sh` runs, passes
-`-p:DebugSymbols=false -p:DebugType=None` for **both** compiler packages. `ToolchainFixture.cs` passed
+`-p:DebugSymbols=false -p:DebugType=None` for **every N# project it packs** (`nsharp_package_emits_no_symbols`:
+the project's directory holds `project.yml` — the facade and each slice carved out of Core). `ToolchainFixture.cs` passed
 them for `NSharpLang.Compiler.Core` and **not** for `NSharpLang.Compiler`, which is the whole of CI run
 35806417973: `error NU5026 ... Compiler.pdb`, thrown before any row ran, taking all twelve with it. The
-N# fixture packs both the way the release path does, and the ungated row reads the predicate **out of
-`scripts/lib/packages.sh`** and requires the two sets to agree — so this fixture cannot drift from the
-packages users install the way the deleted one did. Nothing is hidden: `tests/native/sdk-pack-symbol-contract`
+N# fixture packs **the release set itself**: `NSHARP_PACKAGE_SPECS` in `scripts/lib/packages.sh` is the
+one list, the fixture reads it, and the ungated row runs the release path with `DRY_RUN=1` and requires
+every `dotnet pack` it prints — project and repair — to be one this fixture runs, and nothing more. The
+fixture once kept its own list; after the Model and Syntax carves it still packed only Core and
+Compiler, and the gated row failed `no NSharpLang.Compiler.Model package` the first time a daemon
+answered — a feed in which `NSharpLang.Compiler` (nuspec -> Core -> Syntax -> Model) cannot restore.
+**The carve guard:** `the release package set ships every compiler slice the compiler package depends
+on` walks `src/NSharpLang.Compiler/project.yml`'s `project:` closure and requires each project in
+`NSHARP_PACKAGE_SPECS`, each `ExternalAssemblyScan.CompilerSliceAssemblyNames` entry to be a shipped
+package id, and `scripts/verify-release.py`'s expected set to equal the shipped ids — so the next carve
+that adds a `project:` edge fails there, with no Docker, until the release set ships it. The gated row
+additionally requires the staged feed to be CLOSED under every `NSharpLang.*` nuspec dependency. Nothing is hidden: `tests/native/sdk-pack-symbol-contract`
 still packs N#-SDK projects with a bare `dotnet pack`, and still holds the missing declaration.
 
 **The second half is why a skipped run is honest rather than empty.** A project whose whole content is
 skippable says nothing on most machines. Everything about the Docker half that is *not* the daemon —
-including the `-p:DebugSymbols=false -p:DebugType=None` repair, which exactly the two compiler
-packages get and the other three do not — is held to a row that runs everywhere.
+including the `-p:DebugSymbols=false -p:DebugType=None` repair, which exactly the N# packages get and
+the SDK, runtime and templates do not — is held to a row that runs everywhere.
 
 **The gate's three states** (`DockerGate.tests.nl`, a `Xunit.FactAttribute` subclass whose constructor
 sets `Skip`; see `memory/components/cli-toolchain.md`, "A `test` block may carry attributes"):

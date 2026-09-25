@@ -4,6 +4,8 @@ import System
 import System.Collections.Generic
 import System.Diagnostics
 import System.IO
+import System.IO.Compression
+import System.Text.RegularExpressions
 
 // ─── THE INSTALLED TOOLCHAIN, ON A MACHINE THAT HAS NOTHING BUT THE .NET SDK ───────────────────
 //
@@ -24,8 +26,8 @@ import System.IO
 //
 // THE FIXTURE IS PACK-ONCE. The C# fixture was an `IClassFixture`, so xunit built the image and
 // started the container once for all twelve rows. The static state below is the same contract: the
-// build context (one `dotnet build`, five `dotnet pack`s and `scripts/publish-toolset.sh`) is produced
-// once per process
+// build context (one `dotnet build`, one `dotnet pack` per release package and
+// `scripts/publish-toolset.sh`) is produced once per process
 // and the container is started once per process, whichever row arrives first.
 //
 // THE CONTAINER REAPS ITSELF, because nothing here gets a teardown hook. `IAsyncLifetime.DisposeAsync`
@@ -312,7 +314,8 @@ func DockerRemoveArguments(): List<string> {
 
 // ─── THE BUILD-CONTEXT COMMAND LINES, AS VALUES ───────────────────────────────────────────────
 //
-// The six pack/build commands of the deleted `ToolchainFixture.InitializeAsync`, in its order.
+// The pack/build commands of the deleted `ToolchainFixture.InitializeAsync`, in its order, over the
+// package set the release path ships.
 // `--disable-build-servers` is on every one because a leaked MSBuild node outlives the run and
 // `-v q` is what keeps a 30-minute pack out of the test log.
 
@@ -345,8 +348,8 @@ func ToolchainPackArguments(projectPath: string, outputDirectory: string): List<
 // THE SYMBOL REPAIR, AND THE DEFECT THE DELETED FIXTURE CARRIED. Direct N# IL emission writes no
 // `.pdb`, but the base SDK defaults `DebugType` to `portable` and pack then demands the file the
 // emitter never wrote — NU5026. `scripts/lib/packages.sh`, the release path CI's `pack-nuget.sh`
-// runs, therefore passes these two flags for BOTH compiler packages and for neither of the other
-// three.
+// runs, therefore passes these two flags for EVERY N# project it packs (the compiler facade and each
+// slice carved out of Core) and for none of the others.
 //
 // `ToolchainFixture.cs` passed them for `NSharpLang.Compiler.Core` and NOT for
 // `NSharpLang.Compiler`. That is the whole of CI run 35806417973: `error NU5026: The file
@@ -375,26 +378,134 @@ func ToolchainPackCompilerPackageArguments(projectPath: string, outputDirectory:
     return arguments
 }
 
-// The two projects whose output has no symbol file, exactly as `scripts/lib/packages.sh` names them.
-func ToolchainCompilerPackageProjects(): List<string> {
-    projects := new List<string>()
-    projects.Add("src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj")
-    projects.Add("src/NSharpLang.Compiler/Compiler.csproj")
-    return projects
+// ─── THE RELEASE PACKAGE SET, READ FROM ITS ONE OWNER ─────────────────────────────────────────
+//
+// `NSHARP_PACKAGE_SPECS` in `scripts/lib/packages.sh` is the set `scripts/pack-nuget.sh`, CI's
+// release step and `scripts/publish-toolset.sh` pack, and this fixture packs EXACTLY that set, read
+// out of the script rather than restated here. It is not a formality: `dotnet pack` of an N# project
+// turns every `project:` dependency into a nuspec `<dependency>`, so `NSharpLang.Compiler` requires
+// `NSharpLang.Compiler.Core`, which requires every slice carved out of it. A fixture that kept its
+// own list packed Core and Compiler only after the Model and Syntax carves, and the context it
+// staged was a feed in which `NSharpLang.Compiler` does not restore. The row in
+// `ToolchainCommandContracts.tests.nl` holds the owner itself to the compiler's `project:` graph.
+class ToolchainPackageSpec {
+    PackageId: string
+    Project: string
+
+    constructor(packageId: string, project: string) {
+        PackageId = packageId
+        Project = project
+    }
 }
 
-// The three packed with nothing on the command line, in the order the deleted fixture packed them.
-func ToolchainPlainPackageProjects(): List<string> {
-    projects := new List<string>()
-    projects.Add("src/NSharpLang.Runtime/NSharpLang.Runtime.csproj")
-    projects.Add("src/NSharpLang.Sdk/NSharpLang.Sdk.csproj")
-    projects.Add("templates/NSharpLang.Templates.csproj")
-    return projects
-}
-
-// The release path's own predicate, read as text so this fixture cannot drift from it silently.
+// The release path's own set, read as text so this fixture cannot drift from it silently.
 func ToolchainPackagesScriptPath(): string {
     return Path.Combine(Path.Combine(Path.Combine(ToolchainRepositoryRoot(), "scripts"), "lib"), "packages.sh")
+}
+
+func ToolchainReleasePackageSpecs(): List<ToolchainPackageSpec> {
+    script := File.ReadAllText(ToolchainPackagesScriptPath())
+    array := Regex.Match(script, "NSHARP_PACKAGE_SPECS=\\((?<body>[^)]*)\\)")
+    if !array.Success {
+        throw new InvalidOperationException("Could not find NSHARP_PACKAGE_SPECS in scripts/lib/packages.sh.")
+    }
+
+    specs := new List<ToolchainPackageSpec>()
+    body := array.Groups["body"].Value
+    entries := Regex.Matches(body, "\"(?<id>[^|\"]+)\\|[^|\"]*\\|(?<project>[^|\"]+)\"")
+    index := 0
+    while index < entries.Count {
+        specs.Add(new ToolchainPackageSpec(entries[index].Groups["id"].Value, entries[index].Groups["project"].Value))
+        index = index + 1
+    }
+
+    if specs.Count == 0 {
+        throw new InvalidOperationException("NSHARP_PACKAGE_SPECS in scripts/lib/packages.sh names no package.")
+    }
+
+    return specs
+}
+
+func ToolchainReleasePackageIds(): List<string> {
+    ids := new List<string>()
+    for spec in ToolchainReleasePackageSpecs() {
+        ids.Add(spec.PackageId)
+    }
+
+    return ids
+}
+
+// `nsharp_package_emits_no_symbols`, the release path's predicate: a project whose directory holds
+// `project.yml` is an N# project, written by the emitter that has no symbol writer.
+func ToolchainPackageEmitsNoSymbols(project: string): bool {
+    projectDirectory := Path.GetDirectoryName(Path.Combine(ToolchainRepositoryRoot(), project)) ?? ""
+    return File.Exists(Path.Combine(projectDirectory, "project.yml"))
+}
+
+// The runtime is packed FIRST, as the release path packs it (its "bootstrap package"), because the
+// compiler packages declare it as a dependency.
+func ToolchainRuntimePackageProject(): string {
+    return "src/NSharpLang.Runtime/NSharpLang.Runtime.csproj"
+}
+
+// The N# projects of the release set, in its order (lowest slice first), each packed with the
+// symbol repair.
+func ToolchainCompilerPackageProjects(): List<string> {
+    projects := new List<string>()
+    for spec in ToolchainReleasePackageSpecs() {
+        if ToolchainPackageEmitsNoSymbols(spec.Project) {
+            projects.Add(spec.Project)
+        }
+    }
+
+    return projects
+}
+
+// Every other project of the release set, packed with nothing on the command line: the runtime
+// first, then the rest in the release set's order.
+func ToolchainPlainPackageProjects(): List<string> {
+    projects := new List<string>()
+    projects.Add(ToolchainRuntimePackageProject())
+    for spec in ToolchainReleasePackageSpecs() {
+        if !ToolchainPackageEmitsNoSymbols(spec.Project) && spec.Project != ToolchainRuntimePackageProject() {
+            projects.Add(spec.Project)
+        }
+    }
+
+    return projects
+}
+
+// Every `NSharpLang.*` dependency a staged package's nuspec declares that the staged feed cannot
+// satisfy, as `package -> dependency version`. A fresh machine restores through exactly these edges,
+// so an empty answer is what "the feed is complete" means, whatever the set is called this week.
+func ToolchainUnresolvedPackageDependencies(packagesDirectory: string): List<string> {
+    unresolved := new List<string>()
+    for packagePath in Directory.GetFiles(packagesDirectory, "*.nupkg") {
+        archive := ZipFile.OpenRead(packagePath)
+        nuspec := ""
+        for entry in archive.Entries {
+            if entry.FullName.EndsWith(".nuspec") {
+                reader := new StreamReader(entry.Open())
+                nuspec = reader.ReadToEnd()
+                reader.Dispose()
+            }
+        }
+
+        archive.Dispose()
+        dependencies := Regex.Matches(nuspec, "<dependency id=\"(?<id>NSharpLang\\.[^\"]+)\" version=\"(?<version>[^\"]+)\"")
+        index := 0
+        while index < dependencies.Count {
+            id := dependencies[index].Groups["id"].Value
+            version := dependencies[index].Groups["version"].Value
+            if !File.Exists(Path.Combine(packagesDirectory, id + "." + version + ".nupkg")) {
+                unresolved.Add(Path.GetFileName(packagePath) + " -> " + id + " " + version)
+            }
+
+            index = index + 1
+        }
+    }
+
+    return unresolved
 }
 
 // `--skip-packages` because the packs above already produced them, and `--skip-archive` because the
@@ -483,7 +594,7 @@ func ToolchainBuildContextPrefix(): string {
     return "nsharp-integration-"
 }
 
-// A context holds five packages and a published toolset, and — like the container — there is no
+// A context holds the release package set and a published toolset, and — like the container — there is no
 // teardown hook to delete it: `IAsyncLifetime.DisposeAsync` removed the C# fixture's, and a `test`
 // block has no equivalent. So each run sweeps the ones EARLIER runs left, which bounds the leak to
 // one context rather than one per gate run.
@@ -521,7 +632,7 @@ func SweepStaleBuildContexts() {
     }
 }
 //
-// Six `dotnet` commands and one `bash` command, in the deleted fixture's order, into a throwaway
+// One `dotnet build`, one `dotnet pack` per release package and one `bash` command, into a throwaway
 // directory holding `packages/`, `toolset/` and the Dockerfile. NOTHING here needs Docker, which is
 // why it is a function of its own: the row that proves it runs on a machine with no daemon at all.
 func ToolchainPrepareBuildContext(): string {
@@ -540,12 +651,12 @@ func ToolchainPrepareBuildContext(): string {
     // The tasks project first: the SDK pack depends on its output binaries.
     ToolchainRequireSuccess(ToolchainRunDotnet(ToolchainBuildTasksArguments()), "dotnet build of NSharpLang.Build.Tasks")
 
-    // The deleted fixture's ORDER, preserved: Runtime, then the two compiler packages, then the SDK
-    // and the templates. The SDK pack MSBuilds Build.Tasks for its `tools/` payload, so it follows
-    // the explicit Build.Tasks build above rather than preceding it.
+    // The deleted fixture's ORDER, preserved: the runtime, then the N# packages lowest slice first,
+    // then the SDK and the templates. The SDK pack MSBuilds Build.Tasks for its `tools/` payload, so
+    // it follows the explicit Build.Tasks build above rather than preceding it.
     ToolchainRequireSuccess(
-        ToolchainRunDotnet(ToolchainPackArguments("src/NSharpLang.Runtime/NSharpLang.Runtime.csproj", packagesDirectory)),
-        "dotnet pack of NSharpLang.Runtime"
+        ToolchainRunDotnet(ToolchainPackArguments(ToolchainRuntimePackageProject(), packagesDirectory)),
+        "dotnet pack of " + ToolchainRuntimePackageProject()
     )
     for compilerProject in ToolchainCompilerPackageProjects() {
         ToolchainRequireSuccess(
@@ -554,14 +665,14 @@ func ToolchainPrepareBuildContext(): string {
         )
     }
 
-    ToolchainRequireSuccess(
-        ToolchainRunDotnet(ToolchainPackArguments("src/NSharpLang.Sdk/NSharpLang.Sdk.csproj", packagesDirectory)),
-        "dotnet pack of NSharpLang.Sdk"
-    )
-    ToolchainRequireSuccess(
-        ToolchainRunDotnet(ToolchainPackArguments("templates/NSharpLang.Templates.csproj", packagesDirectory)),
-        "dotnet pack of NSharpLang.Templates"
-    )
+    for plainProject in ToolchainPlainPackageProjects() {
+        if plainProject != ToolchainRuntimePackageProject() {
+            ToolchainRequireSuccess(
+                ToolchainRunDotnet(ToolchainPackArguments(plainProject, packagesDirectory)),
+                "dotnet pack of " + plainProject
+            )
+        }
+    }
 
     // `bash -lc`, a LOGIN shell, because the publisher sources profile files — the shell the deleted
     // fixture proved it under. `MSBUILDDISABLENODEREUSE=1` is load-bearing and not hygiene: a reused

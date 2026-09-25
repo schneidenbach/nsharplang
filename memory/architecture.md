@@ -198,7 +198,8 @@ seeds -- Core's own and tests-included emits are the whole cost there, as before
 What the next carve (Semantics) repeats: its front door at 0 first (product, and estate if its rows
 move); its name in the `project:` chain (Core -> Semantics -> Syntax), `CompilerSliceAssemblyNames`,
 the emit-only switch and the SDK payload/`Inputs`, `ShippedPayloadAssemblies`, the release set
-(packages.sh, verify-release.py and its test), reseed.sh's `COMPILER_PROJECT_DIRS` (and
+(`NSHARP_PACKAGE_SPECS` in packages.sh -- the installed-toolchain fixture packs exactly it, and its
+ungated guard row fails until the new `project:` edge ships -- verify-release.py and its test), reseed.sh's `COMPILER_PROJECT_DIRS` (and
 `ESTATE_PROJECTS`, dev.sh's and Step 3a's lists, if its rows move -- with `excludeTests: true`), the
 format loops, the `dll:` consumers and every assembly-qualified `..., NSharpLang.Compiler.Core` name of
 a type it takes (`Analyzer`, `SemanticModel`, `SystemsAnalyzer` ...); the NL002 imports its referenced

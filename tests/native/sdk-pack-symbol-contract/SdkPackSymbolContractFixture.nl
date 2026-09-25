@@ -17,13 +17,13 @@ import System.IO.Compression
 // the compiler never claimed to write.
 //
 // So every caller that packed an N# project had to repair the project's own declaration from
-// OUTSIDE it. `scripts/lib/packages.sh` passes `-p:DebugSymbols=false -p:DebugType=None` for the
-// two compiler packages; the deleted `tests/NSharpLang.IntegrationTests/ToolchainFixture.cs` passed
+// OUTSIDE it. `scripts/lib/packages.sh` passes `-p:DebugSymbols=false -p:DebugType=None` for
+// every N# package it packs; the deleted `tests/NSharpLang.IntegrationTests/ToolchainFixture.cs` passed
 // them for `NSharpLang.Compiler.Core` and NOT for `NSharpLang.Compiler`, and that one plain
 // `dotnet pack` is where CI run 35806417973 failed NU5026 on `Compiler.pdb` -- taking every
 // ToolchainTests row with it, because the fixture packs before any row runs. Its successor,
-// `tests/native/installed-toolchain-integration`, repairs both and holds a row that reads the
-// repaired set out of `scripts/lib/packages.sh`, so the two callers can no longer disagree -- and
+// `tests/native/installed-toolchain-integration`, repairs each and holds a row that takes the
+// repaired set from `scripts/lib/packages.sh` running, so the two callers can no longer disagree -- and
 // THIS project is still the one that will retire the repair entirely.
 //
 // These rows pack N# projects THE WAY A USER WOULD: a one-line `.csproj`, everything else in

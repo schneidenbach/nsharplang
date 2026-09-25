@@ -3,6 +3,7 @@ namespace NSharpLang.InstalledToolchainIntegration.Tests
 import System
 import System.Collections.Generic
 import System.IO
+import System.Text.RegularExpressions
 
 // ─── WHAT A MACHINE WITH NO DOCKER CAN STILL PROVE ─────────────────────────────────────────────
 //
@@ -87,19 +88,42 @@ test "one container command is bash -c with the whole command as a single argv e
 
 // ─── THE PACK AND PUBLISH COMMAND LINES ───────────────────────────────────────────────────────
 
-test "the build context is packed the way the release path packs it, and the symbol repair reaches both compiler packages" {
+// The release path's own pack commands, as `DRY_RUN=1` prints them without running one: each
+// `dotnet pack` line's project, mapped to whether the line carries the symbol repair. This is the
+// release path EXECUTED, not grepped, so a predicate rewritten in any spelling is still held.
+func ReleasePathPackedProjects(): Dictionary<string, bool> {
+    launch := new ToolchainLaunch("bash", ToolchainRepositoryRoot(), 60 * 1000)
+    launch.Arguments.Add("-c")
+    launch.Arguments.Add("source scripts/lib/packages.sh && nsharp_pack_package_set /tmp/nsharp-integration-contract/packages q")
+    launch.WithEnvironment("DRY_RUN", "1")
+    run := ToolchainRunProcess(launch)
+    ToolchainRequireSuccess(run, "DRY_RUN=1 nsharp_pack_package_set")
+
+    packed := new Dictionary<string, bool>()
+    for line in run.Stdout.Split('\n') {
+        pack := Regex.Match(line, "dotnet pack .* (?<project>\\S+\\.csproj) ")
+        if pack.Success {
+            packed[pack.Groups["project"].Value] = line.Contains("-p:DebugSymbols=false -p:DebugType=None")
+        }
+    }
+
+    return packed
+}
+
+test "the build context is packed the way the release path packs it, and the symbol repair reaches every N# package" {
     output := "/tmp/nsharp-integration-contract/packages"
 
     assert ToolchainJoinArguments(ToolchainBuildTasksArguments()) == "build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release --disable-build-servers -v q", ToolchainJoinArguments(ToolchainBuildTasksArguments())
 
-    runtimePack := ToolchainPackArguments("src/NSharpLang.Runtime/NSharpLang.Runtime.csproj", output)
+    runtimePack := ToolchainPackArguments(ToolchainRuntimePackageProject(), output)
     assert ToolchainJoinArguments(runtimePack) == "pack src/NSharpLang.Runtime/NSharpLang.Runtime.csproj -c Release -o " + output + " --disable-build-servers -v q", ToolchainJoinArguments(runtimePack)
 
     // THE REPAIR IS LOAD-BEARING, AND THE DELETED FIXTURE APPLIED IT TO ONLY ONE OF THE TWO PROJECTS
-    // THAT NEED IT. Direct N# IL emission writes no `.pdb`; the base SDK defaults `DebugType` to
+    // THAT NEEDED IT. Direct N# IL emission writes no `.pdb`; the base SDK defaults `DebugType` to
     // `portable`; pack then demands the file, which is NU5026. `ToolchainFixture.cs` repaired
     // `NSharpLang.Compiler.Core` and not `NSharpLang.Compiler`, and CI run 35806417973 is that
-    // omission: `error NU5026 ... Compiler.pdb`, thrown in the fixture before any row could run.
+    // omission: `error NU5026 ... Compiler.pdb`, thrown in the fixture before any row could run. Every
+    // slice carved out of Core is an N# project too, so the repair reaches each of them.
     for compilerProject in ToolchainCompilerPackageProjects() {
         repaired := ToolchainPackCompilerPackageArguments(compilerProject, output)
         assert repaired.Contains("-p:DebugSymbols=false"), compilerProject + ": " + ToolchainJoinArguments(repaired)
@@ -116,28 +140,121 @@ test "the build context is packed the way the release path packs it, and the sym
         assert !packArguments.Contains("-p:DebugType=None"), plainProject + ": " + ToolchainJoinArguments(packArguments)
     }
 
-    // THE SET IS THE RELEASE PATH'S SET, READ OUT OF THE RELEASE PATH. `scripts/lib/packages.sh` is
-    // what `scripts/pack-nuget.sh` — and therefore CI's `Pack unofficial release` step — runs, and its
-    // condition names exactly these two projects. Reading it here is what stops this fixture drifting
-    // from the packages users actually install, which is how the deleted one drifted.
-    packagesScript := File.ReadAllText(ToolchainPackagesScriptPath())
+    // THE SET AND THE REPAIR ARE THE RELEASE PATH'S, TAKEN FROM THE RELEASE PATH RUNNING.
+    // `scripts/lib/packages.sh` is what `scripts/pack-nuget.sh` — and therefore CI's `Pack unofficial
+    // release` step — runs. Every project it packs, this fixture packs, with the same repair decision,
+    // and nothing else: that is what stops the fixture drifting from the packages users install.
+    releasePacked := ReleasePathPackedProjects()
+    fixturePacked := new List<string>()
     for compilerProject in ToolchainCompilerPackageProjects() {
-        assert packagesScript.Contains("\"$project\" == \"" + compilerProject + "\""), compilerProject + " is repaired here but is not in the release path's repaired set in scripts/lib/packages.sh"
+        fixturePacked.Add(compilerProject)
+        assert releasePacked.ContainsKey(compilerProject), compilerProject + " is packed here but not by the release path: " + string.Join(", ", releasePacked.Keys)
+        assert releasePacked[compilerProject], compilerProject + " is repaired here but packed plainly by the release path in scripts/lib/packages.sh"
     }
     for plainProject in ToolchainPlainPackageProjects() {
-        assert !packagesScript.Contains("\"$project\" == \"" + plainProject + "\""), plainProject + " is in the release path's repaired set but is packed plainly here"
+        fixturePacked.Add(plainProject)
+        assert releasePacked.ContainsKey(plainProject), plainProject + " is packed here but not by the release path: " + string.Join(", ", releasePacked.Keys)
+        assert !releasePacked[plainProject], plainProject + " is in the release path's repaired set but is packed plainly here"
     }
-    assert packagesScript.Contains("-p:DebugSymbols=false -p:DebugType=None"), "the release path no longer passes the symbol repair; this fixture must follow it"
+    for releaseProject in releasePacked.Keys {
+        assert fixturePacked.Contains(releaseProject), releaseProject + " is packed by the release path but this fixture never packs it"
+    }
+    assert fixturePacked.Count == releasePacked.Count, string.Join(", ", fixturePacked)
 
     // Every command disables build servers: a leaked MSBuild node outlives the run, and the gate
     // forbids leaving one behind.
     assert ToolchainBuildTasksArguments().Contains("--disable-build-servers")
     assert runtimePack.Contains("--disable-build-servers")
 
-    // The five packages a generated project restores: three packed plainly and the two compiler ones.
-    assert ToolchainCompilerPackageProjects().Count == 2, ToolchainJoinArguments(ToolchainCompilerPackageProjects())
-    assert ToolchainPlainPackageProjects().Count == 3, ToolchainJoinArguments(ToolchainPlainPackageProjects())
+    // The runtime is packed first and exactly once, and the templates the image installs are packed.
+    assert ToolchainPlainPackageProjects()[0] == ToolchainRuntimePackageProject(), ToolchainJoinArguments(ToolchainPlainPackageProjects())
+    assert ToolchainPlainPackageProjects().LastIndexOf(ToolchainRuntimePackageProject()) == 0, ToolchainJoinArguments(ToolchainPlainPackageProjects())
     assert ToolchainPlainPackageProjects().Contains("templates/NSharpLang.Templates.csproj"), ToolchainJoinArguments(ToolchainPlainPackageProjects())
+}
+
+// Every project directory `src/NSharpLang.Compiler/project.yml` reaches through `project:`,
+// itself included: the facade and each compiler slice under it. `dotnet pack` writes each of those
+// edges as a nuspec `<dependency>`, so this is the set a clean restore of `NSharpLang.Compiler` needs.
+func CompilerFacadePackageClosure(): List<string> {
+    directories := new List<string>()
+    directories.Add("src/NSharpLang.Compiler")
+    index := 0
+    while index < directories.Count {
+        projectDirectory := Path.Combine(ToolchainRepositoryRoot(), directories[index])
+        yaml := File.ReadAllText(Path.Combine(projectDirectory, "project.yml"))
+        references := Regex.Matches(yaml, "- project:\\s*(?<path>\\S+)")
+        referenceIndex := 0
+        while referenceIndex < references.Count {
+            projectFile := Path.GetFullPath(Path.Combine(projectDirectory, references[referenceIndex].Groups["path"].Value))
+            referenced := Path.GetRelativePath(ToolchainRepositoryRoot(), Path.GetDirectoryName(projectFile) ?? "").Replace('\\', '/')
+            if !directories.Contains(referenced) {
+                directories.Add(referenced)
+            }
+
+            referenceIndex = referenceIndex + 1
+        }
+
+        index = index + 1
+    }
+
+    return directories
+}
+
+// THE GUARD EVERY CARVE PASSES THROUGH. Carving a slice out of Core adds a `project:` edge, and with
+// it a package the release set must ship; the Model and Syntax carves added the edges, the release
+// set followed, and this fixture's own list did not. Now there is one list, and this row holds it to
+// the graph: a carved slice missing from `NSHARP_PACKAGE_SPECS` fails HERE, on a machine with no
+// Docker, rather than as a feed that cannot restore `NSharpLang.Compiler`.
+test "the release package set ships every compiler slice the compiler package depends on" {
+    specs := ToolchainReleasePackageSpecs()
+    specDirectories := new List<string>()
+    for spec in specs {
+        specDirectories.Add((Path.GetDirectoryName(spec.Project) ?? "").Replace('\\', '/'))
+    }
+
+    closure := CompilerFacadePackageClosure()
+    assert closure.Contains("src/NSharpLang.Compiler.Core"), string.Join(", ", closure)
+    for projectDirectory in closure {
+        assert specDirectories.Contains(projectDirectory), projectDirectory + " is a project the NSharpLang.Compiler package depends on, but NSHARP_PACKAGE_SPECS in scripts/lib/packages.sh does not ship it: " + string.Join(", ", specDirectories)
+    }
+
+    // The compiler's own name for its slices (`ExternalAssemblyScan.CompilerSliceAssemblyNames`, the
+    // run-time owner) and the release set must agree: every slice is a package.
+    ids := ToolchainReleasePackageIds()
+    scanSource := File.ReadAllText(Path.Combine(Path.Combine(Path.Combine(ToolchainRepositoryRoot(), "src"), "NSharpLang.Compiler.Model"), "ExternalAssemblyScan.nl"))
+    sliceNames := Regex.Match(scanSource, "func CompilerSliceAssemblyNames\\(\\): string\\[\\] \\{\\s*return \\[(?<names>[^\\]]*)\\]")
+    assert sliceNames.Success, "Could not find ExternalAssemblyScan.CompilerSliceAssemblyNames in src/NSharpLang.Compiler.Model/ExternalAssemblyScan.nl."
+    sliceList := sliceNames.Groups["names"].Value
+    sliceMatches := Regex.Matches(sliceList, "\"(?<name>[^\"]+)\"")
+    assert sliceMatches.Count > 0, sliceNames.Value
+    sliceIndex := 0
+    while sliceIndex < sliceMatches.Count {
+        slice := sliceMatches[sliceIndex].Groups["name"].Value
+        assert ids.Contains(slice), slice + " is a compiler slice (CompilerSliceAssemblyNames) that NSHARP_PACKAGE_SPECS does not ship: " + string.Join(", ", ids)
+        sliceIndex = sliceIndex + 1
+    }
+
+    // The three the graph does not reach, and which a scaffolded project restores or installs.
+    assert ids.Contains("NSharpLang.Sdk"), string.Join(", ", ids)
+    assert ids.Contains("NSharpLang.Runtime"), string.Join(", ", ids)
+    assert ids.Contains("NSharpLang.Templates"), string.Join(", ", ids)
+
+    // And the release verifier checks the same set it is handed, not a second list that can lag it.
+    verifier := File.ReadAllText(Path.Combine(Path.Combine(ToolchainRepositoryRoot(), "scripts"), "verify-release.py"))
+    expected := Regex.Match(verifier, "expected = \\{(?<ids>[^}]*)\\}")
+    assert expected.Success, "Could not find the expected package set in scripts/verify-release.py."
+    verified := new List<string>()
+    expectedIds := expected.Groups["ids"].Value
+    verifiedMatches := Regex.Matches(expectedIds, "'(?<id>[^']+)'")
+    verifiedIndex := 0
+    while verifiedIndex < verifiedMatches.Count {
+        verified.Add(verifiedMatches[verifiedIndex].Groups["id"].Value)
+        verifiedIndex = verifiedIndex + 1
+    }
+    for id in ids {
+        assert verified.Contains(id), id + " is shipped by NSHARP_PACKAGE_SPECS but scripts/verify-release.py does not expect it"
+    }
+    assert verified.Count == ids.Count, "scripts/verify-release.py expects a package NSHARP_PACKAGE_SPECS does not ship: " + string.Join(", ", verified)
 }
 
 test "the toolset is published without repacking and without an archive" {
