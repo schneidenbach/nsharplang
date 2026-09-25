@@ -4402,7 +4402,8 @@ sealed class ColumnarIlEmitter {
         return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember, -1, 0)
     }
 
-    // A type-member generator: a STATIC method rides the top-level host directly; an INSTANCE method
+    // A type-member generator: a STATIC method's machine nests in the declaring type and is generic over
+    // that type's parameters and the method's own; an INSTANCE method
     // supplies the enclosing type's public member facts (exact canonicals from the struct INPUT, handles
     // from the def) so the planner hoists `<>__this` and resolves member reads / member-call sources.
     private static func TryEmitMemberIterator(module: ModuleBuilder, structDef: ColumnarStructDef, method: ColumnarFunctionInput, builder: MethodBuilder, isStatic: bool, program: ColumnarProgramInput, typeResolution: ColumnarSemanticTypeResolution, methodSource: string, synthesizedTypes: List<TypeBuilder>, ordinalCounter: int[], bodyFacts: ColumnarIteratorBodyFacts?): bool {

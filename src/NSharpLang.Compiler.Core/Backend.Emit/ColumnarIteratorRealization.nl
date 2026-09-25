@@ -61,6 +61,26 @@ class ColumnarIteratorRealization {
             staticOrdinal := ordinalCounter[0]
             ordinalCounter[0] = staticOrdinal + 1
             staticFactoryIl := builder.GetILGenerator()
+            // A STATIC GENERATOR'S MACHINE IS NESTED IN ITS DECLARING TYPE, AS C# NESTS IT, and it is
+            // generic over everything its body can name: the declaring type's parameters first, then
+            // the method's own. The factory instantiates it on exactly those — `<Names>d__0<!0>` inside
+            // `Box<T>.Names`, `<Echo>d__1<!0, !!0>` inside `Box<T>.Echo<U>` — so neither the machine
+            // nor the factory ever reaches a type parameter it does not own.
+            staticEnclosingParameters := System.Type.EmptyTypes
+            if enclosingBuilder.IsGenericTypeDefinition {
+                staticEnclosingParameters = enclosingBuilder.GetGenericArguments()
+            }
+            staticMethodParameters := System.Type.EmptyTypes
+            if builder.IsGenericMethodDefinition {
+                staticMethodParameters = builder.GetGenericArguments()
+            }
+            if staticMethodParameters.Length != method.TypeParamNames.Length {
+                return Declined(
+                    "emit.iterator.generic-arity",
+                    "the declared method '" + memberLabel + "' has " + staticMethodParameters.Length.ToString() + " type parameter(s) but its generator body names " + method.TypeParamNames.Length.ToString(),
+                    memberLabel
+                )
+            }
             return EmitSync(
                 module,
                 method,
@@ -69,7 +89,7 @@ class ColumnarIteratorRealization {
                 typeResolution,
                 staticFactoryIl,
                 synthesizedTypes,
-                System.Type.EmptyTypes,
+                staticMethodParameters,
                 null,
                 memberLabel,
                 null,
@@ -78,7 +98,9 @@ class ColumnarIteratorRealization {
                 null,
                 null,
                 null,
-                bodyFacts
+                bodyFacts,
+                structDef.Builder,
+                staticEnclosingParameters
             )
         }
         if structDef.GenericParameters != null || method.TypeParamNames.Length > 0 {
@@ -231,7 +253,9 @@ class ColumnarIteratorRealization {
             realizedFieldCanonicals,
             realizedMethodNames,
             realizedMethodHandles,
-            bodyFacts
+            bodyFacts,
+            null,
+            null
         )
     }
 
@@ -272,7 +296,9 @@ class ColumnarIteratorRealization {
         enclosingFieldCanonicals: string[]? = null,
         enclosingMethodNames: string[]? = null,
         enclosingMethods: MethodInfo[]? = null,
-        bodyFacts: ColumnarIteratorBodyFacts? = null
+        bodyFacts: ColumnarIteratorBodyFacts? = null,
+        nestingType: TypeBuilder? = null,
+        enclosingTypeParams: Type[]? = null
     ): ColumnarIteratorRealizationResult {
         modifiedMemberReferences := ModifiedMemberReferencesOf(bodyFacts)
         declineLabel := memberLabel.Length == 0 ? fn.Name : memberLabel
@@ -281,37 +307,110 @@ class ColumnarIteratorRealization {
             return Declined(shape.DeclineSite, shape.DeclineMessage, declineLabel)
         }
 
-        sm := module.DefineType(
-            shape.TypeName,
-            TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
-        )
+        enclosingParameters := enclosingTypeParams ?? System.Type.EmptyTypes
+        if enclosingParameters.Length > 0 && nestingType == null {
+            return Declined(
+                "emit.iterator.generic-enclosing",
+                "a machine generic over its declaring type's parameters must be nested in that type for '" + declineLabel + "'",
+                declineLabel
+            )
+        }
+        sm := DefineMachineType(module, nestingType, shape.TypeName)
         smTypeParamMap: Dictionary<string, Type>? = null
         smTypeParams := System.Type.EmptyTypes
         smSpecialConstraints := System.Array.Empty<int>()
         smBaseConstraints := System.Array.Empty<Type>()
         smInterfaceConstraints := System.Array.Empty<Type[]>()
         table := typeResolution.StructuralTypeReferences
-        if fn.TypeParamNames.Length > 0 {
-            smGps := sm.DefineGenericParameters(fn.TypeParamNames)
+        if enclosingParameters.Length > 0 || fn.TypeParamNames.Length > 0 {
+            // THE MACHINE'S PARAMETER LIST IS THE DECLARING TYPE'S, THEN THE METHOD'S. A type parameter
+            // is encoded in metadata by POSITION (`!0`), not by owner, so a machine that re-declares
+            // `Box<T>`'s parameters at the same positions reads every signature written in `Box<T>`'s
+            // own parameters — `Box<!0>::Name()`, a field of type `!0` — as its own, which is the whole
+            // reason C# nests its machines this way. The body is therefore planned in the DECLARING
+            // type's own parameter handles, the ones every member it can call is declared in, so an
+            // argument, a return value and a hoisted field all agree on identity. A method parameter
+            // cannot be named from a type's field (an MVAR there is unencodable), so each one is
+            // replaced by the machine's own parameter at its position after the enclosing ones.
+            enclosingCount := enclosingParameters.Length
+            methodCount := fn.TypeParamNames.Length
+            parameterNames := new string[](enclosingCount + methodCount)
+            n := 0
+            while n < enclosingCount {
+                parameterNames[n] = enclosingParameters[n].Name
+                n = n + 1
+            }
+            n = 0
+            while n < methodCount {
+                parameterNames[enclosingCount + n] = fn.TypeParamNames[n]
+                n = n + 1
+            }
+            smGps := sm.DefineGenericParameters(parameterNames)
             smTypeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal)
             smTypeParams = new Type[](smGps.Length)
+            smSpecialConstraints = new int[](smGps.Length)
+            smBaseConstraints = new Type[](smGps.Length)
+            smInterfaceConstraints = new Type[][](smGps.Length)
+            e := 0
+            while e < enclosingCount {
+                enclosingParameter := enclosingParameters[e]
+                if !enclosingParameter.IsGenericParameter || enclosingParameter.GenericParameterPosition != e {
+                    return Declined(
+                        "emit.iterator.generic-enclosing",
+                        "the declaring type's parameter '" + enclosingParameter.Name + "' is not at position " + e.ToString() + " for '" + declineLabel + "'",
+                        declineLabel
+                    )
+                }
+                smTypeParamMap[enclosingParameter.Name] = enclosingParameter
+                smTypeParams[e] = enclosingParameter
+                enclosingSpecial := 0
+                enclosingBase: Type? = null
+                enclosingInterfaces := System.Type.EmptyTypes
+                if !TryCopyEnclosingConstraints(enclosingParameter, smGps[e], out enclosingSpecial, out enclosingBase, out enclosingInterfaces) {
+                    return Declined(
+                        "emit.iterator.generic-constraints",
+                        "the constraints on the declaring type's parameter '" + enclosingParameter.Name + "' could not be preserved on the iterator machine for '" + declineLabel + "'",
+                        declineLabel
+                    )
+                }
+                smSpecialConstraints[e] = enclosingSpecial
+                smBaseConstraints[e] = enclosingBase
+                smInterfaceConstraints[e] = enclosingInterfaces
+                e = e + 1
+            }
+            methodGps := new GenericTypeParameterBuilder[](methodCount)
+            // The declaring type's parameters already have their structural owner; the machine owns
+            // only the parameters it stands in for the method's.
+            machineOwnedParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
             g := 0
-            while g < smGps.Length {
-                parameter: Type = smGps[g]
+            while g < methodCount {
+                methodGps[g] = smGps[enclosingCount + g]
+                parameter: Type = methodGps[g]
                 smTypeParamMap[fn.TypeParamNames[g]] = parameter
-                smTypeParams[g] = parameter
+                smTypeParams[enclosingCount + g] = parameter
+                machineOwnedParameters[fn.TypeParamNames[g]] = parameter
                 g = g + 1
             }
             // A dependent constraint such as `where U: T` resolves T through this exact structural
             // owner. Publish the machine's generic parameters before asking the shared constraint
             // planner to resolve those rows; the runtime type itself is still unbaked, as intended.
-            table.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, smTypeParamMap)
-            if !ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(smGps, fn.TypeParamSpecialConstraints, fn.TypeParamTypeConstraints, smTypeParamMap, smTypeParams, typeResolution, out smSpecialConstraints, out smBaseConstraints, out smInterfaceConstraints) {
+            table.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, machineOwnedParameters)
+            methodSpecialConstraints := System.Array.Empty<int>()
+            methodBaseConstraints := System.Array.Empty<Type>()
+            methodInterfaceConstraints := System.Array.Empty<Type[]>()
+            if !ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(methodGps, fn.TypeParamSpecialConstraints, fn.TypeParamTypeConstraints, smTypeParamMap, smTypeParams, typeResolution, out methodSpecialConstraints, out methodBaseConstraints, out methodInterfaceConstraints) {
                 return Declined(
                     "emit.iterator.generic-constraints",
                     "iterator generic constraints could not be preserved for '" + declineLabel + "'",
                     declineLabel
                 )
+            }
+            g = 0
+            while g < methodCount {
+                smSpecialConstraints[enclosingCount + g] = methodSpecialConstraints[g]
+                smBaseConstraints[enclosingCount + g] = methodBaseConstraints[g]
+                smInterfaceConstraints[enclosingCount + g] = methodInterfaceConstraints[g]
+                g = g + 1
             }
         } else {
             table.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, null)
@@ -504,7 +603,19 @@ class ColumnarIteratorRealization {
 
         factoryContext := context
         if smTypeParamMap != null {
-            factorySmType := smDefinition.MakeGenericType(methodTypeParams)
+            // The factory runs in the declaring method, so it instantiates the machine on that method's
+            // view of the same parameters: the declaring type's own, then the method's MVARs.
+            factoryTypeArguments := new Type[](enclosingParameters.Length + methodTypeParams.Length)
+            enclosingParameters.CopyTo(factoryTypeArguments, 0)
+            methodTypeParams.CopyTo(factoryTypeArguments, enclosingParameters.Length)
+            if factoryTypeArguments.Length != smTypeParams.Length {
+                return Declined(
+                    "emit.iterator.generic-arity",
+                    "the factory for '" + declineLabel + "' supplies " + factoryTypeArguments.Length.ToString() + " type argument(s) for a machine with " + smTypeParams.Length.ToString(),
+                    declineLabel
+                )
+            }
+            factorySmType := smDefinition.MakeGenericType(factoryTypeArguments)
             factoryFields := new FieldInfo[](fields.Length)
             i = 0
             while i < fields.Length {
@@ -756,6 +867,66 @@ class ColumnarIteratorRealization {
         ColumnarCodePlanExecutor.Execute(factoryPlan, factoryIl, modifiedMemberReferences)
         synthesizedTypes.Add(sm)
         return Completed()
+    }
+
+    // A member generator's machine lives inside the type that declares it; a free function's has no
+    // declaring type and stays at module level. `NestedAssembly` keeps the machine exactly as reachable
+    // as the module-level form: the per-iteration lambda displays it hands itself to are module-level.
+    static func DefineMachineType(module: ModuleBuilder, nestingType: TypeBuilder?, name: string): TypeBuilder {
+        if nestingType != null {
+            return nestingType.DefineNestedType(
+                name,
+                TypeAttributes.NestedAssembly | TypeAttributes.Class | TypeAttributes.Sealed
+            )
+        }
+        return module.DefineType(
+            name,
+            TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
+        )
+    }
+
+    // THE DECLARING TYPE'S CONSTRAINTS, RESTATED ON THE MACHINE'S PARAMETER AT THE SAME POSITION.
+    // Without them the machine could not name `Box<!0>` at all — the runtime checks the instantiation
+    // against `Box`'s own constraints — nor make a constrained call its body plans against them. The
+    // constraints are read back from the declaring type's own builder, so they are the exact handles the
+    // declaration pass set; they mention the declaring type's parameters, which encode by position and
+    // therefore mean the machine's. A bit the language does not model is refused rather than dropped.
+    static func TryCopyEnclosingConstraints(
+        source: Type,
+        destination: GenericTypeParameterBuilder,
+        out special: int,
+        out baseConstraint: Type?,
+        out interfaceConstraints: Type[]
+    ): bool {
+        special = 0
+        baseConstraint = null
+        interfaceConstraints = System.Type.EmptyTypes
+        attributeBits := (int)source.GenericParameterAttributes
+        if !ColumnarGenericConstraintPlanner.TrySpecialFor(attributeBits, out special) {
+            return false
+        }
+        if special != 0 {
+            destination.SetGenericParameterAttributes((GenericParameterAttributes)ColumnarGenericConstraintPlanner.AttributeBitsFor(special))
+        }
+        interfaces := new List<Type>()
+        for constraint in source.GetGenericParameterConstraints() {
+            if constraint.IsInterface {
+                interfaces.Add(constraint)
+                continue
+            }
+            if baseConstraint != null {
+                return false
+            }
+            baseConstraint = constraint
+        }
+        if baseConstraint != null {
+            destination.SetBaseTypeConstraint(baseConstraint)
+        }
+        interfaceConstraints = interfaces.ToArray()
+        if interfaceConstraints.Length > 0 {
+            destination.SetInterfaceConstraints(interfaceConstraints)
+        }
+        return true
     }
 
     static func Completed(): ColumnarIteratorRealizationResult {

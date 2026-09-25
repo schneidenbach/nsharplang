@@ -1512,6 +1512,31 @@ A STATIC of a type this program declares is read and written inside a generator 
 outside one — `Counter.Total`, `Registry.Current = Registry.Current + 2` — including a static reached
 through a derived type name, which binds the one declaration the base carries.
 
+A `static func*` may be declared inside a generic type, and may itself be generic. Its body sees the
+type's parameters and its own, and calls the type's other statics as usual:
+
+```n
+class Box<T> {
+    static func Name(): string => "box"
+
+    static func* Names(count: int): IEnumerable<string> {
+        for i := 0; i < count; i += 1 {
+            yield Name()
+        }
+    }
+
+    static func* Echo<U>(value: U): IEnumerable<U> {
+        yield value
+    }
+}
+```
+
+Two nearby shapes are not supported yet, and each fails to compile with its own NL103 site instead of
+building something wrong: an instance `func*` on a generic type (`emit.iterator.instance-unsupported`),
+and a non-generic static whose signature names an open constructed type such as `IEnumerable<T>`
+(`emit.declaration.method-return`). In the second case, adding a method type parameter works around it,
+as `Echo<U>` shows.
+
 An assignment may target an indexer or a member as well as a local: `table[key] = value`,
 `box.Field = value`, `builder.Length = 2`, `values[i] = v`. The member a name selects, the indexer an
 index list selects and the conversion the stored value takes are the same answers the identical

@@ -817,6 +817,23 @@ class ColumnarGenericConstraintPlanner {
         return bits
     }
 
+    // The inverse: a parameter's CLR attribute word back to the `SpecialConstraintKind` that produces
+    // it, for a synthesized type that restates a declared parameter. Only words `AttributeBitsFor` can
+    // produce round-trip; variance, `allows ref struct` and a bare `struct` bit without its implied
+    // default-constructor bit are not modeled and are refused rather than silently dropped.
+    static func TrySpecialFor(attributeBits: int, out special: int): bool {
+        special = 0
+        if (attributeBits & ReferenceTypeConstraintBit()) != 0 {
+            special = special | 1
+        }
+        if (attributeBits & NotNullableValueTypeConstraintBit()) != 0 {
+            special = special | 2
+        } else if (attributeBits & DefaultConstructorConstraintBit()) != 0 {
+            special = special | 4
+        }
+        return AttributeBitsFor(special) == attributeBits
+    }
+
     // Whether a resolved constraint type is admissible as a BASE-TYPE constraint.
     //
     // The caller answers the four CLR questions (it holds the `Type`); this holds the rule. A type

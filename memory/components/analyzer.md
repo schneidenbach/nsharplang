@@ -4568,6 +4568,30 @@ at that branch, so the awaited value is produced FIRST, parked in a plan local, 
 `this` loaded and the field written. An `await` nested inside a larger expression needs a spill this
 owner does not yet hold and declines saying so.
 
+### Static generators in generic types: the machine's shape
+
+`ColumnarIteratorRealization.EmitMember`'s static path used to define a non-generic, module-level
+machine and plan its body in the declaring type's own generic-parameter handles. Metadata encodes a
+type parameter by position (`!0`), so `Box<T>.Names`'s machine called `Box<!0>::Name()` from a type
+with no `!0`. It compiled clean and then threw `BadImageFormatException` at run time. A generic
+`static func* Echo<U>` crashed at emit instead: the factory closed the machine over
+`Type.EmptyTypes` (`genericArgumentCount`).
+
+The shape now matches C#. The machine is `DefineNestedType` on the declaring type (`NestedAssembly`,
+because per-iteration lambda displays stay module-level and still have to reach it). Its generic
+parameters are the declaring type's parameters first, then the method's own. The body is still planned
+in the declaring type's own handles. That is correct because those handles encode as the same
+positions the machine re-declares, and it keeps identity consistent with every member the body can
+call. The enclosing positions are not registered as machine-owned in the structural type table, because
+the source type already owns them. Only the method positions are registered to the machine. The
+enclosing parameters' constraints are read back off the declaring builder (`TryCopyEnclosingConstraints`,
+`ColumnarGenericConstraintPlanner.TrySpecialFor`) and restated on the machine, because naming
+`Box<!0>` is only legal when the machine's `!0` satisfies `Box`'s constraints. A constraint word the
+language does not model fails at `emit.iterator.generic-constraints`. The factory instantiates the
+machine on `[declaring type's parameters] ++ [method's MVARs]`, as `<Echo>d__N<!0, !!0>`. Executed
+proof: `tests/native/census-iterators/CensusIteratorGenericOwners*.nl`. Instance generators on generic
+types still fail at `emit.iterator.instance-unsupported`.
+
 ### Lambda captures in a generator
 
 A capture declared outside a loop remains a field of the generator state machine. For that common
