@@ -612,40 +612,6 @@ func EmitTaskScratch(label: string): string {
     return directory
 }
 
-func EmitTaskRunProcess(fileName: string, arguments: string, workingDirectory: string): SdkBoundaryRun {
-    runnerType := EmitTaskOwnerAssemblyType("NSharpLang.Cli.DotnetRunner")
-    methods := runnerType.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly)
-    runProcess: MethodInfo? = null
-    matches := 0
-    index := 0
-    while index < methods.Length {
-        method := methods[index]
-        if method.get_Name() == "RunProcess" && method.GetParameters().Length == 4 {
-            runProcess = method
-            matches = matches + 1
-        }
-        index = index + 1
-    }
-    if runProcess == null || matches != 1 {
-        throw new InvalidOperationException("Expected one public four-parameter DotnetRunner.RunProcess method.")
-    }
-
-    invocationArguments := new object?[](4)
-    EmitTaskPut(invocationArguments, 0, fileName)
-    EmitTaskPut(invocationArguments, 1, arguments)
-    EmitTaskPut(invocationArguments, 2, workingDirectory)
-    EmitTaskPut(invocationArguments, 3, TimeSpan.FromMinutes(5))
-    result := runProcess.Invoke(null, invocationArguments)
-    if result == null {
-        throw new InvalidOperationException("DotnetRunner.RunProcess returned null.")
-    }
-
-    exitCode := Convert.ToInt32(EmitTaskObjectField(result, "ExitCode"))
-    stdout := Convert.ToString(EmitTaskObjectField(result, "Stdout")) ?? ""
-    stderr := Convert.ToString(EmitTaskObjectField(result, "Stderr")) ?? ""
-    return new SdkBoundaryRun(exitCode, stdout, stderr)
-}
-
 func EmitTaskOwnerAssemblyPath(): string {
     path := EmitTaskOwnerType().get_Assembly().get_Location()
     if !File.Exists(path) {
@@ -705,7 +671,7 @@ func EmitTaskWriteDirectProjectCore(
 }
 
 func EmitTaskRunDirectProject(path: string): SdkBoundaryRun {
-    return EmitTaskRunProcess("dotnet", "msbuild " + SdkBoundaryQuote(path) + " -t:Run --disable-build-servers -v:m", Path.GetDirectoryName(path) ?? "")
+    return SdkBoundaryRunDotnet("msbuild " + SdkBoundaryQuote(path) + " -t:Run --disable-build-servers -v:m", Path.GetDirectoryName(path) ?? "")
 }
 
 func EmitTaskReferenceOwnersResolve(owners: object, fullName: string): string? {

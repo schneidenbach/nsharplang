@@ -1,14 +1,15 @@
 namespace NSharpLang.SdkReferenceIncrementality.Tests
 
 import System
+import System.Diagnostics
 import System.IO
-import NSharpLang.Cli
 
 // TWO N# PROJECTS, A -> B, IN A TEMP DIRECTORY, BUILT BY REAL MSBUILD AGAINST A PRIVATE FEED.
 //
 // Nothing here reaches the network: the feed holds this tree's `NSharpLang.Sdk` and
 // `NSharpLang.Runtime`, the project directory carries its own `global.json` and `NuGet.config` with
-// its own throwaway `globalPackagesFolder`, and the only package source is that feed plus the
+// its own throwaway `globalPackagesFolder` - which every `dotnet` child of a row is also handed as
+// `NUGET_PACKAGES` (`IncrementalityRunInCache`) - and the only package source is that feed plus the
 // ordinary nuget.org entry the SDK's own dependencies would need if the cache were cold. The gate
 // packs one feed for the whole sweep and exports it as `NSHARP_SDK_PROJECT_REFERENCE_FEED` /
 // `NSHARP_SDK_PROJECT_REFERENCE_VERSION`; this project honours that first and packs its own only
@@ -62,11 +63,56 @@ func IncrementalityQuote(value: string): string {
     return "\"" + value.Replace("\"", "\\\"") + "\""
 }
 
+// A `dotnet` child that inherits this process's environment: the feed pack, which evaluates no row's
+// project.
 func IncrementalityRunDotnet(arguments: string, workingDirectory: string): IncrementalityRun {
+    return IncrementalityRunProcess(arguments, workingDirectory, null)
+}
+
+// A `dotnet` child that evaluates a row's own projects, with `NUGET_PACKAGES` pointed at the row's own
+// throwaway cache - the folder the row's `NuGet.config` names as `globalPackagesFolder`.
+//
+// The variable outranks that setting. Whenever it was set - the product gate always sets it, to a
+// cache of its own - every row's restore extracted the SAME private `NSharpLang.Sdk` version into ONE
+// shared folder, and the rows run in parallel, one test class per file: a restore that found another
+// row's extraction half-done failed "Package restore was successful but a package with the ID of
+// NSharpLang.Sdk was not installed", about two runs in three. It is written into the CHILD'S
+// environment block only, never this process's, whose `NUGET_PACKAGES` `ScopeWriteResolution` still
+// reads as a read-only package SOURCE.
+func IncrementalityRunInCache(arguments: string, workingDirectory: string, packagesCache: string): IncrementalityRun {
+    return IncrementalityRunProcess(arguments, workingDirectory, packagesCache)
+}
+
+// Both pipes are drained as tasks before the wait: a chatty child deadlocks against a full pipe
+// buffer otherwise, and the gate parses this project's own stdout as JSON, so nothing a child
+// prints may reach it.
+func IncrementalityRunProcess(arguments: string, workingDirectory: string, packagesCache: string?): IncrementalityRun {
+    startInfo := new ProcessStartInfo { FileName: "dotnet", Arguments: arguments }
+    startInfo.WorkingDirectory = workingDirectory
+    startInfo.RedirectStandardOutput = true
+    startInfo.RedirectStandardError = true
+    startInfo.UseShellExecute = false
+    if packagesCache != null {
+        startInfo.Environment["NUGET_PACKAGES"] = packagesCache
+    }
+
     started := DateTime.UtcNow
-    result := DotnetRunner.RunProcess("dotnet", arguments, workingDirectory, TimeSpan.FromMinutes(10))
+    process := new Process { StartInfo: startInfo }
+    process.Start()
+    stdoutTask := process.StandardOutput.ReadToEndAsync()
+    stderrTask := process.StandardError.ReadToEndAsync()
+    timeout := TimeSpan.FromMinutes(10)
+    if !process.WaitForExit(Convert.ToInt32(timeout.TotalMilliseconds)) {
+        process.Kill(true)
+        process.WaitForExit()
+        process.Dispose()
+        throw new TimeoutException("Process 'dotnet " + arguments + "' did not complete within " + timeout.ToString() + ".")
+    }
+
+    exitCode := process.ExitCode
+    process.Dispose()
     elapsed := DateTime.UtcNow - started
-    return new IncrementalityRun(result.ExitCode, result.Stdout, result.Stderr, Convert.ToInt32(elapsed.TotalMilliseconds))
+    return new IncrementalityRun(exitCode, stdoutTask.Result, stderrTask.Result, Convert.ToInt32(elapsed.TotalMilliseconds))
 }
 
 func IncrementalityRequireSuccess(result: IncrementalityRun, operation: string) {
@@ -163,6 +209,12 @@ func IncrementalityScratch(label: string): string {
     return directory
 }
 
+// The row's throwaway package cache: its `NuGet.config`'s `globalPackagesFolder` and its children's
+// `NUGET_PACKAGES`, one folder by construction.
+func IncrementalityPackages(scratch: string): string {
+    return Path.Combine(scratch, "packages")
+}
+
 func IncrementalityWriteResolution(directory: string) {
     File.WriteAllText(
         Path.Combine(directory, "global.json"),
@@ -170,7 +222,7 @@ func IncrementalityWriteResolution(directory: string) {
     )
     File.WriteAllText(
         Path.Combine(directory, "NuGet.config"),
-        "<configuration><config><add key=\"globalPackagesFolder\" value=\"" + Path.Combine(directory, "packages") + "\" /></config><packageSources><clear /><add key=\"reference-incrementality-private\" value=\"" + IncrementalityFeed.Root + "\" /><add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" /></packageSources></configuration>"
+        "<configuration><config><add key=\"globalPackagesFolder\" value=\"" + IncrementalityPackages(directory) + "\" /></config><packageSources><clear /><add key=\"reference-incrementality-private\" value=\"" + IncrementalityFeed.Root + "\" /><add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" /></packageSources></configuration>"
     )
 }
 
@@ -218,5 +270,5 @@ func IncrementalityEmitted(result: IncrementalityRun, assemblyName: string): boo
 }
 
 func IncrementalityBuildConsumer(root: string): IncrementalityRun {
-    return IncrementalityRunDotnet("build A.csproj -v n --nologo --disable-build-servers", Path.Combine(root, "A"))
+    return IncrementalityRunInCache("build A.csproj -v n --nologo --disable-build-servers", Path.Combine(root, "A"), IncrementalityPackages(root))
 }

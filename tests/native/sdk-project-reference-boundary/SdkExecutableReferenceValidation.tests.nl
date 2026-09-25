@@ -19,10 +19,11 @@ func SdkExecutableReferenceScratch(root: string): string {
     return directory
 }
 
-func SdkExecutableReferenceOuterFacts(libraryDirectory: string): SdkBoundaryRun {
-    return SdkBoundaryRunDotnet(
+func SdkExecutableReferenceOuterFacts(libraryDirectory: string, packagesCache: string): SdkBoundaryRun {
+    return SdkBoundaryRunInCache(
         "msbuild Library.csproj -t:GetTargetFrameworksWithPlatformForSingleTargetFramework -getProperty:OutputType -getProperty:_IsExecutable -getProperty:IsRidAgnostic --disable-build-servers",
-        libraryDirectory
+        libraryDirectory,
+        packagesCache
     )
 }
 
@@ -50,7 +51,7 @@ test "an unrestored project announces its project.yml outputType and survives Va
         generatedProps := Path.Combine(Path.Combine(libraryDirectory, "obj"), "project.g.props")
         assert !File.Exists(generatedProps), "clean fixture unexpectedly contains " + generatedProps
 
-        facts := SdkExecutableReferenceOuterFacts(libraryDirectory)
+        facts := SdkExecutableReferenceOuterFacts(libraryDirectory, packagesCache)
         SdkBoundaryRequireSuccess(facts, "unrestored library outer facts")
         assert facts.Stdout.Contains("\"OutputType\": \"Library\""), facts.Stdout
         assert facts.Stdout.Contains("\"_IsExecutable\": \"\""), facts.Stdout
@@ -68,9 +69,10 @@ test "an unrestored project announces its project.yml outputType and survives Va
 
         // The exact MSBuild target and property `dotnet workload restore <project>` drives, without the
         // machine-wide workload reconciliation that wrapping CLI command performs.
-        workloads := SdkBoundaryRunDotnet(
+        workloads := SdkBoundaryRunInCache(
             "msbuild Consumer.csproj -t:_GetRequiredWorkloads -p:SkipResolvePackageAssets=true --disable-build-servers",
-            consumerDirectory
+            consumerDirectory,
+            packagesCache
         )
         workloadOutput := workloads.Stdout + workloads.Stderr
         assert !workloadOutput.Contains("NETSDK1150"), workloadOutput
@@ -78,7 +80,7 @@ test "an unrestored project announces its project.yml outputType and survives Va
 
         // The placeholder still has to answer Exe for the projects that really are executables.
         File.WriteAllText(projectFile, "name: Library\nbackend: il\noutputType: exe\ntargetFramework: net10.0\n")
-        executableFacts := SdkExecutableReferenceOuterFacts(libraryDirectory)
+        executableFacts := SdkExecutableReferenceOuterFacts(libraryDirectory, packagesCache)
         SdkBoundaryRequireSuccess(executableFacts, "unrestored executable outer facts")
         assert executableFacts.Stdout.Contains("\"OutputType\": \"Exe\""), executableFacts.Stdout
         assert executableFacts.Stdout.Contains("\"_IsExecutable\": \"true\""), executableFacts.Stdout

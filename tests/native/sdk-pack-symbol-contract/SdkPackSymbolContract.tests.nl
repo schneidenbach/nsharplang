@@ -113,7 +113,7 @@ test "a library and an executable N# project each pack with a plain dotnet pack 
         PackWriteResolution(applicationDirectory, feed, packagesCache)
 
         // ── THE LIBRARY ──────────────────────────────────────────────────────────────────────
-        libraryPack := PackSample(libraryDirectory, "PackLibrary", output)
+        libraryPack := PackSample(libraryDirectory, "PackLibrary", output, packagesCache)
         assert !libraryPack.Output().Contains("NU5026"), libraryPack.Output()
         PackRequireSuccess(libraryPack, "plain dotnet pack of an N# library")
 
@@ -132,7 +132,7 @@ test "a library and an executable N# project each pack with a plain dotnet pack 
         assert Directory.GetFiles(libraryBin, "*.pdb").Length == 0, libraryBin
 
         // ── THE EXECUTABLE ───────────────────────────────────────────────────────────────────
-        applicationPack := PackSample(applicationDirectory, "PackApplication", output)
+        applicationPack := PackSample(applicationDirectory, "PackApplication", output, packagesCache)
         assert !applicationPack.Output().Contains("NU5026"), applicationPack.Output()
         PackRequireSuccess(applicationPack, "plain dotnet pack of an N# executable")
 
@@ -155,7 +155,7 @@ test "a library and an executable N# project each pack with a plain dotnet pack 
         // pack asks for the `.pdb` the emitter cannot write. The failure IS the evidence: the
         // default is not hard-coded in the SDK, and the day a symbol writer exists a project can
         // say so without anyone editing MSBuild.
-        portablePack := PackSample(portableDirectory, "PackPortable", output)
+        portablePack := PackSample(portableDirectory, "PackPortable", output, packagesCache)
         assert portablePack.ExitCode != 0, portablePack.Output()
         assert portablePack.Output().Contains("NU5026"), portablePack.Output()
         assert portablePack.Output().Contains("PackPortable.pdb"), portablePack.Output()
@@ -167,7 +167,7 @@ test "a library and an executable N# project each pack with a plain dotnet pack 
             Path.Combine(portableDirectory, "project.yml"),
             PackPortableLibraryProjectYml().Replace("debugType: portable\n", "")
         )
-        defaultedPack := PackSample(portableDirectory, "PackPortable", output)
+        defaultedPack := PackSample(portableDirectory, "PackPortable", output, packagesCache)
         PackRequireSuccess(defaultedPack, "plain dotnet pack after removing debugType")
         portableEntries := PackEntryNames(Path.Combine(output, "NSharpLang.PackSymbolContract.Portable.1.2.3.nupkg"))
         assert portableEntries.Contains("lib/net10.0/PackPortable.dll"), PackJoin(portableEntries)

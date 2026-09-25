@@ -112,6 +112,22 @@ func ParityRunDotnet(arguments: string, workingDirectory: string): ParityRun {
     return ParityRunProcess("dotnet", arguments, workingDirectory)
 }
 
+// A `dotnet` child that evaluates a row's own SDK project, with `NUGET_PACKAGES` pointed at the row's
+// own throwaway cache - the folder the row's `NuGet.config` names as `globalPackagesFolder`. The
+// variable outranks that setting, and the product gate always sets it, so without this every row
+// restored the ONE private `NSharpLang.Sdk` version the gate supplies into the gate's shared cache
+// at once, alongside the other SDK-path projects of the sweep - a restore that found another's
+// extraction half-done failed "a package with the ID of NSharpLang.Sdk was not installed" - and the
+// disposable version landed in a real cache after all. `nlc` itself stays on `ParityRunDotnet`: it
+// reads `NUGET_PACKAGES` directly, never a `NuGet.config`, and evaluates no SDK project.
+func ParityRunInCache(arguments: string, workingDirectory: string, packagesCache: string): ParityRun {
+    return ParityRunProcessWith("dotnet", arguments, workingDirectory, "NUGET_PACKAGES", packagesCache)
+}
+
+func ParityPackages(scratch: string): string {
+    return Path.Combine(scratch, "packages")
+}
+
 func ParityRequireSuccess(result: ParityRun, operation: string) {
     if result.ExitCode != 0 {
         throw new InvalidOperationException(operation + " failed with exit " + result.ExitCode.ToString() + ":\n" + result.Output())

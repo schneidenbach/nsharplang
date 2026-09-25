@@ -15,12 +15,17 @@ func IlSdkScratch(root: string, label: string): string {
 
 func IlSdkProject(directory: string, name: string, yaml: string, sdkPackage: SdkBoundaryPackage): string {
     Directory.CreateDirectory(directory)
-    SdkBoundaryWriteResolution(directory, sdkPackage, Path.Combine(directory, "packages"))
+    SdkBoundaryWriteResolution(directory, sdkPackage, IlSdkPackages(directory))
     File.WriteAllText(Path.Combine(directory, name + ".csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n")
     File.WriteAllText(Path.Combine(directory, "project.yml"), yaml)
-    restore := SdkBoundaryRunDotnet("restore " + SdkBoundaryQuote(name + ".csproj") + " --disable-build-servers -v q", directory)
+    restore := SdkBoundaryRunInCache("restore " + SdkBoundaryQuote(name + ".csproj") + " --disable-build-servers -v q", directory, IlSdkPackages(directory))
     SdkBoundaryRequireSuccess(restore, "SDK restore for " + name)
     return Path.Combine(directory, name + ".csproj")
+}
+
+// The throwaway package cache of the project `IlSdkProject` set up in `directory`.
+func IlSdkPackages(directory: string): string {
+    return Path.Combine(directory, "packages")
 }
 
 func IlSdkAssembly(directory: string, name: string): string {
@@ -73,7 +78,7 @@ test "dotnet build uses the IL backend through the SDK" {
             "func main() {\n    print \"sdk il build\"\n}\n"
         )
 
-        build := SdkBoundaryRunDotnet("build " + SdkBoundaryQuote(projectPath) + " -v q --disable-build-servers", projectDirectory)
+        build := SdkBoundaryRunInCache("build " + SdkBoundaryQuote(projectPath) + " -v q --disable-build-servers", projectDirectory, IlSdkPackages(projectDirectory))
         SdkBoundaryRequireSuccess(build, "SDK IL build")
 
         assemblyPath := IlSdkAssembly(projectDirectory, "SdkIlBuild")
@@ -117,14 +122,14 @@ test "dotnet build resolves runtime for an anonymous union and an N# project ref
             Path.Combine(consumerDirectory, "project.yml"),
             "name: Consumer\noutputType: exe\ntargetFramework: net10.0\n"
         )
-        SdkBoundaryWriteResolution(consumerDirectory, sdkPackage, Path.Combine(consumerDirectory, "packages"))
-        restore := SdkBoundaryRunDotnet("restore " + SdkBoundaryQuote(consumerProject) + " --disable-build-servers -v q", consumerDirectory)
+        SdkBoundaryWriteResolution(consumerDirectory, sdkPackage, IlSdkPackages(consumerDirectory))
+        restore := SdkBoundaryRunInCache("restore " + SdkBoundaryQuote(consumerProject) + " --disable-build-servers -v q", consumerDirectory, IlSdkPackages(consumerDirectory))
         SdkBoundaryRequireSuccess(restore, "consumer restore")
         File.WriteAllText(Path.Combine(consumerDirectory, "Program.cs"), "var direct = UnionLib.UnionApi.Describe(7);\nvar returned = UnionLib.UnionApi.Choose(false).As<string>();\nConsole.WriteLine($\"{direct}|{returned}\");\n")
 
-        build := SdkBoundaryRunDotnet("build " + SdkBoundaryQuote(consumerProject) + " -v q --disable-build-servers", consumerDirectory)
+        build := SdkBoundaryRunInCache("build " + SdkBoundaryQuote(consumerProject) + " -v q --disable-build-servers", consumerDirectory, IlSdkPackages(consumerDirectory))
         SdkBoundaryRequireSuccess(build, "consumer build")
-        run := SdkBoundaryRunDotnet("run --project " + SdkBoundaryQuote(consumerProject) + " --no-build --disable-build-servers", consumerDirectory)
+        run := SdkBoundaryRunInCache("run --project " + SdkBoundaryQuote(consumerProject) + " --no-build --disable-build-servers", consumerDirectory, IlSdkPackages(consumerDirectory))
         SdkBoundaryRequireSuccess(run, "consumer run")
         assert run.Stdout.Contains("7|runtime"), run.Stdout
         _ = libraryProject
@@ -158,11 +163,11 @@ test "dotnet build keeps a SemVer package version and numeric CLR versions" {
             "<Project>\n" + "  <Target Name=\"PrintNSharpVersionProperties\" DependsOnTargets=\"_ApplyNSharpProjectConfigForCurrentBuild\">\n" + "    <Message Importance=\"High\" Text=\"nsharp-version-props Version=$(Version);PackageVersion=$(PackageVersion);AssemblyVersion=$(AssemblyVersion);FileVersion=$(FileVersion)\" />\n" + "  </Target>\n" + "</Project>\n"
         )
 
-        properties := SdkBoundaryRunDotnet("msbuild " + SdkBoundaryQuote(projectPath) + " -t:PrintNSharpVersionProperties -v m --disable-build-servers", projectDirectory)
+        properties := SdkBoundaryRunInCache("msbuild " + SdkBoundaryQuote(projectPath) + " -t:PrintNSharpVersionProperties -v m --disable-build-servers", projectDirectory, IlSdkPackages(projectDirectory))
         SdkBoundaryRequireSuccess(properties, "SemVer property projection")
         assert properties.Stdout.Contains("nsharp-version-props Version=1.2.0-beta.1+build.5;PackageVersion=1.2.0-beta.1+build.5;AssemblyVersion=1.2.0.0;FileVersion=1.2.0.0"), properties.Stdout
 
-        build := SdkBoundaryRunDotnet("build " + SdkBoundaryQuote(projectPath) + " -v q --disable-build-servers", projectDirectory)
+        build := SdkBoundaryRunInCache("build " + SdkBoundaryQuote(projectPath) + " -v q --disable-build-servers", projectDirectory, IlSdkPackages(projectDirectory))
         SdkBoundaryRequireSuccess(build, "SemVer SDK build")
     } finally {
         Directory.Delete(scratch, true)
@@ -183,7 +188,7 @@ test "dotnet run uses the IL backend through the SDK" {
         )
         File.WriteAllText(Path.Combine(projectDirectory, "Program.nl"), "func main() {\n    print \"sdk il run\"\n}\n")
 
-        run := SdkBoundaryRunDotnet("run --project " + SdkBoundaryQuote(projectPath) + " --disable-build-servers", projectDirectory)
+        run := SdkBoundaryRunInCache("run --project " + SdkBoundaryQuote(projectPath) + " --disable-build-servers", projectDirectory, IlSdkPackages(projectDirectory))
         SdkBoundaryRequireSuccess(run, "SDK IL run")
         assert run.Stdout.Contains("sdk il run"), run.Stdout
     } finally {
@@ -208,7 +213,7 @@ test "dotnet test uses the IL backend through the SDK" {
 
         trxPath := Path.Combine(scratch, "results.trx")
         command := "test " + SdkBoundaryQuote(projectPath) + " -v q --disable-build-servers --logger " + SdkBoundaryQuote("trx;LogFileName=" + trxPath)
-        result := SdkBoundaryRunDotnet(command, projectDirectory)
+        result := SdkBoundaryRunInCache(command, projectDirectory, IlSdkPackages(projectDirectory))
         SdkBoundaryRequireSuccess(result, "SDK IL test run")
         assert File.Exists(trxPath)
         assert IlSdkHasPassedTrx(trxPath)

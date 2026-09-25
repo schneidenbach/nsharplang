@@ -60,15 +60,15 @@ test "a product build between tests-included builds leaves the test run working 
         library := Path.Combine(scratch, "Lib")
         flags := " --disable-build-servers -nr:false -v q --nologo"
 
-        IncrementalityRequireSuccess(IncrementalityRunDotnet("restore Lib.csproj -p:NSharpExcludeTests=false --force-evaluate" + flags, library), "tests-included restore")
+        IncrementalityRequireSuccess(IncrementalityRunInCache("restore Lib.csproj -p:NSharpExcludeTests=false --force-evaluate" + flags, library, IncrementalityPackages(scratch)), "tests-included restore")
         // The product build RE-RESOLVES (`--force`), as a product build does whenever its inputs move,
         // so its deps file is written after the tests-included assets.
         round := 1
         while round <= 2 {
             label := " (round " + round.ToString() + ")"
-            IncrementalityRequireSuccess(IncrementalityRunDotnet("build Lib.csproj -p:NSharpExcludeTests=true --force" + flags, library), "product build" + label)
+            IncrementalityRequireSuccess(IncrementalityRunInCache("build Lib.csproj -p:NSharpExcludeTests=true --force" + flags, library, IncrementalityPackages(scratch)), "product build" + label)
             OutputRequireOneTestPassed(
-                IncrementalityRunDotnet("test Lib.csproj -p:NSharpExcludeTests=false --no-restore" + flags, library),
+                IncrementalityRunInCache("test Lib.csproj -p:NSharpExcludeTests=false --no-restore" + flags, library, IncrementalityPackages(scratch)),
                 "tests-included test run" + label
             )
             round = round + 1

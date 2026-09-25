@@ -196,7 +196,7 @@ test "one project emits the same program through nlc build and through the SDK e
         sdkPackage := ParityPreparePackage(root, scratch)
         projectDirectory := Path.Combine(scratch, "Sample")
         ParityWriteSample(projectDirectory)
-        ParityWriteResolution(projectDirectory, sdkPackage, Path.Combine(scratch, "packages"))
+        ParityWriteResolution(projectDirectory, sdkPackage, ParityPackages(scratch))
 
         cliLogDirectory := Path.Combine(scratch, "cli-log")
         sdkLogDirectory := Path.Combine(scratch, "sdk-log")
@@ -219,9 +219,9 @@ test "one project emits the same program through nlc build and through the SDK e
         ParityDeleteOutput(projectDirectory)
 
         // ── DOOR TWO: `dotnet build` of a one-line SDK csproj, emitting inside MSBuild ────────
-        restore := ParityRunDotnet("restore ParitySample.csproj --disable-build-servers -v q", projectDirectory)
+        restore := ParityRunInCache("restore ParitySample.csproj --disable-build-servers -v q", projectDirectory, ParityPackages(scratch))
         ParityRequireSuccess(restore, "restore of the parity sample")
-        sdkBuild := ParityRunDotnet("build ParitySample.csproj --no-restore --disable-build-servers -v q", projectDirectory)
+        sdkBuild := ParityRunInCache("build ParitySample.csproj --no-restore --disable-build-servers -v q", projectDirectory, ParityPackages(scratch))
         assert !sdkBuild.Output().Contains("not modeled"), sdkBuild.Output()
         ParityRequireSuccess(sdkBuild, "dotnet build of the parity sample")
         sdkRun := ParityRunSample(projectDirectory, sdkLog)
@@ -357,7 +357,7 @@ func ParityWriteScanSample(scratch: string, sdkPackage: ParityPackage): string {
     File.WriteAllText(Path.Combine(projectDirectory, "project.yml"), ParityScanProjectYml())
     File.WriteAllText(Path.Combine(projectDirectory, "Program.nl"), ParityScanProgram())
     // One resolution for both projects: the global.json, NuGet.config and props sit above them.
-    ParityWriteResolution(scratch, sdkPackage, Path.Combine(scratch, "packages"))
+    ParityWriteResolution(scratch, sdkPackage, ParityPackages(scratch))
     return projectDirectory
 }
 
@@ -380,9 +380,9 @@ test "a referenced N# assembly's member typed by a compiler-referenced identity 
         ParityDeleteOutput(Path.Combine(scratch, "ParityScanLibrary"))
 
         // ── DOOR TWO: `dotnet build`, emitting inside MSBuild ──────────────────────────────────
-        restore := ParityRunDotnet("restore ParityScanSample.csproj --disable-build-servers -v q", projectDirectory)
+        restore := ParityRunInCache("restore ParityScanSample.csproj --disable-build-servers -v q", projectDirectory, ParityPackages(scratch))
         ParityRequireSuccess(restore, "restore of the scan sample")
-        sdkBuild := ParityRunDotnet("build ParityScanSample.csproj --no-restore --disable-build-servers -v q", projectDirectory)
+        sdkBuild := ParityRunInCache("build ParityScanSample.csproj --no-restore --disable-build-servers -v q", projectDirectory, ParityPackages(scratch))
         assert !sdkBuild.Output().Contains("declined"), sdkBuild.Output()
         ParityRequireSuccess(sdkBuild, "dotnet build of the scan sample")
         sdkRun := ParityRunDotnet(ParityQuote(ParityOutputAssembly(projectDirectory, "ParityScanSample")), projectDirectory)

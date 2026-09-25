@@ -49,8 +49,8 @@ test "the compiler pairs the tested and the product reference images with their 
         library := Path.Combine(scratch, "Lib")
         flags := " --disable-build-servers -nr:false -v q --nologo"
 
-        IncrementalityRequireSuccess(IncrementalityRunDotnet("build Lib.csproj -p:NSharpExcludeTests=false --force" + flags, library), "tests-included build")
-        IncrementalityRequireSuccess(IncrementalityRunDotnet("build Lib.csproj -p:NSharpExcludeTests=true --force" + flags, library), "product build")
+        IncrementalityRequireSuccess(IncrementalityRunInCache("build Lib.csproj -p:NSharpExcludeTests=false --force" + flags, library, IncrementalityPackages(scratch)), "tests-included build")
+        IncrementalityRequireSuccess(IncrementalityRunInCache("build Lib.csproj -p:NSharpExcludeTests=true --force" + flags, library, IncrementalityPackages(scratch)), "product build")
 
         tested := PairingImagePairs(library, "tests-included/Debug/net10.0")
         assert tested == "", tested

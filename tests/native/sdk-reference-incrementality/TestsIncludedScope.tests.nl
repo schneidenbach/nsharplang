@@ -43,12 +43,12 @@ func ScopeWriteResolution(directory: string) {
     }
     File.WriteAllText(
         Path.Combine(directory, "NuGet.config"),
-        "<configuration><config><add key=\"globalPackagesFolder\" value=\"" + Path.Combine(directory, "packages") + "\" /></config>" + "<packageSources><clear /><add key=\"scope-private\" value=\"" + IncrementalityFeed.Root + "\" /><add key=\"scope-local-cache\" value=\"" + localCache + "\" /><add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" /></packageSources>" + "<packageSourceMapping><packageSource key=\"scope-private\"><package pattern=\"NSharpLang.*\" /></packageSource><packageSource key=\"scope-local-cache\"><package pattern=\"*\" /></packageSource><packageSource key=\"nuget.org\"><package pattern=\"*\" /></packageSource></packageSourceMapping></configuration>"
+        "<configuration><config><add key=\"globalPackagesFolder\" value=\"" + IncrementalityPackages(directory) + "\" /></config>" + "<packageSources><clear /><add key=\"scope-private\" value=\"" + IncrementalityFeed.Root + "\" /><add key=\"scope-local-cache\" value=\"" + localCache + "\" /><add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" /></packageSources>" + "<packageSourceMapping><packageSource key=\"scope-private\"><package pattern=\"NSharpLang.*\" /></packageSource><packageSource key=\"scope-local-cache\"><package pattern=\"*\" /></packageSource><packageSource key=\"nuget.org\"><package pattern=\"*\" /></packageSource></packageSourceMapping></configuration>"
     )
 }
 
 func ScopeBuildTestsIncluded(root: string, project: string): IncrementalityRun {
-    return IncrementalityRunDotnet("build " + project + ".csproj -p:NSharpExcludeTests=false -v n --nologo --disable-build-servers", Path.Combine(root, project))
+    return IncrementalityRunInCache("build " + project + ".csproj -p:NSharpExcludeTests=false -v n --nologo --disable-build-servers", Path.Combine(root, project), IncrementalityPackages(root))
 }
 
 func ScopeObj(root: string, project: string, segments: string): string {

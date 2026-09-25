@@ -47,7 +47,7 @@ test "a project.yml nuget dependency reaches the emitter through the SDK and bin
         projectPath := IlSdkProject(projectDirectory, "SdkPackageRef", PackageReferenceProjectYaml(), sdkPackage)
         File.WriteAllText(Path.Combine(projectDirectory, "Program.nl"), PackageReferenceProgram())
 
-        build := SdkBoundaryRunDotnet("build " + SdkBoundaryQuote(projectPath) + " -v q --disable-build-servers", projectDirectory)
+        build := SdkBoundaryRunInCache("build " + SdkBoundaryQuote(projectPath) + " -v q --disable-build-servers", projectDirectory, IlSdkPackages(projectDirectory))
         SdkBoundaryRequireSuccess(build, "SDK build against a host-owned package name")
 
         assemblyPath := IlSdkAssembly(projectDirectory, "SdkPackageRef")

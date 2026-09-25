@@ -887,6 +887,24 @@ temp root, the SDK copy packed with `NoBuild` - once per process under a lock
 "once per process" cache let two parallel test classes pack at once: 1 `dev.sh` run in 3 failed
 before, 10/10 at 29/29 after with 119 `--no-incremental` Runtime builds running beside them.
 
+A ROW'S PACKAGE CACHE IS HANDED TO ITS CHILDREN, NOT ONLY WRITTEN INTO ITS `NuGet.config`. Every
+SDK-path row writes a scratch `NuGet.config` whose `globalPackagesFolder` is its own throwaway
+folder, but `NUGET_PACKAGES` OUTRANKS that setting - and the product gate always sets it
+(`tests/scripts/test-all.sh`). So whenever it was set, every row's restore extracted the SAME private
+`NSharpLang.Sdk` version (one per process, or the gate's one per sweep) into ONE shared folder while
+the other test classes did the same, and a restore that met another's half-done extraction failed
+"Package restore was successful but a package with the ID of NSharpLang.Sdk was not installed" -
+and the disposable version landed in a real cache besides. MEASURED (2026-09-24,
+`sdk-reference-incrementality`, `NUGET_PACKAGES=~/.nuget/packages`): 2 runs in 3 failed before,
+each leaving its `0.1.0-refincr…` SDK in `~/.nuget/packages`; 10/10 at 7/7 after, 3/3 with the
+variable unset, and not one version leaked. Each fixture now launches a `dotnet` child that evaluates a row's project through
+a `…RunInCache` runner that sets the child's `startInfo.Environment["NUGET_PACKAGES"]` to that same
+folder (`sdk-reference-incrementality`, `sdk-project-reference-boundary`, `sdk-emit-path-parity`,
+`sdk-pack-symbol-contract`; `nuget-resolution-fidelity` already did). The feed pack, running a built
+assembly and the standalone `nlc` - which reads `NUGET_PACKAGES` itself and never a `NuGet.config` -
+keep the inherited environment. `ScopeWriteResolution` still reads this process's `NUGET_PACKAGES`,
+as a read-only package SOURCE.
+
 ### 4b. Estate Rows Take Their Host's Layout From the Seed, Not From Arithmetic
 The estate host is built by the SEED's SDK, so a layout change in `src/NSharpLang.Sdk` reaches it only
 with the next reseed. MEASURED (2026-09-23, ninth reseed, step 8): five `ExternalAssembly*` rows

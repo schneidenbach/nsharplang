@@ -85,12 +85,15 @@ func PackQuote(value: string): string {
 // Both pipes are drained as tasks before the wait: a chatty child deadlocks against a full pipe
 // buffer otherwise, and the gate parses this project's own stdout, so nothing a child prints may
 // reach it.
-func PackRunProcess(fileName: string, arguments: string, workingDirectory: string): PackRun {
+func PackRunProcess(fileName: string, arguments: string, workingDirectory: string, packagesCache: string?): PackRun {
     startInfo := new ProcessStartInfo { FileName: fileName, Arguments: arguments }
     startInfo.WorkingDirectory = workingDirectory
     startInfo.RedirectStandardOutput = true
     startInfo.RedirectStandardError = true
     startInfo.UseShellExecute = false
+    if packagesCache != null {
+        startInfo.Environment["NUGET_PACKAGES"] = packagesCache
+    }
 
     process := new Process { StartInfo: startInfo }
     process.Start()
@@ -109,7 +112,18 @@ func PackRunProcess(fileName: string, arguments: string, workingDirectory: strin
 }
 
 func PackRunDotnet(arguments: string, workingDirectory: string): PackRun {
-    return PackRunProcess("dotnet", arguments, workingDirectory)
+    return PackRunProcess("dotnet", arguments, workingDirectory, null)
+}
+
+// A `dotnet` child that evaluates the row's own sample, with `NUGET_PACKAGES` pointed at the row's
+// throwaway cache - the folder its `NuGet.config` names as `globalPackagesFolder`. The variable
+// outranks that setting, and the product gate always sets it: without this the sample restored the
+// private `NSharpLang.Sdk` version the gate supplies into the gate's shared cache, at the same moment
+// as the other SDK-path projects of the sweep restoring that same version, and the OFFLINE contract
+// below held only because that cache already answered whatever the SDK asked for. It is written into
+// the CHILD'S environment block only, never this process's.
+func PackRunInCache(arguments: string, workingDirectory: string, packagesCache: string): PackRun {
+    return PackRunProcess("dotnet", arguments, workingDirectory, packagesCache)
 }
 
 func PackRequireSuccess(result: PackRun, operation: string) {
@@ -182,10 +196,11 @@ func PackDeleteOutput(projectDirectory: string) {
 // THE EXACT SHAPE THE WORKFLOW RUNS, MINUS THE REPAIR. `.github/workflows/build.yml` reaches
 // `dotnet pack <project> -c Release -o <dir> --disable-build-servers` through the integration
 // fixture; the only difference here is that nothing supplies `-p:DebugType` or `-p:DebugSymbols`.
-func PackSample(projectDirectory: string, assemblyName: string, outputDirectory: string): PackRun {
-    return PackRunDotnet(
+func PackSample(projectDirectory: string, assemblyName: string, outputDirectory: string, packagesCache: string): PackRun {
+    return PackRunInCache(
         "pack " + assemblyName + ".csproj -c Release -o " + PackQuote(outputDirectory) + " --disable-build-servers -v q",
-        projectDirectory
+        projectDirectory,
+        packagesCache
     )
 }
 
