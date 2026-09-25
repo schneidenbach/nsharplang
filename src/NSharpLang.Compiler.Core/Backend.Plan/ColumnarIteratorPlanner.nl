@@ -174,14 +174,12 @@ class ColumnarIteratorWalkState {
     ParamNames: string[]
     ParamCanonicals: string[]
     TypeParamNames: string[]
-    // Enclosing-type member facts (instance iterators only; empty otherwise): readable public fields
-    // and callable public methods of the receiver's type.
+    // Enclosing-type member facts (instance iterators only; empty otherwise): the readable public
+    // fields of the receiver's type.
     MemberFieldNames: string[]
     MemberFieldCanonicals: string[]
-    MemberMethodNames: string[]
-    MemberMethodReturnCanonicals: string[]
 
-    constructor(capacity: int, paramNames: string[], paramCanonicals: string[], typeParamNames: string[], memberFieldNames: string[], memberFieldCanonicals: string[], memberMethodNames: string[], memberMethodReturnCanonicals: string[], isAsync: bool) {
+    constructor(capacity: int, paramNames: string[], paramCanonicals: string[], typeParamNames: string[], memberFieldNames: string[], memberFieldCanonicals: string[], isAsync: bool) {
         YieldReturnCount = 0
         AwaitCount = 0
         ResumeCount = 0
@@ -211,8 +209,6 @@ class ColumnarIteratorWalkState {
         TypeParamNames = typeParamNames
         MemberFieldNames = memberFieldNames
         MemberFieldCanonicals = memberFieldCanonicals
-        MemberMethodNames = memberMethodNames
-        MemberMethodReturnCanonicals = memberMethodReturnCanonicals
     }
 
     func Decline(site: string, message: string) {
@@ -249,18 +245,6 @@ class ColumnarIteratorWalkState {
         while i < MemberFieldNames.Length {
             if MemberFieldNames[i] == name {
                 return MemberFieldCanonicals[i]
-            }
-            i = i + 1
-        }
-        return ""
-    }
-
-    // The return canonical of an enclosing-type METHOD (instance mode); "" when unknown.
-    func LookupMemberMethodReturnCanonical(name: string): string {
-        i := 0
-        while i < MemberMethodNames.Length {
-            if MemberMethodNames[i] == name {
-                return MemberMethodReturnCanonicals[i]
             }
             i = i + 1
         }
@@ -412,7 +396,7 @@ class ColumnarIteratorPlanner {
     // method supplies its receiver canonical plus the enclosing type's readable field and callable
     // method facts (public members only — the host filters); the receiver hoists as a `<>__this`
     // captured field so the factory (the method body) stores `ldarg.0` and the clone copies it.
-    static func AnalyzeShape(nodes: ColumnarNodeTable, source: string, bodyRoot: int, funcName: string, funcOrdinal: int, returnCanonical: string, paramNames: string[], paramCanonicals: string[], typeParamNames: string[], isInstance: bool, receiverCanonical: string = "", enclosingFieldNames: string[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethodReturnCanonicals: string[]? = null, isAsync: bool = false): ColumnarIteratorShape {
+    static func AnalyzeShape(nodes: ColumnarNodeTable, source: string, bodyRoot: int, funcName: string, funcOrdinal: int, returnCanonical: string, paramNames: string[], paramCanonicals: string[], typeParamNames: string[], isInstance: bool, receiverCanonical: string = "", enclosingFieldNames: string[]? = null, enclosingFieldCanonicals: string[]? = null, isAsync: bool = false): ColumnarIteratorShape {
         if isInstance && receiverCanonical == "" {
             return Declined("emit.iterator.instance-unsupported", "iterator methods with an instance receiver are not yet lowered")
         }
@@ -446,7 +430,7 @@ class ColumnarIteratorPlanner {
         }
 
         capacity := nodes.Kinds.Length + 1
-        state := new ColumnarIteratorWalkState(capacity, paramNames, paramCanonicals, typeParamNames, enclosingFieldNames ?? new string[](0), enclosingFieldCanonicals ?? new string[](0), enclosingMethodNames ?? new string[](0), enclosingMethodReturnCanonicals ?? new string[](0), isAsync)
+        state := new ColumnarIteratorWalkState(capacity, paramNames, paramCanonicals, typeParamNames, enclosingFieldNames ?? new string[](0), enclosingFieldCanonicals ?? new string[](0), isAsync)
         WalkStatement(nodes, source, bodyRoot, state)
         if state.Declined {
             return Declined(state.DeclineSite, state.DeclineMessage)
@@ -1754,13 +1738,11 @@ class ColumnarIteratorEmitContext {
     StructuralTypeReferences: ColumnarStructuralTypeReferenceTable
     Constructor: ConstructorInfo?
     // Instance-iterator extras (empty for top-level machines): the enclosing type plus its readable
-    // field / callable method handles, and the canonical->runtime-type table for sequence elements.
+    // field handles, and the canonical->runtime-type table for sequence elements.
     EnclosingType: Type?
     EnclosingFieldNames: string[]
     EnclosingFields: FieldInfo[]
     EnclosingFieldCanonicals: string[]
-    EnclosingMethodNames: string[]
-    EnclosingMethods: MethodInfo[]
     // Async-machine extra: the MoveNextCore handle MoveNextAsync's plan drives (null for sync machines).
     CoreMethod: MethodInfo?
     // The machine's own MoveNext, published once the realization has defined it. `Dispose` drives it
@@ -1785,7 +1767,7 @@ class ColumnarIteratorEmitContext {
     DeclineSite: string
     DeclineMessage: string
 
-    constructor(nodes: ColumnarNodeTable, source: string, bodyRoot: int, shape: ColumnarIteratorShape, stateMachineType: Type, elementType: Type, fieldNames: string[], fields: FieldInfo[], structuralTypeReferences: ColumnarStructuralTypeReferenceTable, smConstructor: ConstructorInfo? = null, enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null, coreMethod: MethodInfo? = null, bodyFacts: ColumnarIteratorBodyFacts? = null, builder: TypeBuilder? = null, genericMemberType: Type? = null, typeParameters: Dictionary<string, Type>? = null, definitionFields: FieldInfo[]? = null, synthesizedTypes: List<TypeBuilder>? = null, sourceFileId: int = 0, genericSpecialConstraints: int[]? = null, genericBaseConstraints: Type?[]? = null, genericInterfaceConstraints: Type[][]? = null, genericParameters: Type[]? = null) {
+    constructor(nodes: ColumnarNodeTable, source: string, bodyRoot: int, shape: ColumnarIteratorShape, stateMachineType: Type, elementType: Type, fieldNames: string[], fields: FieldInfo[], structuralTypeReferences: ColumnarStructuralTypeReferenceTable, smConstructor: ConstructorInfo? = null, enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, coreMethod: MethodInfo? = null, bodyFacts: ColumnarIteratorBodyFacts? = null, builder: TypeBuilder? = null, genericMemberType: Type? = null, typeParameters: Dictionary<string, Type>? = null, definitionFields: FieldInfo[]? = null, synthesizedTypes: List<TypeBuilder>? = null, sourceFileId: int = 0, genericSpecialConstraints: int[]? = null, genericBaseConstraints: Type?[]? = null, genericInterfaceConstraints: Type[][]? = null, genericParameters: Type[]? = null) {
         Nodes = nodes
         Source = source
         BodyRoot = bodyRoot
@@ -1801,8 +1783,6 @@ class ColumnarIteratorEmitContext {
         EnclosingFieldNames = enclosingFieldNames ?? new string[](0)
         EnclosingFields = enclosingFields ?? new FieldInfo[](0)
         EnclosingFieldCanonicals = enclosingFieldCanonicals ?? new string[](0)
-        EnclosingMethodNames = enclosingMethodNames ?? new string[](0)
-        EnclosingMethods = enclosingMethods ?? new MethodInfo[](0)
         CoreMethod = coreMethod
         MoveNextMethod = null
         Builder = builder
@@ -2030,17 +2010,6 @@ class ColumnarIteratorEmitContext {
             i = i + 1
         }
         return 0 - 1
-    }
-
-    func EnclosingMethodForName(name: string): MethodInfo {
-        i := 0
-        while i < EnclosingMethodNames.Length {
-            if EnclosingMethodNames[i] == name {
-                return EnclosingMethods[i]
-            }
-            i = i + 1
-        }
-        throw new InvalidOperationException("Iterator emit context has no enclosing method named '" + name + "'.")
     }
 
     func FieldForName(name: string): FieldInfo {

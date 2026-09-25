@@ -76,8 +76,6 @@ class ColumnarIteratorRealization {
                 null,
                 null,
                 null,
-                null,
-                null,
                 bodyFacts
             )
         }
@@ -135,41 +133,6 @@ class ColumnarIteratorRealization {
             fieldIndex = fieldIndex + 1
         }
 
-        methodNames := new List<string>()
-        methodReturns := new List<string>()
-        methodHandles := new List<MethodInfo>()
-        methodEnumerator := MethodInputEnumerator(input.Methods)
-        methodMovement := methodEnumerator as IEnumerator
-        try {
-            if methodMovement == null {
-                throw new NullReferenceException()
-            }
-            while methodMovement.MoveNext() {
-                candidateMethod := methodEnumerator.get_Current()
-                if candidateMethod.Name.Length > 0 && char.IsUpper(candidateMethod.Name[0]) && !candidateMethod.IsStatic {
-                    methodDefinition: ColumnarInstanceMethodDef = null
-                    if structDef.Methods.TryGetValue(candidateMethod.Name, out methodDefinition) {
-                        overloads: List<ColumnarInstanceMethodDef>? = null
-                        hasMultipleOverloads := false
-                        if structDef.MethodOverloads.TryGetValue(candidateMethod.Name, out overloads) {
-                            hasMultipleOverloads = MethodOverloadCount(overloads) > 1
-                        }
-                        if !hasMultipleOverloads {
-                            methodNames.Add(candidateMethod.Name)
-                            methodReturns.Add(candidateMethod.ReturnCanonical)
-                            methodHandle: MethodInfo = ((ColumnarInstanceMethodDef)methodDefinition).Builder
-                            methodHandles.Add(methodHandle)
-                        }
-                    }
-                }
-            }
-        } finally {
-            methodDisposable := methodEnumerator as IDisposable
-            if methodDisposable != null {
-                methodDisposable.Dispose()
-            }
-        }
-
         shapeNodes := method.BodyNodes
         shapeRoot := method.BodyRoot
         shapeName := method.Name
@@ -182,8 +145,6 @@ class ColumnarIteratorRealization {
         shapeInputName := input.Name
         shapeFieldNames := fieldNames.ToArray()
         shapeFieldCanonicals := fieldCanonicals.ToArray()
-        shapeMethodNames := methodNames.ToArray()
-        shapeMethodReturns := methodReturns.ToArray()
         shape := ColumnarIteratorPlanner.AnalyzeShape(
             shapeNodes,
             methodSource,
@@ -198,8 +159,6 @@ class ColumnarIteratorRealization {
             shapeInputName,
             shapeFieldNames,
             shapeFieldCanonicals,
-            shapeMethodNames,
-            shapeMethodReturns,
             false
         )
         if !shape.Supported {
@@ -212,8 +171,6 @@ class ColumnarIteratorRealization {
         realizedFieldNames := fieldNames.ToArray()
         realizedFieldHandles := fieldHandles.ToArray()
         realizedFieldCanonicals := fieldCanonicals.ToArray()
-        realizedMethodNames := methodNames.ToArray()
-        realizedMethodHandles := methodHandles.ToArray()
         return EmitSync(
             module,
             method,
@@ -229,8 +186,6 @@ class ColumnarIteratorRealization {
             realizedFieldNames,
             realizedFieldHandles,
             realizedFieldCanonicals,
-            realizedMethodNames,
-            realizedMethodHandles,
             bodyFacts
         )
     }
@@ -239,20 +194,6 @@ class ColumnarIteratorRealization {
         inputs: IEnumerable<ColumnarStructInput>
     ): IEnumerator<ColumnarStructInput> {
         return inputs.GetEnumerator()
-    }
-
-    static func MethodInputEnumerator(
-        inputs: IEnumerable<ColumnarFunctionInput>
-    ): IEnumerator<ColumnarFunctionInput> {
-        return inputs.GetEnumerator()
-    }
-
-    static func MethodOverloadCount(overloads: List<ColumnarInstanceMethodDef>?): int {
-        if overloads == null {
-            throw new NullReferenceException()
-        }
-
-        return overloads.Count
     }
 
     static func EmitSync(
@@ -270,8 +211,6 @@ class ColumnarIteratorRealization {
         enclosingFieldNames: string[]? = null,
         enclosingFields: FieldInfo[]? = null,
         enclosingFieldCanonicals: string[]? = null,
-        enclosingMethodNames: string[]? = null,
-        enclosingMethods: MethodInfo[]? = null,
         bodyFacts: ColumnarIteratorBodyFacts? = null
     ): ColumnarIteratorRealizationResult {
         modifiedMemberReferences := ModifiedMemberReferencesOf(bodyFacts)
@@ -415,8 +354,6 @@ class ColumnarIteratorRealization {
             enclosingFieldNames,
             enclosingFields,
             enclosingFieldCanonicals,
-            enclosingMethodNames,
-            enclosingMethods,
             null,
             bodyFacts,
             sm,
@@ -558,8 +495,6 @@ class ColumnarIteratorRealization {
             "",
             null,
             null,
-            null,
-            null,
             true
         )
         if !shape.Supported {
@@ -685,8 +620,6 @@ class ColumnarIteratorRealization {
             null,
             null,
             null,
-            null,
-            null,
             coreHandle,
             bodyFacts,
             sm,
@@ -782,8 +715,6 @@ class ColumnarIteratorRealization {
             fn.TypeParamNames,
             false,
             "",
-            null,
-            null,
             null,
             null,
             false

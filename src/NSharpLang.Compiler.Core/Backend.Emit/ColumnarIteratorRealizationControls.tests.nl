@@ -352,8 +352,6 @@ test "persisted realization preserves sync registration before an element declin
     syncEnclosingFieldNames: string[]? = null
     syncEnclosingFields: FieldInfo[]? = null
     syncEnclosingFieldCanonicals: string[]? = null
-    syncEnclosingMethodNames: string[]? = null
-    syncEnclosingMethods: MethodInfo[]? = null
     syncResult: ColumnarIteratorRealizationResult = ColumnarIteratorRealization.EmitSync(
         syncModule,
         syncFunction,
@@ -369,8 +367,6 @@ test "persisted realization preserves sync registration before an element declin
         syncEnclosingFieldNames,
         syncEnclosingFields,
         syncEnclosingFieldCanonicals,
-        syncEnclosingMethodNames,
-        syncEnclosingMethods,
         null
     )
     assert !syncResult.Succeeded
@@ -479,8 +475,6 @@ test "persisted generic realization rebinds its retained machine-VAR field throu
     noEnclosingFieldNames: string[]? = null
     noEnclosingFields: FieldInfo[]? = null
     noEnclosingFieldCanonicals: string[]? = null
-    noEnclosingMethodNames: string[]? = null
-    noEnclosingMethods: MethodInfo[]? = null
     result: ColumnarIteratorRealizationResult = ColumnarIteratorRealization.EmitSync(
         module,
         function,
@@ -496,8 +490,6 @@ test "persisted generic realization rebinds its retained machine-VAR field throu
         noEnclosingFieldNames,
         noEnclosingFields,
         noEnclosingFieldCanonicals,
-        noEnclosingMethodNames,
-        noEnclosingMethods,
         null
     )
     assert result.Succeeded

@@ -4358,7 +4358,7 @@ sealed class ColumnarIlEmitter {
 
     // Preserve the established host signature while N# owns the complete synchronous declaration and
     // body-realization sequence. Ambient decline tracing remains at this existing caller boundary.
-    private static func TryEmitIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>, methodTypeParams: Type[], precomputedShape: ColumnarIteratorShape? = null, memberLabel: string = "", enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null, bodyFacts: ColumnarIteratorBodyFacts? = null): bool {
+    private static func TryEmitIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>, methodTypeParams: Type[], precomputedShape: ColumnarIteratorShape? = null, memberLabel: string = "", enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, bodyFacts: ColumnarIteratorBodyFacts? = null): bool {
         result := ColumnarIteratorRealization.EmitSync(
             module,
             fn,
@@ -4374,8 +4374,6 @@ sealed class ColumnarIlEmitter {
             enclosingFieldNames,
             enclosingFields,
             enclosingFieldCanonicals,
-            enclosingMethodNames,
-            enclosingMethods,
             bodyFacts
         )
         if (result.Succeeded) {
@@ -6368,8 +6366,6 @@ sealed class ColumnarIlEmitter {
                     "",
                     null,
                     null,
-                    null,
-                    null,
                     true
                 )
                 if (!asyncShape.Supported) {
@@ -6415,8 +6411,6 @@ sealed class ColumnarIlEmitter {
                                     fn.TypeParamNames,
                                     false,
                                     "",
-                                    null,
-                                    null,
                                     null,
                                     null,
                                     false
@@ -6613,8 +6607,6 @@ sealed class ColumnarIlEmitter {
                         siblingDefinitionsByFunc[f].TypeParams,
                         null,
                         "",
-                        null,
-                        null,
                         null,
                         null,
                         null,
