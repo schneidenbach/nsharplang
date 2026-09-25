@@ -14,7 +14,9 @@ import NSharpLang.Compiler.Columnar
 //   1  the ordinary walk, which leaves everything as it found it.
 //   2  the walk with the NULLABILITY FLOW TYPE preserved. Only the left operand of `??` takes it:
 //      the whole question `??` asks is whether its left side can be null, and the flow type is
-//      exactly the fact that would have been narrowed away before the question was asked.
+//      exactly the fact that would have been narrowed away before the question was asked. It is
+//      preserved for the OPERAND alone: `Take(n) ?? ""` asks whether the call's result can be
+//      null, and the `n` passed to it is an ordinary read that the flow may narrow.
 //   3  the walk inside a FRESH BLOCK SCOPE with a named list of narrowings installed. Only the
 //      right operand of `&&` and `||` takes it, and only when the left operand proved something:
 //      `x != null && x.Length > 0` is the reason the right side of a conjunction sees a narrower

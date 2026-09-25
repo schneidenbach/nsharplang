@@ -689,11 +689,13 @@ not-null for a not-null operand and maybe-null for a maybe-null one. A walk driv
 (hand-built estate harnesses) keeps the written target. Pinned by `tests/native/census-safe-casts`,
 in one project and against the referenced fixture library.
 
-AN ARGUMENT IS A READ OF ITS OWN VALUE. The left operand of `??` and an assignment target are walked
-with `AnalyzerNullFlow.SuppressFlowType` set, and that suppression used to reach every call and
-constructor ARGUMENT nested inside them, so `Label(node) ?? node.Name` reported NL202 on a `node` the
-enclosing `if` had proved. `Analyzer.AnalyzeArgumentValue` clears it for the argument walk; the
-operand's own root still reads its declared type. Measured through Compiler.Core's front door: the
+AN ARGUMENT IS A READ OF ITS OWN VALUE. The left operand of `??` and an assignment target keep their
+declared nullable, and that suppression used to reach every call and constructor ARGUMENT nested
+inside them, so `Label(node) ?? node.Name` reported NL202 on a `node` the enclosing `if` had proved.
+The suppression is now scoped to the operand NODE itself (`AnalyzerNullFlow.SuppressedFlowTypeNode`),
+so an argument, a receiver and an INDEX nested in it read as narrowly as the flow has proved —
+`names[slot] ?? ""` and `slots[slot] = 1` over a narrowed `int?` included, which an argument-only
+exemption still refused as an `int?` index. Measured through Compiler.Core's front door: the
 lift found 20 unchecked safe-cast uses in Core's own source (one of them this false positive, in
 `ColumnarParserRecovery.FormatAllowValue`), and the rest were fixed in the source.
 

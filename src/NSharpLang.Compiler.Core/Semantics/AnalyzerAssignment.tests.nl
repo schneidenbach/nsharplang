@@ -13,9 +13,10 @@ import NSharpLang.Compiler.Ast
 // pinning, and it goes at the decisions that are invisible from the outside:
 //
 // (1) THE ARM TAKES TWO STEPS OF ONE KIND, AND EVERY BRACKET IS THE OWNER'S. The target step runs
-// under FOUR ambient changes at once — the flow type suppressed, the error-tuple result use
-// suppressed exactly when the operator is a plain `=`, bare event references allowed, and a capture
-// table installed for a member or index chain — and all four are restored before any gate runs.
+// under FOUR ambient changes at once — the flow type suppressed for the TARGET NODE itself, the
+// error-tuple result use suppressed exactly when the operator is a plain `=`, bare event references
+// allowed, and a capture table installed for a member or index chain — and all four are restored
+// before any gate runs.
 //
 // (2) A REFUSED ASSIGNMENT STILL WALKS ITS VALUE. Six of the gates refuse, and every one of them
 // hands out the value step anyway, because an error inside the value is the developer's problem
@@ -187,7 +188,9 @@ func AssignmentRun(harness: AssignmentHarness, node: Expression, answers: List<T
     step := harness.Arm.NextStep(state)
     while step != null {
         index := steps.Count
-        steps.Add(new AssignmentStep(step.Kind, AssignmentNodeName(step.Node), AssignmentTypeText(harness.Ambient.CurrentExpectedType), harness.Errors.Count, harness.NullFlow.SuppressFlowType, harness.Identifiers.SuppressErrorTupleResultUse, harness.Ambient.AllowEventReference, harness.Ambient.InWriteTarget))
+        stepNode := step.Node
+        suppressFlowType := stepNode != null && harness.NullFlow.IsFlowTypeSuppressed(stepNode)
+        steps.Add(new AssignmentStep(step.Kind, AssignmentNodeName(step.Node), AssignmentTypeText(harness.Ambient.CurrentExpectedType), harness.Errors.Count, suppressFlowType, harness.Identifiers.SuppressErrorTupleResultUse, harness.Ambient.AllowEventReference, harness.Ambient.InWriteTarget))
         answer: TypeInfo? = null
         if index < answers.Count {
             answer = answers[index]
@@ -334,7 +337,7 @@ test "the TARGET step runs under all four ambient changes and the VALUE step und
     assert !steps[1].InWriteTarget
 
     // And the walk leaves every one of them exactly as it found them.
-    assert !harness.NullFlow.SuppressFlowType
+    assert harness.NullFlow.SuppressedFlowTypeNode == null
     assert !harness.Identifiers.SuppressErrorTupleResultUse
     assert !harness.Ambient.AllowEventReference
     assert !harness.Ambient.InWriteTarget
@@ -703,4 +706,47 @@ test "a discard is only a bare '_', and a parenthesised name is an assignable ta
 
     call: Expression = AssignmentCall("make")
     assert !AnalyzerAssignment.IsAssignmentTarget(call)
+}
+
+// ---- the target keeps its nullable; the reads inside it do not ----------------------------------------
+//
+// The target walk preserves the TARGET's flow type, because a storage location's declared type is what
+// is written to. An index argument or a receiver inside the target is an ordinary read, and a name the
+// flow has narrowed reads narrowly there — through the real `Analyzer.Analyze` entry, the same route
+// `OperatorSourceErrors` takes for the `??` operand that shares this rule.
+func AssignmentNarrowingSource(body: string): string {
+    return "namespace P\n\nclass B {\n    Name: string = \"b\"\n}\n\nclass H {\n    Slot: B? = null\n    Count: int? = null\n    Items: int[] = new int[2]\n}\n\nfunc Index(b: B): int {\n    return b.Name.Length - 1\n}\n\nfunc Pick(b: B): B {\n    return b\n}\n\n" + body
+}
+
+test "A NARROWED NAME READ INSIDE AN ASSIGNMENT TARGET READS NARROWLY" {
+    index := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(n: B?, values: int[]) {\n    if n != null {\n        values[Index(n)] = 1\n    }\n}\n"))
+    assert index.Count == 0, String.Join(" | ", index)
+
+    memberIndex := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(h: H) {\n    if h.Slot != null {\n        h.Items[Index(h.Slot)] = 1\n    }\n}\n"))
+    assert memberIndex.Count == 0, String.Join(" | ", memberIndex)
+
+    receiver := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(n: B?) {\n    if n != null {\n        Pick(n).Name = \"c\"\n    }\n}\n"))
+    assert receiver.Count == 0, String.Join(" | ", receiver)
+
+    compound := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(n: B?, values: int[]) {\n    if n != null {\n        values[Index(n)] += 1\n    }\n}\n"))
+    assert compound.Count == 0, String.Join(" | ", compound)
+}
+
+test "THE TARGET ITSELF KEEPS ITS NULLABLE: a narrowed name can still be assigned null" {
+    // A VALUE-typed nullable is where the difference shows: a reference target takes `null` whatever
+    // its annotation says, but a target read as its narrowed `int` would refuse `null` outright.
+    local := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(x: int?): int? {\n    if x != null {\n        x = null\n    }\n    return x\n}\n"))
+    assert local.Count == 0, String.Join(" | ", local)
+
+    parenthesized := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(x: int?): int? {\n    if x != null {\n        (x) = null\n    }\n    return x\n}\n"))
+    assert parenthesized.Count == 0, String.Join(" | ", parenthesized)
+
+    memberPath := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(h: H) {\n    if h.Count != null {\n        h.Count = null\n    }\n}\n"))
+    assert memberPath.Count == 0, String.Join(" | ", memberPath)
+
+    // And a target that genuinely is not nullable still refuses `null` — the preservation keeps the
+    // declared type, it does not widen it.
+    plain := OperatorSourceErrors(AssignmentNarrowingSource("func Probe(): int {\n    count: int = 0\n    count = null\n    return count\n}\n"))
+    assert plain.Count == 1, String.Join(" | ", plain)
+    assert plain[0] == "Type mismatch in assignment — expected 'int' but got 'null'"
 }

@@ -14,9 +14,10 @@ import NSharpLang.Compiler.Ast
 // would have to simulate. What differs between the ten is only what is IN FORCE around them, and
 // every one of those brackets is opened and closed by this owner:
 //
-//   * the TARGET walk runs with the nullability flow type suppressed, the error-tuple result use
-//     suppressed exactly when the operator is a plain `=`, bare event references allowed, and — when
-//     the target is a member or index chain — a fresh sub-expression capture table installed;
+//   * the TARGET walk runs with the target node's own nullability flow type suppressed, the
+//     error-tuple result use suppressed exactly when the operator is a plain `=`, bare event
+//     references allowed, and — when the target is a member or index chain — a fresh
+//     sub-expression capture table installed;
 //   * four of the value walks run under the TARGET'S TYPE as the expected type, which is what makes
 //     `total: byte = 0` and `total += 300` read the target's width;
 //   * and five run under nothing at all.
@@ -66,7 +67,7 @@ class AssignmentState {
     TargetType: TypeInfo
     ExpressionTypes: Dictionary<object, TypeInfo>?
     SavedExpectedType: TypeInfo?
-    SavedSuppressFlowType: bool
+    SavedSuppressedFlowTypeNode: Expression?
     SavedSuppressErrorTupleResultUse: bool
     SavedAllowEventReference: bool
 
@@ -77,7 +78,7 @@ class AssignmentState {
         TargetType = BuiltInTypes.Unknown
         ExpressionTypes = null
         SavedExpectedType = null
-        SavedSuppressFlowType = false
+        SavedSuppressedFlowTypeNode = null
         SavedSuppressErrorTupleResultUse = false
         SavedAllowEventReference = false
     }
@@ -253,14 +254,16 @@ class AnalyzerAssignment {
 
         // THE TARGET BRACKET, ALL FOUR PARTS, opened in the same instant the step is handed out.
         // The flow type is suppressed because a target is a STORAGE LOCATION and its narrowed type is
-        // not what is being written to. The error-tuple suppression is conditional on a plain `=`,
-        // because a compound operator READS the target first and a `must`-typed read is a real use.
+        // not what is being written to. It is suppressed for the target NODE only: an index argument
+        // or a receiver inside it is an ordinary read, so `arr[Index(n)] = 1` reads a narrowed `n`
+        // narrowly. The error-tuple suppression is conditional on a plain `=`, because a compound
+        // operator READS the target first and a `must`-typed read is a real use.
         // Bare event references are allowed so the event gate below can raise its own sentence rather
         // than the generic "an event is not a value". And the capture table is opened only for a
         // member or index chain, because its PRESENCE is observable.
-        state.SavedSuppressFlowType = nullFlowValue.SuppressFlowType
+        state.SavedSuppressedFlowTypeNode = nullFlowValue.SuppressedFlowTypeNode
         state.SavedSuppressErrorTupleResultUse = identifierResolutionValue.SuppressErrorTupleResultUse
-        nullFlowValue.SetSuppressFlowType(true)
+        nullFlowValue.SetSuppressedFlowTypeNode(assignment.Target)
         identifierResolutionValue.SetSuppressErrorTupleResultUse(assignment.Operator == AssignmentOperator.Assign)
         state.SavedAllowEventReference = ambientValue.EnterAllowEventReference()
         if AnalyzerWriteTargets.IsWriteTargetNeedingExpressionTypes(assignment.Target) {
@@ -322,7 +325,7 @@ class AnalyzerAssignment {
         ambientValue.ClearWriteTargetExpressionTypes()
         ambientValue.ExitAllowEventReference(state.SavedAllowEventReference)
         identifierResolutionValue.SetSuppressErrorTupleResultUse(state.SavedSuppressErrorTupleResultUse)
-        nullFlowValue.SetSuppressFlowType(state.SavedSuppressFlowType)
+        nullFlowValue.SetSuppressedFlowTypeNode(state.SavedSuppressedFlowTypeNode)
         state.TargetType = targetType
         state.Phase = 30
     }

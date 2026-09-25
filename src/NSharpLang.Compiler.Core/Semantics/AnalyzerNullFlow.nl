@@ -43,7 +43,7 @@ class AnalyzerNullFlow {
     declarationContextValue: AnalyzerDeclarationContext
     reportedDiagnostics: HashSet<ValueTuple<int, int, string, string>>
     narrowedNullableOrigins: Dictionary<object, NullableTypeInfo>
-    suppressFlowTypeValue: bool
+    suppressedFlowTypeNodeValue: Expression?
 
     constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext) {
         diagnosticsValue = diagnostics
@@ -52,21 +52,52 @@ class AnalyzerNullFlow {
         declarationContextValue = declarationContext
         reportedDiagnostics = new HashSet<ValueTuple<int, int, string, string>>()
         narrowedNullableOrigins = new Dictionary<object, NullableTypeInfo>()
-        suppressFlowTypeValue = false
+        suppressedFlowTypeNodeValue = null
     }
 
-    // The ambient "do not collapse a not-null nullable" flag. Its two readers save the previous
-    // value and restore it in a `finally`, so this is a stack discipline expressed as a property
-    // rather than a field the analyzer reaches into.
-    SuppressFlowType: bool => suppressFlowTypeValue
+    // THE ONE EXPRESSION WHOSE NOT-NULL NULLABLE MUST NOT COLLAPSE. Its two setters — the left
+    // operand of `??` and the target of an assignment — save the previous node and restore it when
+    // their walk answers, so this is a stack discipline expressed as a property rather than a field
+    // the analyzer reaches into.
+    //
+    // IT IS A NODE AND NOT A FLAG, because what is being preserved is the type of THAT expression and
+    // of nothing inside it. `??` asks whether its left side can be null, and a target names a storage
+    // location whose declared type is what is written to; both are questions about the operand
+    // itself. Everything NESTED in it — a call argument, a receiver, an index — is an ordinary read
+    // and reads as narrowly as the flow has proved. A flag in force for the whole walk refused
+    // `Take(n) ?? ""` inside `if n != null` with an NL202 that called `n` a `B?`, and did the same to
+    // `arr[Index(n)] = 1`.
+    SuppressedFlowTypeNode: Expression? => suppressedFlowTypeNodeValue
 
-    func SetSuppressFlowType(suppress: bool) {
-        suppressFlowTypeValue = suppress
+    func SetSuppressedFlowTypeNode(node: Expression?) {
+        suppressedFlowTypeNodeValue = node
+    }
+
+    // WHETHER `expr` IS THE SUPPRESSED NODE, looking through the parentheses around it: `(x) ?? y`
+    // asks the same question of `x` that `x ?? y` does, and the parenthesized node's own answer is
+    // built from its inner one. THE ANSWER IS BY IDENTITY, not by position or text — the same
+    // substitution `RecordNarrowedNullableOrigin` makes, for the same reason.
+    func IsFlowTypeSuppressed(expr: Expression): bool {
+        candidate := suppressedFlowTypeNodeValue
+        while candidate != null {
+            if Object.ReferenceEquals(candidate, expr) {
+                return true
+            }
+
+            parenthesized := candidate as ParenthesizedExpression
+            if parenthesized == null {
+                return false
+            }
+
+            candidate = parenthesized.Inner
+        }
+
+        return false
     }
 
     // One call per analysis, from the same reset block that clears the error list.
     func BeginAnalysis() {
-        suppressFlowTypeValue = false
+        suppressedFlowTypeNodeValue = null
         reportedDiagnostics.Clear()
         narrowedNullableOrigins.Clear()
     }
@@ -146,13 +177,13 @@ class AnalyzerNullFlow {
     }
 
     // THE FLOW TYPE. A nullable the flow has proved not-null reads as its inner type; everything
-    // else reads as itself. Under suppression nothing collapses at all.
+    // else reads as itself. The suppressed node alone keeps its nullable — its descendants do not.
     //
-    // `Analyzer.cs` also took the EXPRESSION here and never read it; N#'s own NL012 said so, so the
-    // dead parameter is not carried across. Nothing about the answer changes — it was already a
-    // function of the type and the state alone.
-    func ApplyNullabilityFlowType(expressionType: TypeInfo, nullState: NullState): TypeInfo {
-        if suppressFlowTypeValue {
+    // `Analyzer.cs` took the EXPRESSION here and never read it, because its suppression was a flag
+    // over the whole walk. It is read now: the expression is how the suppressed operand is told
+    // apart from the reads nested inside it.
+    func ApplyNullabilityFlowType(expr: Expression, expressionType: TypeInfo, nullState: NullState): TypeInfo {
+        if IsFlowTypeSuppressed(expr) {
             return expressionType
         }
 

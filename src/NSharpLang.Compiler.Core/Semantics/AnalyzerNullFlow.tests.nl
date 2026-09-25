@@ -309,36 +309,74 @@ test "a NOT-NULL nullable reads as its inner type" {
     harness := NullFlowDefault()
     nullable := NfNullable(BuiltInTypes.String)
 
-    assert BuiltInTypes.Is(harness.Owner.ApplyNullabilityFlowType(nullable, NullState.NotNull), BuiltInTypes.String)
+    assert BuiltInTypes.Is(harness.Owner.ApplyNullabilityFlowType(NfName("x"), nullable, NullState.NotNull), BuiltInTypes.String)
 }
 test "a MAYBE-NULL nullable keeps its nullability, and a non-nullable is never rewritten" {
     harness := NullFlowDefault()
     nullable: TypeInfo = NfNullable(BuiltInTypes.String)
 
-    assert harness.Owner.ApplyNullabilityFlowType(nullable, NullState.MaybeNull) == nullable
+    assert harness.Owner.ApplyNullabilityFlowType(NfName("x"), nullable, NullState.MaybeNull) == nullable
     assert BuiltInTypes.Is(
-        harness.Owner.ApplyNullabilityFlowType(BuiltInTypes.String, NullState.NotNull),
+        harness.Owner.ApplyNullabilityFlowType(NfName("x"), BuiltInTypes.String, NullState.NotNull),
         BuiltInTypes.String
     )
 }
-test "UNDER SUPPRESSION nothing collapses, and the flag restores" {
+test "THE SUPPRESSED NODE does not collapse, and the suppression restores" {
     harness := NullFlowDefault()
     nullable: TypeInfo = NfNullable(BuiltInTypes.String)
+    operand: Expression = NfName("x")
 
-    assert !harness.Owner.SuppressFlowType
-    harness.Owner.SetSuppressFlowType(true)
-    assert harness.Owner.SuppressFlowType
-    assert harness.Owner.ApplyNullabilityFlowType(nullable, NullState.NotNull) == nullable
-    harness.Owner.SetSuppressFlowType(false)
-    assert BuiltInTypes.Is(harness.Owner.ApplyNullabilityFlowType(nullable, NullState.NotNull), BuiltInTypes.String)
+    assert harness.Owner.SuppressedFlowTypeNode == null
+    harness.Owner.SetSuppressedFlowTypeNode(operand)
+    assert Object.ReferenceEquals(harness.Owner.SuppressedFlowTypeNode, operand)
+    assert harness.Owner.ApplyNullabilityFlowType(operand, nullable, NullState.NotNull) == nullable
+    harness.Owner.SetSuppressedFlowTypeNode(null)
+    assert BuiltInTypes.Is(harness.Owner.ApplyNullabilityFlowType(operand, nullable, NullState.NotNull), BuiltInTypes.String)
 }
-test "BeginAnalysis clears the suppression flag" {
+test "ONLY the suppressed node keeps its nullable: a node inside it, or a twin of it, still collapses" {
+    // `Take(n) ?? ""` suppresses the CALL. The `n` passed to it is an ordinary read, and the flow
+    // has proved it — a suppression that reached it refused the call with an NL202 about `B?`.
     harness := NullFlowDefault()
-    harness.Owner.SetSuppressFlowType(true)
+    nullable: TypeInfo = NfNullable(BuiltInTypes.String)
+    argument := NfName("n")
+    arguments := new List<Argument>()
+    arguments.Add(new Argument(null, argument))
+    call := new CallExpression(NfName("Take"), arguments, null, 4, 7)
+    harness.Owner.SetSuppressedFlowTypeNode(call)
+
+    assert harness.Owner.IsFlowTypeSuppressed(call)
+    assert !harness.Owner.IsFlowTypeSuppressed(argument)
+    assert BuiltInTypes.Is(harness.Owner.ApplyNullabilityFlowType(argument, nullable, NullState.NotNull), BuiltInTypes.String)
+
+    // THE ANSWER IS BY IDENTITY. A second `n` at the same position is a different node.
+    harness.Owner.SetSuppressedFlowTypeNode(argument)
+    assert !harness.Owner.IsFlowTypeSuppressed(NfName("n"))
+}
+test "the suppression LOOKS THROUGH the parentheses around the operand, and no further" {
+    // `(x) ?? y` asks of `x` what `x ?? y` does. A parenthesized CALL does not carry the suppression
+    // into its argument, though: the parentheses are transparent, the call is not.
+    harness := NullFlowDefault()
+    inner := NfName("x")
+    wrapped := new ParenthesizedExpression(new ParenthesizedExpression(inner, 4, 7), 4, 7)
+    harness.Owner.SetSuppressedFlowTypeNode(wrapped)
+
+    assert harness.Owner.IsFlowTypeSuppressed(wrapped)
+    assert harness.Owner.IsFlowTypeSuppressed(inner)
+
+    argument := NfName("n")
+    arguments := new List<Argument>()
+    arguments.Add(new Argument(null, argument))
+    wrappedCall := new ParenthesizedExpression(new CallExpression(NfName("Take"), arguments, null, 4, 7), 4, 7)
+    harness.Owner.SetSuppressedFlowTypeNode(wrappedCall)
+    assert !harness.Owner.IsFlowTypeSuppressed(argument)
+}
+test "BeginAnalysis clears the suppressed node" {
+    harness := NullFlowDefault()
+    harness.Owner.SetSuppressedFlowTypeNode(NfName("x"))
 
     harness.Owner.BeginAnalysis()
 
-    assert !harness.Owner.SuppressFlowType
+    assert harness.Owner.SuppressedFlowTypeNode == null
 }
 
 // ── the NL905 report ──────────────────────────────────────────────────────

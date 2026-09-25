@@ -76,7 +76,7 @@ class AnalyzerIdentifierResolution {
     reportedUnverifiedResultsValue: Dictionary<(Line: int, Column: int, Name: string), bool>
 
     // THE ERROR-TUPLE SUPPRESSION, saved and restored by the assignment arm exactly as
-    // `AnalyzerNullFlow.SuppressFlowType` is: writing INTO a result name is not a use of it, so a
+    // `AnalyzerNullFlow.SuppressedFlowTypeNode` is: writing INTO a result name is not a use of it, so a
     // plain `result = …` must not be told the error was never checked. A compound assignment reads
     // the target first, so it is NOT suppressed.
     SuppressErrorTupleResultUse: bool => suppressErrorTupleResultUseValue
@@ -206,7 +206,7 @@ class AnalyzerIdentifierResolution {
         source := BareNameSource.Other
         resolved := Resolve(identifier.Name, identifier.Line, identifier.Column, true, out source)
         nullState := nullFlowValue.GetExpressionNullState(identifier, resolved)
-        flowType := nullFlowValue.ApplyNullabilityFlowType(resolved, nullState)
+        flowType := nullFlowValue.ApplyNullabilityFlowType(identifier, resolved, nullState)
 
         semanticModelValue.RecordExpressionType(identifier.Line, identifier.Column, flowType)
         semanticModelValue.RecordExpressionNullState(identifier.Line, identifier.Column, nullState)

@@ -1542,3 +1542,55 @@ test "TWO DIFFERENT OPEN TYPE PARAMETERS ARE NOT THIS RULE, AND NEITHER IS AN OR
     assert arithmetic.Count == 1
     assert arithmetic[0] == "The '+' operator doesn't work with 'T' and 'T' — both sides need numeric values, but I found 'T' and 'T'"
 }
+
+// ── what `??` keeps nullable, and what it does not ─────────────────────
+//
+// `??` walks its left operand with that OPERAND's flow type preserved, because the whole question it
+// asks is whether the operand can be null. The preservation is the operand's alone: a name the flow
+// has narrowed and that is read INSIDE the operand — a call argument, a receiver — is an ordinary read.
+// A preservation over the whole walk refused `Take(n) ?? ""` inside `if n != null` with an NL202
+// calling `n` a `B?`, while `Take(n) == null` two lines down was accepted.
+func CoalesceNarrowingSource(body: string): string {
+    return "namespace P\n\nclass A {\n}\n\nclass B: A {\n    Name: string = \"b\"\n}\n\nclass H {\n    Slot: B? = null\n    Count: int? = null\n}\n\nfunc Take(a: A): string? {\n    return a.ToString()\n}\n\nfunc Twice(value: int): int? {\n    return value * 2\n}\n\n" + body
+}
+
+test "A NARROWED NAME READ INSIDE THE LEFT OPERAND OF `??` READS NARROWLY" {
+    argument := OperatorSourceErrors(CoalesceNarrowingSource("func Probe(n: B?): string {\n    if n != null {\n        return Take(n) ?? \"\"\n    }\n    return \"\"\n}\n"))
+    assert argument.Count == 0, String.Join(" | ", argument)
+
+    // Parentheses around the operand move the question, not the answer.
+    parenthesized := OperatorSourceErrors(CoalesceNarrowingSource("func Probe(n: B?): string {\n    if n != null {\n        return (Take(n)) ?? \"\"\n    }\n    return \"\"\n}\n"))
+    assert parenthesized.Count == 0, String.Join(" | ", parenthesized)
+
+    // A narrowed MEMBER PATH is narrowed by a null fact rather than a scope, and reads the same way.
+    memberPath := OperatorSourceErrors(CoalesceNarrowingSource("func Probe(h: H): string {\n    if h.Slot != null {\n        return Take(h.Slot) ?? \"\"\n    }\n    return \"\"\n}\n"))
+    assert memberPath.Count == 0, String.Join(" | ", memberPath)
+
+    // A value-typed nullable collapses to its `int` for the argument it is passed as.
+    valueType := OperatorSourceErrors(CoalesceNarrowingSource("func Probe(x: int?): int {\n    if x != null {\n        return Twice(x) ?? 0\n    }\n    return 0\n}\n"))
+    assert valueType.Count == 0, String.Join(" | ", valueType)
+
+    // And a `??` nested inside the operand of another brackets its own operand and gives the outer
+    // one back: the inner `n` is the preserved one, the argument around it is not.
+    nested := OperatorSourceErrors(CoalesceNarrowingSource("func Probe(n: B?, m: B?): string {\n    if m != null {\n        return Take(n ?? m) ?? \"\"\n    }\n    return \"\"\n}\n"))
+    assert nested.Count == 0, String.Join(" | ", nested)
+}
+
+test "THE OPERAND ITSELF KEEPS ITS NULLABLE: `??` over a narrowed name is not refused as dead" {
+    // Were the operand collapsed like the reads inside it, each of these would be told its left side
+    // "can't be null" — about a name whose declared type says it can.
+    local := OperatorSourceErrors(CoalesceNarrowingSource("func Probe(x: int?): int {\n    if x != null {\n        return x ?? 0\n    }\n    return 0\n}\n"))
+    assert local.Count == 0, String.Join(" | ", local)
+
+    parenthesized := OperatorSourceErrors(CoalesceNarrowingSource("func Probe(x: int?): int {\n    if x != null {\n        return ((x)) ?? 0\n    }\n    return 0\n}\n"))
+    assert parenthesized.Count == 0, String.Join(" | ", parenthesized)
+
+    memberPath := OperatorSourceErrors(CoalesceNarrowingSource("func Probe(h: H): int {\n    if h.Count != null {\n        return h.Count ?? 0\n    }\n    return 0\n}\n"))
+    assert memberPath.Count == 0, String.Join(" | ", memberPath)
+
+    // An operand that genuinely cannot be null is still told so: preserving the flow type is not
+    // switching the check off.
+    plain := OperatorSourceErrors(CoalesceNarrowingSource("func Probe(x: int): int {\n    return x ?? 0\n}\n"))
+    assert plain.Count == 1
+    assert plain[0] == "The left side of '??' has type 'int', which can't be null"
+}

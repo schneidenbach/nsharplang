@@ -83,7 +83,7 @@ class AnalyzerExpressionTail {
         nullFlow.RecordAssertedNonNullPath(expr)
 
         nullState := nullFlow.GetExpressionNullState(expr, dispatchedType)
-        flowType := nullFlow.ApplyNullabilityFlowType(dispatchedType, nullState)
+        flowType := nullFlow.ApplyNullabilityFlowType(expr, dispatchedType, nullState)
 
         // THE COLLAPSE IS RECORDED WHERE IT HAPPENS. A narrowed member PATH has no other trace of
         // the nullable it was declared with — a path is narrowed by a null fact, not by a scope
