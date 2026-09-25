@@ -247,6 +247,13 @@ class AnalyzerDiagnosticSink {
         return true
     }
 
+    // NL413, FROM BOTH OF ITS DOORS: a bare callee (`Label()`, the identifier rule) and a member access
+    // (`box.Size()`, the member-access arm). One builder behind both is what keeps the two spellings of
+    // one mistake reading as one mistake.
+    func ReportValueNotCallable(name: string, kind: string?, valueType: string, owner: string?, hidesFreeFunction: bool, receiverWritten: bool, line: int, column: int) {
+        ReportBuilt(ErrorMessageBuilder.ValueNotCallable(currentFilePathValue, line, column, SourceSnippet(line), Math.Max(1, name.Length), name, kind, valueType, owner, hidesFreeFunction, receiverWritten))
+    }
+
     // NL010: BOTH CANDIDATES SUPPLIED THE NAME, WHICH IS WHY THIS IS A TIE. The name does not
     // resolve, so nothing else credits either import — and without this the file would be told that
     // both of the imports the tie is ABOUT are also dead, each with a fix that deletes one of the two

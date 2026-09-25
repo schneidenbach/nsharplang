@@ -1367,7 +1367,7 @@ class AnalyzerMemberAccess {
             return false
         }
 
-        diagnosticsValue.Report(ErrorCode.MemberNotCallable, "`" + member.MemberName + "` is a value of type `" + NullabilityMetadataReflection.FormatTypeInfo(valueMemberType) + "`, not something you can call", member.Line, spansValue.GetMemberNameColumn(member), "Drop the parentheses to read `" + member.MemberName + "`, or call a method or extension of that name — only a delegate value can be called.", Math.Max(1, member.MemberName.Length))
+        diagnosticsValue.ReportValueNotCallable(member.MemberName, memberResolutionValue.DescribeValueMemberKind(receiverType, member.MemberName), NullabilityMetadataReflection.FormatTypeInfo(valueMemberType), NullabilityMetadataReflection.FormatTypeInfo(receiverType), false, true, member.Line, spansValue.GetMemberNameColumn(member))
         return true
     }
 

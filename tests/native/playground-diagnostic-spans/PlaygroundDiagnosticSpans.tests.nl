@@ -1905,21 +1905,27 @@ test "020 s37 playground diagnostic spans: V12 — Check RecoverySpans AvoidPunc
     assert PgRow(other, 0) == "NL103|error|Prefix '+' is not supported|Program.tests.nl|4|14|3"
 }
 
-test "020 s37 playground diagnostic spans: V13 — Check IncompleteMemberAccessBeforeCall PreservesReceiverSpan — SILENCE, and the test-file route agrees (V13, a control the C# never had)" {
+// V13'S MINIMAL NEGATIVE WAS NEVER A VALID PROGRAM, AND THE CHECKER NOW SAYS SO. Deleting the dot
+// from `name.()` leaves `name()`, a call of a `string` local. The analyzer used to accept it in
+// silence and only the emitter refused it; it is NL413 at the name now (2026-09-24), so the control
+// pins that the parser's NL102 is gone and the one remaining report is about the call itself.
+test "020 s37 playground diagnostic spans: V13 — Check IncompleteMemberAccessBeforeCall PreservesReceiverSpan — NL413@5:5+4;, and the test-file route agrees (V13, a control the C# never had)" {
     source := "package Playground\n\nfunc main() {\n    name := \"Ada\"\n    name()\n}"
     response := PgCheck(source)
-    assert PgOk(response) == "True"
+    assert PgOk(response) == "False"
     assert PgSchemaVersion(response) == "2"
     assert PgFileName(response) == "Program.nl"
-    assert PgSummary(response) == "0/0/0"
-    assert PgCount(response) == 0
-    assert PgCensus(response) == "", PgCensus(response)
-    assert PgRow(response, 0) == "<no-such-diagnostic>"
+    assert PgSummary(response) == "1/0/0"
+    assert PgCount(response) == 1
+    assert PgCensus(response) == "NL413@5:5+4;", PgCensus(response)
+    assert PgRow(response, 0) == "NL413|error|`name` is a value of type `string`, not something you can call|Program.nl|5|5|4"
+    assert PgRow(response, 1) == "<no-such-diagnostic>"
     other := PgCheckTestFile(source)
-    assert PgOk(other) == "True"
+    assert PgOk(other) == "False"
     assert PgFileName(other) == "Program.tests.nl"
-    assert PgCount(other) == 0
-    assert PgCensus(other) == "", PgCensus(other)
+    assert PgCount(other) == 1
+    assert PgCensus(other) == "NL413@5:5+4;", PgCensus(other)
+    assert PgRow(other, 0) == "NL413|error|`name` is a value of type `string`, not something you can call|Program.tests.nl|5|5|4"
 }
 
 test "020 s37 playground diagnostic spans: V14 — CheckProject FileImportCollision PreservesDuplicateQuotedPathSpan — SILENCE, and the string route DISAGREES (V14, a control the C# never had)" {

@@ -190,6 +190,26 @@ func IdentifierDeclare(harness: IdentifierHarness, name: string, declaredType: T
     harness.Scopes.Peek().Symbols[name] = declaredType
 }
 
+// A signature value: what a local function, a lambda or a free function declares into a scope.
+func IdentifierSignature(parameterCount: int): FunctionTypeInfo {
+    signature := new FunctionTypeInfo()
+    parameters := new List<TypeInfo>()
+    while parameters.Count < parameterCount {
+        parameters.Add(BuiltInTypes.Int)
+    }
+
+    signature.ParameterTypes = parameters
+    signature.ReturnType = BuiltInTypes.Int
+    return signature
+}
+
+// The scope a type body opens: `this` names the type, and the type's own members sit beside it —
+// which is where `CurrentTypeScope` and `TypeScopeIndex` look.
+func IdentifierEnterType(harness: IdentifierHarness, typeName: string) {
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 2, 1)
+    harness.Scopes.Peek().Symbols["this"] = new SimpleTypeInfo(typeName)
+}
+
 func IdentifierExtensionMethod(name: string): FunctionDeclaration {
     return new FunctionDeclaration(name, new List<Parameter>(), null, null, null, null, null, Modifiers.None, new List<AttributeNode>(), false, null, false, false, 1, 1)
 }
@@ -652,13 +672,14 @@ test "`SetMetadataCollaborators` replaces the pair WITHOUT dropping the dedupe s
 
 test "`CallTarget` resolves as a FUNCTION and records both IDE facts" {
     harness := IdentifierRuleOf()
-    IdentifierDeclare(harness, "handler", BuiltInTypes.Int)
+    IdentifierDeclare(harness, "handler", IdentifierSignature(1))
 
     answer := harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3))
 
-    assert IdentifierTypeName(answer) == "simple:int"
-    assert IdentifierTypeName(harness.Model.ExpressionTypes[(Line: 7, Column: 3)]) == "simple:int"
+    assert IdentifierTypeName(answer) == "function/1"
+    assert IdentifierTypeName(harness.Model.ExpressionTypes[(Line: 7, Column: 3)]) == "function/1"
     assert harness.Model.ExpressionNullStates.ContainsKey((Line: 7, Column: 3))
+    assert harness.Errors.Count == 0
 }
 
 test "`CallTarget` on a miss reports NL412 rather than NL301" {
@@ -672,7 +693,7 @@ test "`CallTarget` on a miss reports NL412 rather than NL301" {
 
 test "`CallTarget` applies the nullability FLOW type, which is what the plain rule does not do" {
     harness := IdentifierRuleOf()
-    IdentifierDeclare(harness, "handler", new NullableTypeInfo(BuiltInTypes.Int))
+    IdentifierDeclare(harness, "handler", new NullableTypeInfo(IdentifierSignature(0)))
 
     // The plain rule answers the DECLARED type; the callee form answers the FLOW type. The call arm
     // reaches its callee without going through the dispatch host, so if this form did not apply the
@@ -680,8 +701,8 @@ test "`CallTarget` applies the nullability FLOW type, which is what the plain ru
     plain := harness.Rule.Resolve("handler", 7, 3, true)
     flowed := harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3))
 
-    assert IdentifierTypeName(plain) == "nullable(simple:int)"
-    assert IdentifierTypeName(flowed) == "nullable(simple:int)"
+    assert IdentifierTypeName(plain) == "nullable(function/0)"
+    assert IdentifierTypeName(flowed) == "nullable(function/0)"
     assert harness.Model.ExpressionNullStates.ContainsKey((Line: 7, Column: 3))
 }
 
@@ -894,4 +915,97 @@ test "a bare member of a CLOSED GENERIC base binds to the generic definition's d
     probe := BareMemberAnalysis()
 
     assert probe.At(24, 28) == "Describe@20:10 function"
+}
+
+// ---- NL413: a value in callee position -----------------------------------------------------------
+//
+// A callee that resolved to a VALUE is a call only when the value's type is a delegate. Before this
+// rule the call arm dispatched a `string` callee to `unknown` in silence and the emitter was the first
+// to object, with an NL103 decline about a bare call it "could not resolve" — a sentence about the
+// compiler, reported at a name that resolved perfectly well.
+
+test "a LOCAL whose type is not a delegate is NL413, and the IDE still sees the value's own type" {
+    harness := IdentifierRuleOf()
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 2, 1)
+    IdentifierDeclare(harness, "count", BuiltInTypes.Int)
+
+    answer := harness.Rule.CallTarget(new IdentifierExpression("count", 7, 3))
+
+    // `unknown` to the call arm, so nothing downstream reports a consequence of the same mistake —
+    // but hover over `count` still says `int`.
+    assert IdentifierTypeName(answer) == "unknown"
+    assert IdentifierTypeName(harness.Model.ExpressionTypes[(Line: 7, Column: 3)]) == "simple:int"
+    assert IdentifierCodes(harness.Errors) == "413"
+    assert harness.Errors[0].Message == "`count` is a value of type `int`, not something you can call"
+    assert harness.Errors[0].Column == 3
+    assert harness.Errors[0].Length == 5
+    assert IdentifierSuggestion(harness.Errors[0]) == "Drop the parentheses to read `count`."
+}
+
+test "a member of the enclosing type is named as a MEMBER, with its owner" {
+    harness := IdentifierRuleOf()
+    IdentifierEnterType(harness, "Widget")
+    IdentifierDeclare(harness, "Label", BuiltInTypes.String)
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 3, 1)
+
+    answer := harness.Rule.CallTarget(new IdentifierExpression("Label", 7, 3))
+
+    assert IdentifierTypeName(answer) == "unknown"
+    assert IdentifierCodes(harness.Errors) == "413"
+    // `member` because this harness has no declaration behind `Widget` to say `field`; the
+    // end-to-end rows in `AnalyzerCallAnalysis.tests.nl` pin the field and property words.
+    assert harness.Errors[0].Message == "`Label` is a member of type `string` on `Widget`, not something you can call"
+    assert (harness.Errors[0].ContextualHint ?? "").Contains("give it a delegate type such as `Func<string>`")
+    assert !(harness.Errors[0].ContextualHint ?? "").Contains("free function")
+}
+
+test "a member HIDES a same-named free function, and the report says the function is there" {
+    harness := IdentifierRuleOf()
+    // The file's free function lives in the global scope, below the type.
+    IdentifierDeclare(harness, "Label", IdentifierSignature(0))
+    IdentifierEnterType(harness, "Widget")
+    IdentifierDeclare(harness, "Label", BuiltInTypes.String)
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 3, 1)
+
+    answer := harness.Rule.CallTarget(new IdentifierExpression("Label", 7, 3))
+
+    // Never the free function: hiding is by name, callable or not.
+    assert IdentifierTypeName(answer) == "unknown"
+    assert IdentifierCodes(harness.Errors) == "413"
+    assert (harness.Errors[0].ContextualHint ?? "").Contains("There is also a free function `Label`, but inside `Widget` the member hides it")
+}
+
+test "a delegate-typed value is a call, not a report" {
+    harness := IdentifierRuleOf()
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 2, 1)
+    IdentifierDeclare(harness, "handler", IdentifierSignature(1))
+    IdentifierDeclare(harness, "done", new ReflectionTypeInfo(typeof(Action)))
+    IdentifierDeclare(harness, "maybe", new NullableTypeInfo(new ReflectionTypeInfo(typeof(Action))))
+
+    harness.Rule.CallTarget(new IdentifierExpression("handler", 7, 3))
+    harness.Rule.CallTarget(new IdentifierExpression("done", 8, 3))
+    harness.Rule.CallTarget(new IdentifierExpression("maybe", 9, 3))
+
+    assert harness.Errors.Count == 0
+}
+
+test "a TYPE in callee position is not a value, so this rule leaves it to the call arm" {
+    harness := IdentifierRuleOf()
+    harness.Scopes.Peek().Types["Widget"] = new SimpleTypeInfo("Widget")
+
+    answer := harness.Rule.CallTarget(new IdentifierExpression("Widget", 7, 3))
+
+    assert IdentifierTypeName(answer) == "simple:Widget"
+    assert harness.Errors.Count == 0
+}
+
+test "a value read OUTSIDE callee position is never NL413" {
+    harness := IdentifierRuleOf()
+    harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Block), 2, 1)
+    IdentifierDeclare(harness, "count", BuiltInTypes.Int)
+
+    answer := harness.Rule.Resolve("count", 7, 3, false)
+
+    assert IdentifierTypeName(answer) == "simple:int"
+    assert harness.Errors.Count == 0
 }

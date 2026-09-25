@@ -2770,6 +2770,32 @@ value and cannot be called is NL413 — reported by `AnalyzerMemberAccess.Report
 which re-resolves the same name as a VALUE and stays silent when that answers nothing, so the
 undefined-member report is still the one an unknown name gets.
 
+**The BARE callee is NL413 too** (2026-09-24). `Label()` inside a type whose `Label` is a `string`
+field used to reach the call arm's `Dispatch` as a `string` callee, fall through to `unknown` in
+silence, and surface only as the emitter's NL103 `emit.call.bare-unresolved`. The identifier rule's
+callee door (`AnalyzerIdentifierResolution.CallTarget`) now asks the same
+`IsInvocableMemberType` predicate of any answer that is a VALUE — `BareNameSource`, threaded out of
+`TryResolveBindingTarget`: a scope symbol of the type scope itself or a channel-2 answer is a
+`Member`, any other scope symbol (local, parameter) a `Value`; types and functions are `Other` and
+stay the call arm's. A non-delegate value reports NL413 and hands the call arm `unknown` (the
+semantic model still records the value's own type, so hover says `string`). Both NL413 doors report
+through `AnalyzerDiagnosticSink.ReportValueNotCallable` → `ErrorMessageBuilder.ValueNotCallable`, so
+`Label()` and `this.Label()` read identically; `AnalyzerMemberResolution.DescribeValueMemberKind`
+supplies `field`/`property`/`event`/`constructor parameter` (source chain, record positional
+components, then the first referenced base's metadata). A member HIDES a same-named free function
+even when it cannot be called (the member-first rule is by name, and `ColumnarSiblingHiding` agrees),
+so the hint names the hidden free function when one is visible. A delegate-typed member (`Func<…>`,
+`Action`, a field-like `event` raised from its own type) is still a call.
+
+Two guards keep it honest. It reports only when `AnalyzerCallableReferenceFacts.IsKnownNonInvocableType`
+says the analyzer actually IDENTIFIED the type (built-in, source-declared, array/tuple, reflected, or a
+generic whose definition resolved): a member typed `Action` with no `import System` is NL201 alone,
+never also NL413. And `IsInvocableMemberType` now reads a generic delegate by its DEFINITION
+(`TypeInfoIdentityFacts.IsRuntimeDelegateDefinition`) as well as by the `Func`/`Action` names, so a
+qualified `System.Func<string>` local (tests/native/census-free-function-identity `SpreadGroup`),
+`Predicate<T>` and `EventHandler<T>` are invocable, bare and through `this.` alike. The whole-analyzer estate rows call
+`Analyzer.LoadSystemAssemblies()` first; without it a temp-dir `Analyzer` has no BCL at all.
+
 A CONSTRUCTOR argument is an argument: `AnalyzerConstruction.DelegateConstructorParameterType` reads
 the delegate a position wants from the constructors themselves (external ones through CLR metadata,
 declared ones through their written parameter types) and only when every arity-compatible

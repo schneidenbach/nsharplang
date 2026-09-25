@@ -189,6 +189,45 @@ class ErrorMessageBuilder {
         }
     }
 
+    // NL413: A VALUE WRITTEN BEFORE A PARENTHESIS. The name resolved perfectly well — to a field, a
+    // property, a local or a parameter — and its type is not a delegate, so the parentheses are the
+    // mistake. The two fixes are the two things the developer can have meant: READ the value, or make
+    // it callable by giving it a delegate type. `kind` is the member word (`field`, `property`,
+    // `event`, `constructor parameter`, `member`) or null for a local or parameter; `owner` names the
+    // type a member belongs to.
+    //
+    // `hidesFreeFunction` is the member-first rule made visible. A bare name inside a type is the
+    // type's member before it is any free function of that name, whether or not the member can be
+    // called, so a developer who meant the free function is told it is there and why it lost.
+    // `receiverWritten` is `box.Size()` rather than `Size()`: only a written receiver can reach an
+    // extension of that name, so only that form suggests one.
+    static func ValueNotCallable(fileName: string?, line: int, column: int, sourceSnippet: string?, length: int, name: string, kind: string?, valueType: string, owner: string?, hidesFreeFunction: bool, receiverWritten: bool): CompilerError {
+        described := "a value of type `" + valueType + "`"
+        if kind != null && owner != null {
+            described = IndefiniteArticle(kind) + " " + kind + " of type `" + valueType + "` on `" + owner + "`"
+        }
+
+        humanExplanation := "`" + name + "` is called like a function on line " + IntText(line) + ", but it is " + described + ":"
+        contextualHint := "Only a delegate value can be called. If you meant to read `" + name + "`, drop the parentheses.\n" + "If `" + name + "` is meant to be called, give it a delegate type such as `Func<" + valueType + ">`."
+        if receiverWritten {
+            contextualHint = contextualHint + "\n" + "If you meant a method or an extension named `" + name + "`, check its spelling and that whatever\n" + "declares it is imported."
+        }
+
+        if hidesFreeFunction && owner != null {
+            contextualHint = contextualHint + "\n" + "There is also a free function `" + name + "`, but inside `" + owner + "` the " + (kind ?? "member") + " hides it:\n" + "a member always wins over a free function of the same name, so rename one of the two to call it here."
+        }
+
+        return new CompilerError(ErrorCode.MemberNotCallable, "`" + name + "` is " + described + ", not something you can call", line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: humanExplanation,
+            ContextualHint: contextualHint,
+            Suggestion: "Drop the parentheses to read `" + name + "`.",
+            DocsUrl: DiagnosticDocs.UrlFor("NL413")
+        }
+    }
+
     static func NonExhaustiveMatch(fileName: string, line: int, column: int, sourceSnippet: string, length: int, missingCases: List<string>): CompilerError {
         humanExplanation := "This `match` expression does not cover all possibilities on line " + IntText(line) + ":"
 
@@ -618,6 +657,14 @@ class ErrorMessageBuilder {
 
     static func IntText(value: int): string {
         return value.ToString()
+    }
+
+    static func IndefiniteArticle(word: string): string {
+        if word.Length > 0 && "aeiou".IndexOf(word[0]) >= 0 {
+            return "an"
+        }
+
+        return "a"
     }
 
     static func HasItems(values: List<string>): bool {

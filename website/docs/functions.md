@@ -176,8 +176,8 @@ The same holds inside a lambda or a local function written in a member body. `ob
 Hiding is **by name**, not by signature. If `Widget` declares `Label()` and the namespace declares
 `func Label(text: string)`, then `Label("x")` inside `Widget` is an arity error against the member
 ([NL401](./errors/NL401.md)), not a call to the free function. A member that cannot be called at
-all — a `string` field named `Label` — hides the free function too, so `Label()` there is an error
-rather than a call to it. To reach the free function from inside such a type, give one of the two a
+all — a `string` field named `Label` — hides the free function too, so `Label()` there is
+[NL413](./errors/NL413.md) rather than a call to it. To reach the free function from inside such a type, give one of the two a
 different name.
 
 ### What a free function looks like from .NET

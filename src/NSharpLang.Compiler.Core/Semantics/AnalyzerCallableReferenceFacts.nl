@@ -142,9 +142,13 @@ class AnalyzerCallableReferenceFacts {
             return IsInvocableMemberType(nullable.InnerType)
         }
 
+        // A generic delegate is invocable by its DEFINITION, not only by the two names the analyzer
+        // also builds without one: `System.Func<string>` spelled qualified, `Predicate<T>` and
+        // `EventHandler<T>` are delegates exactly as `Func<string>` is, and the assignability facts
+        // answer them the same way.
         genericType := candidate as GenericTypeInfo
         if genericType != null {
-            return CreateFunctionTypeInfoFromGenericDelegate(genericType) != null
+            return CreateFunctionTypeInfoFromGenericDelegate(genericType) != null || TypeInfoIdentityFacts.IsRuntimeDelegateDefinition(genericType)
         }
 
         reflectionType := candidate as ReflectionTypeInfo
@@ -153,6 +157,47 @@ class AnalyzerCallableReferenceFacts {
         }
 
         return false
+    }
+
+    // WHETHER A VALUE OF THIS TYPE IS KNOWN NOT TO BE CALLABLE — the confidence half of reporting a
+    // call through it. `IsInvocableMemberType` answering no is not enough on its own: a field whose
+    // type did not RESOLVE (`Action` with no `import System`) carries its spelling as a bare
+    // `SimpleTypeInfo`, NL201 has already said so, and a second report that the field "is not
+    // callable" would be about the analyzer's ignorance rather than the program. So the answer is
+    // yes only for a shape the analyzer has actually identified: a built-in, a source-declared
+    // type, an array or tuple of anything, a reflected type, or a generic whose definition resolved.
+    static func IsKnownNonInvocableType(candidate: TypeInfo): bool {
+        if IsInvocableMemberType(candidate) || BuiltInTypes.IsUnknown(candidate) {
+            return false
+        }
+
+        nullable := candidate as NullableTypeInfo
+        if nullable != null {
+            return IsKnownNonInvocableType(nullable.InnerType)
+        }
+
+        oblivious := candidate as ObliviousTypeInfo
+        if oblivious != null {
+            return IsKnownNonInvocableType(oblivious.InnerType)
+        }
+
+        simple := candidate as SimpleTypeInfo
+        if simple != null {
+            return IsBuiltInValueTypeName(simple.Name)
+        }
+
+        genericType := candidate as GenericTypeInfo
+        if genericType != null {
+            return genericType.GenericDefinition != null
+        }
+
+        return candidate as ClassTypeInfo != null || candidate as StructTypeInfo != null || candidate as RecordTypeInfo != null || candidate as InterfaceTypeInfo != null || candidate as EnumTypeInfo != null || candidate as UnionTypeInfo != null || candidate as NewtypeInfo != null || candidate as TupleTypeInfo != null || candidate as ArrayTypeInfo != null || candidate as ReflectionTypeInfo != null
+    }
+
+    // The built-in keywords a VALUE can have. `void`, `null` and `never` are not among them: nothing
+    // named in a program holds one.
+    static func IsBuiltInValueTypeName(name: string): bool {
+        return name == "int" || name == "long" || name == "float" || name == "double" || name == "decimal" || name == "byte" || name == "sbyte" || name == "short" || name == "ushort" || name == "uint" || name == "ulong" || name == "char" || name == "bool" || name == "string" || name == "object"
     }
 
     // WHAT TO CALL A CALLABLE REFERENCE IN A DIAGNOSTIC.

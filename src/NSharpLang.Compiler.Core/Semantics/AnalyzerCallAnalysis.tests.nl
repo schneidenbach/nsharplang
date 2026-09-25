@@ -160,6 +160,12 @@ func CallWalkDeclare(harness: CallWalkHarness, name: string, declaredType: TypeI
     harness.Scopes.Peek().Symbols[name] = declaredType
 }
 
+// A TYPE declared into the scope, which is how the analyzer declares a newtype: `UserId(5)` names the
+// type, and a VALUE of that type called the same way is NL413 rather than a second construction.
+func CallWalkDeclareType(harness: CallWalkHarness, name: string, declaredType: TypeInfo) {
+    harness.Scopes.Peek().Types[name] = declaredType
+}
+
 // ------------------------------------------------------------------ signature and call shapes
 
 func CallWalkNames(count: int): List<string> {
@@ -1305,7 +1311,7 @@ test "a newtype construction checks arity first and the underlying type second" 
     errors := CallWalkErrors()
     harness := CallWalkHarnessOf(errors)
     newtypeInfo: TypeInfo = new NewtypeInfo("UserId", new SimpleTypeReference("int"))
-    CallWalkDeclare(harness, "f", newtypeInfo)
+    CallWalkDeclareType(harness, "f", newtypeInfo)
     call := CallWalkBareCall(CallWalkArgs1("a"))
     state := harness.Owner.BeginCall(call)
 
@@ -1328,7 +1334,7 @@ test "a newtype construction checks arity first and the underlying type second" 
     twoArguments.Add(new Argument(null, CallWalkIdentifier("b"), ArgumentModifier.None))
     arityErrors := CallWalkErrors()
     arityHarness := CallWalkHarnessOf(arityErrors)
-    CallWalkDeclare(arityHarness, "f", newtypeInfo)
+    CallWalkDeclareType(arityHarness, "f", newtypeInfo)
     arityCall := CallWalkBareCall(twoArguments)
     arityState := arityHarness.Owner.BeginCall(arityCall)
 
@@ -1508,4 +1514,143 @@ test "call argument inference retains an actual unsigned parameter target" {
 
 test "call argument inference restores the enclosing target after a nested call" {
     AssertCallArgumentSourceChecks("func Pick(text: string): uint {\n    return (uint)text.Substring(0, 1).Length + 4000000000\n}\n")
+}
+
+// ---- a callee that names a VALUE, end to end ------------------------------------------------------
+//
+// The whole analyzer over a whole file, because the shapes differ in WHERE the name is found — the
+// type scope, an inherited member, a referenced base's metadata, a local — and every one of them must
+// reach the same NL413 sentence through the bare spelling and the `this.` spelling alike, while a
+// delegate-typed member keeps being a call. Every row answers `code@line:column message` per error so
+// a stray second report fails the row as surely as a missing first one.
+//
+// THE FRAMEWORK IS LOADED, because half of these shapes are about delegates and bases that live in
+// it — `Func<string>`, `Action`, `Predicate<int>`, `List<string>` — and a bare `Analyzer` in a
+// temporary directory has no reference assemblies at all: `import System` would be NL704 and every
+// such member an unresolved type.
+func NotCallableErrors(source: string): List<CompilerError> {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-not-callable-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    analyzer := new Analyzer()
+    errors := new List<CompilerError>()
+    try {
+        analyzer.LoadSystemAssemblies()
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                errors.Add(error)
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return errors
+}
+
+func NotCallableReports(source: string): string {
+    text := ""
+    for error in NotCallableErrors(source) {
+        codeValue: int = (int)error.Code
+        text = text + "NL" + codeValue.ToString() + "@" + error.Line.ToString() + ":" + error.Column.ToString() + " " + error.Message + "\n"
+    }
+
+    return text
+}
+
+// The comparison, with BOTH texts in the failure: a row that pins a sentence is only useful if a
+// mismatch shows the sentence the analyzer actually wrote.
+func AssertNotCallableReports(source: string, expected: string) {
+    actual := NotCallableReports(source)
+    if actual != expected {
+        throw new InvalidOperationException("expected:\n" + expected + "actual:\n" + actual)
+    }
+}
+
+func NotCallableHint(source: string): string {
+    hint := ""
+    for error in NotCallableErrors(source) {
+        if error.Code == ErrorCode.MemberNotCallable {
+            hint = hint + (error.ContextualHint ?? "")
+        }
+    }
+
+    return hint
+}
+
+test "a bare call of a `string` FIELD is NL413 at the name, not an emitter decline" {
+    source := "namespace Probe\n\nclass Widget {\n    Label: string = \"field\"\n\n    func Show(): string => Label()\n}\n"
+    AssertNotCallableReports(source, "NL413@6:28 `Label` is a field of type `string` on `Widget`, not something you can call\n")
+}
+
+test "the `this.` spelling of the same call is the same sentence" {
+    source := "namespace Probe\n\nclass Widget {\n    Label: string = \"field\"\n\n    func Show(): string => this.Label()\n}\n"
+    AssertNotCallableReports(source, "NL413@6:33 `Label` is a field of type `string` on `Widget`, not something you can call\n")
+}
+
+test "a PROPERTY is named a property through both spellings" {
+    source := "namespace Probe\n\nclass Widget {\n    Label: string => \"prop\"\n\n    func Show(): string => Label()\n    func Again(): string => this.Label()\n}\n"
+    AssertNotCallableReports(source, "NL413@6:28 `Label` is a property of type `string` on `Widget`, not something you can call\nNL413@7:34 `Label` is a property of type `string` on `Widget`, not something you can call\n")
+}
+
+test "a delegate-typed field is still INVOKED, through both spellings, and its result is typed" {
+    // The `string` a `Func<string>` returns, handed back from an `int` function, is NL202 — proof the
+    // call was bound to the delegate's signature rather than silently answering `unknown`.
+    source := "namespace Probe\n\nimport System\n\nclass Widget {\n    Label: Func<string> = () => \"delegate\"\n    Done: Action = () => {}\n\n    func Show(): string => Label()\n    func Again(): string => this.Label()\n    func Finish() {\n        Done()\n        this.Done()\n    }\n    func Wrong(): int => Label()\n}\n"
+    AssertNotCallableReports(source, "NL202@15:26 Function 'Wrong' should return int but returns string\n")
+}
+
+test "a delegate is a delegate however it is spelled: qualified, or a generic delegate other than Func" {
+    source := "namespace Probe\n\nimport System\n\nclass Widget {\n    Label: System.Func<string> = () => \"qualified\"\n    IsBig: Predicate<int> = value => value > 3\n\n    func Show(): string => Label()\n    func Check(): bool => IsBig(5) && this.IsBig(1)\n}\n\nfunc Make(): System.Func<string> => () => \"made\"\n\nfunc Use(): string {\n    group := Make()\n    return group()\n}\n"
+    AssertNotCallableReports(source, "")
+}
+
+test "a member hides a same-named free function even when it cannot be called" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Widget {\n    Label: string = \"field\"\n\n    func Show(): string => Label()\n}\n"
+    AssertNotCallableReports(source, "NL413@8:28 `Label` is a field of type `string` on `Widget`, not something you can call\n")
+    assert NotCallableHint(source).Contains("There is also a free function `Label`, but inside `Widget` the field hides it")
+}
+
+test "an INHERITED field hides the free function the same way, and is named on the deriving type" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nclass Base {\n    Label: string = \"field\"\n}\n\nclass Widget: Base {\n    func Show(): string => Label()\n}\n"
+    AssertNotCallableReports(source, "NL413@10:28 `Label` is a field of type `string` on `Widget`, not something you can call\n")
+    assert NotCallableHint(source).Contains("the field hides it")
+}
+
+test "a member of a REFERENCED base is named from its metadata" {
+    source := "namespace Probe\n\nimport System.Collections.Generic\n\nclass Bag: List<string> {\n    func Show(): int => Count()\n}\n"
+    AssertNotCallableReports(source, "NL413@6:25 `Count` is a property of type `int` on `Bag`, not something you can call\n")
+}
+
+test "a record's POSITIONAL component is a property, not a bare `member`" {
+    source := "namespace Probe\n\nrecord Point(X: int, Y: int) {\n    func Sum(): int => X() + Y\n}\n"
+    AssertNotCallableReports(source, "NL413@4:24 `X` is a property of type `int` on `Point`, not something you can call\n")
+}
+
+test "a member whose type did not RESOLVE is NL201 alone, never also NL413" {
+    // `NoSuchType` is a spelling the analyzer could not identify, so whether `Done` can be called is
+    // exactly what it does not know.
+    source := "namespace Probe\n\nclass Widget {\n    Done: NoSuchType\n\n    func Finish() {\n        Done()\n    }\n}\n"
+    AssertNotCallableReports(source, "NL201@4:11 Type 'NoSuchType' not found\n")
+}
+
+test "a local and a parameter are values too" {
+    source := "namespace Probe\n\nfunc Use(count: int): int {\n    text := \"x\"\n    print text()\n    return count(1)\n}\n"
+    AssertNotCallableReports(source, "NL413@5:11 `text` is a value of type `string`, not something you can call\nNL413@6:12 `count` is a value of type `int`, not something you can call\n")
+}
+
+test "a NEWTYPE value called is NL413, not a second construction" {
+    source := "namespace Probe\n\ntype UserId = newtype int\n\nfunc Use(id: UserId): UserId => id(5)\n"
+    AssertNotCallableReports(source, "NL413@5:33 `id` is a value of type `UserId`, not something you can call\n")
+}
+
+test "a free function called from outside every type is still an ordinary call" {
+    source := "namespace Probe\n\nfunc Label(): string => \"free\"\n\nfunc Show(): string => Label()\n"
+    AssertNotCallableReports(source, "")
 }

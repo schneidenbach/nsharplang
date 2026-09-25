@@ -512,6 +512,73 @@ class AnalyzerMemberResolution {
         return extensionMethodResolution.TryResolveExtensionMethod(extensionReceiverType, memberName, currentTypeName)
     }
 
+    // THE WORD A DIAGNOSTIC USES FOR A VALUE MEMBER — `field`, `property`, `event`, `constructor
+    // parameter` — found where go-to-definition finds it: the source declaration chain first, then the
+    // metadata of the first REFERENCED type the chain reaches (`class Bag: List<string>` names `Count`
+    // a property). `member` when neither can say. Null when the name is declared but is not a value
+    // at all — a method or a nested type — so a caller never tells a developer their method is a field.
+    func DescribeValueMemberKind(owner: TypeInfo, memberName: string): string? {
+        current := declarationContext.ResolveDeclaredAlias(owner)
+        selection := new AnalyzerMemberSelection()
+        if declarationContext.TryFindMember(current, memberName, out selection) {
+            if selection.KindName == "field" || selection.KindName == "property" || selection.KindName == "event" {
+                return selection.KindName
+            }
+
+            return null
+        }
+
+        // A record's POSITIONAL COMPONENTS are not declared members but are properties all the same —
+        // the shape says so by supporting primary parameters as members — while a class's primary
+        // constructor parameter stays a parameter its body captures.
+        visited := new HashSet<object>()
+        shape := new AnalyzerSourceMemberShape()
+        while visited.Add(current) && declarationContext.TryGetSourceMemberShape(current, null, out shape) {
+            for parameter in shape.PrimaryParameters {
+                if parameter.Name == memberName {
+                    if shape.SupportsPrimaryParameters {
+                        return "property"
+                    }
+
+                    return "constructor parameter"
+                }
+            }
+
+            baseType := shape.BaseType
+            if baseType == null {
+                return "member"
+            }
+
+            current = baseType
+        }
+
+        clrType := clrTypeConversion.TryConvertTypeInfoToClrType(current)
+        if clrType == null {
+            return "member"
+        }
+
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.FlattenHierarchy
+        for property in clrType.GetProperties(flags) {
+            if property.Name == memberName {
+                return "property"
+            }
+        }
+
+        for field in clrType.GetFields(flags) {
+            if field.Name == memberName {
+                return "field"
+            }
+        }
+
+        for clrEvent in clrType.GetEvents(flags) {
+            if clrEvent.Name == memberName {
+                return "event"
+            }
+        }
+
+        return "member"
+    }
+
     // Whether a resolved VALUE member is allowed to be this resolution's answer. Outside invocation
     // position every member is; inside it only a member a call could actually name.
     static func AnswersInPosition(memberType: TypeInfo, invocationPosition: bool): bool {

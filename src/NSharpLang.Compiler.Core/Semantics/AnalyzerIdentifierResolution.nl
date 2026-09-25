@@ -37,12 +37,13 @@ import NSharpLang.Compiler.Ast
 // Channel 2 before channel 6 and channel 1 before channel 2 are the two orderings a developer feels
 // most directly, and swapping either one silently changes which declaration a name refers to.
 //
-// THE FOUR CODES IT OWNS: NL301 for a name that is not a variable, NL412 for a name that is not a
-// callable, NL308 for a project declaration that IS visible but is not exported, and NL314 for an
-// error-tuple result read before its error was checked. NL301 and NL412 each have TWO shapes — the
-// RICH `ErrorMessageBuilder` form with a snippet, an underline and did-you-mean suggestions, and a
-// bare fallback for a diagnostic that has no source line to point at (a synthesised node, or a
-// position the analysed text does not cover).
+// THE FIVE CODES IT OWNS: NL301 for a name that is not a variable, NL412 for a called name that
+// resolves to nothing, NL413 for a called name that resolves to a VALUE whose type cannot be called
+// (a `string` field, an `int` parameter), NL308 for a project declaration that IS visible but is not
+// exported, and NL314 for an error-tuple result read before its error was checked. NL301 and NL412
+// each have TWO shapes — the RICH `ErrorMessageBuilder` form with a snippet, an underline and
+// did-you-mean suggestions, and a bare fallback for a diagnostic that has no source line to point at
+// (a synthesised node, or a position the analysed text does not cover).
 //
 // WHAT IT DOES NOT OWN: the method-group, event and synthetic-SoA-operation reports. Those fire in
 // the dispatch host's common tail, AFTER this rule has answered, and they apply to every expression
@@ -139,12 +140,18 @@ class AnalyzerIdentifierResolution {
     // silence: the syntax diagnostic has already been reported at that position, and a second
     // "I can't find `<error>`" on top of it is noise.
     func Resolve(name: string, line: int, column: int, reportMissingAsFunction: bool): TypeInfo {
+        source := BareNameSource.Other
+        return Resolve(name, line, column, reportMissingAsFunction, out source)
+    }
+
+    func Resolve(name: string, line: int, column: int, reportMissingAsFunction: bool, out source: BareNameSource): TypeInfo {
+        source = BareNameSource.Other
         if name == "<error>" {
             return BuiltInTypes.Unknown
         }
 
         resolved: TypeInfo = BuiltInTypes.Unknown
-        if TryResolveBindingTarget(name, line, column, out resolved) {
+        if TryResolveBindingTarget(name, line, column, out resolved, out source) {
             ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column)
             ReportCapturedByRefParameterIfNeeded(name, line, column)
             return resolved
@@ -191,15 +198,74 @@ class AnalyzerIdentifierResolution {
     // dispatch host does for its own arm — the null state, the flow type that state implies, and the
     // two semantic-model records the IDE's hover reads. The call arm reaches its callee WITHOUT going
     // through the dispatch host, so without this door it would have to repeat all four.
+    //
+    // A VALUE THAT CANNOT BE CALLED ENDS HERE, as NL413. The IDE's records still carry the value's own
+    // type — hovering `Label` in `Label()` should say `string` — but the call arm is handed `unknown`,
+    // so nothing downstream reports a second consequence of the same mistake.
     func CallTarget(identifier: IdentifierExpression): TypeInfo {
-        resolved := Resolve(identifier.Name, identifier.Line, identifier.Column, true)
+        source := BareNameSource.Other
+        resolved := Resolve(identifier.Name, identifier.Line, identifier.Column, true, out source)
         nullState := nullFlowValue.GetExpressionNullState(identifier, resolved)
         flowType := nullFlowValue.ApplyNullabilityFlowType(resolved, nullState)
 
         semanticModelValue.RecordExpressionType(identifier.Line, identifier.Column, flowType)
         semanticModelValue.RecordExpressionNullState(identifier.Line, identifier.Column, nullState)
 
+        if ReportNotCallableIfNeeded(identifier, resolved, source) {
+            return BuiltInTypes.Unknown
+        }
+
         return flowType
+    }
+
+    // NL413 FOR A BARE CALLEE: the name answered with a VALUE — a local, a parameter, or a field or
+    // property of the enclosing type — and a value can be called only when its type is a delegate.
+    // The invocability predicate is the one that decides `this.Label()` in the member-access arm, so
+    // the bare spelling and the `this.` spelling of one mistake get one answer. A value whose type
+    // did not resolve is left alone: NL201 already reported the type, and the value's callability is
+    // exactly what the analyzer cannot know.
+    //
+    // A MEMBER IS NEVER A DOOR TO THE FREE FUNCTION IT HIDES. Hiding is by name (channel 1's floor),
+    // so `Label()` beside a `string` field `Label` and a `func Label()` is this report, not a call to
+    // the function — the emitter's `ColumnarSiblingHiding` hides it the same way, and the analyzer
+    // accepting what the emitter refuses is the gap this closes. The report says the function is
+    // there and hidden, because that is exactly what a developer who meant it needs to know.
+    func ReportNotCallableIfNeeded(identifier: IdentifierExpression, resolved: TypeInfo, source: BareNameSource): bool {
+        if source == BareNameSource.Other || identifier.Line <= 0 || !AnalyzerCallableReferenceFacts.IsKnownNonInvocableType(resolved) {
+            return false
+        }
+
+        name := identifier.Name
+        kind: string? = null
+        owner: string? = null
+        hidesFreeFunction := false
+        currentType := scopesValue.CurrentTypeScope()
+        if source == BareNameSource.Member && currentType != null {
+            kind = memberResolutionValue.DescribeValueMemberKind(currentType, name)
+            if kind == null {
+                return false
+            }
+
+            owner = NullabilityMetadataReflection.FormatTypeInfo(currentType)
+            hidesFreeFunction = HidesFreeFunction(name)
+        }
+
+        diagnosticsValue.ReportValueNotCallable(name, kind, NullabilityMetadataReflection.FormatTypeInfo(resolved), owner, hidesFreeFunction, false, identifier.Line, identifier.Column)
+        return true
+    }
+
+    // Whether a free function of this name is visible here and hidden by the enclosing type's member:
+    // one of this file's own, which the global scope holds, or one project discovery finds in another
+    // file or a referenced assembly.
+    private func HidesFreeFunction(name: string): bool {
+        globalSymbol: TypeInfo = BuiltInTypes.Unknown
+        if scopesValue.GlobalScope().Symbols.TryGetValue(name, out globalSymbol) && AnalyzerCallableReferenceFacts.IsInvocableMemberType(globalSymbol) {
+            return true
+        }
+
+        functionType: TypeInfo = BuiltInTypes.Unknown
+        functionDeclaration: SymbolDeclaration? = null
+        return TryResolveVisibleProjectFunction(name, out functionType, out functionDeclaration)
     }
 
     // A BARE NAME HAS NO WRITTEN RECEIVER, so the receiver is the enclosing instance and the
@@ -265,6 +331,16 @@ class AnalyzerIdentifierResolution {
     // nothing" from "this name is something whose type we could not work out" — only the first
     // reports.
     func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo): bool {
+        source := BareNameSource.Other
+        return TryResolveBindingTarget(name, line, column, out resolvedType, out source)
+    }
+
+    // `source` SAYS WHETHER THE ANSWER IS A VALUE, which only the callee door asks: a scope SYMBOL is a
+    // local or a parameter, or — when it sits in the type scope itself — one of the type's own
+    // members, and channel 2 answers only with members. Every other channel answers with a type or a
+    // function, and a call through one of those is judged by the call arm.
+    func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo, out source: BareNameSource): bool {
+        source = BareNameSource.Other
         // 1. Local symbols first, then local types. A symbol declared OUTSIDE the enclosing type — the
         // file's own free functions live in the global scope — answers only when the type has no
         // member of that name; otherwise channel 2 below answers with the member.
@@ -274,9 +350,16 @@ class AnalyzerIdentifierResolution {
             symbolFloor = typeScopeIndex
         }
 
-        scopeBinding := scopesValue.ResolveBindingTarget(bindingsValue, diagnosticsValue.CurrentFilePath, name, line, column, symbolFloor)
+        symbolScopeIndex := -1
+        scopeBinding := scopesValue.ResolveBindingTarget(bindingsValue, diagnosticsValue.CurrentFilePath, name, line, column, symbolFloor, out symbolScopeIndex)
         if scopeBinding != null {
             resolvedType = scopeBinding
+            if symbolScopeIndex >= 0 && symbolScopeIndex == typeScopeIndex {
+                source = BareNameSource.Member
+            } else if symbolScopeIndex >= 0 {
+                source = BareNameSource.Value
+            }
+
             return true
         }
 
@@ -300,6 +383,7 @@ class AnalyzerIdentifierResolution {
                 }
 
                 resolvedType = memberType
+                source = BareNameSource.Member
                 return true
             }
         }
@@ -476,4 +560,13 @@ class AnalyzerIdentifierResolution {
     func UnitNamespace(): string? {
         return AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue)
     }
+}
+
+// WHERE A BARE NAME'S ANSWER CAME FROM, as far as a CALL cares. A `Value` or a `Member` is something
+// read, and reading one before a parenthesis is a call only when its type is a delegate; `Other` is
+// a type or a function, whose call the call arm judges for itself.
+enum BareNameSource {
+    Other,
+    Value,
+    Member
 }

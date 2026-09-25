@@ -357,17 +357,28 @@ class AnalyzerScopeStack {
     // declared OUTSIDE its type — the file's own free functions sit in the global scope below it. The
     // type walk is not floored: which declarations a type NAME means is a separate rule.
     func ResolveBindingTarget(bindings: BindingMap, filePath: string?, name: string, line: int, column: int, symbolFloor: int): TypeInfo? {
+        symbolScopeIndex := -1
+        return ResolveBindingTarget(bindings, filePath, name, line, column, symbolFloor, out symbolScopeIndex)
+    }
+
+    // `symbolScopeIndex` SAYS WHICH SCOPE A SYMBOL ANSWERED FROM, or -1 when a TYPE answered or
+    // nothing did. The identifier rule reads it against `TypeScopeIndex()`: a symbol of the type
+    // scope itself is one of the type's own members, and a symbol above it is a local or a parameter.
+    func ResolveBindingTarget(bindings: BindingMap, filePath: string?, name: string, line: int, column: int, symbolFloor: int, out symbolScopeIndex: int): TypeInfo? {
         symbolIndex := scopes.Count - 1
         while symbolIndex >= symbolFloor {
             symbolScope := scopes[symbolIndex]
             symbolCandidate := new TypeInfo()
             if symbolScope.Symbols.TryGetValue(name, out symbolCandidate) {
                 RecordDeclarationBinding(bindings, filePath, symbolScope, name, name, line, column)
+                symbolScopeIndex = symbolIndex
                 return symbolCandidate
             }
 
             symbolIndex = symbolIndex - 1
         }
+
+        symbolScopeIndex = -1
 
         // A BARE identifier names no type arguments, so the arity-0 identity is what it asks for, and
         // the same-name fallback applies when the only declaration of that name is generic.
