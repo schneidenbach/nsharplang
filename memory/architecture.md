@@ -246,6 +246,14 @@ What the carve is:
   `NSharpLang.Compiler.Driver`, and the SDK task rows load the tasks from Driver.dll.
 The compile-time bench keeps Core as its subject: Core no longer contains Driver, so its corpus shrank
 by Driver's lines, which the next idle-box re-measure of the baseline records.
+Measured edit -> test (`./scripts/dev.sh --estate RunCommandKernelsTests`, a one-line body edit of
+`RunCommandKernels.nl` and its revert, with other sessions' builds on the box): 452 / 264 s on the pre-carve
+tree and the previous seed, 241 / 276 s on the pre-carve tree and the republished seed at `5733d2848`,
+**94 / 106 s** on the carve and that same committed seed (which compiles Driver WITH analysis, its
+emit-only switch predating Driver), and **48 / 48 s** and **61 / 54 s** on scratch stage-2 seeds packed
+from the carve before and after its rebase. A Driver body edit re-emits only Driver, product-only for
+the CLI and tests-included for its rows; Core and Syntax answer "no row matches" in seconds, because
+nothing below Driver changed.
 
 ## Data Flow
 
