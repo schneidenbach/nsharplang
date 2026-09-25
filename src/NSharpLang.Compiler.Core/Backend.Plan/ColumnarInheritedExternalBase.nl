@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Reflection
 import System.Reflection.Emit
 
 
@@ -33,6 +34,47 @@ class ColumnarInheritedExternalBase {
     // receiver that is the bare definition carries no arguments and substitutes nothing.
     static func Resolve(definition: ColumnarStructDef?, exactReceiverType: Type?): Type? {
         return ResolveWithArguments(definition, ArgumentsOf(exactReceiverType))
+    }
+
+    // A PUBLIC STATIC FIELD OR PROPERTY OF THE EXTERNAL BASE, the member a source type inherits and a
+    // bare name inside it, or `Derived.Member` outside it, reads. The member is chosen by ordinary
+    // reflection on the base and must be DECLARED there or above it, so a name the base itself
+    // inherits is answered by that base's own metadata rather than re-derived here. A `const` is not
+    // a storage read and is left to the literal owners.
+    static func TryResolveStaticMember(definition: ColumnarStructDef?, memberName: string, out field: FieldInfo?, out getter: MethodInfo?, out memberType: Type?): bool {
+        field = null
+        getter = null
+        memberType = null
+        if memberName.Length == 0 {
+            return false
+        }
+
+        externalBase := Resolve(definition, null)
+        if externalBase == null {
+            return false
+        }
+
+        staticFlags := BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy
+        externalField := externalBase.GetField(memberName, staticFlags)
+        if externalField != null && externalField.IsPublic && externalField.IsStatic && !externalField.IsLiteral {
+            field = externalField
+            memberType = externalField.FieldType
+            return true
+        }
+
+        externalProperty := externalBase.GetProperty(memberName, staticFlags)
+        if externalProperty == null {
+            return false
+        }
+
+        externalGetter := externalProperty.GetGetMethod()
+        if externalGetter == null || !externalGetter.IsPublic || !externalGetter.IsStatic || externalGetter.GetParameters().Length != 0 {
+            return false
+        }
+
+        getter = externalGetter
+        memberType = externalGetter.ReturnType
+        return true
     }
 
     // The same walk driven by the receiver's type ARGUMENTS rather than by a constructed receiver

@@ -348,9 +348,14 @@ class ColumnarRuntimeGenericMethodResolver {
         return RuntimeTypeShapeFacts.ExactTypeShapeMatchesWithGenericParameterIdentity(candidate.GetGenericTypeDefinition(), definition)
     }
 
+    // THE ARGUMENT'S INTERFACES, INCLUDING WHEN IT IS CLOSED OVER A TYPE THIS COMPILATION WRITES.
+    // `List<Pet>.GetInterfaces()` throws when `Pet` is still being emitted, and an empty list here
+    // left `IEnumerable<T>` with nothing to infer `T` from: `string.Join(",", pets)` declined while
+    // the same call over a `List<string>` bound `Join<string>`. The receiver-side sweep already
+    // answers the question from the argument's generic DEFINITION, and it is asked here too.
     static func InterfacesOrEmpty(argumentType: Type): Type[] {
         try {
-            found := argumentType.GetInterfaces()
+            found := ColumnarRuntimeInstanceMemberResolver.InheritedInterfaceSweep(argumentType)
             if found == null {
                 return new Type[](0)
             }

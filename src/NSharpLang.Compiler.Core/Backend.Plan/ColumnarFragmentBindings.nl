@@ -454,7 +454,16 @@ class ColumnarFragmentBindings {
         }
 
         staticProperty: ColumnarPropertyDef? = null
-        return ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(EnclosingTypeDefinition, name, out staticProperty)
+        if ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(EnclosingTypeDefinition, name, out staticProperty) {
+            return true
+        }
+
+        // And the static surface an EXTERNAL base declares: inside `class Mine: Registry`, where
+        // `Registry` is a referenced assembly's, `Names.Add(x)` is a call on `Registry.Names`.
+        inheritedField: FieldInfo? = null
+        inheritedGetter: MethodInfo? = null
+        inheritedType: Type? = null
+        return ColumnarInheritedExternalBase.TryResolveStaticMember(EnclosingTypeDefinition, name, out inheritedField, out inheritedGetter, out inheritedType)
     }
 
     func HasCurrentInstanceValue(name: string): bool {

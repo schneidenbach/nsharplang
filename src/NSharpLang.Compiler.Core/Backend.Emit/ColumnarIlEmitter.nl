@@ -3784,6 +3784,20 @@ sealed class ColumnarIlEmitter {
             if (scored.IsSelected) {
                 return scored
             }
+            // A GENERIC DECLARATION CLOSED BY INFERENCE IS APPLICABLE IN ITS NORMAL FORM, AND IT IS
+            // ASKED HERE — the direct-call planner's own next tier, in the planner's own order. A
+            // generic method definition is an excluded shape to the scored tier above, so without
+            // this one the ladder went from there to the tiers that bind NON-generic candidates only,
+            // and `string.Join(",", Nums)` over a `static Nums: List<int>` bound the one that would
+            // take a `List<int>` at all: `Join(string, params object?[])`, packing the list and
+            // printing `System.Collections.Generic.List`1[System.Int32]`. C# binds `Join<int>` —
+            // its `IEnumerable<int>` is the better conversion target than `object` (§12.6.4.5) —
+            // and so does the planner, for the same call over a local; `string.Concat(Nums)` against
+            // the unique `Concat(object)` of the tier below is the same defect in another spelling.
+            generic := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(lookupType, member, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount), expectedStatic)
+            if (generic.IsSelected) {
+                return generic
+            }
         }
 
         // THE THIRD TIER: AN ARGUMENT WHOSE TYPE IS TARGET-TYPED IS STILL AN ARGUMENT THAT CHOOSES.
@@ -13167,6 +13181,12 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = bareStaticProp.PropertyType
                 return true
             }
+            // AND THE STATIC SURFACE AN EXTERNAL BASE DECLARES, which the qualified `Derived.Member`
+            // read already reaches through the same owner: inside `class Mine: Registry`, where
+            // `Registry` is a referenced assembly's, a bare `Names` is `Registry.Names`.
+            if (_enclosingType != null) {
+                return TryEmitInheritedExternalStaticMember(_enclosingType, name, out columnarResolvedType)
+            }
 
             return false
         } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.IntLiteralExpression {
@@ -17580,7 +17600,10 @@ sealed class ColumnarIlEmitter {
             return true
         }
         let currentStaticProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-        return ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_enclosingType, name, out currentStaticProperty)
+        if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_enclosingType, name, out currentStaticProperty)) {
+            return true
+        }
+        return InheritedExternalStaticMemberType(_enclosingType, name) != null
     }
 
     private func IsCurrentInstanceMemberName(name: string): bool {
@@ -18703,8 +18726,12 @@ sealed class ColumnarIlEmitter {
             // Residual string-element server only. The generic `String.Join<T>` surface (every
             // non-string primitive element sequence) is owned by the N# front-door plan in
             // ColumnarExternalBindingPlans.GetStaticCallPlan, so it never reaches this legacy arm.
+            //
+            // It claims only a call whose SEPARATOR is a `string` too: `string.Join('|', names)`
+            // is the `char` overload, and committing to this one declined the whole call at the
+            // separator instead of leaving it to the ordinary resolution below.
             valuesType := typeof(IEnumerable<string>)
-            if (CanDeclaredCallArgumentMatch(Child(callIdx, 2), valuesType, false)) {
+            if (CanDeclaredCallArgumentMatch(Child(callIdx, 1), typeof(string), false) && CanDeclaredCallArgumentMatch(Child(callIdx, 2), valuesType, false)) {
                 method := typeof(string).GetMethod(nameof(string.Join), [typeof(string), valuesType])
                 if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, valuesType)) {
                     return false
@@ -22792,6 +22819,30 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = paramType
                 return true
             }
+            // THE PREFLIGHT TWIN OF THE BARE STATIC READ. `EmitExpressionCore` reads a bare static
+            // field or property of the enclosing type after the door above declines it, and until
+            // this arm nothing could say what that read PRODUCES before emitting it — so every
+            // caller that types its arguments first refused the call: `string.Join(",", Names)`
+            // inside the type that declares `static Names: List<string>` declined at
+            // `emit.call.static-member-unmodeled` while `Holder.Names` and a local bound to it both
+            // emitted. The anchor and the resolution are the read's own.
+            if (_enclosingType != null && !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, node)) {
+                let preflightStaticField: System.Reflection.Emit.FieldBuilder? = null
+                if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_enclosingType, name, out preflightStaticField) && preflightStaticField != null) {
+                    columnarResolvedType = preflightStaticField.FieldType
+                    return true
+                }
+                let preflightStaticProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_enclosingType, name, out preflightStaticProperty) && preflightStaticProperty != null) {
+                    columnarResolvedType = preflightStaticProperty.PropertyType
+                    return true
+                }
+                preflightInheritedStatic := InheritedExternalStaticMemberType(_enclosingType, name)
+                if (preflightInheritedStatic != null) {
+                    columnarResolvedType = preflightInheritedStatic
+                    return true
+                }
+            }
             return false
         } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.NullGuardExpression {
             // THE GUARD IS TRANSPARENT TO THE TYPE. `?.` tests its receiver and hands the access the
@@ -23741,46 +23792,11 @@ sealed class ColumnarIlEmitter {
         return false
     }
 
-    // A PUBLIC STATIC FIELD OR PROPERTY OF THE BASE THIS COMPILATION DID NOT WRITE, named through a
-    // derived type. The base comes from the one inherited-base walk; the member is chosen by ordinary
-    // reflection on it and must be DECLARED there, so a name the base itself inherits from further up
-    // is answered by that base's own metadata rather than re-derived here.
-    private func TryResolveInheritedExternalStaticMember(staticOwner: ColumnarStructDef, memberName: string, out field: FieldInfo, out getter: MethodInfo, out memberType: Type): bool {
-        field = null
-        getter = null
-        memberType = null
-        if (memberName.Length == 0) {
-            return false
-        }
-        externalBase := ColumnarInheritedExternalBase.Resolve(staticOwner, null)
-        if (externalBase == null) {
-            return false
-        }
-        staticFlags := BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy
-        externalField := externalBase.GetField(memberName, staticFlags)
-        if (externalField != null && externalField.IsPublic && externalField.IsStatic && !externalField.IsLiteral) {
-            field = externalField
-            memberType = externalField.FieldType
-            return true
-        }
-        externalProperty := externalBase.GetProperty(memberName, staticFlags)
-        if (externalProperty == null) {
-            return false
-        }
-        externalGetter := externalProperty.GetGetMethod()
-        if (externalGetter == null || !externalGetter.IsPublic || !externalGetter.IsStatic || externalGetter.GetParameters().Length != 0) {
-            return false
-        }
-        getter = externalGetter
-        memberType = externalGetter.ReturnType
-        return true
-    }
-
     private func InheritedExternalStaticMemberType(staticOwner: ColumnarStructDef, memberName: string): Type? {
         let inheritedField: System.Reflection.FieldInfo = null
         let inheritedGetter: System.Reflection.MethodInfo = null
         let inheritedType: System.Type = null
-        if (!TryResolveInheritedExternalStaticMember(staticOwner, memberName, out inheritedField, out inheritedGetter, out inheritedType)) {
+        if (!ColumnarInheritedExternalBase.TryResolveStaticMember(staticOwner, memberName, out inheritedField, out inheritedGetter, out inheritedType)) {
             return null
         }
         return inheritedType
@@ -23791,7 +23807,7 @@ sealed class ColumnarIlEmitter {
         let inheritedField: System.Reflection.FieldInfo = null
         let inheritedGetter: System.Reflection.MethodInfo = null
         let inheritedType: System.Type = null
-        if (!TryResolveInheritedExternalStaticMember(staticOwner, memberName, out inheritedField, out inheritedGetter, out inheritedType)) {
+        if (!ColumnarInheritedExternalBase.TryResolveStaticMember(staticOwner, memberName, out inheritedField, out inheritedGetter, out inheritedType)) {
             return false
         }
         if (inheritedField != null) {
