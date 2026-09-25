@@ -43,6 +43,16 @@ class AstNodeFinderCore {
         visitor.VisitCompilationUnit(ast)
         return visitor.EnclosingCallExpression()
     }
+
+    // THE CLASS WHOSE BODY THE POSITION IS IN — the INNERMOST one, so a member of a nested class
+    // answers the nested class. It is what a bare name is resolved against when no source symbol
+    // claims it: `Items` inside `class Bag: Collection<string>` is `this.Items`, inherited from a
+    // base the project did not declare. A position the walk found nothing at has no enclosing class.
+    static func FindEnclosingClassAtPosition(ast: object, line: int, column: int): object? {
+        visitor := new AstPositionVisitor(line, column)
+        visitor.VisitCompilationUnit(ast)
+        return visitor.EnclosingClassDeclaration
+    }
 }
 
 class AstPositionVisitor {
@@ -51,8 +61,10 @@ class AstPositionVisitor {
     foundExpressionValue: object?
     calleeOwnerCalls: List<object>
     calleeOwnerTargets: List<object>
+    enclosingClassValue: object?
 
     FoundExpression: object? => foundExpressionValue
+    EnclosingClassDeclaration: object? => enclosingClassValue
 
     constructor(line: int, column: int) {
         targetLine = line
@@ -117,10 +129,19 @@ class AstPositionVisitor {
     func VisitDeclaration(declaration: object) {
         typeName := declaration.GetType().Name
 
+        // AN EXPRESSION-BODIED FUNCTION HAS NO `Body` — `func Size(): int => c.Count` carries its one
+        // expression in `ExpressionBody` and leaves the block null. Without the second arm every
+        // position inside it answered `No symbol found`, or the receiver from a nearby column.
         if typeName == "FunctionDeclaration" {
             body := GetOptionalProperty(declaration, "Body")
             if body != null {
                 VisitStatement(body)
+                return
+            }
+
+            expressionBody := GetOptionalProperty(declaration, "ExpressionBody")
+            if expressionBody != null {
+                SetFoundExpression(FindExpression(expressionBody))
             }
             return
         }
@@ -135,6 +156,10 @@ class AstPositionVisitor {
                 if member != null {
                     VisitDeclaration(member)
                     if foundExpressionValue != null {
+                        // The walk unwinds innermost first, so a nested class has already claimed it.
+                        if enclosingClassValue == null {
+                            enclosingClassValue = declaration
+                        }
                         return
                     }
                 }

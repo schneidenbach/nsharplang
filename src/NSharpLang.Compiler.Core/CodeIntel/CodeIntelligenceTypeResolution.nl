@@ -403,12 +403,26 @@ class CodeIntelligenceTypeResolution {
     // `argumentTypes` IS NULL WHEN THERE IS NO CALL SITE AND IS THE CALL'S OWN ARGUMENT TYPES WHEN
     // THERE IS. The distinction is not "how many arguments" — a call with zero arguments is still a
     // call, and `Next()` means the nullary overload where a bare `Next` means the group.
+    //
+    // EVERY CLOSED GENERIC TAKES THE DEFINITION ROUTE, NOT ONLY THE ONES THE NAME TABLE KNOWS. The
+    // closed type is wrong in two ways even when every argument has a CLR handle: its members report
+    // the argument's CLR name (`Collection<String>`) as their declaring type, and
+    // `NullabilityInfoContext` reads a substituted parameter as maybe-null, so `Collection<string>`'s
+    // `Items` came back `IList<string?>`. Reading off the definition and substituting the spelled
+    // arguments is right for `Collection<T>` for exactly the reasons it is right for `List<T>`.
     static func ReflectedMemberOfTypeForCall(receiverType: TypeInfo, memberName: string, argumentTypes: TypeInfo?[]?): ReflectedMemberHandle? {
+        return ReflectedMemberOfTypeForCall(receiverType, memberName, argumentTypes, false)
+    }
+
+    // `includeProtected` IS THE OWN-INSTANCE DOOR. A class that derives from an external type may read
+    // that type's protected members by bare name or through `this`/`base`, and the reflected hover for
+    // them must be able to find them; a member access through any other value never can.
+    static func ReflectedMemberOfTypeForCall(receiverType: TypeInfo, memberName: string, argumentTypes: TypeInfo?[]?, includeProtected: bool): ReflectedMemberHandle? {
         genericType := UnwrapGenericReceiver(receiverType)
         if genericType != null {
-            definition := KnownReceiverSpellings.KnownReceiverGenericDefinition(genericType.Name)
-            if definition != null && definition.GetGenericArguments().Length == genericType.TypeArguments.Count {
-                return ReflectedMemberOfClrType(definition, memberName, argumentTypes, BuildGenericArgumentOverride(definition, genericType))
+            definition := GenericReceiverDefinition(genericType)
+            if definition != null {
+                return ReflectedMemberOfClrType(definition, memberName, argumentTypes, BuildGenericArgumentOverride(definition, genericType), includeProtected)
             }
         }
 
@@ -417,7 +431,51 @@ class CodeIntelligenceTypeResolution {
             return null
         }
 
-        return ReflectedMemberOfClrType(clrType, memberName, argumentTypes, null)
+        spelledClosedType := SpelledClosedGeneric(clrType)
+        if spelledClosedType != null {
+            closedDefinition := clrType.GetGenericTypeDefinition()
+            return ReflectedMemberOfClrType(closedDefinition, memberName, argumentTypes, BuildGenericArgumentOverride(closedDefinition, spelledClosedType), includeProtected)
+        }
+
+        return ReflectedMemberOfClrType(clrType, memberName, argumentTypes, null, includeProtected)
+    }
+
+    // THE DEFINITION A SPELLED GENERIC RECEIVER IS READ OFF. The name table answers first, so the
+    // receivers it has always answered for (`List<T>` and the rest) are resolved exactly as before;
+    // any other external generic answers with the definition the ANALYZER resolved it to, which is
+    // the type the program actually binds against. A source generic has no reflected definition and
+    // declines, and so does a spelling whose arity the definition does not share — the by-position
+    // substitution has nothing to index.
+    static func GenericReceiverDefinition(genericType: GenericTypeInfo): Type? {
+        definition := KnownReceiverSpellings.KnownReceiverGenericDefinition(genericType.Name)
+        if definition == null {
+            analyzerDefinition := genericType.GenericDefinition as ReflectionTypeInfo
+            if analyzerDefinition != null && analyzerDefinition.Type.IsGenericTypeDefinition {
+                definition = analyzerDefinition.Type
+            }
+        }
+
+        if definition == null || definition.GetGenericArguments().Length != genericType.TypeArguments.Count {
+            return null
+        }
+
+        return definition
+    }
+
+    // A RECEIVER THAT ARRIVED AS A CLOSED CLR TYPE rather than as a spelling — a `ReflectionTypeInfo`
+    // over `Collection<String>` — has no written arguments to substitute, so its own are converted
+    // into the N# spelling and substituted into the definition exactly as a written spelling would
+    // be. `Nullable<T>` converts to `T?` rather than to a generic spelling and is not this arm's.
+    static func SpelledClosedGeneric(clrType: Type): GenericTypeInfo? {
+        if !clrType.IsGenericType || clrType.IsGenericTypeDefinition {
+            return null
+        }
+
+        try {
+            return AnalyzerReflectionTypeConversion.ConvertReflectionType(clrType) as GenericTypeInfo
+        } catch {
+            return null
+        }
     }
 
     static func UnwrapGenericReceiver(receiverType: TypeInfo): GenericTypeInfo? {
@@ -455,40 +513,64 @@ class CodeIntelligenceTypeResolution {
     // universes fail differently: an ambiguous match throws, and a member read on a poisoned generic
     // instantiation throws `NotSupportedException`. A hover request that throws is a broken editor,
     // so every failure here is a DECLINE and the caller falls back to the bare rendering.
-    static func ReflectedMemberOfClrType(clrType: Type, memberName: string, argumentTypes: TypeInfo?[]?, typeOverride: AnalyzerReflectionTypeOverride?): ReflectedMemberHandle? {
+    //
+    // THE PUBLIC SURFACE IS ASKED FIRST AND THE PROTECTED ONE ONLY WHEN IT FOUND NOTHING, so turning
+    // `includeProtected` on can add an answer but never change one. The non-public read is filtered
+    // to PROTECTED members — `NonPublic` also returns internal and private ones, and neither is what
+    // a derived N# class reaches by inheriting.
+    static func ReflectedMemberOfClrType(clrType: Type, memberName: string, argumentTypes: TypeInfo?[]?, typeOverride: AnalyzerReflectionTypeOverride?, includeProtected: bool): ReflectedMemberHandle? {
         // The flags are a LOCAL, not an inline `|`: an inline flag expression does not type as
         // `BindingFlags` at the call site and the instance call declines as unmodeled. That is
         // `AnalyzerIndexAccess.FindReflectedIndexerProperty`'s note, and it holds here too.
         flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
         try {
-            property := clrType.GetProperty(memberName, flags)
-            if property != null {
-                return new ReflectedMemberHandle(property, null, null, property.Name, DeclaringTypeText(property.DeclaringType), typeOverride, 1)
+            publicMember := ReflectedMemberWithFlags(clrType, memberName, argumentTypes, typeOverride, flags, false)
+            if publicMember != null || !includeProtected {
+                return publicMember
             }
 
-            field := clrType.GetField(memberName, flags)
-            if field != null {
-                return new ReflectedMemberHandle(null, field, null, field.Name, DeclaringTypeText(field.DeclaringType), typeOverride, 1)
-            }
-
-            matching := new List<MethodInfo>()
-            methods := clrType.GetMethods(flags)
-            for method in methods {
-                if method.Name == memberName && !method.IsSpecialName {
-                    matching.Add(method)
-                }
-            }
-
-            if matching.Count > 0 {
-                candidates := matching.ToArray()
-                chosen := ChooseReflectedOverload(candidates, argumentTypes)
-                return new ReflectedMemberHandle(null, null, chosen, chosen.Name, DeclaringTypeText(chosen.DeclaringType), typeOverride, VisibleOverloadCount(chosen, candidates.Length, argumentTypes))
-            }
+            protectedFlags := BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static
+            return ReflectedMemberWithFlags(clrType, memberName, argumentTypes, typeOverride, protectedFlags, true)
         } catch {
             return null
         }
+    }
+
+    static func ReflectedMemberWithFlags(clrType: Type, memberName: string, argumentTypes: TypeInfo?[]?, typeOverride: AnalyzerReflectionTypeOverride?, flags: BindingFlags, protectedOnly: bool): ReflectedMemberHandle? {
+        property := clrType.GetProperty(memberName, flags)
+        if property != null && (!protectedOnly || IsProtectedMember(property.GetGetMethod(true))) {
+            return new ReflectedMemberHandle(property, null, null, property.Name, DeclaringTypeText(property.DeclaringType), typeOverride, 1)
+        }
+
+        field := clrType.GetField(memberName, flags)
+        if field != null && (!protectedOnly || field.IsFamily || field.IsFamilyOrAssembly) {
+            return new ReflectedMemberHandle(null, field, null, field.Name, DeclaringTypeText(field.DeclaringType), typeOverride, 1)
+        }
+
+        matching := new List<MethodInfo>()
+        methods := clrType.GetMethods(flags)
+        for method in methods {
+            if method.Name == memberName && !method.IsSpecialName && (!protectedOnly || IsProtectedMember(method)) {
+                matching.Add(method)
+            }
+        }
+
+        if matching.Count > 0 {
+            candidates := matching.ToArray()
+            chosen := ChooseReflectedOverload(candidates, argumentTypes)
+            return new ReflectedMemberHandle(null, null, chosen, chosen.Name, DeclaringTypeText(chosen.DeclaringType), typeOverride, VisibleOverloadCount(chosen, candidates.Length, argumentTypes))
+        }
 
         return null
+    }
+
+    // `protected` and `protected internal`; `private protected` is not reachable from another assembly.
+    static func IsProtectedMember(method: MethodInfo?): bool {
+        if method == null {
+            return false
+        }
+
+        return method.IsFamily || method.IsFamilyOrAssembly
     }
 
     // THE OVERLOAD THE CALL SITE MEANT.
@@ -588,19 +670,30 @@ class CodeIntelligenceTypeResolution {
     }
 
     // THE FULL NAME, AND THE SIMPLE NAME ONLY WHEN THERE IS NO FULL ONE. `System.String` is what
-    // makes the answer navigable by hand; a constructed or generic-parameter type can have no full
-    // name at all, and its simple name is better than declining the line over it.
+    // makes the answer navigable by hand; a generic-parameter type can have no full name at all, and
+    // its simple name is better than declining the line over it.
+    //
+    // A GENERIC DECLARING TYPE IS ALWAYS NAMED BY ITS DEFINITION. A member the analyzer recorded
+    // against a closed type declares `Collection<String>`, and one inherited by a generic definition
+    // declares its base constructed over the DERIVED type's parameters — which has no full name at
+    // all. Both are the same declaration the reader can look up as `Collection<T>`, and naming the
+    // definition is what keeps a hover from saying `String` where N# says `string`.
     static func DeclaringTypeText(declaringType: Type?): string? {
         if declaringType == null {
             return null
         }
 
-        fullName := declaringType.FullName
-        if fullName == null {
-            return declaringType.Name
+        named := declaringType
+        if declaringType.IsGenericType && !declaringType.IsGenericTypeDefinition {
+            named = declaringType.GetGenericTypeDefinition()
         }
 
-        return FormatDeclaringTypeName(declaringType, fullName ?? "")
+        fullName := named.FullName
+        if fullName == null {
+            return named.Name
+        }
+
+        return FormatDeclaringTypeName(named, fullName ?? "")
     }
 
     // A GENERIC DEFINITION'S METADATA NAME IS NOT A NAME ANYONE READS. `List`1` is how the CLR spells
@@ -609,7 +702,7 @@ class CodeIntelligenceTypeResolution {
     // `StripClrGenericArity` and the parameter names are put back, so the answer stays a real,
     // searchable type name.
     static func FormatDeclaringTypeName(declaringType: Type, fullName: string): string {
-        if !declaringType.IsGenericType {
+        if !declaringType.IsGenericTypeDefinition {
             return fullName
         }
 

@@ -2032,6 +2032,54 @@ test "IDE D2: an array member and a method on a constructed generic hover to the
     QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
 }
 
+// A CLOSED EXTERNAL GENERIC THE KNOWN-RECEIVER TABLE HAS NEVER HEARD OF. `Collection<T>` is not
+// `List<T>`: it used to be read off the CLOSED type, so its declaring type rendered the CLR argument
+// (`Collection<String>`) and a member typed in `T` came back maybe-null (`IList<string?>`). Both
+// functions are EXPRESSION-BODIED on purpose — the position walk did not descend into `=> expr` at all,
+// so every hover inside one answered the receiver or nothing.
+func D2ClosedGenericHoverProject(): object {
+    projectRoot := QueryTempRoot()
+    QueryWriteProjectYaml(projectRoot, QueryDefaultProjectYaml())
+    QueryWriteSource(
+        projectRoot,
+        "Program.nl",
+        "namespace QueryTemp\n\nimport System.Collections.ObjectModel\n\nfunc Size(c: Collection<string>): int => c.Count\n\nclass Bag: Collection<string> {\n    func Size2(): int => Items.Count\n    func ViaThis(): int => this.Items.Count\n    func AddOne() {\n        Add(\"x\")\n    }\n    func Shadowed(): int {\n        Items := 3\n        return Items\n    }\n}\n\nfunc Main() {\n    bag := new Bag()\n    total := Size(bag)\n}\n"
+    )
+    return QueryLoadProject(projectRoot)
+}
+
+test "IDE D2: a member of a closed external generic outside the known-receiver table hovers against its definition" {
+    snapshot := D2ClosedGenericHoverProject()
+
+    assert D2HoverSignature(snapshot, "=> c.Count", "Count") == "property Count: int { get; }|property|System.Collections.ObjectModel.Collection<T>"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "IDE D2: an inherited protected member of an external generic base hovers by bare name and through `this`, with the spelled argument" {
+    snapshot := D2ClosedGenericHoverProject()
+
+    // `Items` is `protected IList<T>`: a bare name in the derived class means `this.Items`, and the
+    // spelled `string` must survive — reading it off the closed type answered `IList<string?>`.
+    assert D2HoverSignature(snapshot, "=> Items.Count", "Items") == "property Items: IList<string> { get; }|property|System.Collections.ObjectModel.Collection<T>"
+    assert D2HoverSignature(snapshot, "this.Items", "Items") == "property Items: IList<string> { get; }|property|System.Collections.ObjectModel.Collection<T>"
+
+    // A bare CALL is the same door: `Add` is the inherited `Collection<T>.Add(T)`, spelled in `string`.
+    assert D2HoverSignature(snapshot, "Add(\"x\")", "Add") == "method Add: void Add(string item)|method|System.Collections.ObjectModel.Collection<T>"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
+test "IDE D2: a local that shadows an inherited external member hovers as the local, never as the member" {
+    snapshot := D2ClosedGenericHoverProject()
+
+    // THE NON-REGRESSION FOR THE BARE-NAME DOOR. The binding map claims `Items` here, so the inherited
+    // member is never asked and there is no declaring type.
+    assert D2HoverSignature(snapshot, "return Items", "Items") == "local Items: int|local|"
+
+    QueryDeleteTemp(QueryText(snapshot, "ProjectRoot"))
+}
+
 test "IDE D2: a project-declared member still hovers to its declaration and carries NO declaring type" {
     snapshot := D2HoverProject()
 

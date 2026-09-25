@@ -110,6 +110,25 @@ class CodeIntelligenceNavigation {
         return null
     }
 
+    // THE CLASS THE POSITION IS INSIDE, FOUND BY THE SAME ATTEMPT THAT FOUND THE EXPRESSION, for the
+    // reason the call above is: two answers about one position must describe the same node.
+    static func FindEnclosingClassAtPositionRobust(cu: CompilationUnit, line: int, col: int): ClassDeclaration? {
+        candidateColumns := CodeIntelligenceSourceDoor.NearbyColumns(col, 3)
+        for candidateColumn in candidateColumns {
+            zeroBased := AstNodeFinderCore.FindExpressionAtPosition(cu, line - 1, candidateColumn - 1) as Expression
+            if zeroBased != null {
+                return AstNodeFinderCore.FindEnclosingClassAtPosition(cu, line - 1, candidateColumn - 1) as ClassDeclaration
+            }
+
+            oneBased := AstNodeFinderCore.FindExpressionAtPosition(cu, line, candidateColumn) as Expression
+            if oneBased != null {
+                return AstNodeFinderCore.FindEnclosingClassAtPosition(cu, line, candidateColumn) as ClassDeclaration
+            }
+        }
+
+        return null
+    }
+
     // THE CALL'S ARGUMENT TYPES, POSITIONALLY, OR NULL WHERE THEY CANNOT BE TRUSTED TO BE.
     //
     // A NAMED ARGUMENT BREAKS THE CORRESPONDENCE the scorer depends on — `f(b: 1, a: "x")` writes
@@ -447,7 +466,7 @@ class CodeIntelligenceNavigation {
         // kind the answer is about to carry rather than a second list of type tests that could
         // drift from it. Every other kind keeps the type it always had.
         if kind == "method" {
-            methodSignature := ReflectedMethodSignatureText(expr, FindEnclosingCallAtPositionRobust(cu, line, col), semanticModel, snapshot, cu)
+            methodSignature := ReflectedMethodSignatureText(expr, FindEnclosingCallAtPositionRobust(cu, line, col), FindEnclosingClassAtPositionRobust(cu, line, col), filePath, semanticModel, snapshot, cu)
             if methodSignature != null {
                 resolvedType = methodSignature ?? ""
             }
@@ -483,17 +502,17 @@ class CodeIntelligenceNavigation {
         semanticModel: SemanticModel? = null
         snapshot.SemanticModels.TryGetValue(unitMatch.FilePath, out semanticModel)
 
-        return ReflectedMemberAtExpression(FindExpressionAtPositionRobust(cu, line, col), FindEnclosingCallAtPositionRobust(cu, line, col), semanticModel, snapshot, cu)
+        return ReflectedMemberAtExpression(FindExpressionAtPositionRobust(cu, line, col), FindEnclosingCallAtPositionRobust(cu, line, col), FindEnclosingClassAtPositionRobust(cu, line, col), unitMatch.FilePath, semanticModel, snapshot, cu)
     }
 
     // THE SAME QUESTION ASKED OF AN EXPRESSION THE CALLER ALREADY HAS. `TypeAtPosition` walks the
     // AST once and then needs the member too, so the walk is handed over rather than repeated: the
     // two commands answer about the SAME node by construction, which is what makes
     // `hover.signature` and `query type`'s `kind`/`name`/`resolvedType` provably the same fact.
-    static func ReflectedMemberAtExpression(expr: Expression?, enclosingCall: CallExpression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): ReflectedMemberHandle? {
+    static func ReflectedMemberAtExpression(expr: Expression?, enclosingCall: CallExpression?, enclosingClass: ClassDeclaration?, filePath: string, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): ReflectedMemberHandle? {
         memberAccess := MemberAccessAtPosition(expr)
         if memberAccess == null {
-            return null
+            return ImplicitThisReflectedMember(expr, enclosingCall, enclosingClass, filePath, semanticModel, snapshot, currentUnit)
         }
 
         argumentTypes := CallArgumentTypeInfos(enclosingCall, semanticModel, snapshot, currentUnit)
@@ -514,7 +533,173 @@ class CodeIntelligenceNavigation {
             return null
         }
 
-        return CodeIntelligenceTypeResolution.ReflectedMemberOfTypeForCall(receiverType, memberAccess.MemberName, argumentTypes)
+        ownInstance := IsOwnInstanceReceiver(memberAccess.Object)
+        direct := CodeIntelligenceTypeResolution.ReflectedMemberOfTypeForCall(receiverType, memberAccess.MemberName, argumentTypes, ownInstance)
+        if direct != null {
+            return direct
+        }
+
+        return InheritedReflectedMember(snapshot, receiverType, memberAccess.MemberName, argumentTypes, ownInstance)
+    }
+
+    // `this.Items` AND `base.Items` READ THE ENCLOSING INSTANCE, which is the one receiver through
+    // which an inherited protected member is reachable.
+    static func IsOwnInstanceReceiver(receiver: Expression): bool {
+        return receiver is ThisExpression || receiver is BaseExpression
+    }
+
+    // A BARE NAME NO SOURCE SYMBOL CLAIMS, INSIDE A CLASS, IS A MEMBER OF THAT CLASS'S EXTERNAL BASE.
+    // `Items` in `class Bag: Collection<string>` means `this.Items`, and it deserves the same hover.
+    //
+    // THE BINDING MAP DECIDES "NO SOURCE SYMBOL", and it is asked before anything else: a local, a
+    // parameter, a function or a field of that name is bound, and a bound name is never re-read as an
+    // inherited member. The class's own members are checked again by `InheritedReflectedMember` as it
+    // climbs, so a source member shadowing the external one still wins where the map is silent.
+    static func ImplicitThisReflectedMember(expr: Expression?, enclosingCall: CallExpression?, enclosingClass: ClassDeclaration?, filePath: string, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): ReflectedMemberHandle? {
+        if enclosingClass == null {
+            return null
+        }
+
+        identifier := ImplicitMemberIdentifier(expr)
+        if identifier == null {
+            return null
+        }
+
+        if TryResolveDefinitionViaBindings(snapshot, filePath, identifier.Line, identifier.Column) != null {
+            return null
+        }
+
+        classType: TypeInfo = NominalTypeInfoFactory.FromClassDeclaration(enclosingClass)
+        return InheritedReflectedMember(snapshot, classType, identifier.Name, CallArgumentTypeInfos(enclosingCall, semanticModel, snapshot, currentUnit), true)
+    }
+
+    // A CALL IS ITS CALLEE HERE TOO, for the reason `MemberAccessAtPosition` gives: `Add("x")` and
+    // `Add` are the same member whichever node the click landed on.
+    static func ImplicitMemberIdentifier(expr: Expression?): IdentifierExpression? {
+        identifier := expr as IdentifierExpression
+        if identifier != null {
+            return identifier
+        }
+
+        call := expr as CallExpression
+        if call != null {
+            return call.Callee as IdentifierExpression
+        }
+
+        return null
+    }
+
+    // ── The external base of a source class ─────────────────────────────
+    // A SOURCE CLASS HAS NO CLR TYPE, BUT ITS FIRST EXTERNAL ANCESTOR DOES. The walk climbs the
+    // source bases and stops the moment one of them declares the name — a source member always
+    // shadows an inherited one — and otherwise asks the first base the project did not declare.
+    // The depth bound is for a cyclic `class A: B` / `class B: A`, which the analyzer reports and
+    // this walk must survive.
+    static func InheritedReflectedMember(snapshot: ProjectSnapshot, receiverType: TypeInfo, memberName: string, argumentTypes: TypeInfo?[]?, includeProtected: bool): ReflectedMemberHandle? {
+        current: TypeInfo = UnwrapNullableReceiver(receiverType)
+        depth := 0
+        while depth < 32 {
+            classType := current as ClassTypeInfo
+            if classType == null {
+                if depth == 0 {
+                    return null
+                }
+
+                return CodeIntelligenceTypeResolution.ReflectedMemberOfTypeForCall(current, memberName, argumentTypes, includeProtected)
+            }
+
+            if DeclaresMember(classType, memberName) {
+                return null
+            }
+
+            baseClass := classType.BaseClass
+            if baseClass == null {
+                return null
+            }
+
+            current = ResolvedBaseType(snapshot, baseClass)
+            depth = depth + 1
+        }
+
+        return null
+    }
+
+    static func UnwrapNullableReceiver(receiverType: TypeInfo): TypeInfo {
+        nullableType := receiverType as NullableTypeInfo
+        if nullableType != null {
+            return UnwrapNullableReceiver(nullableType.InnerType)
+        }
+
+        obliviousType := receiverType as ObliviousTypeInfo
+        if obliviousType != null {
+            return UnwrapNullableReceiver(obliviousType.InnerType)
+        }
+
+        return receiverType
+    }
+
+    static func DeclaresMember(classType: ClassTypeInfo, memberName: string): bool {
+        for member in classType.DeclaredMembers {
+            if member.Name == memberName {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    // THE BASE AS THE ANALYZER RESOLVED IT, read from the semantic model of the file that WRITES the
+    // base clause. The syntactic `TypeReferenceToTypeInfo` cannot answer for an external base — it
+    // keeps `Collection<string>` a bare name with no definition behind it — while the analyzer
+    // recorded the reference's real `GenericTypeInfo`, definition and all. The file is found by the
+    // reference's IDENTITY, not by its name or position, so two files declaring same-named classes
+    // cannot answer for each other. A source base has no recorded external answer and resolves
+    // syntactically, which is what carries the walk up to ITS base.
+    static func ResolvedBaseType(snapshot: ProjectSnapshot, baseClass: TypeReference): TypeInfo {
+        recorded := RecordedBaseType(snapshot, baseClass)
+        if recorded != null && !BuiltInTypes.IsUnknown(recorded) {
+            return recorded
+        }
+
+        return CodeIntelligenceTypeResolution.TypeReferenceToTypeInfo(baseClass, snapshot.CompilationUnits)
+    }
+
+    static func RecordedBaseType(snapshot: ProjectSnapshot, baseClass: TypeReference): TypeInfo? {
+        span := TypeReferenceFacts.GetStartSpan(baseClass)
+        if !span.IsValid {
+            return null
+        }
+
+        for entry in snapshot.CompilationUnits {
+            if UnitWritesBaseClause(entry.Value.Declarations, baseClass) {
+                semanticModel: SemanticModel? = null
+                snapshot.SemanticModels.TryGetValue(entry.Key, out semanticModel)
+                if semanticModel == null {
+                    return null
+                }
+
+                return semanticModel.LookupTypeReferenceAtPosition(span.StartLine, span.StartColumn)
+            }
+        }
+
+        return null
+    }
+
+    static func UnitWritesBaseClause(declarations: IEnumerable<Declaration>, baseClass: TypeReference): bool {
+        for declaration in declarations {
+            classDeclaration := declaration as ClassDeclaration
+            if classDeclaration != null {
+                if Object.ReferenceEquals(classDeclaration.BaseClass, baseClass) {
+                    return true
+                }
+
+                if UnitWritesBaseClause(classDeclaration.Members, baseClass) {
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     // THE METHOD SIGNATURE `query type` PRINTS, WHICH IS HOVER'S SIGNATURE AND NOT A SECOND ONE.
@@ -523,8 +708,8 @@ class CodeIntelligenceNavigation {
     // was defect A. The placeholder itself is not touched: it is the analyzer's own text and its
     // messages are pinned on it. What changes is that this seam, which is the only place a
     // placeholder reaches a USER as an answer, asks the signature renderer instead.
-    static func ReflectedMethodSignatureText(expr: Expression?, enclosingCall: CallExpression?, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): string? {
-        handle := ReflectedMemberAtExpression(expr, enclosingCall, semanticModel, snapshot, currentUnit)
+    static func ReflectedMethodSignatureText(expr: Expression?, enclosingCall: CallExpression?, enclosingClass: ClassDeclaration?, filePath: string, semanticModel: SemanticModel?, snapshot: ProjectSnapshot, currentUnit: CompilationUnit): string? {
+        handle := ReflectedMemberAtExpression(expr, enclosingCall, enclosingClass, filePath, semanticModel, snapshot, currentUnit)
         if handle == null {
             return null
         }
