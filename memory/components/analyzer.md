@@ -1734,10 +1734,15 @@ when the type has a member of the name. The type walk is not floored. `object`'s
 not hide (the analyzer's channel 2 does not answer them for a source type with no written base).
 A non-invocable member hides too: `Label()` against a `string` field is refused (today at emit,
 NL103 — the analyzer does not yet report calling a non-delegate member). A member iterator's bare
-call to its own member already declined before this rule; beside a same-named free function it used
-to emit the FREE call and now declines. Contracts: `tests/native/census-free-function-identity`
+(or `this.`) call to its own member now emits the MEMBER: the machine's captured `<>__this` is
+published as `ColumnarFragmentBindings.CapturedReceiverField` (`ColumnarIteratorBodyScope.
+PublishEnclosingReceiver`), `ImplicitInstanceDefinition()` answers the declaring type, and the direct-call
+planner loads the receiver in two hops (`AppendImplicitReceiverLoad`; `ldflda` for a struct). A member
+machine is nested (NestedAssembly) in its declaring type so `private` members are reachable, and a struct
+machine's factory copies `this` with `ldobj`. Contracts: `tests/native/census-free-function-identity`
 (`MemberShadow*.nl` — free functions return `int`, members don't, so an analyzer that bound the free
-function is an NL202 at compile time), `ColumnarSiblingHiding.tests.nl`, `AnalyzerScopeStack.tests.nl`.
+function is an NL202 at compile time), `tests/native/census-iterators/CensusIteratorMemberCalls*.nl`,
+`ColumnarSiblingHiding.tests.nl`, `ColumnarIteratorBodyScope.tests.nl`, `AnalyzerScopeStack.tests.nl`.
 
 **EXPORT IS REQUIRED ONLY ACROSS NAMESPACES, AND ONE OWNER SAYS SO.**
 `SimpleNamePrecedence.RequiresExport(currentNamespace, candidateNamespace)` is that half of the rule:

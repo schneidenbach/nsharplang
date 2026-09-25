@@ -76,6 +76,15 @@ class Shadowing: ShadowBase {
         read: Func<string> = Label
         return read()
     }
+
+    // A member GENERATOR runs on a state machine that holds this instance in a field, and every bare
+    // name in it still means the member: own, cross-file-hidden, static and inherited alike.
+    func* InIterator(): IEnumerable<string> {
+        yield Label()
+        yield Title()
+        yield Tag()
+        yield Kind()
+    }
 }
 
 struct ShadowingValue {
@@ -83,9 +92,17 @@ struct ShadowingValue {
 
     func Label(): string => "struct member"
     func Direct(): string => Label()
+
+    func* InIterator(): IEnumerable<string> {
+        yield Label()
+    }
 }
 
 // An EXTERNAL base's members hide too: `Contains` is `List<string>.Contains`, not the free `int` one.
 class ShadowingNames: List<string> {
     func HasFirst(): bool => Contains("first")
+
+    func* Presence(): IEnumerable<bool> {
+        yield Contains("first")
+    }
 }

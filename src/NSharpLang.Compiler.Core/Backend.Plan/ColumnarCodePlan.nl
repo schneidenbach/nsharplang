@@ -495,6 +495,13 @@ class ColumnarCodePlanContract {
     static func Isinst(): short {
         return 117
     }
+    // ldobj (0x71) copies the value a managed pointer addresses onto the stack: it pops the address
+    // and pushes the value of the operand type. A struct method's `this` is such an address, and a
+    // value that must OUTLIVE the call — the receiver a member generator's factory hands its machine —
+    // is the copy this makes, not the pointer, which would dangle once the method returns.
+    static func Ldobj(): short {
+        return 113
+    }
     // constrained. (0xFE 0x16) is a PREFIX, not an instruction of its own: it modifies the `callvirt`
     // that follows it so the call runs on the value a managed pointer addresses rather than on a box
     // of it. That is the whole reason a value-typed `using` resource needs it — a boxed `Dispose`
@@ -1368,7 +1375,7 @@ class ColumnarCodePlan {
 
     func AppendTypeInstruction(opCodeValue: short, typeIndex: int) {
         EnsureV2Building()
-        if (opCodeValue != ColumnarCodePlanContract.Ldelem() && (!AllowsScalarOrMethodBodyInstructions() || (opCodeValue != ColumnarCodePlanContract.Ldtoken() && opCodeValue != ColumnarCodePlanContract.Box() && opCodeValue != ColumnarCodePlanContract.Castclass() && opCodeValue != ColumnarCodePlanContract.Initobj() && opCodeValue != ColumnarCodePlanContract.Newarr() && opCodeValue != ColumnarCodePlanContract.Stelem())) && !(IsMethodBodySchema() && (opCodeValue == ColumnarCodePlanContract.Isinst() || opCodeValue == ColumnarCodePlanContract.UnboxAny() || opCodeValue == ColumnarCodePlanContract.Constrained()))) || typeIndex < 0 || typeIndex >= TypeCount {
+        if (opCodeValue != ColumnarCodePlanContract.Ldelem() && (!AllowsScalarOrMethodBodyInstructions() || (opCodeValue != ColumnarCodePlanContract.Ldtoken() && opCodeValue != ColumnarCodePlanContract.Box() && opCodeValue != ColumnarCodePlanContract.Castclass() && opCodeValue != ColumnarCodePlanContract.Initobj() && opCodeValue != ColumnarCodePlanContract.Newarr() && opCodeValue != ColumnarCodePlanContract.Stelem())) && !(IsMethodBodySchema() && (opCodeValue == ColumnarCodePlanContract.Isinst() || opCodeValue == ColumnarCodePlanContract.UnboxAny() || opCodeValue == ColumnarCodePlanContract.Constrained() || opCodeValue == ColumnarCodePlanContract.Ldobj()))) || typeIndex < 0 || typeIndex >= TypeCount {
             throw new InvalidOperationException("The opcode does not use this type pool entry.")
         }
         AppendV2Row(ColumnarCodePlanContract.EmitInstructionOperation(), opCodeValue, ColumnarCodePlanContract.TypeOperand(), typeIndex)

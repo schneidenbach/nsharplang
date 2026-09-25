@@ -78,7 +78,8 @@ class ColumnarIteratorRealization {
                 null,
                 null,
                 null,
-                bodyFacts
+                bodyFacts,
+                structDef.Builder
             )
         }
         if structDef.GenericParameters != null || method.TypeParamNames.Length > 0 {
@@ -231,8 +232,24 @@ class ColumnarIteratorRealization {
             realizedFieldCanonicals,
             realizedMethodNames,
             realizedMethodHandles,
-            bodyFacts
+            bodyFacts,
+            structDef.Builder
         )
+    }
+
+    // WHERE A MACHINE LIVES. A free function's machine is a top-level type. A MEMBER generator's
+    // machine is nested in the type that declares the member, as C# nests it: its body is that
+    // member's body, so it must reach everything the member can — a `private` method or field of the
+    // declaring type included, which a top-level type is refused at run time with a
+    // `MethodAccessException`/`FieldAccessException`. It is nested ASSEMBLY rather than private
+    // because a lambda in the generator is lowered onto a display of its own, which is a top-level
+    // type that holds the machine and calls into it.
+    static func DefineMachineType(module: ModuleBuilder, declaringType: TypeBuilder?, name: string): TypeBuilder {
+        if declaringType != null {
+            return declaringType.DefineNestedType(name, TypeAttributes.NestedAssembly | TypeAttributes.Class | TypeAttributes.Sealed)
+        }
+
+        return module.DefineType(name, TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed)
     }
 
     static func StructInputEnumerator(
@@ -272,7 +289,8 @@ class ColumnarIteratorRealization {
         enclosingFieldCanonicals: string[]? = null,
         enclosingMethodNames: string[]? = null,
         enclosingMethods: MethodInfo[]? = null,
-        bodyFacts: ColumnarIteratorBodyFacts? = null
+        bodyFacts: ColumnarIteratorBodyFacts? = null,
+        declaringType: TypeBuilder? = null
     ): ColumnarIteratorRealizationResult {
         modifiedMemberReferences := ModifiedMemberReferencesOf(bodyFacts)
         declineLabel := memberLabel.Length == 0 ? fn.Name : memberLabel
@@ -281,10 +299,7 @@ class ColumnarIteratorRealization {
             return Declined(shape.DeclineSite, shape.DeclineMessage, declineLabel)
         }
 
-        sm := module.DefineType(
-            shape.TypeName,
-            TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
-        )
+        sm := DefineMachineType(module, declaringType, shape.TypeName)
         smTypeParamMap: Dictionary<string, Type>? = null
         smTypeParams := System.Type.EmptyTypes
         smSpecialConstraints := System.Array.Empty<int>()

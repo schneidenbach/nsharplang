@@ -30,6 +30,14 @@ class ColumnarFragmentBindings {
     // and a different pair of handles. The receiver field is the FIRST hop and the member field is the
     // second; both are exact live handles, so no name is resolved by reflection at emission.
     CapturedInstanceFields: Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>
+    // THE SAME RECEIVER, FOR A BARE MEMBER CALL. A captured member FIELD is one exact handle per
+    // name, but a call is a selection among the declaring type's overloads, so it needs the TYPE
+    // and the one hop that reaches its instance rather than a handle per method. A synthesized
+    // body that holds the declaring type's `this` in a field of argument 0 — an instance iterator's
+    // machine, or a display a generator lambda runs on — publishes that field here, and
+    // `EnclosingTypeDefinition` is the type a bare `Label()` is then asked of. Null everywhere else:
+    // an ordinary member body's receiver IS argument 0 (`CurrentInstance`).
+    CapturedReceiverField: FieldInfo?
     CurrentInstance: ColumnarCurrentInstanceFacts?
     // Exact live handles for every method/type generic parameter visible to this body. Method
     // parameters are installed first; an enclosing type parameter with the same name must never
@@ -86,6 +94,7 @@ class ColumnarFragmentBindings {
         LiftedLocals = new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal)
         BoxedCaptures = new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
         CapturedInstanceFields = new Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>(StringComparer.Ordinal)
+        CapturedReceiverField = null
         CurrentInstance = null
         typeParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
         SourceTypeDefinitions = new List<ColumnarStructDef>()
@@ -223,6 +232,57 @@ class ColumnarFragmentBindings {
         }
 
         EnclosingTypeDefinition = enclosingTypeDefinition
+    }
+
+    // Publish the field of argument 0 that holds the declaring type's instance. Only a SYNTHESIZED
+    // body has one: its current instance is runtime facts with no source definition of its own, so
+    // a bare member name has nowhere to be asked but the declaring type. The field must be typed by
+    // that type, or a bare call would dispatch on an object the source did not write it about.
+    func SetCapturedReceiver(receiverField: FieldInfo) {
+        current := CurrentInstance
+        enclosing := EnclosingTypeDefinition
+        if receiverField == null || receiverField.IsStatic || current == null || current.SourceDefinition != null || enclosing == null {
+            throw new InvalidOperationException("A captured receiver requires a synthesized current instance, an instance field on it and the declaring type it holds.")
+        }
+
+        enclosingType: Type = enclosing.Builder
+        if receiverField.FieldType != enclosingType {
+            throw new InvalidOperationException("A captured receiver must be typed by the declaring type it holds.")
+        }
+
+        CapturedReceiverField = receiverField
+    }
+
+    // THE SOURCE TYPE A BARE INSTANCE-MEMBER NAME IS ASKED OF, AND THE EXACT TYPE OF THE INSTANCE IT
+    // DISPATCHES ON. An ordinary member body answers with its own definition and argument 0; a body
+    // holding a captured receiver answers with the declaring type and that field's type. A closure
+    // display answers with the DISPLAY, whose bare member calls stay with the emitter's
+    // captured-enclosing arm.
+    func ImplicitInstanceDefinition(): ColumnarStructDef? {
+        if CapturedReceiverField != null {
+            return EnclosingTypeDefinition
+        }
+
+        current := CurrentInstance
+        if current == null {
+            return null
+        }
+
+        return current.SourceDefinition
+    }
+
+    func ImplicitInstanceType(): Type? {
+        captured := CapturedReceiverField
+        if captured != null {
+            return captured.FieldType
+        }
+
+        current := CurrentInstance
+        if current == null || current.SourceDefinition == null {
+            return null
+        }
+
+        return current.ExactType
     }
 
     func TryGetTypeParameter(name: string, out parameterType: Type): bool {

@@ -1516,6 +1516,41 @@ task family, and an exception from the body faults the returned task. An `await`
 to the lambda method, including in supported binary operands, call arguments and indexes, and does not suspend or
 consume a resume state from the enclosing generator.
 
+### A generator that is a member
+
+A `func*` declared inside a class or struct is a member like any other, and its body sees the type's
+members the way an ordinary member body does: a bare `Label()` and `this.Label()` call the member —
+instance or static, own or inherited, `private` included — with the same overload selection, and a
+member hides a free function of the same name here too ([Inside a type, a member of the same name
+wins](#inside-a-type-a-member-of-the-same-name-wins)):
+
+```n#
+import System.Collections.Generic
+
+class Report {
+    Title: string
+
+    constructor(title: string) {
+        Title = title
+    }
+
+    func Heading(): string => "# " + Title
+    private func line(text: string): string => "- " + text
+
+    func* Render(items: string[]): IEnumerable<string> {
+        yield Heading()
+        for item in items {
+            yield line(item)
+        }
+    }
+}
+```
+
+The generator runs on the instance it was called on, and each call happens when enumeration reaches
+it, so a member whose result changes between calls is read afresh on every resume. A generator
+declared in a **struct** runs on a copy of the value it was called on, as in C#: writes to the
+original after the call are not seen by the sequence.
+
 ### Subscribing with `on` / `off` inside a generator
 
 `on` and `off` work inside a `func*` exactly as they do anywhere else, and the point of writing them

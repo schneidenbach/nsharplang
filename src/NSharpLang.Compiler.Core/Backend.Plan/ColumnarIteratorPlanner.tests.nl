@@ -2370,6 +2370,115 @@ test "iterator planner hoists the receiver and runs enclosing member reads" {
     assert results[1] == 9
 }
 
+// A STRUCT's member generator runs its factory inside a struct method, whose `this` is an ADDRESS.
+// The machine outlives that call, so what it captures is a COPY of the value; storing the pointer
+// into the struct-typed field wrote its bits as the struct's first field and every read of the
+// receiver afterwards saw garbage.
+struct ColumnarIteratorValueHostProbe {
+    Value: int
+    Weight: int
+}
+
+class ColumnarIteratorValueInstanceProbe {
+    public state: int
+    public current: int
+    public thisRef: ColumnarIteratorValueHostProbe
+
+    constructor(initialState: int) {
+        state = initialState
+        current = 0
+    }
+}
+
+test "iterator planner factory copies a struct receiver into the machine" {
+    parseProbe := new ColumnarIteratorShapeProbe(
+        "func* Vals(): IEnumerable<int> { yield Value }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+    memberNames := IteratorOne("Value")
+    memberCanonicals := IteratorOne("int")
+    shape := ColumnarIteratorPlanner.AnalyzeShape(
+        parseProbe.Nodes,
+        parseProbe.Source,
+        parseProbe.BodyRoot,
+        "Vals",
+        0,
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        true,
+        "ValueHostProbe",
+        memberNames,
+        memberCanonicals,
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+    assert shape.Supported
+    assert shape.FieldNames[2] == "<>__this"
+
+    smType := typeof(ColumnarIteratorValueInstanceProbe)
+    hostType := typeof(ColumnarIteratorValueHostProbe)
+    fields := new FieldInfo[](3)
+    fields[0] = smType.GetField("state")
+    fields[1] = smType.GetField("current")
+    fields[2] = smType.GetField("thisRef")
+    hostFields := new FieldInfo[](1)
+    hostFields[0] = hostType.GetField("Value")
+    ctorTypes := new Type[](1)
+    ctorTypes[0] = typeof(int)
+    smConstructor := smType.GetConstructor(ctorTypes)
+    if smConstructor == null {
+        throw new InvalidOperationException("ColumnarIteratorValueInstanceProbe.ctor(int) was not found.")
+    }
+    context := new ColumnarIteratorEmitContext(
+        parseProbe.Nodes,
+        parseProbe.Source,
+        parseProbe.BodyRoot,
+        shape,
+        smType,
+        typeof(int),
+        shape.FieldNames,
+        fields,
+        IteratorStructuralTypeReferences(),
+        smConstructor,
+        hostType,
+        memberNames,
+        hostFields,
+        memberCanonicals,
+        IteratorNoStrings(),
+        new MethodInfo[](0)
+    )
+
+    factoryPlan := ColumnarIteratorBodyPlanner.BuildFactoryPlan(context)
+    receiverLoad := 0
+    while factoryPlan.OpCodeValues[receiverLoad] != ColumnarCodePlanContract.Ldarg() {
+        receiverLoad = receiverLoad + 1
+    }
+    assert factoryPlan.ArgumentIsAddress[factoryPlan.OperandIndices[receiverLoad]]
+    assert factoryPlan.OpCodeValues[receiverLoad + 1] == ColumnarCodePlanContract.Ldobj()
+    assert factoryPlan.OpCodeValues[receiverLoad + 2] == ColumnarCodePlanContract.Stfld()
+
+    factory := MakeIteratorDynamicMethod("ValueFactory", typeof(object), hostType.MakeByRefType())
+    ColumnarCodePlanExecutor.Execute(factoryPlan, factory.GetILGenerator())
+    host := new ColumnarIteratorValueHostProbe()
+    host.Value = 42
+    host.Weight = 7
+    invokeArgs := new object[](1)
+    IteratorSetObject(invokeArgs, 0, host)
+    target: object? = null
+    machine := (ColumnarIteratorValueInstanceProbe)factory.Invoke(target, invokeArgs)
+
+    assert machine.state == 0
+    assert machine.thisRef.Value == 42
+    assert machine.thisRef.Weight == 7
+}
+
 // An INSTANCE generator writes its enclosing type's members through the receiver it captured, which
 // is the same two-hop path the READ of that name already takes. A name that is neither a binding nor
 // an enclosing member is still unbound, and that is the only decline left on this statement.

@@ -1843,12 +1843,7 @@ class ColumnarIteratorEmitContext {
             }
         }
         if bodyScope.HasField("<>__this") {
-            receiver := bodyScope.FieldHandle("<>__this")
-            member := 0
-            while member < EnclosingFieldNames.Length && member < EnclosingFields.Length {
-                bodyScope.PublishEnclosingMember(EnclosingFieldNames[member], receiver, EnclosingFields[member])
-                member = member + 1
-            }
+            bodyScope.PublishEnclosingReceiver(bodyScope.FieldHandle("<>__this"), EnclosingFieldNames, EnclosingFields)
         }
         Scope = bodyScope
     }
@@ -2879,10 +2874,18 @@ class ColumnarIteratorBodyPlanner {
             if context.Shape.FieldRoles[i] == ColumnarIteratorPlanner.CapturedParameterFieldRole() {
                 fieldType := context.Fields[i].FieldType
                 argTypePool := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(fieldType), context.StructuralTypeReferences)
-                argPool := plan.AddArgument(ordinal, argTypePool)
+                // A STRUCT's `this` IS AN ADDRESS, and the machine outlives the call that made it, so
+                // the receiver it captures is a COPY of the value — C#'s own rule for a struct
+                // iterator — never the pointer, whose bits a `stfld` of the struct type would store as
+                // the struct's first field.
+                capturesValueReceiver := ordinal == 0 && context.FieldNames[i] == "<>__this" && fieldType.IsValueType
+                argPool := plan.AddArgument(ordinal, argTypePool, capturesValueReceiver)
                 fieldPool := plan.AddField(context.Fields[i])
                 plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
                 plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argPool)
+                if capturesValueReceiver {
+                    plan.AppendTypeInstruction(ColumnarCodePlanContract.Ldobj(), argTypePool)
+                }
                 plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
                 ordinal = ordinal + 1
             }
@@ -3898,12 +3901,7 @@ class ColumnarIteratorBodyPlanner {
                 capture = capture + 1
             }
             if scope.HasField("<>__this") {
-                receiver := scope.FieldHandle("<>__this")
-                member := 0
-                while member < context.EnclosingFieldNames.Length && member < context.EnclosingFields.Length {
-                    scope.PublishEnclosingMember(context.EnclosingFieldNames[member], receiver, context.EnclosingFields[member])
-                    member = member + 1
-                }
+                scope.PublishEnclosingReceiver(scope.FieldHandle("<>__this"), context.EnclosingFieldNames, context.EnclosingFields)
             }
             return scope
         }
@@ -3934,11 +3932,7 @@ class ColumnarIteratorBodyPlanner {
             capture = capture + 1
         }
         if display.EnclosingReceiverField != null {
-            member := 0
-            while member < context.EnclosingFieldNames.Length && member < context.EnclosingFields.Length {
-                scope.PublishEnclosingMember(context.EnclosingFieldNames[member], display.EnclosingReceiverField, context.EnclosingFields[member])
-                member = member + 1
-            }
+            scope.PublishEnclosingReceiver(display.EnclosingReceiverField, context.EnclosingFieldNames, context.EnclosingFields)
         }
         return scope
     }

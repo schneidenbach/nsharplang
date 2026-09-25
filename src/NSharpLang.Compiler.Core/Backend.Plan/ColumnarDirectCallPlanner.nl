@@ -181,14 +181,11 @@ class ColumnarDirectCallPlanner {
             bareName := nodes.Text(source, callee)
             explicitThis := ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, callee)
 
-            currentFacts := bindings.CurrentInstance
-            currentDefinition: ColumnarStructDef? = null
-            if currentFacts != null {
-                currentDefinition = currentFacts.SourceDefinition
-            }
+            currentDefinition := bindings.ImplicitInstanceDefinition()
+            currentType := bindings.ImplicitInstanceType()
 
             argumentCount := nodes.ChildCount(node) - 1
-            hasInstance := currentDefinition != null && currentFacts != null && (ColumnarSourceDirectCallResolver.HasInstanceDeclarationAtArity(currentDefinition, bareName, argumentCount) || HasExcludedInstanceOwnerAtArity(currentDefinition, currentFacts.ExactType, bareName, argumentCount))
+            hasInstance := currentDefinition != null && currentType != null && (ColumnarSourceDirectCallResolver.HasInstanceDeclarationAtArity(currentDefinition, bareName, argumentCount) || HasExcludedInstanceOwnerAtArity(currentDefinition, currentType, bareName, argumentCount))
 
             enclosingDefinition := bindings.EnclosingTypeDefinition
             hasStatic := enclosingDefinition != null && (ColumnarSourceDirectCallResolver.HasStaticDeclarationAtArity(enclosingDefinition, bareName, argumentCount) || HasExcludedStaticOwnerAtArity(enclosingDefinition, bareName, argumentCount))
@@ -1000,10 +997,7 @@ class ColumnarDirectCallPlanner {
             if bindings.TryGetSiblingCallable(bareName, out siblingFacts) && siblingFacts != null {
                 ColumnarNamedArgumentBinder.AddCandidate(candidates, siblingFacts.ParameterNames, arity)
             }
-            current := bindings.CurrentInstance
-            if current != null {
-                ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(current.SourceDefinition, bareName, arity, candidates)
-            }
+            ColumnarNamedArgumentBinder.CollectSourceInstanceParameterNames(bindings.ImplicitInstanceDefinition(), bareName, arity, candidates)
             ColumnarNamedArgumentBinder.CollectSourceStaticParameterNames(bindings.EnclosingTypeDefinition, bareName, arity, candidates)
             return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
         }
@@ -1079,10 +1073,7 @@ class ColumnarDirectCallPlanner {
                 ColumnarNamedArgumentBinder.AddTypedCandidate(candidates, siblingFacts.ParameterNames, siblingFacts.ParameterTypes, arity)
             }
 
-            currentInstance := bindings.CurrentInstance
-            if currentInstance != null {
-                ColumnarNamedArgumentBinder.CollectSourceInstanceCandidates(currentInstance.SourceDefinition, bareName, arity, candidates)
-            }
+            ColumnarNamedArgumentBinder.CollectSourceInstanceCandidates(bindings.ImplicitInstanceDefinition(), bareName, arity, candidates)
 
             ColumnarNamedArgumentBinder.CollectSourceStaticCandidates(bindings.EnclosingTypeDefinition, bareName, arity, candidates)
             delegateType := typeof(object)
@@ -1948,10 +1939,14 @@ class ColumnarDirectCallPlanner {
             return TryAppendDelegateInvoke(nodes, source, callNode, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
         }
 
-        current := bindings.CurrentInstance
-        currentDefinition: ColumnarStructDef? = null
-        if current != null {
-            currentDefinition = current.SourceDefinition
+        // THE IMPLICIT RECEIVER: argument 0 in an ordinary member body, or the declaring type's
+        // instance a synthesized body (an instance iterator's machine) holds in a field of its own.
+        // Every tier below asks the same definition and dispatches on the same exact type, and
+        // `AppendImplicitReceiverLoad` is the one place that knows how the instance is reached.
+        currentDefinition := bindings.ImplicitInstanceDefinition()
+        currentType := bindings.ImplicitInstanceType()
+        if currentDefinition == null || currentType == null {
+            currentDefinition = null
         }
 
         if currentDefinition != null && ColumnarSourceDirectCallResolver.HasInstanceDeclarationAtArity(currentDefinition, memberName, argumentTypes.Length) {
@@ -1961,10 +1956,10 @@ class ColumnarDirectCallPlanner {
                 return false
             }
 
-            selection := ColumnarSourceDirectCallResolver.ResolveImplicitInstance(currentDefinition, current.ExactType, memberName, argumentTypes, argumentFacts)
+            selection := ColumnarSourceDirectCallResolver.ResolveImplicitInstance(currentDefinition, currentType, memberName, argumentTypes, argumentFacts)
 
             if !selection.IsSelected {
-                if HasExcludedInstanceOwnerAtArity(currentDefinition, current.ExactType, memberName, argumentTypes.Length) {
+                if HasExcludedInstanceOwnerAtArity(currentDefinition, currentType, memberName, argumentTypes.Length) {
                     ownership = ColumnarDirectCallOwnership.NotOwned
                     legacyWholeSubtreePlanning = true
                 }
@@ -1982,7 +1977,7 @@ class ColumnarDirectCallPlanner {
             return true
         }
 
-        if currentDefinition != null && HasExcludedInstanceOwnerAtArity(currentDefinition, current.ExactType, memberName, argumentTypes.Length) {
+        if currentDefinition != null && HasExcludedInstanceOwnerAtArity(currentDefinition, currentType, memberName, argumentTypes.Length) {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
             return false
@@ -2008,7 +2003,7 @@ class ColumnarDirectCallPlanner {
             // `(this as object).GetType()` emitted. A reference receiver is `ldarg.0` either way; a
             // value `this` is a managed pointer whose inherited dispatch needs a box, so a struct
             // keeps the existing answer.
-            if externalBase == null && current.IsReference {
+            if externalBase == null && currentDefinition.IsReference {
                 externalBase = typeof(object)
             }
             if externalBase != null {
@@ -2016,7 +2011,7 @@ class ColumnarDirectCallPlanner {
 
                 if inherited.IsSelected {
                     ownership = ColumnarDirectCallOwnership.OwnedRejected
-                    if !AppendInheritedImplicitSelection(nodes, source, callNode, current.ExactType, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, inherited, out resultType) {
+                    if !AppendInheritedImplicitSelection(nodes, source, callNode, currentType, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, inherited, out resultType) {
                         plan.Rollback(checkpoint)
                         return false
                     }
@@ -2107,8 +2102,7 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        argumentIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, receiverType, false)
-        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+        AppendImplicitReceiverLoad(plan, bindings, receiverType, false)
 
         if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), inferredArgumentTypes, selection.ParameterTypes, argumentFacts) {
             return false
@@ -2278,12 +2272,7 @@ class ColumnarDirectCallPlanner {
     // terminal for its own owner regardless of arity, exactly as the mechanical host's delegate
     // arm consults the method chain before invoking a value.
     static func HasCurrentInstanceMethodAnyArity(bindings: ColumnarFragmentBindings, memberName: string): bool {
-        current := bindings.CurrentInstance
-        if current == null {
-            return false
-        }
-
-        currentDefinition := current.SourceDefinition
+        currentDefinition := bindings.ImplicitInstanceDefinition()
         return currentDefinition != null && ColumnarSourceDirectCallResolver.HasInstanceDeclaration(currentDefinition, memberName)
     }
 
@@ -3049,7 +3038,7 @@ class ColumnarDirectCallPlanner {
 
         if !selection.IsStatic {
             if implicitReceiver {
-                AppendImplicitReceiver(plan, selection)
+                AppendImplicitReceiver(plan, bindings, selection)
             } else if !AppendExplicitReceiver(nodes, source, receiverNode, bindings, handles, plan, callFragment, depth + 1, selection.ReceiverType, selection.ReceiverIsReference) {
                 return false
             }
@@ -3125,10 +3114,39 @@ class ColumnarDirectCallPlanner {
         plan.AppendTypeInstruction(ColumnarCodePlanContract.Castclass(), declaringIndex)
     }
 
-    static func AppendImplicitReceiver(plan: ColumnarCodePlan, selection: ColumnarSourceDirectCallSelection) {
-        argumentIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, selection.ReceiverType, !selection.ReceiverIsReference)
+    static func AppendImplicitReceiver(plan: ColumnarCodePlan, bindings: ColumnarFragmentBindings, selection: ColumnarSourceDirectCallSelection) {
+        AppendImplicitReceiverLoad(plan, bindings, selection.ReceiverType, !selection.ReceiverIsReference)
+    }
 
-        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+    // THE IMPLICIT RECEIVER, LOADED. In an ordinary member body it is argument 0 — an address for a
+    // struct, whose methods take `this` by reference. A body holding a CAPTURED receiver loads
+    // argument 0, which is the machine, and then the field holding the declaring type's instance:
+    // `ldfld` for a class, `ldflda` for a struct, so a struct member runs against the machine's own
+    // copy exactly as `ldarg.0` hands a struct body its own storage.
+    static func AppendImplicitReceiverLoad(plan: ColumnarCodePlan, bindings: ColumnarFragmentBindings, receiverType: Type, isAddress: bool) {
+        captured := bindings.CapturedReceiverField
+        current := bindings.CurrentInstance
+        if captured == null || current == null {
+            argumentIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, receiverType, isAddress)
+
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+            return
+        }
+
+        if captured.FieldType != receiverType {
+            throw new InvalidOperationException("A captured receiver must be the instance the selected member dispatches on.")
+        }
+
+        machineIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, current.ExactType, false)
+
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), machineIndex)
+        receiverFieldIndex := plan.AddField(captured)
+
+        if isAddress {
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), receiverFieldIndex)
+        } else {
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), receiverFieldIndex)
+        }
     }
 
     static func AppendExplicitReceiver(nodes: ColumnarNodeTable, source: string, receiverNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, expectedType: Type, receiverIsReference: bool): bool {

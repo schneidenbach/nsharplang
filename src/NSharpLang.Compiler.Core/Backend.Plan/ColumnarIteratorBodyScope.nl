@@ -120,7 +120,7 @@ class ColumnarIteratorBodyFacts {
 // THE STATE-MACHINE REWRITE OF A BODY'S NAME BINDINGS, AND THE ONE DOOR ITERATOR LOWERING USES FOR AN
 // EXPRESSION.
 //
-// The rewrite is two lines of the binding contract, not a planner:
+// The rewrite is three lines of the binding contract, not a planner:
 //
 //   a HOISTED NAME (a captured parameter, a hoisted local, a synthesized loop slot) becomes a FIELD OF
 //   `this`, which is the sole identifier owner's CurrentField selection — `ldarg.0; ldfld` — exactly
@@ -128,9 +128,13 @@ class ColumnarIteratorBodyFacts {
 //
 //   an ENCLOSING-TYPE MEMBER read by an instance machine becomes the CapturedInstanceField selection —
 //   `ldarg.0; ldfld <>__this; ldfld <member>` — which is the same two-hop read a closure display does
-//   through the box it captured.
+//   through the box it captured;
 //
-// With those two published, `ColumnarMethodBodyPlanner.TryAppendValue` plans a call, a `new`, an array
+//   the ENCLOSING RECEIVER itself becomes the bindings' captured receiver, so a bare or `this.`
+//   member call selects among the declaring type's own members and dispatches on
+//   `ldarg.0; ldfld <>__this` where an ordinary member body dispatches on `ldarg.0`.
+//
+// With those three published, `ColumnarMethodBodyPlanner.TryAppendValue` plans a call, a `new`, an array
 // literal, an indexer, a member access or a binary inside a `func*` body by the SAME rows it appends in
 // an ordinary body, and the iterator owns none of that decision.
 class ColumnarIteratorBodyScope {
@@ -235,6 +239,26 @@ class ColumnarIteratorBodyScope {
             throw new InvalidOperationException("A published enclosing member requires a captured receiver field and the member's exact field handle.")
         }
         Bindings.CapturedInstanceFields[name] = (ReceiverField: capturedReceiverField, MemberField: memberField)
+    }
+
+    // THE DECLARING TYPE'S INSTANCE, AS THIS BODY REACHES IT. An instance machine holds it in
+    // `<>__this`; a display a generator lambda runs on holds it in a field of its own. Its readable
+    // fields become captured member reads, and the receiver itself is what a bare member CALL —
+    // `Label()` or `this.Label()` — dispatches on: the call owner selects among the declaring type's
+    // overloads and loads this field as the receiver, so a member iterator calls its own type's
+    // members exactly as an ordinary member body does.
+    func PublishEnclosingReceiver(capturedReceiverField: FieldInfo, memberNames: string[], memberFields: FieldInfo[]) {
+        if capturedReceiverField == null || memberNames == null || memberFields == null || memberNames.Length != memberFields.Length {
+            throw new InvalidOperationException("A published enclosing receiver requires its field and parallel member names and handles.")
+        }
+        member := 0
+        while member < memberNames.Length {
+            PublishEnclosingMember(memberNames[member], capturedReceiverField, memberFields[member])
+            member = member + 1
+        }
+        if Facts.EnclosingTypeDefinition != null {
+            Bindings.SetCapturedReceiver(capturedReceiverField)
+        }
     }
 
     // THE EXPRESSION DOOR. One call, one owner: `ColumnarRangeIndexPlanner`'s append-mode value

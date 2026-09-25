@@ -1,5 +1,7 @@
 namespace Census.FreeFunctionIdentity.MemberShadow
 
+import System.Collections.Generic
+
 test "a member of the enclosing type hides a same-file free function of the same name" {
     shadowing := new Shadowing()
     assert shadowing.Direct() == "member"
@@ -35,6 +37,34 @@ test "a lambda, a nested lambda, a local function and a method group in a member
 test "a struct's member hides a free function of the same name" {
     value := new ShadowingValue()
     assert value.Direct() == "struct member"
+}
+
+test "a member generator reads the member, not the free function it hides" {
+    collected := new List<string>()
+    for text in new Shadowing().InIterator() {
+        collected.Add(text)
+    }
+    assert collected.Count == 4
+    assert collected[0] == "member"
+    assert collected[1] == "cross-file member"
+    assert collected[2] == "static member"
+    assert collected[3] == "base member"
+
+    values := new List<string>()
+    for text in new ShadowingValue().InIterator() {
+        values.Add(text)
+    }
+    assert values.Count == 1
+    assert values[0] == "struct member"
+
+    names := new ShadowingNames()
+    names.Add("first")
+    presence := new List<bool>()
+    for present in names.Presence() {
+        presence.Add(present)
+    }
+    assert presence.Count == 1
+    assert presence[0]
 }
 
 // A `test` block is a free function of this namespace, so nothing hides the free functions here.

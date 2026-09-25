@@ -413,6 +413,8 @@ class ColumnarCodePlanExecutor {
                 il.Emit(OpCodes.Constrained, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Initobj() {
                 il.Emit(OpCodes.Initobj, operandType)
+            } else if opCodeValue == ColumnarCodePlanContract.Ldobj() {
+                il.Emit(OpCodes.Ldobj, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Newarr() {
                 il.Emit(OpCodes.Newarr, operandType)
             } else if opCodeValue == ColumnarCodePlanContract.Stelem() {
@@ -965,6 +967,11 @@ class ColumnarCodePlanExecutor {
             // below would give zero anyway, but a delta that is right only because it fell off the end
             // of a chain is not pinned, so it is stated.
             if opCodeValue == ColumnarCodePlanContract.UnboxAny() {
+                return 0
+            }
+            // ldobj pops the address and pushes the value it addresses: net zero, stated for the same
+            // reason.
+            if opCodeValue == ColumnarCodePlanContract.Ldobj() {
                 return 0
             }
             if opCodeValue == ColumnarCodePlanContract.Initobj() {
