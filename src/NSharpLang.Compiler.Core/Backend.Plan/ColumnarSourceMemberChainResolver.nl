@@ -170,16 +170,23 @@ class ColumnarSourceMemberChainResolver {
     }
 
     static func TryFindStaticPropertyOnChain(definition: ColumnarStructDef, name: string, out property: ColumnarPropertyDef?): bool {
+        owner: ColumnarStructDef? = null
+        return TryFindStaticPropertyOnChain(definition, name, out owner, out property)
+    }
+
+    static func TryFindStaticPropertyOnChain(definition: ColumnarStructDef, name: string, out owner: ColumnarStructDef?, out property: ColumnarPropertyDef?): bool {
         current: ColumnarStructDef? = definition
         while current != null {
             candidate := current
             found: ColumnarPropertyDef? = null
             if candidate.StaticProperties.TryGetValue(name, out found) {
+                owner = candidate
                 property = found
                 return true
             }
             current = candidate.BaseDef
         }
+        owner = null
         property = null
         return false
     }

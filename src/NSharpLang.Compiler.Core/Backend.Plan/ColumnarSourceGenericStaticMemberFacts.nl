@@ -107,6 +107,66 @@ class ColumnarSourceGenericStaticMemberFacts {
         return ColumnarSourceDirectCallResolver.SubstituteTypeArguments(signatureType, declaringType.GetGenericArguments())
     }
 
+    // A STATIC NAMED THROUGH A SOURCE TYPE'S OWN SPELLING — bare inside one of its bodies, or written
+    // `Derived.Member` — and found by the nearest-first chain walk. A static the named type declares
+    // itself keeps its own builder handle, as it always has. One a CONSTRUCTED source base declares is
+    // storage of that instantiation: `class IntHolder: Holder<int>` naming `Made` reads
+    // `Holder<int>::Made`, typed over `int`. The raw builder handle names the open `Holder<T>`, which
+    // no body outside `Holder<T>` can reference: the CLR rejects that method with
+    // `BadImageFormatException` the first time it runs. `owner` is the declaring definition, which is
+    // where a caller asks whether the name is a `const` with no storage at all.
+    static func TryBindChainStaticField(definition: ColumnarStructDef, name: string, out owner: ColumnarStructDef?, out field: FieldInfo?, out fieldType: Type): bool {
+        field = null
+        fieldType = typeof(object)
+        declared: FieldBuilder? = null
+        if !ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(definition, name, out owner, out declared) || declared == null || owner == null {
+            return false
+        }
+
+        inheritedOwner := ColumnarInheritedOwner.ConstructedOwnerOf(definition, definition.Builder, owner.Builder)
+        if inheritedOwner == null {
+            field = declared
+            fieldType = declared.FieldType
+            return true
+        }
+
+        field = RebindField(inheritedOwner, declared)
+        fieldType = Substitute(declared.FieldType, inheritedOwner)
+        return true
+    }
+
+    // The static PROPERTY twin. A property the named type declares keeps the self-instantiation
+    // binding every body of that type already used; an inherited one is rebound onto the constructed
+    // base exactly as the field is. `setter` is null for a get-only property.
+    static func TryBindChainStaticProperty(definition: ColumnarStructDef, name: string, out getter: MethodInfo?, out setter: MethodInfo?, out propertyType: Type): bool {
+        getter = null
+        setter = null
+        propertyType = typeof(object)
+        owner: ColumnarStructDef? = null
+        declared: ColumnarPropertyDef? = null
+        if !ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(definition, name, out owner, out declared) || declared == null || owner == null {
+            return false
+        }
+
+        inheritedOwner := ColumnarInheritedOwner.ConstructedOwnerOf(definition, definition.Builder, owner.Builder)
+        if inheritedOwner == null {
+            getter = ColumnarSourceSelfInstantiation.Bind(declared.Getter)
+            if declared.Setter != null {
+                setter = ColumnarSourceSelfInstantiation.BindSetter(declared)
+            }
+            propertyType = declared.PropertyType
+            return true
+        }
+
+        getter = RebindAccessor(inheritedOwner, declared.Getter)
+        declaredSetter := declared.Setter
+        if declaredSetter != null {
+            setter = RebindAccessor(inheritedOwner, declaredSetter)
+        }
+        propertyType = Substitute(declared.PropertyType, inheritedOwner)
+        return true
+    }
+
     // A STATIC FIELD reached through a constructed source generic: the rebound handle plus the
     // substituted storage type.
     static func TryFindStaticField(receiverType: Type, receiverDefinition: ColumnarStructDef, name: string, out field: FieldInfo, out fieldType: Type): bool {

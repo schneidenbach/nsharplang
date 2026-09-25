@@ -403,7 +403,7 @@ class ColumnarSourceDirectCallResolver {
             return Rejected(root, receiverType, false)
         }
 
-        selected := closed ? SelectLocalInstance(root, root, receiverType, true, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance) : SelectInstanceChain(root, root, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
+        selected := closed ? SelectLocalInstance(root, root, receiverType, receiverType, true, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance) : SelectInstanceChain(root, root, receiverType, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
 
         if selected.Status == ColumnarSourceDirectCallStatus.NotSourceType {
             return Rejected(root, receiverType, false)
@@ -419,7 +419,7 @@ class ColumnarSourceDirectCallResolver {
             return Rejected(root, ownerType, true)
         }
 
-        selected := closed ? SelectLocalStatic(root, root, ownerType, true, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly) : SelectStaticChain(root, root, ownerType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
+        selected := closed ? SelectLocalStatic(root, root, ownerType, true, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly) : SelectStaticChain(root, root, ownerType, ownerType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
 
         if selected.Status == ColumnarSourceDirectCallStatus.NotSourceType {
             return Rejected(root, ownerType, true)
@@ -431,8 +431,15 @@ class ColumnarSourceDirectCallResolver {
     // Instance declarations hide by invocation arity. Once a definition has a same-arity fixed
     // declaration, or an excluded params/varargs shape that can accept this argument count, an
     // inaccessible, excluded, type-incompatible, or ambiguous local set blocks every base match.
-    static func SelectInstanceChain(root: ColumnarStructDef, current: ColumnarStructDef, receiverType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, receiverIsAccessingInstance: bool): ColumnarSourceDirectCallSelection {
-        local := SelectLocalInstance(root, current, receiverType, false, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
+    //
+    // `ownerType` is how the RECEIVER sees `current`: the receiver type itself at the root, and at
+    // every base link the base as that link declared it, closed over the receiver's arguments
+    // (`ColumnarInheritedOwner`). A link reached through a constructed generic base is bound on that
+    // instantiation — `class IntHolder: Holder<int>` calls `Holder<int>::Describe`, never the open
+    // `Holder<T>` definition, which the CLR cannot execute and the plan executor refuses as a receiver
+    // mismatch.
+    static func SelectInstanceChain(root: ColumnarStructDef, current: ColumnarStructDef, receiverType: Type, ownerType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, receiverIsAccessingInstance: bool): ColumnarSourceDirectCallSelection {
+        local := SelectLocalInstance(root, current, receiverType, ownerType, ColumnarInheritedOwner.IsConstructedLink(current, ownerType), memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
 
         if local.Status != ColumnarSourceDirectCallStatus.NotSourceType {
             return local
@@ -440,7 +447,7 @@ class ColumnarSourceDirectCallResolver {
 
         if current.IsInterface {
             for interfaceBase2 in current.InterfaceBases {
-                inherited := SelectInstanceChain(root, interfaceBase2, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
+                inherited := SelectInstanceChain(root, interfaceBase2, receiverType, interfaceBase2.Builder, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
 
                 if inherited.Status != ColumnarSourceDirectCallStatus.NotSourceType {
                     return inherited
@@ -450,13 +457,13 @@ class ColumnarSourceDirectCallResolver {
 
         baseDefinition := current.BaseDef
         if baseDefinition != null {
-            return SelectInstanceChain(root, baseDefinition, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
+            return SelectInstanceChain(root, baseDefinition, receiverType, ColumnarInheritedOwner.BaseOwner(current, ownerType, baseDefinition), memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
         }
 
         return NoDeclaration()
     }
 
-    static func SelectLocalInstance(root: ColumnarStructDef, owner: ColumnarStructDef, receiverType: Type, closed: bool, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, receiverIsAccessingInstance: bool): ColumnarSourceDirectCallSelection {
+    static func SelectLocalInstance(root: ColumnarStructDef, owner: ColumnarStructDef, receiverType: Type, ownerType: Type, closed: bool, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, receiverIsAccessingInstance: bool): ColumnarSourceDirectCallSelection {
         overloads := new List<ColumnarInstanceMethodDef>()
         if !owner.MethodOverloads.TryGetValue(memberName, out overloads) {
             return NoDeclaration()
@@ -483,7 +490,7 @@ class ColumnarSourceDirectCallResolver {
             if candidate.ParamTypes.Length == argumentTypes.Length {
                 hadArityMatch = true
                 if IsCallableInstanceMethod(root, owner, accessingDefinition, sameAssembly, candidate, receiverIsAccessingInstance) {
-                    parameters := ResolveParameterTypes(candidate.ParamTypes, receiverType, closed)
+                    parameters := ResolveParameterTypes(candidate.ParamTypes, ownerType, closed)
 
                     score := ArgumentsScoreWithFacts(parameters, argumentTypes, argumentFacts, candidate.ParamModifierKinds)
                     if score > bestScore {
@@ -534,14 +541,19 @@ class ColumnarSourceDirectCallResolver {
             return Rejected(owner, receiverType, false)
         }
 
-        return SelectedInstance(root, owner, receiverType, closed, selected, selectedParameters)
+        return SelectedInstance(root, owner, receiverType, ownerType, closed, selected, selectedParameters)
     }
 
     // Static lookup preserves the legacy distinction: a nearer same-name set that cannot accept
     // this argument count does not hide a matching base overload, but a nearer fixed or excluded
     // declaration that can own the invocation is terminal.
-    static func SelectStaticChain(root: ColumnarStructDef, current: ColumnarStructDef, ownerType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool): ColumnarSourceDirectCallSelection {
-        local := SelectLocalStatic(root, current, ownerType, false, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
+    //
+    // `currentOwnerType` follows the base chain exactly as the instance walk's does: a static declared
+    // on `Holder<T>` and reached from `class IntHolder: Holder<int>` belongs to `Holder<int>`, and that
+    // is the instantiation its handle and its signature are closed over.
+    static func SelectStaticChain(root: ColumnarStructDef, current: ColumnarStructDef, ownerType: Type, currentOwnerType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool): ColumnarSourceDirectCallSelection {
+        constructedLink := ColumnarInheritedOwner.IsConstructedLink(current, currentOwnerType)
+        local := SelectLocalStatic(root, current, constructedLink ? currentOwnerType : ownerType, constructedLink, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
 
         if local.Status != ColumnarSourceDirectCallStatus.NotSourceType {
             return local
@@ -549,7 +561,7 @@ class ColumnarSourceDirectCallResolver {
 
         baseDefinition := current.BaseDef
         if baseDefinition != null {
-            return SelectStaticChain(root, baseDefinition, ownerType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
+            return SelectStaticChain(root, baseDefinition, ownerType, ColumnarInheritedOwner.BaseOwner(current, currentOwnerType, baseDefinition), memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
         }
 
         return NoDeclaration()
@@ -629,7 +641,10 @@ class ColumnarSourceDirectCallResolver {
         return SelectedStatic(root, owner, ownerType, closed, selected, selectedParameters)
     }
 
-    static func SelectedInstance(root: ColumnarStructDef, owner: ColumnarStructDef, receiverType: Type, closed: bool, definition: ColumnarInstanceMethodDef, parameterTypes: Type[]): ColumnarSourceDirectCallSelection {
+    // `ownerType` names the declaring owner as the receiver sees it. It is the receiver itself when the
+    // method is the receiver's own, and the constructed base (`Holder<int>`) when the method was
+    // inherited through one; `closed` says it is an instantiation the handle must be rebound onto.
+    static func SelectedInstance(root: ColumnarStructDef, owner: ColumnarStructDef, receiverType: Type, ownerType: Type, closed: bool, definition: ColumnarInstanceMethodDef, parameterTypes: Type[]): ColumnarSourceDirectCallSelection {
         // As in `SelectedStatic`: a generic definition's own code names its own methods through the
         // current instantiation, never through a bare method-definition token.
         declaringType: Type = ColumnarSourceSelfInstantiation.Of(owner.Builder)
@@ -645,14 +660,14 @@ class ColumnarSourceDirectCallResolver {
         receiverType = ColumnarSourceSelfInstantiation.Of(receiverType)
         returnType := definition.ReturnType
         if closed {
-            rebound := TypeBuilder.GetMethod(receiverType, definition.Builder)
+            rebound := TypeBuilder.GetMethod(ownerType, definition.Builder)
             if rebound == null {
                 throw new InvalidOperationException("TypeBuilder.GetMethod returned no exact closed source instance method.")
             }
 
             method = rebound
-            declaringType = receiverType
-            returnType = SubstituteTypeArguments(definition.ReturnType, receiverType.GetGenericArguments())
+            declaringType = ownerType
+            returnType = SubstituteTypeArguments(definition.ReturnType, ownerType.GetGenericArguments())
         }
 
         return new ColumnarSourceDirectCallSelection(ColumnarSourceDirectCallStatus.Selected, root.IsReference ? ColumnarSourceDirectCallDispatch.CallVirtual : ColumnarSourceDirectCallDispatch.Call, owner, receiverType, declaringType, method, parameterTypes, returnType, root.IsReference, false, method.IsAbstract)

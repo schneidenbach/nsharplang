@@ -1,7 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Reflection.Emit
+import System.Reflection
 
 
 // A STATIC MEMBER OF A TYPE THIS COMPILATION DECLARES, on the plan side.
@@ -43,9 +43,9 @@ class ColumnarSourceStaticMemberPlanner {
 
         memberName := nodes.Text(source, node)
         fieldOwner: ColumnarStructDef? = null
-        field: FieldBuilder? = null
-        if ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(owner, memberName, out fieldOwner, out field) && field != null {
-            fieldType := field.FieldType
+        field: FieldInfo? = null
+        fieldType := typeof(object)
+        if ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticField(owner, memberName, out fieldOwner, out field, out fieldType) && field != null {
             literalValue := 0
             if fieldOwner != null && fieldOwner.StaticIntConstants.TryGetValue(memberName, out literalValue) {
                 if !TryAppendIntConstant(plan, fieldType, literalValue) {
@@ -55,16 +55,17 @@ class ColumnarSourceStaticMemberPlanner {
                 return true
             }
 
-            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsfld(), AddStaticField(plan, fieldOwner, field))
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsfld(), AddStaticField(plan, field, fieldType))
             resultType = fieldType
             return true
         }
 
-        property: ColumnarPropertyDef? = null
-        if ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(owner, memberName, out property) && property != null {
-            getter := ColumnarSourceSelfInstantiation.Bind(property.Getter)
-            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(getter, getter.DeclaringType, Type.EmptyTypes, property.PropertyType, true, false))
-            resultType = property.PropertyType
+        getter: MethodInfo? = null
+        setter: MethodInfo? = null
+        propertyType := typeof(object)
+        if ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticProperty(owner, memberName, out getter, out setter, out propertyType) && getter != null {
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(getter, getter.DeclaringType, Type.EmptyTypes, propertyType, true, false))
+            resultType = propertyType
             return true
         }
 
@@ -77,58 +78,54 @@ class ColumnarSourceStaticMemberPlanner {
     // INT CONSTANT has no storage a body may write, so both steps decline it.
     static func TryGetStaticStorageType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out storageType: Type): bool {
         storageType = typeof(int)
-        field: FieldBuilder? = null
-        fieldOwner: ColumnarStructDef? = null
-        property: ColumnarPropertyDef? = null
-        if !TryResolveStaticStoreTarget(nodes, source, node, bindings, out fieldOwner, out field, out property) {
+        field: FieldInfo? = null
+        setter: MethodInfo? = null
+        if !TryResolveStaticStoreTarget(nodes, source, node, bindings, out field, out setter, out storageType) {
+            storageType = typeof(int)
             return false
         }
-        if field != null {
-            storageType = field.FieldType
-            return true
-        }
 
-        storageType = property.PropertyType
         return true
     }
 
     // The store row itself, appended over a value already on the stack.
     static func TryAppendStaticStoreRow(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan): bool {
-        field: FieldBuilder? = null
-        fieldOwner: ColumnarStructDef? = null
-        property: ColumnarPropertyDef? = null
-        if !TryResolveStaticStoreTarget(nodes, source, node, bindings, out fieldOwner, out field, out property) {
+        field: FieldInfo? = null
+        setter: MethodInfo? = null
+        storageType := typeof(object)
+        if !TryResolveStaticStoreTarget(nodes, source, node, bindings, out field, out setter, out storageType) {
             return false
         }
         if field != null {
-            plan.AppendFieldInstruction(ColumnarCodePlanContract.Stsfld(), AddStaticField(plan, fieldOwner, field))
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Stsfld(), AddStaticField(plan, field, storageType))
             return true
         }
 
-        bound := ColumnarSourceSelfInstantiation.Bind(property.Setter)
+        bound := must setter
         parameterTypes := new Type[](1)
-        parameterTypes[0] = property.PropertyType
+        parameterTypes[0] = storageType
         plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethodWithSignature(bound, bound.DeclaringType, parameterTypes, ColumnarTypeOfPlanner.RequiredVoidType(), true, false))
         return true
     }
 
     // The one selection both write steps share, so the two can never disagree about what they are
-    // writing to. Exactly one of `field` and `property` comes back non-null.
-    static func TryResolveStaticStoreTarget(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out fieldOwner: ColumnarStructDef?, out field: FieldBuilder?, out property: ColumnarPropertyDef?): bool {
-        fieldOwner = null
+    // writing to. Exactly one of `field` and `setter` comes back non-null, bound through the chain
+    // binder, and `storageType` is the member's type as the named owner sees it.
+    static func TryResolveStaticStoreTarget(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out field: FieldInfo?, out setter: MethodInfo?, out storageType: Type): bool {
         field = null
-        property = null
+        setter = null
+        storageType = typeof(object)
         owner: ColumnarStructDef? = null
         if !TryResolveOwner(nodes, source, node, bindings, out owner) || owner == null {
             return false
         }
 
         memberName := nodes.Text(source, node)
-        if ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(owner, memberName, out fieldOwner, out field) && field != null {
+        fieldOwner: ColumnarStructDef? = null
+        if ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticField(owner, memberName, out fieldOwner, out field, out storageType) && field != null {
             literalValue := 0
             if fieldOwner != null && fieldOwner.StaticIntConstants.TryGetValue(memberName, out literalValue) {
                 field = null
-                fieldOwner = null
                 return false
             }
 
@@ -136,12 +133,13 @@ class ColumnarSourceStaticMemberPlanner {
         }
 
         field = null
-        fieldOwner = null
-        if ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(owner, memberName, out property) && property != null && property.Setter != null {
+        getter: MethodInfo? = null
+        if ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticProperty(owner, memberName, out getter, out setter, out storageType) && setter != null {
             return true
         }
 
-        property = null
+        setter = null
+        storageType = typeof(object)
         return false
     }
 
@@ -151,14 +149,14 @@ class ColumnarSourceStaticMemberPlanner {
     // and declining leaves the caller's own diagnostic in place.
     static func TryAppendStaticFieldAddress(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out elementType: Type): bool {
         elementType = typeof(int)
-        fieldOwner: ColumnarStructDef? = null
-        field: FieldBuilder? = null
-        if !TryFindQualifiedStaticField(nodes, source, node, bindings, out fieldOwner, out field) || field == null {
+        field: FieldInfo? = null
+        fieldType := typeof(object)
+        if !TryFindQualifiedStaticField(nodes, source, node, bindings, out field, out fieldType) || field == null {
             return false
         }
 
-        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), AddStaticField(plan, fieldOwner, field))
-        elementType = field.FieldType
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsflda(), AddStaticField(plan, field, fieldType))
+        elementType = fieldType
         return true
     }
 
@@ -166,51 +164,58 @@ class ColumnarSourceStaticMemberPlanner {
     // addresses are answered by one relation.
     static func TryGetStaticFieldStorageType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out storageType: Type?): bool {
         storageType = null
-        fieldOwner: ColumnarStructDef? = null
-        field: FieldBuilder? = null
-        if !TryFindQualifiedStaticField(nodes, source, node, bindings, out fieldOwner, out field) || field == null {
+        field: FieldInfo? = null
+        fieldType := typeof(object)
+        if !TryFindQualifiedStaticField(nodes, source, node, bindings, out field, out fieldType) || field == null {
             return false
         }
 
-        storageType = field.FieldType
+        storageType = fieldType
         return true
     }
 
-    static func TryFindQualifiedStaticField(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out fieldOwner: ColumnarStructDef?, out field: FieldBuilder?): bool {
-        fieldOwner = null
+    static func TryFindQualifiedStaticField(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out field: FieldInfo?, out fieldType: Type): bool {
         field = null
+        fieldType = typeof(object)
         owner: ColumnarStructDef? = null
         if !TryResolveOwner(nodes, source, node, bindings, out owner) || owner == null {
             return false
         }
 
-        memberName := nodes.Text(source, node)
-        selectedOwner: ColumnarStructDef? = null
-        selectedField: FieldBuilder? = null
-        if !ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(owner, memberName, out selectedOwner, out selectedField) || selectedField == null {
+        return TryBindStorageStaticField(owner, nodes.Text(source, node), out field, out fieldType)
+    }
+
+    // A static FIELD with storage, named through `owner`: bound by the chain binder, and refused when
+    // it is a `const`, which has a value but no storage to load from, store to or address.
+    static func TryBindStorageStaticField(owner: ColumnarStructDef, memberName: string, out field: FieldInfo?, out fieldType: Type): bool {
+        fieldOwner: ColumnarStructDef? = null
+        if !ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticField(owner, memberName, out fieldOwner, out field, out fieldType) || field == null {
+            field = null
+            fieldType = typeof(object)
             return false
         }
 
         literalValue := 0
-        if selectedOwner != null && selectedOwner.StaticIntConstants.TryGetValue(memberName, out literalValue) {
+        if fieldOwner != null && fieldOwner.StaticIntConstants.TryGetValue(memberName, out literalValue) {
+            field = null
+            fieldType = typeof(object)
             return false
         }
 
-        fieldOwner = selectedOwner
-        field = selectedField
         return true
     }
 
-    // A `FieldBuilder` carries its declaring type and value type from its own definition, which is
-    // what the pool needs: reading them back through reflection off an unbaked type is exactly the
-    // question `AddFieldWithSignature` exists to avoid asking.
-    static func AddStaticField(plan: ColumnarCodePlan, fieldOwner: ColumnarStructDef?, field: FieldBuilder): int {
+    // A source field's declaring and value types are stated by the binder, which is what the pool
+    // needs: reading them back through reflection off an unbaked type is exactly the question
+    // `AddFieldWithSignature` exists to avoid asking. A field bound onto a constructed base names that
+    // instantiation as its declaring type and reports the base's substituted member type.
+    static func AddStaticField(plan: ColumnarCodePlan, field: FieldInfo, fieldType: Type): int {
         declaringType := field.DeclaringType
-        if fieldOwner != null {
-            declaringType = fieldOwner.Builder
+        if declaringType == null {
+            throw new InvalidOperationException("A source static field has no declaring type.")
         }
 
-        return plan.AddFieldWithSignature(field, declaringType, field.FieldType, true)
+        return plan.AddFieldWithSignature(field, declaringType, fieldType, true)
     }
 
     // Does this member access name a static of a source type? The receiver is a bare identifier or a

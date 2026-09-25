@@ -2488,7 +2488,8 @@ sealed class ColumnarIlEmitter {
                         // to be written as — resolved nowhere at all.
                         let instanceDelegateField: System.Reflection.Emit.FieldBuilder? = null
                         let staticDelegateOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-                        let staticDelegateField: System.Reflection.Emit.FieldBuilder? = null
+                        let staticDelegateField: System.Reflection.FieldInfo? = null
+                        let staticDelegateFieldType: System.Type = null
                         if (_currentStruct != null && !_currentStruct.IsClosureDisplay && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out instanceDelegateField)) {
                             if (!IsInvocableDelegateType(instanceDelegateField.FieldType)) {
                                 return false
@@ -2496,11 +2497,11 @@ sealed class ColumnarIlEmitter {
                             delegateType = instanceDelegateField.FieldType
                             _il.Emit(OpCodes.Ldarg_0)
                             _il.Emit(OpCodes.Ldfld, instanceDelegateField)
-                        } else if (_enclosingType != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_enclosingType, name, out staticDelegateOwner, out staticDelegateField)) {
-                            if (!IsInvocableDelegateType(staticDelegateField.FieldType)) {
+                        } else if (_enclosingType != null && ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticField(_enclosingType, name, out staticDelegateOwner, out staticDelegateField, out staticDelegateFieldType)) {
+                            if (!IsInvocableDelegateType(staticDelegateFieldType)) {
                                 return false
                             }
-                            delegateType = staticDelegateField.FieldType
+                            delegateType = staticDelegateFieldType
                             _il.Emit(OpCodes.Ldsfld, staticDelegateField)
                         } else {
                             return false
@@ -9787,23 +9788,25 @@ sealed class ColumnarIlEmitter {
                     staticRecvName := ColumnarNodeTextFacts.Text(_nodes, _source, fieldReceiver)
                     let staticWriteOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
                     if (!_locals.ContainsKey(staticRecvName) && !_liftedLocals.ContainsKey(staticRecvName) && !_paramOrdinals.ContainsKey(staticRecvName) && !_siblings.ContainsKey(staticRecvName) && _typeResolutionStructs.TryGetValue(staticRecvName, out staticWriteOwner)) {
-                        let staticFieldWrite: System.Reflection.Emit.FieldBuilder? = null
-                        if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(staticWriteOwner, memberName, out staticFieldWrite)) {
+                        let staticFieldWriteOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                        let staticFieldWrite: System.Reflection.FieldInfo? = null
+                        let staticFieldWriteType: System.Type = null
+                        if (ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticField(staticWriteOwner, memberName, out staticFieldWriteOwner, out staticFieldWrite, out staticFieldWriteType)) {
                             let columnarDiscard15: System.Type = null
-                            if (!TryEmitAssignableValue(Child(expr, 1), staticFieldWrite.FieldType, out columnarDiscard15)) {
+                            if (!TryEmitAssignableValue(Child(expr, 1), staticFieldWriteType, out columnarDiscard15)) {
                                 return false
                             }
                             _il.Emit(OpCodes.Stsfld, staticFieldWrite)
                             return true
                         }
-                        let staticPropWrite: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-                        if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(staticWriteOwner, memberName, out staticPropWrite) && staticPropWrite.Setter != null) {
+                        let staticPropWriteGetter: System.Reflection.MethodInfo? = null
+                        let staticSetter: System.Reflection.MethodInfo? = null
+                        let staticPropWriteType: System.Type = null
+                        if (ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticProperty(staticWriteOwner, memberName, out staticPropWriteGetter, out staticSetter, out staticPropWriteType) && staticSetter != null) {
                             let columnarDiscard16: System.Type = null
-                            if (!TryEmitAssignableValue(Child(expr, 1), staticPropWrite.PropertyType, out columnarDiscard16)) {
+                            if (!TryEmitAssignableValue(Child(expr, 1), staticPropWriteType, out columnarDiscard16)) {
                                 return false
                             }
-                            staticProperty := must staticPropWrite
-                            staticSetter := ColumnarSourceSelfInstantiation.BindSetter(staticProperty)
                             _il.Emit(OpCodes.Call, staticSetter)
                             return true
                         }
@@ -10245,10 +10248,12 @@ sealed class ColumnarIlEmitter {
             // constructor. It is anchored on `_enclosingType` for the same reason the bare static READ is: the
             // storage belongs to the type, so every body the type owns can name it. No receiver:
             // `<value>; stsfld`. (Statics need no address, so value-type enclosing types are fine.)
-            let bareStaticTarget: System.Reflection.Emit.FieldBuilder? = null
-            if (_enclosingType != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_enclosingType, targetName, out bareStaticTarget)) {
+            let bareStaticTargetOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            let bareStaticTarget: System.Reflection.FieldInfo? = null
+            let bareStaticTargetType: System.Type = null
+            if (_enclosingType != null && ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticField(_enclosingType, targetName, out bareStaticTargetOwner, out bareStaticTarget, out bareStaticTargetType)) {
                 let columnarDiscard22: System.Type = null
-                if (!TryEmitAssignableValue(Child(expr, 1), bareStaticTarget.FieldType, out columnarDiscard22)) {
+                if (!TryEmitAssignableValue(Child(expr, 1), bareStaticTargetType, out columnarDiscard22)) {
                     return false
                 }
                 _il.Emit(OpCodes.Stsfld, bareStaticTarget)
@@ -13147,24 +13152,29 @@ sealed class ColumnarIlEmitter {
             // exactly that anchor. No receiver: `ldsfld` for a field, `call get_Name` for a property — except a
             // `const` field, which has no storage at all and whose value is written at each use, so the owner
             // that declared it comes back with the field.
+            // A static a CONSTRUCTED source base declares is that instantiation's storage, so the handle
+            // comes from the one chain binder rather than the raw open-definition builder.
             let bareStaticFieldOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-            let bareStaticField: System.Reflection.Emit.FieldBuilder? = null
-            if (_enclosingType != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_enclosingType, name, out bareStaticFieldOwner, out bareStaticField)) {
+            let bareStaticField: System.Reflection.FieldInfo? = null
+            let bareStaticFieldType: System.Type = null
+            if (_enclosingType != null && ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticField(_enclosingType, name, out bareStaticFieldOwner, out bareStaticField, out bareStaticFieldType)) {
                 literalValue := 0
                 if bareStaticFieldOwner != null && bareStaticFieldOwner.StaticIntConstants.TryGetValue(name, out literalValue) {
-                    if !ColumnarFieldMetadataEmitter.TryEmitIntLiteralLoad(_il, bareStaticField.FieldType, literalValue) {
+                    if !ColumnarFieldMetadataEmitter.TryEmitIntLiteralLoad(_il, bareStaticFieldType, literalValue) {
                         return false
                     }
                 } else {
                     _il.Emit(OpCodes.Ldsfld, bareStaticField)
                 }
-                columnarResolvedType = bareStaticField.FieldType
+                columnarResolvedType = bareStaticFieldType
                 return true
             }
-            let bareStaticProp: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-            if (_enclosingType != null && ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_enclosingType, name, out bareStaticProp)) {
-                _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(bareStaticProp.Getter))
-                columnarResolvedType = bareStaticProp.PropertyType
+            let bareStaticGetter: System.Reflection.MethodInfo? = null
+            let bareStaticSetter: System.Reflection.MethodInfo? = null
+            let bareStaticPropType: System.Type = null
+            if (_enclosingType != null && ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticProperty(_enclosingType, name, out bareStaticGetter, out bareStaticSetter, out bareStaticPropType)) {
+                _il.Emit(OpCodes.Call, bareStaticGetter)
+                columnarResolvedType = bareStaticPropType
                 return true
             }
 
@@ -13980,16 +13990,20 @@ sealed class ColumnarIlEmitter {
             // value binding — `models.Person.Default` is member lookup on a local named `models`.
             let dottedStaticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
             if (enumReceiverName != null && enumReceiverRoot != null && enumReceiverName.Length > enumReceiverRoot.Length && !_locals.ContainsKey(enumReceiverRoot) && !_liftedLocals.ContainsKey(enumReceiverRoot) && !_paramOrdinals.ContainsKey(enumReceiverRoot) && !_siblings.ContainsKey(enumReceiverRoot) && _typeResolutionStructs.TryGetValue(enumReceiverName, out dottedStaticOwner)) {
-                let dottedStaticFieldRead: System.Reflection.Emit.FieldBuilder? = null
-                if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(dottedStaticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out dottedStaticFieldRead)) {
+                let dottedStaticFieldOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                let dottedStaticFieldRead: System.Reflection.FieldInfo? = null
+                let dottedStaticFieldType: System.Type = null
+                if (ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticField(dottedStaticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out dottedStaticFieldOwner, out dottedStaticFieldRead, out dottedStaticFieldType)) {
                     _il.Emit(OpCodes.Ldsfld, dottedStaticFieldRead)
-                    columnarResolvedType = dottedStaticFieldRead.FieldType
+                    columnarResolvedType = dottedStaticFieldType
                     return true
                 }
-                let dottedStaticPropRead: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-                if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(dottedStaticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out dottedStaticPropRead)) {
-                    _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(dottedStaticPropRead.Getter))
-                    columnarResolvedType = dottedStaticPropRead.PropertyType
+                let dottedStaticGetter: System.Reflection.MethodInfo? = null
+                let dottedStaticSetter: System.Reflection.MethodInfo? = null
+                let dottedStaticPropType: System.Type = null
+                if (ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticProperty(dottedStaticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out dottedStaticGetter, out dottedStaticSetter, out dottedStaticPropType)) {
+                    _il.Emit(OpCodes.Call, dottedStaticGetter)
+                    columnarResolvedType = dottedStaticPropType
                     return true
                 }
                 return false
@@ -14027,23 +14041,26 @@ sealed class ColumnarIlEmitter {
                 if (_typeResolutionStructs.TryGetValue(receiverIdent, out staticOwner) && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)) {
                     staticFieldName := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
                     let staticFieldOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-                    let staticFieldRead: System.Reflection.Emit.FieldBuilder? = null
-                    if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(staticOwner, staticFieldName, out staticFieldOwner, out staticFieldRead)) {
+                    let staticFieldRead: System.Reflection.FieldInfo? = null
+                    let staticFieldReadType: System.Type = null
+                    if (ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticField(staticOwner, staticFieldName, out staticFieldOwner, out staticFieldRead, out staticFieldReadType)) {
                         literalValue := 0
                         if staticFieldOwner != null && staticFieldOwner.StaticIntConstants.TryGetValue(staticFieldName, out literalValue) {
-                            if !ColumnarFieldMetadataEmitter.TryEmitIntLiteralLoad(_il, staticFieldRead.FieldType, literalValue) {
+                            if !ColumnarFieldMetadataEmitter.TryEmitIntLiteralLoad(_il, staticFieldReadType, literalValue) {
                                 return false
                             }
                         } else {
                             _il.Emit(OpCodes.Ldsfld, staticFieldRead)
                         }
-                        columnarResolvedType = staticFieldRead.FieldType
+                        columnarResolvedType = staticFieldReadType
                         return true
                     }
-                    let staticPropRead: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-                    if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out staticPropRead)) {
-                        _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(staticPropRead.Getter))
-                        columnarResolvedType = staticPropRead.PropertyType
+                    let staticPropGetter: System.Reflection.MethodInfo? = null
+                    let staticPropSetter: System.Reflection.MethodInfo? = null
+                    let staticPropReadType: System.Type = null
+                    if (ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticProperty(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out staticPropGetter, out staticPropSetter, out staticPropReadType)) {
+                        _il.Emit(OpCodes.Call, staticPropGetter)
+                        columnarResolvedType = staticPropReadType
                         return true
                     }
                     // THE STATIC SURFACE OF AN EXTERNAL BASE IS INHERITED TOO. `SharedRandom.Shared` on
@@ -23673,14 +23690,18 @@ sealed class ColumnarIlEmitter {
             }
             let dottedPreflightOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
             if (_typeResolutionStructs.TryGetValue(dottedReceiverName, out dottedPreflightOwner)) {
-                let dottedPreflightField: System.Reflection.Emit.FieldBuilder? = null
-                if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(dottedPreflightOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out dottedPreflightField)) {
-                    columnarResolvedType = dottedPreflightField.FieldType
+                let dottedPreflightFieldOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                let dottedPreflightField: System.Reflection.FieldInfo? = null
+                let dottedPreflightFieldType: System.Type = null
+                if (ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticField(dottedPreflightOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out dottedPreflightFieldOwner, out dottedPreflightField, out dottedPreflightFieldType)) {
+                    columnarResolvedType = dottedPreflightFieldType
                     return true
                 }
-                let dottedPreflightProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-                if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(dottedPreflightOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out dottedPreflightProperty)) {
-                    columnarResolvedType = dottedPreflightProperty.PropertyType
+                let dottedPreflightGetter: System.Reflection.MethodInfo? = null
+                let dottedPreflightSetter: System.Reflection.MethodInfo? = null
+                let dottedPreflightPropertyType: System.Type = null
+                if (ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticProperty(dottedPreflightOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out dottedPreflightGetter, out dottedPreflightSetter, out dottedPreflightPropertyType)) {
+                    columnarResolvedType = dottedPreflightPropertyType
                     return true
                 }
             }
@@ -23699,14 +23720,18 @@ sealed class ColumnarIlEmitter {
             }
             let staticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
             if (_typeResolutionStructs.TryGetValue(receiverIdent, out staticOwner)) {
-                let staticField: System.Reflection.Emit.FieldBuilder? = null
-                if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out staticField)) {
-                    columnarResolvedType = staticField.FieldType
+                let staticFieldOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                let staticField: System.Reflection.FieldInfo? = null
+                let staticFieldType: System.Type = null
+                if (ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticField(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out staticFieldOwner, out staticField, out staticFieldType)) {
+                    columnarResolvedType = staticFieldType
                     return true
                 }
-                let staticProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-                if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out staticProperty)) {
-                    columnarResolvedType = staticProperty.PropertyType
+                let staticGetter: System.Reflection.MethodInfo? = null
+                let staticSetter: System.Reflection.MethodInfo? = null
+                let staticPropertyType: System.Type = null
+                if (ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticProperty(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out staticGetter, out staticSetter, out staticPropertyType)) {
+                    columnarResolvedType = staticPropertyType
                     return true
                 }
                 // The preflight twin of the inherited-static read: the same question, answered before

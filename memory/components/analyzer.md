@@ -3094,6 +3094,40 @@ Only PUBLIC inherited members are reachable: `TrySelectAdmittedProperty` and the
 call resolver both filter to public, and N# does not yet model access to an external base's
 `protected` surface. Do not add a base-type allowlist and do not grow a second base walk.
 
+## What a Source Type Inherits From a Closed Generic SOURCE Base (2026-09-25)
+
+`class IntHolder: Holder<int>` where `Holder<T>` is declared in the same compilation. The member
+`IntHolder` inherits is `Holder<int>::Describe` — a MemberRef whose parent is the TypeSpec
+`Holder<int>` — never the open definition's MethodDef and never `Holder<T>` over the definition's own
+parameter. Analysis was always clean; the emitter bound the open handle, so:
+
+- a bare `Describe()`, `this.Describe()`, `holder.Describe()` and a bare `Value` read declined with
+  NL103 "Schema-v3 reference receiver for 'Describe' does not match its declaring type" (the plan
+  executor's `ValidateReceiver` correctly refusing an `IntHolder` receiver for `Holder<T>`);
+- a bare or `IntHolder.`-qualified static FIELD or PROPERTY of the base emitted a raw token on the
+  open definition, and the CLR threw `BadImageFormatException` the first time the method ran.
+
+**The one link primitive.** `ColumnarInheritedOwner` answers "which type does this receiver name
+base link N by": `BaseOwner` closes a link's declared base (`ExactBaseType`, written in that link's
+own parameters) over the arguments the receiver carries for the link, and `ConstructedOwnerOf` walks
+from the root to the link that declares a member and returns its constructed instantiation, or null
+when the link is named by its own builder (a non-generic base, or the root itself — whose handles
+were already right). Substitution is per link, as in `ColumnarInheritedExternalBase`:
+`Leaf: Mid<string>`, `Mid<U>: Holder<List<U>>` reaches `Holder<List<string>>`. A generic derived
+type (`Wrapper<U>: Holder<U>`) needs no substitution: its base is already `Holder<U>` over its own
+parameter, which is what its own code must call through.
+
+| Site | What it binds on the constructed owner |
+| --- | --- |
+| `ColumnarSourceDirectCallResolver.SelectInstanceChain` / `SelectStaticChain` | an inherited instance or static METHOD, bare, `this.` or through a receiver value; its parameters and return type are substituted with the owner's arguments |
+| `ColumnarBoundIdentifierPlanner.TryResolveCurrentInstance` / `TryResolveBaseMember` | a bare or `base.` FIELD or PROPERTY read; the field enters the plan through `AddFieldWithSignature` because a rebound field handle still reports the open `T` |
+| `ColumnarSourceGenericStaticMemberFacts.TryBindChainStaticField` / `TryBindChainStaticProperty` | a STATIC field or property named bare or through a source type's name; every emitter site and `ColumnarSourceStaticMemberPlanner` route through these two, never through the raw `FieldBuilder` |
+
+`this.Value` and `holder.Value` were already right: `ColumnarInstanceMemberPlanner` carries the exact
+type per link itself. Do not add a second chain walk; ask `ColumnarInheritedOwner`.
+`tests/native/census-closed-generic-source-base` runs every shape above and reads the call tokens
+back out of the emitted IL to prove they name `Holder<int>`.
+
 ## Columnar Type Admissibility Over Type Parameters
 
 `ColumnarTypeOfPlanner.IsSupportedType` is the compiler's type-admissibility head. When a type is
