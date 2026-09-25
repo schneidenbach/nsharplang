@@ -54,6 +54,10 @@ class ColumnarInheritedExternalBase {
             return false
         }
 
+        if RuntimeTypeShapeFacts.ContainsBuilderBoundType(externalBase) {
+            return TryResolveBuilderBoundStaticMember(externalBase, memberName, out field, out getter, out memberType)
+        }
+
         staticFlags := BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy
         externalField := externalBase.GetField(memberName, staticFlags)
         if externalField != null && externalField.IsPublic && externalField.IsStatic && !externalField.IsLiteral {
@@ -75,6 +79,71 @@ class ColumnarInheritedExternalBase {
         getter = externalGetter
         memberType = externalGetter.ReturnType
         return true
+    }
+
+    // THE SAME QUESTION OF A BASE CLOSED OVER A TYPE THIS COMPILATION IS WRITING. `List<Tag>`, while
+    // `Tag` is being emitted, is a builder instantiation that answers no member query — `GetField` on
+    // it throws — and the bindings ask this owner about EVERY bare name inside the derived type, so
+    // the throw took down any bare call there (`Add(tag)` inside `class Tags: List<Tag>`). The member
+    // is read off the generic DEFINITION instead and rebound onto this instantiation, exactly as a
+    // value-tuple field is (`ColumnarRuntimeInstanceMemberResolver.TrySelectValueTupleField`).
+    //
+    // A member the definition declares binds through `TypeBuilder` with its type substituted; one it
+    // inherits from a NON-generic ancestor is already closed and binds as it is. One inherited from a
+    // GENERIC ancestor would need that ancestor's own instantiation, and is not answered.
+    static func TryResolveBuilderBoundStaticMember(externalBase: Type, memberName: string, out field: FieldInfo?, out getter: MethodInfo?, out memberType: Type?): bool {
+        field = null
+        getter = null
+        memberType = null
+        if !externalBase.IsGenericType || externalBase.IsGenericTypeDefinition {
+            return false
+        }
+
+        definitionType := externalBase.GetGenericTypeDefinition()
+        closedArguments := externalBase.GetGenericArguments()
+        staticFlags := BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy
+        openField := definitionType.GetField(memberName, staticFlags)
+        if openField != null && openField.IsPublic && openField.IsStatic && !openField.IsLiteral {
+            fieldOwner := openField.DeclaringType
+            if fieldOwner == definitionType {
+                field = TypeBuilder.GetField(externalBase, openField)
+                memberType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.FieldType, closedArguments)
+                return true
+            }
+
+            if fieldOwner != null && !fieldOwner.IsGenericType {
+                field = openField
+                memberType = openField.FieldType
+                return true
+            }
+
+            return false
+        }
+
+        openProperty := definitionType.GetProperty(memberName, staticFlags)
+        if openProperty == null {
+            return false
+        }
+
+        openGetter := openProperty.GetGetMethod()
+        if openGetter == null || !openGetter.IsPublic || !openGetter.IsStatic || openGetter.GetParameters().Length != 0 {
+            return false
+        }
+
+        getterOwner := openGetter.DeclaringType
+        if getterOwner == definitionType {
+            getter = TypeBuilder.GetMethod(externalBase, openGetter)
+            memberType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openGetter.ReturnType, closedArguments)
+            return true
+        }
+
+        if getterOwner != null && !getterOwner.IsGenericType {
+            getter = openGetter
+            memberType = openGetter.ReturnType
+            return true
+        }
+
+        return false
     }
 
     // The same walk driven by the receiver's type ARGUMENTS rather than by a constructed receiver
