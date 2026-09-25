@@ -2954,6 +2954,12 @@ For Go-style error tuples (`result, err := MightFail()`):
 - `if err == null { ... }` makes the result available inside the success branch
 - `if err != null { return }` or `throw` makes the result available after the guard
 - Using the result while `err` may be non-null reports `NL314`
+- A plain `=` INTO the bare result name (`result = …`, also `(result) = …`) is a store, not a use:
+  it is exempt from `NL314` and makes the result available afterwards. The exemption is the ONE
+  target node, by identity (`AnalyzerIdentifierResolution.SuppressedErrorTupleResultUseNode`, set by
+  `AnalyzerAssignment` around its target walk). A result READ inside a write target — the index in
+  `values[result] = …`, the receiver in `result.Count = …` — is an ordinary use and reports. A
+  compound operator (`result += 1`) reads its target first, so it exempts nothing.
 
 ### Must-Use Results
 - Functions/methods annotated `[MustUse]` produce results that cannot be silently discarded.

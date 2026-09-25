@@ -66,14 +66,21 @@ class AnalyzerIdentifierResolution {
     semanticModelValue: SemanticModel
     bindingsValue: BindingMap
     compilationUnitValue: CompilationUnit?
-    suppressErrorTupleResultUseValue: bool
+    suppressedErrorTupleResultUseNodeValue: Expression?
     reportedUnverifiedResultsValue: Dictionary<(Line: int, Column: int, Name: string), bool>
 
-    // THE ERROR-TUPLE SUPPRESSION, saved and restored by the assignment arm exactly as
-    // `AnalyzerNullFlow.SuppressFlowType` is: writing INTO a result name is not a use of it, so a
-    // plain `result = …` must not be told the error was never checked. A compound assignment reads
-    // the target first, so it is NOT suppressed.
-    SuppressErrorTupleResultUse: bool => suppressErrorTupleResultUseValue
+    // THE ONE NODE THE ERROR-TUPLE GUARD EXEMPTS, saved and restored by the assignment arm around
+    // its target walk: writing INTO a result name is not a use of it, so a plain `result = …` must
+    // not be told the error was never checked. A compound assignment reads the target first, so it
+    // exempts nothing.
+    //
+    // IT IS A NODE AND NOT A FLAG, because the target walk is not only the target. `values[i] = 5`
+    // READS `i` to find the element and `box.Count = 5` READS `box` to find the object, and both are
+    // walked inside the same bracket as the store. A flag over the whole walk exempted every one of
+    // those reads, so an unchecked result used as an index or a receiver of a plain `=` was never
+    // reported. Only the node that IS the storage location is exempt; everything the walk reaches
+    // beneath it is an ordinary read and is judged like one.
+    SuppressedErrorTupleResultUseNode: Expression? => suppressedErrorTupleResultUseNodeValue
 
     constructor(diagnostics: AnalyzerDiagnosticSink, scopes: AnalyzerScopeStack, typeResolver: AnalyzerTypeResolver, projectDiscovery: AnalyzerProjectTypeDiscovery, externalTypeProbe: AnalyzerExternalTypeProbe, functionTypeFactory: AnalyzerFunctionTypeFactory, ambient: AnalyzerAmbientContext, nullFlow: AnalyzerNullFlow, extensionMethods: List<FunctionDeclaration>, memberResolution: AnalyzerMemberResolution, semanticModel: SemanticModel, bindings: BindingMap) {
         diagnosticsValue = diagnostics
@@ -91,7 +98,7 @@ class AnalyzerIdentifierResolution {
         semanticModelValue = semanticModel
         bindingsValue = bindings
         compilationUnitValue = null
-        suppressErrorTupleResultUseValue = false
+        suppressedErrorTupleResultUseNodeValue = null
         reportedUnverifiedResultsValue = new Dictionary<(Line: int, Column: int, Name: string), bool>()
     }
 
@@ -102,7 +109,7 @@ class AnalyzerIdentifierResolution {
         compilationUnitValue = unit
         semanticModelValue = semanticModel
         bindingsValue = bindings
-        suppressErrorTupleResultUseValue = false
+        suppressedErrorTupleResultUseNodeValue = null
         reportedUnverifiedResultsValue.Clear()
     }
 
@@ -120,8 +127,29 @@ class AnalyzerIdentifierResolution {
         importUsageCreditValue = credit
     }
 
-    func SetSuppressErrorTupleResultUse(value: bool) {
-        suppressErrorTupleResultUseValue = value
+    func SetSuppressedErrorTupleResultUseNode(node: Expression?) {
+        suppressedErrorTupleResultUseNodeValue = node
+    }
+
+    // WHETHER `expression` IS THE EXEMPT NODE — by IDENTITY, because two reads of one name at two
+    // positions are two uses and only one of them is the store. Brackets are looked through, so
+    // `(result) = …` writes `result` exactly as `result = …` does.
+    func IsErrorTupleResultUseSuppressed(expression: Expression): bool {
+        current := suppressedErrorTupleResultUseNodeValue
+        while current != null {
+            if Object.ReferenceEquals(current, expression) {
+                return true
+            }
+
+            parenthesized := current as ParenthesizedExpression
+            if parenthesized == null {
+                return false
+            }
+
+            current = parenthesized.Inner
+        }
+
+        return false
     }
 
     // THE RULE. `reportMissingAsFunction` selects which of the two report families a miss belongs to
@@ -133,13 +161,27 @@ class AnalyzerIdentifierResolution {
     // silence: the syntax diagnostic has already been reported at that position, and a second
     // "I can't find `<error>`" on top of it is noise.
     func Resolve(name: string, line: int, column: int, reportMissingAsFunction: bool): TypeInfo {
+        return ResolveRead(name, line, column, reportMissingAsFunction, null)
+    }
+
+    // THE EXPRESSION-POSITION FORM, and the only one that can be the exempt write target: it carries
+    // the node, so the error-tuple guard can tell the store from a read of the same name beneath it.
+    // A name resolved without its node is never the store and is always judged as a read.
+    func ResolveIdentifier(identifier: IdentifierExpression): TypeInfo {
+        return ResolveRead(identifier.Name, identifier.Line, identifier.Column, false, identifier)
+    }
+
+    private func ResolveRead(name: string, line: int, column: int, reportMissingAsFunction: bool, node: Expression?): TypeInfo {
         if name == "<error>" {
             return BuiltInTypes.Unknown
         }
 
         resolved: TypeInfo = BuiltInTypes.Unknown
         if TryResolveBindingTarget(name, line, column, out resolved) {
-            ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column)
+            if node == null || !IsErrorTupleResultUseSuppressed(node) {
+                ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column)
+            }
+
             ReportCapturedByRefParameterIfNeeded(name, line, column)
             return resolved
         }
@@ -339,12 +381,9 @@ class AnalyzerIdentifierResolution {
     // NL314. An error-tuple result name is only available once its error half has been checked; a
     // read before that is told which guard to write. Deduped by (line, column, name) because one
     // position can be resolved more than once — a write target is resolved again by the classifiers
-    // that follow it — and the developer must see the report once.
+    // that follow it — and the developer must see the report once. The exempt store never reaches
+    // here, so it never consumes a slot a later read at the same position must still fill.
     func ReportUnverifiedErrorTupleResultUseIfNeeded(name: string, line: int, column: int) {
-        if suppressErrorTupleResultUseValue {
-            return
-        }
-
         guard := scopesValue.FindErrorTupleResultGuard(name)
         if guard == null {
             return

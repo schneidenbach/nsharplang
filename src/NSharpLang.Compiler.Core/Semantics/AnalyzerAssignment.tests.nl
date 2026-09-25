@@ -13,9 +13,11 @@ import NSharpLang.Compiler.Ast
 // pinning, and it goes at the decisions that are invisible from the outside:
 //
 // (1) THE ARM TAKES TWO STEPS OF ONE KIND, AND EVERY BRACKET IS THE OWNER'S. The target step runs
-// under FOUR ambient changes at once — the flow type suppressed, the error-tuple result use
-// suppressed exactly when the operator is a plain `=`, bare event references allowed, and a capture
-// table installed for a member or index chain — and all four are restored before any gate runs.
+// under FOUR ambient changes at once — the flow type suppressed, the target NODE exempt from the
+// error-tuple result guard exactly when the operator is a plain `=`, bare event references allowed,
+// and a capture table installed for a member or index chain — and all four are restored before any
+// gate runs. The exemption is the target node ITSELF: a result read beneath it, as an index or a
+// receiver, is still a read and still reports NL314.
 //
 // (2) A REFUSED ASSIGNMENT STILL WALKS ITS VALUE. Six of the gates refuse, and every one of them
 // hands out the value step anyway, because an error inside the value is the developer's problem
@@ -52,17 +54,19 @@ class AssignmentStep {
     ExpectedType: string
     ErrorsBefore: int
     SuppressFlowType: bool
-    SuppressErrorTuple: bool
+    ExemptNode: string
+    ExemptIsStepNode: bool
     AllowEventReference: bool
     InWriteTarget: bool
 
-    constructor(kind: int, nodeName: string, expectedType: string, errorsBefore: int, suppressFlowType: bool, suppressErrorTuple: bool, allowEventReference: bool, inWriteTarget: bool) {
+    constructor(kind: int, nodeName: string, expectedType: string, errorsBefore: int, suppressFlowType: bool, exemptNode: string, exemptIsStepNode: bool, allowEventReference: bool, inWriteTarget: bool) {
         Kind = kind
         NodeName = nodeName
         ExpectedType = expectedType
         ErrorsBefore = errorsBefore
         SuppressFlowType = suppressFlowType
-        SuppressErrorTuple = suppressErrorTuple
+        ExemptNode = exemptNode
+        ExemptIsStepNode = exemptIsStepNode
         AllowEventReference = allowEventReference
         InWriteTarget = inWriteTarget
     }
@@ -187,7 +191,7 @@ func AssignmentRun(harness: AssignmentHarness, node: Expression, answers: List<T
     step := harness.Arm.NextStep(state)
     while step != null {
         index := steps.Count
-        steps.Add(new AssignmentStep(step.Kind, AssignmentNodeName(step.Node), AssignmentTypeText(harness.Ambient.CurrentExpectedType), harness.Errors.Count, harness.NullFlow.SuppressFlowType, harness.Identifiers.SuppressErrorTupleResultUse, harness.Ambient.AllowEventReference, harness.Ambient.InWriteTarget))
+        steps.Add(new AssignmentStep(step.Kind, AssignmentNodeName(step.Node), AssignmentTypeText(harness.Ambient.CurrentExpectedType), harness.Errors.Count, harness.NullFlow.SuppressFlowType, AssignmentNodeName(harness.Identifiers.SuppressedErrorTupleResultUseNode), Object.ReferenceEquals(harness.Identifiers.SuppressedErrorTupleResultUseNode, step.Node), harness.Ambient.AllowEventReference, harness.Ambient.InWriteTarget))
         answer: TypeInfo? = null
         if index < answers.Count {
             answer = answers[index]
@@ -324,30 +328,31 @@ test "the TARGET step runs under all four ambient changes and the VALUE step und
     steps := AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Int))
 
     assert steps[0].SuppressFlowType
-    assert steps[0].SuppressErrorTuple
+    assert steps[0].ExemptNode == "total"
+    assert steps[0].ExemptIsStepNode
     assert steps[0].AllowEventReference
     assert !steps[0].InWriteTarget
 
     assert !steps[1].SuppressFlowType
-    assert !steps[1].SuppressErrorTuple
+    assert steps[1].ExemptNode == "<null>"
     assert !steps[1].AllowEventReference
     assert !steps[1].InWriteTarget
 
     // And the walk leaves every one of them exactly as it found them.
     assert !harness.NullFlow.SuppressFlowType
-    assert !harness.Identifiers.SuppressErrorTupleResultUse
+    assert harness.Identifiers.SuppressedErrorTupleResultUseNode == null
     assert !harness.Ambient.AllowEventReference
     assert !harness.Ambient.InWriteTarget
 }
 
-test "the ERROR-TUPLE suppression is conditional on a PLAIN '=' and nothing else is" {
+test "the ERROR-TUPLE exemption is conditional on a PLAIN '=' and nothing else is" {
     harness := AssignmentDefault()
     plainSteps := AssignmentRun(harness, AssignmentSimple(AssignmentOperator.Assign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Int))
-    assert plainSteps[0].SuppressErrorTuple
+    assert plainSteps[0].ExemptIsStepNode
 
     // A compound operator READS the target first, so a `must`-typed read there is a real use.
     compoundSteps := AssignmentRun(harness, AssignmentSimple(AssignmentOperator.AddAssign), AssignmentAnswers(BuiltInTypes.Int, BuiltInTypes.Int))
-    assert !compoundSteps[0].SuppressErrorTuple
+    assert compoundSteps[0].ExemptNode == "<null>"
     assert compoundSteps[0].SuppressFlowType
     assert compoundSteps[0].AllowEventReference
 }
@@ -362,6 +367,91 @@ test "the CAPTURE TABLE is opened for a member chain and NOT for a bare name" {
     assert memberSteps[0].InWriteTarget
     assert !memberSteps[1].InWriteTarget
     assert !harness.Ambient.InWriteTarget
+}
+
+// THE EXEMPTION IS A NODE, NOT A WALK. The target step of `values[i] = 5` is the whole index
+// expression, and the walk it starts READS `i` on the way to the element. Only the node being stored
+// into is exempt from the error-tuple guard; the read beneath it is judged like any other.
+test "the ERROR-TUPLE exemption is the TARGET NODE ITSELF, so a result read beneath it still reports" {
+    harness := AssignmentDefault()
+    AssignmentDeclare(harness, "values", new ArrayTypeInfo(BuiltInTypes.Int))
+    AssignmentDeclare(harness, "i", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("i", "err", 2, 5)
+
+    index := new IdentifierExpression("i", 3, 12)
+    target: Expression = new IndexAccessExpression(AssignmentName("values"), index, false, 3, 5)
+
+    // The rule is asked from INSIDE the open target bracket, which is where the walk asks it.
+    state := harness.Arm.Begin(AssignmentOf(AssignmentOperator.Assign, target, new IntLiteralExpression("5", 3, 17)))
+    step := harness.Arm.NextStep(state)
+    assert step != null && Object.ReferenceEquals(step.Node, target)
+    assert harness.Identifiers.IsErrorTupleResultUseSuppressed(target)
+    assert !harness.Identifiers.IsErrorTupleResultUseSuppressed(index)
+    harness.Identifiers.ResolveIdentifier(index)
+    assert AssignmentCodes(harness.Errors) == "314"
+    assert harness.Errors[0].Message == "Result 'i' may be unavailable because 'err' can be non-null"
+    assert harness.Errors[0].Line == 3
+    assert harness.Errors[0].Column == 12
+}
+
+test "a BARE result name being written is exempt, through any number of brackets" {
+    harness := AssignmentDefault()
+    AssignmentDeclare(harness, "i", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("i", "err", 2, 5)
+
+    bare := new IdentifierExpression("i", 3, 5)
+    bareState := harness.Arm.Begin(AssignmentOf(AssignmentOperator.Assign, bare, new IntLiteralExpression("5", 3, 9)))
+    harness.Arm.NextStep(bareState)
+    harness.Identifiers.ResolveIdentifier(bare)
+    assert harness.Errors.Count == 0
+    harness.Arm.Supply(bareState, BuiltInTypes.Int)
+
+    inner := new IdentifierExpression("i", 4, 7)
+    wrapped: Expression = new ParenthesizedExpression(new ParenthesizedExpression(inner, 4, 6), 4, 5)
+    wrappedState := harness.Arm.Begin(AssignmentOf(AssignmentOperator.Assign, wrapped, new IntLiteralExpression("5", 4, 13)))
+    harness.Arm.NextStep(wrappedState)
+    harness.Identifiers.ResolveIdentifier(inner)
+    assert harness.Errors.Count == 0
+    harness.Arm.Supply(wrappedState, BuiltInTypes.Int)
+
+    // The SAME name at the same position, but a different node, is a read and not the store.
+    impostor := new IdentifierExpression("i", 3, 5)
+    harness.Identifiers.ResolveIdentifier(impostor)
+    assert AssignmentCodes(harness.Errors) == "314"
+}
+
+// ---- the error-tuple exemption, through the whole analyzer -------------------------------------------
+//
+// The same rule end to end: parse, analyse, and read the errors a developer would see. Every row
+// declares ONE guarded result — the error half must be spelled `err`, so a function holds one — and
+// follows it with an error branch that does NOT return, so the result is not available afterwards.
+
+func AssignmentErrorTupleSource(declaration: string, body: string): List<string> {
+    return OperatorSourceErrors("namespace P\n\nfunc Hi(): int {\n    return 1\n}\n\nclass Box {\n    Count: int\n\n    constructor() {\n        Count = 0\n    }\n}\n\nfunc MakeBox(): Box {\n    return new Box()\n}\n\nfunc Probe() {\n    values := new int[3]\n    " + declaration + "\n    if err != null {\n        print err\n    }\n\n" + body + "    print values[1]\n}\n")
+}
+
+test "AN UNCHECKED RESULT USED AS THE INDEX OF A PLAIN '=' TARGET IS NL314" {
+    errors := AssignmentErrorTupleSource("i, err := Hi()", "    values[i] = 5\n")
+    assert errors.Count == 1
+    assert errors[0] == "Result 'i' may be unavailable because 'err' can be non-null"
+}
+
+test "AN UNCHECKED RESULT USED AS THE RECEIVER OF A PLAIN '=' TARGET IS NL314" {
+    errors := AssignmentErrorTupleSource("box, err := MakeBox()", "    box.Count = 5\n")
+    assert errors.Count == 1
+    assert errors[0] == "Result 'box' may be unavailable because 'err' can be non-null"
+}
+
+test "A PLAIN '=' INTO A BARE RESULT NAME IS A STORE, NOT A USE, and makes the name available" {
+    assert AssignmentErrorTupleSource("i, err := Hi()", "    i = 5\n    values[i] = 5\n").Count == 0
+    assert AssignmentErrorTupleSource("box, err := MakeBox()", "    box = new Box()\n    box.Count = 5\n").Count == 0
+    assert AssignmentErrorTupleSource("i, err := Hi()", "    (i) = 5\n").Count == 0
+}
+
+test "A COMPOUND '=' READS ITS TARGET FIRST, so a bare result name there is still NL314" {
+    errors := AssignmentErrorTupleSource("i, err := Hi()", "    i += 1\n")
+    assert errors.Count == 1
+    assert errors[0] == "Result 'i' may be unavailable because 'err' can be non-null"
 }
 
 // ---- which refusals target-type the value -----------------------------------------------------------

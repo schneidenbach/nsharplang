@@ -740,3 +740,45 @@ test "020 s49 analyzer ownership: SoA table null-conditional member access has o
 
     assert Environment.GetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA") == previous
 }
+
+// AN ERROR-TUPLE RESULT READ INSIDE A PLAIN `=` WRITE TARGET IS STILL A READ.
+//
+// The assignment arm exempts its target from NL314 because writing INTO a result name is not a use of
+// it. That exemption used to cover the WHOLE target walk, so the reads the walk makes on the way to
+// the store — the index in `values[i] = 5`, the receiver in `box.Count = 5` — were exempt too, and an
+// unchecked result could be used as an array index or dereferenced with no diagnostic at all, while
+// `print i` on the same line reported. Only the stored-into node is exempt now.
+func EhErrorTupleSource(declaration: string, body: string): string {
+    return "namespace Probe\n\nfunc Hi(): int {\n    return 1\n}\n\nclass Box {\n    Count: int\n\n    constructor() {\n        Count = 0\n    }\n}\n\nfunc MakeBox(): Box {\n    return new Box()\n}\n\nfunc main() {\n    values := new int[3]\n    " + declaration + "\n    if err != null {\n        print err\n    }\n\n" + body + "    print values[1]\n}"
+}
+
+test "an unchecked error-tuple result used as the INDEX of a plain `=` target is NL314 on that index, one column wide" {
+    source := "namespace Probe\n\nfunc Hi(): int {\n    return 1\n}\n\nfunc main() {\n    values := new int[3]\n    i, err := Hi()\n    if err != null {\n        print err\n    }\n\n    values[i] = 5\n    print values[1]\n}"
+    assert EhParseCensus(source) == ""
+    analysis := EhAnalyze(source)
+    assert EhCensus(analysis) == "NL314:UnverifiedErrorResult@14:12+1;"
+    assert EhRow(analysis, 0) == "UnverifiedErrorResult|Result 'i' may be unavailable because 'err' can be non-null|Use 'i' only after `if err == null`, or return/throw from an `if err != null` error branch before the result is used.|Error"
+    assert EhRow(analysis, 1) == "<no-such-error>"
+}
+
+test "an unchecked error-tuple result used as the RECEIVER of a plain `=` target is NL314 on that receiver" {
+    source := EhErrorTupleSource("box, err := MakeBox()", "    box.Count = 5\n")
+    assert EhParseCensus(source) == ""
+    analysis := EhAnalyze(source)
+    assert EhCensus(analysis) == "NL314:UnverifiedErrorResult@26:5+3;"
+    assert EhRow(analysis, 0) == "UnverifiedErrorResult|Result 'box' may be unavailable because 'err' can be non-null|Use 'box' only after `if err == null`, or return/throw from an `if err != null` error branch before the result is used.|Error"
+    assert EhRow(analysis, 1) == "<no-such-error>"
+}
+
+test "a plain `=` INTO a bare error-tuple result is a store and not a use, and a later read of it is clean" {
+    storedIndex := EhErrorTupleSource("i, err := Hi()", "    i = 5\n    values[i] = 5\n")
+    assert EhParseCensus(storedIndex) == ""
+    assert EhCensus(EhAnalyze(storedIndex)) == ""
+    storedReceiver := EhErrorTupleSource("box, err := MakeBox()", "    box = new Box()\n    box.Count = 5\n")
+    assert EhParseCensus(storedReceiver) == ""
+    assert EhCensus(EhAnalyze(storedReceiver)) == ""
+
+    // A compound operator READS its target first, so the bare name there is still a use.
+    compound := EhErrorTupleSource("i, err := Hi()", "    i += 1\n")
+    assert EhCensus(EhAnalyze(compound)) == "NL314:UnverifiedErrorResult@26:5+1;"
+}

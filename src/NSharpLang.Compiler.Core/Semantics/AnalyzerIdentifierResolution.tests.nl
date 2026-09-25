@@ -21,8 +21,9 @@ import NSharpLang.Compiler.Ast
 //     and one without cannot, and the fallback is the shape an editor sees on a buffer the analyzer
 //     has no text for;
 //   * the TWO SUGGESTION POOLS, because only a callee position may mean an extension method;
-//   * the ERROR-TUPLE GUARD's suppression and its dedupe, which are the difference between telling a
-//     developer once and telling them at every re-resolution of the same position;
+//   * the ERROR-TUPLE GUARD's write-target exemption — ONE node, by identity, so a result read
+//     beneath a plain `=` target is still judged — and its dedupe, which is the difference between
+//     telling a developer once and telling them at every re-resolution of the same position;
 //   * the PER-ANALYSIS RESET, because the dedupe set outliving an analysis would silence a real
 //     second report in the next file;
 //   * the SETTER discipline for the two rebuilt collaborators, because a factory rebuild would drop
@@ -525,36 +526,59 @@ test "a DIFFERENT position of the same name is a different report" {
     assert harness.Errors[1].Line == 4
 }
 
-test "the SUPPRESSION turns the guard off for a write target and restores it" {
+test "the EXEMPTION turns the guard off for the write target NODE and nothing else" {
     harness := IdentifierRuleOf()
     IdentifierDeclare(harness, "value", BuiltInTypes.Int)
     harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
 
-    // Writing INTO a result name is not a use of it. The assignment arm saves the flag, sets it for a
-    // plain `=` only, and restores it — exactly as it already does for the null-flow suppression.
-    assert !harness.Rule.SuppressErrorTupleResultUse
-    harness.Rule.SetSuppressErrorTupleResultUse(true)
-    assert harness.Rule.SuppressErrorTupleResultUse
+    // Writing INTO a result name is not a use of it. The assignment arm saves the exempt node, sets
+    // it to the target of a plain `=` only, and restores it.
+    target := new IdentifierExpression("value", 3, 5)
+    assert harness.Rule.SuppressedErrorTupleResultUseNode == null
+    harness.Rule.SetSuppressedErrorTupleResultUseNode(target)
+    assert Object.ReferenceEquals(harness.Rule.SuppressedErrorTupleResultUseNode, target)
 
-    harness.Rule.Resolve("value", 3, 5, false)
+    harness.Rule.ResolveIdentifier(target)
     assert harness.Errors.Count == 0
 
-    harness.Rule.SetSuppressErrorTupleResultUse(false)
-    harness.Rule.Resolve("value", 4, 5, false)
+    // Another read of the SAME name while the bracket is open — an index argument, a receiver — is
+    // not the store, and is judged. Identity decides, not the name and not the position.
+    harness.Rule.ResolveIdentifier(new IdentifierExpression("value", 3, 12))
+    assert harness.Errors.Count == 1
+
+    harness.Rule.SetSuppressedErrorTupleResultUseNode(null)
+    harness.Rule.ResolveIdentifier(new IdentifierExpression("value", 4, 5))
+    assert harness.Errors.Count == 2
+}
+
+test "the exemption looks through BRACKETS, and a name resolved without its node is never exempt" {
+    harness := IdentifierRuleOf()
+    IdentifierDeclare(harness, "value", BuiltInTypes.Int)
+    harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
+
+    inner := new IdentifierExpression("value", 3, 7)
+    harness.Rule.SetSuppressedErrorTupleResultUseNode(new ParenthesizedExpression(new ParenthesizedExpression(inner, 3, 6), 3, 5))
+    assert harness.Rule.IsErrorTupleResultUseSuppressed(inner)
+    harness.Rule.ResolveIdentifier(inner)
+    assert harness.Errors.Count == 0
+
+    // The name-only door has no node to compare, so it can only ever be a read.
+    harness.Rule.Resolve("value", 3, 7, false)
     assert harness.Errors.Count == 1
 }
 
-test "a suppressed read does NOT consume its dedupe slot" {
+test "an exempt store does NOT consume its dedupe slot" {
     harness := IdentifierRuleOf()
     IdentifierDeclare(harness, "value", BuiltInTypes.Int)
     harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
 
-    // The suppression returns BEFORE the dedupe set is touched. If it did not, a plain assignment
-    // would silence the report a later read at the same position must still raise.
-    harness.Rule.SetSuppressErrorTupleResultUse(true)
-    harness.Rule.Resolve("value", 3, 5, false)
-    harness.Rule.SetSuppressErrorTupleResultUse(false)
-    harness.Rule.Resolve("value", 3, 5, false)
+    // The exemption skips the report BEFORE the dedupe set is touched. If it did not, a plain
+    // assignment would silence the report a later read at the same position must still raise.
+    target := new IdentifierExpression("value", 3, 5)
+    harness.Rule.SetSuppressedErrorTupleResultUseNode(target)
+    harness.Rule.ResolveIdentifier(target)
+    harness.Rule.SetSuppressedErrorTupleResultUseNode(null)
+    harness.Rule.ResolveIdentifier(target)
 
     assert harness.Errors.Count == 1
 }
@@ -598,16 +622,17 @@ test "`BeginAnalysis` clears the dedupe set, so the next file reports at the sam
     assert harness.Errors.Count == 2
 }
 
-test "`BeginAnalysis` also clears the suppression, so a file never inherits the previous one's" {
+test "`BeginAnalysis` also clears the exemption, so a file never inherits the previous one's" {
     harness := IdentifierRuleOf()
     IdentifierDeclare(harness, "value", BuiltInTypes.Int)
     harness.Scopes.RegisterErrorTupleResult("value", "err", 2, 5)
 
-    harness.Rule.SetSuppressErrorTupleResultUse(true)
+    target := new IdentifierExpression("value", 3, 11)
+    harness.Rule.SetSuppressedErrorTupleResultUseNode(target)
     harness.Rule.BeginAnalysis(null, new SemanticModel(), new BindingMap())
 
-    assert !harness.Rule.SuppressErrorTupleResultUse
-    harness.Rule.Resolve("value", 3, 11, false)
+    assert harness.Rule.SuppressedErrorTupleResultUseNode == null
+    harness.Rule.ResolveIdentifier(target)
     assert harness.Errors.Count == 1
 }
 

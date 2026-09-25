@@ -14,8 +14,9 @@ import NSharpLang.Compiler.Ast
 // would have to simulate. What differs between the ten is only what is IN FORCE around them, and
 // every one of those brackets is opened and closed by this owner:
 //
-//   * the TARGET walk runs with the nullability flow type suppressed, the error-tuple result use
-//     suppressed exactly when the operator is a plain `=`, bare event references allowed, and — when
+//   * the TARGET walk runs with the nullability flow type suppressed, the target NODE exempt from
+//     the error-tuple result guard exactly when the operator is a plain `=` (reads beneath it — an
+//     index argument, a receiver — are still judged), bare event references allowed, and — when
 //     the target is a member or index chain — a fresh sub-expression capture table installed;
 //   * four of the value walks run under the TARGET'S TYPE as the expected type, which is what makes
 //     `total: byte = 0` and `total += 300` read the target's width;
@@ -67,7 +68,7 @@ class AssignmentState {
     ExpressionTypes: Dictionary<object, TypeInfo>?
     SavedExpectedType: TypeInfo?
     SavedSuppressFlowType: bool
-    SavedSuppressErrorTupleResultUse: bool
+    SavedSuppressedErrorTupleResultUseNode: Expression?
     SavedAllowEventReference: bool
 
     constructor(assignment: AssignmentExpression?) {
@@ -78,7 +79,7 @@ class AssignmentState {
         ExpressionTypes = null
         SavedExpectedType = null
         SavedSuppressFlowType = false
-        SavedSuppressErrorTupleResultUse = false
+        SavedSuppressedErrorTupleResultUseNode = null
         SavedAllowEventReference = false
     }
 }
@@ -253,15 +254,22 @@ class AnalyzerAssignment {
 
         // THE TARGET BRACKET, ALL FOUR PARTS, opened in the same instant the step is handed out.
         // The flow type is suppressed because a target is a STORAGE LOCATION and its narrowed type is
-        // not what is being written to. The error-tuple suppression is conditional on a plain `=`,
-        // because a compound operator READS the target first and a `must`-typed read is a real use.
+        // not what is being written to. The error-tuple exemption names the TARGET NODE and nothing
+        // beneath it, because `values[i] = …` and `box.Count = …` READ `i` and `box` on the way to the
+        // store; and it is conditional on a plain `=`, because a compound operator READS the target
+        // first and a `must`-typed read is a real use.
         // Bare event references are allowed so the event gate below can raise its own sentence rather
         // than the generic "an event is not a value". And the capture table is opened only for a
         // member or index chain, because its PRESENCE is observable.
         state.SavedSuppressFlowType = nullFlowValue.SuppressFlowType
-        state.SavedSuppressErrorTupleResultUse = identifierResolutionValue.SuppressErrorTupleResultUse
+        state.SavedSuppressedErrorTupleResultUseNode = identifierResolutionValue.SuppressedErrorTupleResultUseNode
         nullFlowValue.SetSuppressFlowType(true)
-        identifierResolutionValue.SetSuppressErrorTupleResultUse(assignment.Operator == AssignmentOperator.Assign)
+        exemptTarget: Expression? = null
+        if assignment.Operator == AssignmentOperator.Assign {
+            exemptTarget = assignment.Target
+        }
+
+        identifierResolutionValue.SetSuppressedErrorTupleResultUseNode(exemptTarget)
         state.SavedAllowEventReference = ambientValue.EnterAllowEventReference()
         if AnalyzerWriteTargets.IsWriteTargetNeedingExpressionTypes(assignment.Target) {
             ambientValue.EnterWriteTargetExpressionTypes()
@@ -321,7 +329,7 @@ class AnalyzerAssignment {
     func TargetAnswered(state: AssignmentState, targetType: TypeInfo) {
         ambientValue.ClearWriteTargetExpressionTypes()
         ambientValue.ExitAllowEventReference(state.SavedAllowEventReference)
-        identifierResolutionValue.SetSuppressErrorTupleResultUse(state.SavedSuppressErrorTupleResultUse)
+        identifierResolutionValue.SetSuppressedErrorTupleResultUseNode(state.SavedSuppressedErrorTupleResultUseNode)
         nullFlowValue.SetSuppressFlowType(state.SavedSuppressFlowType)
         state.TargetType = targetType
         state.Phase = 30
