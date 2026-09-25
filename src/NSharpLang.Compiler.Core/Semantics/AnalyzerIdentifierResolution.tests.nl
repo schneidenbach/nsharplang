@@ -682,6 +682,29 @@ test "`CallTarget` resolves as a FUNCTION and records both IDE facts" {
     assert harness.Errors.Count == 0
 }
 
+test "`CallTarget` says when the callee names a TYPE, which a value of that same type does not" {
+    harness := IdentifierRuleOf()
+    widget := BuiltInTypes.String
+    harness.Scopes.Peek().Types["Widget"] = widget
+    IdentifierDeclare(harness, "current", widget)
+
+    // The two answers are the SAME `TypeInfo`, so the flag is the only thing the call arm can tell
+    // `Widget()` from `current()` by — and only the first is a type being called like a function.
+    namesType := false
+    typeAnswer := harness.Rule.CallTarget(new IdentifierExpression("Widget", 7, 3), 0, out namesType)
+    assert IdentifierTypeName(typeAnswer) == "simple:string"
+    assert namesType
+
+    valueAnswer := harness.Rule.CallTarget(new IdentifierExpression("current", 8, 3), 0, out namesType)
+    assert IdentifierTypeName(valueAnswer) == "unknown"
+    assert !namesType
+    assert IdentifierTypeName(harness.Model.ExpressionTypes[(Line: 8, Column: 3)]) == "simple:string"
+
+    harness.Rule.CallTarget(new IdentifierExpression("Nonesuch", 9, 3), 0, out namesType)
+    assert !namesType
+    assert IdentifierCodes(harness.Errors) == "413,412"
+}
+
 test "`CallTarget` on a miss reports NL412 rather than NL301" {
     harness := IdentifierRuleOf()
 

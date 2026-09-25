@@ -145,16 +145,35 @@ class AnalyzerIdentifierResolution {
     }
 
     func Resolve(name: string, line: int, column: int, reportMissingAsFunction: bool, out source: BareNameSource): TypeInfo {
+        namesType := false
+        return ResolveNamingType(name, line, column, reportMissingAsFunction, 0, out source, out namesType)
+    }
+
+    func ResolveNamingType(name: string, line: int, column: int, reportMissingAsFunction: bool, typeArgumentCount: int, out namesType: bool): TypeInfo {
+        source := BareNameSource.Other
+        return ResolveNamingType(name, line, column, reportMissingAsFunction, typeArgumentCount, out source, out namesType)
+    }
+
+    func ResolveNamingType(name: string, line: int, column: int, reportMissingAsFunction: bool, typeArgumentCount: int, out source: BareNameSource, out namesType: bool): TypeInfo {
         source = BareNameSource.Other
+        namesType = false
         if name == "<error>" {
             return BuiltInTypes.Unknown
         }
 
         resolved: TypeInfo = BuiltInTypes.Unknown
-        if TryResolveBindingTarget(name, line, column, out resolved, out source) {
+        if TryResolveBindingTarget(name, line, column, out resolved, out source, out namesType) {
             ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column)
             ReportCapturedByRefParameterIfNeeded(name, line, column)
             return resolved
+        }
+
+        if typeArgumentCount > 0 {
+            genericType := ResolveExternalGenericType(name, typeArgumentCount)
+            if genericType != null {
+                namesType = true
+                return genericType
+            }
         }
 
         if reportMissingAsFunction && line > 0 {
@@ -203,8 +222,13 @@ class AnalyzerIdentifierResolution {
     // type — hovering `Label` in `Label()` should say `string` — but the call arm is handed `unknown`,
     // so nothing downstream reports a second consequence of the same mistake.
     func CallTarget(identifier: IdentifierExpression): TypeInfo {
+        namesType := false
+        return CallTarget(identifier, 0, out namesType)
+    }
+
+    func CallTarget(identifier: IdentifierExpression, typeArgumentCount: int, out namesType: bool): TypeInfo {
         source := BareNameSource.Other
-        resolved := Resolve(identifier.Name, identifier.Line, identifier.Column, true, out source)
+        resolved := ResolveNamingType(identifier.Name, identifier.Line, identifier.Column, true, typeArgumentCount, out source, out namesType)
         nullState := nullFlowValue.GetExpressionNullState(identifier, resolved)
         flowType := nullFlowValue.ApplyNullabilityFlowType(identifier, resolved, nullState)
 
@@ -332,7 +356,8 @@ class AnalyzerIdentifierResolution {
     // reports.
     func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo): bool {
         source := BareNameSource.Other
-        return TryResolveBindingTarget(name, line, column, out resolvedType, out source)
+        namesType := false
+        return TryResolveBindingTarget(name, line, column, out resolvedType, out source, out namesType)
     }
 
     // `source` SAYS WHETHER THE ANSWER IS A VALUE, which only the callee door asks: a scope SYMBOL is a
@@ -340,7 +365,13 @@ class AnalyzerIdentifierResolution {
     // members, and channel 2 answers only with members. Every other channel answers with a type or a
     // function, and a call through one of those is judged by the call arm.
     func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo, out source: BareNameSource): bool {
+        namesType := false
+        return TryResolveBindingTarget(name, line, column, out resolvedType, out source, out namesType)
+    }
+
+    func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo, out source: BareNameSource, out namesType: bool): bool {
         source = BareNameSource.Other
+        namesType = false
         // 1. Local symbols first, then local types. A symbol declared OUTSIDE the enclosing type — the
         // file's own free functions live in the global scope — answers only when the type has no
         // member of that name; otherwise channel 2 below answers with the member.
@@ -351,7 +382,7 @@ class AnalyzerIdentifierResolution {
         }
 
         symbolScopeIndex := -1
-        scopeBinding := scopesValue.ResolveBindingTarget(bindingsValue, diagnosticsValue.CurrentFilePath, name, line, column, symbolFloor, out symbolScopeIndex)
+        scopeBinding := scopesValue.ResolveBindingTarget(bindingsValue, diagnosticsValue.CurrentFilePath, name, line, column, symbolFloor, out symbolScopeIndex, out namesType)
         if scopeBinding != null {
             resolvedType = scopeBinding
             if symbolScopeIndex >= 0 && symbolScopeIndex == typeScopeIndex {
@@ -392,6 +423,7 @@ class AnalyzerIdentifierResolution {
         builtInClrType := AnalyzerWellKnownTypeFacts.BuiltInMetadataClrType(wellKnownTypesValue, name)
         if builtInClrType != null {
             resolvedType = new ReflectionTypeInfo(builtInClrType)
+            namesType = true
             return true
         }
 
@@ -418,6 +450,7 @@ class AnalyzerIdentifierResolution {
             }
 
             semanticModelValue.RecordType(name, projectType)
+            namesType = true
             return true
         }
 
@@ -456,11 +489,33 @@ class AnalyzerIdentifierResolution {
                 credit.CreditResolvedType(name, externalType)
             }
 
+            namesType = true
             return true
         }
 
         resolvedType = BuiltInTypes.Unknown
         return false
+    }
+
+    // A referenced generic type by its written name and arity, found the way the type resolver finds
+    // the head of `List<int>` in a type position: compiler-known open generics first, then the
+    // arity-qualified metadata name. Credit the import that supplies it, just as channel 6 does for
+    // a bare `Console`.
+    private func ResolveExternalGenericType(name: string, arity: int): TypeInfo? {
+        resolved: TypeInfo? = null
+        knownType := AnalyzerWellKnownTypeFacts.KnownOpenGenericType(wellKnownTypesValue, name, arity)
+        if knownType != null {
+            resolved = new ReflectionTypeInfo(knownType)
+        } else {
+            resolved = externalTypeProbeValue.ResolveExternalType(name + "`" + arity.ToString())
+        }
+
+        credit := importUsageCreditValue
+        if resolved != null && credit != null {
+            credit.CreditResolvedType(name, resolved)
+        }
+
+        return resolved
     }
 
     // NL314. An error-tuple result name is only available once its error half has been checked; a

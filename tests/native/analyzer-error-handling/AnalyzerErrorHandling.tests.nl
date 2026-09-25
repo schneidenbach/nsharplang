@@ -587,7 +587,7 @@ test "020 s25 analyzer error handling: a second `return` after the first is the 
 // WHAT THIS ADDS: The deleted assertion read only the analyzer's code. Pinning both censuses is what makes
 // the throw/return equivalence a stated fact rather than a coincidence of two passing tests.
 test "020 s25 analyzer error handling: unreachable code after a `throw` is the same NL312 at 3:5 as after a `return`, and the linter agrees — the two terminators are interchangeable to both owners (was ErrorHandlingTests.Analyzer_DetectsUnreachableCodeAfterThrow)" {
-    source := "func main() {\n    throw Exception(\"fail\")\n    print(\"unreachable\")\n}"
+    source := "func main() {\n    throw new Exception(\"fail\")\n    print(\"unreachable\")\n}"
     assert EhParseCensus(source) == ""
     analysis := EhAnalyze(source)
     assert EhCensus(analysis) == "NL312:UnreachableStatement@3:5+1;"

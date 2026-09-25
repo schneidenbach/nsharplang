@@ -2971,6 +2971,15 @@ qualified `System.Func<string>` local (tests/native/census-free-function-identit
 `Predicate<T>` and `EventHandler<T>` are invocable, bare and through `this.` alike. The whole-analyzer estate rows call
 `Analyzer.LoadSystemAssemblies()` first; without it a temp-dir `Analyzer` has no BCL at all.
 
+**A BARE callee that names a TYPE is NL415** (2026-09-28). `Widget()` and `Box<int>()` are not function
+calls; the identifier resolver carries whether the name came from a type binding or a value binding,
+because both can produce the same `TypeInfo`. `AnalyzerCallAnalysis` reports NL415 only for the type
+answer, after resolving aliases, while `AnalyzerIdentifierResolution.CallTarget` keeps NL413 for a
+non-callable value. Newtypes remain callable constructors. An explicit type-argument list also probes
+referenced generic types by metadata arity (`List<int>()`), which turns the previous NL412 miss into the
+same type-call diagnostic. The suggestion follows the resolved kind: it offers `new` only for types
+that can be instantiated.
+
 A CONSTRUCTOR argument is an argument: `AnalyzerConstruction.DelegateConstructorParameterType` reads
 the delegate a position wants from the constructors themselves (external ones through CLR metadata,
 declared ones through their written parameter types) and only when every arity-compatible

@@ -358,13 +358,25 @@ class AnalyzerScopeStack {
     // type walk is not floored: which declarations a type NAME means is a separate rule.
     func ResolveBindingTarget(bindings: BindingMap, filePath: string?, name: string, line: int, column: int, symbolFloor: int): TypeInfo? {
         symbolScopeIndex := -1
-        return ResolveBindingTarget(bindings, filePath, name, line, column, symbolFloor, out symbolScopeIndex)
+        namesType := false
+        return ResolveBindingTarget(bindings, filePath, name, line, column, symbolFloor, out symbolScopeIndex, out namesType)
+    }
+
+    func ResolveBindingTarget(bindings: BindingMap, filePath: string?, name: string, line: int, column: int, out namesType: bool): TypeInfo? {
+        symbolScopeIndex := -1
+        return ResolveBindingTarget(bindings, filePath, name, line, column, 0, out symbolScopeIndex, out namesType)
     }
 
     // `symbolScopeIndex` SAYS WHICH SCOPE A SYMBOL ANSWERED FROM, or -1 when a TYPE answered or
     // nothing did. The identifier rule reads it against `TypeScopeIndex()`: a symbol of the type
     // scope itself is one of the type's own members, and a symbol above it is a local or a parameter.
     func ResolveBindingTarget(bindings: BindingMap, filePath: string?, name: string, line: int, column: int, symbolFloor: int, out symbolScopeIndex: int): TypeInfo? {
+        namesType := false
+        return ResolveBindingTarget(bindings, filePath, name, line, column, symbolFloor, out symbolScopeIndex, out namesType)
+    }
+
+    func ResolveBindingTarget(bindings: BindingMap, filePath: string?, name: string, line: int, column: int, symbolFloor: int, out symbolScopeIndex: int, out namesType: bool): TypeInfo? {
+        namesType = false
         symbolIndex := scopes.Count - 1
         while symbolIndex >= symbolFloor {
             symbolScope := scopes[symbolIndex]
@@ -388,6 +400,7 @@ class AnalyzerScopeStack {
             typeCandidate := new TypeInfo()
             if typeScope.Types.TryGetValue(name, out typeCandidate) {
                 RecordDeclarationBinding(bindings, filePath, typeScope, name, name, line, column)
+                namesType = true
                 return typeCandidate
             }
 
@@ -397,6 +410,7 @@ class AnalyzerScopeStack {
                 fallbackCandidate := new TypeInfo()
                 if typeScope.Types.TryGetValue(fallbackKey, out fallbackCandidate) {
                     RecordDeclarationBinding(bindings, filePath, typeScope, fallbackKey, name, line, column)
+                    namesType = true
                     return fallbackCandidate
                 }
             }
