@@ -231,7 +231,7 @@ class ColumnarGenericConstraintPlanner {
     static func TryValidateGenericSiblingConstraints(
         typeParams: Type[],
         specialConstraints: int[],
-        baseConstraints: Type[],
+        baseConstraints: Type?[],
         interfaceConstraintRows: Type[][],
         binding: Type[],
         boundArgs: Type[],

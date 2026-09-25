@@ -5,7 +5,6 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
-
 // These direct controls keep the declaration phase observable before ColumnarIlEmitter consumes its
 // constructor jobs.  The readonly-init native suite retains complete source/runtime
 // coverage; this file pins the live declaration state, failure phase, and exact IL prefixes that
@@ -43,10 +42,6 @@ func ConstructorDeclarationControlsSetFieldOrder(
     names: string[]
 ) {
     definition.SetFieldOrder(names)
-}
-
-func ConstructorDeclarationControlsPutObject(values: object?[], index: int, value: object?) {
-    values[index] = value
 }
 
 func ConstructorDeclarationControlsEmptyBody(
@@ -733,84 +728,6 @@ test "constructor declaration owner prioritizes parameterless definitions and fa
     assert ReferenceCoercionIlOffset(invalidBaseCallIl) == 1
 }
 
-test "constructor chain selection rebinds every differing exact base before emitting IL" {
-    invalidBase := ConstructorDeclarationControlsDefinition("ConstructorChainSelectionInvalidExactBase", 0)
-    invalidBase.DefaultCtor = invalidBase.Builder.DefineDefaultConstructor(MethodAttributes.Public)
-    invalidDerived := ConstructorDeclarationControlsDefinition("ConstructorChainSelectionInvalidExactDerived", 0)
-    invalidDerived.BaseDef = invalidBase
-    invalidDerived.ExactBaseType = typeof(string)
-    self := invalidDerived.Builder.DefineDefaultConstructor(MethodAttributes.Public)
-    chainBody := ConstructorDeclarationControlsEmptyBody(
-        "ConstructorChainSelectionInvalidExactDerived",
-        new string[](0),
-        new string[](0)
-    )
-    chain := ConstructorDeclarationControlsConstructor(
-        chainBody,
-        2,
-        new int[](0),
-        new string[](0),
-        false
-    )
-
-    runtimeHelperArgumentTypes := new Type[](1)
-    runtimeHelperArgumentTypes[0] = typeof(Type)
-    getUninitializedObject := typeof(System.Runtime.CompilerServices.RuntimeHelpers).GetMethod(
-        "GetUninitializedObject",
-        runtimeHelperArgumentTypes
-    )
-    if getUninitializedObject == null {
-        throw new InvalidOperationException("Missing RuntimeHelpers.GetUninitializedObject")
-    }
-    runtimeHelperArguments := new object?[](1)
-    ConstructorDeclarationControlsPutObject(
-        runtimeHelperArguments,
-        0,
-        typeof(ColumnarIlEmitter)
-    )
-    emitter := getUninitializedObject.Invoke(null, runtimeHelperArguments)
-    if emitter == null {
-        throw new InvalidOperationException("RuntimeHelpers.GetUninitializedObject returned null")
-    }
-
-    il := ReferenceCoercionIl("ConstructorChainSelectionInvalidExactBaseCall")
-    ilField := typeof(ColumnarIlEmitter).GetField(
-        "_il",
-        BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
-    )
-    if ilField == null {
-        throw new InvalidOperationException("Missing ColumnarIlEmitter._il")
-    }
-    ilField.SetValue(emitter, il)
-    emitChain := typeof(ColumnarIlEmitter).GetMethod(
-        "EmitChainedConstructorCall",
-        BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
-    )
-    if emitChain == null {
-        throw new InvalidOperationException("Missing ColumnarIlEmitter.EmitChainedConstructorCall")
-    }
-    arguments := new object?[](3)
-    ConstructorDeclarationControlsPutObject(arguments, 0, chain)
-    ConstructorDeclarationControlsPutObject(arguments, 1, self)
-    ConstructorDeclarationControlsPutObject(arguments, 2, invalidDerived)
-    failure: Exception? = null
-    try {
-        ignored := emitChain.Invoke(emitter, arguments)
-        _ = ignored
-    } catch error: Exception {
-        failure = error
-    }
-    if failure == null {
-        throw new InvalidOperationException("The invalid exact base did not fail constructor selection")
-    }
-    captured: Exception = failure
-    inner := captured.get_InnerException() as ArgumentException
-    if inner == null {
-        throw new InvalidOperationException("The constructor selection failure was not an ArgumentException")
-    }
-    assert ReferenceCoercionIlOffset(il) == 0
-}
-
 test "constructor declaration owner resolves only accessible external parameterless constructors" {
     publicBase := ConstructorDeclarationControlsExternalBase(
         "ConstructorDeclarationPublicExternalBase",
@@ -1008,16 +925,6 @@ test "constructor declaration owner rebinds a closed generic base constructor" {
     assert Object.ReferenceEquals(rebound.get_DeclaringType(), closedBase)
 }
 
-func ConstructorDeclarationControlsArgumentTypes(count: int): Type[] {
-    types := new Type[](count)
-    index := 0
-    while index < types.Length {
-        types[index] = typeof(int)
-        index = index + 1
-    }
-    return types
-}
-
 func ConstructorDeclarationControlsReadIl(method: MethodBase): int[] {
     noParameters := new Type[](0)
     getBody := ExecutorRequiredMethod(typeof(MethodBase), "GetMethodBody", noParameters)
@@ -1049,110 +956,4 @@ func ConstructorDeclarationControlsReadIl(method: MethodBase): int[] {
         index = index + 1
     }
     return values
-}
-
-func ConstructorDeclarationControlsRequiredMethod(
-    owner: Type,
-    name: string
-): MethodInfo {
-    method := owner.GetMethod(name)
-    if method == null {
-        throw new InvalidOperationException("The argument-opcode fixture did not bake " + name + ".")
-    }
-    return method
-}
-
-test "constructor declaration argument owner selects byte forms through 255 and long forms at 256" {
-    owner := TypeOfCreateBuilder(
-        "ConstructorDeclarationArgumentBoundary",
-        "ColumnarConstructorDeclarationControls.ArgumentBoundary",
-        0
-    )
-    parameters := ConstructorDeclarationControlsArgumentTypes(257)
-    load255 := owner.DefineMethod("Load255", (MethodAttributes)22, typeof(int), parameters)
-    load255Il := TypeOfMethodBuilderIL(load255)
-    ColumnarArgumentInstructionEmitter.EmitLoad(load255Il, 255)
-    load255Il.Emit(OpCodes.Ret)
-    load256 := owner.DefineMethod("Load256", (MethodAttributes)22, typeof(int), parameters)
-    load256Il := TypeOfMethodBuilderIL(load256)
-    ColumnarArgumentInstructionEmitter.EmitLoad(load256Il, 256)
-    load256Il.Emit(OpCodes.Ret)
-
-    store255 := owner.DefineMethod("Store255", (MethodAttributes)22, ExecutorVoidType(), parameters)
-    store255Il := TypeOfMethodBuilderIL(store255)
-    store255Il.Emit(OpCodes.Ldc_I4_0)
-    ColumnarArgumentInstructionEmitter.EmitStore(store255Il, 255)
-    store255Il.Emit(OpCodes.Ret)
-    store256 := owner.DefineMethod("Store256", (MethodAttributes)22, ExecutorVoidType(), parameters)
-    store256Il := TypeOfMethodBuilderIL(store256)
-    store256Il.Emit(OpCodes.Ldc_I4_0)
-    ColumnarArgumentInstructionEmitter.EmitStore(store256Il, 256)
-    store256Il.Emit(OpCodes.Ret)
-
-    address255 := owner.DefineMethod("Address255", (MethodAttributes)22, ExecutorVoidType(), parameters)
-    address255Il := TypeOfMethodBuilderIL(address255)
-    ColumnarArgumentInstructionEmitter.EmitLoadAddress(address255Il, 255)
-    address255Il.Emit(OpCodes.Pop)
-    address255Il.Emit(OpCodes.Ret)
-    address256 := owner.DefineMethod("Address256", (MethodAttributes)22, ExecutorVoidType(), parameters)
-    address256Il := TypeOfMethodBuilderIL(address256)
-    ColumnarArgumentInstructionEmitter.EmitLoadAddress(address256Il, 256)
-    address256Il.Emit(OpCodes.Pop)
-    address256Il.Emit(OpCodes.Ret)
-
-    baked := IdentityBake(owner)
-    load255Bytes := ConstructorDeclarationControlsReadIl(
-        ConstructorDeclarationControlsRequiredMethod(baked, "Load255")
-    )
-    assert load255Bytes.Length == 3
-    assert load255Bytes[0] == 14
-    assert load255Bytes[1] == 255
-    assert load255Bytes[2] == 42
-    load256Bytes := ConstructorDeclarationControlsReadIl(
-        ConstructorDeclarationControlsRequiredMethod(baked, "Load256")
-    )
-    assert load256Bytes.Length == 5
-    assert load256Bytes[0] == 254
-    assert load256Bytes[1] == 9
-    assert load256Bytes[2] == 0
-    assert load256Bytes[3] == 1
-    assert load256Bytes[4] == 42
-
-    store255Bytes := ConstructorDeclarationControlsReadIl(
-        ConstructorDeclarationControlsRequiredMethod(baked, "Store255")
-    )
-    assert store255Bytes.Length == 4
-    assert store255Bytes[0] == 22
-    assert store255Bytes[1] == 16
-    assert store255Bytes[2] == 255
-    assert store255Bytes[3] == 42
-    store256Bytes := ConstructorDeclarationControlsReadIl(
-        ConstructorDeclarationControlsRequiredMethod(baked, "Store256")
-    )
-    assert store256Bytes.Length == 6
-    assert store256Bytes[0] == 22
-    assert store256Bytes[1] == 254
-    assert store256Bytes[2] == 11
-    assert store256Bytes[3] == 0
-    assert store256Bytes[4] == 1
-    assert store256Bytes[5] == 42
-
-    address255Bytes := ConstructorDeclarationControlsReadIl(
-        ConstructorDeclarationControlsRequiredMethod(baked, "Address255")
-    )
-    assert address255Bytes.Length == 4
-    assert address255Bytes[0] == 15
-    assert address255Bytes[1] == 255
-    assert address255Bytes[2] == 38
-    assert address255Bytes[3] == 42
-    address256Bytes := ConstructorDeclarationControlsReadIl(
-        ConstructorDeclarationControlsRequiredMethod(baked, "Address256")
-    )
-    assert address256Bytes.Length == 6
-    assert address256Bytes[0] == 254
-    assert address256Bytes[1] == 10
-    assert address256Bytes[2] == 0
-    assert address256Bytes[3] == 1
-    assert address256Bytes[4] == 38
-    assert address256Bytes[5] == 42
 }

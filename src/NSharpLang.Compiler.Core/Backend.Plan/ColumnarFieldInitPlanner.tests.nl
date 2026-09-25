@@ -1,8 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
-import System
 import System.Collections.Generic
-
 
 // THE SYNTHESIZED INSTANCE INITIALIZER IS NOT ALL SOURCE TEXT. The field scan writes a store for a
 // nullable field that carries no initializer (`Tokens: string?` stores `null`), and that assignment
@@ -69,12 +67,4 @@ test "a nullable field with no initializer names the field its synthesized null 
     assert names.Length == 2
     assert names[0] == "Tokens"
     assert names[1] == "Count"
-}
-
-test "a class pairing a bare nullable field with an initialized one emits instead of throwing" {
-    program := FieldInitPlannerProgram("class Probe {\n    Tokens: string?\n    Count: int = 4\n}\n")
-    bytes: byte[] = null
-    assert ColumnarIlEmitter.TryEmitColumnarAssembly("FieldInitPlanner" + Guid.NewGuid().ToString("N"), "Program", program, false, out bytes, null, null)
-    assert bytes != null
-    assert bytes.Length > 0
 }

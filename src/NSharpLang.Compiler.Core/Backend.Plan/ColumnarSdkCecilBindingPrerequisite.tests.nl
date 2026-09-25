@@ -139,41 +139,6 @@ func SmcSetObject(values: object?[], index: int, value: object?) {
     values[index] = value
 }
 
-func SmcWritableProperty(receiverType: Type, member: string, seed: PropertyInfo?): object?[] {
-    method := typeof(ColumnarIlEmitter).GetMethod("TryGetSupportedBclWritableProperty", BindingFlags.Static | BindingFlags.NonPublic)
-    if method == null {
-        throw new InvalidOperationException("The writable-property admission method was not found.")
-    }
-    arguments := new object?[](3)
-    SmcSetObject(arguments, 0, receiverType)
-    SmcSetObject(arguments, 1, member)
-    SmcSetObject(arguments, 2, seed)
-    supported := method.Invoke(null, arguments)
-    result := new object?[](2)
-    SmcSetObject(result, 0, supported)
-    SmcSetObject(result, 1, arguments[2])
-    return result
-}
-
-func SmcAssertWritable(receiverType: Type, member: string, expectedResultName: string): PropertyInfo {
-    result := SmcWritableProperty(receiverType, member, null)
-    assert Convert.ToBoolean(result[0])
-    property := result[1] as PropertyInfo
-    if property == null {
-        throw new InvalidOperationException("The admitted writable property did not retain its metadata handle.")
-    }
-    assert property.get_DeclaringType() == receiverType
-    assert property.get_Name() == member
-    assert property.get_PropertyType().FullName == expectedResultName
-    setter := property.get_SetMethod()
-    if setter == null {
-        throw new InvalidOperationException("The admitted writable property has no public setter.")
-    }
-    assert setter.get_IsPublic()
-    assert !setter.get_IsStatic()
-    return property
-}
-
 func SmcCallPlan(member: string, parameterNames: string[]): ColumnarExternalCallPlan {
     return ColumnarExternalBindingPlans.GetInstanceCallPlan("Microsoft.Build.Utilities.TaskLoggingHelper", member, parameterNames)
 }
@@ -301,29 +266,6 @@ test "same-named foreign types and live builders cannot enter the MSBuild or Cec
     rejected := ColumnarRuntimeInstanceMemberSelection.Empty()
     assert !ColumnarRuntimeInstanceMemberResolver.TrySelect(foreignEnum, "InMemory", out rejected)
     assert rejected.Getter == null
-}
-
-test "Cecil writable properties retain exact metadata handles and reset failed selections" {
-    SmcAssertWritable(typeof(ReaderParameters), "ReadingMode", "Mono.Cecil.ReadingMode")
-    SmcAssertWritable(typeof(ReaderParameters), "InMemory", "System.Boolean")
-    SmcAssertWritable(typeof(Mono.Cecil.TypeReference), "Scope", "Mono.Cecil.IMetadataScope")
-    SmcAssertWritable(typeof(AssemblyNameReference), "Culture", "System.String")
-    SmcAssertWritable(typeof(AssemblyNameReference), "PublicKeyToken", "System.Byte[]")
-
-    // `ReadSymbols` was refused only because the admission table listed four Cecil members by name.
-    // Admission is ordinary CLR resolution now, so a sibling settable property of the same type
-    // answers exactly as the four listed ones do.
-    SmcAssertWritable(typeof(ReaderParameters), "ReadSymbols", "System.Boolean")
-
-    // A name the type does not declare still resets the out slot, and so does a receiver this
-    // compilation is WRITING: a builder's members are the source path's, never reflection's.
-    sentinel := typeof(ReaderParameters).GetProperty("ReadingMode")
-    missing := SmcWritableProperty(typeof(ReaderParameters), "NotAProperty", sentinel)
-    assert !Convert.ToBoolean(missing[0])
-    assert missing[1] == null
-    builderBound := SmcWritableProperty(TypeOfCreateBuilder("Mono.Cecil.ReaderParameters", "NSharpTests.ForeignWritable", 0), "InMemory", sentinel)
-    assert !Convert.ToBoolean(builderBound[0])
-    assert builderBound[1] == null
 }
 
 test "Cecil property assignments execute their real setters and preserve assigned identities" {

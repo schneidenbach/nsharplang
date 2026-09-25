@@ -11,12 +11,12 @@ import System.Reflection.Emit
 // the persisted builder keeps the actual pre-bake TypeBuilder/FieldInfo companions that production
 // hands to the structural table.
 func IteratorRealizationControlPersistedModule(owner: TypeBuilder): ModuleBuilder {
-    getModule := ExecutorRequiredMethod(
+    getModule := EmitFixtureRequiredMethod(
         typeof(TypeBuilder),
         "get_Module",
         System.Type.EmptyTypes
     )
-    moduleObject := TypeOfRequiredInvocation(
+    moduleObject := EmitFixtureInvoke(
         getModule,
         owner,
         new object[](0)
@@ -29,12 +29,7 @@ func IteratorRealizationControlPersistedModule(owner: TypeBuilder): ModuleBuilde
 }
 
 func IteratorRealizationControlPersistedHost(fullName: string): TypeBuilder {
-    runtimeOwner := ExternalGuardPersistedBuilder(fullName, 0, typeof(object))
-    owner := runtimeOwner as TypeBuilder
-    if owner == null {
-        throw new InvalidOperationException("The persisted realization fixture did not return a TypeBuilder.")
-    }
-    return owner
+    return EmitFixturePersistedBuilder(fullName, 0, typeof(object))
 }
 
 func IteratorRealizationControlResolution(source: string): ColumnarSemanticTypeResolution {
@@ -42,19 +37,19 @@ func IteratorRealizationControlResolution(source: string): ColumnarSemanticTypeR
     fileNames := new string[](1)
     sources[0] = source
     fileNames[0] = "iterator-realization-controls/source.nl"
-    return SemanticTypeResolution(
-        ExactTypeProgram(sources, fileNames),
+    return EmitFixtureTypeResolution(
+        EmitFixtureSourceProgram(sources, fileNames),
         0,
-        SemanticEmptyEnums(),
-        SemanticEmptyStructs(),
-        SemanticEmptyUnions(),
+        EmitFixtureEmptyEnums(),
+        EmitFixtureEmptyStructs(),
+        EmitFixtureEmptyUnions(),
         null,
         ""
     )
 }
 
 func IteratorRealizationControlFunction(
-    probe: ColumnarIteratorShapeProbe,
+    probe: EmitFixtureIteratorShapeProbe,
     name: string,
     returnCanonical: string,
     typeParameterNames: string[],
@@ -65,8 +60,8 @@ func IteratorRealizationControlFunction(
         probe,
         name,
         returnCanonical,
-        IteratorNoStrings(),
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
         typeParameterNames,
         isAsync,
         sourceFileId
@@ -74,7 +69,7 @@ func IteratorRealizationControlFunction(
 }
 
 func IteratorRealizationControlFunctionWithSignature(
-    probe: ColumnarIteratorShapeProbe,
+    probe: EmitFixtureIteratorShapeProbe,
     name: string,
     returnCanonical: string,
     parameterNames: string[],
@@ -126,7 +121,7 @@ func IteratorRealizationControlSetGenericFactorySignature(
     setSignatureParameterTypes[3] = typeArrayType
     setSignatureParameterTypes[4] = typeArrayArrayType
     setSignatureParameterTypes[5] = typeArrayArrayType
-    setSignature := ExecutorRequiredMethod(
+    setSignature := EmitFixtureRequiredMethod(
         typeof(MethodBuilder),
         "SetSignature",
         setSignatureParameterTypes
@@ -140,12 +135,12 @@ func IteratorRealizationControlSetGenericFactorySignature(
     parameterModifiers := new Type[][](1)
     parameterModifiers[0] = emptyTypes
     arguments := new object[](6)
-    IteratorSetObject(arguments, 0, returnType)
-    IteratorSetObject(arguments, 1, emptyTypes)
-    IteratorSetObject(arguments, 2, emptyTypes)
-    IteratorSetObject(arguments, 3, parameterTypes)
-    IteratorSetObject(arguments, 4, parameterModifiers)
-    IteratorSetObject(arguments, 5, parameterModifiers)
+    EmitFixtureSetObject(arguments, 0, returnType)
+    EmitFixtureSetObject(arguments, 1, emptyTypes)
+    EmitFixtureSetObject(arguments, 2, emptyTypes)
+    EmitFixtureSetObject(arguments, 3, parameterTypes)
+    EmitFixtureSetObject(arguments, 4, parameterModifiers)
+    EmitFixtureSetObject(arguments, 5, parameterModifiers)
     setSignature.Invoke(factory, arguments)
 }
 
@@ -160,12 +155,12 @@ func IteratorRealizationControlSingleType(value: Type): Type[] {
 // that inventory only as a test witness: the realization result exposes the real machine builder,
 // while the driver keeps its field builders private.
 func IteratorRealizationControlActualRuntimeType(value: object): Type {
-    getType := ExecutorRequiredMethod(
+    getType := EmitFixtureRequiredMethod(
         typeof(object),
         "GetType",
         System.Type.EmptyTypes
     )
-    result := TypeOfRequiredInvocation(getType, value, new object[](0))
+    result := EmitFixtureInvoke(getType, value, new object[](0))
     runtimeType := result as Type
     if runtimeType == null {
         throw new InvalidOperationException("The persisted realization fixture did not expose a runtime Type.")
@@ -277,8 +272,8 @@ func IteratorRealizationControlRegistryCountMethod(): MethodInfo {
 
 func IteratorRealizationControlMapCount(mapObject: object): int {
     args := new object[](1)
-    IteratorSetObject(args, 0, mapObject)
-    result := TypeOfRequiredInvocation(
+    EmitFixtureSetObject(args, 0, mapObject)
+    result := EmitFixtureInvoke(
         IteratorRealizationControlRegistryCountMethod(),
         null,
         args
@@ -291,9 +286,9 @@ func IteratorRealizationControlMapContains(
     stableIdentity: string
 ): bool {
     args := new object[](2)
-    IteratorSetObject(args, 0, mapObject)
-    IteratorSetObject(args, 1, stableIdentity)
-    result := TypeOfRequiredInvocation(
+    EmitFixtureSetObject(args, 0, mapObject)
+    EmitFixtureSetObject(args, 1, stableIdentity)
+    result := EmitFixtureInvoke(
         IteratorRealizationControlRegistryMethod("Contains"),
         null,
         args
@@ -306,9 +301,9 @@ func IteratorRealizationControlRequiredType(
     stableIdentity: string
 ): Type {
     args := new object[](2)
-    IteratorSetObject(args, 0, mapObject)
-    IteratorSetObject(args, 1, stableIdentity)
-    result := TypeOfRequiredInvocation(
+    EmitFixtureSetObject(args, 0, mapObject)
+    EmitFixtureSetObject(args, 1, stableIdentity)
+    result := EmitFixtureInvoke(
         IteratorRealizationControlRegistryMethod("Required"),
         null,
         args
@@ -322,12 +317,12 @@ func IteratorRealizationControlRequiredType(
 
 test "persisted realization preserves sync registration before an element decline and keeps async before registration" {
     syncSource := "import System.Collections.Generic\nfunc* Gen(): IEnumerable<IteratorRealizationUnresolvableElement> { yield 1 }\n"
-    syncProbe := new ColumnarIteratorShapeProbe(
+    syncProbe := new EmitFixtureIteratorShapeProbe(
         syncSource,
         "IEnumerable<IteratorRealizationUnresolvableElement>",
-        IteratorNoStrings(),
-        IteratorNoStrings(),
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
         false
     )
     assert syncProbe.Shape.Supported
@@ -336,7 +331,7 @@ test "persisted realization preserves sync registration before an element declin
     syncModule := IteratorRealizationControlPersistedModule(syncHost)
     syncFactory := IteratorRealizationControlFactory(syncHost, "Create")
     syncTypes := new List<TypeBuilder>()
-    noNames := IteratorNoStrings()
+    noNames := EmitFixtureNoStrings()
     syncFunction := IteratorRealizationControlFunction(
         syncProbe,
         "Gen",
@@ -390,12 +385,12 @@ test "persisted realization preserves sync registration before an element declin
     assert syncTable.ValidatePair(syncSelected, syncMachine)
 
     asyncSource := "import System.Collections.Generic\nasync func* Gen(): IAsyncEnumerable<IteratorRealizationUnresolvableElement> { yield 1 }\n"
-    asyncProbe := new ColumnarIteratorShapeProbe(
+    asyncProbe := new EmitFixtureIteratorShapeProbe(
         asyncSource,
         "IAsyncEnumerable<IteratorRealizationUnresolvableElement>",
-        IteratorNoStrings(),
-        IteratorNoStrings(),
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
         false,
         true
     )
@@ -441,12 +436,12 @@ test "persisted realization preserves sync registration before an element declin
 
 test "persisted generic realization rebinds its retained machine-VAR field through the factory MVAR owner" {
     source := "import System.Collections.Generic\nfunc* Gen<T>(value: T): IEnumerable<T> { yield value }\n"
-    probe := new ColumnarIteratorShapeProbe(
+    probe := new EmitFixtureIteratorShapeProbe(
         source,
         "IEnumerable<T>",
-        IteratorOne("value"),
-        IteratorOne("T"),
-        IteratorOne("T"),
+        EmitFixtureOneString("value"),
+        EmitFixtureOneString("T"),
+        EmitFixtureOneString("T"),
         false
     )
     assert probe.Shape.Supported
@@ -455,7 +450,7 @@ test "persisted generic realization rebinds its retained machine-VAR field throu
     host := IteratorRealizationControlPersistedHost("IteratorRealizationGenericHost")
     module := IteratorRealizationControlPersistedModule(host)
     factory := IteratorRealizationControlFactory(host, "Gen")
-    factoryMvar := StructuralIdentityFirstGenericMethodParameter(factory, "T")
+    factoryMvar := EmitFixtureFirstGenericMethodParameter(factory, "T")
     assert factoryMvar.get_IsGenericParameter()
     assert factoryMvar.get_IsGenericMethodParameter()
     assert !factoryMvar.get_IsGenericTypeParameter()
@@ -465,9 +460,9 @@ test "persisted generic realization rebinds its retained machine-VAR field throu
         probe,
         "Gen",
         "IEnumerable<T>",
-        IteratorOne("value"),
-        IteratorOne("T"),
-        IteratorOne("T"),
+        EmitFixtureOneString("value"),
+        EmitFixtureOneString("T"),
+        EmitFixtureOneString("T"),
         false,
         703
     )

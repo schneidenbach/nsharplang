@@ -50,9 +50,16 @@ func CoreSliceGraph(): SliceGraph {
 // assembly above Core's: the linter's placeholder door, the source event's rendering and the backtick
 // rule moved beside their CodeIntel subjects, the analyzer's reference-pack fixtures locate the packs
 // through the reference resolver's kernel instead of DocQuery's, and the instance-member row reads a
-// Model type's getter instead of a CodeIntel one's (19 reaches).
+// Model type's getter instead of a CodeIntel one's (19 reaches). 112 before the Emit carve, whose
+// emitter the rows below it may not name once Emit is an assembly above Core's: the rows that emit a
+// whole program, drive a private emitter step or read an emitter owner's table (free-function scope,
+// source-attribute emission, the field-initializer, constructor-chain and argument-opcode rows, the
+// friend-declaration row) moved beside their Emit subjects with fixtures of their own, the
+// constructor decline-trace row moved beside the emitted hostile list it drives the planner with, the
+// Cecil admission rows that never reached the emitter moved down beside the planner's, and the
+// generic-call row reads a captured error's runtime type itself (29 reaches).
 func EstateUpwardCeiling(): int {
-    return 141
+    return 112
 }
 
 test "every Compiler.Core source file sits in one of the eight slice directories" {

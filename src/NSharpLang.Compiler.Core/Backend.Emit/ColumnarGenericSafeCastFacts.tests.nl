@@ -107,7 +107,7 @@ test "safe casts decline a bare value target and answer a nullable one" {
 
     matchedResult := GenericSafeCastInvoke(method, 41)
     assert matchedResult != null
-    assert (must matchedResult).ToString() == "41"
+    assert matchedResult.ToString() == "41"
 
     assert GenericSafeCastInvoke(method, "not an int") == null
     assert GenericSafeCastInvoke(method, null) == null

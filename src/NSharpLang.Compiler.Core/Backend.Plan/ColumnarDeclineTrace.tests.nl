@@ -1,9 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections.Generic
 import System.Reflection
-
 
 // These controls own the thread-local trace contract now that the compiler's decline state is N#.
 // They keep the returned snapshot separate from its mutable per-thread accumulator and exercise the
@@ -43,15 +41,6 @@ class ConstructorDeclineTraceThreadProbe {
     }
 }
 
-class ConstructorDeclineTraceControlsTypedLists {
-    static func SetConstructors(
-        input: ColumnarStructInput,
-        rows: IReadOnlyList<ColumnarConstructorInput>
-    ) {
-        input.Constructors = rows
-    }
-}
-
 func ConstructorDeclineTraceControlsRuntimeType(identity: string): Type {
     result := Type.GetType(identity)
     if result == null {
@@ -62,44 +51,6 @@ func ConstructorDeclineTraceControlsRuntimeType(identity: string): Type {
 
 func ConstructorDeclineTraceControlsSetObject(values: object?[], index: int, value: object?) {
     values[index] = value
-}
-
-func ConstructorDeclineTraceControlsSetConstructors(input: ColumnarStructInput, rows: object) {
-    parameterTypes := new Type[](2)
-    parameterTypes[0] = typeof(ColumnarStructInput)
-    parameterTypes[1] = typeof(IReadOnlyList<ColumnarConstructorInput>)
-    setter := ExecutorRequiredMethod(
-        typeof(ConstructorDeclineTraceControlsTypedLists),
-        "SetConstructors",
-        parameterTypes
-    )
-    arguments := new object?[](2)
-    ConstructorDeclineTraceControlsSetObject(arguments, 0, input)
-    ConstructorDeclineTraceControlsSetObject(arguments, 1, rows)
-    ignored := setter.Invoke(null, arguments)
-    _ = ignored
-}
-
-func ConstructorDeclineTraceControlsCatchesHostileDeclarationDispose(
-    program: ColumnarProgramInput,
-    inputs: List<ColumnarStructInput>,
-    definitions: ColumnarStructDef[],
-    resolutions: ColumnarSemanticTypeResolution[],
-    depths: int[]
-): bool {
-    try {
-        ColumnarConstructorDeclarationPlanner.Declare(
-            program,
-            inputs,
-            definitions,
-            resolutions,
-            depths,
-            new ColumnarSourceAttributeQueue()
-        )
-    } catch error: InvalidOperationException {
-        return error.Message == "member iterator fixture disposal failed"
-    }
-    return false
 }
 
 func ConstructorDeclineTraceControlsRunThread(probe: ConstructorDeclineTraceThreadProbe) {
@@ -225,69 +176,6 @@ test "columnar decline trace isolates the worker thread accumulator and source i
         assert probe.Message == "worker record"
         assert probe.HasSourceFileId
         assert probe.SourceFileId == 73
-    } finally {
-        ColumnarDeclineTrace.Reset()
-    }
-}
-
-test "constructor declaration records its decline before a hostile constructor iterator throws on disposal" {
-    definition := ConstructorDeclarationControlsDefinition("ConstructorDeclineTraceDispose", 0)
-    brokenBody := ConstructorDeclarationControlsEmptyBody(
-        "Broken",
-        new string[](0),
-        new string[](0)
-    )
-    brokenConstructor := ConstructorDeclarationControlsConstructor(
-        brokenBody,
-        2,
-        ConstructorDeclarationControlsEmptyInts(),
-        ConstructorDeclarationControlsEmptyTexts(),
-        false
-    )
-    input := ConstructorDeclarationControlsInput(
-        definition.DeclaredTypeName,
-        new List<ColumnarConstructorInput>()
-    )
-    inputs := new List<ColumnarStructInput>()
-    inputs.Add(input)
-    definitions := new ColumnarStructDef[](1)
-    definitions[0] = definition
-    depths := new int[](1)
-    program := ConstructorDeclarationControlsProgram("", inputs)
-    resolutions := ConstructorDeclarationControlsResolutions(program, definitions)
-
-    rows := new object[](1)
-    ConstructorDeclineTraceControlsSetObject(rows, 0, brokenConstructor)
-    state := new MemberIteratorControlsRowsState(rows, true)
-    state.CountAllowed = true
-    hostileRows := MemberIteratorControlsWrapReadOnlyList(
-        "ConstructorDeclineTraceHostileConstructors",
-        typeof(ColumnarConstructorInput),
-        state
-    )
-    ConstructorDeclineTraceControlsSetConstructors(input, hostileRows)
-
-    ColumnarDeclineTrace.Reset()
-    try {
-        disposalCaught := ConstructorDeclineTraceControlsCatchesHostileDeclarationDispose(
-            program,
-            inputs,
-            definitions,
-            resolutions,
-            depths
-        )
-        assert disposalCaught
-        snapshot := ColumnarDeclineTrace.Snapshot()
-        assert snapshot.Count == 1
-        assert snapshot[0].SiteId == "emit.ctor.base-chain-without-base"
-        assert snapshot[0].Message == "constructor base initializer requires a modeled base class"
-        assert snapshot[0].MemberName == definition.Builder.get_Name() + ".constructor"
-        assert snapshot[0].SpanStart == -1
-        assert snapshot[0].SpanLength == 0
-        assert !snapshot[0].HasSourceFileId
-        assert state.MoveCount == 1
-        assert state.CurrentCount == 1
-        assert state.DisposeCount == 1
     } finally {
         ColumnarDeclineTrace.Reset()
     }

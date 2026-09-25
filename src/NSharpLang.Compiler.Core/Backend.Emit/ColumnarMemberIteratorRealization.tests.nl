@@ -119,7 +119,7 @@ class MemberIteratorControlsTracingOverloadsComparer: IEqualityComparer<string> 
 func MemberIteratorControlsEmitInvalidOperation(il: ILGenerator, message: string) {
     messageParameters := new Type[](1)
     messageParameters[0] = typeof(string)
-    constructor := ExecutorRequiredConstructor(typeof(InvalidOperationException), messageParameters)
+    constructor := EmitFixtureRequiredConstructor(typeof(InvalidOperationException), messageParameters)
     il.Emit(OpCodes.Ldstr, message)
     il.Emit(OpCodes.Newobj, constructor)
     il.Emit(OpCodes.Throw)
@@ -145,7 +145,7 @@ func MemberIteratorControlsWrapReadOnlyList(
     nongenericEnumerator := typeof(IEnumerator)
     disposable := typeof(IDisposable)
 
-    owner := TypeOfCreateBuilder(
+    owner := EmitFixtureTypeBuilder(
         typeName,
         "ColumnarMemberIteratorRealization.Controls." + typeName,
         0
@@ -157,7 +157,7 @@ func MemberIteratorControlsWrapReadOnlyList(
     owner.AddInterfaceImplementation(nongenericEnumerable)
     owner.AddInterfaceImplementation(nongenericEnumerator)
     owner.AddInterfaceImplementation(disposable)
-    stateField := SourceDiscoveryTimingDefineField(
+    stateField := EmitFixtureDefineField(
         owner,
         "State",
         typeof(MemberIteratorControlsRowsState)
@@ -169,12 +169,12 @@ func MemberIteratorControlsWrapReadOnlyList(
         noParameters
     )
     constructorIl := constructor.GetILGenerator()
-    objectConstructor := ExecutorRequiredConstructor(typeof(object), noParameters)
+    objectConstructor := EmitFixtureRequiredConstructor(typeof(object), noParameters)
     constructorIl.Emit(OpCodes.Ldarg_0)
     constructorIl.Emit(OpCodes.Call, objectConstructor)
     constructorIl.Emit(OpCodes.Ret)
 
-    genericGetEnumeratorTarget := ExecutorRequiredMethod(
+    genericGetEnumeratorTarget := EmitFixtureRequiredMethod(
         genericEnumerable,
         "GetEnumerator",
         noParameters
@@ -185,10 +185,10 @@ func MemberIteratorControlsWrapReadOnlyList(
         genericEnumerator,
         noParameters
     )
-    SourceDiscoveryTimingReturnThis(genericGetEnumerator)
+    EmitFixtureReturnThis(genericGetEnumerator)
     owner.DefineMethodOverride(genericGetEnumerator, genericGetEnumeratorTarget)
 
-    nongenericGetEnumeratorTarget := ExecutorRequiredMethod(
+    nongenericGetEnumeratorTarget := EmitFixtureRequiredMethod(
         nongenericEnumerable,
         "GetEnumerator",
         noParameters
@@ -199,40 +199,40 @@ func MemberIteratorControlsWrapReadOnlyList(
         nongenericEnumerator,
         noParameters
     )
-    SourceDiscoveryTimingReturnThis(nongenericGetEnumerator)
+    EmitFixtureReturnThis(nongenericGetEnumerator)
     owner.DefineMethodOverride(nongenericGetEnumerator, nongenericGetEnumeratorTarget)
 
     runtimeParameterTypes := new Type[](1)
     runtimeParameterTypes[0] = typeof(MemberIteratorControlsRowsState)
-    moveNextRuntime := ExecutorRequiredMethod(
+    moveNextRuntime := EmitFixtureRequiredMethod(
         typeof(MemberIteratorControlsRowsRuntime),
         "MoveNext",
         runtimeParameterTypes
     )
-    currentRuntime := ExecutorRequiredMethod(
+    currentRuntime := EmitFixtureRequiredMethod(
         typeof(MemberIteratorControlsRowsRuntime),
         "Current",
         runtimeParameterTypes
     )
-    disposeRuntime := ExecutorRequiredMethod(
+    disposeRuntime := EmitFixtureRequiredMethod(
         typeof(MemberIteratorControlsRowsRuntime),
         "Dispose",
         runtimeParameterTypes
     )
-    countRuntime := ExecutorRequiredMethod(
+    countRuntime := EmitFixtureRequiredMethod(
         typeof(MemberIteratorControlsRowsRuntime),
         "Count",
         runtimeParameterTypes
     )
 
-    genericCurrentTarget := SourceDiscoveryTimingRequiredGetter(genericEnumerator, "Current")
+    genericCurrentTarget := EmitFixtureRequiredGetter(genericEnumerator, "Current")
     genericCurrent := owner.DefineMethod(
         "GenericCurrent",
         (MethodAttributes)481,
         elementType,
         noParameters
     )
-    genericCurrentIl := TypeOfMethodBuilderIL(genericCurrent)
+    genericCurrentIl := EmitFixtureIL(genericCurrent)
     genericCurrentIl.Emit(OpCodes.Ldarg_0)
     genericCurrentIl.Emit(OpCodes.Ldfld, stateField)
     genericCurrentIl.Emit(OpCodes.Call, currentRuntime)
@@ -240,67 +240,67 @@ func MemberIteratorControlsWrapReadOnlyList(
     genericCurrentIl.Emit(OpCodes.Ret)
     owner.DefineMethodOverride(genericCurrent, genericCurrentTarget)
 
-    nongenericCurrentTarget := SourceDiscoveryTimingRequiredGetter(nongenericEnumerator, "Current")
+    nongenericCurrentTarget := EmitFixtureRequiredGetter(nongenericEnumerator, "Current")
     nongenericCurrent := owner.DefineMethod(
         "NongenericCurrent",
         (MethodAttributes)481,
         typeof(object),
         noParameters
     )
-    nongenericCurrentIl := TypeOfMethodBuilderIL(nongenericCurrent)
+    nongenericCurrentIl := EmitFixtureIL(nongenericCurrent)
     MemberIteratorControlsEmitInvalidOperation(
         nongenericCurrentIl,
         "member iterator fixture nongeneric Current was read"
     )
     owner.DefineMethodOverride(nongenericCurrent, nongenericCurrentTarget)
 
-    moveNextTarget := ExecutorRequiredMethod(nongenericEnumerator, "MoveNext", noParameters)
+    moveNextTarget := EmitFixtureRequiredMethod(nongenericEnumerator, "MoveNext", noParameters)
     moveNext := owner.DefineMethod(
         "MoveNext",
         (MethodAttributes)481,
         typeof(bool),
         noParameters
     )
-    moveNextIl := TypeOfMethodBuilderIL(moveNext)
+    moveNextIl := EmitFixtureIL(moveNext)
     moveNextIl.Emit(OpCodes.Ldarg_0)
     moveNextIl.Emit(OpCodes.Ldfld, stateField)
     moveNextIl.Emit(OpCodes.Call, moveNextRuntime)
     moveNextIl.Emit(OpCodes.Ret)
     owner.DefineMethodOverride(moveNext, moveNextTarget)
 
-    resetTarget := ExecutorRequiredMethod(nongenericEnumerator, "Reset", noParameters)
+    resetTarget := EmitFixtureRequiredMethod(nongenericEnumerator, "Reset", noParameters)
     reset := owner.DefineMethod(
         "Reset",
         (MethodAttributes)481,
         ColumnarTypeOfPlanner.RequiredVoidType(),
         noParameters
     )
-    resetIl := TypeOfMethodBuilderIL(reset)
+    resetIl := EmitFixtureIL(reset)
     resetIl.Emit(OpCodes.Ret)
     owner.DefineMethodOverride(reset, resetTarget)
 
-    disposeTarget := ExecutorRequiredMethod(disposable, "Dispose", noParameters)
+    disposeTarget := EmitFixtureRequiredMethod(disposable, "Dispose", noParameters)
     dispose := owner.DefineMethod(
         "Dispose",
         (MethodAttributes)481,
         ColumnarTypeOfPlanner.RequiredVoidType(),
         noParameters
     )
-    disposeIl := TypeOfMethodBuilderIL(dispose)
+    disposeIl := EmitFixtureIL(dispose)
     disposeIl.Emit(OpCodes.Ldarg_0)
     disposeIl.Emit(OpCodes.Ldfld, stateField)
     disposeIl.Emit(OpCodes.Call, disposeRuntime)
     disposeIl.Emit(OpCodes.Ret)
     owner.DefineMethodOverride(dispose, disposeTarget)
 
-    countTarget := SourceDiscoveryTimingRequiredGetter(genericCollection, "Count")
+    countTarget := EmitFixtureRequiredGetter(genericCollection, "Count")
     count := owner.DefineMethod(
         "get_Count",
         (MethodAttributes)481,
         typeof(int),
         noParameters
     )
-    countIl := TypeOfMethodBuilderIL(count)
+    countIl := EmitFixtureIL(count)
     countIl.Emit(OpCodes.Ldarg_0)
     countIl.Emit(OpCodes.Ldfld, stateField)
     countIl.Emit(OpCodes.Call, countRuntime)
@@ -309,19 +309,19 @@ func MemberIteratorControlsWrapReadOnlyList(
 
     indexParameters := new Type[](1)
     indexParameters[0] = typeof(int)
-    itemTarget := SourceDiscoveryTimingRequiredGetter(genericList, "Item")
+    itemTarget := EmitFixtureRequiredGetter(genericList, "Item")
     item := owner.DefineMethod(
         "get_Item",
         (MethodAttributes)481,
         elementType,
         indexParameters
     )
-    itemIl := TypeOfMethodBuilderIL(item)
+    itemIl := EmitFixtureIL(item)
     MemberIteratorControlsEmitInvalidOperation(itemIl, "member iterator fixture indexer was read")
     owner.DefineMethodOverride(item, itemTarget)
 
-    baked := IdentityBake(owner)
-    instanceConstructor := ExecutorRequiredConstructor(baked, noParameters)
+    baked := EmitFixtureBake(owner)
+    instanceConstructor := EmitFixtureRequiredConstructor(baked, noParameters)
     instance := instanceConstructor.Invoke(new object[](0))
     if instance == null {
         throw new InvalidOperationException("The member iterator list fixture was not constructed")
@@ -354,10 +354,10 @@ func MemberIteratorControlsSetStructs(program: ColumnarProgramInput, rows: objec
     parameterTypes := new Type[](2)
     parameterTypes[0] = typeof(ColumnarProgramInput)
     parameterTypes[1] = typeof(IReadOnlyList<ColumnarStructInput>)
-    setter := ExecutorRequiredMethod(typeof(MemberIteratorControlsTypedLists), "SetStructs", parameterTypes)
+    setter := EmitFixtureRequiredMethod(typeof(MemberIteratorControlsTypedLists), "SetStructs", parameterTypes)
     arguments := new object[](2)
-    IteratorSetObject(arguments, 0, program)
-    IteratorSetObject(arguments, 1, rows)
+    EmitFixtureSetObject(arguments, 0, program)
+    EmitFixtureSetObject(arguments, 1, rows)
     ignored := setter.Invoke(null, arguments)
     _ = ignored
 }
@@ -366,10 +366,10 @@ func MemberIteratorControlsSetMethods(input: ColumnarStructInput, rows: object) 
     parameterTypes := new Type[](2)
     parameterTypes[0] = typeof(ColumnarStructInput)
     parameterTypes[1] = typeof(IReadOnlyList<ColumnarFunctionInput>)
-    setter := ExecutorRequiredMethod(typeof(MemberIteratorControlsTypedLists), "SetMethods", parameterTypes)
+    setter := EmitFixtureRequiredMethod(typeof(MemberIteratorControlsTypedLists), "SetMethods", parameterTypes)
     arguments := new object[](2)
-    IteratorSetObject(arguments, 0, input)
-    IteratorSetObject(arguments, 1, rows)
+    EmitFixtureSetObject(arguments, 0, input)
+    EmitFixtureSetObject(arguments, 1, rows)
     ignored := setter.Invoke(null, arguments)
     _ = ignored
 }
@@ -408,14 +408,14 @@ func MemberIteratorControlsEnclosingResolution(
         new List<ColumnarInterfaceInput>(),
         null
     )
-    definitions := SemanticEmptyStructs()
+    definitions := EmitFixtureEmptyStructs()
     definitions[definition.DeclaredTypeName] = definition
-    return SemanticTypeResolution(
+    return EmitFixtureTypeResolution(
         catalogProgram,
         0,
-        SemanticEmptyEnums(),
+        EmitFixtureEmptyEnums(),
         definitions,
-        SemanticEmptyUnions(),
+        EmitFixtureEmptyUnions(),
         null,
         definition.DeclaredTypeName
     )
@@ -532,21 +532,21 @@ func MemberIteratorControlsBodyFacts(definition: ColumnarStructDef, resolution: 
 // The static path instead advances its ordinal before attempting that helper-local GetILGenerator.
 test "member iterator retains early rejection and static ordinal before its own IL acquisition" {
     syncSource := "func* Gen(): IEnumerable<int> { yield 1 }"
-    syncProbe := new ColumnarIteratorShapeProbe(
+    syncProbe := new EmitFixtureIteratorShapeProbe(
         syncSource,
         "IEnumerable<int>",
-        IteratorNoStrings(),
-        IteratorNoStrings(),
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
         false
     )
     asyncSource := "async func* Gen(): IAsyncEnumerable<int> { yield 1 }"
-    asyncProbe := new ColumnarIteratorShapeProbe(
+    asyncProbe := new EmitFixtureIteratorShapeProbe(
         asyncSource,
         "IAsyncEnumerable<int>",
-        IteratorNoStrings(),
-        IteratorNoStrings(),
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
         false,
         true
     )
@@ -557,7 +557,7 @@ test "member iterator retains early rejection and static ordinal before its own 
         asyncProbe,
         "Gen",
         "IAsyncEnumerable<int>",
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
         true,
         801
     )
@@ -588,7 +588,7 @@ test "member iterator retains early rejection and static ordinal before its own 
         syncProbe,
         "Gen",
         "IEnumerable<int>",
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
         false,
         802
     )
@@ -646,19 +646,19 @@ test "member iterator retains early rejection and static ordinal before its own 
 // field canonical indexing. A second matching row would fail if the loop did not break at first hit.
 test "member iterator takes the first source row and disposes before field and ordinal phases" {
     source := "func* Gen(): IEnumerable<int> { yield Value }"
-    probe := new ColumnarIteratorShapeProbe(
+    probe := new EmitFixtureIteratorShapeProbe(
         source,
         "IEnumerable<int>",
-        IteratorNoStrings(),
-        IteratorNoStrings(),
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
         false
     )
     function := IteratorRealizationControlFunction(
         probe,
         "Gen",
         "IEnumerable<int>",
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
         false,
         803
     )
@@ -671,19 +671,19 @@ test "member iterator takes the first source row and disposes before field and o
     first := MemberIteratorControlsInput(
         "First",
         firstFieldNames,
-        IteratorNoStrings()
+        EmitFixtureNoStrings()
     )
     later := MemberIteratorControlsInput(
         "First",
-        IteratorOne("Value"),
-        IteratorNoStrings()
+        EmitFixtureOneString("Value"),
+        EmitFixtureNoStrings()
     )
     positiveState := new MemberIteratorControlsRowsState(
         MemberIteratorControlsRows(first, later),
         false
     )
     positiveState.RepairRows.Add(first)
-    positiveState.RepairFieldCanonicals = IteratorOne("int")
+    positiveState.RepairFieldCanonicals = EmitFixtureOneString("int")
     positiveRows := MemberIteratorControlsWrapReadOnlyList(
         "MemberIteratorFirstRows",
         typeof(ColumnarStructInput),
@@ -742,13 +742,13 @@ test "member iterator takes the first source row and disposes before field and o
 
     shortFirst := MemberIteratorControlsInput(
         "Throw",
-        IteratorOne("Value"),
-        IteratorNoStrings()
+        EmitFixtureOneString("Value"),
+        EmitFixtureNoStrings()
     )
     shortLater := MemberIteratorControlsInput(
         "Throw",
-        IteratorOne("Value"),
-        IteratorOne("int")
+        EmitFixtureOneString("Value"),
+        EmitFixtureOneString("int")
     )
     throwingState := new MemberIteratorControlsRowsState(
         MemberIteratorControlsRows(shortFirst, shortLater),
@@ -800,26 +800,26 @@ test "member iterator takes the first source row and disposes before field and o
 // decline and advances the instance-shape ordinal exactly once without obtaining the factory IL.
 test "member iterator disposes method enumeration before its shape phase" {
     source := "func* Bad(): IEnumerable<int> { Absent = 3\n yield 1 }"
-    probe := new ColumnarIteratorShapeProbe(
+    probe := new EmitFixtureIteratorShapeProbe(
         source,
         "IEnumerable<int>",
-        IteratorNoStrings(),
-        IteratorNoStrings(),
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
         false
     )
     function := IteratorRealizationControlFunction(
         probe,
         "Bad",
         "IEnumerable<int>",
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
         false,
         804
     )
     input := MemberIteratorControlsInput(
         "Methods",
-        IteratorOne("Value"),
-        IteratorOne("int")
+        EmitFixtureOneString("Value"),
+        EmitFixtureOneString("int")
     )
     throwingMethodsState := new MemberIteratorControlsRowsState(
         MemberIteratorControlsNoRows(),
@@ -907,12 +907,12 @@ test "member iterator disposes method enumeration before its shape phase" {
 // then reject the candidate. A normal twin proves Original would otherwise realize successfully.
 test "member iterator preserves live repeated method-name reads and overload admission" {
     positiveSource := "func* Gen(other: MethodPositive): IEnumerable<int> { for value in other.Original() { yield value } }"
-    positiveProbe := new ColumnarIteratorShapeProbe(
+    positiveProbe := new EmitFixtureIteratorShapeProbe(
         positiveSource,
         "IEnumerable<int>",
-        IteratorOne("other"),
-        IteratorOne("MethodPositive"),
-        IteratorNoStrings(),
+        EmitFixtureOneString("other"),
+        EmitFixtureOneString("MethodPositive"),
+        EmitFixtureNoStrings(),
         false
     )
 
@@ -920,14 +920,14 @@ test "member iterator preserves live repeated method-name reads and overload adm
         positiveProbe,
         "Original",
         "IEnumerable<int>",
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
         false,
         805
     )
     positiveInput := MemberIteratorControlsInput(
         "MethodPositive",
-        IteratorNoStrings(),
-        IteratorNoStrings()
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings()
     )
     positiveMethods := new List<ColumnarFunctionInput>()
     positiveMethods.Add(positiveCandidate)
@@ -945,7 +945,7 @@ test "member iterator preserves live repeated method-name reads and overload adm
         false
     )
     noTypes := new Type[](0)
-    SourceCallPublicInstance(positiveDefinition, "Original", noTypes, typeof(IEnumerable<int>))
+    EmitFixturePublicInstance(positiveDefinition, "Original", noTypes, typeof(IEnumerable<int>))
     positiveFactoryParameters := new Type[](1)
     positiveOwnerType: Type = positiveOwner
     positiveFactoryParameters[0] = positiveOwnerType
@@ -960,8 +960,8 @@ test "member iterator preserves live repeated method-name reads and overload adm
     positiveBodyResolution := MemberIteratorControlsEnclosingResolution(
         positiveSource,
         "MethodPositive",
-        IteratorNoStrings(),
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
         positiveDefinition
     )
     positiveResult: ColumnarIteratorRealizationResult = MemberIteratorControlsCall(
@@ -971,9 +971,9 @@ test "member iterator preserves live repeated method-name reads and overload adm
             positiveProbe,
             "Gen",
             "IEnumerable<int>",
-            IteratorOne("other"),
-            IteratorOne("MethodPositive"),
-            IteratorNoStrings(),
+            EmitFixtureOneString("other"),
+            EmitFixtureOneString("MethodPositive"),
+            EmitFixtureNoStrings(),
             false,
             805
         ),
@@ -997,19 +997,19 @@ test "member iterator preserves live repeated method-name reads and overload adm
     // is intentionally an internal malformed fact: it pins the existing null-dereference phase
     // rather than adding a prevalidation policy.
     nullSource := "func* Gen(): IEnumerable<int> { yield 1 }"
-    nullProbe := new ColumnarIteratorShapeProbe(
+    nullProbe := new EmitFixtureIteratorShapeProbe(
         nullSource,
         "IEnumerable<int>",
-        IteratorNoStrings(),
-        IteratorNoStrings(),
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings(),
         false
     )
     nullIterator := IteratorRealizationControlFunction(
         nullProbe,
         "Gen",
         "IEnumerable<int>",
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
         false,
         807
     )
@@ -1017,14 +1017,14 @@ test "member iterator preserves live repeated method-name reads and overload adm
         nullProbe,
         "Original",
         "IEnumerable<int>",
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
         false,
         807
     )
     nullInput := MemberIteratorControlsInput(
         "NullOverloads",
-        IteratorNoStrings(),
-        IteratorNoStrings()
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings()
     )
     nullMethodsState := new MemberIteratorControlsRowsState(
         MemberIteratorControlsOneRow(nullCandidate),
@@ -1047,7 +1047,7 @@ test "member iterator preserves live repeated method-name reads and overload adm
         "NullOverloads",
         false
     )
-    SourceCallPublicInstance(nullDefinition, "Original", noTypes, typeof(IEnumerable<int>))
+    EmitFixturePublicInstance(nullDefinition, "Original", noTypes, typeof(IEnumerable<int>))
     missingOverloads: List<ColumnarInstanceMethodDef> = null
     nullDefinition.MethodOverloads["Original"] = missingOverloads
     nullTypes := new List<TypeBuilder>()
@@ -1081,26 +1081,26 @@ test "member iterator preserves live repeated method-name reads and overload adm
     assert nullMethodsState.DisposeCount == 1
 
     mutatingSource := "func* Gen(other: MethodMutating): IEnumerable<int> { for value in other.Original() { yield value } }"
-    mutatingProbe := new ColumnarIteratorShapeProbe(
+    mutatingProbe := new EmitFixtureIteratorShapeProbe(
         mutatingSource,
         "IEnumerable<int>",
-        IteratorOne("other"),
-        IteratorOne("MethodMutating"),
-        IteratorNoStrings(),
+        EmitFixtureOneString("other"),
+        EmitFixtureOneString("MethodMutating"),
+        EmitFixtureNoStrings(),
         false
     )
     candidate := IteratorRealizationControlFunction(
         mutatingProbe,
         "Original",
         "IEnumerable<int>",
-        IteratorNoStrings(),
+        EmitFixtureNoStrings(),
         false,
         806
     )
     mutatingInput := MemberIteratorControlsInput(
         "MethodMutating",
-        IteratorNoStrings(),
-        IteratorNoStrings()
+        EmitFixtureNoStrings(),
+        EmitFixtureNoStrings()
     )
     mutatingMethodsState := new MemberIteratorControlsRowsState(
         MemberIteratorControlsOneRow(candidate),
@@ -1166,9 +1166,9 @@ test "member iterator preserves live repeated method-name reads and overload adm
             mutatingProbe,
             "Gen",
             "IEnumerable<int>",
-            IteratorOne("other"),
-            IteratorOne("MethodMutating"),
-            IteratorNoStrings(),
+            EmitFixtureOneString("other"),
+            EmitFixtureOneString("MethodMutating"),
+            EmitFixtureNoStrings(),
             false,
             806
         ),
@@ -1178,8 +1178,8 @@ test "member iterator preserves live repeated method-name reads and overload adm
         MemberIteratorControlsEnclosingResolution(
             mutatingSource,
             "MethodMutating",
-            IteratorNoStrings(),
-            IteratorNoStrings(),
+            EmitFixtureNoStrings(),
+            EmitFixtureNoStrings(),
             mutatingDefinition
         ),
         mutatingSource,
@@ -1202,4 +1202,94 @@ test "member iterator preserves live repeated method-name reads and overload adm
     assert mutatingMethodsState.DisposeCount == 1
     assert mutatingTypes.Count == 0
     assert mutatingOrdinal[0] == 43
+}
+
+// The planner's declaration walk over the hostile constructor list above: a disposal failure after
+// the decline is recorded is the one outcome the row below accepts.
+func MemberIteratorControlsCatchesHostileDeclarationDispose(
+    program: ColumnarProgramInput,
+    inputs: List<ColumnarStructInput>,
+    definitions: ColumnarStructDef[],
+    resolutions: ColumnarSemanticTypeResolution[],
+    depths: int[]
+): bool {
+    try {
+        ColumnarConstructorDeclarationPlanner.Declare(
+            program,
+            inputs,
+            definitions,
+            resolutions,
+            depths,
+            new ColumnarSourceAttributeQueue()
+        )
+    } catch error: InvalidOperationException {
+        return error.Message == "member iterator fixture disposal failed"
+    }
+    return false
+}
+
+// THE DECLARATION WALK RECORDS ITS DECLINE BEFORE THE CONSTRUCTOR ITERATOR IT HOLDS IS DISPOSED, even
+// when that disposal throws. The hostile list is this file's own emitted `IReadOnlyList<T>`, so the
+// row lives beside it rather than beside the planner's trace rows.
+test "constructor declaration records its decline before a hostile constructor iterator throws on disposal" {
+    definition := EmitFixtureStructDefinition("ConstructorDeclineTraceDispose", 0)
+    brokenBody := EmitFixtureEmptyBody(
+        "Broken",
+        new string[](0),
+        new string[](0)
+    )
+    brokenConstructor := EmitFixtureConstructor(
+        brokenBody,
+        2,
+        new int[](0),
+        new string[](0),
+        false
+    )
+    input := EmitFixtureStructInput(
+        definition.DeclaredTypeName,
+        new List<ColumnarConstructorInput>()
+    )
+    inputs := new List<ColumnarStructInput>()
+    inputs.Add(input)
+    definitions := new ColumnarStructDef[](1)
+    definitions[0] = definition
+    depths := new int[](1)
+    program := EmitFixtureSingleSourceProgram("", inputs)
+    resolutions := EmitFixtureResolutions(program, definitions)
+
+    rows := new object[](1)
+    EmitFixtureSetObject(rows, 0, brokenConstructor)
+    state := new MemberIteratorControlsRowsState(rows, true)
+    state.CountAllowed = true
+    hostileRows := MemberIteratorControlsWrapReadOnlyList(
+        "ConstructorDeclineTraceHostileConstructors",
+        typeof(ColumnarConstructorInput),
+        state
+    )
+    input.Constructors = (IReadOnlyList<ColumnarConstructorInput>)hostileRows
+
+    ColumnarDeclineTrace.Reset()
+    try {
+        disposalCaught := MemberIteratorControlsCatchesHostileDeclarationDispose(
+            program,
+            inputs,
+            definitions,
+            resolutions,
+            depths
+        )
+        assert disposalCaught
+        snapshot := ColumnarDeclineTrace.Snapshot()
+        assert snapshot.Count == 1
+        assert snapshot[0].SiteId == "emit.ctor.base-chain-without-base"
+        assert snapshot[0].Message == "constructor base initializer requires a modeled base class"
+        assert snapshot[0].MemberName == definition.Builder.get_Name() + ".constructor"
+        assert snapshot[0].SpanStart == -1
+        assert snapshot[0].SpanLength == 0
+        assert !snapshot[0].HasSourceFileId
+        assert state.MoveCount == 1
+        assert state.CurrentCount == 1
+        assert state.DisposeCount == 1
+    } finally {
+        ColumnarDeclineTrace.Reset()
+    }
 }

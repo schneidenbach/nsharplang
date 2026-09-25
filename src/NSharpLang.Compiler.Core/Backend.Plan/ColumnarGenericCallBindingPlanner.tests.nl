@@ -274,6 +274,15 @@ test "generic call binding dictionary classifiers accept only their exact generi
     assert !ColumnarGenericCallBindingPlanner.IsAnyDictionaryCollectionDefinition(listDefinition)
 }
 
+// The runtime type of a substitution failure the planner captured, which the row compares exactly.
+func GenericCallBindingErrorType(error: Exception?): Type {
+    if error == null {
+        throw new InvalidOperationException("Expected a captured generic-call binding error.")
+    }
+    boxed: object = error
+    return boxed.GetType()
+}
+
 test "generic sibling return substitution keeps direct null slots and raw reflection failures distinct" {
     parameters := GenericCallBindingParameters("ReturnSlots", 1)
     binding := new Type[](1)
@@ -317,7 +326,7 @@ test "generic sibling return substitution keeps direct null slots and raw reflec
         typeof(object)
     )
     assert !nullArray.Result
-    assert EntryPointRealizationControlsRequiredErrorType(nullArray.Error) == typeof(NullReferenceException)
+    assert GenericCallBindingErrorType(nullArray.Error) == typeof(NullReferenceException)
     assert nullArray.Substituted == null
 
     trace := new List<int>()
@@ -343,7 +352,7 @@ test "generic sibling return substitution keeps direct null slots and raw reflec
         typeof(object)
     )
     assert !rawFailure.Result
-    assert EntryPointRealizationControlsRequiredErrorType(rawFailure.Error) == typeof(NotSupportedException)
+    assert GenericCallBindingErrorType(rawFailure.Error) == typeof(NotSupportedException)
     assert rawFailure.Substituted == null
     assert GenericConstraintProbeTraceText(trace) == "11"
 }

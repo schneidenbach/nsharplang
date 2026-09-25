@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
-import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler
 
@@ -11,26 +10,8 @@ import NSharpLang.Compiler
 // These build a REAL multi-file columnar program, emit it, and then ask the emitted metadata and the
 // executed IL what the calls actually reached — because the bug this rule closes produced clean
 // `check` and `build` output and the wrong answer at runtime.
-func FreeFunctionScopeProgram(namespaces: string[], sources: string[]): ColumnarProgramInput {
-    texts := new List<string>()
-    names := new List<string>()
-    index := 0
-    while index < sources.Length {
-        prefix := ""
-        if namespaces[index].Length > 0 {
-            prefix = "namespace " + namespaces[index] + "\n\n"
-        }
-        texts.Add(prefix + sources[index])
-        names.Add("/tmp/FreeFunctionScopeProbe" + index.ToString() + ".nl")
-        index = index + 1
-    }
-    program: ColumnarProgramInput = null
-    assert ColumnarProgramInputBuilder.TryBuildMultiFile(texts, names, "/tmp", out program)
-    return program
-}
-
 func FreeFunctionScopeAssembly(namespaces: string[], sources: string[]): Assembly {
-    program := FreeFunctionScopeProgram(namespaces, sources)
+    program := EmitFixtureProgram(namespaces, sources, "FreeFunctionScopeProbe")
     bytes: byte[] = null
     assert ColumnarIlEmitter.TryEmitColumnarAssembly("FreeFunctionScope" + Guid.NewGuid().ToString("N"), "Program", program, false, out bytes, null, null)
     return Assembly.Load(bytes)
@@ -251,9 +232,10 @@ test "a user type named `Program` makes the holder yield to a reserved spelling"
 test "an `internal` word un-exports a PascalCase function, so another namespace never reaches it" {
     // The mirror of the rule above, and the reason the visibility word is read at all: casing alone
     // would have made this one a candidate everywhere.
-    program := FreeFunctionScopeProgram(
+    program := EmitFixtureProgram(
         ["Far"],
-        ["internal func Render(): string {\n    return \"far\"\n}\n"]
+        ["internal func Render(): string {\n    return \"far\"\n}\n"],
+        "FreeFunctionScopeProbe"
     )
 
     assert program.Functions[0].VisibilityModifierFlags == 4

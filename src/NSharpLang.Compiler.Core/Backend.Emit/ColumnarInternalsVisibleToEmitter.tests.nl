@@ -114,3 +114,33 @@ test "the grant is written as the pinned one-string attribute blob" {
     assert IvtEmitBlobText(ColumnarAttributeBlobs.OneString("Tests")) == "1 0 5 84 101 115 116 115 0 0"
     assert IvtEmitBlobText(ColumnarAttributeBlobs.OneString("")) == "1 0 0 0 0"
 }
+
+// THE OTHER HALF OF THE SCOPE'S IDENTITY: the grants this emission WRITES. They travel with the
+// name for the same reason — the attribute writer is a static function deep in the emit walk — and
+// they are cleared by the same `End`, so one emission cannot leak its friend declarations into the
+// next one on the same thread.
+test "the emission scope carries the friend declarations the assembly being emitted writes" {
+    InternalsVisibleToEmissionScope.End()
+    assert InternalsVisibleToEmissionScope.DeclaredGrants() == null
+
+    declared := new List<string>()
+    declared.Add("Tests")
+    declared.Add("Contoso.Widgets, PublicKey=0024")
+
+    InternalsVisibleToEmissionScope.Begin("MyLib", declared)
+    try {
+        carried := InternalsVisibleToEmissionScope.DeclaredGrants()
+        assert carried != null
+        assert carried.Count == 2
+        assert carried[0] == "Tests"
+
+        rows := ColumnarInternalsVisibleToEmitter.ResolveDeclaredNames(carried)
+        assert rows.Count == 2
+        assert rows[0] == "Tests"
+        assert rows[1] == "Contoso.Widgets, PublicKey=0024"
+    } finally {
+        InternalsVisibleToEmissionScope.End()
+    }
+
+    assert InternalsVisibleToEmissionScope.DeclaredGrants() == null
+}

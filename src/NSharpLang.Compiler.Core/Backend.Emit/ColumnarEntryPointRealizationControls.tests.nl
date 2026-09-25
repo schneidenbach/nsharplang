@@ -57,14 +57,14 @@ class EntryPointRealizationControlsFunctionRowsRuntime {
         return state.Rows[state.MoveCalls - 1]
     }
 
-    static func Dispose(state: EntryPointRealizationControlsFunctionRowsState) {
+    static func Dispose(_state: EntryPointRealizationControlsFunctionRowsState) {
     }
 }
 
 func EntryPointRealizationControlsThrow(il: ILGenerator, message: string) {
     arguments := new Type[](1)
     arguments[0] = typeof(string)
-    constructor := ExecutorRequiredConstructor(typeof(InvalidOperationException), arguments)
+    constructor := EmitFixtureRequiredConstructor(typeof(InvalidOperationException), arguments)
     il.Emit(OpCodes.Ldstr, message)
     il.Emit(OpCodes.Newobj, constructor)
     il.Emit(OpCodes.Throw)
@@ -93,7 +93,7 @@ func EntryPointRealizationControlsObservedFunctions(
     nongenericEnumerator := typeof(IEnumerator)
     disposable := typeof(IDisposable)
 
-    owner := TypeOfCreateBuilder(
+    owner := EmitFixtureTypeBuilder(
         typeName,
         "ColumnarEntryPointRealizationControls." + typeName,
         0
@@ -105,7 +105,7 @@ func EntryPointRealizationControlsObservedFunctions(
     owner.AddInterfaceImplementation(nongenericEnumerable)
     owner.AddInterfaceImplementation(nongenericEnumerator)
     owner.AddInterfaceImplementation(disposable)
-    stateField := SourceDiscoveryTimingDefineField(
+    stateField := EmitFixtureDefineField(
         owner,
         "State",
         typeof(EntryPointRealizationControlsFunctionRowsState)
@@ -117,12 +117,12 @@ func EntryPointRealizationControlsObservedFunctions(
         noParameters
     )
     constructorIl := constructor.GetILGenerator()
-    objectConstructor := ExecutorRequiredConstructor(typeof(object), noParameters)
+    objectConstructor := EmitFixtureRequiredConstructor(typeof(object), noParameters)
     constructorIl.Emit(OpCodes.Ldarg_0)
     constructorIl.Emit(OpCodes.Call, objectConstructor)
     constructorIl.Emit(OpCodes.Ret)
 
-    genericGetEnumeratorTarget := ExecutorRequiredMethod(
+    genericGetEnumeratorTarget := EmitFixtureRequiredMethod(
         genericEnumerable,
         "GetEnumerator",
         noParameters
@@ -133,10 +133,10 @@ func EntryPointRealizationControlsObservedFunctions(
         genericEnumerator,
         noParameters
     )
-    SourceDiscoveryTimingReturnThis(genericGetEnumerator)
+    EmitFixtureReturnThis(genericGetEnumerator)
     owner.DefineMethodOverride(genericGetEnumerator, genericGetEnumeratorTarget)
 
-    nongenericGetEnumeratorTarget := ExecutorRequiredMethod(
+    nongenericGetEnumeratorTarget := EmitFixtureRequiredMethod(
         nongenericEnumerable,
         "GetEnumerator",
         noParameters
@@ -147,7 +147,7 @@ func EntryPointRealizationControlsObservedFunctions(
         nongenericEnumerator,
         noParameters
     )
-    SourceDiscoveryTimingReturnThis(nongenericGetEnumerator)
+    EmitFixtureReturnThis(nongenericGetEnumerator)
     owner.DefineMethodOverride(nongenericGetEnumerator, nongenericGetEnumeratorTarget)
 
     stateParameter := new Type[](1)
@@ -155,40 +155,40 @@ func EntryPointRealizationControlsObservedFunctions(
     itemParameters := new Type[](2)
     itemParameters[0] = typeof(EntryPointRealizationControlsFunctionRowsState)
     itemParameters[1] = typeof(int)
-    countRuntime := ExecutorRequiredMethod(
+    countRuntime := EmitFixtureRequiredMethod(
         typeof(EntryPointRealizationControlsFunctionRowsRuntime),
         "Count",
         stateParameter
     )
-    itemRuntime := ExecutorRequiredMethod(
+    itemRuntime := EmitFixtureRequiredMethod(
         typeof(EntryPointRealizationControlsFunctionRowsRuntime),
         "Item",
         itemParameters
     )
-    moveNextRuntime := ExecutorRequiredMethod(
+    moveNextRuntime := EmitFixtureRequiredMethod(
         typeof(EntryPointRealizationControlsFunctionRowsRuntime),
         "MoveNext",
         stateParameter
     )
-    currentRuntime := ExecutorRequiredMethod(
+    currentRuntime := EmitFixtureRequiredMethod(
         typeof(EntryPointRealizationControlsFunctionRowsRuntime),
         "Current",
         stateParameter
     )
-    disposeRuntime := ExecutorRequiredMethod(
+    disposeRuntime := EmitFixtureRequiredMethod(
         typeof(EntryPointRealizationControlsFunctionRowsRuntime),
         "Dispose",
         stateParameter
     )
 
-    genericCurrentTarget := SourceDiscoveryTimingRequiredGetter(genericEnumerator, "Current")
+    genericCurrentTarget := EmitFixtureRequiredGetter(genericEnumerator, "Current")
     genericCurrent := owner.DefineMethod(
         "GenericCurrent",
         (MethodAttributes)481,
         elementType,
         noParameters
     )
-    genericCurrentIl := TypeOfMethodBuilderIL(genericCurrent)
+    genericCurrentIl := EmitFixtureIL(genericCurrent)
     genericCurrentIl.Emit(OpCodes.Ldarg_0)
     genericCurrentIl.Emit(OpCodes.Ldfld, stateField)
     genericCurrentIl.Emit(OpCodes.Call, currentRuntime)
@@ -196,67 +196,67 @@ func EntryPointRealizationControlsObservedFunctions(
     genericCurrentIl.Emit(OpCodes.Ret)
     owner.DefineMethodOverride(genericCurrent, genericCurrentTarget)
 
-    nongenericCurrentTarget := SourceDiscoveryTimingRequiredGetter(nongenericEnumerator, "Current")
+    nongenericCurrentTarget := EmitFixtureRequiredGetter(nongenericEnumerator, "Current")
     nongenericCurrent := owner.DefineMethod(
         "NongenericCurrent",
         (MethodAttributes)481,
         typeof(object),
         noParameters
     )
-    nongenericCurrentIl := TypeOfMethodBuilderIL(nongenericCurrent)
+    nongenericCurrentIl := EmitFixtureIL(nongenericCurrent)
     EntryPointRealizationControlsThrow(
         nongenericCurrentIl,
         "entry-point function-list nongeneric Current was read"
     )
     owner.DefineMethodOverride(nongenericCurrent, nongenericCurrentTarget)
 
-    moveNextTarget := ExecutorRequiredMethod(nongenericEnumerator, "MoveNext", noParameters)
+    moveNextTarget := EmitFixtureRequiredMethod(nongenericEnumerator, "MoveNext", noParameters)
     moveNext := owner.DefineMethod(
         "MoveNext",
         (MethodAttributes)481,
         typeof(bool),
         noParameters
     )
-    moveNextIl := TypeOfMethodBuilderIL(moveNext)
+    moveNextIl := EmitFixtureIL(moveNext)
     moveNextIl.Emit(OpCodes.Ldarg_0)
     moveNextIl.Emit(OpCodes.Ldfld, stateField)
     moveNextIl.Emit(OpCodes.Call, moveNextRuntime)
     moveNextIl.Emit(OpCodes.Ret)
     owner.DefineMethodOverride(moveNext, moveNextTarget)
 
-    resetTarget := ExecutorRequiredMethod(nongenericEnumerator, "Reset", noParameters)
+    resetTarget := EmitFixtureRequiredMethod(nongenericEnumerator, "Reset", noParameters)
     reset := owner.DefineMethod(
         "Reset",
         (MethodAttributes)481,
         ColumnarTypeOfPlanner.RequiredVoidType(),
         noParameters
     )
-    resetIl := TypeOfMethodBuilderIL(reset)
+    resetIl := EmitFixtureIL(reset)
     resetIl.Emit(OpCodes.Ret)
     owner.DefineMethodOverride(reset, resetTarget)
 
-    disposeTarget := ExecutorRequiredMethod(disposable, "Dispose", noParameters)
+    disposeTarget := EmitFixtureRequiredMethod(disposable, "Dispose", noParameters)
     dispose := owner.DefineMethod(
         "Dispose",
         (MethodAttributes)481,
         ColumnarTypeOfPlanner.RequiredVoidType(),
         noParameters
     )
-    disposeIl := TypeOfMethodBuilderIL(dispose)
+    disposeIl := EmitFixtureIL(dispose)
     disposeIl.Emit(OpCodes.Ldarg_0)
     disposeIl.Emit(OpCodes.Ldfld, stateField)
     disposeIl.Emit(OpCodes.Call, disposeRuntime)
     disposeIl.Emit(OpCodes.Ret)
     owner.DefineMethodOverride(dispose, disposeTarget)
 
-    countTarget := SourceDiscoveryTimingRequiredGetter(genericCollection, "Count")
+    countTarget := EmitFixtureRequiredGetter(genericCollection, "Count")
     count := owner.DefineMethod(
         "get_Count",
         (MethodAttributes)481,
         typeof(int),
         noParameters
     )
-    countIl := TypeOfMethodBuilderIL(count)
+    countIl := EmitFixtureIL(count)
     countIl.Emit(OpCodes.Ldarg_0)
     countIl.Emit(OpCodes.Ldfld, stateField)
     countIl.Emit(OpCodes.Call, countRuntime)
@@ -265,14 +265,14 @@ func EntryPointRealizationControlsObservedFunctions(
 
     indexParameters := new Type[](1)
     indexParameters[0] = typeof(int)
-    itemTarget := SourceDiscoveryTimingRequiredGetter(genericList, "Item")
+    itemTarget := EmitFixtureRequiredGetter(genericList, "Item")
     item := owner.DefineMethod(
         "get_Item",
         (MethodAttributes)481,
         elementType,
         indexParameters
     )
-    itemIl := TypeOfMethodBuilderIL(item)
+    itemIl := EmitFixtureIL(item)
     itemIl.Emit(OpCodes.Ldarg_0)
     itemIl.Emit(OpCodes.Ldfld, stateField)
     itemIl.Emit(OpCodes.Ldarg_1)
@@ -281,8 +281,8 @@ func EntryPointRealizationControlsObservedFunctions(
     itemIl.Emit(OpCodes.Ret)
     owner.DefineMethodOverride(item, itemTarget)
 
-    baked := IdentityBake(owner)
-    instanceConstructor := ExecutorRequiredConstructor(baked, noParameters)
+    baked := EmitFixtureBake(owner)
+    instanceConstructor := EmitFixtureRequiredConstructor(baked, noParameters)
     instance := instanceConstructor.Invoke(new object[](0))
     if instance == null {
         throw new InvalidOperationException("The observed entry-point function list was not constructed.")
@@ -435,10 +435,10 @@ func EntryPointRealizationControlsEmptyCatalog(): ColumnarSemanticTypeResolution
     sources[0] = "namespace EntryPointRealizationControls\n"
     sourceNames[0] = "entry-point-realization-controls/source.nl"
     return new ColumnarSemanticTypeResolutionCatalog(
-        ExactTypeProgram(sources, sourceNames),
-        SemanticEmptyEnums(),
-        SemanticEmptyStructs(),
-        SemanticEmptyUnions()
+        EmitFixtureSourceProgram(sources, sourceNames),
+        EmitFixtureEmptyEnums(),
+        EmitFixtureEmptyStructs(),
+        EmitFixtureEmptyUnions()
     )
 }
 

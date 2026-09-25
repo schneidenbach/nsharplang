@@ -14,18 +14,19 @@ import System
 // two TypeDef rows and every registry keeping the last. Both now decline at
 // `emit.declaration.duplicate` before anything is defined.
 //
-// The programs are built by the planner rows' own helpers (`FreeFunctionScopeProgram`,
-// `DeclarationPlanMultiFileProgram` in Backend.Plan); only the emit call belongs to this slice.
+// The programs are real multi-file programs (`EmitFixtureProgram`), built the way the planner rows
+// build theirs; only the emit call belongs to this slice.
 test "one namespace declaring a function name twice across files is refused at emit, never silently halved" {
     // The analyzer reports this pair as NL306; this is the emitter's own refusal, for the paths that
     // reach it without the analyzer. Before it, the second row overwrote the first in every view and
     // the holder carried two `Helper` rows of one signature.
-    program := FreeFunctionScopeProgram(
+    program := EmitFixtureProgram(
         ["X", "X"],
         [
             "func Helper(): string {\n    return \"first\"\n}\n",
             "func Helper(): string {\n    return \"second\"\n}\n"
-        ]
+        ],
+        "FreeFunctionScopeProbe"
     )
     ColumnarDeclineTrace.Reset()
     bytes: byte[] = null
@@ -41,12 +42,13 @@ test "one namespace declaring a function name twice across files is refused at e
 }
 
 test "one namespace declaring a type twice across files is refused at emit, never silently halved" {
-    program := DeclarationPlanMultiFileProgram(
+    program := EmitFixtureProgram(
         ["X", "X"],
         [
             "class Widget {\n    Tag: string = \"first\"\n}\n",
             "class Widget {\n    Tag: string = \"second\"\n}\n"
-        ]
+        ],
+        "DeclarationPlanTwin"
     )
     ColumnarDeclineTrace.Reset()
     bytes: byte[] = null

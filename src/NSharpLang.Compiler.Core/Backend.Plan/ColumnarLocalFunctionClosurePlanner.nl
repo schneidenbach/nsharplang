@@ -52,7 +52,7 @@ class ColumnarLocalFunctionClosurePlan {
 
 class ColumnarLocalFunctionClosurePlanner {
     static func Plan(
-        localFunctions: List<ColumnarLocalFunctionInput>,
+        localFunctions: List<ColumnarLocalFunctionInput>?,
         source: string,
         parentBindingNames: HashSet<string>,
         enclosingInstanceNames: HashSet<string>
