@@ -1367,6 +1367,24 @@ sealed class ColumnarIlEmitter {
         return ColumnarInterfaceRealization.IsSupportedParameterType(candidate)
     }
 
+    // A member with NO type parameters of its own still names its DECLARING type's parameters when
+    // that type is generic: `static func Repeat(value: T): IEnumerable<T>` on `Box<T>`. Its signature
+    // is as open as a generic method's, so it takes the same structural admission; a member of a
+    // non-generic type has nothing open to name and keeps the closed-type predicates.
+    private static func IsSupportedMemberSignatureValueType(def: ColumnarStructDef, candidate: Type): bool {
+        if (def.GenericParameters != null) {
+            return IsSupportedGenericSignatureValueType(candidate)
+        }
+        return ColumnarTypeOfPlanner.IsSupportedType(candidate)
+    }
+
+    private static func IsSupportedMemberSignatureParameterType(def: ColumnarStructDef, candidate: Type): bool {
+        if (def.GenericParameters != null) {
+            return IsSupportedGenericSignatureParameterType(candidate)
+        }
+        return ColumnarInterfaceRealization.IsSupportedParameterType(candidate)
+    }
+
     // The generic facts recorded for a declared source method, found by the exact builder identity
     // the declaration pass stored. The body pass has the builder but not the definition row.
     private static func FindSourceMethodGenerics(def: ColumnarStructDef, builder: MethodBuilder): ColumnarGenericMethodFacts? {
@@ -4782,6 +4800,11 @@ sealed class ColumnarIlEmitter {
             )
             newDefValue.IsNewtype = st.IsNewtype
             newDefValue.GenericParameters = typeGenericParams
+            if (typeGenericParams != null) {
+                newDefValue.GenericParameterNames = st.TypeParamNames
+                newDefValue.GenericParameterSpecialConstraints = st.TypeParamSpecialConstraints
+                newDefValue.GenericParameterTypeConstraints = st.TypeParamTypeConstraints
+            }
             newDef := newDefValue
             structBuilders[s] = tb
             structDefsInOrder[s] = newDef
@@ -5264,7 +5287,10 @@ sealed class ColumnarIlEmitter {
                                     return DeclineStatic("emit.declaration.method-return", "generic static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                                 }
                             } else {
-                                if (!ColumnarCanonicalTypeResolver.TryResolveType(m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn) || !ColumnarTypeOfPlanner.IsSupportedType(sReturn)) {
+                                // A static member of a generic type resolves against the type's own
+                                // parameters exactly as an instance member does: `IEnumerable<T>` is
+                                // claimed by the declaring type's scope, not by the file.
+                                if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ReturnCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn) || !IsSupportedMemberSignatureValueType(def, sReturn)) {
                                     return DeclineStatic("emit.declaration.method-return", "static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                                 }
                             }
@@ -5281,7 +5307,7 @@ sealed class ColumnarIlEmitter {
                                 return DeclineStatic("emit.declaration.method-param", "generic static method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                             }
                         } else {
-                            if (!ColumnarCanonicalTypeResolver.TryResolveType(m.ParamCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt)) {
+                            if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ParamCanonicals[i], def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt) || !IsSupportedMemberSignatureParameterType(def, pt)) {
                                 return DeclineStatic("emit.declaration.method-param", "static method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                             }
                         }
@@ -5433,7 +5459,7 @@ sealed class ColumnarIlEmitter {
                                 return DeclineStatic("emit.declaration.method-return", "generic method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                             }
                         } else {
-                            if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ReturnCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out mReturn) || !ColumnarTypeOfPlanner.IsSupportedType(mReturn)) {
+                            if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ReturnCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out mReturn) || !IsSupportedMemberSignatureValueType(def, mReturn)) {
                                 return DeclineStatic("emit.declaration.method-return", "method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                             }
                         }
@@ -5451,7 +5477,7 @@ sealed class ColumnarIlEmitter {
                             return DeclineStatic("emit.declaration.method-param", "generic method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
                     } else {
-                        if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ParamCanonicals[i], def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt)) {
+                        if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ParamCanonicals[i], def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt) || !IsSupportedMemberSignatureParameterType(def, pt)) {
                             return DeclineStatic("emit.declaration.method-param", "method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
                     }

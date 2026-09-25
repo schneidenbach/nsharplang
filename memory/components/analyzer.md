@@ -4798,6 +4798,39 @@ source struct looked non-disposable. It now resolves the definition through
 `ColumnarSourceDefinitionResolver.TryResolveStruct`, which is what the plain-body `using` has always
 done.
 
+### Open member signatures and static generators on generic types
+
+The struct-method declaration pass resolved a STATIC member's signature with the plain
+`ColumnarCanonicalTypeResolver.TryResolveType`, as if it stood at file level. The declaring type's
+resolver CLAIMS a constructed name rooted at one of its visible parameters and defers it to the
+type-parameter walk, so `List<T>` and `IEnumerable<T>` never resolved on `Box<T>` (bare `T`, `T[]`
+and `Func<T, bool>` got through on other arms). Static members now resolve through
+`TryResolveMemberType`, as instance members always have, and every non-generic member of a GENERIC
+type is admitted through `IsSupportedMemberSignatureValueType`/`...ParameterType` — the same
+structural admission a generic method's signature takes. A non-generic type keeps the closed-type
+predicates.
+
+A static `func*` on a generic type then needs a machine that can NAME the owner's parameters, and
+`EmitMember`'s static arm passed `Type.EmptyTypes`: a non-generic machine whose fields named
+`Box`'s `T` (a decline at `emit.iterator.element-type`), and, for a generic static generator on ANY
+type, `MakeGenericType` over zero arguments (an `emit.internal-error`). `EmitSync` now takes a
+`genericOwner`: the machine declares the owner's names first and the method's after them, with the
+owner's `where` rows concatenated per position (`ColumnarStructDef.GenericParameterNames`/
+`...SpecialConstraints`/`...TypeConstraints`, recorded at declaration because an unbaked
+`GenericTypeParameterBuilder` answers no constraint question), and `StaticMachineArguments` closes
+the factory over the owner's builders then the method's. `tests/native/census-iterators`
+(`CensusIteratorGenericOwners`) and `tests/native/generic-member-types` (`OpenMemberSignatures`)
+pin both halves, including the machine's argument order and restated constraints.
+
+⚠ A constraint that NAMES ITS OWN PARAMETER (`where T: IComparable<T>`) cannot be restated yet. The
+constraint planner asks the resolution's resolver before its own type-parameter walk, and the
+member-generator resolution has no `T`, so the row is claimed and fails: a clean
+`emit.iterator.generic-constraints` decline. The same ordering is WRONG, not merely unfinished, on a
+free generic generator: that resolution does see the function's `T`, so the machine's `T` is
+constrained to `IComparable<!!0>` and the assembly fails to load with `BadImageFormatException`.
+Restating a constraint means resolving it with the MACHINE's parameters winning inside constructed
+names too.
+
 ### Branch-merge values as call arguments and receivers (census ITER4)
 
 `ColumnarRangeIndexPlanner`'s value dispatcher has owned the ternary, `&&`/`||` and `??` in every

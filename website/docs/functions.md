@@ -1627,6 +1627,44 @@ func* ticks(log: List<string>): IEnumerable<int> {
 }
 ```
 
+### Static generators on generic types
+
+A `static func*` declared by a generic type may name the type's own parameters in its signature and
+its body, whether or not it declares type parameters of its own:
+
+```n#
+import System.Collections.Generic
+
+class Box<T> {
+    static func* Repeat(value: T, count: int): IEnumerable<T> {
+        for i := 0; i < count; i += 1 {
+            yield value
+        }
+    }
+
+    static func* EchoPerTag<U>(value: T, tags: List<U>): IEnumerable<T> {
+        for _ in tags {
+            yield value
+        }
+    }
+}
+
+for word in Box<string>.Repeat("hi", 3) {
+    print word   // hi, hi, hi
+}
+```
+
+The generated state machine is generic over the owner's parameters first and then the method's own,
+and it carries the owner's `where` constraints on its copies, so `Box<int>.Repeat` and
+`Box<string>.Repeat` each get a machine closed over their own argument. Inside the type, a sibling
+member may call `Repeat(value, 2)` without writing the owner out.
+
+Two shapes are not lowered yet and are refused at compile time (NL103) rather than emitted:
+
+- an **instance** generator on a generic type, and a generic instance generator on any type;
+- a static generator whose owner has a constraint that names its own parameter, such as
+  `class Ranked<T> where T : IComparable<T>`.
+
 ### What a generator body may not contain
 
 - `return <value>` — a generator produces values with `yield` and stops with `yield break`.

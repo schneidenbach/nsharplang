@@ -503,6 +503,14 @@ class ColumnarStructDef {
     Fields: Dictionary<string, FieldBuilder>
     NullableFields: HashSet<string>
     GenericParameters: Dictionary<string, Type>?
+    // THE DECLARING TYPE'S PARAMETERS AS WRITTEN, in declared order, with their `where` rows. The live
+    // GenericTypeParameterBuilders answer no constraint question before the type bakes, so a
+    // synthesized type that must restate them reads them here: a static generator's state machine is
+    // generic over its owner's parameters, and `Box<T>` inside it only loads when the machine's `T`
+    // carries every constraint `Box` demands. Empty on a type with no parameters.
+    GenericParameterNames: string[]
+    GenericParameterSpecialConstraints: int[]
+    GenericParameterTypeConstraints: string[][]
     IsReference: bool
     IsClosureDisplay: bool
     // THE SCOPE A CLOSURE DISPLAY WAS MADE FOR, and the reason a nested lambda can reach past its own
@@ -590,6 +598,9 @@ class ColumnarStructDef {
         FieldOrder = fieldOrder
         Fields = fields
         NullableFields = new HashSet<string>(StringComparer.Ordinal)
+        GenericParameterNames = new string[](0)
+        GenericParameterSpecialConstraints = new int[](0)
+        GenericParameterTypeConstraints = new string[][](0)
         IsReference = isReference
         IsClosureDisplay = isClosureDisplay
         ClosureEnclosingDef = null

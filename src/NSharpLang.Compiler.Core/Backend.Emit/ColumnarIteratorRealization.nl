@@ -61,6 +61,10 @@ class ColumnarIteratorRealization {
             staticOrdinal := ordinalCounter[0]
             ordinalCounter[0] = staticOrdinal + 1
             staticFactoryIl := builder.GetILGenerator()
+            // A static generator has no receiver to hoist, but its body still names its OWNER's type
+            // parameters as well as its own: `Box<T>.Repeat(value: T)`. The machine restates both
+            // lists, the owner's first, and the factory instantiates it over the exact builders the
+            // declaring type and the method define.
             return EmitSync(
                 module,
                 method,
@@ -69,7 +73,7 @@ class ColumnarIteratorRealization {
                 typeResolution,
                 staticFactoryIl,
                 synthesizedTypes,
-                System.Type.EmptyTypes,
+                StaticMachineArguments(structDef, builder),
                 null,
                 memberLabel,
                 null,
@@ -78,7 +82,8 @@ class ColumnarIteratorRealization {
                 null,
                 null,
                 null,
-                bodyFacts
+                bodyFacts,
+                structDef
             )
         }
         if structDef.GenericParameters != null || method.TypeParamNames.Length > 0 {
@@ -231,7 +236,8 @@ class ColumnarIteratorRealization {
             realizedFieldCanonicals,
             realizedMethodNames,
             realizedMethodHandles,
-            bodyFacts
+            bodyFacts,
+            null
         )
     }
 
@@ -272,13 +278,26 @@ class ColumnarIteratorRealization {
         enclosingFieldCanonicals: string[]? = null,
         enclosingMethodNames: string[]? = null,
         enclosingMethods: MethodInfo[]? = null,
-        bodyFacts: ColumnarIteratorBodyFacts? = null
+        bodyFacts: ColumnarIteratorBodyFacts? = null,
+        genericOwner: ColumnarStructDef? = null
     ): ColumnarIteratorRealizationResult {
         modifiedMemberReferences := ModifiedMemberReferencesOf(bodyFacts)
         declineLabel := memberLabel.Length == 0 ? fn.Name : memberLabel
         shape := SyncShape(fn, funcOrdinal, functionSource, precomputedShape)
         if !shape.Supported {
             return Declined(shape.DeclineSite, shape.DeclineMessage, declineLabel)
+        }
+
+        // The machine's parameter list: the function's own, preceded by its generic owner's when a
+        // static member generator is lowered. `methodTypeParams` lists the factory's instantiation
+        // in this same order.
+        machineTypeParamNames := fn.TypeParamNames
+        machineSpecialConstraints := fn.TypeParamSpecialConstraints
+        machineTypeConstraints := fn.TypeParamTypeConstraints
+        if genericOwner != null && genericOwner.GenericParameterNames.Length > 0 {
+            machineTypeParamNames = OwnerFirstNames(genericOwner.GenericParameterNames, fn.TypeParamNames)
+            machineSpecialConstraints = OwnerFirstSpecials(genericOwner.GenericParameterNames.Length, genericOwner.GenericParameterSpecialConstraints, fn.TypeParamNames.Length, fn.TypeParamSpecialConstraints)
+            machineTypeConstraints = OwnerFirstTypeConstraints(genericOwner.GenericParameterNames.Length, genericOwner.GenericParameterTypeConstraints, fn.TypeParamNames.Length, fn.TypeParamTypeConstraints)
         }
 
         sm := module.DefineType(
@@ -291,14 +310,14 @@ class ColumnarIteratorRealization {
         smBaseConstraints := System.Array.Empty<Type>()
         smInterfaceConstraints := System.Array.Empty<Type[]>()
         table := typeResolution.StructuralTypeReferences
-        if fn.TypeParamNames.Length > 0 {
-            smGps := sm.DefineGenericParameters(fn.TypeParamNames)
+        if machineTypeParamNames.Length > 0 {
+            smGps := sm.DefineGenericParameters(machineTypeParamNames)
             smTypeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal)
             smTypeParams = new Type[](smGps.Length)
             g := 0
             while g < smGps.Length {
                 parameter: Type = smGps[g]
-                smTypeParamMap[fn.TypeParamNames[g]] = parameter
+                smTypeParamMap[machineTypeParamNames[g]] = parameter
                 smTypeParams[g] = parameter
                 g = g + 1
             }
@@ -306,7 +325,7 @@ class ColumnarIteratorRealization {
             // owner. Publish the machine's generic parameters before asking the shared constraint
             // planner to resolve those rows; the runtime type itself is still unbaked, as intended.
             table.RegisterIteratorType(fn.SourceFileId, funcOrdinal, shape.TypeName, sm, smTypeParamMap)
-            if !ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(smGps, fn.TypeParamSpecialConstraints, fn.TypeParamTypeConstraints, smTypeParamMap, smTypeParams, typeResolution, out smSpecialConstraints, out smBaseConstraints, out smInterfaceConstraints) {
+            if !ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(smGps, machineSpecialConstraints, machineTypeConstraints, smTypeParamMap, smTypeParams, typeResolution, out smSpecialConstraints, out smBaseConstraints, out smInterfaceConstraints) {
                 return Declined(
                     "emit.iterator.generic-constraints",
                     "iterator generic constraints could not be preserved for '" + declineLabel + "'",
@@ -756,6 +775,73 @@ class ColumnarIteratorRealization {
         ColumnarCodePlanExecutor.Execute(factoryPlan, factoryIl, modifiedMemberReferences)
         synthesizedTypes.Add(sm)
         return Completed()
+    }
+
+    // The factory's instantiation of a static member generator's machine: the declaring type's own
+    // builders in declared order, then the method's own. Both lists are what the factory's body sees
+    // as its type parameters, so this is the machine closed over exactly those.
+    static func StaticMachineArguments(structDef: ColumnarStructDef, builder: MethodBuilder): Type[] {
+        arguments := new List<Type>()
+        ownerParameters := structDef.GenericParameters
+        if ownerParameters != null {
+            for ownerName in structDef.GenericParameterNames {
+                arguments.Add(ownerParameters[ownerName])
+            }
+        }
+        if builder.IsGenericMethodDefinition {
+            for methodParameter in builder.GetGenericArguments() {
+                arguments.Add(methodParameter)
+            }
+        }
+        return arguments.ToArray()
+    }
+
+    static func OwnerFirstNames(ownerNames: string[], ownNames: string[]): string[] {
+        names := new string[](ownerNames.Length + ownNames.Length)
+        i := 0
+        while i < ownerNames.Length {
+            names[i] = ownerNames[i]
+            i = i + 1
+        }
+        i = 0
+        while i < ownNames.Length {
+            names[ownerNames.Length + i] = ownNames[i]
+            i = i + 1
+        }
+        return names
+    }
+
+    // Constraint rows are aligned by parameter position, and either list may carry fewer rows than
+    // parameters. Each side is therefore read per parameter, so a short owner list never lets the
+    // method's rows slide onto the owner's parameters.
+    static func OwnerFirstSpecials(ownerCount: int, ownerRows: int[], ownCount: int, ownRows: int[]): int[] {
+        rows := new int[](ownerCount + ownCount)
+        i := 0
+        while i < ownerCount {
+            rows[i] = ColumnarGenericConstraintPlanner.SpecialAt(ownerRows, i)
+            i = i + 1
+        }
+        i = 0
+        while i < ownCount {
+            rows[ownerCount + i] = ColumnarGenericConstraintPlanner.SpecialAt(ownRows, i)
+            i = i + 1
+        }
+        return rows
+    }
+
+    static func OwnerFirstTypeConstraints(ownerCount: int, ownerRows: string[][], ownCount: int, ownRows: string[][]): string[][] {
+        rows := new string[][](ownerCount + ownCount)
+        i := 0
+        while i < ownerCount {
+            rows[i] = ColumnarGenericConstraintPlanner.TypeConstraintsAt(ownerRows, i)
+            i = i + 1
+        }
+        i = 0
+        while i < ownCount {
+            rows[ownerCount + i] = ColumnarGenericConstraintPlanner.TypeConstraintsAt(ownRows, i)
+            i = i + 1
+        }
+        return rows
     }
 
     static func Completed(): ColumnarIteratorRealizationResult {
