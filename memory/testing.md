@@ -1271,8 +1271,16 @@ reclaim removes this project's labelled leftovers whose owner is provably gone �
 that is no longer the process that labelled it, or anything older than a day — and never a live run's.
 
 **A killed command says where it stopped.** Both pipes are drained line by line as they arrive, so a
-command the ceiling kills keeps what it printed; its report names the command line, the last BuildKit
-step it started (`docker build --progress plain`) and the last 40 lines in arrival order.
+command the ceiling kills keeps what it printed; its report names the command line, the last build
+step it started and the last 40 lines in arrival order.
+
+**Either builder.** `docker build` is BuildKit only when the CLI finds its buildx plugin under
+`~/.docker/cli-plugins`; the product gate runs with HOME pointed at a throwaway directory, so there it
+is the legacy builder. The build argv therefore carries only flags both builders accept (a
+`--progress plain` made the legacy builder refuse the command, exit 125, and failed every Docker row
+of the gate at 62bc87159); BuildKit's plain progress is requested through `BUILDKIT_PROGRESS=plain`
+in the launch environment instead, and the step reader understands both `#7 [4/5] RUN …` and
+`Step 4/5 : RUN …`.
 
 
 ## Test Categories

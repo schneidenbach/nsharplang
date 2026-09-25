@@ -92,7 +92,7 @@ func IsolationRun(runId: string, pid: int): ToolchainDockerRun {
 // lines that arrived before the kill.
 func IsolationTimedOutBuild(): ToolchainRun {
     build := new ToolchainRun(124, "", "#5 [2/5] COPY toolset/ /root/.nsharp/\n#5 DONE 0.4s\n#7 [4/5] RUN dotnet new install /root/.nsharp/packages/NSharpLang.Templates.*.nupkg --force\n#7 12.3 Restoring templates\n")
-    build.CommandLine = "docker build --progress plain"
+    build.CommandLine = "docker build --file /tmp/nsharp-integration-isolation/Dockerfile.toolchain"
     build.TimedOut = true
     build.TimeoutMilliseconds = 1800000
     build.Lines.Add("#5 [2/5] COPY toolset/ /root/.nsharp/")
@@ -156,7 +156,7 @@ test "two fixtures in one process get distinct, readable, labelled names" {
 
     assert firstHost.Calls.Contains("exec " + first.ContainerName + " bash -c true"), string.Join("\n", firstHost.Calls)
     assert secondHost.Calls.Contains("exec " + second.ContainerName + " bash -c true"), string.Join("\n", secondHost.Calls)
-    assert firstHost.CountCalls("build --progress plain --file /tmp/nsharp-integration-first/Dockerfile.toolchain --tag " + first.ImageTag + " --label nsharp.test=installed-toolchain-integration --label nsharp.test.run=" + first.RunId + " ") == 1, string.Join("\n", firstHost.Calls)
+    assert firstHost.CountCalls("build --file /tmp/nsharp-integration-first/Dockerfile.toolchain --tag " + first.ImageTag + " --label nsharp.test=installed-toolchain-integration --label nsharp.test.run=" + first.RunId + " ") == 1, string.Join("\n", firstHost.Calls)
     assert secondHost.CountCalls("run --detach --rm --name " + second.ContainerName + " --label nsharp.test=installed-toolchain-integration --label nsharp.test.run=" + second.RunId + " ") == 1, string.Join("\n", secondHost.Calls)
 }
 
@@ -171,7 +171,7 @@ test "a build killed at its ceiling tears down the container and the image, says
     // The report names the ceiling, the command, the step it was on and the lines it last printed —
     // not `exit 124` over two empty streams.
     assert message.Contains("docker build of " + run.ImageTag + " timed out after 1800000 ms"), message
-    assert message.Contains("--- command ---\ndocker build --progress plain"), message
+    assert message.Contains("--- command ---\ndocker build --file /tmp/nsharp-integration-isolation/Dockerfile.toolchain"), message
     assert message.Contains("--- last build step started ---\n#7 [4/5] RUN dotnet new install"), message
     assert message.Contains("#7 12.3 Restoring templates"), message
 
@@ -345,4 +345,31 @@ test "a command killed at its ceiling keeps what it printed and names what it wa
     assert result.Stdout == "out\n", result.Stdout
     assert result.Stderr == "err\n", result.Stderr
     assert result.Report("the failing step") == "the failing step failed (exit code 3)\n--- stdout ---\nout\n\n--- stderr ---\nerr\n", result.Report("the failing step")
+}
+
+test "the last build step is read from either builder's log" {
+    // BuildKit's plain progress: the step line, not the DONE / CACHED / output lines after it.
+    buildKit := new List<string>()
+    buildKit.Add("#6 [3/5] RUN dotnet nuget add source /packages --name local")
+    buildKit.Add("#6 DONE 1.2s")
+    buildKit.Add("#7 [4/5] RUN dotnet new install /root/.nsharp/packages/NSharpLang.Templates.*.nupkg --force")
+    buildKit.Add("#7 3.4 Restoring templates")
+    buildKit.Add("#7 CACHED")
+    assert ToolchainLastBuildStep(buildKit) == "#7 [4/5] RUN dotnet new install /root/.nsharp/packages/NSharpLang.Templates.*.nupkg --force", ToolchainLastBuildStep(buildKit)
+
+    // The legacy builder, which is what runs when the CLI finds no buildx plugin.
+    legacy := new List<string>()
+    legacy.Add("DEPRECATED: The legacy builder is deprecated and will be removed in a future release.")
+    legacy.Add("Step 3/8 : RUN dotnet nuget add source /packages --name local")
+    legacy.Add(" ---> Running in 0f3c2a1b9d8e")
+    legacy.Add("Step 5/8 : RUN dotnet new install /root/.nsharp/packages/NSharpLang.Templates.*.nupkg --force")
+    legacy.Add(" ---> Running in 5a6b7c8d9e0f")
+    legacy.Add("Success! Installed the following template packages")
+    assert ToolchainLastBuildStep(legacy) == "Step 5/8 : RUN dotnet new install /root/.nsharp/packages/NSharpLang.Templates.*.nupkg --force", ToolchainLastBuildStep(legacy)
+
+    // A log with no step names none, rather than quoting an arbitrary line as one.
+    other := new List<string>()
+    other.Add("Restoring packages for /workspace/app.csproj")
+    other.Add("#7 12.3 Restoring templates")
+    assert ToolchainLastBuildStep(other) == "", ToolchainLastBuildStep(other)
 }

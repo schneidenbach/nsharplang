@@ -65,7 +65,7 @@ class ToolchainRun {
     TimeoutMilliseconds: int
 
     // Every line of both streams in the order they ARRIVED, which is the order a reader of a
-    // terminal would have seen them; `docker build` writes its progress to stderr and a hang is
+    // terminal would have seen them; a BuildKit build writes its progress to stderr and a hang is
     // only legible with stdout interleaved.
     Lines: List<string>
 
@@ -98,14 +98,16 @@ func ToolchainTimeoutTailLineCount(): int {
     return 40
 }
 
-// The last BuildKit step a `docker build --progress plain` log STARTED — `#7 [4/5] RUN dotnet new
-// install ...` — or "" when the log names none (a command that is not a build, or a build killed
-// before its first step). A step line is `#<n> [<stage>] <instruction>`; the `#<n> DONE` / `#<n>
-// CACHED` lines that follow a step are not steps.
+// The last build step a `docker build` log STARTED, in whichever of the two formats the CLI's
+// builder writes — or "" when the log names none (a command that is not a build, or a build killed
+// before its first step). BuildKit's plain progress says `#7 [4/5] RUN dotnet new install ...`; its
+// `#7 DONE` / `#7 CACHED` / `#7 12.3 <output>` lines are not steps. The legacy builder says
+// `Step 4/5 : RUN dotnet new install ...`. Both must read, because which builder runs is not this
+// project's choice (see `ToolchainDockerLaunch`).
 func ToolchainLastBuildStep(lines: List<string>): string {
     index := lines.Count - 1
     while index >= 0 {
-        if Regex.IsMatch(lines[index], "^#[0-9]+ \\[[^\\]]+\\] ") {
+        if Regex.IsMatch(lines[index], "^#[0-9]+ \\[[^\\]]+\\] ") || Regex.IsMatch(lines[index], "^Step [0-9]+/[0-9]+ : ") {
             return lines[index]
         }
 
@@ -501,13 +503,17 @@ func DockerLabelArguments(run: ToolchainDockerRun): List<string> {
 
 // `--file` is passed explicitly because the Dockerfile is named `Dockerfile.toolchain`, exactly as
 // the deleted fixture's `WithDockerfile("Dockerfile.toolchain")` did, and the build context is the
-// staged directory rather than the repository. `--progress plain` makes the build's log one line per
-// event whatever the terminal, which is what the timeout report reads its last step out of.
+// staged directory rather than the repository.
+//
+// EVERY FLAG HERE IS ONE BOTH BUILDERS ACCEPT. `docker build` is BuildKit only when the CLI finds
+// its buildx plugin, which lives under `~/.docker/cli-plugins` — and the product gate runs with HOME
+// pointed at a throwaway directory, where there is no plugin and the CLI falls back to the legacy
+// builder. A `--progress plain` here made that builder refuse the whole command (`unknown flag`,
+// exit 125) and failed every Docker row. The progress mode travels in the environment instead
+// (`ToolchainDockerLaunch`), which BuildKit reads and the legacy builder ignores.
 func DockerBuildArguments(run: ToolchainDockerRun, buildContextDirectory: string): List<string> {
     arguments := new List<string>()
     arguments.Add("build")
-    arguments.Add("--progress")
-    arguments.Add("plain")
     arguments.Add("--file")
     arguments.Add(Path.Combine(buildContextDirectory, "Dockerfile.toolchain"))
     arguments.Add("--tag")
@@ -825,15 +831,20 @@ func ToolchainRunDotnet(arguments: List<string>): ToolchainRun {
     return ToolchainRunProcess(launch)
 }
 
-func ToolchainRunDocker(arguments: List<string>, timeoutMilliseconds: int): ToolchainRun {
+// One `docker` invocation as a value. `BUILDKIT_PROGRESS=plain` is how a BuildKit build is told to
+// log one line per event whatever the terminal — what the timeout report reads its last step out of
+// — without a flag the legacy builder would refuse; every other command ignores it. The builder is
+// deliberately NOT chosen here: which one `docker build` reaches depends on the CLI's plugins and
+// `DOCKER_BUILDKIT`, and the argv above runs unchanged under either.
+func ToolchainDockerLaunch(arguments: List<string>, timeoutMilliseconds: int): ToolchainLaunch {
     launch := new ToolchainLaunch("docker", ToolchainRepositoryRoot(), timeoutMilliseconds)
-    index := 0
-    while index < arguments.Count {
-        launch.Arguments.Add(arguments[index])
-        index = index + 1
-    }
+    launch.Arguments.AddRange(arguments)
+    launch.WithEnvironment("BUILDKIT_PROGRESS", "plain")
+    return launch
+}
 
-    return ToolchainRunProcess(launch)
+func ToolchainRunDocker(arguments: List<string>, timeoutMilliseconds: int): ToolchainRun {
+    return ToolchainRunProcess(ToolchainDockerLaunch(arguments, timeoutMilliseconds))
 }
 
 func ToolchainRequireSuccess(result: ToolchainRun, context: string) {

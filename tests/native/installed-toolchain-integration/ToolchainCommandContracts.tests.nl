@@ -46,16 +46,22 @@ test "the image is built from the staged context with the Dockerfile the project
     run := ContractDockerRun()
     arguments := DockerBuildArguments(run, contextDirectory)
 
-    assert ToolchainJoinArguments(arguments) == "build --progress plain --file " + Path.Combine(contextDirectory, "Dockerfile.toolchain") + " --tag nsharp-installed-toolchain-integration-4242-20260925t120000-abc123:local " + ContractLabelArguments() + " " + contextDirectory, ToolchainJoinArguments(arguments)
+    assert ToolchainJoinArguments(arguments) == "build --file " + Path.Combine(contextDirectory, "Dockerfile.toolchain") + " --tag nsharp-installed-toolchain-integration-4242-20260925t120000-abc123:local " + ContractLabelArguments() + " " + contextDirectory, ToolchainJoinArguments(arguments)
 
     // `--file` is not optional: the file is `Dockerfile.toolchain`, so a build without it would pick
     // up a `Dockerfile` that does not exist. The deleted fixture said the same thing as
     // `WithDockerfile("Dockerfile.toolchain")`.
     assert arguments.Contains("--file"), ToolchainJoinArguments(arguments)
 
-    // `--progress plain` is what the timeout report reads the last build step out of: one line per
-    // event, `#<n> [<stage>] <instruction>`, whether or not a terminal is attached.
-    assert arguments[1] == "--progress" && arguments[2] == "plain", ToolchainJoinArguments(arguments)
+    // NO BUILDER-SPECIFIC FLAG. The legacy builder — what `docker build` is when the CLI finds no
+    // buildx plugin, as under the gate's throwaway HOME — refuses `--progress` outright (exit 125).
+    // The progress mode is in the launch's environment instead, where only BuildKit reads it.
+    assert !arguments.Contains("--progress"), ToolchainJoinArguments(arguments)
+    launch := ToolchainDockerLaunch(arguments, ToolchainImageBuildTimeoutMilliseconds())
+    assert launch.FileName == "docker"
+    assert ToolchainJoinArguments(launch.Arguments) == ToolchainJoinArguments(arguments)
+    progress := launch.EnvironmentNames.IndexOf("BUILDKIT_PROGRESS")
+    assert progress >= 0 && launch.EnvironmentValues[progress] == "plain", string.Join(",", launch.EnvironmentNames)
 
     // The CONTEXT is the staged directory and not the repository: the Dockerfile `COPY`s `toolset/`
     // and `packages/`, which exist only there, and a repository-rooted context would send the whole
