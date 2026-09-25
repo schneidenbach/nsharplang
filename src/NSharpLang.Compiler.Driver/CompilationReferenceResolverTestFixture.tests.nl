@@ -41,55 +41,31 @@ func ResolverWrite(path: string, contents: string) {
     File.WriteAllText(path, contents)
 }
 
-func ResolverCopyDirectory(source: string, destination: string) {
-    Directory.CreateDirectory(destination)
-    files := Directory.GetFiles(source, "*", SearchOption.AllDirectories)
-    index := 0
-    while index < files.Length {
-        sourcePath := files[index]
-        relative := Path.GetRelativePath(source, sourcePath)
-        destinationPath := Path.Combine(destination, relative)
-        parent := Path.GetDirectoryName(destinationPath)
-        if parent != null && parent != "" {
-            Directory.CreateDirectory(parent)
-        }
-        File.Copy(sourcePath, destinationPath, true)
-        index = index + 1
+// THE PACKAGE IS WRITTEN, NEVER COPIED FROM THE MACHINE'S CACHE. This row used to copy a real
+// Newtonsoft.Json 13.0.3 out of `~/.nuget/packages`, so it passed only on a machine where something
+// else had already restored that exact version, and failed on a clean one. The resolver reads only
+// the nuspec and the asset folders' file names -- it never opens an asset -- so a framework assembly
+// standing in as `Newtonsoft.Json.dll` exercises the same walk. The shape mirrors the real 13.0.3
+// package: the net6.0 group has no dependencies, while the netstandard1.0 group has four that are
+// NOT written here, so selecting the wrong group would fetch them and fail the row's
+// packages-folder assertion instead of passing it.
+func ResolverWriteNewtonsoftPackage(packagesRoot: string) {
+    versionDirectory := Path.Combine(Path.Combine(packagesRoot, "newtonsoft.json"), "13.0.3")
+    ResolverWrite(
+        Path.Combine(versionDirectory, "newtonsoft.json.nuspec"),
+        "<package><metadata><id>Newtonsoft.Json</id><version>13.0.3</version><dependencies><group targetFramework=\".NETFramework4.5\" /><group targetFramework=\".NETStandard1.0\"><dependency id=\"Microsoft.CSharp\" version=\"4.3.0\" /><dependency id=\"NETStandard.Library\" version=\"1.6.1\" /><dependency id=\"System.ComponentModel.TypeConverter\" version=\"4.3.0\" /><dependency id=\"System.Runtime.Serialization.Primitives\" version=\"4.3.0\" /></group><group targetFramework=\".NETStandard2.0\" /><group targetFramework=\"net6.0\" /></dependencies></metadata></package>"
+    )
+    standIn := ResolverFrameworkAssembly("System.Runtime.dll")
+    libFrameworks := new string[](4)
+    libFrameworks[0] = "net45"
+    libFrameworks[1] = "netstandard1.0"
+    libFrameworks[2] = "netstandard2.0"
+    libFrameworks[3] = "net6.0"
+    for libFramework in libFrameworks {
+        libDirectory := Path.Combine(Path.Combine(versionDirectory, "lib"), libFramework)
+        Directory.CreateDirectory(libDirectory)
+        File.Copy(standIn, Path.Combine(libDirectory, "Newtonsoft.Json.dll"), true)
     }
-}
-
-func ResolverCandidatePackagesRoots(): string[] {
-    roots := new List<string>()
-    configured := Environment.GetEnvironmentVariable("NUGET_PACKAGES") ?? ""
-    if configured != "" {
-        roots.Add(configured)
-    }
-
-    profile := Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
-    roots.Add(Path.Combine(Path.Combine(profile, ".nuget"), "packages"))
-    roots.Add(Path.Combine(Path.Combine(profile, ".nsharp"), "packages"))
-    return roots.ToArray()
-}
-
-func ResolverPrepareNewtonsoftCache(destinationRoot: string): string {
-    roots := ResolverCandidatePackagesRoots()
-    source: string? = null
-    index := 0
-    while index < roots.Length && source == null {
-        candidate := Path.Combine(Path.Combine(roots[index], "newtonsoft.json"), "13.0.3")
-        if Directory.Exists(candidate) && File.Exists(Path.Combine(Path.Combine(Path.Combine(candidate, "lib"), "net6.0"), "Newtonsoft.Json.dll")) {
-            source = candidate
-        }
-        index = index + 1
-    }
-
-    if source == null {
-        throw new InvalidOperationException("The installed Newtonsoft.Json 13.0.3 fixture was not found in a local package cache.")
-    }
-
-    destination := Path.Combine(Path.Combine(destinationRoot, "newtonsoft.json"), "13.0.3")
-    ResolverCopyDirectory(source ?? "", destination)
-    return destinationRoot
 }
 
 func ResolverWriteProjectReferenceFixture(projectRoot: string) {

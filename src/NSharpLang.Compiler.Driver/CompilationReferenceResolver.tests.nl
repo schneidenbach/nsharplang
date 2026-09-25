@@ -167,7 +167,7 @@ test "project and local NuGet resolution mutates dependencies in package then pr
     packagesRoot := Path.Combine(projectRoot, "packages")
     previousPackages := Environment.GetEnvironmentVariable("NUGET_PACKAGES")
     try {
-        ResolverPrepareNewtonsoftCache(packagesRoot)
+        ResolverWriteNewtonsoftPackage(packagesRoot)
         ResolverWriteProjectReferenceFixture(projectRoot)
 
         config := ResolverParseProject(projectRoot)
@@ -189,6 +189,7 @@ test "project and local NuGet resolution mutates dependencies in package then pr
         assert File.Exists(sharedOutput)
         assert ResolverContainsPath(result.RuntimeAssets, sharedOutput)
         assert ResolverContainsPath(result.RuntimeAssets, newtonsoftRuntime)
+        assert Directory.GetDirectories(packagesRoot).Length == 1, "Newtonsoft.Json's net6.0 group has no dependencies, so resolution must fetch nothing into the packages folder."
         runtimeAssetFound := false
         for runtimeAsset in result.RuntimeAssets {
             if string.Equals(Path.GetFileName(runtimeAsset), "NSharpLang.Runtime.dll", StringComparison.OrdinalIgnoreCase) {

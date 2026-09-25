@@ -918,6 +918,22 @@ reference image through `ExternalHostProjectDirectory()` / `ExternalHostReferenc
 both ways with THIS tree's SDK and pairs each image, so the next layout change fails there, before any
 reseed.
 
+### 4c. Estate Rows Never Read the Machine's Package Cache
+`./scripts/dev.sh --estate` must pass on a clean machine, and a clean machine's `~/.nuget/packages`
+holds only what the estate's own restores put there. MEASURED (2026-09-25, a fresh container at
+`76e5177a`): every estate row passed except `CompilationReferenceResolver.tests.nl`'s "project and
+local NuGet resolution..." row, which copied a real Newtonsoft.Json 13.0.3 out of the machine's cache
+and threw because only 13.0.1 had been restored. It passed only where something outside the estate
+had already restored that exact version. A row that needs a package
+WRITES one into its own scratch packages folder (`ResolverWritePackage`,
+`ResolverWriteNewtonsoftPackage`): the resolver reads only the nuspec and the asset folders' file names,
+so a framework assembly can stand in for the package's DLL. Such a row should also assert that the
+packages folder holds only what it wrote, because a resolver that walks the wrong dependency group
+otherwise downloads the missing packages and passes anyway.
+`tests/native/reference-resolution`'s build-and-publish row still copies the real 13.0.3 from the
+cache, because it RUNS a program that calls `JsonConvert.SerializeObject`, so a stand-in will not do
+there.
+
 ### 5. The Product Gate Skips Steps With Unchanged Inputs
 Within a plain fresh isolated `./scripts/test-all.sh` development run, a gate step is skipped when
 its ENTIRE input set is byte-identical to inputs that previously PASSED that step on the same
