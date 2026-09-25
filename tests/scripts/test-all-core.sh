@@ -459,6 +459,14 @@ else
     # answered for `ColumnarParserRecovery`, `ColumnarNodeTable` and `ColumnarExpressionNodeKind`;
     # the first was fixed in the resolver, the second by the imports NL002 asks for.
     #
+    # 2026-09-25, before Compiler.Driver is carved out of Core: Core 1,205. Driver's own files carried
+    # 56 of the 1,261 (NL002 18, NL905 12, NL011 8, NL010 8, NL202 7, NL012 2, NL907 1) and are now
+    # clean, because once Driver is its own project it sits ABOVE Core: its check begins by building
+    # Core as a project reference, so its own count cannot be read while Core's is above zero, and
+    # it has to start at zero rather than carry debt no step can see. Measured with the same tip CLI
+    # against both trees, the identity diff is zero additions and those 56 removals, every one in a
+    # Driver file.
+    #
     # -1 means BLOCKED, not clean. `check` on a project that REFERENCES Compiler.Core builds that
     # reference first, and that build fails while Core's own front door is not clean -- so those two
     # produce an error envelope instead of a diagnostic list and there is nothing to count yet. The
@@ -467,7 +475,7 @@ else
     SELF_HOST_CEILINGS=(
         0
         0
-        1261
+        1205
         -1
         -1
         0

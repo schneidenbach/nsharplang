@@ -1,5 +1,6 @@
 namespace NSharpLang.Cli
 
+import System.Collections.Generic
 import NSharpLang.Compiler
 
 // THE SDK'S IL-EMIT TASK — THE DECISIONS EVERY `dotnet build` OF AN N# PROJECT RUNS THROUGH.

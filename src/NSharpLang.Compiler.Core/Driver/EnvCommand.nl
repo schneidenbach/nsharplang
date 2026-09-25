@@ -72,6 +72,8 @@ class EnvCommand {
                 return result.Stdout.Trim()
             }
         } catch {
+            // A tool that cannot be started reports nothing, the same as one that exits nonzero.
+            return null
         }
 
         return null
@@ -134,9 +136,9 @@ class EnvCommand {
             config := ProjectFileParser.Parse(projectYml)
             return new EnvProjectInfo(config.Name, config.TargetFramework, config.OutputType, config.Sdk)
         } catch {
+            // A project.yml the parser cannot read describes no project; env reports none.
+            return null
         }
-
-        return null
     }
 
     static func PrintText(nlcVersion: string, dotnetVersion: string, runtime: string, os: string, arch: string, nugetCachePath: string, nsharpBinPath: string, nsharpPackageCachePath: string, projectInfo: EnvProjectInfo?) {

@@ -83,8 +83,15 @@ sealed class CompilationReferenceResolver {
         selectedVersions := SelectNuGetPackageVersions(packageReferences, config.TargetFramework, context.PackagesRoot)
 
         for packageReference in packageReferences {
+            // A NuGet reference always names its package (`Reference.Type` answers NuGet only for a
+            // named one); the version selection above skips an unnamed one the same way.
+            packageName := packageReference.Nuget
+            if packageName == null {
+                continue
+            }
+
             packageAssets := ResolveNuGetPackage(
-                packageReference.Nuget,
+                packageName,
                 packageReference.Version,
                 config.TargetFramework,
                 context,
@@ -108,14 +115,15 @@ sealed class CompilationReferenceResolver {
         projectIndex := 0
         while projectIndex < projectReferences.Count {
             projectReference := projectReferences[projectIndex]
-            if !options.BuildProjectReferences {
+            projectPath := projectReference.Project
+            if !options.BuildProjectReferences || projectPath == null {
                 projectIndex = projectIndex + 1
                 continue
             }
 
             resolvedProjectReferencePath := CompilationReferenceResolverKernels.ResolveProjectReferencePath(
                 projectRoot,
-                projectReference.Project
+                projectPath
             )
             referencedProjectRoot := ProjectReferenceResolver.ResolveNSharpProjectRoot(resolvedProjectReferencePath)
             referencedProjectYml := CompilationReferenceResolverKernels.GetProjectYmlPath(referencedProjectRoot)
@@ -215,9 +223,10 @@ sealed class CompilationReferenceResolver {
                 false,
                 true
             )
-            if CompilationReferenceResolverKernels.ShouldTreatProjectReferenceBuildAsFailed(
+            builtAssemblyPath := compilationResult.OutputAssemblyPath
+            if builtAssemblyPath == null || CompilationReferenceResolverKernels.ShouldTreatProjectReferenceBuildAsFailed(
                 compilationResult.Success,
-                compilationResult.OutputAssemblyPath
+                builtAssemblyPath
             ) {
                 failedProjectYml := CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot)
                 formattedDiagnostics := FormatCompilerDiagnostics(compilationResult.Errors)
@@ -232,12 +241,12 @@ sealed class CompilationReferenceResolver {
             }
 
             if CompilationReferenceResolverKernels.IsExecutableOutputType(config.OutputType) {
-                CompilationArtifacts.WriteRuntimeConfig(config, compilationResult.OutputAssemblyPath)
+                CompilationArtifacts.WriteRuntimeConfig(config, builtAssemblyPath)
             }
 
             references.CopyRuntimeAssets(outputDirectory)
             resolvedOutput = new ResolvedProjectReference(
-                compilationResult.OutputAssemblyPath,
+                builtAssemblyPath,
                 references
             )
             context.ProjectOutputs[projectRoot] = resolvedOutput

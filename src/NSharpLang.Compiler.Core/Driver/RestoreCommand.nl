@@ -80,7 +80,7 @@ class RestoreCommand {
             propsPath := Path.Combine(objDir, "project.g.props")
             File.WriteAllText(propsPath, RestoreCommandKernels.GetGeneratedPropsTextWithPackageMetadata(config.TargetFramework, outputType, projectName, "il", config.TestFramework, baseSdk, packageId, packageReadme, packageAuthors, packageDescription, packageTags, packageLicenseExpression, packageProjectUrl, repositoryUrl, projectReferences))
 
-            if !RestoreReferencedProjects(projectRoot, quiet, visitedProjectRoots, projectDependencies) {
+            if !RestoreReferencedProjects(projectRoot, visitedProjectRoots, projectDependencies) {
                 return false
             }
 
@@ -114,7 +114,7 @@ class RestoreCommand {
         return resolvedProjectReferences
     }
 
-    static func RestoreReferencedProjects(projectRoot: string, quiet: bool, visitedProjectRoots: HashSet<string>, dependencies: List<Reference>): bool {
+    static func RestoreReferencedProjects(projectRoot: string, visitedProjectRoots: HashSet<string>, dependencies: List<Reference>): bool {
         i := 0
         while i < dependencies.Count {
             dependency := dependencies[i]

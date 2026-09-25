@@ -1,5 +1,7 @@
 namespace NSharpLang.Cli
 
+import System
+
 class ProgramCommandKernels {
     static func GetCommandKind(args: string[]): int {
         if args.Length == 0 {

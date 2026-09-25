@@ -23,7 +23,7 @@ class DotnetRunner {
         return RunProcessCore("dotnet", arguments, workingDirectory, captureOutput, timeout)
     }
 
-    static func RunPassthrough(arguments: string, workingDirectory: string? = null, verbose: bool = false): int {
+    static func RunPassthrough(arguments: string, workingDirectory: string? = null): int {
         psi := BuildPsi("dotnet", arguments, workingDirectory)
         psi.RedirectStandardOutput = false
         psi.RedirectStandardError = false
@@ -76,13 +76,18 @@ class DotnetRunner {
 
         exited := process.WaitForExit((int)effectiveTimeout.TotalMilliseconds)
         if !exited {
+            // A kill that fails (the process exited between the wait and the kill, or cannot be
+            // signalled) rides on the timeout as its inner exception rather than replacing it.
+            killFailure: Exception? = null
             try {
                 process.Kill(true)
-            } catch {
+            } catch error: Exception {
+                killFailure = error
             }
 
             process.Dispose()
-            throw new TimeoutException($"Process '{fileName} {arguments}' did not complete within {effectiveTimeout}.")
+            message := $"Process '{fileName} {arguments}' did not complete within {effectiveTimeout}."
+            throw new TimeoutException(message, killFailure)
         }
 
         process.WaitForExit()

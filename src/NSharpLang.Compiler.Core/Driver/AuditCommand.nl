@@ -76,6 +76,8 @@ class AuditCommand {
 
             document.Dispose()
         } catch {
+            // Output that is not the audit's JSON counts what was read before it stopped parsing.
+            return count
         }
 
         return count

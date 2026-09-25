@@ -5,7 +5,6 @@ import System.Collections
 import System.Collections.Generic
 import System.IO
 import Microsoft.Build.Framework
-import Microsoft.Build.Utilities
 import NSharpLang.Cli
 import NSharpLang.Compiler
 
@@ -145,7 +144,11 @@ class EmitIlAssembly: Microsoft.Build.Utilities.Task {
                 sourceIndex = sourceIndex + 1
             }
 
-            config := ProjectFileParser.Parse(ProjectFile)
+            projectFile := ProjectFile
+            if projectFile == null {
+                throw new ArgumentNullException("ProjectFile")
+            }
+            config := ProjectFileParser.Parse(projectFile)
             config.Version = SdkEmitTaskKernels.ResolveProjectVersion(config.Version, AssemblyVersion)
             SdkEmitTaskKernels.ApplyMsBuildDefines(config, Configuration, DefineConstants)
             AddResolvedDllReferences(config)

@@ -1,7 +1,6 @@
 namespace NSharpLang.ReferenceResolution.Tests
 
 import System
-import System.Collections.Generic
 import System.IO
 import System.Net.Http
 import System.Reflection
@@ -137,7 +136,7 @@ test "compiler diagnostic formatting uses the generic sequence, preserves order,
     second := new CompilerError(ErrorCode.InvalidSyntax, "generic second", 2, 1, ErrorSeverity.Error)
     successRows := ResolverFormattedDiagnosticRows(first, second)
     successEnumerator := successRows.GetEnumerator()
-    successSequence := ResolverDistinctDiagnosticEnumerable(successEnumerator, "ResolverDiagnosticSuccess")
+    successSequence := new ResolverGenericOnlyDiagnostics(successEnumerator)
     formatted := ResolverFormatCompilerDiagnostics(successSequence)
     assert formatted.get_Length() == 2
     firstFormatted := Convert.ToString(formatted.GetValue(0)) ?? ""
@@ -150,7 +149,7 @@ test "compiler diagnostic formatting uses the generic sequence, preserves order,
     beforeFailure := new CompilerError(ErrorCode.InvalidSyntax, "before iteration failure", 1, 1, ErrorSeverity.Error)
     throwingRows := ResolverThrowingDiagnosticRows(beforeFailure)
     throwingEnumerator := throwingRows.GetEnumerator()
-    throwingSequence := ResolverDistinctDiagnosticEnumerable(throwingEnumerator, "ResolverDiagnosticFailure")
+    throwingSequence := new ResolverGenericOnlyDiagnostics(throwingEnumerator)
     failure := ResolverCaptureDiagnosticFormattingFailure(throwingSequence)
     if failure == null {
         throw new InvalidOperationException("The throwing diagnostic iterator unexpectedly completed.")

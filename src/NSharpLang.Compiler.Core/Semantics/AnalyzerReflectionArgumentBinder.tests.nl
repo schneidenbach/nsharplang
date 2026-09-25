@@ -983,10 +983,12 @@ test "the per-argument score ladder orders candidates by how much was assumed" {
     )
 }
 
-test "a metadata-loaded check argument summary accepts an oblivious source array and rejects a nullable element" {
-    // The command facade is a real referenced N# assembly. Load its method signature through a
-    // separate MetadataLoadContext so the CLR array identity is not the compiler's own runtime
-    // array identity — the same boundary the Compiler project crosses when it calls the kernel.
+test "a metadata-loaded string array parameter accepts an oblivious source array and rejects a nullable element" {
+    // The analyzer's own assembly is a real referenced N# assembly. Load one of its `string[]`
+    // signatures through a separate MetadataLoadContext so the CLR array identity is not the
+    // compiler's own runtime array identity -- the boundary every project that calls into a
+    // referenced N# assembly crosses (the Compiler project calling `CheckCommandKernels.
+    // GetArgumentSummary(args: string[])` in Compiler.Driver is one).
     scan := ExternalAssemblyScan.OpenWithReferences(null)
     try {
         context := scan.Context
@@ -994,16 +996,16 @@ test "a metadata-loaded check argument summary accepts an oblivious source array
             throw new InvalidOperationException("The metadata context was not created.")
         }
 
-        facadePath := typeof(CheckCommandKernels).get_Assembly().get_Location()
-        facade := context.LoadFromAssemblyPath(facadePath)
-        facadeType := facade.GetType("NSharpLang.Cli.Commands.CheckCommandKernels")
-        if facadeType == null {
-            throw new InvalidOperationException("CheckCommandKernels was not found in the facade assembly.")
+        ownerPath := typeof(AnalyzerFunctionTypeFactory).get_Assembly().get_Location()
+        owner := context.LoadFromAssemblyPath(ownerPath)
+        ownerType := owner.GetType("NSharpLang.Compiler.AnalyzerFunctionTypeFactory")
+        if ownerType == null {
+            throw new InvalidOperationException("AnalyzerFunctionTypeFactory was not found in its own assembly.")
         }
 
-        method := facadeType.GetMethod("GetArgumentSummary")
+        method := ownerType.GetMethod("ToStringList")
         if method == null {
-            throw new InvalidOperationException("CheckCommandKernels.GetArgumentSummary was not found.")
+            throw new InvalidOperationException("AnalyzerFunctionTypeFactory.ToStringList was not found.")
         }
 
         parameter := method.GetParameters()[0]

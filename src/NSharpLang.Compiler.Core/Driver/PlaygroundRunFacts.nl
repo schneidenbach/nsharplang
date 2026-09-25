@@ -1,5 +1,6 @@
 namespace NSharpLang.Playground
 
+import System
 import NSharpLang.Compiler.Ast
 
 

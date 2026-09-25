@@ -2,7 +2,6 @@ namespace NSharpLang.Build.Tasks
 
 import System
 import Microsoft.Build.Framework
-import Microsoft.Build.Utilities
 import NSharpLang.Compiler
 
 /// <summary>

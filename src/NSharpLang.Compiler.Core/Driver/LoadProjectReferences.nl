@@ -74,7 +74,11 @@ class LoadProjectReferences: Microsoft.Build.Utilities.Task {
 
     override func Execute(): bool {
         try {
-            projection := SdkProjectReferenceProjection.Resolve(ProjectFile, ExistingProjectReferences)
+            projectFile := ProjectFile
+            if projectFile == null {
+                throw new ArgumentNullException("ProjectFile")
+            }
+            projection := SdkProjectReferenceProjection.Resolve(projectFile, ExistingProjectReferences)
             packageReferences := new ITaskItem[](projection.PackageReferences.Length)
             packageIndex := 0
             while packageIndex < packageReferences.Length {

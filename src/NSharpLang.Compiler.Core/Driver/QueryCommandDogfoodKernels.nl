@@ -78,6 +78,8 @@ class QueryCommandDogfoodKernels {
 
             document.Dispose()
         } catch {
+            // A reply that is not JSON carries no `ok` field.
+            return GetDaemonJsonExitCode(false, false)
         }
 
         return GetDaemonJsonExitCode(false, false)

@@ -1,5 +1,6 @@
 namespace NSharpLang.Cli
 
+import System
 import System.Collections.Generic
 
 // THE `nlc query batch` MESSAGE, DUPLICATE-ID AND PACKED-SUCCESS KERNELS.

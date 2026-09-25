@@ -1,5 +1,6 @@
 namespace NSharpLang.Cli
 
+import System
 import System.IO
 import System.Text
 

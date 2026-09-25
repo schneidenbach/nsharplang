@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler
 
 import System
-import System.Collections
 import System.Collections.Generic
 import System.IO
 import System.Linq

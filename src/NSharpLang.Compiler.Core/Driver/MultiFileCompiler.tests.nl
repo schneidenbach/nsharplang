@@ -130,9 +130,9 @@ test "MultiFileCompiler_CircularFileImports_ReportOneBoundedCycleDiagnostic" {
         cycle := MfcRecoveryFirstCode(compiler.AllErrors, ErrorCode.CircularImport)
 
         assert cycle.Message.Contains("A.nl -> B.nl -> C.nl -> A.nl", StringComparison.Ordinal)
-        assert cycle.HumanExplanation.Contains("A.nl -> B.nl -> C.nl -> A.nl", StringComparison.Ordinal)
-        assert cycle.ContextualHint.Contains("Import path: A.nl -> B.nl -> C.nl -> A.nl", StringComparison.Ordinal)
-        assert cycle.Suggestion.Contains("Move shared types", StringComparison.Ordinal)
+        assert (cycle.HumanExplanation ?? "").Contains("A.nl -> B.nl -> C.nl -> A.nl", StringComparison.Ordinal)
+        assert (cycle.ContextualHint ?? "").Contains("Import path: A.nl -> B.nl -> C.nl -> A.nl", StringComparison.Ordinal)
+        assert (cycle.Suggestion ?? "").Contains("Move shared types", StringComparison.Ordinal)
         assert (cycle.FileName ?? "").EndsWith("C.nl", StringComparison.Ordinal)
     } finally {
         MfcRecoveryDeleteTemp(root)
@@ -151,7 +151,7 @@ test "MultiFileCompiler_TwoFileCircularImports_DeduplicatesAnalyzerCycleDiagnost
         cycle := MfcRecoveryFirstCode(compiler.AllErrors, ErrorCode.CircularImport)
 
         assert cycle.Message.Contains("A.nl -> B.nl -> A.nl", StringComparison.Ordinal)
-        assert cycle.ContextualHint.Contains("Import path: A.nl -> B.nl -> A.nl", StringComparison.Ordinal)
+        assert (cycle.ContextualHint ?? "").Contains("Import path: A.nl -> B.nl -> A.nl", StringComparison.Ordinal)
     } finally {
         MfcRecoveryDeleteTemp(root)
     }
@@ -177,8 +177,8 @@ test "MultiFileCompiler_LongCircularFileImports_BoundsDiagnosticCyclePath" {
         assert cycle.Message.Contains("F00.nl -> F01.nl -> F02.nl -> F03.nl -> F04.nl -> F05.nl", StringComparison.Ordinal)
         assert cycle.Message.Contains("... (4 more imports) -> F10.nl -> F11.nl -> F00.nl", StringComparison.Ordinal)
         assert !cycle.Message.Contains("F06.nl -> F07.nl -> F08.nl -> F09.nl", StringComparison.Ordinal)
-        assert cycle.ContextualHint.Contains("... (4 more imports)", StringComparison.Ordinal)
-        assert cycle.Suggestion.Contains("Move shared types", StringComparison.Ordinal)
+        assert (cycle.ContextualHint ?? "").Contains("... (4 more imports)", StringComparison.Ordinal)
+        assert (cycle.Suggestion ?? "").Contains("Move shared types", StringComparison.Ordinal)
     } finally {
         MfcRecoveryDeleteTemp(root)
     }

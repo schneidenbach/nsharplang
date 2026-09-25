@@ -1,8 +1,5 @@
 namespace NSharpLang.Cli.Commands
 
-import System
-
-
 // CONTRACTS FOR THE DOC-MISS MESSAGE. The first line is load-bearing text that scripts and
 // humans both read; it must be byte-identical with and without an explanation, and the
 // explanation — when the doc-query owners have one — rides on its own line underneath.

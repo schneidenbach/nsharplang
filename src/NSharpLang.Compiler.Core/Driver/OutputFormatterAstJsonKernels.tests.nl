@@ -3,7 +3,6 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections
 import System.Collections.Generic
-import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 
 // CONTRACTS FOR WHAT A PARSED FILE LOOKS LIKE AS JSON (task 019 slice 5). These assertions came out
@@ -246,16 +245,16 @@ test "an int, a long and a double keep their own runtime type so they stay JSON 
     wide: object = 9L
     fraction: object = 1.5
 
-    assert OutputFormatterAstJsonKernels.AstValueToJson(number).GetType() == typeof(int)
-    assert OutputFormatterAstJsonKernels.AstValueToJson(wide).GetType() == typeof(long)
-    assert OutputFormatterAstJsonKernels.AstValueToJson(fraction).GetType() == typeof(double)
+    assert OutputFormatterAstJsonKernels.AstValueToJson(number) is int
+    assert OutputFormatterAstJsonKernels.AstValueToJson(wide) is long
+    assert OutputFormatterAstJsonKernels.AstValueToJson(fraction) is double
 }
 
 test "a bool keeps its runtime type and an enum is flattened to its name" {
     flag: object = true
     kind: object = UnaryOperator.Negate
 
-    assert OutputFormatterAstJsonKernels.AstValueToJson(flag).GetType() == typeof(bool)
+    assert OutputFormatterAstJsonKernels.AstValueToJson(flag) is bool
     renderedKind := OutputFormatterAstJsonKernels.AstValueToJson(kind)
     assert renderedKind != null
     assert renderedKind.ToString() == "Negate"
@@ -314,10 +313,8 @@ test "the collected member values are the node's own values, read through reflec
 
     members := OutputFormatterAstJsonKernels.CollectMembers(node.GetType(), node)
 
-    assert members[0].Value != null
-    assert members[0].Value.ToString() == "3"
-    assert members[3].Value != null
-    assert members[3].Value.ToString() == "42"
+    assert members[0].Value?.ToString() == "3"
+    assert members[3].Value?.ToString() == "42"
 }
 
 test "the sort is a real sort: a reversed list of members comes back in token order" {

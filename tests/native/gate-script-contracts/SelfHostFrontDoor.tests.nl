@@ -100,7 +100,7 @@ test "skipping the doomed build changes no ceiling and no ratchet comparison in 
     assert ceilings.Count == 6, "The self-host front door must carry six ceilings; found " + ceilings.Count.ToString() + "."
     assert ceilings[0] == "0", "Compiler.Model's front-door ceiling must stay 0; found '" + ceilings[0] + "'."
     assert ceilings[1] == "0", "Compiler.Syntax's front-door ceiling must stay 0; found '" + ceilings[1] + "'."
-    assert ceilings[2] == "1261", "Compiler.Core's front-door ceiling must stay 1261; found '" + ceilings[2] + "'."
+    assert ceilings[2] == "1205", "Compiler.Core's front-door ceiling must stay 1205; found '" + ceilings[2] + "'."
     assert ceilings[3] == "-1"
     assert ceilings[4] == "-1"
     assert ceilings[5] == "0", "Build.Tasks' front-door ceiling must stay 0; found '" + ceilings[5] + "'."

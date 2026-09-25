@@ -557,9 +557,8 @@ class ColumnarReferenceAssemblyWriter {
         typeReferences := MaterializeTypeReferences(module)
         for typeReference in typeReferences {
             owner := owners.Resolve(typeReference.FullName)
-            if SdkEmitTaskKernels.ShouldRescopeTypeReference(ScopeName(typeReference), owner != null) {
-                ownerKey: string = owner
-                typeReference.Scope = GetOrAddAssemblyReference(module, ownerNames[ownerKey])
+            if owner != null && SdkEmitTaskKernels.ShouldRescopeTypeReference(ScopeName(typeReference), true) {
+                typeReference.Scope = GetOrAddAssemblyReference(module, ownerNames[owner])
             }
         }
     }
@@ -704,7 +703,7 @@ class ColumnarReferenceAssemblyWriter {
             return ""
         }
         versionObject: object = version
-        return versionObject.ToString()
+        return versionObject.ToString() ?? ""
     }
 
     // ── MATERIALIZERS ───────────────────────────────────────────────────────────────────────────

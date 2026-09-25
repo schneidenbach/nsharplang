@@ -5,10 +5,8 @@ import System.Collections
 import System.Collections.Generic
 import System.IO
 import System.Reflection
-import System.Reflection.Emit
 import NSharpLang.Cli
 import NSharpLang.Compiler
-import NSharpLang.Compiler.Columnar
 
 func ResolverRepositoryRoot(): string {
     current: string? = AppContext.BaseDirectory
@@ -367,85 +365,22 @@ func* ResolverThrowingDiagnosticRows(first: CompilerError): IEnumerable<Compiler
     throw new InvalidOperationException("diagnostic iteration failed")
 }
 
-func ResolverDistinctDiagnosticEnumerable(
-    enumerator: IEnumerator<CompilerError>,
-    typeName: string
-): object {
-    noParameters := new Type[](0)
-    elementArguments := new Type[](1)
-    elementArguments[0] = typeof(CompilerError)
-    genericEnumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
-    genericEnumeratorDefinition := typeof(IEnumerator<int>).GetGenericTypeDefinition()
-    genericEnumerable := genericEnumerableDefinition.MakeGenericType(elementArguments)
-    genericEnumerator := genericEnumeratorDefinition.MakeGenericType(elementArguments)
-    nongenericEnumerable := typeof(System.Collections.IEnumerable)
+// A diagnostic sequence that answers ONLY through its generic slot: the untyped
+// `IEnumerable.GetEnumerator` throws, so formatting that walks the sequence untyped fails the row
+// instead of passing it. It hands out the enumerator it was given, so the row can read that
+// enumerator's state afterwards and see whether formatting closed it.
+class ResolverGenericOnlyDiagnostics: IEnumerable<CompilerError> {
+    enumerator: IEnumerator<CompilerError>
 
-    owner := TypeOfCreateBuilder(
-        typeName,
-        "CompilationReferenceResolver.DiagnosticEnumerable." + typeName,
-        0
-    )
-    owner.AddInterfaceImplementation(genericEnumerable)
-    owner.AddInterfaceImplementation(nongenericEnumerable)
-    enumeratorField := SourceDiscoveryTimingDefineField(owner, "Enumerator", genericEnumerator)
-
-    constructor := owner.DefineConstructor(
-        (MethodAttributes)6,
-        CallingConventions.Standard,
-        noParameters
-    )
-    constructorIl := constructor.GetILGenerator()
-    objectConstructor := ExecutorRequiredConstructor(typeof(object), noParameters)
-    constructorIl.Emit(OpCodes.Ldarg_0)
-    constructorIl.Emit(OpCodes.Call, objectConstructor)
-    constructorIl.Emit(OpCodes.Ret)
-
-    genericGetEnumeratorTarget := ExecutorRequiredMethod(genericEnumerable, "GetEnumerator", noParameters)
-    genericGetEnumerator := owner.DefineMethod(
-        "GenericGetEnumerator",
-        (MethodAttributes)481,
-        genericEnumerator,
-        noParameters
-    )
-    genericGetEnumeratorIl := TypeOfMethodBuilderIL(genericGetEnumerator)
-    genericGetEnumeratorIl.Emit(OpCodes.Ldarg_0)
-    genericGetEnumeratorIl.Emit(OpCodes.Ldfld, enumeratorField)
-    genericGetEnumeratorIl.Emit(OpCodes.Ret)
-    owner.DefineMethodOverride(genericGetEnumerator, genericGetEnumeratorTarget)
-
-    nongenericGetEnumeratorTarget := ExecutorRequiredMethod(
-        nongenericEnumerable,
-        "GetEnumerator",
-        noParameters
-    )
-    nongenericGetEnumerator := owner.DefineMethod(
-        "NongenericGetEnumerator",
-        (MethodAttributes)481,
-        typeof(System.Collections.IEnumerator),
-        noParameters
-    )
-    nongenericGetEnumeratorIl := TypeOfMethodBuilderIL(nongenericGetEnumerator)
-    exceptionParameters := new Type[](1)
-    exceptionParameters[0] = typeof(string)
-    exceptionConstructor := ExecutorRequiredConstructor(typeof(InvalidOperationException), exceptionParameters)
-    nongenericGetEnumeratorIl.Emit(OpCodes.Ldstr, "nongeneric diagnostic enumeration reached")
-    nongenericGetEnumeratorIl.Emit(OpCodes.Newobj, exceptionConstructor)
-    nongenericGetEnumeratorIl.Emit(OpCodes.Throw)
-    owner.DefineMethodOverride(nongenericGetEnumerator, nongenericGetEnumeratorTarget)
-
-    baked := IdentityBake(owner)
-    instanceConstructor := ExecutorRequiredConstructor(baked, noParameters)
-    instance := instanceConstructor.Invoke(new object[](0))
-    if instance == null {
-        throw new InvalidOperationException("The diagnostic enumerable fixture was not constructed.")
+    constructor(enumerator: IEnumerator<CompilerError>) {
+        this.enumerator = enumerator
     }
-    bakedEnumeratorField := baked.GetField("Enumerator")
-    if bakedEnumeratorField == null {
-        throw new InvalidOperationException("The diagnostic enumerable fixture lost its Enumerator field.")
+
+    func GetEnumerator(): IEnumerator<CompilerError> => enumerator
+
+    func IEnumerable.GetEnumerator(): IEnumerator {
+        throw new InvalidOperationException("nongeneric diagnostic enumeration reached")
     }
-    enumeratorObject: object = enumerator
-    bakedEnumeratorField.SetValue(instance, enumeratorObject)
-    return instance
 }
 
 func ResolverFormatCompilerDiagnostics(errors: object): Array {

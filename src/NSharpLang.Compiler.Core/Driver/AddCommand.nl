@@ -52,12 +52,8 @@ class AddCommand {
             }
         }
 
-        try {
-            config := ProjectFileParser.Parse(projectYml)
-            if AddCommandKernels.PackageOrFrameworkDependencyExists(config.Dependencies, packageName) {
-                return CommandOutputKernels.Error(AddCommandKernels.GetDuplicatePackageMessage(packageName))
-            }
-        } catch {
+        if DeclaresPackageOrFramework(projectYml, packageName) {
+            return CommandOutputKernels.Error(AddCommandKernels.GetDuplicatePackageMessage(packageName))
         }
 
         lineArray := File.ReadAllLines(projectYml)
@@ -84,13 +80,29 @@ class AddCommand {
         return 0
     }
 
-    static func AddProjectReference(projectYml: string, localPath: string): int {
+    // A project.yml the parser cannot read declares no dependency to duplicate: the duplicate check
+    // answers "no" for it, and the line-based edit that follows still applies.
+    static func DeclaresPackageOrFramework(projectYml: string, packageName: string): bool {
         try {
             config := ProjectFileParser.Parse(projectYml)
-            if AddCommandKernels.ProjectDependencyExists(config.Dependencies, localPath) {
-                return CommandOutputKernels.Error(AddCommandKernels.GetDuplicateProjectReferenceMessage(localPath))
-            }
+            return AddCommandKernels.PackageOrFrameworkDependencyExists(config.Dependencies, packageName)
         } catch {
+            return false
+        }
+    }
+
+    static func DeclaresProjectReference(projectYml: string, localPath: string): bool {
+        try {
+            config := ProjectFileParser.Parse(projectYml)
+            return AddCommandKernels.ProjectDependencyExists(config.Dependencies, localPath)
+        } catch {
+            return false
+        }
+    }
+
+    static func AddProjectReference(projectYml: string, localPath: string): int {
+        if DeclaresProjectReference(projectYml, localPath) {
+            return CommandOutputKernels.Error(AddCommandKernels.GetDuplicateProjectReferenceMessage(localPath))
         }
 
         lineArray := File.ReadAllLines(projectYml)
@@ -121,6 +133,9 @@ class AddCommand {
                 return version
             }
         } catch {
+            // An unreachable feed or an unreadable answer resolves no version; the caller reports
+            // the package as not found.
+            return null
         }
 
         return null

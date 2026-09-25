@@ -43,9 +43,11 @@ func CoreSliceGraph(): SliceGraph {
 // lands the count may only fall. Measured when this row was written: 116 reaches of product names
 // and 55 of other estate files' helpers, 111 of them from Model's estate. 161 since the Syntax carve
 // moved `AstNodeFinderCore.tests.nl` -- a Model-subject row set that parses through Syntax's own estate
-// helpers -- into Syntax's project, where its ten reaches of those helpers are its own slice's.
+// helpers -- into Syntax's project, where its ten reaches of those helpers are its own slice's. 160
+// since the binder's metadata-array row read a Semantics `string[]` signature instead of Driver's
+// `CheckCommandKernels`, before the Driver carve put that kernel in an assembly above Core's.
 func EstateUpwardCeiling(): int {
-    return 161
+    return 160
 }
 
 test "every Compiler.Core source file sits in one of the eight slice directories" {

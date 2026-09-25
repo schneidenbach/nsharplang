@@ -215,7 +215,7 @@ class SdkProjectConfiguration {
         if config.OutputType.ToLowerInvariant() == "library" {
             result.OutputType = "Library"
         }
-        result.AssemblyName = config.Name ?? must Path.GetFileName(projectDirectory)
+        result.AssemblyName = config.Name ?? Path.GetFileName(projectDirectory)
         result.Version = config.Version ?? ""
         if !string.IsNullOrWhiteSpace(result.Version) {
             result.AssemblyVersion = AssemblyVersionUtilities.GetAssemblyVersionOrDefault(result.Version).ToString()
