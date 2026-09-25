@@ -1745,8 +1745,10 @@ constraints.
 When inference has nothing to go on — a method whose type parameters appear only in its RESULT, or
 only in a lambda's PARAMETER and nowhere else — write the list. (A type parameter in a lambda's
 RESULT does not need it: the lambda's body decides it. `values.ConvertAll(v => v.ToString())` and
-`Comparer<int>.Create((a, b) => a - b)` both infer, and the lists written below are shown to
-document the spelling rather than because they are required.) It works on a static method, on an
+`Comparer<int>.Create((a, b) => a - b)` both infer, and so does `rows.ConvertAll(r => r.Label)` over
+a `List<Row>` of your own class `Row` — through a local, through a class that inherits `List<Row>`,
+and as that class's own bare `ConvertAll(...)` or `this.ConvertAll(...)`. The lists written below
+are shown to document the spelling rather than because they are required.) It works on a static method, on an
 instance method, and on a method of a constructed generic receiver:
 
 ```n#

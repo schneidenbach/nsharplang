@@ -172,6 +172,62 @@ class ColumnarContextualExtensionInference {
         return true
     }
 
+    // PHASE ONE, OPENED FOR AN OWNER THAT ANSWERS NO MEMBER QUERY OF ITS OWN. `List<Item>` for a
+    // source class `Item` is a `TypeBuilderInstantiation`, so `local.ConvertAll(i => i.Label)` has
+    // its candidate read off the open DEFINITION instead — `List<T>.ConvertAll<TOutput>` — exactly as
+    // the ordinary resolver reads a non-generic member of the same receiver. The signature is closed
+    // over the receiver's arguments by the ordinary resolver's own substitution, so the lambda's input
+    // is `Item` and only the method's OWN type parameters are left for inference. The handle is
+    // rebound onto the closed owner here, and `TryClose` then closes that rebound handle over the
+    // inference exactly as it closes any other generic method definition.
+    static func TryBeginDirectThroughDefinition(method: MethodInfo?, closedOwner: Type, definition: Type, closedArguments: Type[], argumentCount: int, out binding: ColumnarContextualExtensionBinding?): bool {
+        binding = null
+        if method == null || argumentCount < 1 {
+            return false
+        }
+
+        parameters := ColumnarExtensionMethodResolver.ParametersOrNull(method)
+        if parameters == null || parameters.Length != argumentCount {
+            return false
+        }
+
+        let parameterTypes: Type[]? = null
+        let returnType: Type? = null
+        let rebound: MethodInfo? = null
+        try {
+            parameterTypes = ColumnarOrdinaryRuntimeDirectCallResolver.ResolveParameterTypes(method, definition, parameters, closedArguments)
+            returnType = ColumnarOrdinaryRuntimeDirectCallResolver.ResolveReturnType(method, definition, closedArguments)
+            rebound = ColumnarClosedGenericMemberResolver.RebindOntoClosedOwner(method, closedOwner)
+        } catch {
+            return false
+        }
+
+        if parameterTypes == null || returnType == null || rebound == null {
+            return false
+        }
+
+        // A declaration the rebind could not close keeps its open owner, and an open owner names no
+        // member an emitted call can reach.
+        reboundDeclaringType := rebound.DeclaringType
+        if reboundDeclaringType == null || reboundDeclaringType.ContainsGenericParameters {
+            return false
+        }
+
+        typeParameters := new Type[](0)
+        if method.IsGenericMethodDefinition {
+            declared := method.GetGenericArguments()
+            if declared == null || declared.Length == 0 {
+                return false
+            }
+
+            typeParameters = declared
+        }
+
+        candidate := new ColumnarExtensionMethodCandidate(rebound, reboundDeclaringType, parameterTypes, returnType)
+        binding = new ColumnarContextualExtensionBinding(candidate, typeParameters, new Type[](typeParameters.Length), argumentCount, 0)
+        return true
+    }
+
     // PHASE ONE, ONE ARGUMENT: an argument whose type is already known unifies against its declared
     // slot. A slot with nothing open in it carries no inference and the ordinary argument match
     // validates it later, exactly as it does for a non-generic candidate.
@@ -446,7 +502,7 @@ class ColumnarContextualExtensionInference {
         try {
             invoke = delegateType.GetMethod("Invoke")
         } catch {
-            return false
+            return TryReadDelegateSignatureThroughDefinition(delegateType, out parameterTypes, out returnType)
         }
 
         if invoke == null {
@@ -466,6 +522,46 @@ class ColumnarContextualExtensionInference {
         parameterTypes = declared
         returnType = invokeReturnType
         return true
+    }
+
+    // A DELEGATE CLOSED OVER A TYPE THIS COMPILATION IS WRITING cannot be asked for its `Invoke`:
+    // `Converter<Item, TOutput>` for a source class `Item` is a `TypeBuilderInstantiation`, and it
+    // answers no member query. Its DEFINITION's `Invoke` is spelled in the definition's own
+    // parameters, which this instantiation supplies by position — the same substitution a member of
+    // any other builder-bound owner is closed with.
+    static func TryReadDelegateSignatureThroughDefinition(delegateType: Type, out parameterTypes: Type[], out returnType: Type): bool {
+        parameterTypes = new Type[](0)
+        returnType = typeof(object)
+        if !delegateType.IsGenericType || delegateType.IsGenericTypeDefinition {
+            return false
+        }
+
+        try {
+            arguments := delegateType.GetGenericArguments()
+            invoke := delegateType.GetGenericTypeDefinition().GetMethod("Invoke")
+            if invoke == null {
+                return false
+            }
+
+            declared := ColumnarExtensionMethodResolver.ParameterTypesOrNull(ColumnarExtensionMethodResolver.ParametersOrNull(invoke) ?? new ParameterInfo[](0))
+            invokeReturnType := ColumnarExtensionMethodResolver.ReturnTypeOrNull(invoke)
+            if declared == null || invokeReturnType == null {
+                return false
+            }
+
+            closed := new Type[](declared.Length)
+            index := 0
+            while index < declared.Length {
+                closed[index] = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(declared[index], arguments)
+                index = index + 1
+            }
+
+            parameterTypes = closed
+            returnType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(invokeReturnType, arguments)
+            return true
+        } catch {
+            return false
+        }
     }
 
     // A delegate as METADATA sees it: the base chain reaches one of the two roots. The runtime

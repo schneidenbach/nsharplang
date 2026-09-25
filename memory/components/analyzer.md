@@ -1547,6 +1547,30 @@ through `TryResolveContextualDirectCandidate` — declined at `emit.call.instanc
 ambiguity (a group whose overloads make TWO `Select` overloads applicable) is still NL414, matching
 C# CS0121.
 
+**THE CONTEXTUAL TIER READS A BUILDER-BOUND OWNER THROUGH ITS DEFINITION** (2026-09-25).
+`TryResolveContextualDirectCandidate` refused every owner for which `ContainsBuilderBoundType` held,
+so `local.ConvertAll(i => i.Label)` over a `List<Item>` of a source class `Item` declined at
+`emit.call.instance-member` — `List<Item>` is a `TypeBuilderInstantiation` and answers no member
+query — while the same call over `List<string>`, and the NON-generic `local.Exists(i => ...)` over
+`List<Item>` (which the ordinary resolver serves through the definition), emitted.
+`ContextualDirectBindings` now asks `ColumnarOrdinaryRuntimeDirectCallResolver`'s own
+`TryGetBuilderBoundRuntimeDefinition` / `CandidateMethods` / `IsPublicCandidateForLookup` of the
+open definition, and `ColumnarContextualExtensionInference.TryBeginDirectThroughDefinition` closes
+the candidate's signature over the receiver's arguments with that resolver's
+`ResolveParameterTypes` / `ResolveReturnType` (so the lambda's input is `Item` and only `TOutput`
+is left to infer) and rebinds the handle with `ColumnarClosedGenericMemberResolver.RebindOntoClosedOwner`;
+`TryClose` then calls `MakeGenericMethod` on that rebound handle. The delegate slot needed the same
+fallback: `Converter<Item, TOutput>` is builder-bound too, so `TryReadOpenDelegateSignature` reads the
+definition's `Invoke` and substitutes by position when the instantiation's own `Invoke` cannot be
+asked. The member-access residual retries the contextual walk on `ColumnarInheritedExternalBase`
+(`items.ConvertAll(...)` on `class Items: List<Item>`), and the bare-call walk gained
+`TryEmitInheritedContextualBareCall` for `ConvertAll(...)` / `this.ConvertAll(...)` inside that class
+— the planner's inherited-base arm plans only calls whose arguments already have types. Still open:
+an inherited-base call written inside a CLOSURE (`() => this.Exists(...)`) declines for generic and
+non-generic members alike, and the analyzer does not type a bare inherited `ConvertAll(x => ...)`
+inside a generic `class Bag<T>: List<T>` (NL203). Rows:
+`tests/native/census-source-typed-generic-receiver/SourceTypedLambdaInference*.nl`.
+
 **A PREFLIGHTED BLOCK LAMBDA'S OWN LOCALS ARE PART OF ITS FRAME** (2026-09-14, stream CAPTURE3).
 `ColumnarIlEmitter.CollectBlockReturnTypes` typed each `return` in a frame carrying the lambda's
 parameters and the enclosing scope and nothing the BLOCK declared, so

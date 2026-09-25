@@ -13882,6 +13882,9 @@ sealed class ColumnarIlEmitter {
                 if (TryEmitDelegateInvoke(idx, name, out columnarResolvedType)) {
                     return true
                 }
+                if (TryEmitInheritedContextualBareCall(idx, name, out columnarResolvedType)) {
+                    return true
+                }
                 return Decline("emit.call.bare-unresolved", "bare call '" + name + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
             }
             if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.GenericCallee) {
@@ -24842,8 +24845,41 @@ sealed class ColumnarIlEmitter {
     // The candidates an ordinary (non-extension) call has: every public method of that name on the
     // owner, at this arity. Instance and static are the same question asked with different binding
     // flags, which is why one member answers both.
+    //
+    // AN EXTERNAL GENERIC CLOSED OVER A SOURCE TYPE ANSWERS THROUGH ITS DEFINITION. `List<Item>` for
+    // a source class `Item` is a `TypeBuilderInstantiation` and answers no member query, so
+    // `local.ConvertAll(i => i.Label)` declined here while the same call over `List<string>` emitted.
+    // The candidates are the open definition's, admitted by the ordinary resolver's own rules and
+    // closed over the receiver's arguments by its own substitution; a receiver that is itself a
+    // source type (or a source generic) has no such definition and stays refused.
     private func ContextualDirectBindings(ownerType: Type, member: string, argCount: int, wantStatic: bool): List<NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding> {
         bindings := new List<NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding>()
+        definition := typeof(object)
+        closedArguments := System.Array.Empty<Type>()
+        if (ColumnarOrdinaryRuntimeDirectCallResolver.TryGetBuilderBoundRuntimeDefinition(ownerType, out definition, out closedArguments)) {
+            let definitionCandidates: System.Reflection.MethodInfo[]? = null
+            try {
+                definitionCandidates = ColumnarOrdinaryRuntimeDirectCallResolver.CandidateMethods(definition)
+            } catch {
+                return bindings
+            }
+            if (definitionCandidates == null) {
+                return bindings
+            }
+            for definitionCandidate in definitionCandidates {
+                if (definitionCandidate == null || !ColumnarOrdinaryRuntimeDirectCallResolver.IsPublicCandidateForLookup(definitionCandidate, definition, member, wantStatic)) {
+                    continue
+                }
+                let definitionBinding: NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding? = null
+                if (ColumnarContextualExtensionInference.TryBeginDirectThroughDefinition(definitionCandidate, ownerType, definition, closedArguments, argCount, out definitionBinding)) {
+                    bindings.Add(definitionBinding)
+                }
+            }
+            return bindings
+        }
+        if (RuntimeTypeShapeFacts.ContainsBuilderBoundType(ownerType)) {
+            return bindings
+        }
         let candidates: System.Reflection.MethodInfo[]? = null
         try {
             candidates = wantStatic ? ownerType.GetMethods(BindingFlags.Public | BindingFlags.Static) : ownerType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
@@ -24867,7 +24903,7 @@ sealed class ColumnarIlEmitter {
 
     private func TryResolveContextualDirectCandidate(callIdx: int, ownerType: Type, member: string, argCount: int, wantStatic: bool, out closedCandidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate): bool {
         closedCandidate = null
-        if (ownerType == null || argCount < 1 || ownerType.IsByRef || ownerType.IsPointer || ownerType.IsGenericParameter || RuntimeTypeShapeFacts.ContainsBuilderBoundType(ownerType) || !HasContextualDelegateArgument(callIdx, argCount)) {
+        if (ownerType == null || argCount < 1 || ownerType.IsByRef || ownerType.IsPointer || ownerType.IsGenericParameter || !HasContextualDelegateArgument(callIdx, argCount)) {
             return false
         }
         bindings := ContextualDirectBindings(ownerType, member, argCount, wantStatic)
@@ -25098,14 +25134,7 @@ sealed class ColumnarIlEmitter {
         if (!TryResolveContextualDirectCandidate(callIdx, receiverType, member, argCount, false, out candidate)) {
             return false
         }
-        for a := 0; a < argCount; a++ {
-            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), candidate.ParameterTypes[a], true)) {
-                return false
-            }
-        }
-        _il.Emit(OpCodes.Callvirt, candidate.Method)
-        columnarResolvedType = candidate.ReturnType
-        return true
+        return EmitContextualDirectCall(callIdx, candidate, argCount, OpCodes.Callvirt, out columnarResolvedType)
     }
 
     private func TryEmitContextualStaticCall(callIdx: int, ownerType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
@@ -25114,12 +25143,48 @@ sealed class ColumnarIlEmitter {
         if (!TryResolveContextualDirectCandidate(callIdx, ownerType, member, argCount, true, out candidate)) {
             return false
         }
+        return EmitContextualDirectCall(callIdx, candidate, argCount, OpCodes.Call, out columnarResolvedType)
+    }
+
+    // A BARE CALL TO A MEMBER INHERITED FROM A BASE THIS COMPILATION DID NOT WRITE, WHOSE TYPE
+    // ARGUMENTS ONLY A DELEGATE ARGUMENT CAN DECIDE. `ConvertAll(i => i.Label)` inside
+    // `class Items: List<Item>` — and `this.ConvertAll(...)`, which the parser flattens to the same
+    // bare callee — is planned by the inherited-base arm of the direct-call planner only when every
+    // argument already has a type; a lambda has none until `TOutput` is inferred, so the call reached
+    // this walk with no tier left and declined, while `items.ConvertAll(...)` through a receiver
+    // resolved. The candidate is chosen on the external base by the same contextual walk, and the
+    // receiver is `this`.
+    //
+    // A SOURCE DECLARATION OF THE NAME AT ANY ARITY HIDES THE WHOLE EXTERNAL CHAIN, exactly as it
+    // does for the planner's arm, so such a name never reaches the base here.
+    private func TryEmitInheritedContextualBareCall(callIdx: int, member: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_currentStruct == null || _currentStruct.IsClosureDisplay || !_currentStruct.IsReference || ColumnarSourceDirectCallResolver.HasInstanceDeclaration(_currentStruct, member)) {
+            return false
+        }
+        inheritedBase := ColumnarInheritedExternalBase.Resolve(_currentStruct, null)
+        if (inheritedBase == null) {
+            return false
+        }
+        argCount := _nodes.ChildCount(callIdx) - 1
+        let candidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate? = null
+        if (!TryResolveContextualDirectCandidate(callIdx, inheritedBase, member, argCount, false, out candidate)) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldarg_0)
+        return EmitContextualDirectCall(callIdx, candidate, argCount, OpCodes.Callvirt, out columnarResolvedType)
+    }
+
+    // The arguments against the closed candidate's parameters, then the call instruction. Whatever
+    // receiver the call has is already on the stack.
+    private func EmitContextualDirectCall(callIdx: int, candidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate, argCount: int, callOpcode: OpCode, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
         for a := 0; a < argCount; a++ {
             if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), candidate.ParameterTypes[a], true)) {
                 return false
             }
         }
-        _il.Emit(OpCodes.Call, candidate.Method)
+        _il.Emit(callOpcode, candidate.Method)
         columnarResolvedType = candidate.ReturnType
         return true
     }
@@ -25351,6 +25416,15 @@ sealed class ColumnarIlEmitter {
         // already keeps one tier above. A TYPE PARAMETER's instance members are the ones its
         // constraint declares, so that arm answers the same question and keeps the same precedence.
         if (TryEmitContextualInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        // THE SAME WALK, ASKED OF THE BASE THIS COMPILATION DID NOT WRITE — the contextual twin of the
+        // inherited ordinary tier above. `items.ConvertAll(i => i.Label)` on `class Items: List<Item>`
+        // has a `TypeBuilder` receiver that declares nothing, and its base `List<Item>` is where the
+        // candidate lives; only the lookup moves, the receiver already on the stack is dispatched
+        // with `callvirt` exactly as a base-typed receiver would be.
+        if (inheritedReceiverType != null && TryEmitContextualInstanceCall(callIdx, inheritedReceiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
 
