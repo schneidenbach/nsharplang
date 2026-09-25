@@ -45,9 +45,14 @@ func CoreSliceGraph(): SliceGraph {
 // moved `AstNodeFinderCore.tests.nl` -- a Model-subject row set that parses through Syntax's own estate
 // helpers -- into Syntax's project, where its ten reaches of those helpers are its own slice's. 160
 // since the binder's metadata-array row read a Semantics `string[]` signature instead of Driver's
-// `CheckCommandKernels`, before the Driver carve put that kernel in an assembly above Core's.
+// `CheckCommandKernels`, before the Driver carve put that kernel in an assembly above Core's. 141
+// before the CodeIntel carve, whose kernels the rows below it may not name once CodeIntel is an
+// assembly above Core's: the linter's placeholder door, the source event's rendering and the backtick
+// rule moved beside their CodeIntel subjects, the analyzer's reference-pack fixtures locate the packs
+// through the reference resolver's kernel instead of DocQuery's, and the instance-member row reads a
+// Model type's getter instead of a CodeIntel one's (19 reaches).
 func EstateUpwardCeiling(): int {
-    return 160
+    return 141
 }
 
 test "every Compiler.Core source file sits in one of the eight slice directories" {

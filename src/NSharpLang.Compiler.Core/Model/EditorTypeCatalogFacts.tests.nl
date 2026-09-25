@@ -19,8 +19,10 @@ import NSharpLang.Compiler
 //     segment prefix is case-SENSITIVE; both are asserted, together, so neither can be "fixed" into
 //     the other by accident.
 //   * THE BACKTICK RULE IS PINNED ON BOTH SIDES. `CompletionTypeDisplayName` truncates at the first
-//     arity suffix; `DocQueryKernels.StripGenericArity` removes every one. The blocks assert they
-//     AGREE on a `Type.Name` and DIFFER on a two-run name, so the divergence stays a recorded fact.
+//     arity suffix; `DocQueryKernels.StripGenericArity` removes every one. The block that asserts
+//     they AGREE on a `Type.Name` and DIFFER on a two-run name sits beside DocQuery's own rows
+//     (`CodeIntel/DocQueryKernels.tests.nl`), the slice that can read both, so the divergence stays
+//     a recorded fact.
 func EtcIndexOf(values: string[], value: string): int {
     index := 0
     while index < values.Length {
@@ -289,19 +291,6 @@ test "the completion display name truncates at the FIRST arity backtick" {
     assert EditorTypeCatalogFacts.CompletionTypeDisplayName("Dictionary`2") == "Dictionary"
     assert EditorTypeCatalogFacts.CompletionTypeDisplayName("Console") == "Console"
     assert EditorTypeCatalogFacts.CompletionTypeDisplayName("") == ""
-}
-
-test "the display rule AGREES with StripGenericArity on a Type name and DIFFERS on a two-run one" {
-    // A `Type.Name` carries at most ONE arity suffix, and over all 1,391 exported types the
-    // editor's universe can reach the two rules were measured identical.
-    assert EditorTypeCatalogFacts.CompletionTypeDisplayName("List`1") == DocQueryKernels.StripGenericArity("List`1")
-    assert EditorTypeCatalogFacts.CompletionTypeDisplayName("Dictionary`2") == DocQueryKernels.StripGenericArity("Dictionary`2")
-    assert EditorTypeCatalogFacts.CompletionTypeDisplayName("Console") == DocQueryKernels.StripGenericArity("Console")
-
-    // They are DIFFERENT total functions, and this is where they part. Recorded rather than
-    // unified, because unifying them changes what `nlc query` prints too.
-    assert EditorTypeCatalogFacts.CompletionTypeDisplayName("Outer`1Inner`2") == "Outer"
-    assert DocQueryKernels.StripGenericArity("Outer`1Inner`2") == "OuterInner"
 }
 
 // ── what may be offered ──────────────────────────────────────────────────────────────────────

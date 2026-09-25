@@ -3,7 +3,6 @@ namespace NSharpLang.Compiler.CodeIntelligence
 import System
 import System.Collections.Generic
 import System.IO
-import System.Reflection
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 

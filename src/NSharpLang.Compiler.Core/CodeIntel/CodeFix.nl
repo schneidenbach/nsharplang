@@ -4,10 +4,12 @@ import System
 import System.Collections.Generic
 import System.Text
 
+// Every provider takes the three arguments `CodeFixService` dispatches to all of them; a provider
+// that does not read one of them names it with a leading underscore.
 class CodeFixProvider {
     FixableDiagnosticCodes: IEnumerable<string> => new string[](0)
 
-    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(_diagnostic: Diagnostic, _ast: object, _sourceCode: string): List<CodeAction> {
         return new List<CodeAction>()
     }
 }
@@ -61,7 +63,7 @@ class AddMissingImportCodeFixProvider {
 class RemoveUnusedVariableCodeFixProvider {
     FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL001")
 
-    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(diagnostic: Diagnostic, _ast: object, sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
         line := diagnostic.Location.Line
 
@@ -79,7 +81,7 @@ class RemoveUnusedVariableCodeFixProvider {
 class RemoveUnnecessaryNullCheckCodeFixProvider {
     FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL003")
 
-    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(diagnostic: Diagnostic, _ast: object, sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
         line := diagnostic.Location.Line
 
@@ -99,7 +101,7 @@ class RemoveUnnecessaryNullCheckCodeFixProvider {
 class PossibleNullAccessCodeFixProvider {
     FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL905")
 
-    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(diagnostic: Diagnostic, _ast: object, sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
         line := diagnostic.Location.Line
 
@@ -126,7 +128,7 @@ class PossibleNullAccessCodeFixProvider {
 class AddCommentToEmptyCatchCodeFixProvider {
     FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL011")
 
-    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(diagnostic: Diagnostic, _ast: object, sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
         line := diagnostic.Location.Line
 
@@ -145,7 +147,7 @@ class AddCommentToEmptyCatchCodeFixProvider {
 class RemoveUnusedImportCodeFixProvider {
     FixableDiagnosticCodes: IEnumerable<string> => CodeFixActionHelpers.SingleDiagnosticCode("NL010")
 
-    func GetCodeActions(diagnostic: Diagnostic, ast: object, sourceCode: string): List<CodeAction> {
+    func GetCodeActions(diagnostic: Diagnostic, _ast: object, _sourceCode: string): List<CodeAction> {
         actions := new List<CodeAction>()
         line := diagnostic.Location.Line
         if line <= 0 {

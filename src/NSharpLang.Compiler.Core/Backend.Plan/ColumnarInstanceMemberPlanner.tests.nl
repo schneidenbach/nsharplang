@@ -4,7 +4,6 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
-import NSharpLang.Compiler.CodeIntelligence
 
 class ColumnarInstanceMemberByRefProbe {
     static func SourceStruct(out _value: ColumnarBoundIdentifierCurrentStructProbe): bool {
@@ -1270,10 +1269,10 @@ test "ordinary baked receivers select inherited fields and getters and reject un
     assert !ColumnarRuntimeInstanceMemberResolver.TrySelect(typeof(List<int>), "Item", out indexed)
 
     facadeMatch := ColumnarRuntimeInstanceMemberSelection.Empty()
-    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(typeof(CompilationUnitMatch), "FilePath", out facadeMatch)
+    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(typeof(FileResolver), "ProjectRoot", out facadeMatch)
     assert !facadeMatch.IsField
     assert facadeMatch.ResultType == typeof(string)
-    assert facadeMatch.DeclaringType == typeof(CompilationUnitMatch)
+    assert facadeMatch.DeclaringType == typeof(FileResolver)
 }
 
 test "ordinary baked getter plans evaluate the receiver once and preserve getter side effects" {

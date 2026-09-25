@@ -499,10 +499,17 @@ else
     # Tooling 0 (its 16 files, estate included, against built Core), Driver 0 (now against built
     # Tooling), Compiler 34, Playground 0, Build.Tasks 0.
     #
+    # 2026-09-25, before Compiler.CodeIntel is carved out of Core (above Core, below Tooling): Core
+    # 1,029. CodeIntel's own files carried 173 of the 1,202 (NL905 118, NL010 24, NL202 15, NL012 11,
+    # NL002 4, NL907 1; 146 in its estate, 27 in its product) and are now clean, for the same reason
+    # Tooling's were: once CodeIntel is its own project above Core its count is its own, and it starts
+    # at zero. Measured with the same tip CLI against both trees, the identity diff is zero additions
+    # and those 173 removals, every one in a CodeIntel file.
+    #
     SELF_HOST_CEILINGS=(
         0
         0
-        1202
+        1029
         0
         0
         34

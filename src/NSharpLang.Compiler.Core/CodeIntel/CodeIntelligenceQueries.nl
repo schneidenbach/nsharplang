@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System.Collections.Generic
 import System.IO
-import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.Columnar
 

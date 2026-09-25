@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler
 
-import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
@@ -100,11 +99,18 @@ func LncpAllOperands(): List<Expression> {
 // ── the shape both rules read ────────────────────────────────────────────────────────────────
 
 test "the checked operand is the one that is NOT the null literal, in either order" {
+    // COMPILER: the analyzer refuses `==` between a maybe-null source class value and a non-null one
+    // of the same class (`Expression?` against `Expression`, NL202) while it accepts the same
+    // comparison for `string`, so each answer is narrowed before it is compared by identity.
     left := LncpInt()
-    assert LinterNullCheckPolicy.CheckedOperand(LncpBinary(left, BinaryOperator.NotEqual, LncpNull())) == left
+    leftChecked := LinterNullCheckPolicy.CheckedOperand(LncpBinary(left, BinaryOperator.NotEqual, LncpNull()))
+    assert leftChecked != null
+    assert leftChecked == left
 
     right := LncpInt()
-    assert LinterNullCheckPolicy.CheckedOperand(LncpBinary(LncpNull(), BinaryOperator.Equal, right)) == right
+    rightChecked := LinterNullCheckPolicy.CheckedOperand(LncpBinary(LncpNull(), BinaryOperator.Equal, right))
+    assert rightChecked != null
+    assert rightChecked == right
 }
 
 test "only equality and inequality are null CHECKS" {

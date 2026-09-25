@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
 import System
-import System.Collections.Generic
 
 
 // CONTRACTS FOR THE EDITOR'S HALF OF A COMPLETION ANSWER. The numbers below are the Language

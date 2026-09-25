@@ -1,7 +1,6 @@
 namespace NSharpLang.Compiler
 
 import System
-import System.Collections.Generic
 
 
 // CONTRACTS FOR WHICH VARIABLES AN INTERPOLATED STRING USES (task 019 slice 9). These came out of

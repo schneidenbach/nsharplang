@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-import System
 import System.Reflection
 import System.Text
 import NSharpLang.Compiler

@@ -259,27 +259,28 @@ test "ordinary runtime direct calls select a by-reference overload when the argu
     assert selection.IsStatic
 }
 
-// A SIX-ARGUMENT STATIC CALL WITH A TRAILING `out`, on a real kernel this compiler's own facade calls.
+// A SIX-ARGUMENT STATIC CALL WITH A TRAILING `out`, on a real kernel of this compiler: the analyzer's
+// reflected property-or-field lookup, whose five-argument overload beside it is refused by arity.
 // Arity, ordinary parameter identity and the by-ref spelling of the final parameter all have to
-// survive together, which is what the facade's completion-prefix call depends on.
+// survive together, which is what an external call with a trailing `out` depends on.
 test "ordinary runtime direct calls select external six-argument out calls" {
-    kernel := RequiredOrdinaryRuntimeType("NSharpLang.Compiler.CodeIntelligence.CodeIntelligenceSourceTextKernels, NSharpLang.Compiler.Core")
+    kernel := typeof(AnalyzerMemberResolution)
     facts := ColumnarDirectCallArgumentFacts.Empty(6)
     facts.IsByRefArgument[5] = true
-    arguments := OrdinaryRuntimeArgumentTypes6(typeof(object), typeof(string), typeof(string), typeof(int), typeof(int), typeof(string))
-    selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(kernel, "TryExtractCompletionPrefix", arguments, facts, true)
+    arguments := OrdinaryRuntimeArgumentTypes6(typeof(Type), typeof(string), typeof(bool), typeof(bool), typeof(InternalsVisibleToGrants), typeof(TypeInfo))
+    selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(kernel, "TryResolveReflectionPropertyOrField", arguments, facts, true)
 
     assert selection.IsSelected
     assert selection.Method != null
     assert selection.LookupType == kernel
     assert selection.DeclaringType == kernel
     assert selection.ParameterTypes.Length == 6
-    assert selection.ParameterTypes[0] == typeof(object)
+    assert selection.ParameterTypes[0] == typeof(Type)
     assert selection.ParameterTypes[1] == typeof(string)
-    assert selection.ParameterTypes[2] == typeof(string)
-    assert selection.ParameterTypes[3] == typeof(int)
-    assert selection.ParameterTypes[4] == typeof(int)
-    assert selection.ParameterTypes[5] == typeof(string).MakeByRefType()
+    assert selection.ParameterTypes[2] == typeof(bool)
+    assert selection.ParameterTypes[3] == typeof(bool)
+    assert selection.ParameterTypes[4] == typeof(InternalsVisibleToGrants)
+    assert selection.ParameterTypes[5] == typeof(TypeInfo).MakeByRefType()
     assert selection.ReturnType == typeof(bool)
     assert selection.Kind == ColumnarExternalCallKind.Call
     assert selection.IsStatic

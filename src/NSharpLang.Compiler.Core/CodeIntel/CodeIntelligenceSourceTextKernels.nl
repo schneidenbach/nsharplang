@@ -57,7 +57,7 @@ class CodeIntelligenceSourceTextKernels {
         return true
     }
 
-    static func TryExtractCompletionPrefix(snapshot: object, filePathValue: string, source: string, line: int, column: int, out prefix: string?): bool {
+    static func TryExtractCompletionPrefix(source: string, line: int, column: int, out prefix: string?): bool {
         prefix = null
 
         lineStart := 0

@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-import System
 import System.Collections.Generic
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
@@ -88,8 +87,7 @@ test "a constructed generic receiver reflects over the definition the analyzer r
 
     closed := CompletionReflectionFacts.ResolveCompletionReflectionType(receiverType)
     assert closed != null
-    resolved := must closed
-    assert resolved == typeof(EqualityComparer<int>)
+    assert closed == typeof(EqualityComparer<int>)
 }
 
 test "a constructed generic with no resolved definition and no table row offers nothing rather than guessing" {

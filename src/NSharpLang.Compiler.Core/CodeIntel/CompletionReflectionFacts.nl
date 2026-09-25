@@ -4,7 +4,6 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler
-import NSharpLang.Compiler.Ast
 
 
 // WHAT KIND OF RECEIVER THIS IS, AND WHICH REFLECTED MEMBERS IT OFFERS.

@@ -16,6 +16,17 @@ import NSharpLang.Compiler.Ast
 // analyzer builds `ReflectionTypeInfo` straight out of a load context, so a metadata type reaches
 // this family in production — and the deleted C# closed a LIVE generic definition over one, which
 // the CLR answers with a `TypeBuilderInstantiation` whose every member lookup throws.
+// A known generic definition the row requires: the lookup answers `Type?`, and a row that reads the
+// definition's members first requires it to exist.
+func CrfDefinition(name: string): Type {
+    definition := KnownReceiverSpellings.KnownReceiverGenericDefinition(name)
+    if definition == null {
+        throw new InvalidOperationException("No known generic definition is spelled '" + name + "'.")
+    }
+
+    return definition
+}
+
 func CrfReflected(clrType: Type): TypeInfo {
     reflected: TypeInfo = new ReflectionTypeInfo(clrType)
     return reflected
@@ -276,29 +287,29 @@ test "a name that is not one of the eleven is not a reflection receiver" {
 }
 
 test "all fifteen generic definitions load, are open, and carry the arity their name implies" {
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("List").get_FullName() == "System.Collections.Generic.List`1"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("IEnumerable").get_FullName() == "System.Collections.Generic.IEnumerable`1"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("ICollection").get_FullName() == "System.Collections.Generic.ICollection`1"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("IList").get_FullName() == "System.Collections.Generic.IList`1"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("IReadOnlyCollection").get_FullName() == "System.Collections.Generic.IReadOnlyCollection`1"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("IReadOnlyList").get_FullName() == "System.Collections.Generic.IReadOnlyList`1"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Dictionary").get_FullName() == "System.Collections.Generic.Dictionary`2"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("IDictionary").get_FullName() == "System.Collections.Generic.IDictionary`2"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("IReadOnlyDictionary").get_FullName() == "System.Collections.Generic.IReadOnlyDictionary`2"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("HashSet").get_FullName() == "System.Collections.Generic.HashSet`1"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Queue").get_FullName() == "System.Collections.Generic.Queue`1"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Stack").get_FullName() == "System.Collections.Generic.Stack`1"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Nullable").get_FullName() == "System.Nullable`1"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Task").get_FullName() == "System.Threading.Tasks.Task`1"
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("ValueTask").get_FullName() == "System.Threading.Tasks.ValueTask`1"
+    assert CrfDefinition("List").get_FullName() == "System.Collections.Generic.List`1"
+    assert CrfDefinition("IEnumerable").get_FullName() == "System.Collections.Generic.IEnumerable`1"
+    assert CrfDefinition("ICollection").get_FullName() == "System.Collections.Generic.ICollection`1"
+    assert CrfDefinition("IList").get_FullName() == "System.Collections.Generic.IList`1"
+    assert CrfDefinition("IReadOnlyCollection").get_FullName() == "System.Collections.Generic.IReadOnlyCollection`1"
+    assert CrfDefinition("IReadOnlyList").get_FullName() == "System.Collections.Generic.IReadOnlyList`1"
+    assert CrfDefinition("Dictionary").get_FullName() == "System.Collections.Generic.Dictionary`2"
+    assert CrfDefinition("IDictionary").get_FullName() == "System.Collections.Generic.IDictionary`2"
+    assert CrfDefinition("IReadOnlyDictionary").get_FullName() == "System.Collections.Generic.IReadOnlyDictionary`2"
+    assert CrfDefinition("HashSet").get_FullName() == "System.Collections.Generic.HashSet`1"
+    assert CrfDefinition("Queue").get_FullName() == "System.Collections.Generic.Queue`1"
+    assert CrfDefinition("Stack").get_FullName() == "System.Collections.Generic.Stack`1"
+    assert CrfDefinition("Nullable").get_FullName() == "System.Nullable`1"
+    assert CrfDefinition("Task").get_FullName() == "System.Threading.Tasks.Task`1"
+    assert CrfDefinition("ValueTask").get_FullName() == "System.Threading.Tasks.ValueTask`1"
 
     // Every one is an OPEN definition — that is what makes the close below legal.
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("List").get_IsGenericTypeDefinition()
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("Dictionary").GetGenericArguments().Length == 2
-    assert KnownReceiverSpellings.KnownReceiverGenericDefinition("List").GetGenericArguments().Length == 1
+    assert CrfDefinition("List").get_IsGenericTypeDefinition()
+    assert CrfDefinition("Dictionary").GetGenericArguments().Length == 2
+    assert CrfDefinition("List").GetGenericArguments().Length == 1
 
     // `Stack` is the one that does NOT live in the core library, so its name carries its assembly.
-    stackAssembly := KnownReceiverSpellings.KnownReceiverGenericDefinition("Stack").get_Assembly()
+    stackAssembly := CrfDefinition("Stack").get_Assembly()
     stackAssemblyName := stackAssembly.GetName()
     assert stackAssemblyName.get_Name() == "System.Collections"
 }
@@ -325,7 +336,9 @@ test "a reflected receiver answers its own type and a simple one answers the tab
 test "a generic receiver closes its definition over the arguments the source wrote" {
     closed := CompletionReflectionFacts.ResolveCompletionReflectionType(CrfGeneric("List", CrfArg(CrfSimple("int"))))
     assert closed != null
-    assert closed.get_FullName().StartsWith("System.Collections.Generic.List`1[[System.Int32", StringComparison.Ordinal)
+    closedName := closed.get_FullName()
+    assert closedName != null
+    assert closedName.StartsWith("System.Collections.Generic.List`1[[System.Int32", StringComparison.Ordinal)
     assert closed.GetGenericArguments()[0] == typeof(int)
 
     stringList := CompletionReflectionFacts.ResolveCompletionReflectionType(CrfGeneric("System.Collections.Generic.IReadOnlyList", CrfArg(CrfSimple("string"))))

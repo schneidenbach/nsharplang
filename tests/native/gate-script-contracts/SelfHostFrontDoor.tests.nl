@@ -83,7 +83,7 @@ test "every self-host ceiling is a measured number, and none of them is the old 
     assert ceilings.Count == 8, "The self-host front door must carry eight ceilings; found " + ceilings.Count.ToString() + "."
     assert ceilings[0] == "0", "Compiler.Model's front-door ceiling must stay 0; found '" + ceilings[0] + "'."
     assert ceilings[1] == "0", "Compiler.Syntax's front-door ceiling must stay 0; found '" + ceilings[1] + "'."
-    assert ceilings[2] == "1202", "Compiler.Core's front-door ceiling must stay 1202; found '" + ceilings[2] + "'."
+    assert ceilings[2] == "1029", "Compiler.Core's front-door ceiling must stay 1029; found '" + ceilings[2] + "'."
     assert ceilings[3] == "0", "Compiler.Tooling's front-door ceiling must stay 0; found '" + ceilings[3] + "'."
     assert ceilings[4] == "0", "Compiler.Driver's front-door ceiling must stay 0; found '" + ceilings[4] + "'."
     assert ceilings[5] == "34", "Compiler's front-door ceiling must stay 34; found '" + ceilings[5] + "'."

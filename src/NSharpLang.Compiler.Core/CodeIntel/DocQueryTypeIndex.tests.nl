@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler.CodeIntelligence
 
 import System
 import System.Collections.Generic
-import System.Reflection
 
 
 // CONTRACTS FOR WHICH CLR TYPE A NAME MEANS (task 019 slice 6). These are the semantic assertions

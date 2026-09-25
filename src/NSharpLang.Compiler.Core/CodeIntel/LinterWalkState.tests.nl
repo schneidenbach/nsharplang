@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler
 
-import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
@@ -902,4 +901,33 @@ test "current namespace scope does not mark a real explicit import as used" {
     state.TrackTypeReference(LwsSimpleType("StringBuilder"))
     state.CheckUnusedImports()
     assert LwsCodes(state) == "NL010@2:8;"
+}
+
+// THE FOURTH DOOR OF THE PLACEHOLDER GUARD. `DiagnosticPlaceholderGuard` (Model) states the rule and
+// its rows ask the analyzer sink's three doors alone; the linter's door is asked here, beside the
+// walk state that owns it, so a guard deleted from `AddDiagnostic` cannot hide behind the others.
+func LwsPlaceholderGuardState(): LinterWalkState {
+    return new LinterWalkState("Program.nl", null, LinterConfig.Default())
+}
+
+test "DOOR 4 — the linter's AddDiagnostic refuses one, so NL001 and NL012 cannot name a placeholder" {
+    state := LwsPlaceholderGuardState()
+    state.AddDiagnostic("NL001", LinterBindingUsageCore.UnusedVariableMessage("<error>"), 1, 1, DiagnosticSeverity.Error, LinterBindingUsageCore.UnusedVariableSuggestion("<error>"), 7)
+    assert state.Diagnostics.Count == 0
+
+    state.AddDiagnostic("NL012", LinterBindingUsageCore.UnusedParameterMessage("<error>", "main"), 1, 1, DiagnosticSeverity.Error, null, 7)
+    assert state.Diagnostics.Count == 0
+
+    state.AddDiagnostic("NL001", LinterBindingUsageCore.UnusedVariableMessage("count"), 1, 1, DiagnosticSeverity.Error, LinterBindingUsageCore.UnusedVariableSuggestion("count"), 5)
+    assert state.Diagnostics.Count == 1
+    assert state.Diagnostics[0].Message == "Variable 'count' is declared but never read"
+
+    // One of the sentences the placeholder cascade actually printed is the linter's own.
+    assert DiagnosticPlaceholderGuard.TextCarriesPlaceholder(LinterBindingUsageCore.UnusedParameterMessage("<error>", "main"))
+}
+
+test "the guard sits AFTER the rule's own severity and suppression gates, so it cannot resurrect a disabled rule" {
+    state := LwsPlaceholderGuardState()
+    state.AddDiagnostic("NL001", LinterBindingUsageCore.UnusedVariableMessage("count"), 1, 1, DiagnosticSeverity.Error, null, 5)
+    assert state.Diagnostics.Count == 1
 }

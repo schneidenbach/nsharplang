@@ -16,6 +16,9 @@ struct FixApplicatorLineTable {
     Count: int
 }
 
+// COMPILER: a `&T` parameter is forwarded to another `&T` parameter BARE (`RemoveLines(lines, ...)`):
+// the analyzer types `ref lines` over a by-ref parameter as `&&T` and refuses it (NL202), although
+// the emitter passes the same reference either way. Locals are still passed with `ref`.
 class FixApplicatorEditEngine {
     static func ValidateOrderedTextEdits(source: string, hasSource: int, startLines: int[], startColumns: int[], endLines: int[], endColumns: int[], newTexts: string[], count: int, errorInfo: int[]): int {
         edits := new FixApplicatorEditTable {
@@ -68,7 +71,7 @@ class FixApplicatorEditEngine {
     }
 
     static func ValidateOrderedTextEditsCore(source: string, hasSource: int, edits: &FixApplicatorEditTable, errorInfo: int[]): int {
-        if errorInfo.Length < 2 || !EditTableShapeIsValid(ref edits) {
+        if errorInfo.Length < 2 || !EditTableShapeIsValid(edits) {
             return -1
         }
 
@@ -305,7 +308,7 @@ class FixApplicatorEditEngine {
                     return -1
                 }
 
-                return InsertLines(ref lines, lines.Count, ref newLines)
+                return InsertLines(lines, lines.Count, ref newLines)
             }
 
             return 0
@@ -318,7 +321,7 @@ class FixApplicatorEditEngine {
                 removeCount = remainingLines
             }
 
-            RemoveLines(ref lines, startLine, removeCount)
+            RemoveLines(lines, startLine, removeCount)
             return 0
         }
 
@@ -338,7 +341,7 @@ class FixApplicatorEditEngine {
 
             if newText.IndexOf('\n') >= 0 {
                 combined := lines.Lines[startLine]
-                RemoveLines(ref lines, startLine, 1)
+                RemoveLines(lines, startLine, 1)
                 splitLines := new FixApplicatorLineTable {
                     Lines: new string[](CountLogicalLines(combined)),
                     Count: 0
@@ -347,7 +350,7 @@ class FixApplicatorEditEngine {
                     return -1
                 }
 
-                return InsertLines(ref lines, startLine, ref splitLines)
+                return InsertLines(lines, startLine, ref splitLines)
             }
 
             return 0
@@ -380,7 +383,7 @@ class FixApplicatorEditEngine {
             removeCount = remainingLines
         }
 
-        RemoveLines(ref lines, startLine, removeCount)
+        RemoveLines(lines, startLine, removeCount)
         replacementLines := new FixApplicatorLineTable {
             Lines: new string[](CountLogicalLines(replacement)),
             Count: 0
@@ -389,7 +392,7 @@ class FixApplicatorEditEngine {
             return -1
         }
 
-        return InsertLines(ref lines, startLine, ref replacementLines)
+        return InsertLines(lines, startLine, ref replacementLines)
     }
 
     static func RemoveLines(lines: &FixApplicatorLineTable, startIndex: int, removeCount: int) {

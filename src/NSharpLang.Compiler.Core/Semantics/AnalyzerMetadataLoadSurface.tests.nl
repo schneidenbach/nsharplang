@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import System.Runtime.InteropServices
+import NSharpLang.Cli
 
 
 // NATIVE CONTRACTS FOR THE ANALYZER'S METADATA LOAD SURFACE.
@@ -18,7 +19,8 @@ import System.Runtime.InteropServices
 // already ships exactly that: `System.Console, Version=10.0.0.0, PublicKeyToken=b03f5f7f11d50a3a`
 // exists both as the shared framework's 208 KB implementation and as the reference pack's 16 KB
 // reference assembly -- two very different files, one identity. Both paths are DERIVED at run time
-// (`RuntimeEnvironment.GetRuntimeDirectory` and `DocQueryKernels.GetReferencePackDirectories`), never
+// (`RuntimeEnvironment.GetRuntimeDirectory` and the reference packs beside the `shared` root that
+// `CompilationReferenceResolverKernels.GetDotnetSharedRootCandidates` locates), never
 // written down, because a hard-coded SDK path is a contract about this machine rather than about the
 // rule.
 //
@@ -47,15 +49,45 @@ func MetadataLoadSurfaceTwinName(): string {
     return "System.Console"
 }
 
-// The SAME identity from the reference pack. `GetReferencePackDirectories` is the analyzer's own
-// root discovery -- the one that climbs the runtime directory rather than reading `Assembly.Location`
-// -- so this fixture is built out of a production kernel rather than a path guess.
+// Every reference-pack directory of the running framework: `<dotnet root>/packs/
+// Microsoft.NETCore.App.Ref/<version>/ref/<tfm>`, where the dotnet root is the directory holding the
+// `shared` root the running framework lives in -- located by the reference resolver's own production
+// kernel, which climbs the runtime directory rather than reading `Assembly.Location` -- and then
+// `DOTNET_ROOT`, so this fixture is built out of a production kernel rather than a path guess.
+func MetadataLoadSurfaceReferencePackDirectories(): string[] {
+    roots := new List<string>()
+    for sharedRoot in CompilationReferenceResolverKernels.GetDotnetSharedRootCandidates(MetadataLoadSurfaceFrameworkDirectory()) {
+        dotnetRoot := Path.GetDirectoryName(sharedRoot)
+        if dotnetRoot != null {
+            roots.Add(dotnetRoot)
+        }
+    }
+    configuredRoot := Environment.GetEnvironmentVariable("DOTNET_ROOT")
+    if configuredRoot != null && configuredRoot != "" {
+        roots.Add(configuredRoot)
+    }
+
+    directories := new List<string>()
+    for root in roots {
+        packRoot := Path.Combine(Path.Combine(root, "packs"), "Microsoft.NETCore.App.Ref")
+        if Directory.Exists(packRoot) {
+            for versionDirectory in Directory.GetDirectories(packRoot, "*", SearchOption.TopDirectoryOnly) {
+                referenceRoot := Path.Combine(versionDirectory, "ref")
+                if Directory.Exists(referenceRoot) {
+                    directories.AddRange(Directory.GetDirectories(referenceRoot, "*", SearchOption.TopDirectoryOnly))
+                }
+            }
+        }
+    }
+
+    return directories.ToArray()
+}
+
+// The SAME identity from the reference pack.
 // Hosted runners have several SDK generations installed. Match the runtime assembly identity
 // instead of accepting the first pack returned by directory discovery.
 func MetadataLoadSurfaceReferencePackPath(simpleName: string): string {
-    seeds := new string[](1)
-    seeds[0] = MetadataLoadSurfaceFrameworkDirectory()
-    directories := DocQueryKernels.GetReferencePackDirectories(seeds, Environment.GetEnvironmentVariable("DOTNET_ROOT"))
+    directories := MetadataLoadSurfaceReferencePackDirectories()
     expectedIdentity := AssemblyName.GetAssemblyName(MetadataLoadSurfaceFrameworkPath(simpleName)).get_FullName()
     index := 0
     while index < directories.Length {

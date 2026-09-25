@@ -27,8 +27,6 @@ class CompletionEngine {
 
         beforeCursor: string? = null
         if !CodeIntelligenceSourceTextKernels.TryExtractCompletionPrefix(
-            snapshot,
-            unitMatch.FilePath,
             sourceText,
             line,
             col,

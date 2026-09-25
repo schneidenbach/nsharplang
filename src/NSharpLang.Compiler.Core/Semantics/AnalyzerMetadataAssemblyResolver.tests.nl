@@ -23,9 +23,7 @@ func ResolverProbeFrameworkDirectory(): string {
 }
 
 func ResolverProbeReferencePackDirectory(): string {
-    seeds := new string[](1)
-    seeds[0] = ResolverProbeFrameworkDirectory()
-    directories := DocQueryKernels.GetReferencePackDirectories(seeds, Environment.GetEnvironmentVariable("DOTNET_ROOT"))
+    directories := MetadataLoadSurfaceReferencePackDirectories()
     index := 0
     while index < directories.Length {
         if File.Exists(Path.Combine(directories[index], "System.Console.dll")) {

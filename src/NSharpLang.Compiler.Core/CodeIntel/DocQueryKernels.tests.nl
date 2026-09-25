@@ -1,6 +1,5 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
-import System
 import System.Runtime.InteropServices
 
 
@@ -187,4 +186,20 @@ test "an all-empty seed discovers nothing without DOTNET_ROOT, which is the sing
     root := DocQueryKernels.FindDotNetRootCandidate(runtimeDirectory)
     assert root != null
     assert DocQueryKernels.GetReferencePackDirectories(seeds, root).Length > 0
+}
+
+// THE BACKTICK RULE, PINNED ON BOTH SIDES: the editor's `EditorTypeCatalogFacts.CompletionTypeDisplayName`
+// (Model) truncates at the first arity suffix and `StripGenericArity` removes every one. The row sits
+// here, in the slice that reads both.
+test "the display rule AGREES with StripGenericArity on a Type name and DIFFERS on a two-run one" {
+    // A `Type.Name` carries at most ONE arity suffix, and over all 1,391 exported types the
+    // editor's universe can reach the two rules were measured identical.
+    assert EditorTypeCatalogFacts.CompletionTypeDisplayName("List`1") == DocQueryKernels.StripGenericArity("List`1")
+    assert EditorTypeCatalogFacts.CompletionTypeDisplayName("Dictionary`2") == DocQueryKernels.StripGenericArity("Dictionary`2")
+    assert EditorTypeCatalogFacts.CompletionTypeDisplayName("Console") == DocQueryKernels.StripGenericArity("Console")
+
+    // They are DIFFERENT total functions, and this is where they part. Recorded rather than
+    // unified, because unifying them changes what `nlc query` prints too.
+    assert EditorTypeCatalogFacts.CompletionTypeDisplayName("Outer`1Inner`2") == "Outer"
+    assert DocQueryKernels.StripGenericArity("Outer`1Inner`2") == "OuterInner"
 }

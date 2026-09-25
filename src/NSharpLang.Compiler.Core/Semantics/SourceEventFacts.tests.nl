@@ -3,7 +3,6 @@ namespace NSharpLang.Compiler
 import System
 import System.Collections.Generic
 import NSharpLang.Compiler.Ast
-import NSharpLang.Compiler.CodeIntelligence
 
 
 // THE WHERE-AM-I QUESTION A SOURCE-DECLARED EVENT ASKS, pinned on its own.
@@ -63,16 +62,4 @@ test "every other type is outside, derived types included" {
     assert !SourceEventFacts.IsInsideDeclaringType(owner, "")
     assert !SourceEventFacts.IsInsideDeclaringType(owner, null)
     assert !SourceEventFacts.IsInsideDeclaringType(BuiltInTypes.Int, "Widget")
-}
-
-// The event's own rendering is what hover and `nlc query` read back, and it is deliberately the word
-// `event` rather than the delegate's name: the delegate is not what the reader may write there.
-test "a source event renders as the event it is, and carries its handler type" {
-    handler: TypeInfo = BuiltInTypes.String
-    sourceEvent := new SourceEventInfo("Changed", "Widget", handler, false)
-    assert sourceEvent.Name == "Changed"
-    assert sourceEvent.DeclaringTypeName == "Widget"
-    assert !sourceEvent.DeclaringTypeIsValueType
-    assert (sourceEvent as object).ToString() == "event Changed"
-    assert CodeIntelligenceDisplayText.TypeInfoToKind(sourceEvent) == "event"
 }
