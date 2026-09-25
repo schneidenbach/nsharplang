@@ -143,6 +143,43 @@ wins over a referenced one of the same name, and a referenced one at a nearer st
 source one further out. Only what the library exports is reachable: a camelCase free function is
 namespace-private there and invisible to every other assembly.
 
+### Inside a type, a member of the same name wins
+
+The lookup above starts only once the **enclosing type** has had its turn. Inside a class, struct or
+record, a bare name is first a member of that type, exactly as in C#, and a free function of the
+same name is hidden there:
+
+```n
+func Label(): string => "free"
+
+class Widget {
+    func Label(): string => "member"
+
+    func Show(): string => Label()        // "member" — Widget.Label
+}
+
+func Caption(): string => Label()         // "free" — no type around it
+```
+
+The member wins whatever kind of member it is and wherever the free function comes from:
+
+- the type's **own** members and its **inherited** ones — from a source base class or from a .NET
+  base such as `List<T>`, whose public and `protected` members count;
+- **instance and static** members alike, so a static method hides a free function in a static body
+  and in an instance body;
+- a free function declared in the **same file**, in **another file** of the namespace, or in a
+  **referenced assembly** — all hidden the same way.
+
+The same holds inside a lambda or a local function written in a member body. `object`'s own members
+(`ToString`, `GetHashCode`, …) do not hide a free function unless the type names a base class.
+
+Hiding is **by name**, not by signature. If `Widget` declares `Label()` and the namespace declares
+`func Label(text: string)`, then `Label("x")` inside `Widget` is an arity error against the member
+([NL401](./errors/NL401.md)), not a call to the free function. A member that cannot be called at
+all — a `string` field named `Label` — hides the free function too, so `Label()` there is an error
+rather than a call to it. To reach the free function from inside such a type, give one of the two a
+different name.
+
 ### What a free function looks like from .NET
 
 Free functions are emitted as **static methods on a `Program` class inside their own namespace**, so

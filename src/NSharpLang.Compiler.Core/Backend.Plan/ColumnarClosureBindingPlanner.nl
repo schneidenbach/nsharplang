@@ -168,7 +168,7 @@ class ColumnarClosureBindingPlanner {
         }
         if kind == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(node) >= 0 && currentDefinition != null {
             name := nodes.Text(source, node)
-            if !bound.Contains(name) && !locals.ContainsKey(name) && !liftedLocals.ContainsKey(name) && !parameterOrdinals.ContainsKey(name) && !siblings.ContainsKey(name) {
+            if !bound.Contains(name) && !locals.ContainsKey(name) && !liftedLocals.ContainsKey(name) && !parameterOrdinals.ContainsKey(name) && (!siblings.ContainsKey(name) || ColumnarSiblingHiding.IsHiddenByEnclosingMember(currentDefinition, name)) {
                 field: FieldBuilder? = null
                 if ColumnarSourceMemberChainResolver.TryFindFieldOnChain(currentDefinition, name, out field) {
                     return true
@@ -240,7 +240,7 @@ class ColumnarClosureBindingPlanner {
         }
         if kind == ColumnarExpressionNodeKind.IdentifierExpression && nodes.ValueStart(node) >= 0 && currentDefinition != null {
             name := nodes.Text(source, node)
-            if !bound.Contains(name) && !locals.ContainsKey(name) && !liftedLocals.ContainsKey(name) && !parameterOrdinals.ContainsKey(name) && !siblings.ContainsKey(name) {
+            if !bound.Contains(name) && !locals.ContainsKey(name) && !liftedLocals.ContainsKey(name) && !parameterOrdinals.ContainsKey(name) && (!siblings.ContainsKey(name) || ColumnarSiblingHiding.IsHiddenByEnclosingMember(currentDefinition, name)) {
                 field: FieldBuilder? = null
                 if ColumnarSourceMemberChainResolver.TryFindFieldOnChain(currentDefinition, name, out field) {
                     return true

@@ -113,7 +113,9 @@ func LambdaHarnessOf(): LambdaHarness {
     return new LambdaHarness(owner, errors, scopes, model, diagnostics)
 }
 
-func LambdaTypeText(candidate: TypeInfo?): string {
+// Named apart from the production `AnalyzerLambdaAnalysis.LambdaTypeText`: a seed that predates the
+// member-first bare-call rule bound that type's own bare calls to a free function of the same name.
+func LambdaTypeShown(candidate: TypeInfo?): string {
     if candidate == null {
         return "<null>"
     }
@@ -201,7 +203,7 @@ func LambdaRun(harness: LambdaHarness, state: LambdaAnalysisState, bodyAnswer: T
     steps := new List<LambdaStep>()
     step := harness.Owner.NextLambdaStep(state)
     while step != null {
-        steps.Add(new LambdaStep(step.Kind, step.Name, LambdaTypeText(step.CarriedType), LambdaTypeText(step.ExpectedType), step.Line, step.Column, harness.Scopes.Count, harness.Errors.Count))
+        steps.Add(new LambdaStep(step.Kind, step.Name, LambdaTypeShown(step.CarriedType), LambdaTypeShown(step.ExpectedType), step.Line, step.Column, harness.Scopes.Count, harness.Errors.Count))
 
         if step.Kind == 2 {
             harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Function), step.Line, step.Column)
@@ -239,7 +241,7 @@ func LambdaRunReportingBody(harness: LambdaHarness, state: LambdaAnalysisState, 
     steps := new List<LambdaStep>()
     step := harness.Owner.NextLambdaStep(state)
     while step != null {
-        steps.Add(new LambdaStep(step.Kind, step.Name, LambdaTypeText(step.CarriedType), LambdaTypeText(step.ExpectedType), step.Line, step.Column, harness.Scopes.Count, harness.Errors.Count))
+        steps.Add(new LambdaStep(step.Kind, step.Name, LambdaTypeShown(step.CarriedType), LambdaTypeShown(step.ExpectedType), step.Line, step.Column, harness.Scopes.Count, harness.Errors.Count))
 
         if step.Kind == 2 {
             harness.Scopes.Push(harness.Model, new Scope(ScopeKind.Function), step.Line, step.Column)
@@ -541,7 +543,7 @@ test "an expression body is walked under the signature's return type and ITS ans
 
     assert LambdaTranscript(steps) == "2 1 6"
     assert steps[1].ExpectedType == "string"
-    assert LambdaTypeText(state.Result.ReturnType) == "bool"
+    assert LambdaTypeShown(state.Result.ReturnType) == "bool"
 }
 
 test "an expression body whose analysis answers nothing falls back to unknown" {
@@ -551,7 +553,7 @@ test "an expression body whose analysis answers nothing falls back to unknown" {
 
     LambdaRun(harness, state, null)
 
-    assert LambdaTypeText(state.Result.ReturnType) == "unknown"
+    assert LambdaTypeShown(state.Result.ReturnType) == "unknown"
 }
 
 test "a BLOCK body's return type is the signature's whatever the block does" {
@@ -564,7 +566,7 @@ test "a BLOCK body's return type is the signature's whatever the block does" {
     assert LambdaTranscript(steps) == "2 5 6"
     // The nested-body boundary the driver brackets is entered with the SAME type the lambda answers.
     assert steps[1].CarriedType == "string"
-    assert LambdaTypeText(state.Result.ReturnType) == "string"
+    assert LambdaTypeShown(state.Result.ReturnType) == "string"
 }
 
 // ── a target whose return position is not decided ─────────────────────────────
@@ -592,7 +594,7 @@ func LambdaRunWithBlockAnswer(harness: LambdaHarness, state: LambdaAnalysisState
     steps := new List<LambdaStep>()
     step := harness.Owner.NextLambdaStep(state)
     while step != null {
-        steps.Add(new LambdaStep(step.Kind, step.Name, LambdaTypeText(step.CarriedType), LambdaTypeText(step.ExpectedType), step.Line, step.Column, harness.Scopes.Count, harness.Errors.Count))
+        steps.Add(new LambdaStep(step.Kind, step.Name, LambdaTypeShown(step.CarriedType), LambdaTypeShown(step.ExpectedType), step.Line, step.Column, harness.Scopes.Count, harness.Errors.Count))
 
         answer: TypeInfo? = null
         if step.Kind == 5 {
@@ -616,7 +618,7 @@ test "an UNBOUND type parameter in the return position offers no target, and the
     // The boundary is entered with `unknown` rather than with the type parameter, which is what stops
     // the block's returns being measured against a type the call has not decided.
     assert steps[1].CarriedType == "unknown"
-    assert LambdaTypeText(state.Result.ReturnType) == "int"
+    assert LambdaTypeShown(state.Result.ReturnType) == "int"
 }
 
 test "a DECIDED return position keeps its own answer whatever the block worked out" {
@@ -627,7 +629,7 @@ test "a DECIDED return position keeps its own answer whatever the block worked o
     steps := LambdaRunWithBlockAnswer(harness, state, BuiltInTypes.Int)
 
     assert steps[1].CarriedType == "string"
-    assert LambdaTypeText(state.Result.ReturnType) == "string"
+    assert LambdaTypeShown(state.Result.ReturnType) == "string"
 }
 
 test "a block that worked nothing out leaves the lambda at the target's own answer" {
@@ -637,7 +639,7 @@ test "a block that worked nothing out leaves the lambda at the target's own answ
 
     LambdaRunWithBlockAnswer(harness, state, null)
 
-    assert LambdaTypeText(state.Result.ReturnType) == "unknown"
+    assert LambdaTypeShown(state.Result.ReturnType) == "unknown"
 }
 
 // AN `async` LAMBDA'S TYPE IS THE TARGET'S TASK FAMILY OVER THE BODY'S RESULT, and the target may be
@@ -647,10 +649,10 @@ test "an async lambda's type is the target's task family over its body's result"
     harness := LambdaHarnessOf()
 
     wrapped := harness.Owner.AsyncWrappedReturnType(LambdaOpenTaskReturn(), BuiltInTypes.Int)
-    assert LambdaTypeText(wrapped) == "Task<int>"
+    assert LambdaTypeShown(wrapped) == "Task<int>"
 
     // A body that answered nothing leaves the target's return exactly as it was.
-    assert LambdaTypeText(harness.Owner.AsyncWrappedReturnType(LambdaOpenTaskReturn(), BuiltInTypes.Unknown)) == "Task<TResult>"
+    assert LambdaTypeShown(harness.Owner.AsyncWrappedReturnType(LambdaOpenTaskReturn(), BuiltInTypes.Unknown)) == "Task<TResult>"
 }
 
 test "a block body with no signature enters the boundary with unknown and answers unknown" {
@@ -660,7 +662,7 @@ test "a block body with no signature enters the boundary with unknown and answer
     steps := LambdaRun(harness, state, BuiltInTypes.Bool)
 
     assert steps[1].CarriedType == "unknown"
-    assert LambdaTypeText(state.Result.ReturnType) == "unknown"
+    assert LambdaTypeShown(state.Result.ReturnType) == "unknown"
 }
 
 test "a lambda with NEITHER body still opens and closes its scope and answers unknown" {
@@ -675,7 +677,7 @@ test "a lambda with NEITHER body still opens and closes its scope and answers un
     steps := LambdaRun(harness, state, BuiltInTypes.Bool)
 
     assert LambdaTranscript(steps) == "2 3 4 6"
-    assert LambdaTypeText(state.Result.ReturnType) == "unknown"
+    assert LambdaTypeShown(state.Result.ReturnType) == "unknown"
     assert state.Result.ParameterTypes.Count == 1
 }
 
@@ -695,9 +697,9 @@ test "the lambda's own type is its parameter types in order and its body's retur
     LambdaRun(harness, state, BuiltInTypes.Bool)
 
     assert state.Result.ParameterTypes.Count == 2
-    assert LambdaTypeText(state.Result.ParameterTypes[0]) == "int"
-    assert LambdaTypeText(state.Result.ParameterTypes[1]) == "string"
-    assert LambdaTypeText(state.Result.ReturnType) == "bool"
+    assert LambdaTypeShown(state.Result.ParameterTypes[0]) == "int"
+    assert LambdaTypeShown(state.Result.ParameterTypes[1]) == "string"
+    assert LambdaTypeShown(state.Result.ReturnType) == "bool"
 }
 
 // ── the expression-tree validator, which the walk now calls directly ──────────
@@ -845,7 +847,7 @@ func OnRun(harness: LambdaHarness, state: OnSubscriptionState, targetType: TypeI
     steps := new List<OnStep>()
     step := harness.Owner.NextOnStep(state)
     while step != null {
-        steps.Add(new OnStep(step.Kind, LambdaTypeText(step.ExpectedType), step.ReportInferenceFailure))
+        steps.Add(new OnStep(step.Kind, LambdaTypeShown(step.ExpectedType), step.ReportInferenceFailure))
         answer: TypeInfo? = null
         if step.Kind == 1 {
             answer = targetType
@@ -868,7 +870,7 @@ test "an `on` expression answers the subscription root it was handed, on every p
     OnRun(harness, state, BuiltInTypes.Int)
 
     // A reflection type renders as the CLR type's own `Name`, so this IS the root that was handed in.
-    assert LambdaTypeText(state.Result) == "Type"
+    assert LambdaTypeShown(state.Result) == "Type"
 }
 
 test "a target that is not an event at all is told so, and the handler is analysed with NO expected type" {
@@ -1037,7 +1039,7 @@ test "an async lambda's body is measured against the task's result, not against 
     // type is the task built over what the body answered.
     assert steps[1].ExpectedType == "int"
     assert harness.Errors.Count == 0
-    assert LambdaTypeText(state.Result.ReturnType) == "Task<int>"
+    assert LambdaTypeShown(state.Result.ReturnType) == "Task<int>"
 }
 
 test "an async lambda on a unit task expects a void body and keeps the unit task as its own type" {
@@ -1049,7 +1051,7 @@ test "an async lambda on a unit task expects a void body and keeps the unit task
 
     assert steps[1].ExpectedType == "void"
     assert harness.Errors.Count == 0
-    assert LambdaTypeText(state.Result.ReturnType) == "Task"
+    assert LambdaTypeShown(state.Result.ReturnType) == "Task"
 }
 
 test "an ordinary lambda is untouched: its body is measured against the delegate's return verbatim" {

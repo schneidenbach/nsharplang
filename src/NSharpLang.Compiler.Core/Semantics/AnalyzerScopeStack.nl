@@ -349,8 +349,16 @@ class AnalyzerScopeStack {
     // Symbols first, then types: an identifier in scope means the VALUE, and only then the type of
     // that name. Both walks record the declaration binding they land on.
     func ResolveBindingTarget(bindings: BindingMap, filePath: string?, name: string, line: int, column: int): TypeInfo? {
+        return ResolveBindingTarget(bindings, filePath, name, line, column, 0)
+    }
+
+    // `symbolFloor` IS THE LOWEST SCOPE WHOSE SYMBOLS MAY ANSWER. The identifier rule raises it to the
+    // type scope when the enclosing type has a member of this name, because a member hides everything
+    // declared OUTSIDE its type — the file's own free functions sit in the global scope below it. The
+    // type walk is not floored: which declarations a type NAME means is a separate rule.
+    func ResolveBindingTarget(bindings: BindingMap, filePath: string?, name: string, line: int, column: int, symbolFloor: int): TypeInfo? {
         symbolIndex := scopes.Count - 1
-        while symbolIndex >= 0 {
+        while symbolIndex >= symbolFloor {
             symbolScope := scopes[symbolIndex]
             symbolCandidate := new TypeInfo()
             if symbolScope.Symbols.TryGetValue(name, out symbolCandidate) {
@@ -395,6 +403,36 @@ class AnalyzerScopeStack {
         if declaration != null {
             bindings.RecordBinding(filePath, line, column, writtenName.Length, declaration)
         }
+    }
+
+    // THE INNERMOST TYPE SCOPE'S POSITION ON THE STACK, or -1 outside every type. Every scope above it
+    // is a member body's own; every scope below it is outside the type.
+    func TypeScopeIndex(): int {
+        index := scopes.Count - 1
+        while index >= 0 {
+            if scopes[index].Symbols.ContainsKey("this") {
+                return index
+            }
+
+            index = index - 1
+        }
+
+        return -1
+    }
+
+    // Whether a scope BELOW `index` — outside the type scope at that position — declares `name` as a
+    // symbol.
+    func DeclaresSymbolBelow(name: string, index: int): bool {
+        candidate := index - 1
+        while candidate >= 0 {
+            if scopes[candidate].Symbols.ContainsKey(name) {
+                return true
+            }
+
+            candidate = candidate - 1
+        }
+
+        return false
     }
 
     // The innermost scope that binds `this` carries the type whose members are in scope.

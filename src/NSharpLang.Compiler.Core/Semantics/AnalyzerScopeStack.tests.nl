@@ -730,6 +730,32 @@ test "an identifier binds to a SYMBOL before a TYPE of the same name, and record
     assert typeOnly.ResolveBindingTarget(bindings, "use.nl", "Missing", 32, 4) == null
 }
 
+test "a symbol floor keeps the scopes outside the type from answering, and leaves the type walk alone" {
+    model := new SemanticModel()
+    bindings := new BindingMap()
+    stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Class])
+    stack.Peek().Symbols["this"] = ScopeSymbolOf("Widget")
+    stack.Push(model, new Scope(ScopeKind.Function), 3, 1)
+    stack.GlobalScope().Symbols["Label"] = ScopeSymbolOf("free-function")
+
+    assert stack.TypeScopeIndex() == 1
+    assert stack.DeclaresSymbolBelow("Label", 1)
+    assert !stack.DeclaresSymbolBelow("Missing", 1)
+
+    // Unfloored, the global scope's free function answers; floored at the type scope, nothing does.
+    assert ScopeTypeName(stack.ResolveBindingTarget(bindings, "use.nl", "Label", 40, 4)) == "free-function"
+    assert stack.ResolveBindingTarget(bindings, "use.nl", "Label", 41, 4, 1) == null
+
+    // A symbol inside the type answers at the floor, and a type NAME is not floored.
+    stack.Peek().Symbols["local"] = ScopeSymbolOf("local")
+    assert ScopeTypeName(stack.ResolveBindingTarget(bindings, "use.nl", "local", 42, 4, 1)) == "local"
+    stack.GlobalScope().Types["Shape"] = ScopeSymbolOf("as-type")
+    assert ScopeTypeName(stack.ResolveBindingTarget(bindings, "use.nl", "Shape", 43, 4, 1)) == "as-type"
+
+    // Outside every type there is no type scope to floor at.
+    assert ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function]).TypeScopeIndex() == -1
+}
+
 test "type names in scope come out innermost first, which is the suggestion tie-breaker" {
     model := new SemanticModel()
     stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function])

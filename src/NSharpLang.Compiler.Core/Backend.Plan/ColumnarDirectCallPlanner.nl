@@ -550,7 +550,7 @@ class ColumnarDirectCallPlanner {
         }
         name := nodes.Text(source, callee)
         facts: ColumnarSiblingCallFacts? = null
-        if !bindings.SiblingCallables.TryGetValue(name, out facts) || facts == null || facts.TypeParameterCount != 0 || facts.ParameterTypes.Length <= argumentTypes.Length || facts.ParameterNames.Length != facts.ParameterTypes.Length || facts.ParameterDefaultKinds.Length != facts.ParameterTypes.Length || facts.ParameterDefaultTexts.Length != facts.ParameterTypes.Length {
+        if !bindings.TryGetSiblingCallable(name, out facts) || facts == null || facts.TypeParameterCount != 0 || facts.ParameterTypes.Length <= argumentTypes.Length || facts.ParameterNames.Length != facts.ParameterTypes.Length || facts.ParameterDefaultKinds.Length != facts.ParameterTypes.Length || facts.ParameterDefaultTexts.Length != facts.ParameterTypes.Length {
             return false
         }
 
@@ -997,7 +997,7 @@ class ColumnarDirectCallPlanner {
         if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression {
             bareName := nodes.Text(source, callee)
             siblingFacts: ColumnarSiblingCallFacts? = null
-            if bindings.SiblingCallables.TryGetValue(bareName, out siblingFacts) {
+            if bindings.TryGetSiblingCallable(bareName, out siblingFacts) && siblingFacts != null {
                 ColumnarNamedArgumentBinder.AddCandidate(candidates, siblingFacts.ParameterNames, arity)
             }
             current := bindings.CurrentInstance
@@ -1011,7 +1011,7 @@ class ColumnarDirectCallPlanner {
         if calleeKind == 38 {
             genericName := nodes.Text(source, callee)
             siblingFacts: ColumnarSiblingCallFacts? = null
-            if genericName.IndexOf(".", StringComparison.Ordinal) < 0 && bindings.SiblingCallables.TryGetValue(genericName, out siblingFacts) && siblingFacts != null && siblingFacts.TypeParameterCount == ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee) {
+            if genericName.IndexOf(".", StringComparison.Ordinal) < 0 && bindings.TryGetSiblingCallable(genericName, out siblingFacts) && siblingFacts != null && siblingFacts.TypeParameterCount == ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee) {
                 ColumnarNamedArgumentBinder.AddCandidate(candidates, siblingFacts.ParameterNames, arity)
             }
             return ColumnarNamedArgumentBinder.TryAgreedPlacement(nodes, source, callNode, 1, arity, candidates, out placement)
@@ -1075,7 +1075,7 @@ class ColumnarDirectCallPlanner {
         if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression {
             bareName := nodes.Text(source, callee)
             siblingFacts: ColumnarSiblingCallFacts? = null
-            if bindings.SiblingCallables.TryGetValue(bareName, out siblingFacts) {
+            if bindings.TryGetSiblingCallable(bareName, out siblingFacts) && siblingFacts != null {
                 ColumnarNamedArgumentBinder.AddTypedCandidate(candidates, siblingFacts.ParameterNames, siblingFacts.ParameterTypes, arity)
             }
 
@@ -1095,7 +1095,7 @@ class ColumnarDirectCallPlanner {
         if calleeKind == 38 {
             genericName := nodes.Text(source, callee)
             siblingFacts: ColumnarSiblingCallFacts? = null
-            if genericName.IndexOf(".", StringComparison.Ordinal) < 0 && bindings.SiblingCallables.TryGetValue(genericName, out siblingFacts) && siblingFacts != null && siblingFacts.TypeParameterCount == ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee) {
+            if genericName.IndexOf(".", StringComparison.Ordinal) < 0 && bindings.TryGetSiblingCallable(genericName, out siblingFacts) && siblingFacts != null && siblingFacts.TypeParameterCount == ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee) {
                 ColumnarNamedArgumentBinder.AddTypedCandidate(candidates, siblingFacts.ParameterNames, siblingFacts.ParameterTypes, arity)
             }
             return ColumnarNamedArgumentBinder.TryBestPlacement(nodes, source, callNode, 1, argumentTypes, argumentFacts, candidates, out placement)
@@ -1368,7 +1368,7 @@ class ColumnarDirectCallPlanner {
         resultType = typeof(int)
         name := nodes.Text(source, callee)
         facts: ColumnarSiblingCallFacts? = null
-        if name.IndexOf(".", StringComparison.Ordinal) >= 0 || !bindings.SiblingCallables.TryGetValue(name, out facts) || facts == null || facts.TypeParameterCount != ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee) || facts.ParameterNames.Length != facts.ParameterTypes.Length || facts.ParameterDefaultKinds.Length != facts.ParameterTypes.Length || facts.ParameterDefaultTexts.Length != facts.ParameterTypes.Length || facts.ParameterModifierKinds.Length != facts.ParameterTypes.Length || bindings.IsSiblingShadowedByValue(name) {
+        if name.IndexOf(".", StringComparison.Ordinal) >= 0 || !bindings.TryGetSiblingCallable(name, out facts) || facts == null || facts.TypeParameterCount != ColumnarGenericCalleeFacts.TypeArgumentCount(nodes, callee) || facts.ParameterNames.Length != facts.ParameterTypes.Length || facts.ParameterDefaultKinds.Length != facts.ParameterTypes.Length || facts.ParameterDefaultTexts.Length != facts.ParameterTypes.Length || facts.ParameterModifierKinds.Length != facts.ParameterTypes.Length || bindings.IsSiblingShadowedByValue(name) {
             legacyWholeSubtreePlanning = true
             return false
         }
@@ -1919,9 +1919,10 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        // A plannable sibling takes precedence over the enclosing type's own instance/static
-        // members, mirroring the mechanical host's bare-call order. Other callable names (visible
-        // local functions and residual declared-callable names) stay legacy exactly as before.
+        // A MEMBER OF THE ENCLOSING TYPE HIDES A SIBLING OF THE SAME NAME, and `HasSiblingCallable`
+        // has already answered no for a hidden one (`ColumnarSiblingHiding`), so a sibling reaching
+        // this arm is the only thing the bare name can mean ahead of the tiers below. Other callable
+        // names (visible local functions and residual declared-callable names) stay legacy.
         if !explicitThis && bindings.HasSiblingCallable(memberName) {
             return TryAppendSiblingCall(nodes, source, callNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, memberName, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
         }
@@ -2160,8 +2161,8 @@ class ColumnarDirectCallPlanner {
         legacyWholeSubtreePlanning = false
         resultType = typeof(int)
 
-        facts := bindings.SiblingCallables[memberName]
-        if facts == null {
+        facts: ColumnarSiblingCallFacts? = null
+        if !bindings.TryGetSiblingCallable(memberName, out facts) || facts == null {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
             return false

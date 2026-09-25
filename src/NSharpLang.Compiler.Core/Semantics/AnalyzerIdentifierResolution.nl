@@ -21,9 +21,11 @@ import NSharpLang.Compiler.Ast
 //   1  the SCOPE STACK — locals, parameters and locally declared types, symbols before types. This
 //      is also where NARROWING pays off: `AnalyzerFlowNarrowing` writes the narrowed type into the
 //      scope's own symbol table, so `text` inside `if text != null { … }` answers `string` here
-//      without this rule naming narrowing at all.
+//      without this rule naming narrowing at all. A symbol declared OUTSIDE the enclosing type — a
+//      free function of this file, in the global scope — does not answer when the type has a member
+//      of that name: a member hides a free function, as C# looks in the type before the namespace.
 //   2  the ENCLOSING TYPE's members, static ones included, so a field or property used bare inside
-//      its own type resolves without `this.`.
+//      its own type resolves without `this.`, and an inherited one wins over any free function.
 //   3  the BUILT-IN TYPE KEYWORDS, so `int.Parse`, `string.IsNullOrEmpty` and `int.TryParse` have a
 //      receiver.
 //   4  project-wide TYPE discovery, which also RECORDS the binding and the semantic-model type.
@@ -196,6 +198,24 @@ class AnalyzerIdentifierResolution {
         return flowType
     }
 
+    // A BARE NAME HAS NO WRITTEN RECEIVER, so the receiver is the enclosing instance and the
+    // `protected` receiver rule is satisfied by construction: what an external base declares
+    // `protected` is in scope here exactly as a source base's is.
+    private func ResolveEnclosingMember(currentType: TypeInfo, name: string): TypeInfo {
+        return memberResolutionValue.ResolveMember(currentType, name, true, ambientValue.CurrentTypeName, false, true)
+    }
+
+    // A MEMBER OF THE ENCLOSING TYPE HIDES A FREE FUNCTION OF THE SAME NAME, whatever file or assembly
+    // declared the function, as C# looks a simple name up in its type before its namespace. The type's
+    // OWN members already sit in the type scope, above the global scope that holds the file's own free
+    // functions, so they won there without this; an INHERITED member is not in any scope, and without
+    // this a free function in the same file beat it while the same function in another file lost to
+    // it. The emitter applies the same rule to its sibling table (`ColumnarSiblingHiding`).
+    private func EnclosingTypeHasMember(name: string): bool {
+        currentType := scopesValue.CurrentTypeScope()
+        return currentType != null && !BuiltInTypes.IsUnknown(ResolveEnclosingMember(currentType, name))
+    }
+
     // The function half of project auto-discovery, mirroring the type half in
     // `AnalyzerProjectTypeDiscovery`: exported (PascalCase) top-level functions are visible
     // project-wide within visible namespaces without a file import, and a camelCase one is visible to
@@ -241,20 +261,25 @@ class AnalyzerIdentifierResolution {
     // nothing" from "this name is something whose type we could not work out" — only the first
     // reports.
     func TryResolveBindingTarget(name: string, line: int, column: int, out resolvedType: TypeInfo): bool {
-        // 1. Local symbols first, then local types.
-        scopeBinding := scopesValue.ResolveBindingTarget(bindingsValue, diagnosticsValue.CurrentFilePath, name, line, column)
+        // 1. Local symbols first, then local types. A symbol declared OUTSIDE the enclosing type — the
+        // file's own free functions live in the global scope — answers only when the type has no
+        // member of that name; otherwise channel 2 below answers with the member.
+        symbolFloor := 0
+        typeScopeIndex := scopesValue.TypeScopeIndex()
+        if typeScopeIndex > 0 && scopesValue.DeclaresSymbolBelow(name, typeScopeIndex) && EnclosingTypeHasMember(name) {
+            symbolFloor = typeScopeIndex
+        }
+
+        scopeBinding := scopesValue.ResolveBindingTarget(bindingsValue, diagnosticsValue.CurrentFilePath, name, line, column, symbolFloor)
         if scopeBinding != null {
             resolvedType = scopeBinding
             return true
         }
 
-        // 2. The enclosing type's members, static ones included. A BARE NAME HAS NO WRITTEN RECEIVER,
-        // so the receiver is the enclosing instance and the `protected` receiver rule is satisfied by
-        // construction: what an external base declares `protected` is in scope here exactly as a
-        // source base's is.
+        // 2. The enclosing type's members, static ones included.
         currentType := scopesValue.CurrentTypeScope()
         if currentType != null {
-            memberType := memberResolutionValue.ResolveMember(currentType, name, true, ambientValue.CurrentTypeName, false, true)
+            memberType := ResolveEnclosingMember(currentType, name)
             if !BuiltInTypes.IsUnknown(memberType) {
                 resolvedType = memberType
                 return true

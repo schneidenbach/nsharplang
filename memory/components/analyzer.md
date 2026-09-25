@@ -1688,6 +1688,35 @@ Two consequences the analyzer owns:
   whatever the function names are. Measured at 353fb69f7 the src projects share NO free-function or
   type identity across assemblies (294 function identities, 1,520 type identities).
 
+**A MEMBER OF THE ENCLOSING TYPE HIDES A FREE FUNCTION OF THE SAME NAME** (census 2026-09-24,
+`census/member-first-bare-calls`). Inside a type body a bare name is the type's member before it is
+any namespace's free function — C#'s type-before-namespace order — by NAME, not signature, for own
+and inherited (source base or external base: public and protected) members, instance and static,
+methods, fields, properties, events and constants alike, and whatever file or assembly declared the
+free function. Measured on 79851f0b5 before the fix, the two halves disagreed three ways:
+- the EMITTER asked its sibling table first at every bare-name door (the legacy bare-call arm, its
+  preflight, the direct-call planner's `SiblingCallables`, the method-group, never-returns and
+  labelled-return reads, the lambda capture walks), so `Widget.Show() => Label()` beside a same-named
+  `func Label()` called the FREE function — `check` clean, `run` printing the other answer, for own,
+  static, struct, lambda-captured and cross-file shapes alike;
+- the ANALYZER bound an OWN member (the type scope holds it, above the global scope) and an inherited
+  member against a CROSS-file function (channel 2 before channel 5), but a SAME-file free function
+  beat an INHERITED member, because the file's own functions sit in the global scope that channel 1
+  walked before channel 2 was asked.
+One owner per side now: `ColumnarSiblingHiding.IsHiddenByEnclosingMember` (walks `ClosureEnclosingDef`
+out of closure displays to the declaring type; a free function's display hides nothing), read through
+`ColumnarFragmentBindings.HasSiblingCallable`/`TryGetSiblingCallable`/`IsCallable` and the emitter's
+`TryGetVisibleSibling`; and `AnalyzerIdentifierResolution.EnclosingTypeHasMember`, which floors
+channel 1's SYMBOL walk at the type scope (`AnalyzerScopeStack.ResolveBindingTarget(..., symbolFloor)`)
+when the type has a member of the name. The type walk is not floored. `object`'s implicit members do
+not hide (the analyzer's channel 2 does not answer them for a source type with no written base).
+A non-invocable member hides too: `Label()` against a `string` field is refused (today at emit,
+NL103 — the analyzer does not yet report calling a non-delegate member). A member iterator's bare
+call to its own member already declined before this rule; beside a same-named free function it used
+to emit the FREE call and now declines. Contracts: `tests/native/census-free-function-identity`
+(`MemberShadow*.nl` — free functions return `int`, members don't, so an analyzer that bound the free
+function is an NL202 at compile time), `ColumnarSiblingHiding.tests.nl`, `AnalyzerScopeStack.tests.nl`.
+
 **EXPORT IS REQUIRED ONLY ACROSS NAMESPACES, AND ONE OWNER SAYS SO.**
 `SimpleNamePrecedence.RequiresExport(currentNamespace, candidateNamespace)` is that half of the rule:
 a declaration is reachable from its OWN namespace whatever its casing — camelCase is

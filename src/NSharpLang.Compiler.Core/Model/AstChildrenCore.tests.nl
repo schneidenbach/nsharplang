@@ -49,7 +49,9 @@ func AstGuardSourceText(fileName: string): string {
     return File.ReadAllText(found[0])
 }
 
-func SourceLines(text: string): string[] {
+// Named apart from the production `EditorSymbolTableFacts.SourceLines`, which keeps each `\r`: a seed
+// that predates the member-first bare-call rule bound that type's own bare calls to this helper.
+func AstGuardLines(text: string): string[] {
     return text.Replace("\r\n", "\n").Split('\n')
 }
 
@@ -89,7 +91,7 @@ func IsExpressionCarryingType(declaredType: string): bool {
 
 func ReadExpressionCensus(): ExpressionNodeCensus {
     census := new ExpressionNodeCensus()
-    lines := SourceLines(AstGuardSourceText("Expressions.nl"))
+    lines := AstGuardLines(AstGuardSourceText("Expressions.nl"))
     currentClass := ""
 
     index := 0
@@ -208,7 +210,7 @@ class DispatchArm {
 
 func ReadDispatchArms(): List<DispatchArm> {
     arms := new List<DispatchArm>()
-    lines := SourceLines(AstGuardSourceText("AstChildrenCore.nl"))
+    lines := AstGuardLines(AstGuardSourceText("AstChildrenCore.nl"))
     index := 0
     while index < lines.Length {
         trimmed := lines[index].Trim()
@@ -267,7 +269,7 @@ func ArmFor(arms: List<DispatchArm>, typeName: string): DispatchArm? {
 
 func DeclaredLeafNames(): List<string> {
     names := new List<string>()
-    lines := SourceLines(AstGuardSourceText("AstChildrenCore.nl"))
+    lines := AstGuardLines(AstGuardSourceText("AstChildrenCore.nl"))
     index := 0
     while index < lines.Length {
         if lines[index].Contains("static func IsLeafExpression") {
@@ -319,7 +321,7 @@ func DirectSlotReads(body: string): List<string> {
 
 // The body of one named helper function, brace-counted from its `func` line.
 func HelperBody(source: string, functionName: string): string {
-    lines := SourceLines(source)
+    lines := AstGuardLines(source)
     index := 0
     while index < lines.Length {
         if lines[index].Contains("func " + functionName + "(") {

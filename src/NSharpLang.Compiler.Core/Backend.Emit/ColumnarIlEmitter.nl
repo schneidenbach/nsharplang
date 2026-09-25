@@ -12398,7 +12398,7 @@ sealed class ColumnarIlEmitter {
             bareName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
             calleeDescription = bareName
             let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-            if (_siblings.TryGetValue(bareName, out sibling)) {
+            if (TryGetVisibleSibling(bareName, out sibling) && sibling != null) {
                 return sibling.DoesNotReturn
             }
             let bareStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
@@ -12530,7 +12530,7 @@ sealed class ColumnarIlEmitter {
         if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.IdentifierExpression) {
             bareName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
             let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-            if (_siblings.TryGetValue(bareName, out sibling)) {
+            if (TryGetVisibleSibling(bareName, out sibling) && sibling != null) {
                 return sibling.ParameterDoesNotReturnIf
             }
             let bareStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
@@ -13742,7 +13742,7 @@ sealed class ColumnarIlEmitter {
                     return true
                 }
                 let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-                if (_siblings.TryGetValue(name, out target)) {
+                if (TryGetVisibleSibling(name, out target) && target != null) {
                     argCount := _nodes.ChildCount(idx) - 1
                     useExpandedParams := ShouldUseExpandedParamsCall(idx, target.ParamTypes, target.ParamModifierKinds)
                     if (argCount != target.ParamTypes.Length && !useExpandedParams) {
@@ -13913,7 +13913,7 @@ sealed class ColumnarIlEmitter {
                     return true
                 }
                 let gTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-                if (!_siblings.TryGetValue(gName, out gTarget) || gTarget.TypeParams.Length == 0) {
+                if (!TryGetVisibleSibling(gName, out gTarget) || gTarget == null || gTarget.TypeParams.Length == 0) {
                     return Decline("emit.call.generic-unresolved", "generic call '" + ColumnarDeclineReasonFacts.CalledMemberName(gName) + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
                 }
                 if (ColumnarGenericCalleeFacts.TypeArgumentCount(_nodes, callee) != gTarget.TypeParams.Length) {
@@ -17539,6 +17539,25 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // THE FREE FUNCTION A BARE NAME CAN MEAN IN THIS BODY. A member of the enclosing type hides a
+    // sibling of the same name — own or inherited, instance or static, whatever its arity — so every
+    // bare-name read of `_siblings` asks here, and a hidden one leaves the name to the member tiers
+    // (`ColumnarSiblingHiding`). Only bare names: a dotted or receiver-qualified spelling never
+    // reaches a sibling through this door.
+    private func TryGetVisibleSibling(name: string, out sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition?): bool {
+        sibling = null
+        if (_siblings == null || !_siblings.TryGetValue(name, out sibling) || sibling == null || ColumnarSiblingHiding.IsHiddenByEnclosingMember(_enclosingType, name)) {
+            sibling = null
+            return false
+        }
+        return true
+    }
+
+    private func HasVisibleSibling(name: string): bool {
+        let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        return TryGetVisibleSibling(name, out sibling)
+    }
+
     // A BARE IDENTIFIER IN RECEIVER POSITION IS A VALUE WHENEVER THE ENCLOSING TYPE DECLARES IT.
     //
     // The receiver arm above asks one question — value or type name — and the instance answer was
@@ -19112,7 +19131,7 @@ sealed class ColumnarIlEmitter {
         // the canonical `T`, which names no element of anything; the answer for such a call is the
         // argument inference picked it from, which `SiblingInferredReturnLabeled` supplies.
         let definition: ColumnarSiblingMethodDefinition? = null
-        if (_siblings.TryGetValue(calleeName, out definition) && definition != null && definition.ReturnType != null && definition.ReturnType.IsGenericParameter) {
+        if (TryGetVisibleSibling(calleeName, out definition) && definition != null && definition.ReturnType != null && definition.ReturnType.IsGenericParameter) {
             return null
         }
         return returnLabeled
@@ -19134,7 +19153,7 @@ sealed class ColumnarIlEmitter {
             return null
         }
         let definition: ColumnarSiblingMethodDefinition? = null
-        if (!_siblings.TryGetValue(calleeName, out definition) || definition == null) {
+        if (!TryGetVisibleSibling(calleeName, out definition) || definition == null) {
             return null
         }
         returnType := definition.ReturnType
@@ -22844,7 +22863,8 @@ sealed class ColumnarIlEmitter {
         } else if columnarSwitchValue11 == ColumnarExpressionNodeKind.CallExpression {
 
             // Preflight a CALL's result type via the bare-call resolution tiers (no emission):
-            // local function -> sibling top-level -> instance chain -> static chain. Shadowed
+            // local function -> sibling top-level -> instance chain -> static chain, where a sibling
+            // the enclosing type hides behind a same-named member is no candidate at all. Shadowed
             // names and member-access callees stay un-preflighted.
             callee := Child(node, 0)
             if (_nodes.Kind(callee) == ColumnarExpressionNodeKind.MemberAccessExpression) {
@@ -22895,7 +22915,7 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-            if (_siblings.TryGetValue(calleeName, out sibling) && sibling.TypeParams.Length == 0) {
+            if (TryGetVisibleSibling(calleeName, out sibling) && sibling != null && sibling.TypeParams.Length == 0) {
                 columnarResolvedType = sibling.ReturnType
                 return true
             }
@@ -26815,7 +26835,7 @@ sealed class ColumnarIlEmitter {
         }
         name := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
         let candidate: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
-        if (!_siblings.TryGetValue(name, out candidate) || candidate == null || candidate.TypeParams.Length > 0) {
+        if (!TryGetVisibleSibling(name, out candidate) || candidate == null || candidate.TypeParams.Length > 0) {
             return false
         }
         for modifierKind in candidate.ParamModifierKinds {
@@ -30138,7 +30158,7 @@ sealed class ColumnarIlEmitter {
             if _nodes.Kind(callee) == ColumnarExpressionNodeKind.IdentifierExpression && !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, callee) {
                 name := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
                 let instanceMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
-                if !_paramOrdinals.ContainsKey(name) && !_locals.ContainsKey(name) && !_liftedLocals.ContainsKey(name) && (_boxedCaptures == null || !_boxedCaptures.ContainsKey(name)) && !_siblings.ContainsKey(name) && _currentStruct != null && TrySelectInstanceMethodOnChain(_currentStruct, name, node, out instanceMethod) {
+                if !_paramOrdinals.ContainsKey(name) && !_locals.ContainsKey(name) && !_liftedLocals.ContainsKey(name) && (_boxedCaptures == null || !_boxedCaptures.ContainsKey(name)) && !HasVisibleSibling(name) && _currentStruct != null && TrySelectInstanceMethodOnChain(_currentStruct, name, node, out instanceMethod) {
                     return true
                 }
             }
