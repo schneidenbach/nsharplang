@@ -198,6 +198,10 @@ sealed class CompilationReferenceResolver {
             )
         }
 
+        if options.UseBuiltProjectReferences {
+            return LocateBuiltProjectReference(projectRoot, config, options, context)
+        }
+
         context.ActiveProjectRoots.Push(projectRoot)
         let resolvedOutput: ResolvedProjectReference = null
         try {
@@ -249,6 +253,52 @@ sealed class CompilationReferenceResolver {
                 builtAssemblyPath,
                 references
             )
+            context.ProjectOutputs[projectRoot] = resolvedOutput
+        } finally {
+            context.ActiveProjectRoots.Pop()
+        }
+        return resolvedOutput
+    }
+
+    // THE REFERENCE AS ITS OWN BUILD LEFT IT (`ReferenceResolutionOptions.UseBuiltProjectReferences`).
+    // Nothing is compiled and nothing is written: the assembly is read where that project's build put
+    // it, its own `project:` references are located the same way, and its package references resolve
+    // as they always do, so the consumer sees the same transitive closure a source build would give
+    // it. Missing and out-of-date assemblies are refused by name.
+    private static func LocateBuiltProjectReference(
+        projectRoot: string,
+        config: ProjectConfig,
+        options: ReferenceResolutionOptions,
+        context: ResolutionContext
+    ): ResolvedProjectReference {
+        context.ActiveProjectRoots.Push(projectRoot)
+        let resolvedOutput: ResolvedProjectReference = null
+        try {
+            projectYml := CompilationReferenceResolverKernels.GetProjectYmlPath(projectRoot)
+            assemblyPath := CompilationReferenceResolverKernels.GetProjectOutputAssemblyPath(
+                GetStableOutputDirectory(projectRoot, config, options.Configuration),
+                GetProjectAssemblyName(projectRoot, config)
+            )
+            if !File.Exists(assemblyPath) {
+                throw new InvalidOperationException(
+                    CompilationReferenceResolverKernels.GetProjectReferenceNotBuiltMessage(projectYml, assemblyPath)
+                )
+            }
+
+            newerSource := CompilationReferenceResolverKernels.FindProductSourceNewerThan(projectRoot, assemblyPath)
+            if newerSource != null {
+                throw new InvalidOperationException(
+                    CompilationReferenceResolverKernels.GetProjectReferenceStaleMessage(projectYml, assemblyPath, newerSource)
+                )
+            }
+
+            references := ResolveProjectReferences(
+                projectRoot,
+                config,
+                CompilationReferenceResolverKernels.GetProjectReferenceResolutionOptions(options),
+                context
+            )
+            resolvedOutput = new ResolvedProjectReference(assemblyPath, references)
             context.ProjectOutputs[projectRoot] = resolvedOutput
         } finally {
             context.ActiveProjectRoots.Pop()

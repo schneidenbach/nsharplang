@@ -47,6 +47,7 @@ class CheckCommand {
             projectConfig := ProjectFileParser.ParseFromDirectory(projectDir)
             if projectConfig != null {
                 referenceOptions := new ReferenceResolutionOptions("Debug", true, true, false, aot)
+                referenceOptions.UseBuiltProjectReferences = arguments.UseBuiltReferences
                 CompilationReferenceResolver.AddResolvedDllReferences(projectDir, projectConfig, referenceOptions)
             }
 

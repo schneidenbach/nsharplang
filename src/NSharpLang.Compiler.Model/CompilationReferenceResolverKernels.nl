@@ -365,7 +365,54 @@ class CompilationReferenceResolverKernels {
     static func GetProjectReferenceResolutionOptions(options: ReferenceResolutionOptions): ReferenceResolutionOptions {
         projectReferenceOptions := new ReferenceResolutionOptions(options.Configuration, false, options.BuildProjectReferences, options.Quiet, options.AotMode)
         projectReferenceOptions.PackagesFolder = options.PackagesFolder
+        projectReferenceOptions.UseBuiltProjectReferences = options.UseBuiltProjectReferences
         return projectReferenceOptions
+    }
+
+    // THE FIRST PRODUCT SOURCE OF A PROJECT THAT IS NEWER THAN ITS BUILT ASSEMBLY, or null when the
+    // assembly is at least as new as every one. A product source is `project.yml` and every `.nl` file
+    // outside `bin/` and `obj/` that is not a `.tests.nl`: a reference is always the PRODUCT build, so
+    // an edited row does not make it stale. Sorted ordinally, so the file a message names is stable.
+    static func FindProductSourceNewerThan(projectRoot: string, assemblyPath: string): string? {
+        builtAt := File.GetLastWriteTimeUtc(assemblyPath)
+        candidates := new List<string>()
+        projectYml := GetProjectYmlPath(projectRoot)
+        if File.Exists(projectYml) {
+            candidates.Add(projectYml)
+        }
+
+        for candidate in Directory.GetFiles(projectRoot, "*.nl", SearchOption.AllDirectories) {
+            relative := Path.GetRelativePath(projectRoot, candidate).Replace('\\', '/')
+            if IsProductSourcePath(relative) {
+                candidates.Add(candidate)
+            }
+        }
+
+        candidates.Sort(StringComparer.Ordinal)
+        for candidate in candidates {
+            if File.GetLastWriteTimeUtc(candidate) > builtAt {
+                return candidate
+            }
+        }
+
+        return null
+    }
+
+    // A project-relative, `/`-separated `.nl` path the product build compiles.
+    static func IsProductSourcePath(relativePath: string): bool {
+        if relativePath.StartsWith("bin/", StringComparison.Ordinal) || relativePath.StartsWith("obj/", StringComparison.Ordinal) {
+            return false
+        }
+
+        return relativePath.EndsWith(".nl", StringComparison.Ordinal) && !relativePath.EndsWith(".tests.nl", StringComparison.Ordinal)
+    }
+
+    static func GetProjectReferenceNotBuiltMessage(projectYmlPath: string, assemblyPath: string): string {
+        return "Project reference '" + projectYmlPath + "' has no built assembly at '" + assemblyPath + "'. Build it first (nlc build or dotnet build in its directory), or check without --use-built-references to compile it from source."
+    }
+
+    static func GetProjectReferenceStaleMessage(projectYmlPath: string, assemblyPath: string, newerSource: string): string {
+        return "Project reference '" + projectYmlPath + "' is out of date: '" + newerSource + "' is newer than its built assembly '" + assemblyPath + "'. Build it again, or check without --use-built-references to compile it from source."
     }
 
     static func ShouldUseRuntimeAssembliesForCompile(compileAssemblyCount: int): bool {

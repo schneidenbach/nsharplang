@@ -29,7 +29,7 @@ Updated: 2026-06-01
 | `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `--project`, `--debounce-ms`, `--max-runs` | `nlc watch check` |
 | `nlc doc` | Generate HTML API docs | `--project`, `--output`, `--open`, `--json` | `nlc doc --open` |
 | `nlc completion <shell>` | Generate shell completion scripts | `bash`, `zsh`, `fish` | `nlc completion zsh` |
-| `nlc check` | Fast parse + analyze without building | `--project`, `--text`, `--json` | `nlc check --text` |
+| `nlc check` | Fast parse + analyze without building | `--project`, `--text`, `--json`, `--use-built-references` | `nlc check --text` |
 | `nlc fix` | Auto-apply code fixes | `--project`, `--file`, `--dry-run`, `--text`, `--json` | `nlc fix --dry-run` |
 | `nlc query <subcommand>` | Code intelligence for humans and tools | global `--project`, `--file`, `--pos`, `--text`, `--json`, `--no-daemon` | `nlc query def --file Program.nl --pos 12:4` |
 | `nlc daemon <subcommand>` | Manage the background analysis daemon | `--project` | `nlc daemon status` |
@@ -103,6 +103,7 @@ nlc run
 
 # Tight development loop
 nlc check
+nlc check --use-built-references   # project: dependencies read from their own builds, not recompiled
 nlc fix --dry-run
 nlc format --check
 nlc test --filter "should add"

@@ -407,3 +407,56 @@ test "when both duplicates are unexported the answer is the export refusal, neve
         Directory.Delete(directory, true)
     }
 }
+
+// ═══ --use-built-references: A `project:` DEPENDENCY READ FROM ITS OWN BUILD ═══════════════════
+
+func CcBuiltReferencePair(directory: string) {
+    Directory.CreateDirectory(Path.Combine(directory, "Lib"))
+    Directory.CreateDirectory(Path.Combine(directory, "App"))
+    File.WriteAllText(Path.Combine(Path.Combine(directory, "Lib"), "project.yml"), "name: CcBuiltLib\noutputType: library\ntargetFramework: net10.0\n")
+    File.WriteAllText(Path.Combine(Path.Combine(directory, "Lib"), "Lib.nl"), "namespace CcBuilt\n\nfunc LibValue(): int {\n    return 41\n}\n")
+    File.WriteAllText(Path.Combine(Path.Combine(directory, "App"), "project.yml"), "name: CcBuiltApp\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../Lib/project.yml\n")
+    File.WriteAllText(Path.Combine(Path.Combine(directory, "App"), "App.nl"), "namespace CcBuilt\n\nfunc AppValue(): int {\n    return LibValue() + 1\n}\n")
+}
+
+test "nlc check --use-built-references reads a project dependency from the assembly its build wrote, and refuses a missing or stale one by name" {
+    directory := NewTempDirectory("nsharp-check-built-references")
+    try {
+        CcBuiltReferencePair(directory)
+        app := Path.Combine(directory, "App")
+        libYml := Path.Combine(Path.Combine(directory, "Lib"), "project.yml")
+        libDll := Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(directory, "Lib"), "bin"), "Debug"), "net10.0"), "CcBuiltLib.dll")
+
+        // Never built: the envelope names the dependency and the assembly it looked for.
+        missing := Nlc("check --use-built-references --project " + CcQuoted(app))
+        assert missing.ExitCode == 1, missing.Stdout
+        missingDocument := JsonDocument.Parse(missing.Stdout)
+        missingMessage := TextOf(missingDocument.RootElement.GetProperty("error").GetProperty("message"))
+        missingDocument.Dispose()
+        assert missingMessage.Contains(libYml + "' has no built assembly at '" + libDll + "'"), missingMessage
+        assert !File.Exists(libDll), "The check must not have built the dependency itself."
+
+        // Built by its own `nlc build`: the check reads it and writes nothing.
+        build := Nlc("build --project " + CcQuoted(Path.Combine(directory, "Lib")))
+        assert build.ExitCode == 0, build.Stdout + build.Stderr
+        builtAt := File.GetLastWriteTimeUtc(libDll)
+        File.SetLastWriteTimeUtc(Path.Combine(Path.Combine(directory, "Lib"), "Lib.nl"), builtAt.AddMinutes(-1))
+        File.SetLastWriteTimeUtc(libYml, builtAt.AddMinutes(-1))
+        clean := Nlc("check --use-built-references --project " + CcQuoted(app))
+        assert clean.ExitCode == 0, clean.Stdout
+        cleanDocument := JsonDocument.Parse(clean.Stdout)
+        assert cleanDocument.RootElement.GetProperty("ok").GetBoolean()
+        assert cleanDocument.RootElement.GetProperty("checkedFiles").GetInt32() == 1
+        cleanDocument.Dispose()
+        assert File.GetLastWriteTimeUtc(libDll) == builtAt
+
+        // A source edited after the build: refused, in both output modes, naming the newer file.
+        libSource := Path.Combine(Path.Combine(directory, "Lib"), "Lib.nl")
+        File.SetLastWriteTimeUtc(libSource, builtAt.AddMinutes(1))
+        stale := Nlc("check --use-built-references --project " + CcQuoted(app) + " --text")
+        assert stale.ExitCode == 1
+        assert stale.Stderr.Contains(libYml + "' is out of date: '" + libSource + "' is newer than its built assembly"), stale.Stderr
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}

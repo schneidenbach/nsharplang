@@ -11,6 +11,7 @@ class ReferenceResolutionOptions {
     buildProjectReferencesValue: bool
     quietValue: bool
     aotModeValue: bool
+    useBuiltProjectReferencesValue: bool
     packagesFolderValue: string?
 
     constructor() {
@@ -63,6 +64,24 @@ class ReferenceResolutionOptions {
         }
         set {
             aotModeValue = value
+        }
+    }
+
+    // A `project:` DEPENDENCY IS READ FROM ITS BUILT ASSEMBLY, NOT COMPILED FROM SOURCE. Off, each
+    // project reference (and each of its own) is compiled in-process by this resolution, which is how
+    // `nlc build` stays self-contained. On, the reference is the assembly that project's own build
+    // already wrote to its stable output directory (`bin/<Configuration>/<targetFramework>`, the
+    // directory both `nlc build` and `dotnet build` write), found the same way transitively -- the
+    // shape of `cargo check` or `go vet` over dependencies that are already compiled. A reference that
+    // was never built, or whose product sources are newer than its assembly, is an error that names
+    // it rather than a silently stale answer. It is what lets `nlc check` measure a project whose
+    // dependency cannot be compiled by `nlc` itself yet but IS built (the compiler's own slices).
+    UseBuiltProjectReferences: bool {
+        get {
+            return useBuiltProjectReferencesValue
+        }
+        set {
+            useBuiltProjectReferencesValue = value
         }
     }
 

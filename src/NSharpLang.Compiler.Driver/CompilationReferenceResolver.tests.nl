@@ -69,8 +69,8 @@ test "CompilationReferenceResolver has exactly the two cross assembly entries an
         }
         privateMethodIndex = privateMethodIndex + 1
     }
-    assert privateMethodCount == 22
-    expectedPrivateMethods := new string[](22)
+    assert privateMethodCount == 23
+    expectedPrivateMethods := new string[](23)
     // Declaration order. `SelectNuGetPackageVersions` is the level-order pass that decides one
     // version per package id before `ResolveNuGetPackage` takes a single asset.
     expectedPrivateMethods[0] = "CreateHttpClient"
@@ -78,23 +78,24 @@ test "CompilationReferenceResolver has exactly the two cross assembly entries an
     expectedPrivateMethods[2] = "ResolveProjectReferences"
     expectedPrivateMethods[3] = "AddImplicitNSharpRuntimeAsset"
     expectedPrivateMethods[4] = "BuildProjectReference"
-    expectedPrivateMethods[5] = "FormatCompilerDiagnostics"
-    expectedPrivateMethods[6] = "AddImplicitTestDependencies"
-    expectedPrivateMethods[7] = "ResolveFrameworkReferenceDirectories"
-    expectedPrivateMethods[8] = "SelectNuGetPackageVersions"
-    expectedPrivateMethods[9] = "ResolveNuGetPackage"
-    expectedPrivateMethods[10] = "EnsurePackageAvailable"
-    expectedPrivateMethods[11] = "GetLatestPackageVersion"
-    expectedPrivateMethods[12] = "ReadNuGetVersionStrings"
-    expectedPrivateMethods[13] = "DownloadPackage"
-    expectedPrivateMethods[14] = "TryDeleteDirectoryRecursively"
-    expectedPrivateMethods[15] = "ReadPackageIdentity"
-    expectedPrivateMethods[16] = "FindFirstElementByLocalName"
-    expectedPrivateMethods[17] = "CollectElementsByLocalName"
-    expectedPrivateMethods[18] = "ReadPackageDependencies"
-    expectedPrivateMethods[19] = "SelectBestAssetAssemblies"
-    expectedPrivateMethods[20] = "AddDllReference"
-    expectedPrivateMethods[21] = "FindSharedFrameworkDirectory"
+    expectedPrivateMethods[5] = "LocateBuiltProjectReference"
+    expectedPrivateMethods[6] = "FormatCompilerDiagnostics"
+    expectedPrivateMethods[7] = "AddImplicitTestDependencies"
+    expectedPrivateMethods[8] = "ResolveFrameworkReferenceDirectories"
+    expectedPrivateMethods[9] = "SelectNuGetPackageVersions"
+    expectedPrivateMethods[10] = "ResolveNuGetPackage"
+    expectedPrivateMethods[11] = "EnsurePackageAvailable"
+    expectedPrivateMethods[12] = "GetLatestPackageVersion"
+    expectedPrivateMethods[13] = "ReadNuGetVersionStrings"
+    expectedPrivateMethods[14] = "DownloadPackage"
+    expectedPrivateMethods[15] = "TryDeleteDirectoryRecursively"
+    expectedPrivateMethods[16] = "ReadPackageIdentity"
+    expectedPrivateMethods[17] = "FindFirstElementByLocalName"
+    expectedPrivateMethods[18] = "CollectElementsByLocalName"
+    expectedPrivateMethods[19] = "ReadPackageDependencies"
+    expectedPrivateMethods[20] = "SelectBestAssetAssemblies"
+    expectedPrivateMethods[21] = "AddDllReference"
+    expectedPrivateMethods[22] = "FindSharedFrameworkDirectory"
     expectedPrivateIndex := 0
     while expectedPrivateIndex < expectedPrivateMethods.Length {
         expectedPrivateMethod := owner.GetMethod(
@@ -404,4 +405,118 @@ test "a resolution context decides its packages folder once and a named folder w
     assert projectReferenceOptions.PackagesFolder == namedFolder
     assert !projectReferenceOptions.IncludeTests
     assert Environment.GetEnvironmentVariable("NUGET_PACKAGES") == previousPackages
+}
+
+// ── `UseBuiltProjectReferences`: a `project:` dependency read from its own build ─────────────────
+
+// Base <- Mid <- App, each a library whose one function calls the one below it.
+func ResolverWriteBuiltReferenceChain(root: string) {
+    ResolverWrite(Path.Combine(Path.Combine(root, "Base"), "project.yml"), "name: BuiltBase\noutputType: library\ntargetFramework: net10.0")
+    ResolverWrite(Path.Combine(Path.Combine(root, "Base"), "Base.nl"), "namespace Built\n\nfunc BaseValue(): int {\n    return 1\n}\n")
+    ResolverWrite(Path.Combine(Path.Combine(root, "Mid"), "project.yml"), "name: BuiltMid\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../Base/project.yml")
+    ResolverWrite(Path.Combine(Path.Combine(root, "Mid"), "Mid.nl"), "namespace Built\n\nfunc MidValue(): int {\n    return BaseValue() + 1\n}\n")
+    ResolverWrite(Path.Combine(Path.Combine(root, "App"), "project.yml"), "name: BuiltApp\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: ../Mid/project.yml")
+    ResolverWrite(Path.Combine(Path.Combine(root, "App"), "App.nl"), "namespace Built\n\nfunc AppValue(): int {\n    return MidValue() + 1\n}\n")
+}
+
+func ResolverBuiltOptions(): ReferenceResolutionOptions {
+    options := new ReferenceResolutionOptions("Debug", false, true, true, false)
+    options.UseBuiltProjectReferences = true
+    return options
+}
+
+func ResolverBuiltAssembly(root: string, project: string, assemblyName: string): string {
+    return Path.Combine(Path.Combine(Path.Combine(Path.Combine(Path.Combine(root, project), "bin"), "Debug"), "net10.0"), assemblyName + ".dll")
+}
+
+// Every file under `directory` stamped with one time, so a row decides what is newer than what.
+func ResolverStampTree(directory: string, stamp: DateTime) {
+    for path in Directory.GetFiles(directory, "*", SearchOption.AllDirectories) {
+        File.SetLastWriteTimeUtc(path, stamp)
+    }
+}
+
+test "a built project reference is read from its own build, transitively, and nothing is compiled or written" {
+    root := ResolverNewTempDirectory("built-references")
+    try {
+        ResolverWriteBuiltReferenceChain(root)
+        appRoot := Path.Combine(root, "App")
+
+        // Nothing is built yet: the reference is refused by name, not compiled.
+        missing := ResolverCaptureReferenceResolutionFailure(appRoot, ResolverParseProject(appRoot), ResolverBuiltOptions())
+        assert missing != null
+        missingMessage := missing?.Message ?? ""
+        assert missingMessage.Contains("Mid" + Path.DirectorySeparatorChar + "project.yml' has no built assembly at '", StringComparison.Ordinal), missingMessage
+        assert missingMessage.Contains("--use-built-references", StringComparison.Ordinal), missingMessage
+        assert !File.Exists(ResolverBuiltAssembly(root, "Mid", "BuiltMid"))
+
+        // A source resolution builds Mid and Base into their own stable output directories.
+        CompilationReferenceResolver.AddResolvedDllReferences(appRoot, ResolverParseProject(appRoot), new ReferenceResolutionOptions("Debug", false, true, true, false))
+        midDll := ResolverBuiltAssembly(root, "Mid", "BuiltMid")
+        baseDll := ResolverBuiltAssembly(root, "Base", "BuiltBase")
+        assert File.Exists(midDll) && File.Exists(baseDll)
+
+        // Sources older than the assemblies: both references are current.
+        ResolverStampTree(Path.Combine(root, "Base"), new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+        ResolverStampTree(Path.Combine(root, "Mid"), new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+        builtAt := new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        File.SetLastWriteTimeUtc(midDll, builtAt)
+        File.SetLastWriteTimeUtc(baseDll, builtAt)
+
+        config := ResolverParseProject(appRoot)
+        result := CompilationReferenceResolver.AddResolvedDllReferences(appRoot, config, ResolverBuiltOptions())
+        assert ResolverContainsDll(config, "BuiltMid.dll")
+        // Base's types reach App through Mid, as a source build's transitive closure gives them.
+        assert ResolverContainsDll(config, "BuiltBase.dll")
+        assert result.ProjectOutputAssemblies.Count == 2
+        // Read where the builds left them, and not rewritten.
+        assert File.GetLastWriteTimeUtc(midDll) == builtAt
+        assert File.GetLastWriteTimeUtc(baseDll) == builtAt
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "a built project reference older than a product source is refused by name, and an edited row does not make it stale" {
+    root := ResolverNewTempDirectory("built-references-stale")
+    try {
+        ResolverWriteBuiltReferenceChain(root)
+        appRoot := Path.Combine(root, "App")
+        CompilationReferenceResolver.AddResolvedDllReferences(appRoot, ResolverParseProject(appRoot), new ReferenceResolutionOptions("Debug", false, true, true, false))
+        ResolverStampTree(Path.Combine(root, "Base"), new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+        ResolverStampTree(Path.Combine(root, "Mid"), new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+        builtAt := new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        File.SetLastWriteTimeUtc(ResolverBuiltAssembly(root, "Mid", "BuiltMid"), builtAt)
+        File.SetLastWriteTimeUtc(ResolverBuiltAssembly(root, "Base", "BuiltBase"), builtAt)
+
+        // A row is not part of the product build a reference is.
+        rowPath := Path.Combine(Path.Combine(root, "Base"), "Base.tests.nl")
+        ResolverWrite(rowPath, "namespace Built\n\ntest \"base\" {\n    assert BaseValue() == 1\n}\n")
+        File.SetLastWriteTimeUtc(rowPath, new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+        CompilationReferenceResolver.AddResolvedDllReferences(appRoot, ResolverParseProject(appRoot), ResolverBuiltOptions())
+
+        // A product source edited after the build is, and the TRANSITIVE reference is checked too.
+        basePath := Path.Combine(Path.Combine(root, "Base"), "Base.nl")
+        File.SetLastWriteTimeUtc(basePath, new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+        stale := ResolverCaptureReferenceResolutionFailure(appRoot, ResolverParseProject(appRoot), ResolverBuiltOptions())
+        assert stale != null
+        staleMessage := stale?.Message ?? ""
+        assert staleMessage.Contains("Base" + Path.DirectorySeparatorChar + "project.yml' is out of date: '" + basePath + "' is newer than its built assembly", StringComparison.Ordinal), staleMessage
+    } finally {
+        Directory.Delete(root, true)
+    }
+}
+
+test "a product source is a .nl outside bin and obj that is not a row" {
+    assert CompilationReferenceResolverKernels.IsProductSourcePath("Program.nl")
+    assert CompilationReferenceResolverKernels.IsProductSourcePath("Slice/Deep.nl")
+    assert !CompilationReferenceResolverKernels.IsProductSourcePath("Program.tests.nl")
+    assert !CompilationReferenceResolverKernels.IsProductSourcePath("bin/Debug/Generated.nl")
+    assert !CompilationReferenceResolverKernels.IsProductSourcePath("obj/Generated.nl")
+    assert !CompilationReferenceResolverKernels.IsProductSourcePath("notes.md")
+
+    // The nested resolution a reference's own references take keeps the choice.
+    options := ResolverBuiltOptions()
+    assert CompilationReferenceResolverKernels.GetProjectReferenceResolutionOptions(options).UseBuiltProjectReferences
+    assert !CompilationReferenceResolverKernels.GetProjectReferenceResolutionOptions(new ReferenceResolutionOptions()).UseBuiltProjectReferences
 }

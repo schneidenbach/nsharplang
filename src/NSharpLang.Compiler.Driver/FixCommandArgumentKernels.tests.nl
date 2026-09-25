@@ -86,6 +86,14 @@ test "check option values are taken permissively, so --backend can be consumed a
     assert summary.BackendOption == "il"
 }
 
+test "check reads --use-built-references, and its help says what the option does" {
+    assert CheckCommandKernels.GetArgumentSummary(["--use-built-references", "--project", "src/App"]).UseBuiltReferences
+    assert CheckCommandKernels.GetArgumentSummary(["--use-built-references", "--project", "src/App"]).ProjectOption == "src/App"
+    assert !CheckCommandKernels.GetArgumentSummary(["--project", "src/App"]).UseBuiltReferences
+    assert CheckCommandKernels.GetHelpText().Contains("--use-built-references")
+    assert CheckCommandKernels.GetHelpText().Contains("instead of compiling it from source")
+}
+
 test "the bare word help asks check for help" {
     assert CheckCommandKernels.GetArgumentSummary(["help"]).ShowHelp
 }
