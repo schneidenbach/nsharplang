@@ -7,7 +7,7 @@ import zipfile
 
 expected = {
     'NSharpLang.Sdk', 'NSharpLang.Runtime', 'NSharpLang.Templates',
-    'NSharpLang.Compiler', 'NSharpLang.Compiler.Driver', 'NSharpLang.Compiler.Tooling', 'NSharpLang.Compiler.Core', 'NSharpLang.Compiler.Syntax', 'NSharpLang.Compiler.Model',
+    'NSharpLang.Compiler', 'NSharpLang.Compiler.Driver', 'NSharpLang.Compiler.Tooling', 'NSharpLang.Compiler.CodeIntel', 'NSharpLang.Compiler.Core', 'NSharpLang.Compiler.Syntax', 'NSharpLang.Compiler.Model',
 }
 packages = {}
 for path in Path(sys.argv[1]).glob('*.nupkg'):

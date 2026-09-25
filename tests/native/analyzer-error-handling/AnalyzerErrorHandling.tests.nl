@@ -374,13 +374,13 @@ func EhRow(analysis: object, index: int): string {
 func EhLint(source: string): IList {
     unit := EhParseUnit(source)
 
-    linterType := Type.GetType("NSharpLang.Compiler.Linter, NSharpLang.Compiler.Core")
+    linterType := Type.GetType("NSharpLang.Compiler.Linter, NSharpLang.Compiler.CodeIntel")
     unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Model")
     if linterType == null || unitType == null {
         throw new InvalidOperationException("The production linter types were not loadable.")
     }
 
-    configType := Type.GetType("NSharpLang.Compiler.LinterConfig, NSharpLang.Compiler.Core")
+    configType := Type.GetType("NSharpLang.Compiler.LinterConfig, NSharpLang.Compiler.CodeIntel")
     if configType == null {
         throw new InvalidOperationException("The production linter configuration type was not loadable.")
     }

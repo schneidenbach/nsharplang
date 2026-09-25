@@ -125,7 +125,7 @@ func QueryCompletionEngineType(): Type {
 }
 
 func QueryDiagnosticResultType(): Type {
-    return QueryType("NSharpLang.Compiler.CodeIntelligence.DiagnosticResult, NSharpLang.Compiler.Core")
+    return QueryType("NSharpLang.Compiler.CodeIntelligence.DiagnosticResult, NSharpLang.Compiler.CodeIntel")
 }
 
 func QueryService(): object {

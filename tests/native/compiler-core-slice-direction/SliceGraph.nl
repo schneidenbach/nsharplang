@@ -9,11 +9,12 @@ import System.Text
 //
 // Compiler.Core's files sit in eight slice directories, lowest first: Model, Syntax, Semantics,
 // Backend.Plan, Backend.Emit, CodeIntel, Tooling, Driver. Each directory is the project a PR carves
-// it into (`src/NSharpLang.Compiler.<Slice>`; Model, Syntax, Tooling and Driver are carved), so a
-// file may read a top-level name declared in its own slice or in a LOWER one, and never in a higher
-// one - between assemblies a reach upward is a reference cycle and the build cannot exist. Inside Core
-// nothing but this walk sees such a reach, because one project compiles every direction alike, so the
-// walk reads Core and every carved project together, each file ranked by the slice it belongs to.
+// it into (`src/NSharpLang.Compiler.<Slice>`; Model, Syntax, CodeIntel, Tooling and Driver are
+// carved), so a file may read a top-level name declared in its own slice or in a LOWER one, and never
+// in a higher one - between assemblies a reach upward is a reference cycle and the build cannot
+// exist. Inside Core nothing but this walk sees such a reach, because one project compiles every
+// direction alike, so the walk reads Core and every carved project together, each file ranked by the
+// slice it belongs to.
 //
 // THE WALK IS THE SPLIT PLAN'S OWN NAME GRAPH (census-briefs/fable-split-scripts/pr1-edges.py),
 // written in N#. A top-level name is a column-0 `class`/`struct`/`enum`/`record`/`interface`/

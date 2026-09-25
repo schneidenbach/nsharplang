@@ -6,4 +6,4 @@ targetFramework: net10.0
 # `-p:NSharpExcludeTests=false` is product-only, which is what the projects above it reference.
 excludeTests: true
 dependencies:
-  - project: ../NSharpLang.Compiler.Core/project.yml
+  - project: ../NSharpLang.Compiler.CodeIntel/project.yml

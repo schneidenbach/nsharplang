@@ -80,7 +80,15 @@ class ImportEditPlanner {
             return false
         }
 
-        if SimpleNamePrecedence.IsLexicalNamespace(AnalyzerDeclarationFileFacts.GetUnitNamespace(unit), namespaceName.Length == 0 ? null : namespaceName) {
+        // COMPILER: the columnar emitter (the committed seed's and the tip's) declines a static call
+        // into a referenced assembly that takes a `cond ? null : value` argument
+        // (`emit.call.static-member-unmodeled`); a source callee takes it. The maybe-null candidate is
+        // bound to a local first.
+        candidateNamespace: string? = null
+        if namespaceName.Length > 0 {
+            candidateNamespace = namespaceName
+        }
+        if SimpleNamePrecedence.IsLexicalNamespace(AnalyzerDeclarationFileFacts.GetUnitNamespace(unit), candidateNamespace) {
             return true
         }
 

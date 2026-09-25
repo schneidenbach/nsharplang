@@ -114,6 +114,12 @@ test "a carved slice's product is read from its own project, and none of it is l
     assert tooling[0] > 5, tooling[0].ToString()
     assert tooling[1] > 5, tooling[1].ToString()
     assert tooling[2] == 0, tooling[2].ToString()
+    // CodeIntel is carved above Core and below Tooling: nothing in Core may name it, and its rows
+    // reach only CodeIntel and the slices below it, so its estate moved with its product.
+    codeIntel := CarvedSliceCounts(graph, 5)
+    assert codeIntel[0] > 90, codeIntel[0].ToString()
+    assert codeIntel[1] > 60, codeIntel[1].ToString()
+    assert codeIntel[2] == 0, codeIntel[2].ToString()
 }
 
 test "no Compiler.Core product file reaches a top-level name a higher slice owns" {

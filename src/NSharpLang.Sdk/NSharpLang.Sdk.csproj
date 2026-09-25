@@ -29,6 +29,7 @@
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Compiler.Model.dll" Pack="true" PackagePath="tools/" />
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Compiler.Syntax.dll" Pack="true" PackagePath="tools/" />
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Compiler.Core.dll" Pack="true" PackagePath="tools/" />
+    <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Compiler.CodeIntel.dll" Pack="true" PackagePath="tools/" />
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Compiler.Tooling.dll" Pack="true" PackagePath="tools/" />
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Compiler.Driver.dll" Pack="true" PackagePath="tools/" />
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Runtime.dll" Pack="true" PackagePath="tools/" />

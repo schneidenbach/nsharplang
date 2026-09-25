@@ -265,11 +265,12 @@ func ResolverWriteFacadeInteropFixture(scratch: string, compilerOutput: string):
     producerDll := Path.Combine(producerOutput, "FacadeInterop.Library.dll")
     compilerDll := Path.Combine(compilerOutput, "Compiler.dll")
     coreDll := Path.Combine(compilerOutput, "NSharpLang.Compiler.Core.dll")
+    codeIntelDll := Path.Combine(compilerOutput, "NSharpLang.Compiler.CodeIntel.dll")
     toolingDll := Path.Combine(compilerOutput, "NSharpLang.Compiler.Tooling.dll")
     driverDll := Path.Combine(compilerOutput, "NSharpLang.Compiler.Driver.dll")
     ResolverWrite(
         Path.Combine(consumerRoot, "project.yml"),
-        "name: FacadeInterop.Consumer\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\nentry: Consumer.nl\ndependencies:\n  - dll: " + producerDll + "\n  - dll: " + compilerDll + "\n  - dll: " + coreDll + "\n  - dll: " + toolingDll + "\n  - dll: " + driverDll + "\n"
+        "name: FacadeInterop.Consumer\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\nentry: Consumer.nl\ndependencies:\n  - dll: " + producerDll + "\n  - dll: " + compilerDll + "\n  - dll: " + coreDll + "\n  - dll: " + codeIntelDll + "\n  - dll: " + toolingDll + "\n  - dll: " + driverDll + "\n"
     )
     ResolverWrite(
         Path.Combine(consumerRoot, "Consumer.nl"),

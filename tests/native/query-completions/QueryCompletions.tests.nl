@@ -87,7 +87,7 @@ func LoadQueryCompletionsSnapshot(fixtureRoot: string): object {
 // includeKeywords), exactly as CompletionsCommand asks it.
 func AskQueryCompletions(snapshot: object, sourceFile: string, line: int, column: int): object {
     engineType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CompletionEngine, Compiler")
-    snapshotType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.ProjectSnapshot, NSharpLang.Compiler.Core")
+    snapshotType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.ProjectSnapshot, NSharpLang.Compiler.CodeIntel")
     if engineType == null || snapshotType == null {
         throw new InvalidOperationException("The production completion types were not loadable.")
     }

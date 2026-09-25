@@ -42,12 +42,14 @@ STAGE_ROOT="${NSHARP_RESEED_STAGE_ROOT:-$NSHARP_REPO_ROOT/artifacts/reseed}"
 STOP_AFTER="${NSHARP_RESEED_STOP_AFTER:-}"
 CORE_PROJECT="src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
 # The TOP of the compiler's slice graph: Compiler.Driver, carved out of Core and ABOVE it, takes
-# Compiler.Tooling (also carved above Core) with `project:`, Tooling takes Core, and Core takes the
-# slices below it the same way. Building Driver builds them all.
+# Compiler.Tooling (also carved above Core) with `project:`, Tooling takes Compiler.CodeIntel (carved
+# above Core too), CodeIntel takes Core, and Core takes the slices below it the same way. Building
+# Driver builds them all.
 DRIVER_PROJECT="src/NSharpLang.Compiler.Driver/NSharpLang.Compiler.Driver.csproj"
-# Every project that build compiles with the seed: Driver, Tooling, Core, and each slice below Core.
-COMPILER_PROJECT_DIRS=("src/NSharpLang.Compiler.Model" "src/NSharpLang.Compiler.Syntax" "src/NSharpLang.Compiler.Core" "src/NSharpLang.Compiler.Tooling" "src/NSharpLang.Compiler.Driver")
-ESTATE_PROJECTS=("src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj" "$CORE_PROJECT" "src/NSharpLang.Compiler.Tooling/NSharpLang.Compiler.Tooling.csproj" "$DRIVER_PROJECT")
+# Every project that build compiles with the seed: Driver, Tooling, CodeIntel, Core, and each slice
+# below Core.
+COMPILER_PROJECT_DIRS=("src/NSharpLang.Compiler.Model" "src/NSharpLang.Compiler.Syntax" "src/NSharpLang.Compiler.Core" "src/NSharpLang.Compiler.CodeIntel" "src/NSharpLang.Compiler.Tooling" "src/NSharpLang.Compiler.Driver")
+ESTATE_PROJECTS=("src/NSharpLang.Compiler.Syntax/NSharpLang.Compiler.Syntax.csproj" "$CORE_PROJECT" "src/NSharpLang.Compiler.CodeIntel/NSharpLang.Compiler.CodeIntel.csproj" "src/NSharpLang.Compiler.Tooling/NSharpLang.Compiler.Tooling.csproj" "$DRIVER_PROJECT")
 SEED_PACKAGES=("NSharpLang.Sdk" "NSharpLang.Runtime")
 
 reseed_absolute_path() {
@@ -227,7 +229,8 @@ reseed_rebuild() {
 # compiler-service tests, and those need their own restore: `NSharpExcludeTests` is evaluated at
 # RESTORE time, so a `dotnet test` after any other build silently runs zero tests and exits 0.
 # Every compiler project whose own directory holds estate rows runs them (Compiler.Syntax,
-# Compiler.Tooling and Compiler.Driver carry their own; the rest still sit in Core's slice directories).
+# Compiler.CodeIntel, Compiler.Tooling and Compiler.Driver carry their own; the rest still sit in
+# Core's slice directories).
 reseed_estate() {
     local estate_project
     nsharp_log "Running the compiler-service estate against the new seed"

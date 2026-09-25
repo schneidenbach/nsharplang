@@ -956,11 +956,13 @@ class ExternalAssemblyScan {
     // THE COMPILER IS SEVERAL ASSEMBLIES. Compiler.Core is being carved into slice projects, lowest
     // first, and each slice is a separately built assembly of the one compiler: this one
     // (`NSharpLang.Compiler.Model`), `NSharpLang.Compiler.Syntax` above it, Core above both,
-    // `NSharpLang.Compiler.Tooling` -- the formatter and the JSON output models -- above Core, and
+    // `NSharpLang.Compiler.CodeIntel` -- completion, navigation, code fixes, DocQuery and the Linter
+    // -- above Core, `NSharpLang.Compiler.Tooling` -- the formatter and the JSON output models --
+    // above CodeIntel, and
     // `NSharpLang.Compiler.Driver` -- the command kernels, MultiFileCompiler and the SDK's MSBuild
     // tasks -- on top. `Compiler` is the facade over them, not a slice.
     static func CompilerSliceAssemblyNames(): string[] {
-        return ["NSharpLang.Compiler.Model", "NSharpLang.Compiler.Syntax", "NSharpLang.Compiler.Core", "NSharpLang.Compiler.Tooling", "NSharpLang.Compiler.Driver"]
+        return ["NSharpLang.Compiler.Model", "NSharpLang.Compiler.Syntax", "NSharpLang.Compiler.Core", "NSharpLang.Compiler.CodeIntel", "NSharpLang.Compiler.Tooling", "NSharpLang.Compiler.Driver"]
     }
 
     static func IsCompilerSliceAssemblyName(name: string): bool {
