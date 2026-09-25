@@ -262,6 +262,17 @@ test "one project emits the same program through nlc build and through the SDK e
 // one name) while `nlc build` emitted it. Measured against a stage-2 seed built before the fix:
 // `context: MetadataLoadContext? = scan.Context` declined `emit.typed-local.type-mismatch` naming the
 // same type twice.
+//
+// `Reader` is the same shape over an identity NO .NET SDK directory ships (YamlDotNet, pinned to the
+// compiler's own version), and it is what makes this row mean the same thing on every host. The
+// `MetadataLoadContext` half depends on the host: the SDK directory carries its own build of that
+// package, and when that build is EXACTLY the version the compiler references (10.0.0.5 in SDK 10.0.105)
+// the default context answered the package path and the split never formed. Everywhere else (10.0.0.3
+// in 10.0.103, 10.0.0.12 in 10.0.401, i.e. every Linux CI runner) the package file went into the owned
+// reference context as a SECOND copy, the library's dependency edge bound to that copy from the
+// context's own cache, and `Describe(context)` declined -- in Core's estate, at
+// `AssignabilityWithWellKnownTypes(context)`. YamlDotNet has no host build at all, so it takes that
+// path on every host, the developer's included.
 func ParityLibraryProjectYml(): string {
     return """
 name: ParityScanLibrary
@@ -272,6 +283,8 @@ targetFramework: net10.0
 dependencies:
   - nuget: System.Reflection.MetadataLoadContext
     version: 10.0.5
+  - nuget: YamlDotNet
+    version: 16.3.0
 """
 }
 
@@ -280,12 +293,15 @@ func ParityLibrarySource(): string {
 namespace Parity.Scan
 
 import System.Reflection
+import YamlDotNet.Serialization
 
 class ScanResult {
     Context: MetadataLoadContext?
+    Reader: IDeserializer?
 
-    constructor(context: MetadataLoadContext?) {
+    constructor(context: MetadataLoadContext?, reader: IDeserializer?) {
         Context = context
+        Reader = reader
     }
 }
 """
@@ -302,6 +318,8 @@ dependencies:
   - project: ../ParityScanLibrary/project.yml
   - nuget: System.Reflection.MetadataLoadContext
     version: 10.0.5
+  - nuget: YamlDotNet
+    version: 16.3.0
 """
 }
 
@@ -312,6 +330,7 @@ namespace Parity.Scan
 import System.IO
 import System.Reflection
 import System.Runtime.InteropServices
+import YamlDotNet.Serialization
 
 func CoreName(scan: ScanResult): string {
     context := scan.Context
@@ -333,11 +352,24 @@ func Describe(loadContext: MetadataLoadContext): string {
     return loadContext.CoreAssembly?.GetName().Name ?? ""
 }
 
+func ReaderName(scan: ScanResult): string {
+    reader := scan.Reader
+    if reader == null {
+        return "none"
+    }
+    return Read(reader)
+}
+
+func Read(reader: IDeserializer): string {
+    return reader.Deserialize<string>("parity")
+}
+
 func main() {
     paths := Directory.GetFiles(RuntimeEnvironment.GetRuntimeDirectory(), "*.dll")
     loadContext := new MetadataLoadContext(new PathAssemblyResolver(paths), "System.Private.CoreLib")
     try {
-        print CoreName(new ScanResult(null)) + "|" + CoreName(new ScanResult(loadContext)) + "|" + Typed(new ScanResult(loadContext))
+        reader := new DeserializerBuilder().Build()
+        print CoreName(new ScanResult(null, null)) + "|" + CoreName(new ScanResult(loadContext, reader)) + "|" + Typed(new ScanResult(loadContext, reader)) + "|" + ReaderName(new ScanResult(loadContext, null)) + "|" + ReaderName(new ScanResult(loadContext, reader))
     } finally {
         loadContext.Dispose()
     }
@@ -368,7 +400,7 @@ test "a referenced N# assembly's member typed by a compiler-referenced identity 
     try {
         sdkPackage := ParityPreparePackage(root, scratch)
         projectDirectory := ParityWriteScanSample(scratch, sdkPackage)
-        expected := "none|System.Private.CoreLib|System.Private.CoreLib"
+        expected := "none|System.Private.CoreLib|System.Private.CoreLib|none|parity"
 
         // ── DOOR ONE: the standalone CLI ──────────────────────────────────────────────────────
         cliBuild := ParityRunDotnet(ParityQuote(ParityCliPath(root)) + " build", projectDirectory)

@@ -74,34 +74,21 @@ class ExternalAssemblyCatalogEntry {
 //
 // So a dependency whose identity the compiler assembly references is answered with the handle the
 // COMPILER'S context binds for it -- the same handle the reference set is paired with -- and every
-// other name keeps the default fallback. The compiler's own product assemblies are not among the
-// compiler's references, so a project's own build of them still binds from its reference path.
+// other name keeps the default fallback. The compiler's own product assemblies are excluded by name
+// (`CompilerBoundAssemblyForReferencedIdentity`): Core references Model and Syntax, so they ARE among
+// the compiler's references, and a project's own build of them must still bind from its reference path.
+//
+// `Load` is only asked for a name this context does not ALREADY hold, so the rule is kept on the way in
+// as well: `TryLoadExactIdentityAssembly` never loads a second file of a compiler-referenced identity
+// into this context (see there), or that file -- not the compiler's handle -- would answer every
+// dependency edge of every reference loaded here.
 class ExactIdentityReferenceLoadContext: AssemblyLoadContext {
     constructor(): base("nsharp-exact-identity-references", false) {
     }
 
     protected override func Load(assemblyName: AssemblyName): Assembly? {
-        identity := assemblyName.FullName
-        if !ExternalAssemblyScan.CompilerAssemblyReferencesIdentity(identity) {
-            return null
-        }
-
-        compilerContext := ExternalAssemblyScan.CompilerLoadContext()
-        if compilerContext == null {
-            return null
-        }
-
-        try {
-            bound := compilerContext.LoadFromAssemblyName(assemblyName)
-            if ExternalAssemblyScan.RuntimeAssemblyHasIdentity(bound, identity) {
-                return bound
-            }
-        } catch {
-            // The compiler's context cannot bind it after all; the default fallback answers.
-            return null
-        }
-
-        return null
+        // Null is the default fallback, exactly as for every name the compiler does not reference.
+        return ExternalAssemblyScan.CompilerBoundAssemblyForReferencedIdentity(assemblyName.FullName)
     }
 }
 
@@ -195,10 +182,28 @@ class ExternalAssemblyScan {
     // file or assembly 'NSharpLang.Compiler.Core'`. Asking the DEFAULT context, rather than every
     // context in the process, is what keeps the project's own build the answer for the project's own
     // reference path.
+    //
+    // AND A COMPILER-REFERENCED IDENTITY IS ANSWERED WITH THE COMPILER'S HANDLE, NEVER WITH A SECOND
+    // COPY IN THE OWNED CONTEXT. Under MSBuild the default context answers for such an identity only
+    // when the .NET SDK directory happens to ship EXACTLY the version the compiler references: the SDK
+    // carries its own `System.Reflection.MetadataLoadContext`, 10.0.0.5 in SDK 10.0.105 but 10.0.0.3 in
+    // 10.0.103 and 10.0.0.12 in 10.0.401, and the default binder rolls a 10.0.0.5 request forward to
+    // the SDK's build. When it did not match, the project's `System.Reflection.MetadataLoadContext`
+    // package file was loaded into the owned context -- and the owned context answers a dependency
+    // edge from its own cache BEFORE `ExactIdentityReferenceLoadContext.Load` is ever asked, so
+    // `Compiler.Model`'s `ExternalAssemblyScanResult.Context` named that copy while the project's own
+    // `MetadataLoadContext` named the compiler's (the pairing below). Core's estate then declined
+    // `AssignabilityWithWellKnownTypes(context)` on every Linux CI runner and passed on the one macOS
+    // SDK whose version happened to agree.
     static func TryLoadExactIdentityAssembly(path: string, identity: string): Assembly? {
         carried := DefaultContextAssemblyForIdentity(identity)
         if carried != null {
             return carried
+        }
+
+        compilerBound := CompilerBoundAssemblyForReferencedIdentity(identity)
+        if compilerBound != null {
+            return compilerBound
         }
 
         try {
@@ -1121,6 +1126,48 @@ class ExternalAssemblyScan {
 
     static func CompilerLoadContext(): AssemblyLoadContext? {
         return AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).Assembly)
+    }
+
+    // THE ONE RULE FOR "WHICH HANDLE ANSWERS AN IDENTITY THE COMPILER REFERENCES", asked both when a
+    // reference path is loaded (`TryLoadExactIdentityAssembly`) and when a reference loaded into the
+    // owned context resolves a dependency (`ExactIdentityReferenceLoadContext.Load`), so the two can
+    // never pick different builds of one identity. The answer is the handle the compiler's own context
+    // binds, and only when that binding is EXACTLY the identity -- a context that rolls the request
+    // forward to another version is not an answer. The compiler's own product assemblies are never
+    // answered here: a project that references the compiler (or is one of its slices) carries its OWN
+    // build of them, and that build is the one its reference path means.
+    static func CompilerBoundAssemblyForReferencedIdentity(identity: string): Assembly? {
+        if identity == null || identity.Length == 0 {
+            return null
+        }
+
+        simpleName := ""
+        try {
+            simpleName = new AssemblyName(identity).Name ?? ""
+        } catch {
+            return null
+        }
+
+        if IsCompilerSliceAssemblyName(simpleName) || simpleName == "Compiler" || !CompilerAssemblyReferencesIdentity(identity) {
+            return null
+        }
+
+        compilerContext := CompilerLoadContext()
+        if compilerContext == null {
+            return null
+        }
+
+        try {
+            bound := compilerContext.LoadFromAssemblyName(new AssemblyName(identity))
+            if RuntimeAssemblyHasIdentity(bound, identity) {
+                return bound
+            }
+        } catch {
+            // The compiler's context cannot bind it after all; the caller's next route answers.
+            return null
+        }
+
+        return null
     }
 
     // WHICH HANDLE A LOAD CONTEXT EXECUTES AGAINST FOR AN IDENTITY -- asked of the binder rather

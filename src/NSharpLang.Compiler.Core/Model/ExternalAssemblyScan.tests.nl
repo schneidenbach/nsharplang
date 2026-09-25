@@ -794,6 +794,33 @@ test "the owned reference context binds an identity the compiler references to t
     assert Object.ReferenceEquals(bound, compilerHandle)
 }
 
+// THE ONE RULE BOTH ROUTES INTO THE OWNED CONTEXT ASK. A reference PATH whose identity the compiler
+// references is answered with the compiler's handle rather than loaded into the owned context as a
+// second copy -- a copy there would answer every later dependency edge from the context's own cache
+// before `Load` is ever asked (the Linux-CI split of `MetadataLoadContext` in Core's estate).
+test "an identity the compiler references is answered with the compiler's own handle" {
+    compilerHandle := typeof(System.Reflection.MetadataLoadContext).get_Assembly()
+    identity := compilerHandle.GetName().get_FullName()
+    assert Object.ReferenceEquals(ExternalAssemblyScan.CompilerBoundAssemblyForReferencedIdentity(identity), compilerHandle)
+}
+
+// The compiler's own slices ARE among its references -- Core references Model and Syntax -- and are
+// still never answered with the compiler's copy: a project's own build of them is what its path means.
+test "a compiler slice is never answered with the compiler's own copy, although the compiler references it" {
+    modelIdentity := typeof(ExternalAssemblyScan).get_Assembly().GetName().get_FullName()
+    assert ExternalAssemblyScan.CompilerAssemblyReferencesIdentity(modelIdentity)
+    assert ExternalAssemblyScan.CompilerBoundAssemblyForReferencedIdentity(modelIdentity) == null
+}
+
+test "an identity the compiler does not reference, or references at another version, has no compiler handle" {
+    compilerHandle := typeof(System.Reflection.MetadataLoadContext).get_Assembly()
+    otherVersion := new AssemblyName(compilerHandle.GetName().get_FullName())
+    otherVersion.Version = new Version(1, 2, 3, 4)
+    assert ExternalAssemblyScan.CompilerBoundAssemblyForReferencedIdentity(otherVersion.get_FullName()) == null
+    assert ExternalAssemblyScan.CompilerBoundAssemblyForReferencedIdentity("NSharp.NotAnAssembly, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null") == null
+    assert ExternalAssemblyScan.CompilerBoundAssemblyForReferencedIdentity("") == null
+}
+
 test "the owned reference context leaves an identity the compiler does not reference to the default fallback" {
     path := ExternalUnboundAssemblyPath()
     assert path.Length > 0
