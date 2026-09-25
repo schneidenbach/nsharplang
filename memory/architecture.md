@@ -334,6 +334,14 @@ upward-reach ceiling fell 160 -> 141. What the carve is:
   seed's and the tip's -- declines: a static call taking a `cond ? null : value` argument
   (`emit.call.static-member-unmodeled`, `ImportEditPlanner.IsNamespaceInScope`; a source callee takes
   it). The argument is bound to a local with a `// COMPILER:` note until the emitter models it.
+Measured edit -> test (`./scripts/dev.sh --estate UnifiedDiffTests`, a one-line body edit of
+`UnifiedDiff.nl` and its revert, after a warm run, with another session's gate on the box):
+**185 / 191 s** on the pre-carve tree and the committed seed (`b75070d46`) -- Core's own and
+tests-included emits -- **58 / 52 s** on the carve and that same committed seed (which compiles
+CodeIntel WITH analysis), and **38 / 37 s** on a scratch stage-2 seed packed from the carve. A CodeIntel
+body edit re-emits only CodeIntel and what sits above it (Tooling and Driver product-only for the CLI,
+CodeIntel tests-included for its rows); Syntax, Core, Tooling and Driver answer "no row matches" in
+seconds.
 
 ## Data Flow
 
