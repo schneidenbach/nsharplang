@@ -251,6 +251,15 @@ sealed class ColumnarIlEmitter {
 
     private func Decline(siteId: string, message: string, nodeIdx: int): bool => DeclineMember(siteId, message, nodeIdx, "")
 
+    // A mismatch whose two sides print the same name reads as a contradiction; say why they differ.
+    private static func WithSplitTypeIdentity(message: string, actual: Type, expected: Type): string {
+        splitIdentity := ColumnarSplitTypeIdentityFacts.Describe(actual, expected)
+        if (splitIdentity.Length == 0) {
+            return message
+        }
+        return message + ": " + splitIdentity
+    }
+
     // ── THE BLOCK'S STATEMENT LOOP, ENTERED AT AN ORDINAL ─────────────────────────────────────────
     //
     // It is a loop with an ENTRY POINT rather than a plain `for` because a using DECLARATION
@@ -9098,7 +9107,7 @@ sealed class ColumnarIlEmitter {
                 }
             }
             if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(retType, _returnType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(retType, _returnType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(retType, _returnType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(retType, _returnType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(retType, _returnType) && !TryEmitUserDefinedConversion(retType, _returnType, false)) {
-                return Decline("emit.return.type-mismatch", "return expression type '" + retType.FullName + "' does not match declared return type '" + _returnType.FullName + "'", retNode)
+                return Decline("emit.return.type-mismatch", WithSplitTypeIdentity("return expression type '" + retType.FullName + "' does not match declared return type '" + _returnType.FullName + "'", retType, _returnType), retNode)
             }
             if (_protectedDepth > 0) {
                 // ASYNC: the INNER value wraps into the completed task before the store (the
@@ -9288,7 +9297,7 @@ sealed class ColumnarIlEmitter {
                                                 return Decline("emit.typed-local.initializer", "typed local initializer expression emission declined for '" + declaredName + "'", declaredInit)
                                             }
                                             if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(declaredInitType, declaredType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(declaredInitType, declaredType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(declaredInitType, declaredType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(declaredInitType, declaredType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(declaredInitType, declaredType) && !TryEmitUserDefinedConversion(declaredInitType, declaredType, false)) {
-                                                return Decline("emit.typed-local.type-mismatch", "typed local initializer type '" + declaredInitType.FullName + "' does not match declared type '" + declaredType.FullName + "' for '" + declaredName + "'", declaredInit)
+                                                return Decline("emit.typed-local.type-mismatch", WithSplitTypeIdentity("typed local initializer type '" + declaredInitType.FullName + "' does not match declared type '" + declaredType.FullName + "' for '" + declaredName + "'", declaredInitType, declaredType), declaredInit)
                                             }
                                         }
                                     }
@@ -26825,7 +26834,20 @@ sealed class ColumnarIlEmitter {
             return true
         }
         let argType: System.Type? = null
-        return EmitExpression(argNode, out argType) && (TypesEquivalent(argType, expectedParamType) || TryEmitImplicitWidening(argType, expectedParamType) || TryEmitSpanConversion(argType, expectedParamType) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expectedParamType, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expectedParamType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expectedParamType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expectedParamType, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expectedParamType) || TryEmitUserDefinedConversion(argType, expectedParamType, false))
+        if (!EmitExpression(argNode, out argType)) {
+            return false
+        }
+        if (TypesEquivalent(argType, expectedParamType) || TryEmitImplicitWidening(argType, expectedParamType) || TryEmitSpanConversion(argType, expectedParamType) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expectedParamType, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expectedParamType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expectedParamType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expectedParamType, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expectedParamType) || TryEmitUserDefinedConversion(argType, expectedParamType, false)) {
+            return true
+        }
+        // A type the argument cannot convert to is an ordinary refusal the caller may try another
+        // candidate after -- except when both sides are one type name from two loads, which no
+        // candidate can fix and nothing else would ever explain.
+        splitIdentity := ColumnarSplitTypeIdentityFacts.Describe(argType, expectedParamType)
+        if (splitIdentity.Length > 0) {
+            return Decline("emit.call.argument.split-type-identity", "argument type " + splitIdentity, argNode)
+        }
+        return false
     }
 
     private func TryGetVisibleLocalFunctionMethodGroup(argNode: int, out localTarget: (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)): bool {
