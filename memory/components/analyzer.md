@@ -4824,6 +4824,21 @@ member arm assigns a writable instance FIELD as well as a settable property, the
 `IsApprovedRuntimeObjectInitializerType` allowlist is gone, and `ColumnarIlEmitter`'s member-write
 chain has a reflected-owner arm beside its source-definition one.
 
+That chain (`TryResolveMemberWriteChain`, shared by `=`, compound `op=`, postfix `++`/`--`, the
+chained member READ and a `ref` argument's address) is rooted in a bare local or parameter, or in an
+EXPRESSION — C#'s own rule for which receivers are storage. A REFERENCE-typed receiver expression
+(`roster[0].Name = v`, `Pick(d).Name = v`, `list[0].Name = v`, `new Dog().Name = v`) is evaluated
+once, before the value, and its object is the owner. A VALUE-typed element of an SZ array
+(`points[i].X = v`, `segments[i].End.X = v`) is located by `ldelema` — array, `int` index, then the
+bounds check, all before the value — so the write changes the array's own slot. Resolution types the
+root through the preflight walk and emits nothing; a value-typed call or indexer result (NL322's
+temporary), a `?.` chain (whose write must skip on null) and a generic-parameter root decline. A
+`ref`/`out` argument takes `EmitMemberAddressLocator`, whose FINAL link is always `ldflda` — a
+reference-typed final field loaded with `ldfld` would pass the object it holds, not its slot. A
+bare-field root (`spot.X = v` inside a method, where `spot` is a struct field of `this`) is not yet
+a chain root and still declines at `emit.statement.block-child`. Evidence:
+`Backend.Emit/ColumnarMemberWriteReceivers.tests.nl` and `tests/native/member-write-receivers`.
+
 ### `assert` narrows the surviving flow, and `[MaybeNullWhen]` is not part of a type
 
 Two rules that only showed up once the substituted-parameter nullability rule and FLOW3's

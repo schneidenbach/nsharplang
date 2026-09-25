@@ -9602,7 +9602,7 @@ sealed class ColumnarIlEmitter {
                 // read-modify-write hit the SAME storage. The scalar/string op set matches the
                 // bare-local arm; decimal member compounds decline (unprobed — fallback).
                 if (_nodes.Kind(compoundTarget) == ColumnarExpressionNodeKind.MemberAccessExpression) {
-                    let compoundChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, -1, null, null, null)
+                    let compoundChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, -1, null, null, null, -1, false)
                     let compoundMemberField: System.Reflection.Emit.FieldBuilder? = null
                     if (!TryResolveMemberWriteChain(Child(compoundTarget, 0), out compoundChain)) {
                         return false
@@ -9616,7 +9616,9 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                     compoundMemberType := compoundMemberField.FieldType
-                    EmitMemberWriteLocator(compoundChain)
+                    if (!EmitMemberWriteLocator(compoundChain)) {
+                        return false
+                    }
                     _il.Emit(OpCodes.Dup)
                     _il.Emit(OpCodes.Ldfld, compoundMemberField)
                     let compoundMemberValueType: System.Type? = null
@@ -9848,15 +9850,18 @@ sealed class ColumnarIlEmitter {
                 }
 
                 // MEMBER WRITES through a resolved receiver CHAIN (D-18b): roots are bare LOCALS and
-                // PARAMS; hops are instance FIELDS (`p.X = v`, `o.i.X = v`, `a.b.s.X = v`). The chain
-                // resolves BEFORE any emission. A FIELD write emits locator; value; stfld — stfld takes
-                // an object ref OR a managed pointer, so value links use ldloca/ldarga/ldflda, reference
-                // links ldloc/ldarg/ldfld, and the chain composes uniformly. A PROPERTY write needs a
-                // REFERENCE final receiver (value-type properties decline): locator; value; callvirt
-                // setter. Record fields are NOT init-only here (probe-pinned `r.X = 5` -> 5). DECLINES:
-                // indexer/call-result receivers (pipeline-rejected NL322), lifted/captured roots
-                // (conservative), and closed-generic receivers (a later rebind rung).
-                let writeChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, -1, null, null, null)
+                // PARAMS, REFERENCE-typed receiver expressions (`roster[0].Name = v`, `Pick(d).Name =
+                // v`), and VALUE-typed array elements (`points[0].X = v`); hops are instance FIELDS
+                // (`p.X = v`, `o.i.X = v`, `a.b.s.X = v`). The chain resolves BEFORE any emission. A
+                // FIELD write emits locator; value; stfld — stfld takes an object ref OR a managed
+                // pointer, so value links use ldloca/ldarga/ldelema/ldflda, reference links
+                // ldloc/ldarg/ldfld or the evaluated root, and the chain composes uniformly. A PROPERTY
+                // write needs a REFERENCE final receiver (value-type properties decline): locator;
+                // value; callvirt setter. Record fields are NOT init-only here (probe-pinned `r.X = 5`
+                // -> 5). DECLINES: value-typed call/indexer results (NL322 — a temporary has no storage),
+                // lifted/captured name roots (conservative), and closed-generic receivers (a later
+                // rebind rung).
+                let writeChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, -1, null, null, null, -1, false)
                 if (TryResolveMemberWriteChain(fieldReceiver, out writeChain)) {
                     writeOwnerTb := writeChain.ReceiverType as TypeBuilder
                     let writeOwnerDef: ColumnarStructDef? = null
@@ -9866,7 +9871,9 @@ sealed class ColumnarIlEmitter {
                     if (writeOwnerDef != null) {
                         let writeField: System.Reflection.Emit.FieldBuilder? = null
                         if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(writeOwnerDef, memberName, out writeField)) {
-                            EmitMemberWriteLocator(writeChain)
+                            if (!EmitMemberWriteLocator(writeChain)) {
+                                return false
+                            }
                             // THE SAME SEAM EVERY OTHER ASSIGNMENT USES. A field write through a
                             // receiver was spelling its own value walk — an int literal, a zero, then
                             // the ordinary expression walk — and therefore offered the value no
@@ -9884,7 +9891,9 @@ sealed class ColumnarIlEmitter {
                         }
                         let writeProp: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
                         if (writeOwnerDef.IsReference && TryFindPropertyOnChain(writeOwnerDef, memberName, out writeProp) && writeProp.Setter != null) {
-                            EmitMemberWriteLocator(writeChain)
+                            if (!EmitMemberWriteLocator(writeChain)) {
+                                return false
+                            }
                             let writePropValueType: System.Type? = null
                             if (!EmitExpression(Child(expr, 1), out writePropValueType) || !TypesEquivalent(writePropValueType, writeProp.PropertyType)) {
                                 return false
@@ -9901,7 +9910,9 @@ sealed class ColumnarIlEmitter {
                     if (writeOwnerDef == null && writeChain.ReceiverType != null && writeOwnerTb == null && !writeChain.ReceiverType.IsValueType && !writeChain.ReceiverType.IsGenericParameter) {
                         reflectedWriteField := writeChain.ReceiverType.GetField(memberName)
                         if (reflectedWriteField != null && !reflectedWriteField.IsStatic && !reflectedWriteField.IsInitOnly && !reflectedWriteField.IsLiteral) {
-                            EmitMemberWriteLocator(writeChain)
+                            if (!EmitMemberWriteLocator(writeChain)) {
+                                return false
+                            }
                             // THE SAME SEAM THE SOURCE-OWNED FIELD WRITE ABOVE USES. This arm spelled
                             // its own value walk — an int literal, a zero, then the ordinary expression
                             // walk — and its own conversion tail, and the two drifted: the seam lifts a
@@ -9936,7 +9947,9 @@ sealed class ColumnarIlEmitter {
                                     expr
                                 )
                             }
-                            EmitMemberWriteLocator(writeChain)
+                            if (!EmitMemberWriteLocator(writeChain)) {
+                                return false
+                            }
                             // THE SAME SEAM AGAIN, for the same reason: a reflected PROPERTY write had
                             // an even shorter copy of the walk — no zero literal at all — so
                             // `external.Flag = null` against a `bool?` property reached the ordinary
@@ -14065,7 +14078,7 @@ sealed class ColumnarIlEmitter {
             // decline early without emitting the receiver); the actual element is still gated by GetField below.
             isTupleItem := member.Length > 4 && member.StartsWith("Item", StringComparison.Ordinal) && char.IsDigit(member[4])
             directReadReceiver := UnwrapParenthesizedNode(Child(idx, 0))
-            let directReadChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null)
+            let directReadChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null, -1, false)
             if (_nodes.Kind(directReadReceiver) == ColumnarExpressionNodeKind.MemberAccessExpression && TryResolveMemberWriteChain(directReadReceiver, out directReadChain)) {
                 directReadOwnerTb := directReadChain.ReceiverType as TypeBuilder
                 if (directReadOwnerTb != null) {
@@ -14073,14 +14086,18 @@ sealed class ColumnarIlEmitter {
                     if (directReadOwnerDef != null) {
                         let directReadField: System.Reflection.Emit.FieldBuilder? = null
                         if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(directReadOwnerDef, member, out directReadField)) {
-                            EmitMemberWriteLocator(directReadChain)
+                            if (!EmitMemberWriteLocator(directReadChain)) {
+                                return false
+                            }
                             _il.Emit(OpCodes.Ldfld, directReadField)
                             columnarResolvedType = directReadField.FieldType
                             return true
                         }
                         let directReadProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
                         if (TryFindPropertyOnChain(directReadOwnerDef, member, out directReadProperty)) {
-                            EmitMemberWriteLocator(directReadChain)
+                            if (!EmitMemberWriteLocator(directReadChain)) {
+                                return false
+                            }
                             directReadPropertyEmitter := _il
                             directReadPropertyOpcode := directReadOwnerDef.IsReference ? OpCodes.Callvirt : OpCodes.Call
                             directReadPropertyEmitter.Emit(directReadPropertyOpcode, ColumnarSourceSelfInstantiation.Bind(directReadProperty.Getter))
@@ -21759,7 +21776,7 @@ sealed class ColumnarIlEmitter {
 
     private func TryEmitMemberPostfixUnary(idx: int, target: int, keepValue: bool, out resolvedClrType: Type): bool {
         resolvedClrType = null
-        chain := new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, -1, null, null, null)
+        chain := new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, -1, null, null, null, -1, false)
         field: System.Reflection.Emit.FieldBuilder? = null
         if (!TryResolveMemberWriteChain(Child(target, 0), out chain)) {
             return false
@@ -21778,7 +21795,9 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        EmitMemberWriteLocator(chain)
+        if (!EmitMemberWriteLocator(chain)) {
+            return false
+        }
         _il.Emit(OpCodes.Dup)
         _il.Emit(OpCodes.Ldfld, field)
         oldValue: LocalBuilder? = null
@@ -27503,7 +27522,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        let memberChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null)
+        let memberChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null, -1, false)
         if (_nodes.Kind(targetNode) == ColumnarExpressionNodeKind.MemberAccessExpression && TryResolveMemberWriteChain(targetNode, out memberChain)) {
             targetType = memberChain.ReceiverType
             return true
@@ -27582,9 +27601,11 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        let memberChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null)
+        let memberChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null, -1, false)
         if (_nodes.Kind(targetNode) == ColumnarExpressionNodeKind.MemberAccessExpression && TryResolveMemberWriteChain(targetNode, out memberChain) && TypesEquivalent(memberChain.ReceiverType, expectedElementType)) {
-            EmitMemberWriteLocator(memberChain)
+            if (!EmitMemberAddressLocator(memberChain)) {
+                return false
+            }
             return true
         }
 
@@ -28191,18 +28212,24 @@ sealed class ColumnarIlEmitter {
         }
     }
 
-    // The resolved WRITE-RECEIVER chain of a member assignment: a root local/param plus zero or more
+    // The resolved WRITE-RECEIVER chain of a member assignment: a root plus zero or more
     // instance-FIELD hops (the `p.q` of `p.q.X = v`). Resolution is EMISSION-FREE so a failed chain
     // declines cleanly (the emit-ownership rule); EmitMemberWriteLocator then emits the owner value
     // an stfld/ldfld/ldflda/callvirt-setter consumes — an ADDRESS for value-typed links
-    // (ldloca/ldarga/ldflda), an OBJECT REF for reference-typed links (ldloc/ldarg/ldfld). stfld and
-    // ldflda accept either owner form, so the chain composes uniformly — mirroring the legacy emitter's
-    // fixed EmitAddressableExpression (defect #22).
+    // (ldloca/ldarga/ldelema/ldflda), an OBJECT REF for reference-typed links (ldloc/ldarg/ldfld or
+    // the evaluated root expression). stfld and ldflda accept either owner form, so the chain
+    // composes uniformly — mirroring the legacy emitter's fixed EmitAddressableExpression (defect #22).
+    //
+    // THE ROOT is a bare local/param name, or — C#'s own rule for a member write — any receiver whose
+    // storage the write can reach: an EXPRESSION of REFERENCE type (`roster[0].Name = v`,
+    // `Pick(d).Name = v`, `new Dog().Name = v`), evaluated once, because the object it yields IS the
+    // storage; or an ARRAY ELEMENT of VALUE type (`points[0].X = v`), whose storage is the array slot
+    // and whose address `ldelema` yields. A value-typed call or indexer result is a temporary with no
+    // storage to write back to (C#'s CS1612): the analyzer rejects it as NL322, and it declines here too.
     private func TryResolveMemberWriteChain(node: int, out chain: ColumnarMemberWriteChain): bool {
-        chain = new ColumnarMemberWriteChain(null, 0, null, null, null)
-        // Collect kind-8 hops outermost-first down to the root, which must be a BARE name.
-        // Parentheses are transparent syntax for addressability; indexer and call-result receivers
-        // are pipeline-REJECTED writes (NL322 — parity by rejection via the fallback) and never emit here.
+        chain = new ColumnarMemberWriteChain(null, 0, null, null, null, -1, false)
+        // Collect kind-8 hops outermost-first down to the root. Parentheses are transparent syntax
+        // for addressability.
         hopNodes := new List<int>()
         cursor := UnwrapParenthesizedNode(node)
         while (_nodes.Kind(cursor) == ColumnarExpressionNodeKind.MemberAccessExpression) {
@@ -28210,7 +28237,18 @@ sealed class ColumnarIlEmitter {
             cursor = UnwrapParenthesizedNode(Child(cursor, 0))
         }
         if (_nodes.Kind(cursor) != ColumnarExpressionNodeKind.IdentifierExpression) {
-            return false
+            let expressionRootType: System.Type? = null
+            let expressionRootIsElement: bool = false
+            if (!TryResolveExpressionWriteRoot(cursor, out expressionRootType, out expressionRootIsElement)) {
+                return false
+            }
+            let expressionHops: List<System.Reflection.Emit.FieldBuilder>? = null
+            let expressionReceiverType: System.Type? = null
+            if (!TryResolveMemberWriteHops(hopNodes, expressionRootType, out expressionHops, out expressionReceiverType)) {
+                return false
+            }
+            chain = new ColumnarMemberWriteChain(null, -1, expressionRootType, expressionHops, expressionReceiverType, cursor, expressionRootIsElement)
+            return true
         }
         rootName := ColumnarNodeTextFacts.Text(_nodes, _source, cursor)
         if (_liftedLocals.ContainsKey(rootName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(rootName))) {
@@ -28235,12 +28273,24 @@ sealed class ColumnarIlEmitter {
         }
         // a sibling/type/unknown name is not a variable root.
 
-        hops := new List<FieldBuilder>(hopNodes.Count)
-        current := rootType.IsByRef ? rootType.GetElementType() : rootType
-        // Resolve the innermost hop (adjacent to the root) first.
+        let hops: List<System.Reflection.Emit.FieldBuilder>? = null
+        let receiverType: System.Type? = null
+        if (!TryResolveMemberWriteHops(hopNodes, rootType.IsByRef ? rootType.GetElementType() : rootType, out hops, out receiverType)) {
+            return false
+        }
+        chain = new ColumnarMemberWriteChain(rootLocal, rootParamOrdinal, rootType, hops, receiverType, -1, false)
+        return true
+    }
+
+    // The instance-FIELD hops between a chain's root and its final receiver, resolved innermost
+    // (adjacent to the root) first. Non-registered owners (closed generics, BCL) and non-field hops
+    // decline.
+    private func TryResolveMemberWriteHops(hopNodes: List<int>, rootType: Type, out hops: List<FieldBuilder>, out receiverType: Type): bool {
+        hops = new List<FieldBuilder>(hopNodes.Count)
+        receiverType = rootType
         for h := hopNodes.Count - 1; h >= 0; h-- {
             let hopField: System.Reflection.Emit.FieldBuilder? = null
-            hopOwner := current as TypeBuilder
+            hopOwner := receiverType as TypeBuilder
             if (hopOwner == null) {
                 return false
             }
@@ -28248,11 +28298,48 @@ sealed class ColumnarIlEmitter {
             if (hopDef == null || !ColumnarSourceMemberChainResolver.TryFindFieldOnChain(hopDef, ColumnarNodeTextFacts.Text(_nodes, _source, hopNodes[h]), out hopField)) {
                 return false
             }
-            // non-registered owners (closed generics, BCL) and non-field hops decline.
             hops.Add(hopField)
-            current = hopField.FieldType
+            receiverType = hopField.FieldType
         }
-        chain = new ColumnarMemberWriteChain(rootLocal, rootParamOrdinal, rootType, hops, current)
+        return true
+    }
+
+    // An EXPRESSION root of a write-receiver chain, typed without emitting anything. Two shapes have
+    // storage a member write can reach:
+    //   * an element of a single-dimensional ARRAY whose element type is a VALUE type — located by
+    //     address (`ldelema`), so `points[i].X = v` writes the array's own slot exactly as C# does. The
+    //     index must be a plain `int`; `^`/range indices keep their existing decline.
+    //   * any other expression of REFERENCE type — evaluated once for its object reference.
+    // A value-typed result of anything else is a temporary (CS1612 / NL322) and declines. A `?.` chain
+    // declines as well: a write through it must SKIP when the receiver is null, and this lowering
+    // would store through the null instead. A generic-parameter root declines because whether it is
+    // a reference is unknown until instantiation.
+    private func TryResolveExpressionWriteRoot(node: int, out rootType: Type, out elementAddress: bool): bool {
+        rootType = null
+        elementAddress = false
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.NullGuardExpression || NodeSpineReachesNullGuard(node)) {
+            return false
+        }
+        if (_nodes.Kind(node) == ColumnarExpressionNodeKind.IndexAccessExpression && _nodes.ChildCount(node) == 2) {
+            let arrayType: System.Type? = null
+            if (TryGetPreflightExpressionType(Child(node, 0), out arrayType) && arrayType != null && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
+                elementType := arrayType.GetElementType()
+                if (!elementType.IsGenericParameter && !IsReferenceWriteLink(elementType)) {
+                    let indexType: System.Type? = null
+                    if (!TryGetPreflightExpressionType(Child(node, 1), out indexType) || indexType != typeof(int)) {
+                        return false
+                    }
+                    rootType = elementType
+                    elementAddress = true
+                    return true
+                }
+            }
+        }
+        let valueType: System.Type? = null
+        if (!TryGetPreflightExpressionType(node, out valueType) || valueType == null || valueType.IsByRef || valueType.IsGenericParameter || !IsReferenceWriteLink(valueType)) {
+            return false
+        }
+        rootType = valueType
         return true
     }
 
@@ -28263,8 +28350,31 @@ sealed class ColumnarIlEmitter {
         return node
     }
 
-    private func EmitMemberWriteLocator(chain: ColumnarMemberWriteChain): void {
-        if (chain.RootLocal != null) {
+    // Emits the chain's owner value. Only an EXPRESSION root can fail here, and only when its emitted
+    // type disagrees with the preflight type the chain was resolved against — a disagreement the
+    // caller declines on rather than write through a receiver of the wrong type.
+    private func EmitMemberWriteLocator(chain: ColumnarMemberWriteChain): bool {
+        return EmitMemberChain(chain, false)
+    }
+
+    // The ADDRESS of a member chain's FINAL field — what a `ref`/`out` argument passes. Every earlier
+    // link is the ordinary locator, but the final one is always `ldflda`, whatever the field's type:
+    // the callee writes through the address, and a reference-typed field loaded with `ldfld` would
+    // hand it the object the field holds instead of the slot — `Swap(ref d.Name)` then stored into
+    // the string reference itself and failed at run time.
+    private func EmitMemberAddressLocator(chain: ColumnarMemberWriteChain): bool {
+        if (chain.Hops == null || chain.Hops.Count == 0) {
+            return false
+        }
+        return EmitMemberChain(chain, true)
+    }
+
+    private func EmitMemberChain(chain: ColumnarMemberWriteChain, finalHopByAddress: bool): bool {
+        if (chain.RootExpression >= 0) {
+            if (!EmitMemberWriteExpressionRoot(chain)) {
+                return false
+            }
+        } else if (chain.RootLocal != null) {
             _il.Emit(chain.RootType.IsByRef || IsReferenceWriteLink(chain.RootType) ? OpCodes.Ldloc : OpCodes.Ldloca, chain.RootLocal)
         } else {
             if (chain.RootType.IsByRef) {
@@ -28277,13 +28387,37 @@ sealed class ColumnarIlEmitter {
                 }
             }
         }
-        for hop in chain.Hops {
-            if (IsReferenceWriteLink(hop.FieldType)) {
+        for h := 0; h < chain.Hops.Count; h++ {
+            hop := chain.Hops[h]
+            if (IsReferenceWriteLink(hop.FieldType) && !(finalHopByAddress && h == chain.Hops.Count - 1)) {
                 _il.Emit(OpCodes.Ldfld, hop)
             } else {
                 _il.Emit(OpCodes.Ldflda, hop)
             }
         }
+        return true
+    }
+
+    // An expression root in evaluation order: a value-typed ARRAY ELEMENT is the array, then the
+    // index, then `ldelema` — the bounds check happens here, before the assigned value is evaluated,
+    // as it does in C#. Any other root is the ordinary evaluation of the expression, whose object
+    // reference is the owner.
+    private func EmitMemberWriteExpressionRoot(chain: ColumnarMemberWriteChain): bool {
+        root := chain.RootExpression
+        if (chain.RootElementAddress) {
+            let arrayType: System.Type? = null
+            if (!EmitExpression(Child(root, 0), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType) || !TypesEquivalent(arrayType.GetElementType(), chain.RootType)) {
+                return false
+            }
+            let indexType: System.Type? = null
+            if (!EmitExpression(Child(root, 1), out indexType) || indexType != typeof(int)) {
+                return false
+            }
+            _il.Emit(OpCodes.Ldelema, chain.RootType)
+            return true
+        }
+        let rootType: System.Type? = null
+        return EmitExpression(root, out rootType) && TypesEquivalent(rootType, chain.RootType)
     }
 
     // Whether a chain link is traversed as an object REFERENCE (ldloc/ldarg/ldfld) or by ADDRESS
