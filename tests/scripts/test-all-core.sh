@@ -369,9 +369,15 @@ section "Step 2d: Self-Host Front Door"
 # `src/NSharpLang.Build.Tasks` has no N# sources yet (it is MSBuild targets plus C# tasks), so it is
 # listed and checked rather than assumed: the day it grows one, this step covers it.
 #
-# `src/NSharpLang.Compiler.Model` and `src/NSharpLang.Compiler.Syntax`, the slices carved out of Core
-# so far, are checked before it, lowest first: Core builds them as project references (Syntax builds
-# Model the same way), so each one's own count must stay 0 for the next one's to be readable.
+# EACH PROJECT IS CHECKED AGAINST ITS DEPENDENCIES' BUILT ASSEMBLIES (`nlc check
+# --use-built-references`): Step 2 has just built every `project:` dependency of every project here
+# (the Cli build carries Compiler, Driver, Core, Syntax and Model; Playground is built on its own), so
+# a project's front door measures ITS OWN source and never waits on a dependency's. Before this, a
+# project that referenced Core began its check by compiling Core from source, which cannot succeed
+# while Core's own front door reports anything -- so Compiler, Playground and (once carved) Driver
+# were BLOCKED and their diagnostics counted nowhere. A dependency whose built assembly is missing or
+# older than its sources is the one case a check truly cannot run: the row says BLOCKED, names the
+# dependency, and FAILS the step, because every ceiling below is a measured number.
 #
 # COST: the whole step is dominated by Core, whose front door walks 952 files. It sits inside the
 # validated step cache on the UNIT input set, so it runs only when the compiler's own sources move.
@@ -384,6 +390,7 @@ else
         "src/NSharpLang.Compiler.Model"
         "src/NSharpLang.Compiler.Syntax"
         "src/NSharpLang.Compiler.Core"
+        "src/NSharpLang.Compiler.Driver"
         "src/NSharpLang.Compiler"
         "src/NSharpLang.Playground"
         "src/NSharpLang.Build.Tasks"
@@ -468,17 +475,23 @@ else
     # against both trees, the identity diff is zero additions and those 56 removals, every one in a
     # Driver file.
     #
-    # -1 means BLOCKED, not clean. `check` on a project that REFERENCES Compiler.Core builds that
-    # reference first, and that build fails while Core's own front door is not clean -- so those two
-    # produce an error envelope instead of a diagnostic list and there is nothing to count yet. The
-    # step prints the reason and moves on; the day Core reaches 0 their ceilings become real numbers
-    # and their own sources (zero diagnostics today, measured through `--text`) are covered too.
+    # 2026-09-25, Compiler.Driver carved out of Core into its own project, rows included, ABOVE Core
+    # (`census/carve-driver`), and every project checked against its dependencies' built assemblies:
+    # Model 0, Syntax 0, Core 1,205 (the identity diff against the base tree through the same tip CLI
+    # is zero additions and zero removals once Driver's own files are set aside, and Core measures the
+    # same 1,205 against built Syntax and Model as against source-built ones), Driver 0, Compiler 34,
+    # Playground 0, Build.Tasks 0. Compiler and Playground were -1 (BLOCKED, not counted) until built
+    # references made them measurable; Compiler's 34 is its own backlog, counted for the first time,
+    # not new source: NL010 11, NL002 11, NL011 6, NL907 4, NL001 1, NL012 1. Driver's 56 were fixed
+    # in Core before the carve, so it starts at 0.
+    #
     SELF_HOST_CEILINGS=(
         0
         0
         1205
-        -1
-        -1
+        0
+        34
+        0
         0
     )
     # The count and the per-code breakdown are read out of the check document here rather than from a
@@ -494,7 +507,11 @@ except Exception as error:
     raise SystemExit(0)
 failure = document.get("error")
 if failure is not None:
-    print("failed: " + str(failure.get("message", failure)).splitlines()[0])
+    message = str(failure.get("message", failure)).splitlines()[0]
+    if "has no built assembly at" in message or "is out of date:" in message:
+        print("blocked: " + message)
+    else:
+        print("failed: " + message)
     raise SystemExit(0)
 results = document.get("results") or []
 if "--by-code" in sys.argv[2:]:
@@ -505,36 +522,18 @@ else:
     print(len(results))
 '
     SELF_HOST_OK=1
-    # What the front door measured for Compiler.Core itself, in THIS run. It decides whether a
-    # project that REFERENCES Core can produce a diagnostic list at all: `check` resolves references
-    # with BuildProjectReferences on, so a referencing project's check first builds Core from source,
-    # and that build cannot succeed while Core's own front door is not clean. Empty until Core has
-    # been checked -- Core is first in the array above, and if that ever stops being true the
-    # referencing projects are checked for real rather than skipped on an unread number.
-    SELF_HOST_CORE_COUNT=""
     for ((self_host_index = 0; self_host_index < ${#SELF_HOST_PROJECTS[@]}; self_host_index++)); do
         SELF_HOST_PROJECT="${SELF_HOST_PROJECTS[$self_host_index]}"
         SELF_HOST_CEILING="${SELF_HOST_CEILINGS[$self_host_index]}"
-        # STRUCTURALLY UNREACHABLE WORK IS NOT PERFORMED. A BLOCKED project (ceiling -1) whose block
-        # is already proven by Core's own nonzero count would spend a full front-end compile of all
-        # of Core to arrive at the same BLOCKED line: about 2 minutes each, for a number the step
-        # itself records as "not counted yet". The row is printed with the reason it is blocked
-        # instead. The day Core reaches 0 diagnostics this guard stops firing on its own and both
-        # projects are checked for real, which is exactly when their -1 ceilings become real numbers.
-        if [ "$SELF_HOST_CEILING" -lt 0 ] \
-            && [[ "$SELF_HOST_CORE_COUNT" =~ ^[0-9]+$ ]] \
-            && [ "$SELF_HOST_CORE_COUNT" -gt 0 ]; then
-            echo "  $SELF_HOST_PROJECT: BLOCKED behind Compiler.Core's own front door; not counted yet (not attempted: src/NSharpLang.Compiler.Core reported $SELF_HOST_CORE_COUNT diagnostics through this same front door, so the project-reference build this check begins with cannot succeed)."
-            continue
-        fi
         SELF_HOST_OUTPUT=$(mktemp)
-        dotnet "$CLI_DLL" check --project "$SELF_HOST_PROJECT" --json > "$SELF_HOST_OUTPUT" 2>&1 || true
+        dotnet "$CLI_DLL" check --use-built-references --project "$SELF_HOST_PROJECT" --json > "$SELF_HOST_OUTPUT" 2>&1 || true
         SELF_HOST_COUNT=$(python3 -c "$SELF_HOST_READ_COUNT" "$SELF_HOST_OUTPUT")
-        if [ "$SELF_HOST_PROJECT" = "src/NSharpLang.Compiler.Core" ]; then
-            SELF_HOST_CORE_COUNT="$SELF_HOST_COUNT"
-        fi
-        if [ "$SELF_HOST_CEILING" -lt 0 ]; then
-            echo "  $SELF_HOST_PROJECT: BLOCKED behind Compiler.Core's own front door; not counted yet ($SELF_HOST_COUNT)."
+        # THE ONE CASE A CHECK TRULY CANNOT RUN: a `project:` dependency Step 2 did not build (or built
+        # from older sources). Nothing is counted, so the row is BLOCKED -- and the step fails, because
+        # an uncounted project is a coverage hole, not a pass.
+        if [[ "$SELF_HOST_COUNT" == blocked:* ]]; then
+            echo "  $SELF_HOST_PROJECT: BLOCKED behind a dependency Step 2 did not build; not counted (${SELF_HOST_COUNT#blocked: })"
+            SELF_HOST_OK=0
         elif [[ ! "$SELF_HOST_COUNT" =~ ^[0-9]+$ ]]; then
             echo "  $SELF_HOST_PROJECT: check produced no readable JSON ($SELF_HOST_COUNT)"
             head -c 2000 "$SELF_HOST_OUTPUT"

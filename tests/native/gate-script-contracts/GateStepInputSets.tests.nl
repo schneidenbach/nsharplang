@@ -191,7 +191,7 @@ test "the systems throughput stage runs once after compiler build/format and bef
     compilerBuildIndex := coreScript.IndexOf("dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Cli/Cli.csproj")
     formatIndex := coreScript.IndexOf("dotnet \"$CLI_DLL\" format --project examples --check")
     runnerIndex := coreScript.IndexOf("NSharpLang.NativeComparisonRunner.dll gate --cli")
-    selfHostIndex := coreScript.IndexOf("dotnet \"$CLI_DLL\" check --project \"$SELF_HOST_PROJECT\"")
+    selfHostIndex := coreScript.IndexOf("dotnet \"$CLI_DLL\" check --use-built-references --project \"$SELF_HOST_PROJECT\"")
     nativeTestIndex := coreScript.IndexOf("dotnet restore $DOTNET_STABLE_FLAGS \"$BOOTSTRAP_TEST_PROJECT\"")
     vscodeIndex := coreScript.IndexOf("tests/scripts/test-vscode-integration.sh")
 

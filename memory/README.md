@@ -70,7 +70,7 @@ C# consumer of the self-compiled assemblies (`Cli`, `Build.Tasks`, `LanguageServ
 against the stage-2 seed before believing it.**
 
 `Step 2d: Self-Host Front Door` in `tests/scripts/test-all-core.sh` closes that blind spot. It runs
-`nlc check --json` over `src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler`,
+`nlc check --json` over `src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler.Driver`, `src/NSharpLang.Compiler`,
 `src/NSharpLang.Playground` and `src/NSharpLang.Build.Tasks` with the CLI the gate just built and
 fails on any INCREASE over the committed ceilings. **The ceilings are a backlog, not a target**: the
 front door reports diagnostics on Core's own source that the emit-only path never asked about
@@ -184,19 +184,17 @@ the 62 NL002s a SOURCE type's project-wide discovery used to answer for `Columna
 The original 819-file baseline took 19m20s on a loaded machine; the front-door check remains a costly
 integration check. `src/NSharpLang.Build.Tasks` has no `.nl` sources yet, so its ceiling remains zero.
 
-`src/NSharpLang.Compiler` and `src/NSharpLang.Playground` carry the ceiling **-1, meaning BLOCKED**.
-`check` on a project builds its project references first, and that build fails while Core's own front
-door is not clean — so both answer an `error` envelope rather than a diagnostic list and there is
-nothing to count. The original SELFHOST measurement found zero diagnostics in their own `.nl` sources
-through `--text`; that observation does not make their blocked project checks clean. When Core reaches
-0 their ceilings become real numbers.
-
-Since the block is structural, the step no longer STARTS those two checks while Core's own count in
-the same run is a number above zero: each one spent a full front-end compile of all of Core (~2
-minutes apiece, measured) to arrive at the BLOCKED line it is recorded with anyway. The row is
-printed with the count that proves the block instead, and the guard stops firing on its own the day
-Core reaches 0 — at which point both projects are checked for real. Pinned by
-`tests/native/gate-script-contracts/SelfHostFrontDoor.tests.nl`.
+**Every project is checked against its dependencies' BUILT assemblies** (`nlc check
+--use-built-references`, since the Driver carve, 2026-09-25): Step 2 has just built every `project:`
+dependency of every project the step checks, so each front door measures its own source. Before,
+`check` compiled a project's references from source first, which fails while Core's own front door
+is not clean -- so `src/NSharpLang.Compiler` and `src/NSharpLang.Playground` (and, once carved,
+`src/NSharpLang.Compiler.Driver`) sat at ceiling -1, BLOCKED and counted nowhere, behind a guard that
+skipped them while Core's count was above zero. Now every ceiling is measured: Driver 0, Playground 0
+and Compiler 34 (its own backlog, counted for the first time: NL010 11, NL002 11, NL011 6, NL907 4,
+NL001 1, NL012 1). BLOCKED is left for the one case a check truly cannot run -- a dependency Step 2
+did not build, or built from older sources -- and there it FAILS the step, naming the dependency.
+Pinned by `tests/native/gate-script-contracts/SelfHostFrontDoor.tests.nl`.
 
 The remaining backlog, measured at `5de55561b`, is NL905 (424 possible null dereferences), NL202 (352
 argument type mismatches), NL002 (239 missing imports), NL010 (165 unused imports), and 96

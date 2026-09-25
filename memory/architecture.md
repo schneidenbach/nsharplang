@@ -42,10 +42,11 @@ separately. Historical allowlist labels below do not establish current completio
 ## Compiler.Core slice directories
 
 `src/NSharpLang.Compiler.Core` is being carved into eight slice projects, lowest first, and ordered so
-a file names only its own slice or a lower one. **S0 and S1 are carved**: `src/NSharpLang.Compiler.Model`
-and `src/NSharpLang.Compiler.Syntax` are each their own N#-SDK project (one-line csproj, `project.yml`,
-the SDK's `global.json` pin); Syntax takes Model with `project:`, Core takes Syntax, and every consumer
-builds the Model -> Syntax -> Core DAG through those edges. The other six are still directories of Core:
+a file names only its own slice or a lower one. **S0, S1 and S7 are carved**: `src/NSharpLang.Compiler.Model`,
+`src/NSharpLang.Compiler.Syntax` and `src/NSharpLang.Compiler.Driver` are each their own N#-SDK project
+(one-line csproj, `project.yml`, the SDK's `global.json` pin); Syntax takes Model with `project:`, Core
+takes Syntax, Driver takes Core, the `Compiler` facade takes Driver, and every consumer builds the
+Model -> Syntax -> Core -> Driver DAG through those edges. The other five are still directories of Core:
 
 | directory | slice | holds |
 |---|---|---|
@@ -56,7 +57,7 @@ builds the Model -> Syntax -> Core DAG through those edges. The other six are st
 | `Backend.Emit/` | S4 | `ColumnarIlEmitter` and the IL realizations |
 | `CodeIntel/` | S5 | completion, hover, signature help, code fixes, DocQuery and the Linter |
 | `Tooling/` | S6 | the formatter and the JSON output models |
-| `Driver/` | S7 | the CLI command kernels, `MultiFileCompiler`, and the SDK emit task |
+| `src/NSharpLang.Compiler.Driver/` (product AND estate) | S7 | the CLI command kernels, `MultiFileCompiler`, the reference resolver, and the SDK's three MSBuild tasks |
 
 Every `.tests.nl` sits beside its subject, in the same directory, except where a row's helpers force
 it into the lowest slice they build in (Syntax's `AstNodeFinderCore.tests.nl`, below). The directories are organisational
@@ -207,6 +208,44 @@ types then need in Core; and the seed republished with the emit-only switch nami
 relies on that (until then the seed compiles it WITH analysis, so its own diagnostics must already be
 zero, estate included). Whether its rows can move is the slice graph's estate-reach answer plus a scan
 for Core rows calling its estate's helpers, as it was here.
+
+**Compiler.Driver is carved** (2026-09-25, `census/carve-driver`), TOP-DOWN: the slices between it and
+Syntax are still Core's directories, so Driver becomes a project ABOVE Core (Driver takes Core with
+`project:`, the `Compiler` facade, `Cli` and `Build.Tasks` take Driver) rather than below it. Carving
+top-down needs one measurement first: nothing left in Core may name Driver, product or estate, and no
+Driver row may call another slice's estate helper. The split plan's name graph found one of each and
+both were cut before the move: Semantics' binder row read `CheckCommandKernels`' `string[]` signature
+through a MetadataLoadContext (it reads a Semantics one now; the estate reach ceiling fell 161 -> 160),
+and the resolver fixture built its generic-only diagnostic sequence with `TypeBuilder` through
+Backend.Plan's and Model's estate helpers (an N# class with an explicit `IEnumerable.GetEnumerator` now).
+What the carve is:
+- Driver's 56 front-door diagnostics fixed in Core FIRST (Core 1,261 -> 1,205), so it starts at 0
+  rather than carrying debt out of Core's count. A check of Driver that compiled Core from source
+  would be BLOCKED while Core's count is above zero, so `nlc check` gained `--use-built-references`
+  (a `project:` dependency read from the assembly its own build wrote, transitively; missing or stale
+  is an error naming it), and Step 2d checks EVERY project that way: Driver 0 (after the four NL002s
+  `SystemsReport`, a referenced type now, asked for), and Compiler (34) and Playground (0), BLOCKED
+  at -1 until then, measured for the first time;
+- the product (88 files) AND its estate (58) as pure renames into `src/NSharpLang.Compiler.Driver/`,
+  with `excludeTests: true` and its own estate project in dev.sh, Step 3a, reseed step 8 and both CI
+  workflows (Syntax 1,376 + Core 8,289 -> Syntax 1,376 + Core 7,586 + Driver 703: 9,665/9,665);
+- the SDK's `UsingTask`s load `LoadProjectConfig`, `LoadProjectReferences` and `EmitIlAssembly` from
+  `tools/NSharpLang.Compiler.Driver.dll`, which the SDK packs and names in the emit target's `Inputs`
+  and the emit-only switch; reseed.sh builds DRIVER as the top of the graph and cleans all four
+  directories; `SdkEmitStampPaths` and the estate's `CompilerProjectDirectories` walk the `project:`
+  graph from Driver, not Core; `CompilerSliceAssemblyNames` names Driver; packages.sh packs it between
+  Core and the facade (release set, verify-release.py and its test);
+- the committed seed does not name Driver in its emit-only switch, so until a republish it compiles
+  Driver WITH analysis, and that analyzer judges a referenced type's `out` argument strictly: the one
+  `ColumnarProgramInput?` local passed to `TryBuildMultiFile(out program: ColumnarProgramInput)` is
+  declared the way every other caller declares it. (An interpolated string with two holes as the first
+  of two constructor arguments is an NL103 decline in both emitters -- bound to a local in
+  `DotnetRunner`, an emitter gap still open);
+- 43 `dll:` consumers take `NSharpLang.Compiler.Driver.dll` beside Core's, 18 assembly-qualified names of
+  Driver types (`MultiFileCompiler`, `DotnetRunner`, `PlaygroundFile`, ...) say
+  `NSharpLang.Compiler.Driver`, and the SDK task rows load the tasks from Driver.dll.
+The compile-time bench keeps Core as its subject: Core no longer contains Driver, so its corpus shrank
+by Driver's lines, which the next idle-box re-measure of the baseline records.
 
 ## Data Flow
 

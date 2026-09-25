@@ -4,7 +4,7 @@
   "codeEpochFileCount": 223,
   "codeEpochPathFingerprint": "pathset-v2:fbda7fc3d5053525",
   "codeEpochFactFingerprint": "epochfacts-v2:05f608333cab8ef7",
-  "reviewedHeadFingerprint": "head-v2:0d865e65dce01d76",
+  "reviewedHeadFingerprint": "head-v2:132133d50ece0dcd",
   "files": [
     {"path":".gitattributes","language":"product-config","surface":"repository-build","campaignScope":"closeout","state":"reviewed","currentLines":0,"currentNonBlankLines":0,"currentBytes":0,"currentFingerprint":"text-v1:cbf29ce484222325"},
     {"path":".github/workflows/build.yml","language":"yaml-config","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":193,"currentNonBlankLines":167,"currentBytes":0,"currentFingerprint":"text-v1:6d0baaca966b5d6b"},
@@ -395,7 +395,7 @@
     {"path":"tests/native/installed-toolchain-integration/Dockerfile.toolchain","language":"product-config","surface":"compiler-tests","campaignScope":"closeout","state":"reviewed","currentLines":21,"currentNonBlankLines":15,"currentBytes":0,"currentFingerprint":"text-v1:11fe57d5f9b11bde"},
     {"path":"tests/scripts/replay-template-quickstarts.py","language":"python","surface":"gate-infrastructure","campaignScope":"closeout","state":"existing-debt","epochLines":174,"currentLines":174,"epochNonBlankLines":147,"currentNonBlankLines":147,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:53d1b2bf60793d6c"},
     {"path":"tests/scripts/smoke-turnkey-install.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":180,"currentNonBlankLines":152,"currentBytes":0,"currentFingerprint":"text-v1:7a6b0caae784e249"},
-    {"path":"tests/scripts/test-all-core.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":1438,"currentNonBlankLines":1313,"currentBytes":0,"currentFingerprint":"text-v1:200b1579845d9876"},
+    {"path":"tests/scripts/test-all-core.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":1437,"currentNonBlankLines":1312,"currentBytes":0,"currentFingerprint":"text-v1:df75b822c5e3f4c1"},
     {"path":"tests/scripts/test-all.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":582,"currentNonBlankLines":516,"currentBytes":0,"currentFingerprint":"text-v1:0be22958b3e812cd"},
     {"path":"tests/scripts/test-compile.sh","language":"shell","surface":"gate-infrastructure","campaignScope":"closeout","state":"reviewed","currentLines":81,"currentNonBlankLines":68,"currentBytes":0,"currentFingerprint":"text-v1:0ae6f13f81010034"},
     {"path":"tests/scripts/test-release-workflows.py","language":"python","surface":"gate-infrastructure","campaignScope":"closeout","state":"existing-debt","epochLines":131,"currentLines":131,"epochNonBlankLines":125,"currentNonBlankLines":125,"epochAssertionMarkers":0,"currentAssertionMarkers":0,"epochBytes":0,"currentBytes":0,"currentFingerprint":"text-v1:8061bc207e531918"},
