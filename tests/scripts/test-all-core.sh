@@ -372,8 +372,8 @@ section "Step 2d: Self-Host Front Door"
 #
 # EACH PROJECT IS CHECKED AGAINST ITS DEPENDENCIES' BUILT ASSEMBLIES (`nlc check
 # --use-built-references`): Step 2 has just built every `project:` dependency of every project here
-# (the Cli build carries Compiler, Driver, Core, Syntax and Model; Playground is built on its own), so
-# a project's front door measures ITS OWN source and never waits on a dependency's. Before this, a
+# (the Cli build carries Compiler, Driver, Tooling, Core, Syntax and Model; Playground is built on
+# its own), so a project's front door measures ITS OWN source and never waits on a dependency's. Before this, a
 # project that referenced Core began its check by compiling Core from source, which cannot succeed
 # while Core's own front door reports anything -- so Compiler, Playground and (once carved) Driver
 # were BLOCKED and their diagnostics counted nowhere. A dependency whose built assembly is missing or
@@ -391,6 +391,7 @@ else
         "src/NSharpLang.Compiler.Model"
         "src/NSharpLang.Compiler.Syntax"
         "src/NSharpLang.Compiler.Core"
+        "src/NSharpLang.Compiler.Tooling"
         "src/NSharpLang.Compiler.Driver"
         "src/NSharpLang.Compiler"
         "src/NSharpLang.Playground"
@@ -492,10 +493,17 @@ else
     # own, and it starts at zero. Measured with the same tip CLI against both trees, the identity
     # diff is zero additions and those 3 removals, every one in a Tooling file.
     #
+    # 2026-09-25, Compiler.Tooling carved out of Core into its own project, rows included, ABOVE Core
+    # and below Driver (`census/carve-tooling`): Model 0, Syntax 0, Core 1,202 (the identity diff
+    # against the pre-carve tree through the same tip CLI is zero additions and zero removals),
+    # Tooling 0 (its 16 files, estate included, against built Core), Driver 0 (now against built
+    # Tooling), Compiler 34, Playground 0, Build.Tasks 0.
+    #
     SELF_HOST_CEILINGS=(
         0
         0
         1202
+        0
         0
         34
         0
@@ -638,8 +646,8 @@ else
     #
     # Every `dll:` dependency these projects name is a prebuilt binary under `src/*/bin/Debug/...`
     # produced ONCE, serially, by Step 2 (Cli, Build.Tasks, LanguageServer, Playground; the Cli
-    # build carries Compiler, Compiler.Driver and the slices below it, Tooling included, TestHost and the Runtime with
-    # it). Nothing in this step builds them, so no two workers can race to produce one. The preflight below proves they are
+    # build carries Compiler, Compiler.Driver and the slices below it, Tooling included, TestHost and
+    # the Runtime with it). Nothing in this step builds them, so no two workers can race to produce one. The preflight below proves they are
     # all present before the first worker starts, rather than letting 120 parallel processes each
     # discover the same missing file.
     native_requires_serial_run() {

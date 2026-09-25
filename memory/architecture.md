@@ -42,11 +42,12 @@ separately. Historical allowlist labels below do not establish current completio
 ## Compiler.Core slice directories
 
 `src/NSharpLang.Compiler.Core` is being carved into eight slice projects, lowest first, and ordered so
-a file names only its own slice or a lower one. **S0, S1 and S7 are carved**: `src/NSharpLang.Compiler.Model`,
-`src/NSharpLang.Compiler.Syntax` and `src/NSharpLang.Compiler.Driver` are each their own N#-SDK project
-(one-line csproj, `project.yml`, the SDK's `global.json` pin); Syntax takes Model with `project:`, Core
-takes Syntax, Driver takes Core, the `Compiler` facade takes Driver, and every consumer builds the
-Model -> Syntax -> Core -> Driver DAG through those edges. The other five are still directories of Core:
+a file names only its own slice or a lower one. **S0, S1, S6 and S7 are carved**: `src/NSharpLang.Compiler.Model`,
+`src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Tooling` and `src/NSharpLang.Compiler.Driver`
+are each their own N#-SDK project (one-line csproj, `project.yml`, the SDK's `global.json` pin); Syntax
+takes Model with `project:`, Core takes Syntax, Tooling takes Core, Driver takes Tooling, the `Compiler`
+facade takes Driver, and every consumer builds the Model -> Syntax -> Core -> Tooling -> Driver DAG
+through those edges. The other four are still directories of Core:
 
 | directory | slice | holds |
 |---|---|---|
@@ -56,7 +57,7 @@ Model -> Syntax -> Core -> Driver DAG through those edges. The other five are st
 | `Backend.Plan/` | S3 | the columnar planners and binding scope, and the metadata-blob writers |
 | `Backend.Emit/` | S4 | `ColumnarIlEmitter` and the IL realizations |
 | `CodeIntel/` | S5 | completion, hover, signature help, code fixes, DocQuery and the Linter |
-| `Tooling/` | S6 | the formatter and the JSON output models |
+| `src/NSharpLang.Compiler.Tooling/` (product AND estate) | S6 | the formatter and the JSON output models |
 | `src/NSharpLang.Compiler.Driver/` (product AND estate) | S7 | the CLI command kernels, `MultiFileCompiler`, the reference resolver, and the SDK's three MSBuild tasks |
 
 Every `.tests.nl` sits beside its subject, in the same directory, except where a row's helpers force
@@ -254,6 +255,35 @@ emit-only switch predating Driver), and **48 / 48 s** and **61 / 54 s** on scrat
 from the carve before and after its rebase. A Driver body edit re-emits only Driver, product-only for
 the CLI and tests-included for its rows; Core and Syntax answer "no row matches" in seconds, because
 nothing below Driver changed.
+
+**Compiler.Tooling is carved** (2026-09-25, `census/carve-tooling`), TOP-DOWN like Driver: the formatter
+and the JSON output models become `src/NSharpLang.Compiler.Tooling`, a project ABOVE Core and below
+Driver (Tooling takes Core with `project:`, Driver takes Tooling; user decision D-A puts Tooling above
+CodeIntel, so it takes Core whole rather than a CodeIntel that is not yet a project). The measurement
+that gates a top-down carve found nothing to cut: the split plan's name graph over Core and every
+carved slice, product and estate, has no Core file naming a Tooling one and no Tooling row calling
+another slice's estate helper; Tooling reaches Model, Syntax and one Semantics type (`OperatorFacts`),
+and Driver reaches Tooling (42 names). What the carve is:
+- Tooling's 3 front-door diagnostics fixed in Core FIRST (Core 1,205 -> 1,202): two unused estate
+  imports and an NL303 in `FormatterConfig.ParseRequiredInt` -- after an early-exit
+  `if !parsed.HasValue { throw }` guard the analyzer narrows `parsed` to `int` and refuses
+  `parsed.Value`, while the same read inside `if parsed.HasValue { ... }` is accepted; the read sits in
+  the positive branch with a `// COMPILER:` note until the narrowing is made consistent;
+- the product (8 files) AND its estate (8) as pure renames, with `excludeTests: true` and its own
+  estate project in dev.sh, Step 3a, reseed step 8 and both CI workflows (Syntax 1,376 + Core 7,591 +
+  Driver 707 -> Syntax 1,376 + Core 7,238 + Tooling 353 + Driver 707: 9,674/9,674);
+- the SDK packs `tools/NSharpLang.Compiler.Tooling.dll` (Driver's task assembly now needs it) and
+  names it in the emit target's `Inputs` and the emit-only switch; reseed.sh cleans and estate-runs it;
+  `SdkEmitStampPaths` walks Driver -> Tooling -> Core; `CompilerSliceAssemblyNames` names it;
+  packages.sh packs it between Core and Driver (release set, verify-release.py and its test);
+- 43 `dll:` consumers, the NL924 boundary probe's closure and the facade-interop consumer take
+  `NSharpLang.Compiler.Tooling.dll` beside Core's; no assembly-qualified name spelled a Tooling type;
+- Step 2d checks Tooling (0) between Core and Driver; the slice-direction guard counts Tooling's
+  product and estate in its own project.
+- the committed seed (`a1a226991`, packed from `1c052c596`) does not name Tooling in its emit-only
+  switch, so until the next republish it compiles Tooling WITH analysis, product and rows; Tooling's
+  zero front door is what lets that build pass unchanged (measured: 0 errors on the committed seed as
+  on a scratch stage-2 seed packed from the carve).
 
 ## Data Flow
 

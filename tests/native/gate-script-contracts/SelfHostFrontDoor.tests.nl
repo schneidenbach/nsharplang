@@ -8,9 +8,9 @@ import System.Text.RegularExpressions
 // Every row here reads `tests/scripts/test-all-core.sh` as TEXT. None of them runs the gate, the
 // CLI or a check.
 //
-// Step 2d checks seven projects with the CLI the gate just built and compares each count to a
+// Step 2d checks eight projects with the CLI the gate just built and compares each count to a
 // ceiling: the compiler's slices lowest first (`src/NSharpLang.Compiler.Model`, `.Syntax`, `.Core`,
-// `.Driver`), then the `Compiler` facade, the Playground and Build.Tasks. Each is checked with
+// `.Tooling`, `.Driver`), then the `Compiler` facade, the Playground and Build.Tasks. Each is checked with
 // `--use-built-references`: its `project:` dependencies are read from the assemblies Step 2 just
 // built rather than compiled from source by the check. Before that, a project referencing Core began
 // its check by compiling Core, which cannot succeed while Core's own front door reports anything, so
@@ -53,11 +53,12 @@ test "the self-host front door checks the compiler's slices lowest first, then t
     coreScript := CoreScript()
 
     projects := SelfHostProjects(coreScript)
-    assert projects.Count == 7, "The self-host front door must check seven projects; found " + projects.Count.ToString() + "."
+    assert projects.Count == 8, "The self-host front door must check eight projects; found " + projects.Count.ToString() + "."
     assert projects[0] == "src/NSharpLang.Compiler.Model"
     assert projects[1] == "src/NSharpLang.Compiler.Syntax"
     assert projects[2] == "src/NSharpLang.Compiler.Core"
-    assert projects[3] == "src/NSharpLang.Compiler.Driver", "Compiler.Driver, carved out ABOVE Core, is checked right after it."
+    assert projects[3] == "src/NSharpLang.Compiler.Tooling", "Compiler.Tooling, carved out ABOVE Core, is checked right after it."
+    assert projects[4] == "src/NSharpLang.Compiler.Driver", "Compiler.Driver, carved out ABOVE Tooling, is checked right after it."
     assert projects.Contains("src/NSharpLang.Compiler")
     assert projects.Contains("src/NSharpLang.Playground")
     assert projects.Contains("src/NSharpLang.Build.Tasks")
@@ -79,14 +80,15 @@ test "every self-host ceiling is a measured number, and none of them is the old 
     coreScript := CoreScript()
 
     ceilings := SelfHostCeilings(coreScript)
-    assert ceilings.Count == 7, "The self-host front door must carry seven ceilings; found " + ceilings.Count.ToString() + "."
+    assert ceilings.Count == 8, "The self-host front door must carry eight ceilings; found " + ceilings.Count.ToString() + "."
     assert ceilings[0] == "0", "Compiler.Model's front-door ceiling must stay 0; found '" + ceilings[0] + "'."
     assert ceilings[1] == "0", "Compiler.Syntax's front-door ceiling must stay 0; found '" + ceilings[1] + "'."
     assert ceilings[2] == "1202", "Compiler.Core's front-door ceiling must stay 1202; found '" + ceilings[2] + "'."
-    assert ceilings[3] == "0", "Compiler.Driver's front-door ceiling must stay 0; found '" + ceilings[3] + "'."
-    assert ceilings[4] == "34", "Compiler's front-door ceiling must stay 34; found '" + ceilings[4] + "'."
-    assert ceilings[5] == "0", "Playground's front-door ceiling must stay 0; found '" + ceilings[5] + "'."
-    assert ceilings[6] == "0", "Build.Tasks' front-door ceiling must stay 0; found '" + ceilings[6] + "'."
+    assert ceilings[3] == "0", "Compiler.Tooling's front-door ceiling must stay 0; found '" + ceilings[3] + "'."
+    assert ceilings[4] == "0", "Compiler.Driver's front-door ceiling must stay 0; found '" + ceilings[4] + "'."
+    assert ceilings[5] == "34", "Compiler's front-door ceiling must stay 34; found '" + ceilings[5] + "'."
+    assert ceilings[6] == "0", "Playground's front-door ceiling must stay 0; found '" + ceilings[6] + "'."
+    assert ceilings[7] == "0", "Build.Tasks' front-door ceiling must stay 0; found '" + ceilings[7] + "'."
     for ceiling in ceilings {
         assert Regex.IsMatch(ceiling, "^[0-9]+$"), "A self-host ceiling is a count; found '" + ceiling + "'."
     }

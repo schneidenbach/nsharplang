@@ -70,7 +70,7 @@ C# consumer of the self-compiled assemblies (`Cli`, `Build.Tasks`, `LanguageServ
 against the stage-2 seed before believing it.**
 
 `Step 2d: Self-Host Front Door` in `tests/scripts/test-all-core.sh` closes that blind spot. It runs
-`nlc check --json` over `src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler.Driver`, `src/NSharpLang.Compiler`,
+`nlc check --json` over `src/NSharpLang.Compiler.Model`, `src/NSharpLang.Compiler.Syntax`, `src/NSharpLang.Compiler.Core`, `src/NSharpLang.Compiler.Tooling`, `src/NSharpLang.Compiler.Driver`, `src/NSharpLang.Compiler`,
 `src/NSharpLang.Playground` and `src/NSharpLang.Build.Tasks` with the CLI the gate just built and
 fails on any INCREASE over the committed ceilings. **The ceilings are a backlog, not a target**: the
 front door reports diagnostics on Core's own source that the emit-only path never asked about
@@ -190,8 +190,8 @@ dependency of every project the step checks, so each front door measures its own
 `check` compiled a project's references from source first, which fails while Core's own front door
 is not clean -- so `src/NSharpLang.Compiler` and `src/NSharpLang.Playground` (and, once carved,
 `src/NSharpLang.Compiler.Driver`) sat at ceiling -1, BLOCKED and counted nowhere, behind a guard that
-skipped them while Core's count was above zero. Now every ceiling is measured: Driver 0, Playground 0
-and Compiler 34 (its own backlog, counted for the first time: NL010 11, NL002 11, NL011 6, NL907 4,
+skipped them while Core's count was above zero. Now every ceiling is measured: Tooling 0 (carved
+above Core, 2026-09-25), Driver 0, Playground 0 and Compiler 34 (its own backlog, counted for the first time: NL010 11, NL002 11, NL011 6, NL907 4,
 NL001 1, NL012 1). BLOCKED is left for the one case a check truly cannot run -- a dependency Step 2
 did not build, or built from older sources -- and there it FAILS the step, naming the dependency.
 Pinned by `tests/native/gate-script-contracts/SelfHostFrontDoor.tests.nl`.
